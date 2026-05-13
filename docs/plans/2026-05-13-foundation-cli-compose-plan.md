@@ -1460,4 +1460,3 @@ Names used consistently across tasks:
 - `scanCommand`
 - `reportCommand`
 - `resolveBaselineMode`
-

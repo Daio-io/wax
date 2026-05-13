@@ -43,6 +43,7 @@ This repository is still in the planning and foundation stage. Until project-spe
 - Keep generated working state out of git unless intentionally recorded.
 - Default repo-local tool state belongs under `.wax/`.
 - Prefer JSON for config and persisted artifacts unless a later decision supersedes it.
+- Store implementation plans under `docs/plans/`.
 
 ## Communication
 
