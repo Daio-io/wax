@@ -13,6 +13,7 @@ This repository is still in the planning and foundation stage. Until project-spe
 - Do not rewrite history unless explicitly asked.
 - Do not amend commits unless explicitly asked.
 - Keep commits focused and explainable.
+- Use conventional commit messages: https://www.conventionalcommits.org/en/v1.0.0/
 - Do not commit unrelated changes together.
 - If the working tree is dirty, understand the overlap before editing shared files.
 - Prefer draft PRs while plans and scaffolding are still moving.
