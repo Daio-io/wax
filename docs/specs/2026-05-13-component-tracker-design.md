@@ -107,10 +107,20 @@ Suggested fields:
 - stable id
 - canonical name
 - aliases
-- package or symbol match rules
+- fully-qualified symbol match rule
+- explicit alias list
 - category
+- version
 - status
-- optional metadata such as deprecation, replacement, ownership, or tags
+- parameter signatures
+- optional metadata such as deprecation or tags
+
+For v1, registry matching should be deterministic and explainable:
+- canonical matching is by fully-qualified symbol name
+- aliases are explicit additional symbol names
+- regex and glob matching are out of scope for v1
+
+Version must be first-class because monorepos often run multiple design system versions concurrently. Migration reporting depends on distinguishing them.
 
 #### LocalComponent
 
@@ -124,6 +134,22 @@ Examples:
 
 This must be a first-class entity, not a tag on a usage record, because composition tracking depends on traversable component-to-component relationships.
 
+For v1, `LocalComponent` identity is its fully-qualified symbol name. That gives snapshot diffs and trend reports a stable baseline. Rename-resilient identity based on structural hashing is deferred to a later version.
+
+#### ParameterSignature
+
+A normalized description of a DS component parameter surface used to reason about adoption, drift, and wrapper behavior.
+
+Suggested fields:
+- component id
+- parameter name
+- parameter type
+- required vs defaulted
+- slot parameter flag
+- deprecation status
+
+This is a first-class part of the schema because Compose drift is often visible in how a component is called, not only that it is called.
+
 #### UsageSite
 
 A concrete invocation or reference site for a component.
@@ -136,11 +162,57 @@ Suggested fields:
 - symbol scope
 - line or source range when available
 - resolved target
-- confidence or match status
+- parameter bindings
+- confidence class
+- match status
+
+Each `UsageSite` should carry one of these statuses:
+- `resolved`: matched to a canonical DS component
+- `candidate`: looks like a UI invocation that may represent non-DS or drift behavior
+- `unknown`: scanned but not classified beyond basic detection
+
+Confidence should be explicit rather than vague. For v1, confidence is lowered by:
+- import alias indirection
+- partially resolved symbol targets
+- slot lambdas passed via variables rather than inline
+- typealiases that obscure the final symbol
+- `CompositionLocal`-based indirection
+
+Low-confidence results must surface in diagnostics and report drill-downs rather than silently counting as high-certainty facts.
+
+#### ParameterBinding
+
+A normalized record of how a `UsageSite` binds a DS component parameter.
+
+Suggested fields:
+- parameter name
+- binding kind
+- literal value when safely serializable
+- non-literal marker
+- default-used marker
+- referenced symbol when resolvable
+- modifier chain entries when the bound parameter is `Modifier`
+
+Binding kinds for v1:
+- `literal`
+- `non_literal`
+- `default`
+- `slot_content`
+- `unknown`
+
+`Modifier` bindings should be captured as an ordered sequence of modifier elements rather than a single opaque blob. This is required for meaningful drift analysis.
+
+#### Repository
+
+A source repository or codebase root that owns one or more reporting boundaries and scan snapshots.
 
 #### Module
 
-A reporting boundary representing a Gradle module or configured project segment.
+A generic reporting boundary in the kernel. In the Compose plugin this will usually map to a Gradle module, but the kernel must not assume Gradle semantics.
+
+#### Team
+
+A first-class ownership entity used for adoption and migration reporting where module boundaries do not align with organizational boundaries.
 
 #### ScanSnapshot
 
@@ -151,24 +223,41 @@ Suggested fields:
 - scan timestamp
 - repo revision when available
 - plugin versions
+- cache metadata
 - status
 - diagnostic summary
+
+Snapshot diffing is a first-class kernel capability in v1, not future work. The kernel must support comparing a baseline snapshot and a head snapshot using stable entity identities.
+
+#### Token
+
+A design token reference used to attribute styling decisions such as color, spacing, typography, shape, or elevation.
+
+This is required in the schema from v1 even if token-focused reports arrive later. Hardcoded styling versus token usage is a primary drift signal.
 
 ### Core Relationships
 
 The kernel should support at least these normalized relationships:
 - `uses`
 - `composes`
-- `wraps`
 - `declared_in`
 - `depends_on`
+- `replaces`
+- `owns`
+- `references_token`
+- `hardcodes_value`
 
 Interpretation:
 - `uses`: a local component or usage site invokes a DS component
 - `composes`: a local component is built from one or more DS or local components
-- `wraps`: a local component primarily forwards to a DS component with limited customization
 - `declared_in`: an entity belongs to a module, file, or symbol container
 - `depends_on`: rollup relationship useful for module-level analysis
+- `replaces`: one DS component version or symbol supersedes another for migration tracking
+- `owns`: a team owns a component, module, or repository boundary
+- `references_token`: a usage site or component styling decision references a known design token
+- `hardcodes_value`: a usage site or component styling decision hardcodes a value where token alignment might be expected
+
+`wraps` should not be a plugin-emitted edge in v1. Wrapper detection is a kernel-derived annotation computed from composition facts, parameter bindings, and customization heuristics.
 
 ### Why A Graph
 
@@ -214,11 +303,16 @@ Identifies:
 ### Extractor
 
 Parses source and emits:
+- all composable invocation sites
 - DS component references
 - local component declarations
 - component-to-component composition links
 - usage sites
+- parameter bindings
+- token references or hardcoded styling facts when detectable
 - unresolved or ambiguous matches
+
+Each emitted invocation site must carry a classification status so the kernel can compute honest coverage and adoption ratios.
 
 ### Diagnostics Emitter
 
@@ -250,9 +344,11 @@ The first plugin targets Jetpack Compose / Compose Multiplatform with a source-o
 - read the DS registry config
 - discover Kotlin source files
 - identify composable declarations
-- identify invocation sites
+- identify all composable invocation sites
 - match invocations to registry entries
 - detect local components built from DS primitives
+- capture parameter bindings and slot usage
+- capture token references and hardcoded styling facts when possible
 - emit normalized graph facts
 
 ### Compose Scan Flow
@@ -261,16 +357,32 @@ The first plugin targets Jetpack Compose / Compose Multiplatform with a source-o
 2. Discover configured Kotlin source files and modules.
 3. Parse source files with a Kotlin source parser.
 4. Identify composable declarations and call sites.
-5. Match call targets against the canonical DS registry.
-6. Build local component composition records for non-DS composables that use DS components.
-7. Emit entities, edges, and diagnostics to the kernel.
-8. Persist the snapshot and compute rollups in the kernel.
+5. Emit a `UsageSite` record for every composable invocation with `resolved`, `candidate`, or `unknown` status.
+6. Match call targets against the canonical DS registry.
+7. Capture parameter bindings including slot lambdas and `Modifier` chains.
+8. Build local component composition records for non-DS composables that use DS components.
+9. Record token references or hardcoded styling values where source analysis can detect them.
+10. Emit entities, edges, annotations, and diagnostics to the kernel.
+11. Persist the snapshot, compute rollups, and make baseline-vs-head diffs queryable in the kernel.
+
+### Slot Content Handling
+
+Compose slot APIs must be handled explicitly. For v1:
+- a DS component invoked inside an inline slot lambda counts as `uses` from the enclosing local component or screen that provides the slot content
+- the slot-owning DS component does not inherit that nested usage as its own child usage fact
+- slot lambdas passed through variables are still captured, but confidence is reduced if the scanner cannot resolve the final content source cleanly
+
+This keeps adoption attached to the code that actually chose to supply the nested content.
 
 ### First-Version Limits
 
 - no runtime or preview instrumentation
 - no guarantee of full resolution for complex indirection
-- best-effort handling for aliases and straightforward wrappers only
+- wrapper detection is limited to wrappers that preserve a resolvable call graph and parameter binding surface
+- `CompositionLocal`-resolved targets may not resolve to a concrete DS component
+- KSP or KAPT-generated composables are only analyzed when generated source exists on disk
+- composables invoked via reflection or function references may be missed
+- typealiases or import patterns that obscure the final FQN may reduce confidence or become unresolved
 - no promise to analyze generated code unless source is available and parsable
 
 These limits must be explicit in user output.
@@ -310,6 +422,7 @@ Allow users to edit the registry and rerun validation until stable.
 - it is versioned and reviewable
 - generated drafts are safe starting points, not hidden state
 - validation must be deterministic and explainable
+- v1 registry matching is FQN-plus-alias only
 
 ## AI Skill Ecosystem Boundary
 
@@ -322,6 +435,7 @@ AI should not be embedded into the core CLI or runtime. Instead, the system shou
 - unresolved symbol reports
 - wrapper and drift candidate reports
 - composition graph exports
+- token alignment exports
 - category or taxonomy files if used
 
 ### Role Of AI Skills
@@ -351,11 +465,17 @@ The CLI is the primary first interface. It should support:
 - registry draft generation
 - registry validation
 - scans
+- baseline-vs-head snapshot diff generation
 - human-readable summaries
 - machine-readable exports
 - persistence to local or remote storage
 
-The CLI should work well in both local and CI workflows.
+The CLI should work well in both local and CI workflows. In CI, the headline mode is a baseline-vs-head delta artifact suitable for PR comments and status checks.
+
+Expected delta outputs:
+- JSON artifact for automation
+- Markdown summary for PR surfaces
+- metric deltas such as adoption change, new wrapper candidates, deprecated component usage changes, and token-drift changes
 
 ### Backend/API
 
@@ -383,30 +503,47 @@ Initial high-signal views:
 
 The default self-hosted architecture should stay modest:
 - single-node deployment
-- local filesystem or Postgres-backed persistence
+- SQLite-backed local default with Postgres as the scale-up option
 - stateless API/web layer where possible
 - no SaaS-only assumptions
+
+The scan engine should support file-hash-based incremental caching in v1. Full rescans remain available, but large monorepos should not require them for every CI run.
 
 ## Reporting Model
 
 The first reporting model should support design system maintainers directly.
 
+### Canonical Adoption Definition
+
+For v1, the canonical adoption metric is coverage ratio:
+
+`resolved DS usage sites / (resolved DS usage sites + candidate non-DS UI usage sites)`
+
+This should be computed at minimum:
+- repository level
+- module level
+- DS component category level
+
+Alternative views such as unique-file counts, screen coverage, or pure usage counts can exist as secondary rollups, but the product should use coverage ratio as the default meaning of "adoption."
+
 ### Core Reports
 
 - adoption by DS component
 - adoption by module
+- trend deltas across snapshots
 - local compositions built from DS components
 - wrapper candidates
+- token alignment and hardcoded styling drift
 - unresolved or ambiguous usage diagnostics
 - low-adoption and unused DS components
 - reach or centrality of DS components in the composition graph
+- migration progress across `replaces` edges
+- ownership views by team where team mapping is available
 
 ### Future-Compatible Reports
 
 The model should leave room for future additions such as:
-- trend analysis across snapshots
 - cross-repo comparisons
-- design token alignment
 - multi-ecosystem adoption rollups
 
 The first version should not depend on these future reports, but the schema should not block them.
@@ -422,6 +559,7 @@ The system should prefer useful partial results over all-or-nothing execution.
 - scans continue unless failure volume crosses a configurable threshold
 - ambiguous matches are excluded from canonical counts until resolved
 - unknown repeated symbols become review candidates
+- low-confidence matches are counted separately from high-confidence matches and surfaced in reports
 - plugin capability limits are explicit in summaries and exports
 
 ### Snapshot Status
@@ -435,6 +573,7 @@ Each scan should also produce:
 - machine-readable results
 - human-readable summaries
 - structured diagnostics with severity
+- optional baseline-vs-head delta artifacts when a comparison snapshot is provided
 
 ## Testing Strategy
 
@@ -447,6 +586,8 @@ Cover:
 - metric calculation
 - wrapper and drift heuristics
 - snapshot comparison
+- adoption coverage computation
+- token-alignment classification
 - report queries
 
 ### Plugin Contract Tests
@@ -460,6 +601,10 @@ Use focused source fixtures covering:
 - nested composition
 - wrappers
 - aliases
+- slot-lambda composition
+- parameter binding capture
+- `Modifier` chain capture
+- token references versus hardcoded values
 - ambiguous cases
 - false positive boundaries
 - unsupported patterns
@@ -471,6 +616,7 @@ Cover:
 - draft generation
 - validation workflows
 - scan execution
+- baseline-vs-head diff generation
 - export behavior
 
 ### API And UI Tests
@@ -484,16 +630,29 @@ Cover:
 
 The kernel must be deterministic and explainable. If the system reports adoption, wrapper candidates, drift, or composition reach, users must be able to inspect the underlying facts and diagnostics that produced that result.
 
+## Privacy And AI Export Boundary
+
+Artifacts intended for optional AI workflows should be explicit about content. By default they may include:
+- symbol names
+- file paths
+- module and repository metadata
+- diagnostics
+- normalized parameter-binding summaries
+- token and hardcoded styling facts
+
+They should not require shipping raw source code unless a user explicitly opts into a richer export mode. This keeps the core product usable in stricter environments while still enabling external skill-based refinement.
+
 ## Recommended Delivery Sequence
 
 The design is intentionally scoped to support one implementation plan. The recommended order is:
 
 1. define the kernel graph model and persistence contract
-2. implement the Compose plugin contract and source extraction path
-3. implement CLI registry discovery, draft, validate, and scan workflows
-4. implement baseline reports and exports
-5. add backend/API and report-oriented web UI
-6. document the artifact interface for external AI skills and future ecosystem plugins
+2. implement snapshot diffing, adoption coverage semantics, and token-aware schema support
+3. implement the Compose plugin contract and source extraction path
+4. implement CLI registry discovery, draft, validate, scan, and diff workflows
+5. implement baseline reports and exports
+6. add backend/API and report-oriented web UI
+7. document the artifact interface for external AI skills and future ecosystem plugins
 
 ## Open Source And Self-Hosting Position
 
