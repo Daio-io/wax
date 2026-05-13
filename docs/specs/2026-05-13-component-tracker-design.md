@@ -122,6 +122,8 @@ For v1, registry matching should be deterministic and explainable:
 
 Version must be first-class because monorepos often run multiple design system versions concurrently. Migration reporting depends on distinguishing them.
 
+For v1, each versioned DS component is a distinct `DesignSystemComponent` node rather than a single node with a version dimension. That keeps `replaces` edges explicit and makes migration progress queries straightforward.
+
 #### LocalComponent
 
 A project-defined composable that is not itself part of the design system but is built from one or more design system components or other local components.
@@ -213,6 +215,8 @@ A generic reporting boundary in the kernel. In the Compose plugin this will usua
 #### Team
 
 A first-class ownership entity used for adoption and migration reporting where module boundaries do not align with organizational boundaries.
+
+The ownership mapping source is intentionally pluggable. Team relationships may come from registry config, a separate ownership file, `CODEOWNERS`, or an external organizational export. The kernel only commits to the `owns` relationship, not to a single source of truth for how that mapping is provided.
 
 #### ScanSnapshot
 
@@ -471,6 +475,11 @@ The CLI is the primary first interface. It should support:
 - persistence to local or remote storage
 
 The CLI should work well in both local and CI workflows. In CI, the headline mode is a baseline-vs-head delta artifact suitable for PR comments and status checks.
+
+Baseline resolution for delta artifacts should support three modes in v1:
+- an explicit `--baseline <snapshot-id|ref>` input for deterministic CI usage
+- the latest snapshot for a configured reference such as `main`
+- a repo-local default fallback for interactive local runs
 
 Expected delta outputs:
 - JSON artifact for automation
