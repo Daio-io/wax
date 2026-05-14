@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Prove the best foundation architecture for `wax` by comparing `TS core + TS plugins`, `Go core + TS plugins`, and `Go core + Go plugins` across performance, plugin ergonomics, operational simplicity, and agent friendliness before foundation implementation begins.
+**Goal:** Prove the best foundation architecture for `wax` by comparing `TS core + TS plugins`, `Go core + TS plugins`, and `Go core + Go plugins` across performance, plugin ergonomics, install ergonomics, operational simplicity, and agent friendliness before foundation implementation begins.
 
 **Architecture:** Phase 0 builds thin, comparable spikes rather than the real product. Each option must scan the same Compose fixture corpus, produce the same normalized JSON artifact shape, and report the same benchmark metrics so the ADR is evidence-based instead of speculative.
 
@@ -35,6 +35,7 @@ This plan delivers:
 - three thin comparable spikes
 - benchmark results for cold scan, warm scan, parsing, extraction, artifact writing, and peak memory
 - plugin ergonomics notes for a trivial rule change
+- install ergonomics notes covering setup friction, runtime prerequisites, and first-run experience
 - one ADR with the selected direction
 
 This plan intentionally defers:
@@ -50,6 +51,7 @@ The ADR must answer these questions explicitly:
 - Which option meets acceptable cold and warm scan thresholds on the benchmark corpus?
 - Where is time spent: file walking, parsing, extraction, or artifact writing?
 - Which option makes plugin iteration easiest for agents and contributors?
+- Which option has the lowest installation and setup friction for first-time users and contributors?
 - Which option keeps operational complexity acceptable for v1?
 - Which option leaves the cleanest path for future plugin evolution?
 
@@ -60,6 +62,7 @@ All three spikes must:
 - emit the same artifact contract
 - measure the same metrics
 - use the same comparison script
+- document install steps and prerequisites from a clean machine perspective
 - implement the same minimal feature set:
   - composable declaration detection
   - invocation detection
@@ -233,16 +236,29 @@ Measure:
 - files touched
 - time to make the change
 
-- [ ] **Step 4: Record results**
+- [ ] **Step 4: Record install ergonomics**
+
+Capture:
+- required runtimes and versions
+- install commands
+- native dependency friction if any
+- time to first successful run
+- any manual setup or troubleshooting required
+
+Write:
+
+`prototypes/results/ts-core-ts-plugin-install.json`
+
+- [ ] **Step 5: Record results**
 
 Write:
 
 `prototypes/results/ts-core-ts-plugin.json`
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add prototypes/ts-core-ts-plugin prototypes/results/ts-core-ts-plugin.json
+git add prototypes/ts-core-ts-plugin prototypes/results/ts-core-ts-plugin.json prototypes/results/ts-core-ts-plugin-install.json
 git commit -m "feat: add ts core and plugin architecture spike"
 ```
 
@@ -269,13 +285,22 @@ Use the same alias-addition change and record:
 - files touched
 - time to make the change
 
-- [ ] **Step 4: Record results**
+- [ ] **Step 4: Record install ergonomics**
+
+Capture:
+- required runtimes and versions
+- install commands
+- cross-runtime coordination friction
+- time to first successful run
+- any manual setup or troubleshooting required
+
+- [ ] **Step 5: Record results**
 
 Write:
 
 `prototypes/results/go-core-ts-plugin.json`
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add prototypes/go-core-ts-plugin prototypes/results/go-core-ts-plugin.json
@@ -305,13 +330,22 @@ Use the same alias-addition change and record:
 - files touched
 - time to make the change
 
-- [ ] **Step 4: Record results**
+- [ ] **Step 4: Record install ergonomics**
+
+Capture:
+- required runtimes and versions
+- install commands
+- toolchain/download friction
+- time to first successful run
+- any manual setup or troubleshooting required
+
+- [ ] **Step 5: Record results**
 
 Write:
 
 `prototypes/results/go-core-go-plugin.json`
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add prototypes/go-core-go-plugin prototypes/results/go-core-go-plugin.json
@@ -328,7 +362,7 @@ git commit -m "feat: add go core go plugin architecture spike"
 Include these columns:
 
 ```md
-| Option | Cold Scan | Warm Scan | Parse/Extract | Artifact Write | Peak Memory | Plugin Change Effort | Operational Complexity |
+| Option | Cold Scan | Warm Scan | Parse/Extract | Artifact Write | Peak Memory | Plugin Change Effort | Install Friction | Operational Complexity |
 ```
 
 - [ ] **Step 2: Write the decision record**
@@ -338,6 +372,7 @@ The ADR must contain:
 - rejected options
 - benchmark summary
 - plugin ergonomics summary
+- install ergonomics summary
 - operational tradeoff summary
 - explicit reasons for the decision
 
@@ -360,6 +395,7 @@ git commit -m "docs: record foundation architecture decision"
 
 - speed and filesystem concerns: covered by Tasks 2 through 6
 - plugin ergonomics and agent friendliness: covered by Tasks 3 through 6
+- install ergonomics: covered by Tasks 3 through 6
 - TS, Go+TS, and Go+Go options: covered by Tasks 1 through 5
 - ADR before execution: covered by Task 6
 
