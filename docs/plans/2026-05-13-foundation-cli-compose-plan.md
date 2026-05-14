@@ -1,14 +1,23 @@
-# Foundation CLI + Compose Plugin Implementation Plan
+# Foundation CLI + Compose Plugin Post-ADR Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the first shippable `wax` milestone: a Node/TypeScript CLI with an in-process plugin architecture, flat-file JSON artifacts, a Compose parser spike gated by review, and baseline scan/diff/report workflows.
+**Goal:** Build the first shippable `wax` foundation milestone after the architecture decision record is approved.
 
-**Architecture:** `wax` starts as a pnpm monorepo with a small core that owns config loading, artifact persistence, snapshot diffing, and report semantics. Official plugins are in-process TypeScript packages behind a stable plugin API; the first plugin is `compose`, which starts with a tree-sitter parser spike before deeper integration. Persistence is repo-local JSON under `.wax/`, with `latest/` overwritten by default and immutable snapshots only when `--record` is requested.
+**Architecture:** This document is now a Phase 1 execution plan and must not be executed until the architecture evaluation plan and ADR select a concrete runtime direction. Its existing package and file assumptions should be treated as the default `TS core + TS plugin` candidate unless the ADR says otherwise.
 
-**Tech Stack:** Node 20+, TypeScript, pnpm workspaces, Vitest, arg, chalk, zod, tree-sitter spike, JSON config/artifacts
+**Tech Stack:** Pending ADR. Current placeholders reflect the `TS core + TS plugin` candidate only.
 
 ---
+
+## Status
+
+This plan is parked pending Phase 0 architecture evaluation.
+
+Do not execute these tasks until:
+- the architecture evaluation plan is completed
+- the ADR is written and approved
+- this document is updated to match the chosen direction
 
 ## File Structure
 
