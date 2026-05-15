@@ -46,6 +46,8 @@ This plan delivers:
 - install ergonomics notes with setup friction, runtime prerequisites, install timing, first-run timing, and binary/dependency footprint
 - one ADR with the selected direction
 
+The prototype work in this plan is evidence-gathering. Do not assume every spike artifact must be committed. Commit the plan, option specs, final ADR, and any intentionally retained benchmark fixtures/results; keep throwaway spike work local unless the ADR needs it preserved for review.
+
 This plan intentionally defers:
 - production-ready CLI implementation
 - final package layout
@@ -273,12 +275,9 @@ Include:
 Consider this follow-up only if TS+TS has the best plugin ergonomics but misses performance thresholds for parser-bound reasons.
 ```
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Review option specs**
 
-```bash
-git add docs/specs/2026-05-14-ts-core-ts-plugins-option.md docs/specs/2026-05-14-go-core-ts-plugins-option.md docs/specs/2026-05-14-go-core-go-plugins-option.md docs/specs/2026-05-14-ts-core-native-parser-helper-option.md
-git commit -m "docs: add foundation architecture option specs"
-```
+Confirm each option spec names its parser strategy, plugin distribution story, install assumptions, and known risks before spike implementation starts.
 
 ### Task 2: Define The Shared Artifact Contract And Fixture Corpus
 
@@ -363,12 +362,9 @@ The large tier must be generated rather than hand-authored. The generator contra
 - deterministic output from a seed
 - a mix of resolved and candidate usage
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Review fixture corpus**
 
-```bash
-git add prototypes/contracts prototypes/fixtures
-git commit -m "docs: add shared benchmark contract and fixture corpus"
-```
+Confirm the fixture corpus, registry files, and golden summaries are sufficient to compare correctness before any timing results are accepted.
 
 ### Task 3: Build The Benchmark Harness And Correctness Gate
 
@@ -408,12 +404,9 @@ run scan --mode cold-process-warm-fs --fixture prototypes/fixtures/large/25000
 run scan --mode cold-process-warm-fs --fixture prototypes/fixtures/large/50000
 ```
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Review harness output**
 
-```bash
-git add prototypes/tools/compare-artifacts prototypes/results/benchmark-machine.json
-git commit -m "feat: add benchmark harness and correctness gate"
-```
+Confirm the comparison tool rejects incorrect artifacts and the benchmark machine metadata is captured before running architecture spikes.
 
 ### Task 4: Build The TS Core + TS Plugin Spike
 
@@ -480,12 +473,9 @@ Write:
 
 `prototypes/results/ts-core-ts-plugin.json`
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7: Record review evidence**
 
-```bash
-git add prototypes/ts-core-ts-plugin prototypes/results/ts-core-ts-plugin.json prototypes/results/ts-core-ts-plugin-install.json
-git commit -m "feat: add ts core and plugin architecture spike"
-```
+Record the correctness result, timing summary, install findings, and plugin-change notes for the ADR. Keep the spike code local unless preserving it is necessary to explain the decision.
 
 ### Task 5: Build The Go Core + TS Plugin Spike
 
@@ -534,12 +524,9 @@ Write:
 
 `prototypes/results/go-core-ts-plugin.json`
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7: Record review evidence**
 
-```bash
-git add prototypes/go-core-ts-plugin prototypes/results/go-core-ts-plugin.json
-git commit -m "feat: add go core ts plugin architecture spike"
-```
+Record the correctness result, timing summary, install findings, subprocess-boundary notes, and plugin-change notes for the ADR. Keep the spike code local unless preserving it is necessary to explain the decision.
 
 ### Task 6: Build The Go Core + Go Plugin Spike
 
@@ -588,12 +575,9 @@ Write:
 
 `prototypes/results/go-core-go-plugin.json`
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7: Record review evidence**
 
-```bash
-git add prototypes/go-core-go-plugin prototypes/results/go-core-go-plugin.json
-git commit -m "feat: add go core go plugin architecture spike"
-```
+Record the correctness result, timing summary, install findings, distribution notes, and plugin-change notes for the ADR. Keep the spike code local unless preserving it is necessary to explain the decision.
 
 ### Task 7: Compare Results And Write The ADR
 
@@ -628,12 +612,9 @@ The ADR must contain:
 
 Do not edit a missing Phase 1 plan. Instead, create or update the next Phase 1 implementation plan after the ADR is approved.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Review ADR evidence**
 
-```bash
-git add docs/adr/2026-05-14-foundation-architecture-decision.md prototypes/results
-git commit -m "docs: record foundation architecture decision"
-```
+Confirm the ADR links or summarizes the evidence required to make the decision. Only intentionally retained fixtures, summaries, and final decision docs need to be prepared for review.
 
 ## Spec Coverage Check
 
