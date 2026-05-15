@@ -30,6 +30,7 @@ This repository is still in the planning and foundation stage. Until project-spe
 
 - Prefer `pnpm` for workspace and package commands.
 - Prefer `vitest` for tests.
+- Go tooling guidance is pending the architecture ADR; do not treat TypeScript tooling defaults as a final runtime decision.
 - Prefer fast local commands that can run package-scoped during iteration.
 - Keep the dependency surface modest unless there is a clear payoff.
 

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Prove the best foundation architecture for `wax` by comparing `TS core + TS plugins`, `Go core + TS plugins`, and `Go core + Go plugins` across performance, plugin ergonomics, install ergonomics, operational simplicity, and agent friendliness before foundation implementation begins.
+**Goal:** Prove the best foundation architecture for `wax` by comparing `TS core + TS plugins`, `Go core + TS plugins`, and `Go core + Go plugins` across correctness, performance, parser viability, plugin ergonomics, plugin distribution, install ergonomics, operational simplicity, and agent friendliness before foundation implementation begins.
 
 **Architecture:** Phase 0 builds thin, comparable spikes rather than the real product. Each option must scan the same Compose fixture corpus, produce the same normalized JSON artifact shape, and report the same benchmark metrics so the ADR is evidence-based instead of speculative.
 
@@ -15,27 +15,35 @@
 - Create: `docs/specs/2026-05-14-ts-core-ts-plugins-option.md`
 - Create: `docs/specs/2026-05-14-go-core-ts-plugins-option.md`
 - Create: `docs/specs/2026-05-14-go-core-go-plugins-option.md`
+- Create: `docs/specs/2026-05-14-ts-core-native-parser-helper-option.md`
 - Create: `docs/plans/2026-05-14-architecture-evaluation-plan.md`
 - Create: `docs/adr/2026-05-14-foundation-architecture-decision.md`
 - Create: `prototypes/fixtures/small/`
 - Create: `prototypes/fixtures/medium/`
 - Create: `prototypes/fixtures/messy/`
+- Create: `prototypes/fixtures/large/`
+- Create: `prototypes/fixtures/README.md`
 - Create: `prototypes/contracts/artifact.schema.json`
+- Create: `prototypes/contracts/golden/`
 - Create: `prototypes/results/`
 - Create: `prototypes/ts-core-ts-plugin/`
 - Create: `prototypes/go-core-ts-plugin/`
 - Create: `prototypes/go-core-go-plugin/`
+- Create: `prototypes/tools/compare-artifacts/`
 
 ## Scope
 
 This plan delivers:
-- three lightweight option specs
+- three primary lightweight option specs
+- one paper-only fourth option note for `TS core + native parser helper`
 - one shared artifact contract
 - one shared benchmark corpus
 - three thin comparable spikes
-- benchmark results for cold scan, warm scan, parsing, extraction, artifact writing, and peak memory
-- plugin ergonomics notes for a trivial rule change
-- install ergonomics notes covering setup friction, runtime prerequisites, and first-run experience
+- golden artifact correctness checks before timings are accepted
+- benchmark results for process startup, cold process scans, warm process incremental scans, parsing, extraction, artifact writing, and peak RSS
+- plugin ergonomics notes for a simple alias change and a harder fact-type change
+- plugin distribution notes for first-party and third-party plugin delivery
+- install ergonomics notes with setup friction, runtime prerequisites, install timing, first-run timing, and binary/dependency footprint
 - one ADR with the selected direction
 
 This plan intentionally defers:
@@ -45,15 +53,73 @@ This plan intentionally defers:
 - backend/API and web UI
 - release packaging
 
+## Spike Time Budget
+
+Each primary spike has a maximum budget of 3 working days. If a spike is incomplete at the budget limit, stop, record what works, record what failed, and include that as evidence in the ADR. The ADR may decide that none of the options are acceptable if every spike misses correctness, install, or performance thresholds.
+
 ## Decision Criteria
 
 The ADR must answer these questions explicitly:
-- Which option meets acceptable cold and warm scan thresholds on the benchmark corpus?
+- Which option produces the correct normalized artifacts for the shared fixtures?
+- Which option meets acceptable startup, cold scan, and warm incremental scan thresholds on the benchmark corpus?
 - Where is time spent: file walking, parsing, extraction, or artifact writing?
+- Which parser strategy is used in each option, and is parser cost in scope for the benchmark?
 - Which option makes plugin iteration easiest for agents and contributors?
+- Which option has the most credible first-party and third-party plugin distribution story?
 - Which option has the lowest installation and setup friction for first-time users and contributors?
 - Which option keeps operational complexity acceptable for v1?
 - Which option leaves the cleanest path for future plugin evolution?
+- Are all options unacceptable, requiring a smaller follow-up evaluation before Phase 1?
+
+Suggested ADR weighting:
+- correctness is a pass/fail gate
+- parser viability is a pass/fail gate
+- performance and install ergonomics are high weight
+- plugin ergonomics and agent friendliness are high weight because plugin iteration is expected to change fastest
+- operational simplicity is medium weight for v1 but becomes higher weight before release packaging
+
+## Parser Strategy
+
+Parsing is in scope for this evaluation because parser choice dominates both correctness and scan runtime.
+
+Rules:
+- each option spec must name its parser and binding strategy before spike implementation starts
+- timed results are valid only if the spike uses a real Kotlin parser strategy, not a hand-rolled regex parser
+- the preferred fair comparison is tree-sitter Kotlin across runtimes where bindings are viable
+- if an option cannot use an equivalent parser binding, that limitation must be recorded as an architecture finding, not hidden by substituting a weaker parser
+- parser startup, parser initialization, and parse time must be measured separately where practical
+
+## Option 2 Boundary Decision
+
+For the `Go core + TS plugins` spike, use a long-lived TypeScript plugin subprocess with newline-delimited JSON messages over stdio.
+
+This boundary is intentionally selected for the spike because:
+- it is portable across local development and CI
+- it avoids embedding a JavaScript runtime into Go for v1
+- it exposes the real dual-runtime install and lifecycle costs
+- it keeps third-party TS plugin distribution plausible
+
+The spike must measure:
+- Go process startup
+- TS plugin process startup
+- first request latency
+- steady-state scan latency after the TS subprocess is ready
+- failure behavior when the plugin process exits with a non-zero status
+
+## Plugin Distribution Criteria
+
+Each option spec must explain how plugins are distributed and loaded for:
+- first-party plugins shipped with `wax`
+- third-party plugins installed by users
+- local development plugins
+
+Examples to evaluate:
+- TS packages installed with `npm` or `pnpm`
+- Go modules compiled into the main binary
+- Go sidecar binaries discovered by path or config
+- WASM as a future option, if rejected for v1
+
+Go `.so` plugin loading should not be treated as the default unless the option spec explicitly addresses cross-platform support.
 
 ## Benchmark Rules
 
@@ -63,6 +129,9 @@ All three spikes must:
 - measure the same metrics
 - use the same comparison script
 - document install steps and prerequisites from a clean machine perspective
+- pass golden artifact equality checks before timing results are accepted
+- run on the same benchmark machine with the same command harness
+- repeat each timing case at least 5 times and report median plus min/max
 - implement the same minimal feature set:
   - composable declaration detection
   - invocation detection
@@ -70,12 +139,34 @@ All three spikes must:
   - modifier chain capture
   - resolved vs candidate usage classification
 
+Benchmark modes:
+- `startup`: process start until ready to accept a scan request
+- `cold-process-warm-fs`: new process scanning files that may be in OS cache, representative of CI after checkout
+- `warm-process-incremental-hit`: same process rescanning unchanged files with file-hash cache hits
+- `warm-process-incremental-change`: same process rescanning after one changed Kotlin file
+
+Memory:
+- peak RSS must be measured with a comparable external tool such as `/usr/bin/time -l` on macOS or `/usr/bin/time -v` on Linux
+- runtime-internal memory counters may be recorded as secondary diagnostics only
+
+Noise control:
+- run benchmarks on one named machine profile
+- close unrelated heavy processes where practical
+- record OS, CPU, memory, Node version, Go version, and package manager versions
+- do not compare results from different machines in the ADR table
+
+Correctness:
+- each fixture tier must have a golden artifact or golden summary
+- a spike that does not match the golden output is marked incorrect and its timing numbers cannot be used to select the architecture
+- tolerated differences must be explicitly listed, such as ordering differences after deterministic sorting
+
 ### Task 1: Write The Three Option Specs
 
 **Files:**
 - Create: `docs/specs/2026-05-14-ts-core-ts-plugins-option.md`
 - Create: `docs/specs/2026-05-14-go-core-ts-plugins-option.md`
 - Create: `docs/specs/2026-05-14-go-core-go-plugins-option.md`
+- Create: `docs/specs/2026-05-14-ts-core-native-parser-helper-option.md`
 
 - [ ] **Step 1: Write the TS core + TS plugins option spec**
 
@@ -88,6 +179,8 @@ Include:
 - TypeScript core
 - in-process TypeScript plugins
 - shared JSON artifact contract
+- parser strategy named before spike implementation
+- plugins distributed as npm-compatible packages for third-party use
 
 ## Benefits
 - fastest plugin iteration
@@ -97,6 +190,11 @@ Include:
 ## Risks
 - scan throughput may degrade on large repos
 - performance tuning may arrive earlier
+
+## Distribution
+- first-party plugins ship in the workspace/package
+- third-party plugins are npm packages
+- local plugins can be loaded by package name or path in a future phase
 ```
 
 - [ ] **Step 2: Write the Go core + TS plugins option spec**
@@ -108,8 +206,9 @@ Include:
 
 ## Runtime Shape
 - Go core
-- TypeScript plugin boundary
+- TypeScript plugin subprocess using newline-delimited JSON over stdio
 - shared JSON artifact contract
+- parser strategy named before spike implementation
 
 ## Benefits
 - faster core orchestration and file-heavy paths
@@ -119,6 +218,11 @@ Include:
 - dual-runtime complexity
 - likely loses the in-process plugin model
 - release coordination gets harder
+
+## Distribution
+- Go core ships as the host
+- first-party TS plugins ship with the repo/package
+- third-party TS plugins require a package install plus config discovery
 ```
 
 - [ ] **Step 3: Write the Go core + Go plugins option spec**
@@ -132,6 +236,7 @@ Include:
 - Go core
 - Go plugins
 - shared JSON artifact contract
+- parser strategy named before spike implementation
 
 ## Benefits
 - strongest runtime performance and packaging simplicity
@@ -140,12 +245,38 @@ Include:
 ## Risks
 - slowest plugin iteration
 - weaker ergonomics for rapid plugin API churn
+
+## Distribution
+- first-party plugins are compiled into the main binary for v1
+- third-party plugins are not supported as Go `.so` plugins in v1
+- future third-party distribution would require sidecar binaries, WASM, or a separate extension mechanism
 ```
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Write the TS core + native parser helper option note**
+
+Include:
+
+```md
+# TS Core + Native Parser Helper Option
+
+## Runtime Shape
+- TypeScript core and plugin ergonomics
+- native helper used only for parser/file-index hot paths
+- shared JSON artifact contract
+
+## Why This Is Paper-Only For Phase 0
+- it may dominate if TS ergonomics are best but parser throughput is not
+- it adds another implementation axis beyond the three primary options
+- evaluate as a fallback if TS+TS loses only on parser/file-walk performance
+
+## Decision Rule
+Consider this follow-up only if TS+TS has the best plugin ergonomics but misses performance thresholds for parser-bound reasons.
+```
+
+- [ ] **Step 5: Commit**
 
 ```bash
-git add docs/specs/2026-05-14-ts-core-ts-plugins-option.md docs/specs/2026-05-14-go-core-ts-plugins-option.md docs/specs/2026-05-14-go-core-go-plugins-option.md
+git add docs/specs/2026-05-14-ts-core-ts-plugins-option.md docs/specs/2026-05-14-go-core-ts-plugins-option.md docs/specs/2026-05-14-go-core-go-plugins-option.md docs/specs/2026-05-14-ts-core-native-parser-helper-option.md
 git commit -m "docs: add foundation architecture option specs"
 ```
 
@@ -153,9 +284,12 @@ git commit -m "docs: add foundation architecture option specs"
 
 **Files:**
 - Create: `prototypes/contracts/artifact.schema.json`
+- Create: `prototypes/contracts/golden/`
+- Create: `prototypes/fixtures/README.md`
 - Create: `prototypes/fixtures/small/`
 - Create: `prototypes/fixtures/medium/`
 - Create: `prototypes/fixtures/messy/`
+- Create: `prototypes/fixtures/large/`
 
 - [ ] **Step 1: Write the artifact contract**
 
@@ -172,6 +306,9 @@ Use this shape:
   "diagnostics": [],
   "metrics": {
     "adoptionCoverageRatio": 0
+  },
+  "registry": {
+    "designSystemSymbols": []
   }
 }
 ```
@@ -183,8 +320,11 @@ Write a short README in the fixtures area containing:
 ```md
 - small: 10-20 files, clean Compose usage
 - medium: 100-200 files, mixed imports and wrappers
-- messy: aliasing, slots, modifiers, repeated local compositions
+- messy: 100-200 files with aliasing, slots, modifiers, repeated local compositions, and intentionally awkward cases
+- large: generated corpora at 5k, 25k, and 50k Kotlin files
 ```
+
+Each fixture tier must include a hand-authored registry JSON file that defines canonical DS symbols. `resolved` and `candidate` usage classification is undefined without that registry.
 
 - [ ] **Step 3: Add representative Kotlin fixture files**
 
@@ -194,15 +334,88 @@ Ensure each corpus includes examples for:
 - slot lambdas
 - modifier chains
 - candidate non-DS usages
+- deprecated component replacement examples
+- token reference and hardcoded styling examples
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Add golden expected artifacts**
+
+For each fixture tier, write a deterministic expected artifact or expected summary under:
+
+`prototypes/contracts/golden/`
+
+The golden files must include:
+- expected design system components
+- expected local components
+- expected usage site count
+- expected resolved usage count
+- expected candidate usage count
+- expected modifier chain count
+- expected slot lambda count
+
+For generated large fixtures, the golden output may be a summary derived from the generator seed rather than a full committed artifact.
+
+- [ ] **Step 5: Add the large corpus generator contract**
+
+The large tier must be generated rather than hand-authored. The generator contract must support:
+- `--files 5000`
+- `--files 25000`
+- `--files 50000`
+- deterministic output from a seed
+- a mix of resolved and candidate usage
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add prototypes/contracts prototypes/fixtures
 git commit -m "docs: add shared benchmark contract and fixture corpus"
 ```
 
-### Task 3: Build The TS Core + TS Plugin Spike
+### Task 3: Build The Benchmark Harness And Correctness Gate
+
+**Files:**
+- Create: `prototypes/tools/compare-artifacts/`
+- Create: `prototypes/results/benchmark-machine.json`
+
+- [ ] **Step 1: Implement artifact comparison**
+
+Requirements:
+- load a spike artifact and golden artifact
+- sort unordered arrays deterministically before comparison
+- fail if required counts or normalized facts differ
+- print a concise diff summary
+
+- [ ] **Step 2: Implement benchmark-machine capture**
+
+Record:
+- OS and version
+- CPU model
+- memory
+- Node version
+- Go version
+- package manager versions
+- benchmark date
+
+- [ ] **Step 3: Define the timing command contract**
+
+Every spike must expose the same commands:
+
+```bash
+run startup
+run scan --mode cold-process-warm-fs --fixture prototypes/fixtures/small
+run scan --mode warm-process-incremental-hit --fixture prototypes/fixtures/medium
+run scan --mode warm-process-incremental-change --fixture prototypes/fixtures/large/5000
+run scan --mode cold-process-warm-fs --fixture prototypes/fixtures/large/25000
+run scan --mode cold-process-warm-fs --fixture prototypes/fixtures/large/50000
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add prototypes/tools/compare-artifacts prototypes/results/benchmark-machine.json
+git commit -m "feat: add benchmark harness and correctness gate"
+```
+
+### Task 4: Build The TS Core + TS Plugin Spike
 
 **Files:**
 - Create: `prototypes/ts-core-ts-plugin/`
@@ -211,6 +424,7 @@ git commit -m "docs: add shared benchmark contract and fixture corpus"
 
 Requirements:
 - read all `.kt` files in a corpus directory
+- use the parser strategy named in the option spec
 - extract declarations, invocations, slot lambdas, and modifier chains
 - classify usage as `resolved` or `candidate`
 - emit the shared JSON artifact
@@ -219,16 +433,23 @@ Requirements:
 
 Capture:
 - total runtime
+- process startup runtime
 - parse/extract runtime
 - artifact write runtime
-- peak memory if the runtime exposes it easily
+- peak RSS using the shared external measurement command
+- file count and changed-file count
 
-- [ ] **Step 3: Add a trivial plugin-change exercise**
+- [ ] **Step 3: Add correctness gate**
 
-Document one plugin rule edit:
+Run the artifact comparison against the golden files before recording timings.
+
+- [ ] **Step 4: Add plugin-change exercises**
+
+Document two plugin rule edits:
 
 ```text
 Add a new canonical symbol alias and rerun the spike.
+Add a new fact type, references_token, that requires extending the artifact, extractor, and reader.
 ```
 
 Measure:
@@ -236,12 +457,16 @@ Measure:
 - files touched
 - time to make the change
 
-- [ ] **Step 4: Record install ergonomics**
+- [ ] **Step 5: Record install ergonomics**
 
 Capture:
 - required runtimes and versions
 - install commands
 - native dependency friction if any
+- cold install time
+- installed dependency size
+- macOS, Linux, and Windows friction notes where observable
+- offline or air-gapped install notes
 - time to first successful run
 - any manual setup or troubleshooting required
 
@@ -249,20 +474,20 @@ Write:
 
 `prototypes/results/ts-core-ts-plugin-install.json`
 
-- [ ] **Step 5: Record results**
+- [ ] **Step 6: Record results**
 
 Write:
 
 `prototypes/results/ts-core-ts-plugin.json`
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add prototypes/ts-core-ts-plugin prototypes/results/ts-core-ts-plugin.json prototypes/results/ts-core-ts-plugin-install.json
 git commit -m "feat: add ts core and plugin architecture spike"
 ```
 
-### Task 4: Build The Go Core + TS Plugin Spike
+### Task 5: Build The Go Core + TS Plugin Spike
 
 **Files:**
 - Create: `prototypes/go-core-ts-plugin/`
@@ -271,43 +496,52 @@ git commit -m "feat: add ts core and plugin architecture spike"
 
 Requirements:
 - orchestrate a scan over the same fixture corpus
-- delegate extraction to a TS plugin boundary
+- delegate extraction to a long-lived TS plugin subprocess using newline-delimited JSON over stdio
 - emit the shared JSON artifact
+- measure plugin subprocess startup separately from scan time
 
 - [ ] **Step 2: Add instrumentation**
 
-Capture the same metrics as Task 3.
+Capture the same metrics as the TS core + TS plugin spike.
 
-- [ ] **Step 3: Add the same trivial plugin-change exercise**
+- [ ] **Step 3: Add correctness gate**
 
-Use the same alias-addition change and record:
+Run the artifact comparison against the golden files before recording timings.
+
+- [ ] **Step 4: Add the same plugin-change exercises**
+
+Use the same alias-addition and `references_token` changes and record:
 - code touched
 - files touched
 - time to make the change
 
-- [ ] **Step 4: Record install ergonomics**
+- [ ] **Step 5: Record install ergonomics**
 
 Capture:
 - required runtimes and versions
 - install commands
 - cross-runtime coordination friction
+- cold install time
+- installed dependency size
+- macOS, Linux, and Windows friction notes where observable
+- offline or air-gapped install notes
 - time to first successful run
 - any manual setup or troubleshooting required
 
-- [ ] **Step 5: Record results**
+- [ ] **Step 6: Record results**
 
 Write:
 
 `prototypes/results/go-core-ts-plugin.json`
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add prototypes/go-core-ts-plugin prototypes/results/go-core-ts-plugin.json
 git commit -m "feat: add go core ts plugin architecture spike"
 ```
 
-### Task 5: Build The Go Core + Go Plugin Spike
+### Task 6: Build The Go Core + Go Plugin Spike
 
 **Files:**
 - Create: `prototypes/go-core-go-plugin/`
@@ -316,43 +550,52 @@ git commit -m "feat: add go core ts plugin architecture spike"
 
 Requirements:
 - scan the same fixture corpus
+- use the parser strategy named in the option spec
 - extract the same facts
 - emit the shared JSON artifact
 
 - [ ] **Step 2: Add instrumentation**
 
-Capture the same metrics as Tasks 3 and 4.
+Capture the same metrics as the TS core + TS plugin and Go core + TS plugin spikes.
 
-- [ ] **Step 3: Add the same trivial plugin-change exercise**
+- [ ] **Step 3: Add correctness gate**
 
-Use the same alias-addition change and record:
+Run the artifact comparison against the golden files before recording timings.
+
+- [ ] **Step 4: Add the same plugin-change exercises**
+
+Use the same alias-addition and `references_token` changes and record:
 - code touched
 - files touched
 - time to make the change
 
-- [ ] **Step 4: Record install ergonomics**
+- [ ] **Step 5: Record install ergonomics**
 
 Capture:
 - required runtimes and versions
 - install commands
 - toolchain/download friction
+- cold install time
+- built binary size
+- macOS, Linux, and Windows friction notes where observable
+- offline or air-gapped install notes
 - time to first successful run
 - any manual setup or troubleshooting required
 
-- [ ] **Step 5: Record results**
+- [ ] **Step 6: Record results**
 
 Write:
 
 `prototypes/results/go-core-go-plugin.json`
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add prototypes/go-core-go-plugin prototypes/results/go-core-go-plugin.json
 git commit -m "feat: add go core go plugin architecture spike"
 ```
 
-### Task 6: Compare Results And Write The ADR
+### Task 7: Compare Results And Write The ADR
 
 **Files:**
 - Create: `docs/adr/2026-05-14-foundation-architecture-decision.md`
@@ -362,7 +605,7 @@ git commit -m "feat: add go core go plugin architecture spike"
 Include these columns:
 
 ```md
-| Option | Cold Scan | Warm Scan | Parse/Extract | Artifact Write | Peak Memory | Plugin Change Effort | Install Friction | Operational Complexity |
+| Option | Correctness | Startup | Cold Process Warm FS | Warm Incremental Hit | Warm Incremental Change | Parse/Extract | Artifact Write | Peak RSS | Plugin Change Effort | Plugin Distribution | Install Friction | Agent Friendliness | Operational Complexity |
 ```
 
 - [ ] **Step 2: Write the decision record**
@@ -371,33 +614,37 @@ The ADR must contain:
 - chosen option
 - rejected options
 - benchmark summary
+- parser strategy summary
 - plugin ergonomics summary
+- plugin distribution summary
 - install ergonomics summary
 - operational tradeoff summary
+- paper-only `TS core + native parser helper` assessment
 - explicit reasons for the decision
+- explicit "none acceptable" decision if none of the three spikes clears the bar
+- explicit statement on whether snapshot diff and incremental cache risks require a follow-up spike before Phase 1 implementation
 
-- [ ] **Step 3: Update the parked Phase 1 plan**
+- [ ] **Step 3: Write Phase 1 planning follow-up**
 
-Edit:
-
-`docs/plans/2026-05-13-foundation-cli-compose-plan.md`
-
-Replace any stale stack assumptions with the chosen architecture.
+Do not edit a missing Phase 1 plan. Instead, create or update the next Phase 1 implementation plan after the ADR is approved.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add docs/adr/2026-05-14-foundation-architecture-decision.md docs/plans/2026-05-13-foundation-cli-compose-plan.md prototypes/results
+git add docs/adr/2026-05-14-foundation-architecture-decision.md prototypes/results
 git commit -m "docs: record foundation architecture decision"
 ```
 
 ## Spec Coverage Check
 
-- speed and filesystem concerns: covered by Tasks 2 through 6
-- plugin ergonomics and agent friendliness: covered by Tasks 3 through 6
-- install ergonomics: covered by Tasks 3 through 6
-- TS, Go+TS, and Go+Go options: covered by Tasks 1 through 5
-- ADR before execution: covered by Task 6
+- speed and filesystem concerns: covered by Tasks 2 through 7
+- correctness before timing: covered by Tasks 2 through 7
+- parser strategy: covered by Tasks 1 through 7
+- plugin ergonomics and agent friendliness: covered by Tasks 4 through 7
+- plugin distribution: covered by Tasks 1 through 7
+- install ergonomics: covered by Tasks 4 through 7
+- TS, Go+TS, and Go+Go options: covered by Tasks 1 through 6
+- ADR before execution: covered by Task 7
 
 ## Placeholder Scan
 
