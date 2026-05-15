@@ -123,6 +123,8 @@ Examples to evaluate:
 
 Go `.so` plugin loading should not be treated as the default unless the option spec explicitly addresses cross-platform support.
 
+Plugin distribution is evaluated as design evidence in Phase 0, not as a benchmarked implementation. The ADR must label distribution conclusions as design judgement unless a spike actually exercises the distribution path.
+
 ## Benchmark Rules
 
 All three spikes must:
@@ -147,6 +149,8 @@ Benchmark modes:
 - `warm-process-incremental-hit`: same process rescanning unchanged files with file-hash cache hits
 - `warm-process-incremental-change`: same process rescanning after one changed Kotlin file
 
+`cold-process-cold-fs` is intentionally excluded from Phase 0 because reliable cross-platform filesystem cache eviction adds measurement friction and weakens repeatability. Revisit it only if the selected architecture later shows suspicious filesystem-bound behavior.
+
 Memory:
 - peak RSS must be measured with a comparable external tool such as `/usr/bin/time -l` on macOS or `/usr/bin/time -v` on Linux
 - runtime-internal memory counters may be recorded as secondary diagnostics only
@@ -161,6 +165,7 @@ Correctness:
 - each fixture tier must have a golden artifact or golden summary
 - a spike that does not match the golden output is marked incorrect and its timing numbers cannot be used to select the architecture
 - tolerated differences must be explicitly listed, such as ordering differences after deterministic sorting
+- diagnostic equivalence is not required unless diagnostics are part of the tested normalized facts; different parsers may emit different but acceptable diagnostics for the same source
 
 ### Task 1: Write The Three Option Specs
 
@@ -320,7 +325,7 @@ Write a short README in the fixtures area containing:
 - small: 10-20 files, clean Compose usage
 - medium: 100-200 files, mixed imports and wrappers
 - messy: 100-200 files with aliasing, slots, modifiers, repeated local compositions, and intentionally awkward cases
-- large: generated corpora at 5k, 25k, and 50k Kotlin files
+- large: generated corpora at 5k, 25k, and 50k Kotlin files using the same pattern families as the messy tier
 ```
 
 Each fixture tier must include a hand-authored registry JSON file that defines canonical DS symbols. `resolved` and `candidate` usage classification is undefined without that registry.
@@ -361,6 +366,17 @@ The large tier must be generated rather than hand-authored. The generator contra
 - `--files 50000`
 - deterministic output from a seed
 - a mix of resolved and candidate usage
+- documented per-pattern proportions
+
+The large generator must scale the messy-tier patterns rather than emit mostly trivial files. Include proportions for at least:
+- direct DS usage
+- local wrappers
+- slot lambdas
+- modifier chains
+- aliased imports
+- candidate non-DS usages
+- deprecated replacements
+- token references and hardcoded styling values
 
 - [ ] **Step 6: Review fixture corpus**
 
@@ -584,12 +600,20 @@ Record the correctness result, timing summary, install findings, distribution no
 **Files:**
 - Create: `docs/adr/2026-05-14-foundation-architecture-decision.md`
 
-- [ ] **Step 1: Build the comparison table**
+- [ ] **Step 1: Build the comparison tables**
 
-Include these columns:
+Use two tables so the ADR remains readable.
+
+Performance table:
 
 ```md
-| Option | Correctness | Startup | Cold Process Warm FS | Warm Incremental Hit | Warm Incremental Change | Parse/Extract | Artifact Write | Peak RSS | Plugin Change Effort | Plugin Distribution | Install Friction | Agent Friendliness | Operational Complexity |
+| Option | Correctness | Startup | Cold Process Warm FS | Warm Incremental Hit | Warm Incremental Change | Parse/Extract | Artifact Write | Peak RSS |
+```
+
+Ergonomics table:
+
+```md
+| Option | Plugin Change Effort | Plugin Distribution | Install Friction | Agent Friendliness | Operational Complexity |
 ```
 
 - [ ] **Step 2: Write the decision record**
@@ -642,3 +666,4 @@ Use the same artifact contract and metric names across all three spikes:
 - `usageSites`
 - `diagnostics`
 - `adoptionCoverageRatio`
+- `registry.designSystemSymbols`
