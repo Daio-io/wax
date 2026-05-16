@@ -94,7 +94,7 @@ Primary project config. Format: **JSON** (v1).
 }
 ```
 
-`engine.scan_concurrency` defaults to `2`; override via CLI `wax scan --concurrency=N`. Packs run in separate processes and should not assume exclusive host access unless documented for a specific language.
+`engine.scan_concurrency` defaults to `2`; override via CLI `wax scan --concurrency=N`. Packs run in separate processes and should not assume exclusive host access. v1 does **not** pass concurrency into the wire request (isolation is by process boundary); revisit if in-process packs need shared resource hints.
 
 Per-language keys beyond `id` / `enabled` are validated by that language pack’s config schema.
 
@@ -107,6 +107,7 @@ Pins resolved artifacts for reproducible CI. **Required when using `wax scan --n
   "schema_version": 1,
   "engine_api_version": 1,
   "wax_version": "0.1.0",
+  "locked_at": "2026-05-16T12:00:00Z",
   "languages": {
     "compose": {
       "version": "0.4.2",
@@ -126,6 +127,7 @@ Pins resolved artifacts for reproducible CI. **Required when using `wax scan --n
 - **`resolved`** — host triple, url, and sha256 for the machine that produced the lock (CI must match triple or use a matrix).
 - **`source`** — pack index URL or mirror id for audit.
 - **`wax_version`** — engine that wrote the lock; `doctor` warns on skew.
+- **`locked_at`** — when the lock was produced; optional audit field.
 
 When a lockfile exists, auto-install **MUST** install exactly the pinned `version` + `resolved.sha256`; refuse if the index now serves a different digest for that version.
 
