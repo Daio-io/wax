@@ -1,0 +1,10 @@
+[package]
+name = "wax-lang-api"
+version = "0.0.0"
+edition = "2021"
+description = "Stable boundary between the wax engine and language packs"
+
+[dependencies]
+wax-contract = { path = "../wax-contract" }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
