@@ -4,7 +4,7 @@
 
 **Goal:** Implement the production `wax` Rust engine with downloadable **language packs**, **`.waxrc`** configuration, global install lifecycle, and subprocess IPC—ready for review before broad foundation coding.
 
-**Architecture:** A single **engine** orchestrates `scan`; each **language pack** is an optional native binary (or in-process dev build) that returns normalized `ScanFacts` over NDJSON stdio. Repo config enables languages; global `~/.wax/langs/` stores artifacts; `wax.lock.json` pins CI. **Plugins** (kernel hooks) are explicitly out of scope for this plan.
+**Architecture:** A single **engine** orchestrates `scan`; each **language pack** is a downloaded native binary that returns normalized `ScanFacts` over **one JSON object per direction** on stdio (NDJSON multi-message deferred to daemon mode). Repo config enables languages; global `~/.wax/langs/` stores artifacts; `wax.lock.json` pins CI when used. **Plugins** (kernel hooks) are explicitly out of scope for this plan.
 
 **Tech Stack:** Rust 2021, `wax-contract` / `wax-lang-api`, tree-sitter (Compose), SWC (React), serde JSON config, clap CLI, GitHub Releases + static registry manifest
 
@@ -15,8 +15,8 @@
 ## Prerequisites
 
 - [ ] Spec [2026-05-16-language-packs-and-distribution.md](../specs/2026-05-16-language-packs-and-distribution.md) reviewed and open questions resolved (or defaults recorded in ADR addendum).
-- [ ] `rust-prototype/` builds locally: `cd rust-prototype && cargo build && cargo test -p wax-lang-compose`.
-- [ ] Phase 0 golden fixtures remain the correctness oracle for `compose` until compose-specific goldens exist under `wax-contract` tests.
+- [ ] `rust-prototype/` builds locally: `cd rust-prototype && cargo build && cargo test -p wax-contract`.
+- [ ] Phase 0 spike artifacts (if used for compose goldens) live on a separate branch or PR—not required on the API-sketch branch.
 
 ## File structure (target product layout)
 
@@ -64,9 +64,10 @@ Ensure [language packs spec](../specs/2026-05-16-language-packs-and-distribution
 ```rust
 #[test]
 fn scan_facts_roundtrip() {
-    let facts = /* minimal fixture from prototypes/fixtures/small scan sample */;
+    let mut facts = minimal_facts(); // literal in tests/schema_roundtrip.rs
+    facts.recompute_counts();
     let json = serde_json::to_string(&facts).unwrap();
-    let back: ScanFacts = serde_json::from_str(&json).unwrap();
+    let back = wax_contract::scan_facts_from_json(&json).unwrap();
     assert_eq!(facts.language.id, back.language.id);
 }
 ```
@@ -143,24 +144,15 @@ Reject unknown `schema_version` with actionable message.
 
 ## Phase 2 — Subprocess language adapter
 
-### Task 4: NDJSON protocol types
+### Task 4: Wire protocol types (v1)
 
 **Files:**
-- Create: `rust-prototype/crates/wax-lang-api/src/protocol.rs`
+- Modify: `rust-prototype/crates/wax-lang-api/src/protocol.rs` (started)
 - Modify: `rust-prototype/crates/wax-lang-api/src/lib.rs`
 
-- [ ] **Step 1: Add message enums**
-
-```rust
-#[derive(Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum EngineMessage {
-    Scan { api_version: u32, language_id: String, repo_root: PathBuf, mode: String, config: serde_json::Value, snapshot_id: Option<String> },
-    Shutdown,
-}
-```
-
-- [ ] **Step 2: Unit test serialize line = one JSON object per line**
+- [ ] **Step 1: Align `WireScanRequest` with spec** (`repo_root`, `snapshot_id`, `config` — no `mode` in v1)
+- [ ] **Step 2: `WireScanResponse` — untagged `ScanFacts` success vs `type: "error"` failure**
+- [ ] **Step 3: Unit test roundtrip request JSON matches spec example**
 
 ### Task 5: Subprocess `LanguageExtractor` implementation
 
@@ -168,8 +160,8 @@ pub enum EngineMessage {
 - Create: `rust-prototype/crates/wax-core/src/subprocess_lang.rs`
 - Modify: `rust-prototype/crates/wax-core/src/lib.rs`
 
-- [ ] **Step 1: Spawn `manifest.command`, write one `EngineMessage::Scan` line, read one `ScanFacts` line**
-- [ ] **Step 2: Map non-zero exit / malformed JSON to `LanguageError`**
+- [ ] **Step 1: Spawn `manifest.command`, write one `WireScanRequest::Scan` JSON to stdin, read stdout**
+- [ ] **Step 2: Parse `WireScanResponse` or `ScanFacts`; map timeout/cancel to `LanguageError::Timeout` / `Cancelled`**
 - [ ] **Step 3: Integration test with mock binary** (shell script that echoes canned JSON)
 
 Run: `cargo test -p wax-core subprocess`
@@ -249,17 +241,17 @@ Repeat for `wax-lang-react` in a follow-up step (Task 6b, same pattern).
 - [ ] **Step 1: `Engine::scan_repo(repo_root)` loads `.waxrc`, filters `enabled: true`**
 - [ ] **Step 2: For each id, resolve subprocess adapter from global manifest**
 - [ ] **Step 3: Auto-install if missing** (unless `--no-auto-install`)
-- [ ] **Step 4: Parallel scan with concurrency limit (e.g. 2)**
+- [ ] **Step 4: Parallel scan per spec `engine.scan_concurrency` (default 2)**
 - [ ] **Step 5: Write `MergedScan` to `.wax/out/scan-merged.json` and per-language files**
 
-### Task 12: Compose correctness gate
+### Task 12: Compose correctness gate (after `wax-lang-compose` exists)
 
 **Files:**
-- Test: `rust-prototype/crates/wax-lang-compose/tests/golden_small.rs`
-- Data: `prototypes/contracts/golden/` or Phase 0 golden JSON
+- Test: `crates/wax-lang-compose/tests/golden_small.rs`
+- Data: committed golden JSON under `crates/wax-lang-compose/tests/fixtures/` (do not depend on `prototypes/` paths)
 
-- [ ] **Step 1: Run compose against `prototypes/fixtures/small`**
-- [ ] **Step 2: Assert usage_site_count and resolved_count within Phase 0 tolerance**
+- [ ] **Step 1: Add small Kotlin fixture + golden file in the compose crate**
+- [ ] **Step 2: Assert usage_site_count and resolved_count**
 - [ ] **Step 3: Document any intentional drift in spec**
 
 ### Task 13: Rename binary `wax-rust` → `wax`
@@ -302,6 +294,15 @@ Repeat for `wax-lang-react` in a follow-up step (Task 6b, same pattern).
 - [ ] **Step 2: Separate artifacts: `wax`, `wax-lang-compose`, `wax-lang-react` per triple**
 - [ ] **Step 3: Note npm wrapper as optional Phase 5b (not blocking v1)**
 
+### Task 17: Pack distribution threat model
+
+**Files:**
+- Modify: `docs/specs/2026-05-16-language-packs-and-distribution.md` § Pack distribution trust model
+
+- [ ] **Step 1: Record v1 decision (sha256 + HTTPS; signing deferred)**
+- [ ] **Step 2: Document lockfile vs auto-install precedence**
+- [ ] **Step 3: Add ADR addendum pointer in Task 14**
+
 ---
 
 ## Deferred (separate plans)
@@ -323,7 +324,7 @@ Repeat for `wax-lang-react` in a follow-up step (Task 6b, same pattern).
 | `.waxrc` | Task 2, 10, 11 |
 | `wax.lock.json` | Task 3, 10 |
 | Global `~/.wax/langs/` | Task 7, 8 |
-| NDJSON protocol | Task 4, 5, 6 |
+| Wire protocol (v1 JSON) | Task 4, 5, 6 |
 | No pack-to-pack IPC | Spec invariants; Task 11 engine-only merge |
 | CLI install/update/doctor | Task 9 |
 | Onboarding `wax init` | Task 10 |
@@ -338,7 +339,7 @@ Before implementation starts, confirm:
 1. Open questions in [language packs spec](../specs/2026-05-16-language-packs-and-distribution.md) (JSON vs YAML, auto-install default, lockfile required).
 2. ADR process: addendum vs superseding foundation ADR.
 3. Monorepo layout: promote `rust-prototype/` to root `crates/` or keep subfolder until Phase 1 complete.
-4. CI policy: `wax scan --no-auto-install` + committed `wax.lock.json`.
+4. CI policy: `wax scan --no-auto-install` + committed `wax.lock.json` (see spec: lockfile required for that CI mode).
 
 ---
 

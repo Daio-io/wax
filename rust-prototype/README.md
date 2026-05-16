@@ -1,19 +1,14 @@
 # wax API sketch (`wax-contract` + `wax-lang-api`)
 
-Rough Rust types for the engine ↔ language pack boundary. Full architecture and implementation steps live in the docs:
-
-- [Language packs and distribution](../docs/specs/2026-05-16-language-packs-and-distribution.md)
-- [Rust engine implementation plan](../docs/plans/2026-05-16-rust-engine-language-packs-plan.md)
-
-## Crates
+Rough Rust types for the engine ↔ language pack boundary:
 
 | Crate | Role |
 |-------|------|
-| `wax-contract` | `ScanFacts`, `LanguageMetadata`, `MergedScan` (JSON shape) |
-| `wax-lang-api` | `LanguageExtractor` trait, `ScanRequest`, `LanguageError` |
+| `wax-contract` | `ScanFacts`, typed enums, `validate_schema_version` |
+| `wax-lang-api` | `LanguageExtractor` (in-process), `protocol` (wire JSON) |
 
-Language implementations (`wax-lang-compose`, `wax-lang-react`, …) and the `wax` CLI are not in this PR—only the shared contract.
+Docs: [language packs spec](../docs/specs/2026-05-16-language-packs-and-distribution.md) · [implementation plan](../docs/plans/2026-05-16-rust-engine-language-packs-plan.md)
 
 ```bash
-cd rust-prototype && cargo build
+cd rust-prototype && cargo build && cargo test -p wax-contract
 ```
