@@ -46,9 +46,9 @@ Generated / local (gitignored):
 
 ---
 
-## Phase 1 — Contract and config (review gate)
+## Phase 1 — Contract, config, and wire protocol freeze
 
-**Execution checkpoint:** Do not start broad pack, CLI, registry, or scan implementation until Tasks 1–4 land together and are reviewed. These tasks freeze the shared data contract (`ScanFacts`), repo/global config shape, lockfile semantics, and wire request/response envelope that every later task depends on.
+**Execution checkpoint:** Do not start Phase 2+ implementation until Tasks 1–4 land together and are reviewed. These tasks freeze the shared data contract (`ScanFacts`), repo/global config shape, lockfile semantics, and wire request/response envelope that every later task depends on.
 
 ### Task 1: Freeze `ScanFacts` JSON schema
 
@@ -142,10 +142,6 @@ Reject unknown `schema_version` with actionable message.
 - [ ] **Step 2: Test load + version pin**
 - [ ] **Step 3: `doctor` helper: compare `.waxrc` enabled ids vs lock keys**
 
----
-
-## Phase 2 — Subprocess language adapter
-
 ### Task 4: Wire protocol types (v1)
 
 **Files:**
@@ -165,6 +161,12 @@ Confirm Tasks 1–4 are consistent with each other before starting Phase 2+ work
 - `wax.lock.json` records `api_version`, `source`, `resolved.target`, `resolved.url`, `resolved.sha256`, `wax_version`, and `locked_at`.
 - `WireScanRequest` contains `type`, `api_version`, `language_id`, `repo_root`, `snapshot_id`, and `config`; it does not contain `mode`.
 - `WireScanResponse` supports bare `ScanFacts` success and structured `type: "error"` failure.
+
+---
+
+## Phase 2 — Subprocess adapter and first pack entrypoints
+
+Build on the frozen Phase 1 contracts. This phase proves that the engine can invoke an external language-pack binary and that first-party packs can speak the v1 stdio protocol.
 
 ### Task 5: Subprocess `LanguageExtractor` implementation
 
