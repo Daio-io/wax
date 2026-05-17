@@ -224,6 +224,8 @@ Non-zero exit is a last resort. Prefer a structured line on stdout:
 
 Auto-install default: **on** for local `wax scan`; CI **MUST** use `wax scan --no-auto-install` with a committed `wax.lock.json`.
 
+`wax init` writes `.waxrc` by default. It writes `wax.lock.json` only when the user asks for a reproducible install (`--lock` or CI template mode) or after an install/update command has resolved concrete pack artifacts.
+
 ## CLI surface (v1)
 
 All language lifecycle commands use the **`wax language`** group (singular):
@@ -256,6 +258,8 @@ Flags:
 - Language packs: downloaded per id + platform triple from the pack index.
 
 ### First-party language packs (v1 targets)
+
+First-party pack binaries use `wax-lang-<id>` names, for example `wax-lang-compose` and `wax-lang-react`. Keep crate names, install manifests, release artifacts, and examples aligned with that convention.
 
 | id | Parser | Notes |
 |----|--------|-------|
@@ -301,7 +305,6 @@ Phase 0 compared TS-core and Go-core spikes (fixtures, goldens, benchmarks). Pro
 
 1. **`.waxrc` format:** JSON-only v1, or YAML/TOML from day one?
 2. **Lockfile:** remain optional locally but required in documented CI template?
-3. **Binary naming:** `wax-lang-compose` vs `wax-language-compose`?
-4. **Swift parser:** tree-sitter-swift vs other?
-5. **64 MiB response cap:** too low for huge monorepos?
-6. **Signing:** minisign vs cosign vs sigstore for v1.1?
+3. **Swift parser:** tree-sitter-swift vs other?
+4. **64 MiB response cap:** too low for huge monorepos?
+5. **Signing:** minisign vs cosign vs sigstore for v1.1?

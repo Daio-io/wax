@@ -48,6 +48,8 @@ Generated / local (gitignored):
 
 ## Phase 1 — Contract and config (review gate)
 
+**Execution checkpoint:** Do not start broad pack, CLI, registry, or scan implementation until Tasks 1–4 land together and are reviewed. These tasks freeze the shared data contract (`ScanFacts`), repo/global config shape, lockfile semantics, and wire request/response envelope that every later task depends on.
+
 ### Task 1: Freeze `ScanFacts` JSON schema
 
 **Files:**
@@ -154,6 +156,16 @@ Reject unknown `schema_version` with actionable message.
 - [ ] **Step 2: `WireScanResponse` — untagged `ScanFacts` success vs `type: "error"` failure**
 - [ ] **Step 3: Unit test roundtrip request JSON matches spec example**
 
+- [ ] **Step 4: Review checkpoint**
+
+Confirm Tasks 1–4 are consistent with each other before starting Phase 2+ work:
+
+- `ScanFacts.schema_version` is enforced by `scan_facts_from_json`.
+- `.waxrc` uses `design_system_registry` and keeps per-language config opaque to the engine.
+- `wax.lock.json` records `api_version`, `source`, `resolved.target`, `resolved.url`, `resolved.sha256`, `wax_version`, and `locked_at`.
+- `WireScanRequest` contains `type`, `api_version`, `language_id`, `repo_root`, `snapshot_id`, and `config`; it does not contain `mode`.
+- `WireScanResponse` supports bare `ScanFacts` success and structured `type: "error"` failure.
+
 ### Task 5: Subprocess `LanguageExtractor` implementation
 
 **Files:**
@@ -206,6 +218,15 @@ Repeat for `wax-lang-react` in a follow-up step (Task 6b, same pattern).
 - [ ] **Step 1: Parse manifest entry** (id, version, api_version, targets map with url + sha256)
 - [ ] **Step 2: `install_language(id, version, target_triple)` — download, verify sha256, unpack, write manifest.json**
 - [ ] **Step 3: Test with `file://` fixture URL** (no network in unit tests)
+- [ ] **Step 4: Harden install edge cases**
+
+Add tests that cover:
+
+- sha mismatch refuses install and leaves no active manifest.
+- archive entries cannot write outside the install temp dir (`../` path traversal).
+- partial installs are written to a temp dir and atomically promoted only after verification.
+- installed binaries are executable on Unix.
+- lockfile-pinned installs refuse digest drift from the pack index.
 
 ### Task 9: CLI `wax language install|list|uninstall|update|doctor`
 
@@ -225,9 +246,23 @@ Repeat for `wax-lang-react` in a follow-up step (Task 6b, same pattern).
 - Create: `rust-prototype/fixtures/config/example.waxrc`
 
 - [ ] **Step 1: Interactive prompts (or `--yes` defaults): select language ids**
-- [ ] **Step 2: Write `.waxrc` and initial `wax.lock.json`**
+- [ ] **Step 2: Write `.waxrc`; write `wax.lock.json` only for `--lock` / CI template mode**
 - [ ] **Step 3: Call `language install` for selected ids**
 - [ ] **Step 4: Optional registry scaffold** (copy example `registry.json` if missing)
+- [ ] **Step 5: Keep v1 onboarding boring**
+
+Implement `wax init --yes --language compose` before interactive prompts. The first version should be scriptable, deterministic, and easy to test:
+
+```bash
+wax init --yes --language compose --lock
+```
+
+Expected:
+
+- writes `.waxrc`
+- installs selected packs unless `--no-install` is passed
+- writes `wax.lock.json` only when `--lock` is present
+- does not require a TTY
 
 ---
 
@@ -336,10 +371,11 @@ Repeat for `wax-lang-react` in a follow-up step (Task 6b, same pattern).
 
 Before implementation starts, confirm:
 
-1. Open questions in [language packs spec](../specs/2026-05-16-language-packs-and-distribution.md) (JSON vs YAML, auto-install default, lockfile required).
+1. Open questions in [language packs spec](../specs/2026-05-16-language-packs-and-distribution.md) (JSON vs YAML, Swift parser, response cap, signing v1.1).
 2. ADR process: addendum vs superseding foundation ADR.
 3. Monorepo layout: promote `rust-prototype/` to root `crates/` or keep subfolder until Phase 1 complete.
 4. CI policy: `wax scan --no-auto-install` + committed `wax.lock.json` (see spec: lockfile required for that CI mode).
+5. Pack binary naming is fixed as `wax-lang-<id>` across crates, manifests, and release artifacts.
 
 ---
 
