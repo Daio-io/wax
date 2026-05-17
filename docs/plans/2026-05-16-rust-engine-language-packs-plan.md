@@ -50,7 +50,7 @@ Generated / local (gitignored):
 
 **Execution checkpoint:** Do not start Phase 2+ implementation until Tasks 1–4 land together and are reviewed. These tasks freeze the shared data contract (`ScanFacts`), repo/global config shape, lockfile semantics, and wire request/response envelope that every later task depends on.
 
-### Task 1: Freeze `ScanFacts` JSON schema
+### - [ ] Task 1: Freeze `ScanFacts` JSON schema
 
 **Files:**
 - Modify: `rust-prototype/crates/wax-contract/src/lib.rs`
@@ -86,7 +86,7 @@ git add rust-prototype/crates/wax-contract docs/specs/2026-05-16-language-packs-
 git commit -m "docs: freeze language pack scan facts contract"
 ```
 
-### Task 2: `.waxrc` parser and validation
+### - [ ] Task 2: `.waxrc` parser and validation
 
 **Files:**
 - Create: `rust-prototype/crates/wax-core/src/config.rs`
@@ -131,7 +131,7 @@ Reject unknown `schema_version` with actionable message.
 
 - [ ] **Step 5: Commit** (when requested)
 
-### Task 3: `wax.lock.json` parser
+### - [ ] Task 3: `wax.lock.json` parser
 
 **Files:**
 - Create: `rust-prototype/crates/wax-core/src/config/lockfile.rs`
@@ -142,7 +142,7 @@ Reject unknown `schema_version` with actionable message.
 - [ ] **Step 2: Test load + version pin**
 - [ ] **Step 3: `doctor` helper: compare `.waxrc` enabled ids vs lock keys**
 
-### Task 4: Wire protocol types (v1)
+### - [ ] Task 4: Wire protocol types (v1)
 
 **Files:**
 - Modify: `rust-prototype/crates/wax-lang-api/src/protocol.rs` (started)
@@ -168,7 +168,7 @@ Confirm Tasks 1–4 are consistent with each other before starting Phase 2+ work
 
 Build on the frozen Phase 1 contracts. This phase proves that the engine can invoke an external language-pack binary and that first-party packs can speak the v1 stdio protocol.
 
-### Task 5: Subprocess `LanguageExtractor` implementation
+### - [ ] Task 5: Subprocess `LanguageExtractor` implementation
 
 **Files:**
 - Create: `rust-prototype/crates/wax-core/src/subprocess_lang.rs`
@@ -180,7 +180,7 @@ Build on the frozen Phase 1 contracts. This phase proves that the engine can inv
 
 Run: `cargo test -p wax-core subprocess`
 
-### Task 6: `wax-lang-compose` stdio entrypoint
+### - [ ] Task 6: `wax-lang-compose` stdio entrypoint
 
 **Files:**
 - Modify: `rust-prototype/crates/wax-lang-compose/Cargo.toml` — add `[[bin]] name = "wax-lang-compose"`
@@ -195,13 +195,74 @@ cargo build -p wax-lang-compose
 echo '{"type":"scan","api_version":1,...}' | ./target/debug/wax-lang-compose --stdio
 ```
 
-Repeat for `wax-lang-react` in a follow-up step (Task 6b, same pattern).
+### - [ ] Task 6b: `wax-lang-react` stdio entrypoint skeleton
+
+**Files:**
+- Create: `rust-prototype/crates/wax-lang-react/Cargo.toml`
+- Create: `rust-prototype/crates/wax-lang-react/src/lib.rs`
+- Create: `rust-prototype/crates/wax-lang-react/src/bin/wax-lang-react.rs`
+- Modify: `rust-prototype/Cargo.toml`
+
+- [ ] **Step 1: Add a crate skeleton**
+
+Add `wax-lang-react` to the workspace with dependencies on `wax-contract` and `wax-lang-api`.
+
+- [ ] **Step 2: Implement a stub `ReactLanguage`**
+
+Return `ScanFacts` with:
+
+- `language.id = "react"`
+- `status = ScanStatus::Partial`
+- empty components and usage sites
+- a diagnostic explaining React extraction is scaffolded but not implemented
+
+- [ ] **Step 3: Add `wax-lang-react --stdio`**
+
+Read one `WireScanRequest::Scan` JSON object from stdin, call the stub language, and write one JSON object response to stdout.
+
+- [ ] **Step 4: Run a manual stdio smoke test**
+
+```bash
+cargo build -p wax-lang-react
+echo '{"type":"scan","api_version":1,"language_id":"react","repo_root":"/tmp/repo","snapshot_id":"test","config":{}}' \
+  | ./target/debug/wax-lang-react --stdio
+```
+
+Expected: one valid `ScanFacts` JSON object with `language.id = "react"` and `snapshot_id = "test"`.
+
+### - [ ] Task 6c: Protocol conformance tests
+
+**Files:**
+- Test: `rust-prototype/crates/wax-lang-api/tests/wire_protocol.rs`
+- Test: `rust-prototype/crates/wax-core/tests/subprocess_protocol.rs`
+
+- [ ] **Step 1: Add wire request fixture test**
+
+Test that the spec request example deserializes into `WireScanRequest::Scan` and serializes back with the same field names (`repo_root`, not `fixture_root`; no `mode`).
+
+- [ ] **Step 2: Add wire error fixture test**
+
+Test that the spec error response deserializes into `WireScanResponse::Error` with `code = "registry_not_found"` and an empty diagnostics array.
+
+- [ ] **Step 3: Add subprocess adapter conformance test**
+
+Use the mock binary from Task 5 to assert:
+
+- success stdout is parsed through `scan_facts_from_json`
+- structured `type: "error"` stdout maps to a pack failure
+- oversized stdout triggers `response_too_large`
+- timeout maps to `LanguageError::Timeout`
+
+- [ ] **Step 4: Run protocol tests**
+
+Run: `cargo test -p wax-lang-api wire_protocol && cargo test -p wax-core subprocess_protocol`
+Expected: PASS
 
 ---
 
 ## Phase 3 — Global install and registry
 
-### Task 7: Global paths and state
+### - [ ] Task 7: Global paths and state
 
 **Files:**
 - Create: `rust-prototype/crates/wax-core/src/paths.rs`
@@ -211,7 +272,7 @@ Repeat for `wax-lang-react` in a follow-up step (Task 6b, same pattern).
 - [ ] **Step 2: `lang_install_dir(id, version) -> ~/.wax/langs/<id>/<version>`**
 - [ ] **Step 3: Load/save `state.json`**
 
-### Task 8: Official registry client (read-only v1)
+### - [ ] Task 8: Official registry client (read-only v1)
 
 **Files:**
 - Create: `rust-prototype/crates/wax-core/src/registry.rs`
@@ -230,7 +291,7 @@ Add tests that cover:
 - installed binaries are executable on Unix.
 - lockfile-pinned installs refuse digest drift from the pack index.
 
-### Task 9: CLI `wax language install|list|uninstall|update|doctor`
+### - [ ] Task 9: CLI `wax language install|list|uninstall|update|doctor`
 
 **Files:**
 - Modify: `rust-prototype/crates/wax-cli/src/main.rs`
@@ -241,7 +302,7 @@ Add tests that cover:
 - [ ] **Step 2: Wire install to registry + global state**
 - [ ] **Step 3: `doctor` prints: enabled in `.waxrc`, installed version, lock pin, missing binary**
 
-### Task 10: `wax init` onboarding
+### - [ ] Task 10: `wax init` onboarding
 
 **Files:**
 - Modify: `rust-prototype/crates/wax-cli/src/commands/init.rs`
@@ -270,7 +331,7 @@ Expected:
 
 ## Phase 4 — `wax scan` product path
 
-### Task 11: Engine resolves enabled languages from `.waxrc`
+### - [ ] Task 11: Engine resolves enabled languages from `.waxrc`
 
 **Files:**
 - Modify: `rust-prototype/crates/wax-core/src/lib.rs`
@@ -281,7 +342,7 @@ Expected:
 - [ ] **Step 4: Parallel scan per spec `engine.scan_concurrency` (default 2)**
 - [ ] **Step 5: Write `MergedScan` to `.wax/out/scan-merged.json` and per-language files**
 
-### Task 12: Compose correctness gate (after `wax-lang-compose` exists)
+### - [ ] Task 12: Compose correctness gate (after `wax-lang-compose` exists)
 
 **Files:**
 - Test: `crates/wax-lang-compose/tests/golden_small.rs`
@@ -291,7 +352,7 @@ Expected:
 - [ ] **Step 2: Assert usage_site_count and resolved_count**
 - [ ] **Step 3: Document any intentional drift in spec**
 
-### Task 13: Rename binary `wax-rust` → `wax`
+### - [ ] Task 13: Rename binary `wax-rust` → `wax`
 
 **Files:**
 - Modify: `rust-prototype/crates/wax-cli/Cargo.toml`
@@ -304,7 +365,7 @@ Expected:
 
 ## Phase 5 — Distribution and docs (review, not full CI in one pass)
 
-### Task 14: ADR addendum for Rust foundation
+### - [ ] Task 14: ADR addendum for Rust foundation
 
 **Files:**
 - Create: `docs/adr/2026-05-16-rust-engine-language-packs.md`
@@ -313,7 +374,7 @@ Expected:
 - [ ] **Step 2: Link Phase 0 evidence and open questions from spec**
 - [ ] **Step 3: Explicitly defer kernel **plugins** to future ADR**
 
-### Task 15: Update component tracker design terminology
+### - [ ] Task 15: Update component tracker design terminology
 
 **Files:**
 - Modify: `docs/specs/2026-05-13-component-tracker-design.md` (surgical edits)
@@ -322,7 +383,7 @@ Expected:
 - [ ] **Step 2: Add glossary note: **plugin** = future kernel hook**
 - [ ] **Step 3: Point to [2026-05-16-language-packs-and-distribution.md](../specs/2026-05-16-language-packs-and-distribution.md)**
 
-### Task 16: Release sketch (document only)
+### - [ ] Task 16: Release sketch (document only)
 
 **Files:**
 - Modify: `docs/specs/2026-05-16-language-packs-and-distribution.md` § Distribution
@@ -331,7 +392,7 @@ Expected:
 - [ ] **Step 2: Separate artifacts: `wax`, `wax-lang-compose`, `wax-lang-react` per triple**
 - [ ] **Step 3: Note npm wrapper as optional Phase 5b (not blocking v1)**
 
-### Task 17: Pack distribution threat model
+### - [ ] Task 17: Pack distribution threat model
 
 **Files:**
 - Modify: `docs/specs/2026-05-16-language-packs-and-distribution.md` § Pack distribution trust model
@@ -361,12 +422,12 @@ Expected:
 | `.waxrc` | Task 2, 10, 11 |
 | `wax.lock.json` | Task 3, 10 |
 | Global `~/.wax/langs/` | Task 7, 8 |
-| Wire protocol (v1 JSON) | Task 4, 5, 6 |
+| Wire protocol (v1 JSON) | Task 4, 5, 6, 6b, 6c |
 | No pack-to-pack IPC | Spec invariants; Task 11 engine-only merge |
 | CLI install/update/doctor | Task 9 |
 | Onboarding `wax init` | Task 10 |
 | Prebuilt distribution | Task 16 |
-| Compose + React first-party | rust-prototype + Tasks 6, 12 |
+| Compose + React first-party | rust-prototype + Tasks 6, 6b, 12 |
 | `ScanFacts` / `LanguageMetadata` | Task 1, prototype crates |
 
 ## Review checklist for humans
