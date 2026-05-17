@@ -1,6 +1,8 @@
 # Rust Engine and Language Packs Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+>
+> **PR boundary:** Treat each checked **Task** as one implementation PR. Complete all steps inside a task, run its verification commands, commit the task, and open a PR before starting the next task. Phase checkpoints gate batches of task PRs; do not combine multiple tasks into one PR unless the human explicitly approves it.
 
 **Goal:** Implement the production `wax` Rust engine with downloadable **language packs**, **`.waxrc`** configuration, global install lifecycle, and subprocess IPC—ready for review before broad foundation coding.
 
@@ -23,6 +25,14 @@ This plan chooses a Rust engine with downloadable native language packs because 
 - [ ] Spec [2026-05-16-language-packs-and-distribution.md](../specs/2026-05-16-language-packs-and-distribution.md) reviewed and open questions resolved (or defaults recorded in ADR addendum).
 - [ ] `rust-prototype/` builds locally: `cd rust-prototype && cargo build && cargo test -p wax-contract`.
 - [ ] Phase 0 spike artifacts (if used for compose goldens) live on a separate branch or PR—not required on the API-sketch branch.
+
+## Execution model
+
+- One task = one branch, one focused commit series, one PR.
+- Task PRs should include the task number in the title, for example `Task 4: Wire protocol types (v1)`.
+- A task is complete only when its listed verification command passes and the PR description links back to this plan.
+- Phase checkpoints are review gates across multiple task PRs. For example, Phase 1 is not complete until Task 1, Task 2, Task 3, and Task 4 PRs are all merged or otherwise approved together.
+- Keep task PRs narrow. If implementation reveals a missing prerequisite, stop and open a small plan/spec follow-up instead of silently expanding the task.
 
 ## File structure (target product layout)
 
@@ -457,7 +467,7 @@ Before implementation starts, confirm:
 
 **Two execution options:**
 
-1. **Subagent-driven (recommended)** — one task per subagent, review between tasks  
-2. **Inline** — execute in-session with checkpoints after Phase 1 review gate  
+1. **Subagent-driven (recommended)** — one task per subagent, one PR per task, review between task PRs
+2. **Inline** — execute one task at a time in-session, still committing and opening one PR per task
 
 Which approach do you want after spec review?
