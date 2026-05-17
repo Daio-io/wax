@@ -98,9 +98,9 @@ Primary project config. Format: **JSON** (v1).
 
 Per-language keys beyond `id` / `enabled` are validated by that language pack’s config schema.
 
-### `wax.lock.json` (repository, committed for CI)
+### `wax.lock.json` (repository, committed)
 
-Pins resolved artifacts for reproducible CI. **Required when using `wax scan --no-auto-install` in CI**; optional for local-only workflows until teams opt in.
+Pins resolved artifacts for reproducible local and CI scans. **Required for repositories using language packs**; `wax init` writes it after resolving selected pack artifacts.
 
 ```json
 {
@@ -208,7 +208,7 @@ Non-zero exit is a last resort. Prefer a structured line on stdout:
 |-------|-----------|
 | **Timeout** | Default 10 minutes per language pack; `WAX_SCAN_TIMEOUT_SECS` override |
 | **Cancellation** | SIGTERM, 5s grace, then SIGKILL on Ctrl-C or parent cancel |
-| **Max stdout size** | Soft cap 64 MiB per response; engine aborts with `response_too_large` |
+| **Response size** | No fixed response cap in v1; engine must stream or spool stdout safely instead of buffering unbounded data in memory |
 | **Version mismatch** | No best-effort across `api_version`; refuse before spawn |
 
 ## Pack distribution trust model (v1)
@@ -217,14 +217,14 @@ Non-zero exit is a last resort. Prefer a structured line on stdout:
 |-------|-------------|
 | **Trust root** | Default pack index URL baked into engine; override only via `WAX_LANG_INDEX` |
 | **Integrity** | sha256 of artifact bytes; index entry supplies expected hash (integrity boundary = HTTPS + index you trust) |
-| **Authenticity** | HTTPS to index/releases only; **code signing deferred to v1.1** (document explicitly) |
-| **Lockfile** | When present, pins digest; auto-install must not upgrade silently |
+| **Authenticity** | HTTPS to index/releases in v1; **Sigstore/cosign signing planned for v1.1** |
+| **Lockfile** | Required for repositories using language packs; pins digest; auto-install must not upgrade silently |
 | **Sandbox** | **No sandbox** — subprocess runs as the user; document in security notes |
 | **Mirrors** | `WAX_LANG_INDEX` may point at corporate mirror; `doctor` prints effective index URL |
 
-Auto-install default: **on** for local `wax scan`; CI **MUST** use `wax scan --no-auto-install` with a committed `wax.lock.json`.
+Auto-install default: **on** for local `wax scan`; CI **MUST** use `wax scan --no-auto-install` with the committed `wax.lock.json`.
 
-`wax init` writes `.waxrc` by default. It writes `wax.lock.json` only when the user asks for a reproducible install (`--lock` or CI template mode) or after an install/update command has resolved concrete pack artifacts.
+`wax init` writes `.waxrc` and `wax.lock.json` after resolving concrete pack artifacts.
 
 ## CLI surface (v1)
 
@@ -232,7 +232,7 @@ All language lifecycle commands use the **`wax language`** group (singular):
 
 | Command | Purpose |
 |---------|---------|
-| `wax init` | Onboard: write `.waxrc`, optional `wax.lock.json`, scaffold DS registries |
+| `wax init` | Onboard: write `.waxrc`, resolve packs, write `wax.lock.json`, scaffold DS registries |
 | `wax language list` | Installed language ids (all packs are downloaded; none ship inside `wax`) |
 | `wax language install <id>[@version]` | Download to `~/.wax/langs/` |
 | `wax language uninstall <id>` | Remove global install |
@@ -265,7 +265,7 @@ First-party pack binaries use `wax-lang-<id>` names, for example `wax-lang-compo
 |----|--------|-------|
 | `compose` | tree-sitter-kotlin | First product language |
 | `react` | SWC | TSX/JSX extraction |
-| `swift` | TBD | Parser spike before registry listing |
+| `swift` | Deferred | Later-phase language pack after a dedicated parser decision |
 
 ### Monolithic vs modular CLI
 
@@ -298,13 +298,13 @@ Phase 0 compared TS-core and Go-core spikes (fixtures, goldens, benchmarks). Pro
 - Third-party pack marketplace
 - WASM packs
 - SaaS login
-- Code signing (deferred v1.1)
+- Code-signature enforcement in v1 (Sigstore/cosign planned for v1.1)
 - Full static site export design
 
-## Open questions for review
+## Decisions from review
 
-1. **`.waxrc` format:** JSON-only v1, or YAML/TOML from day one?
-2. **Lockfile:** remain optional locally but required in documented CI template?
-3. **Swift parser:** tree-sitter-swift vs other?
-4. **64 MiB response cap:** too low for huge monorepos?
-5. **Signing:** minisign vs cosign vs sigstore for v1.1?
+1. **`.waxrc` format:** JSON-only for v1.
+2. **Lockfile:** required for repositories using language packs.
+3. **Swift parser:** deferred to a later phase.
+4. **Response size:** no fixed cap; engine implementation must handle large responses safely.
+5. **Signing:** plan Sigstore/cosign for v1.1, while v1 relies on HTTPS + sha256 + lockfile pins.

@@ -22,7 +22,7 @@ This plan chooses a Rust engine with downloadable native language packs because 
 
 ## Prerequisites
 
-- [ ] Spec [2026-05-16-language-packs-and-distribution.md](../specs/2026-05-16-language-packs-and-distribution.md) reviewed and open questions resolved (or defaults recorded in ADR addendum).
+- [ ] Spec [2026-05-16-language-packs-and-distribution.md](../specs/2026-05-16-language-packs-and-distribution.md) reviewed and decisions recorded in the ADR addendum.
 - [ ] `rust-prototype/` remains read-only reference material. Do not evolve it into production code.
 - [ ] Phase 0 spike artifacts (if used for compose goldens) live on a separate branch or PR—not required for the fresh production workspace.
 
@@ -278,7 +278,7 @@ Use the mock binary from Task 5 to assert:
 
 - success stdout is parsed through `scan_facts_from_json`
 - structured `type: "error"` stdout maps to a pack failure
-- oversized stdout triggers `response_too_large`
+- large stdout is streamed or spooled safely without a fixed protocol cap
 - timeout maps to `LanguageError::Timeout`
 
 - [ ] **Step 4: Run protocol tests**
@@ -338,7 +338,7 @@ Add tests that cover:
 - Create: `engine/fixtures/config/example.waxrc`
 
 - [ ] **Step 1: Interactive prompts (or `--yes` defaults): select language ids**
-- [ ] **Step 2: Write `.waxrc`; write `wax.lock.json` only for `--lock` / CI template mode**
+- [ ] **Step 2: Write `.waxrc` and `wax.lock.json` after resolving selected pack artifacts**
 - [ ] **Step 3: Call `language install` for selected ids**
 - [ ] **Step 4: Optional registry scaffold** (copy example `registry.json` if missing)
 - [ ] **Step 5: Keep v1 onboarding boring**
@@ -346,14 +346,14 @@ Add tests that cover:
 Implement `wax init --yes --language compose` before interactive prompts. The first version should be scriptable, deterministic, and easy to test:
 
 ```bash
-wax init --yes --language compose --lock
+wax init --yes --language compose
 ```
 
 Expected:
 
 - writes `.waxrc`
 - installs selected packs unless `--no-install` is passed
-- writes `wax.lock.json` only when `--lock` is present
+- writes `wax.lock.json` with resolved pack versions and digests
 - does not require a TTY
 
 ---
@@ -426,9 +426,10 @@ Expected:
 **Files:**
 - Modify: `docs/specs/2026-05-16-language-packs-and-distribution.md` § Pack distribution trust model
 
-- [ ] **Step 1: Record v1 decision (sha256 + HTTPS; signing deferred)**
+- [ ] **Step 1: Record v1 decision (sha256 + HTTPS; Sigstore/cosign planned for v1.1)**
 - [ ] **Step 2: Document lockfile vs auto-install precedence**
-- [ ] **Step 3: Add ADR addendum pointer in Task 14**
+- [ ] **Step 3: Record Sigstore/cosign as the planned v1.1 signing direction**
+- [ ] **Step 4: Add ADR addendum pointer in Task 14**
 
 ### - [ ] Task 18: Remove `rust-prototype/` reference workspace
 
@@ -500,10 +501,10 @@ Expected: no stale production docs references to `rust-prototype`; tests PASS.
 
 Before implementation starts, confirm:
 
-1. Open questions in [language packs spec](../specs/2026-05-16-language-packs-and-distribution.md) (JSON vs YAML, Swift parser, response cap, signing v1.1).
+1. Decisions in [language packs spec](../specs/2026-05-16-language-packs-and-distribution.md) are recorded: JSON-only `.waxrc`, required lockfile, Swift deferred, no fixed response cap, Sigstore/cosign v1.1 signing direction.
 2. ADR process: addendum vs superseding foundation ADR.
 3. Monorepo layout: start fresh in `engine/crates/`; keep `rust-prototype/` read-only as reference material.
-4. CI policy: `wax scan --no-auto-install` + committed `wax.lock.json` (see spec: lockfile required for that CI mode).
+4. CI policy: `wax scan --no-auto-install` + committed `wax.lock.json`.
 5. Pack binary naming is fixed as `wax-lang-<id>` across crates, manifests, and release artifacts.
 
 ---
