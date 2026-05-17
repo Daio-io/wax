@@ -26,6 +26,8 @@ End users install a **`wax` binary** and download language packs globally. Each 
 
 Avoid overloading **registry**: in `.waxrc`, use `design_system_registry` for the in-repo DS file path; reserve **pack index** for the remote install source.
 
+Production Rust code MUST model language ids as a validated `LanguageId` newtype, not raw `String`. Valid ids are lowercase ASCII slugs (`[a-z][a-z0-9-]*`) and the same type is used across `.waxrc`, manifests, lockfiles, wire messages, and `ScanFacts`.
+
 ## Architecture
 
 ```text
@@ -64,6 +66,17 @@ Rules:
 - Engine **MUST** reject wire `api_version` newer than it supports.
 - Pack **MUST** refuse (structured error) when `request.api_version` > `manifest.api_version`.
 - `ScanFacts.schema_version` **MUST** match `SCHEMA_VERSION` constant; engine validates on ingest.
+
+## Production contract requirements
+
+The production `wax-contract` crate is the stable boundary for language packs and reports. It MUST:
+
+- use `#![deny(missing_docs)]` from the first production PR;
+- expose typed error enums instead of returning `String` errors from contract parsing/validation helpers;
+- use typed timestamps (`time::OffsetDateTime` or equivalent) for recorded times, with RFC 3339 JSON serialization;
+- use `SourceLocation { file, line, column: Option<u32> }` for source references instead of duplicating `file` / `line` fields across fact types;
+- define `adoption_coverage_ratio` as `resolved_count / usage_site_count`, excluding `candidate` matches from the numerator; when `usage_site_count == 0`, the ratio is `null`;
+- reserve extension fields only where the engine has a known compatibility need.
 
 ## Configuration
 
@@ -116,7 +129,8 @@ Pins resolved artifacts for reproducible local and CI scans. **Required for repo
       "resolved": {
         "target": "aarch64-apple-darwin",
         "url": "https://releases.wax.dev/compose/0.4.2/aarch64-apple-darwin.tar.gz",
-        "sha256": "…"
+        "sha256": "…",
+        "signature": null
       }
     }
   }
@@ -125,6 +139,7 @@ Pins resolved artifacts for reproducible local and CI scans. **Required for repo
 
 - **`api_version` per language** — verified before spawn.
 - **`resolved`** — host triple, url, and sha256 for the machine that produced the lock (CI must match triple or use a matrix).
+- **`resolved.signature`** — reserved for Sigstore/cosign metadata in v1.1; `null` in v1.
 - **`source`** — pack index URL or mirror id for audit.
 - **`wax_version`** — engine that wrote the lock; `doctor` warns on skew.
 - **`locked_at`** — when the lock was produced; optional audit field.
@@ -158,6 +173,8 @@ Transport: **stdio, binary-safe length not required for v1** — one UTF-8 JSON 
 
 Future **daemon mode** will use NDJSON (`initialize` / `scan` / `progress` / `shutdown`) on the same fd pair.
 
+In-process and subprocess scan request types MUST share the same fields. The engine populates `api_version`, `language_id`, `repo_root`, `snapshot_id`, and `config` before invoking either an in-process `LanguageExtractor` or a subprocess language pack.
+
 ### Request (engine → pack)
 
 ```json
@@ -179,7 +196,22 @@ Future **daemon mode** will use NDJSON (`initialize` / `scan` / `progress` / `sh
 
 ### Success response (pack → engine)
 
-Single JSON object: `ScanFacts` (`wax-contract`). Field `type` is omitted on success (or `"type": "scan_facts"` if we add a tag later).
+Single tagged JSON object containing `ScanFacts` (`wax-contract`). Abridged example:
+
+```json
+{
+  "type": "scan_facts",
+  "api_version": 1,
+  "language_id": "compose",
+  "facts": {
+    "schema_version": 1,
+    "language": { "id": "compose", "version": "0.4.2", "ecosystem": "jetpack-compose", "parser": "tree-sitter-kotlin@0.3.8" },
+    "snapshot_id": "scan-20260516-abc123"
+  }
+}
+```
+
+The response envelope is tagged by `type`; production code MUST NOT use untagged success/error deserialization.
 
 ### Error response (pack → engine)
 
@@ -200,7 +232,11 @@ Non-zero exit is a last resort. Prefer a structured line on stdout:
 |-------------|---------|
 | `api_version_unsupported` | Request `api_version` too new |
 | `config_invalid` | Pack rejected `config` |
+| `registry_not_found` | Configured design-system registry path is missing |
+| `parser_init_failed` | Parser/runtime could not initialize before scanning |
+| `timeout` | Pack exceeded the engine deadline |
 | `scan_failed` | Unrecoverable extraction failure |
+| `internal_error` | Unexpected pack failure; message should be safe to display |
 
 ### Engine responsibilities
 
@@ -281,7 +317,7 @@ Some tools ship one package with a single prebuilt native addon. Wax ships a **s
 | `wax-lang-<id>` | Pack binaries (future) |
 | `wax-cli` | User-facing binary (future) |
 
-**In-process:** engine calls `LanguageExtractor::scan(ScanRequest)` after validating config.  
+**In-process:** engine calls `LanguageExtractor::scan(ScanRequest)` with the same fields as the wire request after validating config.
 **Subprocess:** engine uses `protocol::WireScanRequest` / `WireScanResponse` — same fields as the JSON above.
 
 ## Background: architecture evaluation (not in repo)

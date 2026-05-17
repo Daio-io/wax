@@ -14,6 +14,10 @@
 
 ---
 
+## Verification note
+
+Verification commands in this plan describe the future production `engine/` workspace. This PR still contains `rust-prototype/` as read-only reference material until Task 18 removes it.
+
 ## Decision rationale
 
 Phase 0 compared TS-core and Go-core prototypes using source fixtures, golden outputs, and benchmark-oriented spikes. The provisional TS+TS direction had the lowest install friction, but it made the long-term multi-language boundary blurrier: every new ecosystem risked pulling parser/runtime concerns into the same package and making the analysis contract harder to keep stable.
@@ -66,6 +70,18 @@ Generated / local (gitignored):
 .wax/                    # scan output, cache (repo-local per AGENTS.md)
 ```
 
+## Prototype patterns not to copy
+
+When Phase 1 starts in `engine/`, do not blindly copy spike code from `rust-prototype/`:
+
+- Do not use `#[serde(untagged)]` for success/error response envelopes; use a `type` discriminator (`scan_facts` / `error`).
+- Do not return `String` errors from public contract helpers; use `thiserror` enums that preserve error context.
+- Do not store timestamps as plain `String`; use typed timestamps with explicit JSON serialization.
+- Do not re-export the entire `wax-contract` crate from `wax-lang-api`; expose only the types needed by the API.
+- Do not duplicate `file` / `line` fields; use a shared `SourceLocation { file, line, column: Option<u32> }`.
+- Do not hand-edit `engine/Cargo.lock`; generate it from a real `cd engine && cargo build`.
+- Do not ship undocumented public contract types; `wax-contract` starts with `#![deny(missing_docs)]`.
+
 ---
 
 ## Phase 1 — Contract, config, and wire protocol freeze
@@ -84,7 +100,18 @@ Generated / local (gitignored):
 
 Ensure [language packs spec](../specs/2026-05-16-language-packs-and-distribution.md) matches `LanguageMetadata` + `ScanFacts.language` (not `plugin`).
 
-- [ ] **Step 2: Add serde roundtrip test**
+- [ ] **Step 2: Define production contract guardrails**
+
+Implement the contract crate with:
+
+- `#![deny(missing_docs)]`
+- `LanguageId(String)` newtype with lowercase slug validation
+- `SourceLocation { file, line, column: Option<u32> }`
+- typed public errors using `thiserror`
+- typed timestamps with RFC 3339 serialization
+- `adoption_coverage_ratio = resolved_count / usage_site_count`, excluding candidates
+
+- [ ] **Step 3: Add serde roundtrip test**
 
 ```rust
 #[test]
@@ -97,12 +124,12 @@ fn scan_facts_roundtrip() {
 }
 ```
 
-- [ ] **Step 3: Run test**
+- [ ] **Step 4: Run test**
 
 Run: `cd engine && cargo test -p wax-contract`
 Expected: PASS
 
-- [ ] **Step 4: Commit** (when user requests commits)
+- [ ] **Step 5: Commit** (when user requests commits)
 
 ```bash
 git add engine/crates/wax-contract docs/specs/2026-05-16-language-packs-and-distribution.md
@@ -129,7 +156,7 @@ pub struct WaxRc {
 
 #[derive(Debug, Deserialize)]
 pub struct LanguageEntry {
-    pub id: String,
+    pub id: LanguageId,
     pub enabled: bool,
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
@@ -162,9 +189,13 @@ Reject unknown `schema_version` with actionable message.
 - Test: `engine/crates/wax-core/tests/lockfile_load.rs`
 - Fixture: `engine/fixtures/config/minimal.wax.lock.json`
 
-- [ ] **Step 1: Types for lockfile** (`engine_api_version`, `languages: BTreeMap<String, LockedLanguage>`)
+- [ ] **Step 1: Types for lockfile** (`engine_api_version`, `languages: BTreeMap<LanguageId, LockedLanguage>`)
 - [ ] **Step 2: Test load + version pin**
-- [ ] **Step 3: `doctor` helper: compare `.waxrc` enabled ids vs lock keys**
+- [ ] **Step 3: Reserve signature slot**
+
+Add `resolved.signature: Option<SignatureRef>` to the lockfile shape. v1 writes `null`; v1.1 can fill this with Sigstore/cosign bundle metadata without another lockfile shape change.
+
+- [ ] **Step 4: `doctor` helper: compare `.waxrc` enabled ids vs lock keys**
 
 ### - [ ] Task 4: Wire protocol types (v1)
 
@@ -173,19 +204,41 @@ Reject unknown `schema_version` with actionable message.
 - Create: `engine/crates/wax-lang-api/src/protocol.rs`
 - Create: `engine/crates/wax-lang-api/src/lib.rs`
 
-- [ ] **Step 1: Align `WireScanRequest` with spec** (`repo_root`, `snapshot_id`, `config` — no `mode` in v1)
-- [ ] **Step 2: `WireScanResponse` — untagged `ScanFacts` success vs `type: "error"` failure**
-- [ ] **Step 3: Unit test roundtrip request JSON matches spec example**
+- [ ] **Step 1: Align request types with spec**
 
-- [ ] **Step 4: Review checkpoint**
+Both in-process `ScanRequest` and wire `WireScanRequest` contain the same fields: `type`, `api_version`, `language_id`, `repo_root`, `snapshot_id`, and `config`. There is no `mode` field in v1.
+
+- [ ] **Step 2: Use tagged response envelopes**
+
+`WireScanResponse` uses a `type` discriminator with `scan_facts` and `error` variants. Do not use untagged serde response parsing.
+
+- [ ] **Step 3: Define complete error code enum**
+
+Include at least: `api_version_unsupported`, `config_invalid`, `registry_not_found`, `parser_init_failed`, `timeout`, `scan_failed`, `internal_error`.
+
+- [ ] **Step 4: Add wire fixture tests**
+
+Add request, success, and error fixture tests in `engine/crates/wax-lang-api/tests/wire_protocol.rs`:
+
+- request fixture roundtrips with `repo_root`, `language_id`, `api_version`, `snapshot_id`, and `config`
+- success fixture requires `type: "scan_facts"`
+- error fixture deserializes `registry_not_found`
+- malformed/untagged response fails
+
+- [ ] **Step 5: Run wire protocol tests**
+
+Run: `cd engine && cargo test -p wax-lang-api wire_protocol`
+Expected: PASS
+
+- [ ] **Step 6: Review checkpoint**
 
 Confirm Tasks 1–4 are consistent with each other before starting Phase 2+ work:
 
 - `ScanFacts.schema_version` is enforced by `scan_facts_from_json`.
 - `.waxrc` uses `design_system_registry` and keeps per-language config opaque to the engine.
 - `wax.lock.json` records `api_version`, `source`, `resolved.target`, `resolved.url`, `resolved.sha256`, `wax_version`, and `locked_at`.
-- `WireScanRequest` contains `type`, `api_version`, `language_id`, `repo_root`, `snapshot_id`, and `config`; it does not contain `mode`.
-- `WireScanResponse` supports bare `ScanFacts` success and structured `type: "error"` failure.
+- `WireScanRequest` and in-process `ScanRequest` share fields.
+- `WireScanResponse` supports tagged `type: "scan_facts"` success and tagged `type: "error"` failure.
 
 ---
 
@@ -200,7 +253,7 @@ Build on the frozen Phase 1 contracts. This phase proves that the engine can inv
 - Modify: `engine/crates/wax-core/src/lib.rs`
 
 - [ ] **Step 1: Spawn `manifest.command`, write one `WireScanRequest::Scan` JSON to stdin, read stdout**
-- [ ] **Step 2: Parse `WireScanResponse` or `ScanFacts`; map timeout/cancel to `LanguageError::Timeout` / `Cancelled`**
+- [ ] **Step 2: Parse tagged `WireScanResponse`; map timeout/cancel to `LanguageError::Timeout` / `Cancelled`**
 - [ ] **Step 3: Integration test with mock binary** (shell script that echoes canned JSON)
 
 Run: `cd engine && cargo test -p wax-core subprocess`
@@ -213,7 +266,7 @@ Run: `cd engine && cargo test -p wax-core subprocess`
 - Create: `engine/crates/wax-lang-compose/src/bin/wax-lang-compose.rs`
 
 - [ ] **Step 1: Read stdin lines until `Scan` message**
-- [ ] **Step 2: Call `ComposeLanguage::scan`, write `ScanFacts` as one line to stdout**
+- [ ] **Step 2: Call `ComposeLanguage::scan`, write a tagged `scan_facts` response as one JSON object to stdout**
 - [ ] **Step 3: Manual test**
 
 ```bash
@@ -245,7 +298,7 @@ Return `ScanFacts` with:
 
 - [ ] **Step 3: Add `wax-lang-react --stdio`**
 
-Read one `WireScanRequest::Scan` JSON object from stdin, call the stub language, and write one JSON object response to stdout.
+Read one `WireScanRequest::Scan` JSON object from stdin, call the stub language, and write one tagged `scan_facts` response to stdout.
 
 - [ ] **Step 4: Run a manual stdio smoke test**
 
@@ -256,34 +309,25 @@ echo '{"type":"scan","api_version":1,"language_id":"react","repo_root":"/tmp/rep
   | ./target/debug/wax-lang-react --stdio
 ```
 
-Expected: one valid `ScanFacts` JSON object with `language.id = "react"` and `snapshot_id = "test"`.
+Expected: one valid `scan_facts` response with `language.id = "react"` and `snapshot_id = "test"`.
 
-### - [ ] Task 6c: Protocol conformance tests
+### - [ ] Task 6c: Subprocess protocol conformance tests
 
 **Files:**
-- Test: `engine/crates/wax-lang-api/tests/wire_protocol.rs`
 - Test: `engine/crates/wax-core/tests/subprocess_protocol.rs`
 
-- [ ] **Step 1: Add wire request fixture test**
-
-Test that the spec request example deserializes into `WireScanRequest::Scan` and serializes back with the same field names (`repo_root`, not `fixture_root`; no `mode`).
-
-- [ ] **Step 2: Add wire error fixture test**
-
-Test that the spec error response deserializes into `WireScanResponse::Error` with `code = "registry_not_found"` and an empty diagnostics array.
-
-- [ ] **Step 3: Add subprocess adapter conformance test**
+- [ ] **Step 1: Add subprocess adapter conformance test**
 
 Use the mock binary from Task 5 to assert:
 
-- success stdout is parsed through `scan_facts_from_json`
+- success stdout is parsed as tagged `scan_facts` and validates the embedded `ScanFacts`
 - structured `type: "error"` stdout maps to a pack failure
 - large stdout is streamed or spooled safely without a fixed protocol cap
 - timeout maps to `LanguageError::Timeout`
 
-- [ ] **Step 4: Run protocol tests**
+- [ ] **Step 2: Run subprocess protocol tests**
 
-Run: `cd engine && cargo test -p wax-lang-api wire_protocol && cargo test -p wax-core subprocess_protocol`
+Run: `cd engine && cargo test -p wax-core subprocess_protocol`
 Expected: PASS
 
 ---
@@ -300,16 +344,52 @@ Expected: PASS
 - [ ] **Step 2: `lang_install_dir(id, version) -> ~/.wax/langs/<id>/<version>`**
 - [ ] **Step 3: Load/save `state.json`**
 
-### - [ ] Task 8: Official registry client (read-only v1)
+### - [ ] Task 7b: Auto-install policy
+
+**Files:**
+- Create: `engine/crates/wax-core/src/auto_install.rs`
+- Test: `engine/crates/wax-core/tests/auto_install_policy.rs`
+
+- [ ] **Step 1: Define policy inputs**
+
+Create a small pure policy API that takes `.waxrc` enabled ids, lockfile entries, installed manifests, CLI mode (`allow_auto_install`), and pack-index metadata.
+
+- [ ] **Step 2: Test required-lock behavior**
+
+Assert enabled language packs require `wax.lock.json`; `--no-auto-install` fails when an enabled pack is missing locally; auto-install chooses the exact lockfile version/digest when allowed.
+
+- [ ] **Step 3: Test drift behavior**
+
+Assert digest drift between lockfile and pack index refuses install, even when auto-install is enabled.
+
+Run: `cd engine && cargo test -p wax-core auto_install_policy`
+Expected: PASS
+
+### - [ ] Task 8a: Pack index and manifest client
 
 **Files:**
 - Create: `engine/crates/wax-core/src/registry.rs`
 - Fixture: `engine/fixtures/registry/official-manifest.json`
 
 - [ ] **Step 1: Parse manifest entry** (id, version, api_version, targets map with url + sha256)
-- [ ] **Step 2: `install_language(id, version, target_triple)` — download, verify sha256, unpack, write manifest.json**
-- [ ] **Step 3: Test with `file://` fixture URL** (no network in unit tests)
-- [ ] **Step 4: Harden install edge cases**
+- [ ] **Step 2: Fetch pack index from `file://` fixture URL** (no network in unit tests)
+- [ ] **Step 3: Select target artifact for host triple**
+- [ ] **Step 4: Run tests**
+
+Run: `cd engine && cargo test -p wax-core registry`
+Expected: PASS
+
+### - [ ] Task 8b: Secure language install
+
+**Files:**
+- Create: `engine/crates/wax-core/src/install.rs`
+- Test: `engine/crates/wax-core/tests/install_language.rs`
+
+- [ ] **Step 1: Implement `install_language(id, version, target_triple)`**
+
+Download artifact, verify sha256, unpack to a temp dir, write manifest, then atomically promote to `~/.wax/langs/<id>/<version>`.
+
+- [ ] **Step 2: Harden install edge cases**
 
 Add tests that cover:
 
@@ -318,6 +398,11 @@ Add tests that cover:
 - partial installs are written to a temp dir and atomically promoted only after verification.
 - installed binaries are executable on Unix.
 - lockfile-pinned installs refuse digest drift from the pack index.
+
+- [ ] **Step 3: Run install tests**
+
+Run: `cd engine && cargo test -p wax-core install_language`
+Expected: PASS
 
 ### - [ ] Task 9: CLI `wax language install|list|uninstall|update|doctor`
 
@@ -360,16 +445,44 @@ Expected:
 
 ## Phase 4 — `wax scan` product path
 
-### - [ ] Task 11: Engine resolves enabled languages from `.waxrc`
+### - [ ] Task 11a: Engine resolves enabled languages and spawns packs
 
 **Files:**
 - Modify: `engine/crates/wax-core/src/lib.rs`
 
 - [ ] **Step 1: `Engine::scan_repo(repo_root)` loads `.waxrc`, filters `enabled: true`**
 - [ ] **Step 2: For each id, resolve subprocess adapter from global manifest**
-- [ ] **Step 3: Auto-install if missing** (unless `--no-auto-install`)
-- [ ] **Step 4: Parallel scan per spec `engine.scan_concurrency` (default 2)**
-- [ ] **Step 5: Write `MergedScan` to `.wax/out/scan-merged.json` and per-language files**
+- [ ] **Step 3: Apply `auto_install::policy()` from Task 7b**
+- [ ] **Step 4: Run enabled packs serially**
+
+Run: `cd engine && cargo test -p wax-core scan_resolve`
+Expected: PASS
+
+### - [ ] Task 11b: Engine scan concurrency
+
+**Files:**
+- Modify: `engine/crates/wax-core/src/lib.rs`
+- Test: `engine/crates/wax-core/tests/scan_concurrency.rs`
+
+- [ ] **Step 1: Apply `engine.scan_concurrency` default and CLI override**
+- [ ] **Step 2: Run enabled packs in parallel with bounded concurrency**
+- [ ] **Step 3: Preserve deterministic merged output ordering by `LanguageId`**
+
+Run: `cd engine && cargo test -p wax-core scan_concurrency`
+Expected: PASS
+
+### - [ ] Task 11c: Engine scan output writing
+
+**Files:**
+- Modify: `engine/crates/wax-core/src/lib.rs`
+- Test: `engine/crates/wax-core/tests/scan_output.rs`
+
+- [ ] **Step 1: Write per-language scan files under `.wax/out/languages/`**
+- [ ] **Step 2: Write `MergedScan` to `.wax/out/scan-merged.json`**
+- [ ] **Step 3: Use atomic writes so interrupted scans do not leave corrupt JSON**
+
+Run: `cd engine && cargo test -p wax-core scan_output`
+Expected: PASS
 
 ### - [ ] Task 12: Compose correctness gate (after `wax-lang-compose` exists)
 
@@ -400,7 +513,7 @@ Expected:
 - Create: `docs/adr/2026-05-16-rust-engine-language-packs.md`
 
 - [ ] **Step 1: State decision to adopt Rust engine + language packs (pending spec approval)**
-- [ ] **Step 2: Link Phase 0 evidence and open questions from spec**
+- [ ] **Step 2: Link Phase 0 evidence and decisions from spec**
 - [ ] **Step 3: Explicitly defer kernel **plugins** to future ADR**
 
 ### - [ ] Task 15: Update component tracker design terminology
@@ -485,16 +598,18 @@ Expected: no stale production docs references to `rust-prototype`; tests PASS.
 | Spec requirement | Plan task |
 |------------------|-----------|
 | Terminology language vs plugin | Spec doc + Task 15 |
-| `.waxrc` | Task 2, 10, 11 |
+| `.waxrc` | Task 2, 10, 11a |
 | `wax.lock.json` | Task 3, 10 |
-| Global `~/.wax/langs/` | Task 7, 8 |
+| Global `~/.wax/langs/` | Task 7, 8a, 8b |
+| Auto-install policy | Task 7b, 11a |
 | Wire protocol (v1 JSON) | Task 4, 5, 6, 6b, 6c |
-| No pack-to-pack IPC | Spec invariants; Task 11 engine-only merge |
+| No pack-to-pack IPC | Spec invariants; Task 11a engine-only merge |
 | CLI install/update/doctor | Task 9 |
 | Onboarding `wax init` | Task 10 |
 | Prebuilt distribution | Task 16 |
 | Compose + React first-party | Tasks 6, 6b, 12 |
 | `ScanFacts` / `LanguageMetadata` | Task 1, production crates |
+| Scan execution and output | Tasks 11a, 11b, 11c |
 | Prototype cleanup | Task 18 |
 
 ## Review checklist for humans
@@ -506,6 +621,7 @@ Before implementation starts, confirm:
 3. Monorepo layout: start fresh in `engine/crates/`; keep `rust-prototype/` read-only as reference material.
 4. CI policy: `wax scan --no-auto-install` + committed `wax.lock.json`.
 5. Pack binary naming is fixed as `wax-lang-<id>` across crates, manifests, and release artifacts.
+6. Task 15 intentionally carries old component-tracker “plugin” terminology cleanup; mention this in the PR description so reviewers do not confuse old design text with the new language-pack direction.
 
 ---
 
