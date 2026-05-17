@@ -430,6 +430,42 @@ Expected:
 - [ ] **Step 2: Document lockfile vs auto-install precedence**
 - [ ] **Step 3: Add ADR addendum pointer in Task 14**
 
+### - [ ] Task 18: Remove `rust-prototype/` reference workspace
+
+**Files:**
+- Delete: `rust-prototype/`
+- Modify: `README.md`
+- Modify: `docs/specs/2026-05-16-language-packs-and-distribution.md`
+
+- [ ] **Step 1: Confirm production replacement exists**
+
+Before deleting the prototype, verify the production `engine/` workspace has landed and covers the useful reference material:
+
+```bash
+cd engine
+cargo test -p wax-contract
+cargo test -p wax-lang-api
+```
+
+Expected: PASS
+
+- [ ] **Step 2: Remove `rust-prototype/`**
+
+Delete the entire `rust-prototype/` directory after Tasks 1–4 have established the production contract/config/wire crates.
+
+- [ ] **Step 3: Update references**
+
+Remove README/spec links that point to `rust-prototype/`; replace them with `engine/` links where useful.
+
+- [ ] **Step 4: Run cleanup checks**
+
+```bash
+rg -n "rust-prototype|Rust prototype" README.md docs engine
+cd engine && cargo test
+```
+
+Expected: no stale production docs references to `rust-prototype`; tests PASS.
+
 ---
 
 ## Deferred (separate plans)
@@ -458,6 +494,7 @@ Expected:
 | Prebuilt distribution | Task 16 |
 | Compose + React first-party | Tasks 6, 6b, 12 |
 | `ScanFacts` / `LanguageMetadata` | Task 1, production crates |
+| Prototype cleanup | Task 18 |
 
 ## Review checklist for humans
 
