@@ -36,25 +36,26 @@ This plan chooses a Rust engine with downloadable native language packs because 
 
 ## File structure (fresh production layout)
 
-Start a new root Rust workspace for production. Use `rust-prototype/` only to understand prior API sketches; copy/adapt code only when it still matches the approved spec and the task PR makes that choice explicit.
+Start a new Rust workspace under `engine/` for production. Use `rust-prototype/` only to understand prior API sketches; copy/adapt code only when it still matches the approved spec and the task PR makes that choice explicit.
 
 ```text
-Cargo.toml                 # root Rust workspace
-Cargo.lock                 # committed for reproducible tool/CI builds
-crates/
-  wax-contract/          # ScanFacts, LanguageMetadata, MergedScan, schema_version
-  wax-lang-api/          # LanguageExtractor, ScanRequest, protocol types
-  wax-core/              # Engine, merge, .waxrc loading
-  wax-cli/               # user-facing `wax` binary
-  wax-lang-compose/      # Compose language pack (library + bin target for subprocess)
-  wax-lang-react/        # React language pack
+engine/
+  Cargo.toml             # Rust workspace
+  Cargo.lock             # committed for reproducible tool/CI builds
+  crates/
+    wax-contract/        # ScanFacts, LanguageMetadata, MergedScan, schema_version
+    wax-lang-api/        # LanguageExtractor, ScanRequest, protocol types
+    wax-core/            # Engine, merge, .waxrc loading
+    wax-cli/             # user-facing `wax` binary
+    wax-lang-compose/    # Compose language pack (library + bin target for subprocess)
+    wax-lang-react/      # React language pack
+  fixtures/
+    config/
+    registry/
 docs/
   specs/2026-05-16-language-packs-and-distribution.md
   plans/2026-05-16-rust-engine-language-packs-plan.md
 .waxrc                   # example in docs or fixtures only
-fixtures/
-  config/
-  registry/
 ```
 
 Generated / local (gitignored):
@@ -74,10 +75,10 @@ Generated / local (gitignored):
 ### - [ ] Task 1: Freeze `ScanFacts` JSON schema
 
 **Files:**
-- Create: `crates/wax-contract/Cargo.toml`
-- Create: `crates/wax-contract/src/lib.rs`
-- Create: `crates/wax-contract/schemas/scan-facts.schema.json`
-- Test: `crates/wax-contract/tests/schema_roundtrip.rs`
+- Create: `engine/crates/wax-contract/Cargo.toml`
+- Create: `engine/crates/wax-contract/src/lib.rs`
+- Create: `engine/crates/wax-contract/schemas/scan-facts.schema.json`
+- Test: `engine/crates/wax-contract/tests/schema_roundtrip.rs`
 
 - [ ] **Step 1: Document field meanings in spec**
 
@@ -98,24 +99,24 @@ fn scan_facts_roundtrip() {
 
 - [ ] **Step 3: Run test**
 
-Run: `cargo test -p wax-contract`
+Run: `cd engine && cargo test -p wax-contract`
 Expected: PASS
 
 - [ ] **Step 4: Commit** (when user requests commits)
 
 ```bash
-git add crates/wax-contract docs/specs/2026-05-16-language-packs-and-distribution.md
+git add engine/crates/wax-contract docs/specs/2026-05-16-language-packs-and-distribution.md
 git commit -m "docs: freeze language pack scan facts contract"
 ```
 
 ### - [ ] Task 2: `.waxrc` parser and validation
 
 **Files:**
-- Create: `crates/wax-core/Cargo.toml`
-- Create: `crates/wax-core/src/config.rs`
-- Create: `crates/wax-core/src/config/waxrc.rs`
-- Test: `crates/wax-core/tests/waxrc_load.rs`
-- Fixture: `fixtures/config/minimal.waxrc`
+- Create: `engine/crates/wax-core/Cargo.toml`
+- Create: `engine/crates/wax-core/src/config.rs`
+- Create: `engine/crates/wax-core/src/config/waxrc.rs`
+- Test: `engine/crates/wax-core/tests/waxrc_load.rs`
+- Fixture: `engine/fixtures/config/minimal.waxrc`
 
 - [ ] **Step 1: Define Rust types**
 
@@ -140,7 +141,7 @@ pub struct LanguageEntry {
 ```rust
 #[test]
 fn loads_minimal_waxrc() {
-    let rc = load_waxrc("fixtures/config/minimal.waxrc").unwrap();
+    let rc = load_waxrc("engine/fixtures/config/minimal.waxrc").unwrap();
     assert_eq!(rc.languages.len(), 1);
     assert_eq!(rc.languages[0].id, "compose");
 }
@@ -150,16 +151,16 @@ fn loads_minimal_waxrc() {
 
 Reject unknown `schema_version` with actionable message.
 
-- [ ] **Step 4: Run test** — `cargo test -p wax-core waxrc`
+- [ ] **Step 4: Run test** — `cd engine && cargo test -p wax-core waxrc`
 
 - [ ] **Step 5: Commit** (when requested)
 
 ### - [ ] Task 3: `wax.lock.json` parser
 
 **Files:**
-- Create: `crates/wax-core/src/config/lockfile.rs`
-- Test: `crates/wax-core/tests/lockfile_load.rs`
-- Fixture: `fixtures/config/minimal.wax.lock.json`
+- Create: `engine/crates/wax-core/src/config/lockfile.rs`
+- Test: `engine/crates/wax-core/tests/lockfile_load.rs`
+- Fixture: `engine/fixtures/config/minimal.wax.lock.json`
 
 - [ ] **Step 1: Types for lockfile** (`engine_api_version`, `languages: BTreeMap<String, LockedLanguage>`)
 - [ ] **Step 2: Test load + version pin**
@@ -168,9 +169,9 @@ Reject unknown `schema_version` with actionable message.
 ### - [ ] Task 4: Wire protocol types (v1)
 
 **Files:**
-- Create: `crates/wax-lang-api/Cargo.toml`
-- Create: `crates/wax-lang-api/src/protocol.rs`
-- Create: `crates/wax-lang-api/src/lib.rs`
+- Create: `engine/crates/wax-lang-api/Cargo.toml`
+- Create: `engine/crates/wax-lang-api/src/protocol.rs`
+- Create: `engine/crates/wax-lang-api/src/lib.rs`
 
 - [ ] **Step 1: Align `WireScanRequest` with spec** (`repo_root`, `snapshot_id`, `config` — no `mode` in v1)
 - [ ] **Step 2: `WireScanResponse` — untagged `ScanFacts` success vs `type: "error"` failure**
@@ -195,27 +196,28 @@ Build on the frozen Phase 1 contracts. This phase proves that the engine can inv
 ### - [ ] Task 5: Subprocess `LanguageExtractor` implementation
 
 **Files:**
-- Create: `crates/wax-core/src/subprocess_lang.rs`
-- Modify: `crates/wax-core/src/lib.rs`
+- Create: `engine/crates/wax-core/src/subprocess_lang.rs`
+- Modify: `engine/crates/wax-core/src/lib.rs`
 
 - [ ] **Step 1: Spawn `manifest.command`, write one `WireScanRequest::Scan` JSON to stdin, read stdout**
 - [ ] **Step 2: Parse `WireScanResponse` or `ScanFacts`; map timeout/cancel to `LanguageError::Timeout` / `Cancelled`**
 - [ ] **Step 3: Integration test with mock binary** (shell script that echoes canned JSON)
 
-Run: `cargo test -p wax-core subprocess`
+Run: `cd engine && cargo test -p wax-core subprocess`
 
 ### - [ ] Task 6: `wax-lang-compose` stdio entrypoint
 
 **Files:**
-- Create: `crates/wax-lang-compose/Cargo.toml` with `[[bin]] name = "wax-lang-compose"`
-- Create: `crates/wax-lang-compose/src/lib.rs`
-- Create: `crates/wax-lang-compose/src/bin/wax-lang-compose.rs`
+- Create: `engine/crates/wax-lang-compose/Cargo.toml` with `[[bin]] name = "wax-lang-compose"`
+- Create: `engine/crates/wax-lang-compose/src/lib.rs`
+- Create: `engine/crates/wax-lang-compose/src/bin/wax-lang-compose.rs`
 
 - [ ] **Step 1: Read stdin lines until `Scan` message**
 - [ ] **Step 2: Call `ComposeLanguage::scan`, write `ScanFacts` as one line to stdout**
 - [ ] **Step 3: Manual test**
 
 ```bash
+cd engine
 cargo build -p wax-lang-compose
 echo '{"type":"scan","api_version":1,...}' | ./target/debug/wax-lang-compose --stdio
 ```
@@ -223,10 +225,10 @@ echo '{"type":"scan","api_version":1,...}' | ./target/debug/wax-lang-compose --s
 ### - [ ] Task 6b: `wax-lang-react` stdio entrypoint skeleton
 
 **Files:**
-- Create: `crates/wax-lang-react/Cargo.toml`
-- Create: `crates/wax-lang-react/src/lib.rs`
-- Create: `crates/wax-lang-react/src/bin/wax-lang-react.rs`
-- Modify: `Cargo.toml`
+- Create: `engine/crates/wax-lang-react/Cargo.toml`
+- Create: `engine/crates/wax-lang-react/src/lib.rs`
+- Create: `engine/crates/wax-lang-react/src/bin/wax-lang-react.rs`
+- Modify: `engine/Cargo.toml`
 
 - [ ] **Step 1: Add a crate skeleton**
 
@@ -248,6 +250,7 @@ Read one `WireScanRequest::Scan` JSON object from stdin, call the stub language,
 - [ ] **Step 4: Run a manual stdio smoke test**
 
 ```bash
+cd engine
 cargo build -p wax-lang-react
 echo '{"type":"scan","api_version":1,"language_id":"react","repo_root":"/tmp/repo","snapshot_id":"test","config":{}}' \
   | ./target/debug/wax-lang-react --stdio
@@ -258,8 +261,8 @@ Expected: one valid `ScanFacts` JSON object with `language.id = "react"` and `sn
 ### - [ ] Task 6c: Protocol conformance tests
 
 **Files:**
-- Test: `crates/wax-lang-api/tests/wire_protocol.rs`
-- Test: `crates/wax-core/tests/subprocess_protocol.rs`
+- Test: `engine/crates/wax-lang-api/tests/wire_protocol.rs`
+- Test: `engine/crates/wax-core/tests/subprocess_protocol.rs`
 
 - [ ] **Step 1: Add wire request fixture test**
 
@@ -280,7 +283,7 @@ Use the mock binary from Task 5 to assert:
 
 - [ ] **Step 4: Run protocol tests**
 
-Run: `cargo test -p wax-lang-api wire_protocol && cargo test -p wax-core subprocess_protocol`
+Run: `cd engine && cargo test -p wax-lang-api wire_protocol && cargo test -p wax-core subprocess_protocol`
 Expected: PASS
 
 ---
@@ -290,8 +293,8 @@ Expected: PASS
 ### - [ ] Task 7: Global paths and state
 
 **Files:**
-- Create: `crates/wax-core/src/paths.rs`
-- Create: `crates/wax-core/src/global_state.rs`
+- Create: `engine/crates/wax-core/src/paths.rs`
+- Create: `engine/crates/wax-core/src/global_state.rs`
 
 - [ ] **Step 1: `wax_home() -> ~/.wax` with `WAX_HOME` override**
 - [ ] **Step 2: `lang_install_dir(id, version) -> ~/.wax/langs/<id>/<version>`**
@@ -300,8 +303,8 @@ Expected: PASS
 ### - [ ] Task 8: Official registry client (read-only v1)
 
 **Files:**
-- Create: `crates/wax-core/src/registry.rs`
-- Fixture: `fixtures/registry/official-manifest.json`
+- Create: `engine/crates/wax-core/src/registry.rs`
+- Fixture: `engine/fixtures/registry/official-manifest.json`
 
 - [ ] **Step 1: Parse manifest entry** (id, version, api_version, targets map with url + sha256)
 - [ ] **Step 2: `install_language(id, version, target_triple)` — download, verify sha256, unpack, write manifest.json**
@@ -319,10 +322,10 @@ Add tests that cover:
 ### - [ ] Task 9: CLI `wax language install|list|uninstall|update|doctor`
 
 **Files:**
-- Create: `crates/wax-cli/Cargo.toml`
-- Create: `crates/wax-cli/src/main.rs`
-- Create: `crates/wax-cli/src/commands/language.rs`
-- Create: `crates/wax-cli/src/commands/init.rs`
+- Create: `engine/crates/wax-cli/Cargo.toml`
+- Create: `engine/crates/wax-cli/src/main.rs`
+- Create: `engine/crates/wax-cli/src/commands/language.rs`
+- Create: `engine/crates/wax-cli/src/commands/init.rs`
 
 - [ ] **Step 1: clap subcommand tree `language {install,list,uninstall,update,doctor}`**
 - [ ] **Step 2: Wire install to registry + global state**
@@ -331,8 +334,8 @@ Add tests that cover:
 ### - [ ] Task 10: `wax init` onboarding
 
 **Files:**
-- Modify: `crates/wax-cli/src/commands/init.rs`
-- Create: `fixtures/config/example.waxrc`
+- Modify: `engine/crates/wax-cli/src/commands/init.rs`
+- Create: `engine/fixtures/config/example.waxrc`
 
 - [ ] **Step 1: Interactive prompts (or `--yes` defaults): select language ids**
 - [ ] **Step 2: Write `.waxrc`; write `wax.lock.json` only for `--lock` / CI template mode**
@@ -360,7 +363,7 @@ Expected:
 ### - [ ] Task 11: Engine resolves enabled languages from `.waxrc`
 
 **Files:**
-- Modify: `crates/wax-core/src/lib.rs`
+- Modify: `engine/crates/wax-core/src/lib.rs`
 
 - [ ] **Step 1: `Engine::scan_repo(repo_root)` loads `.waxrc`, filters `enabled: true`**
 - [ ] **Step 2: For each id, resolve subprocess adapter from global manifest**
@@ -371,8 +374,8 @@ Expected:
 ### - [ ] Task 12: Compose correctness gate (after `wax-lang-compose` exists)
 
 **Files:**
-- Test: `crates/wax-lang-compose/tests/golden_small.rs`
-- Data: committed golden JSON under `crates/wax-lang-compose/tests/fixtures/` (do not depend on `prototypes/` paths)
+- Test: `engine/crates/wax-lang-compose/tests/golden_small.rs`
+- Data: committed golden JSON under `engine/crates/wax-lang-compose/tests/fixtures/` (do not depend on `prototypes/` paths)
 
 - [ ] **Step 1: Add small Kotlin fixture + golden file in the compose crate**
 - [ ] **Step 2: Assert usage_site_count and resolved_count**
@@ -381,7 +384,7 @@ Expected:
 ### - [ ] Task 13: Create production `wax` binary target
 
 **Files:**
-- Modify: `crates/wax-cli/Cargo.toml`
+- Modify: `engine/crates/wax-cli/Cargo.toml`
 - Modify: `README.md`
 
 - [ ] **Step 1: Ensure `[[bin]] name = "wax"`**
@@ -462,7 +465,7 @@ Before implementation starts, confirm:
 
 1. Open questions in [language packs spec](../specs/2026-05-16-language-packs-and-distribution.md) (JSON vs YAML, Swift parser, response cap, signing v1.1).
 2. ADR process: addendum vs superseding foundation ADR.
-3. Monorepo layout: start fresh in root `crates/`; keep `rust-prototype/` read-only as reference material.
+3. Monorepo layout: start fresh in `engine/crates/`; keep `rust-prototype/` read-only as reference material.
 4. CI policy: `wax scan --no-auto-install` + committed `wax.lock.json` (see spec: lockfile required for that CI mode).
 5. Pack binary naming is fixed as `wax-lang-<id>` across crates, manifests, and release artifacts.
 
