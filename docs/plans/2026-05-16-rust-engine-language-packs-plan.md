@@ -12,6 +12,12 @@
 
 ---
 
+## Decision rationale
+
+Phase 0 compared TS-core and Go-core prototypes using source fixtures, golden outputs, and benchmark-oriented spikes. The provisional TS+TS direction had the lowest install friction, but it made the long-term multi-language boundary blurrier: every new ecosystem risked pulling parser/runtime concerns into the same package and making the analysis contract harder to keep stable.
+
+This plan chooses a Rust engine with downloadable native language packs because it gives `wax` a small, deterministic kernel for scanning, merging, adoption metrics, and report output while keeping parser-heavy ecosystem work isolated behind a typed `ScanFacts` + stdio protocol boundary. Prebuilt `wax` and `wax-lang-*` artifacts preserve the “no local Rust toolchain” user experience, while `.waxrc`, `wax.lock.json`, and global pack installs give teams a path from easy local scans to reproducible CI.
+
 ## Prerequisites
 
 - [ ] Spec [2026-05-16-language-packs-and-distribution.md](../specs/2026-05-16-language-packs-and-distribution.md) reviewed and open questions resolved (or defaults recorded in ADR addendum).
