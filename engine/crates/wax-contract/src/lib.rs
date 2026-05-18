@@ -24,6 +24,8 @@ pub const SCHEMA_VERSION: u32 = 1;
 /// agree without relying on large JSON number precision behavior.
 pub const MAX_PARSE_EXTRACT_MS: u64 = u32::MAX as u64;
 
+const NULLABLE_JSON_FIELDS: &[&[&str]] = &[&["metrics", "adoption_coverage_ratio"]];
+
 /// Validated lowercase ASCII slug used to identify a language pack.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LanguageId(String);
@@ -37,6 +39,18 @@ impl LanguageId {
     /// Consumes the id and returns the validated string.
     pub fn into_string(self) -> String {
         self.0
+    }
+}
+
+impl AsRef<str> for LanguageId {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl std::borrow::Borrow<str> for LanguageId {
+    fn borrow(&self) -> &str {
+        self.as_str()
     }
 }
 
@@ -358,7 +372,7 @@ pub fn validate_schema_version(version: u32) -> Result<(), ScanFactsError> {
 pub fn scan_facts_from_json(json: &str) -> Result<ScanFacts, ScanFactsError> {
     let value: serde_json::Value = serde_json::from_str(json)?;
     require_json_field(&value, &["metrics", "adoption_coverage_ratio"])?;
-    reject_disallowed_nulls(&value, "$")?;
+    reject_disallowed_nulls(&value, &[])?;
     let facts: ScanFacts = serde_json::from_value(value)?;
     validate_schema_version(facts.schema_version)?;
     facts.validate()?;
@@ -415,66 +429,78 @@ impl ScanFacts {
     }
 
     /// Recomputes counts and adoption coverage from fact collections.
-    pub fn recompute_counts(&mut self) {
-        let resolved_count = self
-            .usage_sites
-            .iter()
-            .filter(|site| site.match_status == MatchStatus::Resolved)
-            .count() as u32;
-        let candidate_count = self
-            .usage_sites
-            .iter()
-            .filter(|site| site.match_status == MatchStatus::Candidate)
-            .count() as u32;
-        let usage_site_count = self.usage_sites.len() as u32;
+    pub fn recompute_counts(&mut self) -> Result<(), ScanFactsError> {
+        let (counts, ratio) = derive_counts_and_ratio(self)?;
 
-        self.metrics.adoption_coverage_ratio = if usage_site_count == 0 {
-            None
-        } else {
-            Some(resolved_count as f64 / usage_site_count as f64)
-        };
-
-        self.counts = CountSummary {
-            design_system_component_count: self.design_system_components.len() as u32,
-            local_component_count: self.local_components.len() as u32,
-            usage_site_count,
-            resolved_count,
-            candidate_count,
-        };
+        self.metrics.adoption_coverage_ratio = ratio;
+        self.counts = counts;
+        Ok(())
     }
 }
 
 fn require_json_field(value: &serde_json::Value, path: &[&str]) -> Result<(), ScanFactsError> {
     let mut current = value;
-    for segment in path {
+    for (index, segment) in path.iter().enumerate() {
         current = current
             .get(*segment)
-            .ok_or_else(|| contract_violation(&path.join("."), "field is required"))?;
+            .ok_or_else(|| contract_violation(&path[..=index].join("."), "field is required"))?;
     }
     Ok(())
 }
 
-fn reject_disallowed_nulls(value: &serde_json::Value, path: &str) -> Result<(), ScanFactsError> {
+fn reject_disallowed_nulls(
+    value: &serde_json::Value,
+    path: &[String],
+) -> Result<(), ScanFactsError> {
     match value {
-        serde_json::Value::Null if path == "$.metrics.adoption_coverage_ratio" => Ok(()),
+        serde_json::Value::Null if is_nullable_json_field(path) => Ok(()),
         serde_json::Value::Null => Err(contract_violation(
-            path,
+            &json_path(path),
             "explicit null is not allowed by the scan facts schema",
         )),
         serde_json::Value::Array(items) => {
             for (index, item) in items.iter().enumerate() {
-                reject_disallowed_nulls(item, &format!("{path}[{index}]"))?;
+                let mut child_path = path.to_vec();
+                child_path.push(index.to_string());
+                reject_disallowed_nulls(item, &child_path)?;
             }
             Ok(())
         }
         serde_json::Value::Object(entries) => {
             for (key, child) in entries {
-                reject_disallowed_nulls(child, &format!("{path}.{key}"))?;
+                let mut child_path = path.to_vec();
+                child_path.push(key.clone());
+                reject_disallowed_nulls(child, &child_path)?;
             }
             Ok(())
         }
         _ => Ok(()),
     }
+}
+
+fn is_nullable_json_field(path: &[String]) -> bool {
+    NULLABLE_JSON_FIELDS
+        .iter()
+        .any(|allowed| path.iter().map(String::as_str).eq(allowed.iter().copied()))
+}
+
+fn json_path(path: &[String]) -> String {
+    if path.is_empty() {
+        return "$".to_owned();
+    }
+
+    let mut out = String::from("$");
+    for segment in path {
+        if segment.parse::<usize>().is_ok() {
+            out.push('[');
+            out.push_str(segment);
+            out.push(']');
+        } else {
+            out.push('.');
+            out.push_str(segment);
+        }
+    }
+    out
 }
 
 fn validate_location(field: &str, location: &SourceLocation) -> Result<(), ScanFactsError> {
@@ -525,24 +551,7 @@ fn validate_derived_values(facts: &ScanFacts) -> Result<(), ScanFactsError> {
         ));
     }
 
-    let resolved_count = facts
-        .usage_sites
-        .iter()
-        .filter(|site| site.match_status == MatchStatus::Resolved)
-        .count() as u32;
-    let candidate_count = facts
-        .usage_sites
-        .iter()
-        .filter(|site| site.match_status == MatchStatus::Candidate)
-        .count() as u32;
-    let usage_site_count = facts.usage_sites.len() as u32;
-    let expected_counts = CountSummary {
-        design_system_component_count: facts.design_system_components.len() as u32,
-        local_component_count: facts.local_components.len() as u32,
-        usage_site_count,
-        resolved_count,
-        candidate_count,
-    };
+    let (expected_counts, expected_ratio) = derive_counts_and_ratio(facts)?;
 
     if facts.counts != expected_counts {
         return Err(contract_violation(
@@ -551,26 +560,80 @@ fn validate_derived_values(facts: &ScanFacts) -> Result<(), ScanFactsError> {
         ));
     }
 
-    let expected_ratio = if usage_site_count == 0 {
-        None
-    } else {
-        Some(resolved_count as f64 / usage_site_count as f64)
-    };
-
     match (facts.metrics.adoption_coverage_ratio, expected_ratio) {
         (None, None) => Ok(()),
-        (Some(actual), Some(expected))
-            if actual.is_finite()
-                && (0.0..=1.0).contains(&actual)
-                && (actual - expected).abs() <= 1e-12 =>
-        {
-            Ok(())
-        }
-        _ => Err(contract_violation(
+        (Some(actual), _) if !actual.is_finite() => Err(contract_violation(
+            "metrics.adoption_coverage_ratio",
+            "adoption coverage ratio must be finite",
+        )),
+        (Some(actual), _) if !(0.0..=1.0).contains(&actual) => Err(contract_violation(
+            "metrics.adoption_coverage_ratio",
+            "adoption coverage ratio must be between 0 and 1",
+        )),
+        (Some(actual), Some(expected)) if (actual - expected).abs() <= 1e-12 => Ok(()),
+        (Some(_), None) => Err(contract_violation(
+            "metrics.adoption_coverage_ratio",
+            "adoption coverage ratio must be null when usage_site_count is zero",
+        )),
+        (None, Some(_)) => Err(contract_violation(
+            "metrics.adoption_coverage_ratio",
+            "adoption coverage ratio is required when usage sites are present",
+        )),
+        (Some(_), Some(_)) => Err(contract_violation(
             "metrics.adoption_coverage_ratio",
             "adoption coverage ratio must equal resolved_count / usage_site_count",
         )),
     }
+}
+
+fn derive_counts_and_ratio(
+    facts: &ScanFacts,
+) -> Result<(CountSummary, Option<f64>), ScanFactsError> {
+    let mut resolved_count = 0_u32;
+    let mut candidate_count = 0_u32;
+
+    for site in &facts.usage_sites {
+        match site.match_status {
+            MatchStatus::Resolved => increment_count("counts.resolved_count", &mut resolved_count)?,
+            MatchStatus::Candidate => {
+                increment_count("counts.candidate_count", &mut candidate_count)?;
+            }
+            MatchStatus::Unresolved => {}
+        }
+    }
+
+    let usage_site_count = checked_len("counts.usage_site_count", facts.usage_sites.len())?;
+    let counts = CountSummary {
+        design_system_component_count: checked_len(
+            "counts.design_system_component_count",
+            facts.design_system_components.len(),
+        )?,
+        local_component_count: checked_len(
+            "counts.local_component_count",
+            facts.local_components.len(),
+        )?,
+        usage_site_count,
+        resolved_count,
+        candidate_count,
+    };
+    let ratio = if usage_site_count == 0 {
+        None
+    } else {
+        Some(f64::from(resolved_count) / f64::from(usage_site_count))
+    };
+
+    Ok((counts, ratio))
+}
+
+fn checked_len(field: &str, len: usize) -> Result<u32, ScanFactsError> {
+    u32::try_from(len).map_err(|_| contract_violation(field, "count exceeds u32 maximum"))
+}
+
+fn increment_count(field: &str, count: &mut u32) -> Result<(), ScanFactsError> {
+    *count = count
+        .checked_add(1)
+        .ok_or_else(|| contract_violation(field, "count exceeds u32 maximum"))?;
+    Ok(())
 }
 
 fn require_non_empty(field: &str, value: &str) -> Result<(), ScanFactsError> {
