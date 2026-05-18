@@ -2,7 +2,7 @@
 
 ## Scope
 
-This repository is building `wax`, a Rust analysis engine with downloadable language packs. Production Rust code lives under `engine/`. The historical `rust-prototype/` workspace is reference material only until the plan removes it.
+This repository is building `wax`, a design-system analysis engine written in Rust. Production Rust code lives under `engine/`.
 
 ## Rust Verification
 
@@ -19,10 +19,17 @@ As more crates land, broaden `cargo test` and `cargo clippy` from `-p wax-contra
 
 ## Planning Discipline
 
-- Follow `docs/plans/2026-05-16-rust-engine-language-packs-plan.md` task boundaries.
+- Follow the active plan's task boundaries.
 - Treat one checked task as one focused PR unless explicitly directed otherwise.
 - Tick off the plan checkboxes for completed task steps in the same PR.
 - Keep generated/local scan output out of git, especially `.wax/` and global `~/.wax/` state.
+
+## Git And Commits
+
+- Use focused branches and PRs; keep unrelated local changes out of commits.
+- Use conventional commit messages such as `feat:`, `fix:`, `docs:`, `ci:`, `test:`, and `chore:`.
+- Prefer small commits that explain the intent of the change.
+- Do not include tool or assistant attribution in commits.
 
 ## Code Style
 

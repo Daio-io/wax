@@ -1,16 +1,16 @@
-name: Rust
+name: Build Engine
 
 on:
   pull_request:
     paths:
       - "engine/**"
-      - ".github/workflows/rust.yml"
+      - ".github/workflows/build_engine.yml"
   push:
     branches:
       - main
     paths:
       - "engine/**"
-      - ".github/workflows/rust.yml"
+      - ".github/workflows/build_engine.yml"
 
 env:
   CARGO_TERM_COLOR: always
