@@ -1,0 +1,47 @@
+name: Rust
+
+on:
+  pull_request:
+    paths:
+      - "engine/**"
+      - ".github/workflows/rust.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "engine/**"
+      - ".github/workflows/rust.yml"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  verify:
+    name: Verify engine
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: engine
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engine
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Run wax-contract tests
+        run: cargo test -p wax-contract
+
+      - name: Run clippy
+        run: cargo clippy -p wax-contract --all-targets -- -D warnings
