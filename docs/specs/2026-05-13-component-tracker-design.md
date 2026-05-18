@@ -2,7 +2,7 @@
 
 ## Summary
 
-This document defines the first design for an open source, self-hostable design system component tracker inspired by products like Omlet, but built around a pluggable analysis model. The first supported ecosystem is Jetpack Compose / Compose Multiplatform.
+This document defines the first design for an open source, self-hostable design system component tracker built around a pluggable analysis model. The first supported ecosystem is Jetpack Compose / Compose Multiplatform.
 
 The product is designed to track:
 - canonical design system components
