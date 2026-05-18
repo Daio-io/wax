@@ -41,7 +41,7 @@ Production Rust code MUST model language ids as a validated `LanguageId` newtype
            └──────┬──────┘
       ┌────────────┼────────────┐
       ▼            ▼            ▼
-  wax-lang-*   wax-lang-*   wax-lang-*
+ wax-lang-compose  wax-lang-react  wax-lang-* later
   (subprocess) (subprocess) (subprocess)
 ```
 
@@ -75,6 +75,8 @@ The production `wax-contract` crate is the stable boundary for language packs an
 - expose typed error enums instead of returning `String` errors from contract parsing/validation helpers;
 - use typed timestamps (`time::OffsetDateTime` or equivalent) for recorded times, with RFC 3339 JSON serialization;
 - use `SourceLocation { file, line, column: Option<u32> }` for source references instead of duplicating `file` / `line` fields across fact types;
+- model language ids as a validated `LanguageId` newtype and use it across `.waxrc`, manifests, lockfiles, wire messages, and `ScanFacts`;
+- split parser metadata into `parser_name` and `parser_version` fields instead of a combined parser string;
 - define `adoption_coverage_ratio` as `resolved_count / usage_site_count`, excluding `candidate` matches from the numerator; when `usage_site_count == 0`, the ratio is `null`;
 - reserve extension fields only where the engine has a known compatibility need.
 
@@ -161,7 +163,8 @@ When a lockfile exists, auto-install **MUST** install exactly the pinned `versio
   "api_version": 1,
   "command": ["./wax-lang-compose", "--stdio"],
   "ecosystem": "jetpack-compose",
-  "parser": "tree-sitter-kotlin@0.3.8"
+  "parser_name": "tree-sitter-kotlin",
+  "parser_version": "0.3.8"
 }
 ```
 
@@ -205,7 +208,13 @@ Single tagged JSON object containing `ScanFacts` (`wax-contract`). Abridged exam
   "language_id": "compose",
   "facts": {
     "schema_version": 1,
-    "language": { "id": "compose", "version": "0.4.2", "ecosystem": "jetpack-compose", "parser": "tree-sitter-kotlin@0.3.8" },
+    "language": {
+      "id": "compose",
+      "version": "0.4.2",
+      "ecosystem": "jetpack-compose",
+      "parser_name": "tree-sitter-kotlin",
+      "parser_version": "0.3.8"
+    },
     "snapshot_id": "scan-20260516-abc123"
   }
 }
@@ -318,6 +327,7 @@ Some tools ship one package with a single prebuilt native addon. Wax ships a **s
 | `wax-cli` | User-facing binary (future) |
 
 **In-process:** engine calls `LanguageExtractor::scan(ScanRequest)` with the same fields as the wire request after validating config.
+
 **Subprocess:** engine uses `protocol::WireScanRequest` / `WireScanResponse` — same fields as the JSON above.
 
 ## Background: architecture evaluation (not in repo)

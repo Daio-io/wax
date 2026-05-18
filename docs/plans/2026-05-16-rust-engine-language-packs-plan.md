@@ -107,6 +107,7 @@ Implement the contract crate with:
 - `#![deny(missing_docs)]`
 - `LanguageId(String)` newtype with lowercase slug validation
 - `SourceLocation { file, line, column: Option<u32> }`
+- `LanguageMetadata.parser_name` and `LanguageMetadata.parser_version` as separate fields
 - typed public errors using `thiserror`
 - typed timestamps with RFC 3339 serialization
 - `adoption_coverage_ratio = resolved_count / usage_site_count`, excluding candidates
@@ -221,6 +222,7 @@ Include at least: `api_version_unsupported`, `config_invalid`, `registry_not_fou
 Add request, success, and error fixture tests in `engine/crates/wax-lang-api/tests/wire_protocol.rs`:
 
 - request fixture roundtrips with `repo_root`, `language_id`, `api_version`, `snapshot_id`, and `config`
+- in-process `ScanRequest -> JSON -> WireScanRequest::Scan -> JSON -> ScanRequest` conformance test fails if request fields drift
 - success fixture requires `type: "scan_facts"`
 - error fixture deserializes `registry_not_found`
 - malformed/untagged response fails
@@ -404,7 +406,7 @@ Add tests that cover:
 Run: `cd engine && cargo test -p wax-core install_language`
 Expected: PASS
 
-### - [ ] Task 9: CLI `wax language install|list|uninstall|update|doctor`
+### - [ ] Task 9: CLI `wax language list|install|uninstall|update|doctor`
 
 **Files:**
 - Create: `engine/crates/wax-cli/Cargo.toml`
@@ -412,7 +414,7 @@ Expected: PASS
 - Create: `engine/crates/wax-cli/src/commands/language.rs`
 - Create: `engine/crates/wax-cli/src/commands/init.rs`
 
-- [ ] **Step 1: clap subcommand tree `language {install,list,uninstall,update,doctor}`**
+- [ ] **Step 1: clap subcommand tree `language {list,install,uninstall,update,doctor}`**
 - [ ] **Step 2: Wire install to registry + global state**
 - [ ] **Step 3: `doctor` prints: enabled in `.waxrc`, installed version, lock pin, missing binary**
 
@@ -422,11 +424,11 @@ Expected: PASS
 - Modify: `engine/crates/wax-cli/src/commands/init.rs`
 - Create: `engine/fixtures/config/example.waxrc`
 
-- [ ] **Step 1: Interactive prompts (or `--yes` defaults): select language ids**
+- [ ] **Step 1: Implement scriptable selection first**
 - [ ] **Step 2: Write `.waxrc` and `wax.lock.json` after resolving selected pack artifacts**
 - [ ] **Step 3: Call `language install` for selected ids**
 - [ ] **Step 4: Optional registry scaffold** (copy example `registry.json` if missing)
-- [ ] **Step 5: Keep v1 onboarding boring**
+- [ ] **Step 5: Defer interactive prompts until the non-TTY path is stable**
 
 Implement `wax init --yes --language compose` before interactive prompts. The first version should be scriptable, deterministic, and easy to test:
 
