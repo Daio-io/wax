@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wax.dev/schemas/scan-facts.v1.schema.json",
+  "title": "ScanFacts",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "language",
+    "snapshot_id",
+    "scanned_at",
+    "status",
+    "design_system_components",
+    "local_components",
+    "usage_sites",
+    "diagnostics",
+    "metrics",
+    "counts"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "language": { "$ref": "#/$defs/language_metadata" },
+    "snapshot_id": { "type": "string", "minLength": 1 },
+    "scanned_at": { "type": "string", "format": "date-time" },
+    "status": { "$ref": "#/$defs/scan_status" },
+    "design_system_components": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/design_system_component" }
+    },
+    "local_components": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/local_component" }
+    },
+    "usage_sites": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/usage_site" }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/diagnostic" }
+    },
+    "metrics": { "$ref": "#/$defs/metrics" },
+    "counts": { "$ref": "#/$defs/count_summary" }
+  },
+  "$defs": {
+    "language_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "language_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "ecosystem", "parser_name", "parser_version"],
+      "properties": {
+        "id": { "$ref": "#/$defs/language_id" },
+        "version": { "type": "string", "minLength": 1 },
+        "ecosystem": { "type": "string", "minLength": 1 },
+        "parser_name": { "type": "string", "minLength": 1 },
+        "parser_version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "source_location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "line"],
+      "properties": {
+        "file": { "type": "string", "minLength": 1 },
+        "line": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+        "column": { "type": "integer", "minimum": 1, "maximum": 4294967295 }
+      }
+    },
+    "scan_status": {
+      "type": "string",
+      "enum": ["complete", "partial", "failed"]
+    },
+    "match_status": {
+      "type": "string",
+      "enum": ["resolved", "candidate", "unresolved"]
+    },
+    "diagnostic_severity": {
+      "type": "string",
+      "enum": ["error", "warning", "info"]
+    },
+    "design_system_component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "symbol", "registry_symbol"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "symbol": { "type": "string", "minLength": 1 },
+        "registry_symbol": { "type": "string", "minLength": 1 }
+      }
+    },
+    "local_component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "symbol", "location"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "symbol": { "type": "string", "minLength": 1 },
+        "location": { "$ref": "#/$defs/source_location" }
+      }
+    },
+    "usage_site": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "location", "symbol", "match_status"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "location": { "$ref": "#/$defs/source_location" },
+        "symbol": { "type": "string", "minLength": 1 },
+        "match_status": { "$ref": "#/$defs/match_status" },
+        "registry_symbol": { "type": "string", "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "match_status": { "const": "resolved" } },
+            "required": ["match_status"]
+          },
+          "then": { "required": ["registry_symbol"] }
+        },
+        {
+          "if": {
+            "properties": { "match_status": { "const": "candidate" } },
+            "required": ["match_status"]
+          },
+          "then": { "required": ["registry_symbol"] }
+        },
+        {
+          "if": {
+            "properties": { "match_status": { "const": "unresolved" } },
+            "required": ["match_status"]
+          },
+          "then": { "not": { "required": ["registry_symbol"] } }
+        }
+      ]
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["severity", "code", "message"],
+      "properties": {
+        "severity": { "$ref": "#/$defs/diagnostic_severity" },
+        "code": { "type": "string", "minLength": 1 },
+        "message": { "type": "string" },
+        "location": { "$ref": "#/$defs/source_location" }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adoption_coverage_ratio", "parse_extract_ms", "files_scanned"],
+      "properties": {
+        "adoption_coverage_ratio": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "parse_extract_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295,
+          "description": "Practical contract maximum matching runtime validation; avoids relying on large JSON number precision."
+        },
+        "files_scanned": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+      }
+    },
+    "count_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "design_system_component_count",
+        "local_component_count",
+        "usage_site_count",
+        "resolved_count",
+        "candidate_count"
+      ],
+      "properties": {
+        "design_system_component_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "local_component_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "usage_site_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "resolved_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "candidate_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+      }
+    }
+  }
+}

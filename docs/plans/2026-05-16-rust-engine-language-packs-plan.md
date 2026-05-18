@@ -88,7 +88,7 @@ When Phase 1 starts in `engine/`, do not blindly copy spike code from `rust-prot
 
 **Execution checkpoint:** Do not start Phase 2+ implementation until Tasks 1–4 land together and are reviewed. These tasks freeze the shared data contract (`ScanFacts`), repo/global config shape, lockfile semantics, and wire request/response envelope that every later task depends on.
 
-### - [ ] Task 1: Freeze `ScanFacts` JSON schema
+### - [x] Task 1: Freeze `ScanFacts` JSON schema
 
 **Files:**
 - Create: `engine/crates/wax-contract/Cargo.toml`
@@ -96,11 +96,11 @@ When Phase 1 starts in `engine/`, do not blindly copy spike code from `rust-prot
 - Create: `engine/crates/wax-contract/schemas/scan-facts.schema.json`
 - Test: `engine/crates/wax-contract/tests/schema_roundtrip.rs`
 
-- [ ] **Step 1: Document field meanings in spec**
+- [x] **Step 1: Document field meanings in spec**
 
 Ensure [language packs spec](../specs/2026-05-16-language-packs-and-distribution.md) matches `LanguageMetadata` + `ScanFacts.language` (not `plugin`).
 
-- [ ] **Step 2: Define production contract guardrails**
+- [x] **Step 2: Define production contract guardrails**
 
 Implement the contract crate with:
 
@@ -112,7 +112,7 @@ Implement the contract crate with:
 - typed timestamps with RFC 3339 serialization
 - `adoption_coverage_ratio = resolved_count / usage_site_count`, excluding candidates
 
-- [ ] **Step 3: Add serde roundtrip test**
+- [x] **Step 3: Add serde roundtrip test**
 
 ```rust
 #[test]
@@ -125,12 +125,12 @@ fn scan_facts_roundtrip() {
 }
 ```
 
-- [ ] **Step 4: Run test**
+- [x] **Step 4: Run test**
 
 Run: `cd engine && cargo test -p wax-contract`
 Expected: PASS
 
-- [ ] **Step 5: Commit** (when user requests commits)
+- [x] **Step 5: Commit** (when user requests commits)
 
 ```bash
 git add engine/crates/wax-contract docs/specs/2026-05-16-language-packs-and-distribution.md

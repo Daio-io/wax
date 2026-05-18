@@ -80,6 +80,22 @@ The production `wax-contract` crate is the stable boundary for language packs an
 - define `adoption_coverage_ratio` as `resolved_count / usage_site_count`, excluding `candidate` matches from the numerator; when `usage_site_count == 0`, the ratio is `null`;
 - reserve extension fields only where the engine has a known compatibility need.
 
+### `ScanFacts` contract fields
+
+`ScanFacts.language` is a `LanguageMetadata` object describing the language pack that produced the facts:
+
+| Field | Meaning |
+|-------|---------|
+| `id` | Validated `LanguageId` slug for the language pack, e.g. `compose` |
+| `version` | Language pack release version |
+| `ecosystem` | Human-readable ecosystem/stack key, e.g. `jetpack-compose` |
+| `parser_name` | Parser implementation name used during extraction |
+| `parser_version` | Parser implementation version used during extraction |
+
+`ScanFacts.snapshot_id` is assigned by the engine and echoed by the language pack. `ScanFacts.scanned_at` is an RFC 3339 timestamp serialized from a typed timestamp. Source-bearing facts use `SourceLocation { file, line, column }`; `file` is repository-relative, `line` is one-based, and `column` is optional and one-based when present.
+
+`ScanFacts.metrics.adoption_coverage_ratio` is recomputed from usage facts as `resolved_count / usage_site_count`. Candidate matches are counted separately and are not included in `resolved_count`; when there are no usage sites, the ratio is `null`.
+
 ## Configuration
 
 ### `.waxrc` (repository, committed)
@@ -215,7 +231,8 @@ Single tagged JSON object containing `ScanFacts` (`wax-contract`). Abridged exam
       "parser_name": "tree-sitter-kotlin",
       "parser_version": "0.3.8"
     },
-    "snapshot_id": "scan-20260516-abc123"
+    "snapshot_id": "scan-20260516-abc123",
+    "scanned_at": "2026-05-16T12:00:00Z"
   }
 }
 ```
