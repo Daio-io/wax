@@ -1,0 +1,9 @@
+{
+  "schema_version": 999,
+  "languages": [
+    {
+      "id": "compose",
+      "enabled": true
+    }
+  ]
+}

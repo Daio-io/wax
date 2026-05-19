@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/wax-contract",
+    "crates/wax-core",
 ]
 
 [workspace.package]

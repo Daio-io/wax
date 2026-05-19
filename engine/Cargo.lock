@@ -869,6 +869,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "wax-core"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+ "wax-contract",
+]
+
+[[package]]
 name = "windows-link"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
