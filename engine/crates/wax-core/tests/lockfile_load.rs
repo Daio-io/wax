@@ -94,6 +94,28 @@ fn lockfile_rejects_unsupported_schema_version_before_v1_shape() {
 }
 
 #[test]
+fn lockfile_distinguishes_malformed_json_from_invalid_config() {
+    let malformed = load_lockfile(fixture_path("malformed.wax.lock.json")).unwrap_err();
+    let invalid_config =
+        load_lockfile(fixture_path("missing-languages.wax.lock.json")).unwrap_err();
+
+    assert!(matches!(malformed, LockfileError::MalformedJson { .. }));
+    assert!(matches!(
+        invalid_config,
+        LockfileError::InvalidConfig { .. }
+    ));
+}
+
+#[test]
+fn lockfile_reports_missing_file_as_read_error() {
+    let err = load_lockfile(fixture_path("does-not-exist.wax.lock.json")).unwrap_err();
+
+    assert!(matches!(err, LockfileError::Read { .. }));
+    assert!(err.to_string().contains("failed to read wax.lock.json"));
+    assert!(err.to_string().contains("does-not-exist.wax.lock.json"));
+}
+
+#[test]
 fn lockfile_doctor_reports_missing_enabled_languages() {
     let rc = WaxRc {
         schema_version: 1,
