@@ -19,6 +19,10 @@ jobs:
   verify:
     name: Verify engine
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
     defaults:
       run:
         working-directory: engine
@@ -40,8 +44,17 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all --check
 
-      - name: Run wax-contract tests
-        run: cargo test -p wax-contract
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Run wax-contract tests and emit JUnit
+        run: cargo nextest run -p wax-contract --profile ci
+
+      - name: Publish test results
+        if: always()
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        with:
+          files: engine/target/nextest/ci/junit.xml
 
       - name: Run clippy
         run: cargo clippy -p wax-contract --all-targets -- -D warnings
