@@ -145,6 +145,8 @@ where
     D: Deserializer<'de>,
 {
     let value = Value::deserialize(deserializer)?;
+    // Preserve JSON-level validation such as null-vs-missing checks performed
+    // by `scan_facts_from_json`; direct serde deserialization loses that context.
     let json = serde_json::to_string(&value).map_err(serde::de::Error::custom)?;
     scan_facts_from_json(&json)
         .map(Box::new)

@@ -7,14 +7,15 @@ use wax_contract::{
     UsageSite,
 };
 use wax_lang_api::{
-    ScanRequest, ScanRequestType, WireErrorCode, WireScanRequest, WireScanResponse,
+    ScanRequest, ScanRequestType, WIRE_API_VERSION, WireErrorCode, WireScanRequest,
+    WireScanResponse,
 };
 
 #[test]
 fn wire_protocol_request_fixture_roundtrips_required_fields() {
     let fixture = json!({
         "type": "scan",
-        "api_version": 1,
+        "api_version": WIRE_API_VERSION,
         "language_id": "compose",
         "repo_root": "/repo/root",
         "snapshot_id": "snap-123",
@@ -34,7 +35,7 @@ fn wire_protocol_request_fixture_roundtrips_required_fields() {
 fn wire_protocol_scan_request_and_wire_request_stay_in_sync() {
     let in_process = ScanRequest {
         request_type: ScanRequestType::Scan,
-        api_version: 1,
+        api_version: WIRE_API_VERSION,
         language_id: LanguageId::from_str("compose").unwrap(),
         repo_root: "/repo/root".to_owned(),
         snapshot_id: "snap-123".to_owned(),
@@ -47,8 +48,7 @@ fn wire_protocol_scan_request_and_wire_request_stay_in_sync() {
     let scan_request_json = serde_json::to_value(&in_process).unwrap();
     let reparsed_wire: WireScanRequest = serde_json::from_value(scan_request_json).unwrap();
     let wire_json = serde_json::to_value(&reparsed_wire).unwrap();
-    let reparsed_wire: WireScanRequest = serde_json::from_value(wire_json).unwrap();
-    let in_process_back = ScanRequest::from(reparsed_wire);
+    let in_process_back: ScanRequest = serde_json::from_value(wire_json).unwrap();
 
     assert_eq!(in_process, in_process_back);
 }
@@ -57,7 +57,7 @@ fn wire_protocol_scan_request_and_wire_request_stay_in_sync() {
 fn wire_protocol_success_fixture_requires_scan_facts_type_tag() {
     let response = json!({
         "type": "scan_facts",
-        "api_version": 1,
+        "api_version": WIRE_API_VERSION,
         "language_id": "compose",
         "facts": sample_scan_facts(),
     });
@@ -70,7 +70,7 @@ fn wire_protocol_success_fixture_requires_scan_facts_type_tag() {
             language_id,
             facts,
         } => {
-            assert_eq!(api_version, 1);
+            assert_eq!(api_version, WIRE_API_VERSION);
             assert_eq!(language_id.as_str(), "compose");
             assert_eq!(facts.snapshot_id, "snap-123");
         }
@@ -85,7 +85,7 @@ fn wire_protocol_success_fixture_rejects_invalid_scan_facts() {
 
     let response = json!({
         "type": "scan_facts",
-        "api_version": 1,
+        "api_version": WIRE_API_VERSION,
         "language_id": "compose",
         "facts": facts,
     });
@@ -100,7 +100,7 @@ fn wire_protocol_success_fixture_rejects_unsupported_schema_version() {
 
     let response = json!({
         "type": "scan_facts",
-        "api_version": 1,
+        "api_version": WIRE_API_VERSION,
         "language_id": "compose",
         "facts": facts,
     });
@@ -112,7 +112,7 @@ fn wire_protocol_success_fixture_rejects_unsupported_schema_version() {
 fn wire_protocol_error_fixture_deserializes_registry_not_found() {
     let response = json!({
         "type": "error",
-        "api_version": 1,
+        "api_version": WIRE_API_VERSION,
         "language_id": "compose",
         "code": "registry_not_found",
         "message": "registry missing",
@@ -133,7 +133,7 @@ fn wire_protocol_error_fixture_deserializes_registry_not_found() {
             message,
             diagnostics,
         } => {
-            assert_eq!(api_version, 1);
+            assert_eq!(api_version, WIRE_API_VERSION);
             assert_eq!(language_id.as_str(), "compose");
             assert_eq!(code, WireErrorCode::RegistryNotFound);
             assert_eq!(message, "registry missing");
@@ -148,12 +148,12 @@ fn wire_protocol_error_fixture_deserializes_registry_not_found() {
 #[test]
 fn wire_protocol_response_serializes_spec_field_names() {
     let success = WireScanResponse::ScanFacts {
-        api_version: 1,
+        api_version: WIRE_API_VERSION,
         language_id: LanguageId::from_str("compose").unwrap(),
         facts: Box::new(sample_scan_facts()),
     };
     let error = WireScanResponse::Error {
-        api_version: 1,
+        api_version: WIRE_API_VERSION,
         language_id: LanguageId::from_str("compose").unwrap(),
         code: WireErrorCode::RegistryNotFound,
         message: "registry missing".to_owned(),
@@ -169,29 +169,62 @@ fn wire_protocol_response_serializes_spec_field_names() {
     let error_json = serde_json::to_value(error).unwrap();
 
     assert_eq!(success_json["type"], "scan_facts");
-    assert_eq!(success_json["api_version"], 1);
+    assert_eq!(success_json["api_version"], WIRE_API_VERSION);
     assert_eq!(success_json["language_id"], "compose");
     assert!(success_json.get("facts").is_some());
     assert!(success_json.get("scan_facts").is_none());
 
     assert_eq!(error_json["type"], "error");
-    assert_eq!(error_json["api_version"], 1);
+    assert_eq!(error_json["api_version"], WIRE_API_VERSION);
     assert_eq!(error_json["language_id"], "compose");
     assert_eq!(error_json["code"], "registry_not_found");
     assert_eq!(error_json["diagnostics"][0]["severity"], "error");
 }
 
 #[test]
+fn wire_protocol_response_roundtrips_through_json() {
+    let success = WireScanResponse::ScanFacts {
+        api_version: WIRE_API_VERSION,
+        language_id: LanguageId::from_str("compose").unwrap(),
+        facts: Box::new(sample_scan_facts()),
+    };
+    let error = WireScanResponse::Error {
+        api_version: WIRE_API_VERSION,
+        language_id: LanguageId::from_str("compose").unwrap(),
+        code: WireErrorCode::RegistryNotFound,
+        message: "registry missing".to_owned(),
+        diagnostics: vec![Diagnostic {
+            severity: DiagnosticSeverity::Error,
+            code: "registry_missing".to_owned(),
+            message: "registry file was not found".to_owned(),
+            location: None,
+        }],
+    };
+
+    let success_json = serde_json::to_value(&success).unwrap();
+    let error_json = serde_json::to_value(&error).unwrap();
+
+    assert_eq!(
+        serde_json::from_value::<WireScanResponse>(success_json).unwrap(),
+        success
+    );
+    assert_eq!(
+        serde_json::from_value::<WireScanResponse>(error_json).unwrap(),
+        error
+    );
+}
+
+#[test]
 fn wire_protocol_response_rejects_missing_required_fields() {
     let valid_success = json!({
         "type": "scan_facts",
-        "api_version": 1,
+        "api_version": WIRE_API_VERSION,
         "language_id": "compose",
         "facts": sample_scan_facts(),
     });
     let valid_error = json!({
         "type": "error",
-        "api_version": 1,
+        "api_version": WIRE_API_VERSION,
         "language_id": "compose",
         "code": "registry_not_found",
         "message": "registry missing",
@@ -212,14 +245,14 @@ fn wire_protocol_response_rejects_missing_required_fields() {
 fn wire_protocol_response_rejects_unknown_fields() {
     let success = json!({
         "type": "scan_facts",
-        "api_version": 1,
+        "api_version": WIRE_API_VERSION,
         "language_id": "compose",
         "facts": sample_scan_facts(),
         "extra": true
     });
     let error = json!({
         "type": "error",
-        "api_version": 1,
+        "api_version": WIRE_API_VERSION,
         "language_id": "compose",
         "code": "registry_not_found",
         "message": "registry missing",
