@@ -64,7 +64,7 @@ pub enum WireScanResponse {
     /// Successful scan response.
     ScanFacts {
         /// Emitted scan facts payload.
-        scan_facts: ScanFacts,
+        scan_facts: Box<ScanFacts>,
     },
     /// Failed scan response.
     Error {
