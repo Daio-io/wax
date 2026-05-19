@@ -47,8 +47,8 @@ jobs:
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
 
-      - name: Run wax-contract tests and emit JUnit
-        run: cargo nextest run -p wax-contract --profile ci
+      - name: Run workspace tests and emit JUnit
+        run: cargo nextest run --workspace --profile ci
 
       - name: Publish test results
         if: always()
@@ -57,4 +57,4 @@ jobs:
           files: engine/target/nextest/ci/junit.xml
 
       - name: Run clippy
-        run: cargo clippy -p wax-contract --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
