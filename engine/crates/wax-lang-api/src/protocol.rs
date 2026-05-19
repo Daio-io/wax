@@ -39,7 +39,7 @@ pub enum ScanRequestType {
 
 /// Wire protocol request envelope.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WireScanRequest {
     /// Scan command issued over stdio.
     Scan {
@@ -58,7 +58,7 @@ pub enum WireScanRequest {
 
 /// Wire protocol response envelope.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WireScanResponse {
     /// Successful scan response.
     ScanFacts {

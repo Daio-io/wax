@@ -2,8 +2,9 @@ use serde_json::{Map, Value, json};
 use std::str::FromStr;
 use time::macros::datetime;
 use wax_contract::{
-    CountSummary, DesignSystemComponent, Diagnostic, LanguageId, LanguageMetadata, LocalComponent,
-    MatchStatus, Metrics, ScanFacts, ScanStatus, SourceLocation, UsageSite,
+    CountSummary, DesignSystemComponent, Diagnostic, DiagnosticSeverity, LanguageId,
+    LanguageMetadata, LocalComponent, MatchStatus, Metrics, ScanFacts, ScanStatus, SourceLocation,
+    UsageSite,
 };
 use wax_lang_api::{
     ScanRequest, ScanRequestType, WireErrorCode, WireScanRequest, WireScanResponse,
@@ -93,6 +94,21 @@ fn wire_protocol_success_fixture_rejects_invalid_scan_facts() {
 }
 
 #[test]
+fn wire_protocol_success_fixture_rejects_unsupported_schema_version() {
+    let mut facts = sample_scan_facts();
+    facts.schema_version = 999;
+
+    let response = json!({
+        "type": "scan_facts",
+        "api_version": 1,
+        "language_id": "compose",
+        "facts": facts,
+    });
+
+    assert!(serde_json::from_value::<WireScanResponse>(response).is_err());
+}
+
+#[test]
 fn wire_protocol_error_fixture_deserializes_registry_not_found() {
     let response = json!({
         "type": "error",
@@ -100,7 +116,11 @@ fn wire_protocol_error_fixture_deserializes_registry_not_found() {
         "language_id": "compose",
         "code": "registry_not_found",
         "message": "registry missing",
-        "diagnostics": []
+        "diagnostics": [{
+            "severity": "error",
+            "code": "registry_missing",
+            "message": "registry file was not found"
+        }]
     });
 
     let parsed: WireScanResponse = serde_json::from_value(response).unwrap();
@@ -117,10 +137,98 @@ fn wire_protocol_error_fixture_deserializes_registry_not_found() {
             assert_eq!(language_id.as_str(), "compose");
             assert_eq!(code, WireErrorCode::RegistryNotFound);
             assert_eq!(message, "registry missing");
-            assert!(diagnostics.is_empty());
+            assert_eq!(diagnostics.len(), 1);
+            assert_eq!(diagnostics[0].severity, DiagnosticSeverity::Error);
+            assert_eq!(diagnostics[0].code, "registry_missing");
         }
         _ => panic!("expected error response"),
     }
+}
+
+#[test]
+fn wire_protocol_response_serializes_spec_field_names() {
+    let success = WireScanResponse::ScanFacts {
+        api_version: 1,
+        language_id: LanguageId::from_str("compose").unwrap(),
+        facts: Box::new(sample_scan_facts()),
+    };
+    let error = WireScanResponse::Error {
+        api_version: 1,
+        language_id: LanguageId::from_str("compose").unwrap(),
+        code: WireErrorCode::RegistryNotFound,
+        message: "registry missing".to_owned(),
+        diagnostics: vec![Diagnostic {
+            severity: DiagnosticSeverity::Error,
+            code: "registry_missing".to_owned(),
+            message: "registry file was not found".to_owned(),
+            location: None,
+        }],
+    };
+
+    let success_json = serde_json::to_value(success).unwrap();
+    let error_json = serde_json::to_value(error).unwrap();
+
+    assert_eq!(success_json["type"], "scan_facts");
+    assert_eq!(success_json["api_version"], 1);
+    assert_eq!(success_json["language_id"], "compose");
+    assert!(success_json.get("facts").is_some());
+    assert!(success_json.get("scan_facts").is_none());
+
+    assert_eq!(error_json["type"], "error");
+    assert_eq!(error_json["api_version"], 1);
+    assert_eq!(error_json["language_id"], "compose");
+    assert_eq!(error_json["code"], "registry_not_found");
+    assert_eq!(error_json["diagnostics"][0]["severity"], "error");
+}
+
+#[test]
+fn wire_protocol_response_rejects_missing_required_fields() {
+    let valid_success = json!({
+        "type": "scan_facts",
+        "api_version": 1,
+        "language_id": "compose",
+        "facts": sample_scan_facts(),
+    });
+    let valid_error = json!({
+        "type": "error",
+        "api_version": 1,
+        "language_id": "compose",
+        "code": "registry_not_found",
+        "message": "registry missing",
+        "diagnostics": []
+    });
+
+    assert_response_missing_field_fails(&valid_success, "api_version");
+    assert_response_missing_field_fails(&valid_success, "language_id");
+    assert_response_missing_field_fails(&valid_success, "facts");
+    assert_response_missing_field_fails(&valid_error, "api_version");
+    assert_response_missing_field_fails(&valid_error, "language_id");
+    assert_response_missing_field_fails(&valid_error, "code");
+    assert_response_missing_field_fails(&valid_error, "message");
+    assert_response_missing_field_fails(&valid_error, "diagnostics");
+}
+
+#[test]
+fn wire_protocol_response_rejects_unknown_fields() {
+    let success = json!({
+        "type": "scan_facts",
+        "api_version": 1,
+        "language_id": "compose",
+        "facts": sample_scan_facts(),
+        "extra": true
+    });
+    let error = json!({
+        "type": "error",
+        "api_version": 1,
+        "language_id": "compose",
+        "code": "registry_not_found",
+        "message": "registry missing",
+        "diagnostics": [],
+        "extra": true
+    });
+
+    assert!(serde_json::from_value::<WireScanResponse>(success).is_err());
+    assert!(serde_json::from_value::<WireScanResponse>(error).is_err());
 }
 
 #[test]
@@ -142,6 +250,15 @@ fn wire_protocol_untagged_or_malformed_response_fails() {
     assert!(serde_json::from_value::<WireScanResponse>(untagged).is_err());
     assert!(serde_json::from_value::<WireScanResponse>(old_success_shape).is_err());
     assert!(serde_json::from_value::<WireScanResponse>(malformed).is_err());
+}
+
+fn assert_response_missing_field_fails(response: &Value, field: &str) {
+    let mut response = response.clone();
+    response.as_object_mut().unwrap().remove(field);
+    assert!(
+        serde_json::from_value::<WireScanResponse>(response).is_err(),
+        "response without {field} should fail"
+    );
 }
 
 fn sample_scan_facts() -> ScanFacts {
@@ -183,7 +300,7 @@ fn sample_scan_facts() -> ScanFacts {
             registry_symbol: Some("ds.Button".to_owned()),
         }],
         diagnostics: vec![Diagnostic {
-            severity: wax_contract::DiagnosticSeverity::Warning,
+            severity: DiagnosticSeverity::Warning,
             code: "partial_parse".to_owned(),
             message: "skipped generated file".to_owned(),
             location: None,
