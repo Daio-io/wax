@@ -55,10 +55,10 @@ pub struct ResolvedLanguage {
     pub sha256: String,
     /// Reserved signature bundle reference for future Sigstore/cosign metadata.
     ///
-    /// Schema v1 writes `null`. The root object is intentionally small and
-    /// denies unknown fields, while `bundle` remains arbitrary JSON so a future
-    /// v1.1 writer can carry upstream bundle metadata without changing the
-    /// surrounding lockfile shape.
+    /// Schema v1 writes `null`. `SignatureRef` still rejects unknown fields;
+    /// only `bundle` is arbitrary JSON owned by the signature format, so a
+    /// future v1.1 writer can carry upstream bundle metadata without changing
+    /// the surrounding lockfile shape.
     pub signature: Option<SignatureRef>,
 }
 
