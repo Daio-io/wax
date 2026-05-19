@@ -8,4 +8,5 @@ description = "Core repository configuration loading for the wax engine"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+time = { version = "0.3", features = ["macros", "parsing", "serde", "serde-well-known"] }
 wax-contract = { path = "../wax-contract" }
