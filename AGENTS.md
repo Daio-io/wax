@@ -21,7 +21,8 @@ As more crates land, broaden `cargo test` and `cargo clippy` from `-p wax-contra
 
 - Follow the active plan's task boundaries.
 - Treat one checked task as one focused PR unless explicitly directed otherwise.
-- Tick off the plan checkboxes for completed task steps in the same PR.
+- Tick off every completed plan checkbox in the same PR, including the task heading and each completed step under it.
+- Before opening or updating a task PR, review the active plan section and make sure completed implementation, verification, and commit steps are reflected there.
 - Keep generated/local scan output out of git, especially `.wax/` and global `~/.wax/` state.
 
 ## Git And Commits
