@@ -44,17 +44,20 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all --check
 
-      - name: Install cargo-nextest
-        uses: taiki-e/install-action@nextest
+      - name: Install cargo2junit
+        run: cargo install --locked cargo2junit
 
-      - name: Run wax-contract tests
-        run: cargo nextest run -p wax-contract --junit-path target/nextest/junit.xml
+      - name: Run wax-contract tests and emit JUnit
+        run: |
+          set -o pipefail
+          cargo test -p wax-contract -- --format json \
+            | cargo2junit > target/junit-wax-contract.xml
 
       - name: Publish test results
         if: always()
         uses: EnricoMi/publish-unit-test-result-action@v2
         with:
-          files: engine/target/nextest/junit.xml
+          files: engine/target/junit-wax-contract.xml
 
       - name: Run clippy
         run: cargo clippy -p wax-contract --all-targets -- -D warnings
