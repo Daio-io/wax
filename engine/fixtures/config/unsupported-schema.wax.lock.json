@@ -1,0 +1,19 @@
+{
+  "schema_version": 999,
+  "engine_api_version": 1,
+  "wax_version": "0.1.0",
+  "locked_at": "2026-05-16T12:00:00Z",
+  "languages": {
+    "compose": {
+      "version": "0.4.2",
+      "api_version": 1,
+      "source": "https://packs.wax.dev/index.json",
+      "resolved": {
+        "target": "aarch64-apple-darwin",
+        "url": "https://releases.wax.dev/compose/0.4.2/aarch64-apple-darwin.tar.gz",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null
+      }
+    }
+  }
+}

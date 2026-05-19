@@ -137,7 +137,7 @@ git add engine/crates/wax-contract docs/specs/2026-05-16-language-packs-and-dist
 git commit -m "docs: freeze language pack scan facts contract"
 ```
 
-### - [ ] Task 2: `.waxrc` parser and validation
+### - [x] Task 2: `.waxrc` parser and validation
 
 **Files:**
 - Create: `engine/crates/wax-core/Cargo.toml`
@@ -146,7 +146,7 @@ git commit -m "docs: freeze language pack scan facts contract"
 - Test: `engine/crates/wax-core/tests/waxrc_load.rs`
 - Fixture: `engine/fixtures/config/minimal.waxrc`
 
-- [ ] **Step 1: Define Rust types**
+- [x] **Step 1: Define Rust types**
 
 ```rust
 #[derive(Debug, Deserialize)]
@@ -164,7 +164,7 @@ pub struct LanguageEntry {
 }
 ```
 
-- [ ] **Step 2: Write failing test for minimal config**
+- [x] **Step 2: Write failing test for minimal config**
 
 ```rust
 #[test]
@@ -175,28 +175,28 @@ fn loads_minimal_waxrc() {
 }
 ```
 
-- [ ] **Step 3: Implement `load_waxrc(path)` with clear errors**
+- [x] **Step 3: Implement `load_waxrc(path)` with clear errors**
 
 Reject unknown `schema_version` with actionable message.
 
-- [ ] **Step 4: Run test** — `cd engine && cargo test -p wax-core waxrc`
+- [x] **Step 4: Run test** — `cd engine && cargo test -p wax-core waxrc`
 
-- [ ] **Step 5: Commit** (when requested)
+- [x] **Step 5: Commit** (when requested)
 
-### - [ ] Task 3: `wax.lock.json` parser
+### - [x] Task 3: `wax.lock.json` parser
 
 **Files:**
 - Create: `engine/crates/wax-core/src/config/lockfile.rs`
 - Test: `engine/crates/wax-core/tests/lockfile_load.rs`
 - Fixture: `engine/fixtures/config/minimal.wax.lock.json`
 
-- [ ] **Step 1: Types for lockfile** (`engine_api_version`, `languages: BTreeMap<LanguageId, LockedLanguage>`)
-- [ ] **Step 2: Test load + version pin**
-- [ ] **Step 3: Reserve signature slot**
+- [x] **Step 1: Types for lockfile** (`engine_api_version`, `languages: BTreeMap<LanguageId, LockedLanguage>`)
+- [x] **Step 2: Test load + version pin**
+- [x] **Step 3: Reserve signature slot**
 
 Add `resolved.signature: Option<SignatureRef>` to the lockfile shape. v1 writes `null`; v1.1 can fill this with Sigstore/cosign bundle metadata without another lockfile shape change.
 
-- [ ] **Step 4: `doctor` helper: compare `.waxrc` enabled ids vs lock keys**
+- [x] **Step 4: `doctor` helper: compare `.waxrc` enabled ids vs lock keys**
 
 ### - [ ] Task 4: Wire protocol types (v1)
 
