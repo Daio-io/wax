@@ -32,6 +32,21 @@ fn wire_protocol_request_fixture_roundtrips_required_fields() {
 }
 
 #[test]
+fn wire_protocol_request_rejects_unknown_fields() {
+    let request = json!({
+        "type": "scan",
+        "api_version": WIRE_API_VERSION,
+        "language_id": "compose",
+        "repo_root": "/repo/root",
+        "snapshot_id": "snap-123",
+        "config": {},
+        "extra": true
+    });
+
+    assert!(serde_json::from_value::<WireScanRequest>(request).is_err());
+}
+
+#[test]
 fn wire_protocol_scan_request_and_wire_request_stay_in_sync() {
     let in_process = ScanRequest {
         request_type: ScanRequestType::Scan,
