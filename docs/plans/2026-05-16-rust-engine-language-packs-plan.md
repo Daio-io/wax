@@ -198,26 +198,26 @@ Add `resolved.signature: Option<SignatureRef>` to the lockfile shape. v1 writes 
 
 - [x] **Step 4: `doctor` helper: compare `.waxrc` enabled ids vs lock keys**
 
-### - [ ] Task 4: Wire protocol types (v1)
+### - [x] Task 4: Wire protocol types (v1)
 
 **Files:**
 - Create: `engine/crates/wax-lang-api/Cargo.toml`
 - Create: `engine/crates/wax-lang-api/src/protocol.rs`
 - Create: `engine/crates/wax-lang-api/src/lib.rs`
 
-- [ ] **Step 1: Align request types with spec**
+- [x] **Step 1: Align request types with spec**
 
 Both in-process `ScanRequest` and wire `WireScanRequest` contain the same fields: `type`, `api_version`, `language_id`, `repo_root`, `snapshot_id`, and `config`. There is no `mode` field in v1.
 
-- [ ] **Step 2: Use tagged response envelopes**
+- [x] **Step 2: Use tagged response envelopes**
 
 `WireScanResponse` uses a `type` discriminator with `scan_facts` and `error` variants. Do not use untagged serde response parsing.
 
-- [ ] **Step 3: Define complete error code enum**
+- [x] **Step 3: Define complete error code enum**
 
 Include at least: `api_version_unsupported`, `config_invalid`, `registry_not_found`, `parser_init_failed`, `timeout`, `scan_failed`, `internal_error`.
 
-- [ ] **Step 4: Add wire fixture tests**
+- [x] **Step 4: Add wire fixture tests**
 
 Add request, success, and error fixture tests in `engine/crates/wax-lang-api/tests/wire_protocol.rs`:
 
@@ -227,12 +227,12 @@ Add request, success, and error fixture tests in `engine/crates/wax-lang-api/tes
 - error fixture deserializes `registry_not_found`
 - malformed/untagged response fails
 
-- [ ] **Step 5: Run wire protocol tests**
+- [x] **Step 5: Run wire protocol tests**
 
 Run: `cd engine && cargo test -p wax-lang-api wire_protocol`
 Expected: PASS
 
-- [ ] **Step 6: Review checkpoint**
+- [x] **Step 6: Review checkpoint**
 
 Confirm Tasks 1–4 are consistent with each other before starting Phase 2+ work:
 
