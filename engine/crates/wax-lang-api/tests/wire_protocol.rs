@@ -43,8 +43,9 @@ fn wire_protocol_scan_request_and_wire_request_stay_in_sync() {
         )]),
     };
 
-    let wire: WireScanRequest = in_process.clone().try_into().unwrap();
-    let wire_json = serde_json::to_value(&wire).unwrap();
+    let scan_request_json = serde_json::to_value(&in_process).unwrap();
+    let reparsed_wire: WireScanRequest = serde_json::from_value(scan_request_json).unwrap();
+    let wire_json = serde_json::to_value(&reparsed_wire).unwrap();
     let reparsed_wire: WireScanRequest = serde_json::from_value(wire_json).unwrap();
     let in_process_back = ScanRequest::from(reparsed_wire);
 
@@ -55,31 +56,68 @@ fn wire_protocol_scan_request_and_wire_request_stay_in_sync() {
 fn wire_protocol_success_fixture_requires_scan_facts_type_tag() {
     let response = json!({
         "type": "scan_facts",
-        "scan_facts": sample_scan_facts(),
+        "api_version": 1,
+        "language_id": "compose",
+        "facts": sample_scan_facts(),
     });
 
     let parsed: WireScanResponse = serde_json::from_value(response).unwrap();
 
     match parsed {
-        WireScanResponse::ScanFacts { .. } => {}
+        WireScanResponse::ScanFacts {
+            api_version,
+            language_id,
+            facts,
+        } => {
+            assert_eq!(api_version, 1);
+            assert_eq!(language_id.as_str(), "compose");
+            assert_eq!(facts.snapshot_id, "snap-123");
+        }
         _ => panic!("expected scan_facts response"),
     }
+}
+
+#[test]
+fn wire_protocol_success_fixture_rejects_invalid_scan_facts() {
+    let mut facts = sample_scan_facts();
+    facts.counts.usage_site_count = 2;
+
+    let response = json!({
+        "type": "scan_facts",
+        "api_version": 1,
+        "language_id": "compose",
+        "facts": facts,
+    });
+
+    assert!(serde_json::from_value::<WireScanResponse>(response).is_err());
 }
 
 #[test]
 fn wire_protocol_error_fixture_deserializes_registry_not_found() {
     let response = json!({
         "type": "error",
+        "api_version": 1,
+        "language_id": "compose",
         "code": "registry_not_found",
-        "message": "registry missing"
+        "message": "registry missing",
+        "diagnostics": []
     });
 
     let parsed: WireScanResponse = serde_json::from_value(response).unwrap();
 
     match parsed {
-        WireScanResponse::Error { code, message } => {
+        WireScanResponse::Error {
+            api_version,
+            language_id,
+            code,
+            message,
+            diagnostics,
+        } => {
+            assert_eq!(api_version, 1);
+            assert_eq!(language_id.as_str(), "compose");
             assert_eq!(code, WireErrorCode::RegistryNotFound);
             assert_eq!(message, "registry missing");
+            assert!(diagnostics.is_empty());
         }
         _ => panic!("expected error response"),
     }
@@ -88,6 +126,11 @@ fn wire_protocol_error_fixture_deserializes_registry_not_found() {
 #[test]
 fn wire_protocol_untagged_or_malformed_response_fails() {
     let untagged = json!({
+        "facts": sample_scan_facts()
+    });
+
+    let old_success_shape = json!({
+        "type": "scan_facts",
         "scan_facts": sample_scan_facts()
     });
 
@@ -97,6 +140,7 @@ fn wire_protocol_untagged_or_malformed_response_fails() {
     });
 
     assert!(serde_json::from_value::<WireScanResponse>(untagged).is_err());
+    assert!(serde_json::from_value::<WireScanResponse>(old_success_shape).is_err());
     assert!(serde_json::from_value::<WireScanResponse>(malformed).is_err());
 }
 

@@ -1,9 +1,8 @@
 //! In-process and wire protocol types shared by the wax engine and language packs.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
-use thiserror::Error;
-use wax_contract::{LanguageId, ScanFacts};
+use wax_contract::{Diagnostic, LanguageId, ScanFacts, scan_facts_from_json};
 
 /// Current wire API version for scan requests.
 pub const WIRE_API_VERSION: u32 = 1;
@@ -63,15 +62,26 @@ pub enum WireScanRequest {
 pub enum WireScanResponse {
     /// Successful scan response.
     ScanFacts {
+        /// Wire API version used by the language pack.
+        api_version: u32,
+        /// Language pack identifier that produced the facts.
+        language_id: LanguageId,
         /// Emitted scan facts payload.
-        scan_facts: Box<ScanFacts>,
+        #[serde(deserialize_with = "deserialize_validated_scan_facts")]
+        facts: Box<ScanFacts>,
     },
     /// Failed scan response.
     Error {
+        /// Wire API version used by the language pack.
+        api_version: u32,
+        /// Language pack identifier that returned the error.
+        language_id: LanguageId,
         /// Stable machine-readable error code.
         code: WireErrorCode,
         /// Human-readable diagnostic message.
         message: String,
+        /// Structured diagnostics emitted with the error.
+        diagnostics: Vec<Diagnostic>,
     },
 }
 
@@ -95,26 +105,16 @@ pub enum WireErrorCode {
     InternalError,
 }
 
-/// Error raised when converting between in-process and wire requests.
-#[derive(Debug, Error, PartialEq, Eq)]
-pub enum RequestConversionError {
-    /// The in-process request did not use the scan request type.
-    #[error("unsupported in-process request type: {0:?}")]
-    UnsupportedRequestType(ScanRequestType),
-}
-
-impl TryFrom<ScanRequest> for WireScanRequest {
-    type Error = RequestConversionError;
-
-    fn try_from(request: ScanRequest) -> Result<Self, Self::Error> {
+impl From<ScanRequest> for WireScanRequest {
+    fn from(request: ScanRequest) -> Self {
         match request.request_type {
-            ScanRequestType::Scan => Ok(Self::Scan {
+            ScanRequestType::Scan => Self::Scan {
                 api_version: request.api_version,
                 language_id: request.language_id,
                 repo_root: request.repo_root,
                 snapshot_id: request.snapshot_id,
                 config: request.config,
-            }),
+            },
         }
     }
 }
@@ -138,4 +138,15 @@ impl From<WireScanRequest> for ScanRequest {
             },
         }
     }
+}
+
+fn deserialize_validated_scan_facts<'de, D>(deserializer: D) -> Result<Box<ScanFacts>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Value::deserialize(deserializer)?;
+    let json = serde_json::to_string(&value).map_err(serde::de::Error::custom)?;
+    scan_facts_from_json(&json)
+        .map(Box::new)
+        .map_err(serde::de::Error::custom)
 }
