@@ -54,7 +54,7 @@ jobs:
         if: always()
         uses: EnricoMi/publish-unit-test-result-action@v2
         with:
-          files: engine/target/nextest/junit.xml
+          files: engine/target/nextest/ci/junit.xml
 
       - name: Run clippy
         run: cargo clippy -p wax-contract --all-targets -- -D warnings
