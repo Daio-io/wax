@@ -336,15 +336,15 @@ Expected: PASS
 
 ## Phase 3 — Global install and registry
 
-### - [ ] Task 7: Global paths and state
+### - [x] Task 7: Global paths and state
 
 **Files:**
 - Create: `engine/crates/wax-core/src/paths.rs`
 - Create: `engine/crates/wax-core/src/global_state.rs`
 
-- [ ] **Step 1: `wax_home() -> ~/.wax` with `WAX_HOME` override**
-- [ ] **Step 2: `lang_install_dir(id, version) -> ~/.wax/langs/<id>/<version>`**
-- [ ] **Step 3: Load/save `state.json`**
+- [x] **Step 1: `wax_home() -> ~/.wax` with `WAX_HOME` override**
+- [x] **Step 2: `lang_install_dir(id, version) -> ~/.wax/langs/<id>/<version>`**
+- [x] **Step 3: Load/save `state.json`**
 
 ### - [ ] Task 7b: Auto-install policy
 
