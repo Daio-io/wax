@@ -277,7 +277,7 @@ cargo build -p wax-lang-compose
 echo '{"type":"scan","api_version":1,...}' | ./target/debug/wax-lang-compose --stdio
 ```
 
-### - [ ] Task 6b: `wax-lang-react` stdio entrypoint skeleton
+### - [x] Task 6b: `wax-lang-react` stdio entrypoint skeleton
 
 **Files:**
 - Create: `engine/crates/wax-lang-react/Cargo.toml`
@@ -285,11 +285,11 @@ echo '{"type":"scan","api_version":1,...}' | ./target/debug/wax-lang-compose --s
 - Create: `engine/crates/wax-lang-react/src/bin/wax-lang-react.rs`
 - Modify: `engine/Cargo.toml`
 
-- [ ] **Step 1: Add a crate skeleton**
+- [x] **Step 1: Add a crate skeleton**
 
 Add `wax-lang-react` to the workspace with dependencies on `wax-contract` and `wax-lang-api`.
 
-- [ ] **Step 2: Implement a stub `ReactLanguage`**
+- [x] **Step 2: Implement a stub `ReactLanguage`**
 
 Return `ScanFacts` with:
 
@@ -298,11 +298,11 @@ Return `ScanFacts` with:
 - empty components and usage sites
 - a diagnostic explaining React extraction is scaffolded but not implemented
 
-- [ ] **Step 3: Add `wax-lang-react --stdio`**
+- [x] **Step 3: Add `wax-lang-react --stdio`**
 
 Read one `WireScanRequest::Scan` JSON object from stdin, call the stub language, and write one tagged `scan_facts` response to stdout.
 
-- [ ] **Step 4: Run a manual stdio smoke test**
+- [x] **Step 4: Run a manual stdio smoke test**
 
 ```bash
 cd engine
@@ -313,12 +313,12 @@ echo '{"type":"scan","api_version":1,"language_id":"react","repo_root":"/tmp/rep
 
 Expected: one valid `scan_facts` response with `language.id = "react"` and `snapshot_id = "test"`.
 
-### - [ ] Task 6c: Subprocess protocol conformance tests
+### - [x] Task 6c: Subprocess protocol conformance tests
 
 **Files:**
 - Test: `engine/crates/wax-core/tests/subprocess_protocol.rs`
 
-- [ ] **Step 1: Add subprocess adapter conformance test**
+- [x] **Step 1: Add subprocess adapter conformance test**
 
 Use the mock binary from Task 5 to assert:
 
@@ -327,7 +327,7 @@ Use the mock binary from Task 5 to assert:
 - large stdout is streamed or spooled safely without a fixed protocol cap
 - timeout maps to `LanguageError::Timeout`
 
-- [ ] **Step 2: Run subprocess protocol tests**
+- [x] **Step 2: Run subprocess protocol tests**
 
 Run: `cd engine && cargo test -p wax-core subprocess_protocol`
 Expected: PASS
