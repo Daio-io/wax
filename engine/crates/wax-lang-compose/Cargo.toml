@@ -1,0 +1,16 @@
+[package]
+name = "wax-lang-compose"
+version = "0.0.0"
+edition.workspace = true
+description = "Compose language pack for the wax engine"
+
+[[bin]]
+name = "wax-lang-compose"
+path = "src/bin/wax-lang-compose.rs"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+serde_json = "1"
+time = { version = "0.3", features = ["serde", "serde-well-known"] }
+wax-contract = { path = "../wax-contract" }
+wax-lang-api = { path = "../wax-lang-api" }
