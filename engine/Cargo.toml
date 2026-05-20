@@ -4,6 +4,7 @@ members = [
     "crates/wax-contract",
     "crates/wax-core",
     "crates/wax-lang-api",
+    "crates/wax-lang-compose",
 ]
 
 [workspace.package]

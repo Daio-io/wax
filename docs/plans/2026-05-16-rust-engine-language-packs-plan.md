@@ -260,16 +260,16 @@ Build on the frozen Phase 1 contracts. This phase proves that the engine can inv
 
 Run: `cd engine && cargo test -p wax-core subprocess`
 
-### - [ ] Task 6: `wax-lang-compose` stdio entrypoint
+### - [x] Task 6: `wax-lang-compose` stdio entrypoint
 
 **Files:**
 - Create: `engine/crates/wax-lang-compose/Cargo.toml` with `[[bin]] name = "wax-lang-compose"`
 - Create: `engine/crates/wax-lang-compose/src/lib.rs`
 - Create: `engine/crates/wax-lang-compose/src/bin/wax-lang-compose.rs`
 
-- [ ] **Step 1: Read stdin lines until `Scan` message**
-- [ ] **Step 2: Call `ComposeLanguage::scan`, write a tagged `scan_facts` response as one JSON object to stdout**
-- [ ] **Step 3: Manual test**
+- [x] **Step 1: Read stdin lines until `Scan` message**
+- [x] **Step 2: Call `ComposeLanguage::scan`, write a tagged `scan_facts` response as one JSON object to stdout**
+- [x] **Step 3: Manual test**
 
 ```bash
 cd engine
