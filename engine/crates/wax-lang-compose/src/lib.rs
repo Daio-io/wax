@@ -5,7 +5,7 @@
 use time::OffsetDateTime;
 use wax_contract::{
     CountSummary, Diagnostic, LanguageId, LanguageMetadata, Metrics, SCHEMA_VERSION, ScanFacts,
-    ScanStatus,
+    ScanFactsError, ScanStatus,
 };
 use wax_lang_api::ScanRequest;
 
@@ -15,7 +15,7 @@ pub enum ComposeScanError {
     /// The request contains an invalid language id.
     InvalidLanguageId(String),
     /// Failed to produce contract-valid facts.
-    InvalidFacts(String),
+    InvalidFacts(ScanFactsError),
 }
 
 impl std::fmt::Display for ComposeScanError {
@@ -55,7 +55,7 @@ impl ComposeLanguage {
             schema_version: SCHEMA_VERSION,
             language: LanguageMetadata {
                 id: compose_language_id,
-                version: "0.1.0".to_owned(),
+                version: env!("CARGO_PKG_VERSION").to_owned(),
                 ecosystem: "compose".to_owned(),
                 parser_name: "compose-parser".to_owned(),
                 parser_version: "0.1.0".to_owned(),
@@ -90,10 +90,8 @@ impl ComposeLanguage {
 
         facts
             .recompute_counts()
-            .map_err(|err| ComposeScanError::InvalidFacts(err.to_string()))?;
-        facts
-            .validate()
-            .map_err(|err| ComposeScanError::InvalidFacts(err.to_string()))?;
+            .map_err(ComposeScanError::InvalidFacts)?;
+        facts.validate().map_err(ComposeScanError::InvalidFacts)?;
 
         Ok(facts)
     }
