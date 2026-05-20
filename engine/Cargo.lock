@@ -1030,6 +1030,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "wax-lang-react"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "serde_json",
+ "time",
+ "wax-contract",
+ "wax-lang-api",
+]
+
+[[package]]
 name = "windows-link"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
