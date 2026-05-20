@@ -248,15 +248,15 @@ Confirm Tasks 1–4 are consistent with each other before starting Phase 2+ work
 
 Build on the frozen Phase 1 contracts. This phase proves that the engine can invoke an external language-pack binary and that first-party packs can speak the v1 stdio protocol.
 
-### - [ ] Task 5: Subprocess `LanguageExtractor` implementation
+### - [x] Task 5: Subprocess `LanguageExtractor` implementation
 
 **Files:**
 - Create: `engine/crates/wax-core/src/subprocess_lang.rs`
 - Modify: `engine/crates/wax-core/src/lib.rs`
 
-- [ ] **Step 1: Spawn `manifest.command`, write one `WireScanRequest::Scan` JSON to stdin, read stdout**
-- [ ] **Step 2: Parse tagged `WireScanResponse`; map timeout/cancel to `LanguageError::Timeout` / `Cancelled`**
-- [ ] **Step 3: Integration test with mock binary** (shell script that echoes canned JSON)
+- [x] **Step 1: Spawn `manifest.command`, write one `WireScanRequest::Scan` JSON to stdin, read stdout**
+- [x] **Step 2: Parse tagged `WireScanResponse`; map timeout/cancel to `LanguageError::Timeout` / `Cancelled`**
+- [x] **Step 3: Integration test with mock binary** (shell script that echoes canned JSON)
 
 Run: `cd engine && cargo test -p wax-core subprocess`
 

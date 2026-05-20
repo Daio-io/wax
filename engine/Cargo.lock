@@ -872,11 +872,13 @@ dependencies = [
 name = "wax-core"
 version = "0.0.0"
 dependencies = [
+ "libc",
  "serde",
  "serde_json",
  "thiserror",
  "time",
  "wax-contract",
+ "wax-lang-api",
 ]
 
 [[package]]
