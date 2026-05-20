@@ -5,7 +5,7 @@ use wax_contract::LanguageId;
 use wax_core::global_state::{
     GlobalState, GlobalStateError, InstalledLanguagePack, load_global_state, save_global_state,
 };
-use wax_core::paths::{lang_install_dir, state_file, wax_home};
+use wax_core::paths::{PathsError, lang_install_dir, state_file, wax_home};
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 static CWD_LOCK: Mutex<()> = Mutex::new(());
@@ -23,6 +23,40 @@ struct TestDir {
 
 struct CurrentDirGuard {
     previous: PathBuf,
+}
+
+struct EnvVarGuard {
+    name: &'static str,
+    previous: Option<std::ffi::OsString>,
+}
+
+impl EnvVarGuard {
+    fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+        let previous = std::env::var_os(name);
+        unsafe {
+            std::env::set_var(name, value);
+        }
+        Self { name, previous }
+    }
+
+    fn remove(name: &'static str) -> Self {
+        let previous = std::env::var_os(name);
+        unsafe {
+            std::env::remove_var(name);
+        }
+        Self { name, previous }
+    }
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        unsafe {
+            match &self.previous {
+                Some(value) => std::env::set_var(self.name, value),
+                None => std::env::remove_var(self.name),
+            }
+        }
+    }
 }
 
 impl CurrentDirGuard {
@@ -62,14 +96,10 @@ impl Drop for TestDir {
 fn wax_home_uses_wax_home_override() {
     let _guard = ENV_LOCK.lock().unwrap();
     let dir = TestDir::new("wax-home-override");
-    let previous = std::env::var_os("WAX_HOME");
+    let _wax_home = EnvVarGuard::set("WAX_HOME", dir.path());
+    let _home = EnvVarGuard::remove("HOME");
 
-    unsafe {
-        std::env::set_var("WAX_HOME", dir.path());
-    }
-    let resolved = wax_home();
-    restore_wax_home(previous);
-
+    let resolved = wax_home().unwrap();
     assert_eq!(resolved, dir.path());
 }
 
@@ -77,14 +107,9 @@ fn wax_home_uses_wax_home_override() {
 fn state_file_lives_under_wax_home() {
     let _guard = ENV_LOCK.lock().unwrap();
     let dir = TestDir::new("state-file");
-    let previous = std::env::var_os("WAX_HOME");
+    let _wax_home = EnvVarGuard::set("WAX_HOME", dir.path());
 
-    unsafe {
-        std::env::set_var("WAX_HOME", dir.path());
-    }
-    let resolved = state_file();
-    restore_wax_home(previous);
-
+    let resolved = state_file().unwrap();
     assert_eq!(resolved, dir.path().join("state.json"));
 }
 
@@ -92,16 +117,38 @@ fn state_file_lives_under_wax_home() {
 fn lang_install_dir_uses_validated_language_id_and_version() {
     let _guard = ENV_LOCK.lock().unwrap();
     let dir = TestDir::new("lang-install-dir");
-    let previous = std::env::var_os("WAX_HOME");
+    let _wax_home = EnvVarGuard::set("WAX_HOME", dir.path());
     let language_id = LanguageId::try_from("react").unwrap();
 
-    unsafe {
-        std::env::set_var("WAX_HOME", dir.path());
-    }
-    let resolved = lang_install_dir(&language_id, "1.2.3");
-    restore_wax_home(previous);
-
+    let resolved = lang_install_dir(&language_id, "1.2.3").unwrap();
     assert_eq!(resolved, dir.path().join("langs/react/1.2.3"));
+}
+
+#[test]
+fn lang_install_dir_rejects_versions_that_escape_version_segment() {
+    let _guard = ENV_LOCK.lock().unwrap();
+    let dir = TestDir::new("lang-install-invalid");
+    let _wax_home = EnvVarGuard::set("WAX_HOME", dir.path());
+    let language_id = LanguageId::try_from("react").unwrap();
+
+    for version in ["../other", "a/b", "/tmp/react", ".", ""] {
+        let err = lang_install_dir(&language_id, version).unwrap_err();
+
+        assert!(matches!(err, PathsError::InvalidVersion { .. }));
+        assert!(err.to_string().contains(version));
+    }
+}
+
+#[cfg(not(windows))]
+#[test]
+fn wax_home_errors_when_home_is_unavailable() {
+    let _guard = ENV_LOCK.lock().unwrap();
+    let _wax_home = EnvVarGuard::remove("WAX_HOME");
+    let _home = EnvVarGuard::remove("HOME");
+
+    let err = wax_home().unwrap_err();
+
+    assert!(matches!(err, PathsError::HomeUnavailable));
 }
 
 #[test]
@@ -154,6 +201,18 @@ fn save_global_state_accepts_current_dir_filename() {
 }
 
 #[test]
+fn save_global_state_reports_rename_error_when_destination_is_directory() {
+    let dir = TestDir::new("rename-directory");
+    let path = dir.path().join("state.json");
+    std::fs::create_dir(&path).unwrap();
+
+    let err = save_global_state(&path, &GlobalState::default()).unwrap_err();
+
+    assert!(matches!(err, GlobalStateError::Rename { .. }));
+    assert!(err.to_string().contains("state.json"));
+}
+
+#[test]
 fn load_global_state_reports_malformed_json() {
     let dir = TestDir::new("malformed");
     let path = dir.path().join("state.json");
@@ -180,13 +239,4 @@ fn load_global_state_rejects_invalid_language_ids() {
 
     assert!(matches!(err, GlobalStateError::InvalidState { .. }));
     assert!(err.to_string().contains("invalid language id"));
-}
-
-fn restore_wax_home(previous: Option<std::ffi::OsString>) {
-    unsafe {
-        match previous {
-            Some(value) => std::env::set_var("WAX_HOME", value),
-            None => std::env::remove_var("WAX_HOME"),
-        }
-    }
 }

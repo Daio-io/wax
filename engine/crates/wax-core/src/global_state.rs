@@ -3,7 +3,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
+use std::fs::File;
+use std::fs::OpenOptions;
 use std::io;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 use wax_contract::LanguageId;
@@ -64,11 +67,46 @@ pub enum GlobalStateError {
         #[source]
         source: io::Error,
     },
-    /// The file could not be written to disk.
-    #[error("failed to write wax global state to {path}: {source}")]
-    Write {
+    /// A temporary state file could not be created.
+    #[error("failed to create temporary wax global state file {temp_path} for {path}: {source}")]
+    CreateTemp {
         /// Path passed to [`save_global_state`].
         path: String,
+        /// Temporary path attempted for the atomic write.
+        temp_path: String,
+        /// Underlying I/O error.
+        #[source]
+        source: io::Error,
+    },
+    /// A temporary state file could not be written.
+    #[error("failed to write temporary wax global state file {temp_path} for {path}: {source}")]
+    WriteTemp {
+        /// Path passed to [`save_global_state`].
+        path: String,
+        /// Temporary path used for the atomic write.
+        temp_path: String,
+        /// Underlying I/O error.
+        #[source]
+        source: io::Error,
+    },
+    /// A temporary state file could not be flushed to disk.
+    #[error("failed to sync temporary wax global state file {temp_path} for {path}: {source}")]
+    SyncTemp {
+        /// Path passed to [`save_global_state`].
+        path: String,
+        /// Temporary path used for the atomic write.
+        temp_path: String,
+        /// Underlying I/O error.
+        #[source]
+        source: io::Error,
+    },
+    /// A temporary state file could not replace the destination.
+    #[error("failed to replace wax global state {path} with {temp_path}: {source}")]
+    Rename {
+        /// Path passed to [`save_global_state`].
+        path: String,
+        /// Temporary path used for the atomic write.
+        temp_path: String,
         /// Underlying I/O error.
         #[source]
         source: io::Error,
@@ -115,7 +153,10 @@ pub fn save_global_state(
     let path = path.as_ref();
     let path_display = path.display().to_string();
 
-    if let Some(parent) = path.parent() {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
         fs::create_dir_all(parent).map_err(|source| GlobalStateError::CreateDir {
             path: path_display.clone(),
             source,
@@ -127,8 +168,89 @@ pub fn save_global_state(
             path: path_display.clone(),
             source,
         })?;
-    fs::write(path, format!("{contents}\n")).map_err(|source| GlobalStateError::Write {
-        path: path_display,
-        source,
+    write_state_atomically(path, &path_display, format!("{contents}\n").as_bytes())
+}
+
+fn write_state_atomically(
+    path: &Path,
+    path_display: &str,
+    contents: &[u8],
+) -> Result<(), GlobalStateError> {
+    let (temp_path, mut temp_file) = create_temp_state_file(path, path_display)?;
+    let temp_display = temp_path.display().to_string();
+
+    temp_file.write_all(contents).map_err(|source| {
+        let _ = fs::remove_file(&temp_path);
+        GlobalStateError::WriteTemp {
+            path: path_display.to_owned(),
+            temp_path: temp_display.clone(),
+            source,
+        }
+    })?;
+    temp_file.sync_all().map_err(|source| {
+        let _ = fs::remove_file(&temp_path);
+        GlobalStateError::SyncTemp {
+            path: path_display.to_owned(),
+            temp_path: temp_display.clone(),
+            source,
+        }
+    })?;
+    drop(temp_file);
+
+    fs::rename(&temp_path, path).map_err(|source| {
+        let _ = fs::remove_file(&temp_path);
+        GlobalStateError::Rename {
+            path: path_display.to_owned(),
+            temp_path: temp_display,
+            source,
+        }
     })
+}
+
+fn create_temp_state_file(
+    path: &Path,
+    path_display: &str,
+) -> Result<(PathBuf, File), GlobalStateError> {
+    for attempt in 0..1000 {
+        let temp_path = temp_state_path(path, attempt);
+        let temp_display = temp_path.display().to_string();
+        match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp_path)
+        {
+            Ok(file) => return Ok((temp_path, file)),
+            Err(source) if source.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(source) => {
+                return Err(GlobalStateError::CreateTemp {
+                    path: path_display.to_owned(),
+                    temp_path: temp_display,
+                    source,
+                });
+            }
+        }
+    }
+
+    let temp_path = temp_state_path(path, 999);
+    Err(GlobalStateError::CreateTemp {
+        path: path_display.to_owned(),
+        temp_path: temp_path.display().to_string(),
+        source: io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "could not allocate unique temporary state path",
+        ),
+    })
+}
+
+fn temp_state_path(path: &Path, attempt: u32) -> PathBuf {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy())
+        .unwrap_or_else(|| "state.json".into());
+
+    parent.join(format!(".{file_name}.{}.{attempt}.tmp", std::process::id(),))
 }
