@@ -147,6 +147,33 @@ fn auto_install_policy_digest_drift_refuses_install_even_when_auto_install_is_en
 }
 
 #[test]
+fn auto_install_policy_missing_pack_index_entry_refuses_auto_install() {
+    let react = language_id("react");
+    let locked_version = "1.2.3";
+
+    let decision = evaluate_auto_install_policy(&AutoInstallPolicyInput {
+        enabled_language_ids: [react.clone()].into(),
+        locked_languages: BTreeMap::from([(
+            react.clone(),
+            locked_language(locked_version, "lock-sha"),
+        )]),
+        installed_manifests: BTreeMap::new(),
+        allow_auto_install: true,
+        pack_index_digests: BTreeMap::new(),
+    });
+
+    assert_eq!(decision.ready, BTreeSet::new());
+    assert_eq!(decision.needs_install, Vec::<InstallPlan>::new());
+    assert_eq!(
+        decision.errors,
+        vec![AutoInstallPolicyError::MissingPackIndexEntry {
+            language_id: react,
+            version: locked_version.to_owned(),
+        }]
+    );
+}
+
+#[test]
 fn auto_install_policy_marks_language_ready_when_locked_version_is_installed() {
     let react = language_id("react");
     let locked_version = "1.2.3";
