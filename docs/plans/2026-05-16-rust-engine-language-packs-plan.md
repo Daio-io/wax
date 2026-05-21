@@ -418,17 +418,17 @@ Expected: PASS
 - [x] **Step 2: Wire install to registry + global state**
 - [x] **Step 3: `doctor` prints: enabled in `.waxrc`, installed version, lock pin, missing binary**
 
-### - [ ] Task 10: `wax init` onboarding
+### - [x] Task 10: `wax init` onboarding
 
 **Files:**
 - Modify: `engine/crates/wax-cli/src/commands/init.rs`
 - Create: `engine/fixtures/config/example.waxrc`
 
-- [ ] **Step 1: Implement scriptable selection first**
-- [ ] **Step 2: Write `.waxrc` and `wax.lock.json` after resolving selected pack artifacts**
-- [ ] **Step 3: Call `language install` for selected ids**
-- [ ] **Step 4: Optional registry scaffold** (copy example `registry.json` if missing)
-- [ ] **Step 5: Defer interactive prompts until the non-TTY path is stable**
+- [x] **Step 1: Implement scriptable selection first**
+- [x] **Step 2: Write `.waxrc` and `wax.lock.json` after resolving selected pack artifacts**
+- [x] **Step 3: Call `language install` for selected ids**
+- [x] **Step 4: Optional registry scaffold** (copy example `registry.json` if missing)
+- [x] **Step 5: Defer interactive prompts until the non-TTY path is stable**
 
 Implement `wax init --yes --language compose` before interactive prompts. The first version should be scriptable, deterministic, and easy to test:
 
