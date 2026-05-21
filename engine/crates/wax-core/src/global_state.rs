@@ -16,6 +16,13 @@ use std::os::windows::ffi::OsStrExt;
 #[cfg(windows)]
 use std::ptr;
 
+#[cfg(windows)]
+const ERROR_UNABLE_TO_REMOVE_REPLACED: i32 = 1175;
+#[cfg(windows)]
+const ERROR_UNABLE_TO_MOVE_REPLACEMENT: i32 = 1176;
+#[cfg(windows)]
+const ERROR_UNABLE_TO_MOVE_REPLACEMENT_2: i32 = 1177;
+
 /// Global state stored at `~/.wax/state.json`.
 #[derive(Debug, Clone, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -285,7 +292,12 @@ fn replace_existing_state_file(
 
     if replaced == 0 {
         let source = io::Error::last_os_error();
-        remove_temp_file(temp_path);
+        if recover_windows_partial_replace_failure(&source, temp_path, path).unwrap_or(false) {
+            return Ok(());
+        }
+        if !is_documented_windows_partial_replace_failure(&source) {
+            remove_temp_file(temp_path);
+        }
         return Err(GlobalStateError::Rename {
             path: path_display.to_owned(),
             temp_path: temp_display.to_owned(),
@@ -294,6 +306,35 @@ fn replace_existing_state_file(
     }
 
     Ok(())
+}
+
+#[cfg(windows)]
+fn recover_windows_partial_replace_failure(
+    source: &io::Error,
+    temp_path: &Path,
+    path: &Path,
+) -> Result<bool, io::Error> {
+    if source.raw_os_error() == Some(ERROR_UNABLE_TO_MOVE_REPLACEMENT)
+        && !path.exists()
+        && temp_path.exists()
+    {
+        fs::rename(temp_path, path)?;
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
+#[cfg(windows)]
+fn is_documented_windows_partial_replace_failure(source: &io::Error) -> bool {
+    matches!(
+        source.raw_os_error(),
+        Some(
+            ERROR_UNABLE_TO_REMOVE_REPLACED
+                | ERROR_UNABLE_TO_MOVE_REPLACEMENT
+                | ERROR_UNABLE_TO_MOVE_REPLACEMENT_2
+        )
+    )
 }
 
 fn create_temp_state_file(
@@ -368,4 +409,29 @@ unsafe extern "system" {
         exclude: *mut std::ffi::c_void,
         reserved: *mut std::ffi::c_void,
     ) -> i32;
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::{
+        ERROR_UNABLE_TO_MOVE_REPLACEMENT, ERROR_UNABLE_TO_MOVE_REPLACEMENT_2,
+        ERROR_UNABLE_TO_REMOVE_REPLACED, is_documented_windows_partial_replace_failure,
+    };
+    use std::io;
+
+    #[test]
+    fn detects_documented_windows_partial_replace_errors() {
+        for code in [
+            ERROR_UNABLE_TO_REMOVE_REPLACED,
+            ERROR_UNABLE_TO_MOVE_REPLACEMENT,
+            ERROR_UNABLE_TO_MOVE_REPLACEMENT_2,
+        ] {
+            assert!(is_documented_windows_partial_replace_failure(
+                &io::Error::from_raw_os_error(code),
+            ));
+        }
+        assert!(!is_documented_windows_partial_replace_failure(
+            &io::Error::from_raw_os_error(87),
+        ));
+    }
 }
