@@ -1,8 +1,8 @@
 //! `wax init` repository onboarding.
 
 use super::language::{
-    InstallOptions, LanguageCommandError, default_target_triple, manifest_for_language,
-    resolve_registry_url, run_install, save_lockfile, update_lockfile_entry,
+    LanguageCommandError, default_target_triple, install_pinned_manifest, manifest_for_language,
+    resolve_registry_url, save_lockfile, update_lockfile_entry,
 };
 use std::collections::BTreeMap;
 use std::fs;
@@ -12,7 +12,9 @@ use thiserror::Error;
 use wax_contract::LanguageId;
 use wax_core::config::lockfile::{WAX_LOCK_SCHEMA_VERSION, WaxLock};
 use wax_core::config::waxrc::WAXRC_SCHEMA_VERSION;
-use wax_core::registry::{RegistryError, fetch_pack_index, select_target_artifact};
+use wax_core::registry::{
+    RegistryArtifact, RegistryError, RegistryManifest, fetch_pack_index, select_target_artifact,
+};
 
 const EXAMPLE_WAXRC: &str = include_str!("../../../../fixtures/config/example.waxrc");
 const EXAMPLE_DESIGN_SYSTEM_REGISTRY: &str =
@@ -20,6 +22,12 @@ const EXAMPLE_DESIGN_SYSTEM_REGISTRY: &str =
 
 /// Engine API version recorded in new `wax.lock.json` files.
 const ENGINE_API_VERSION: u32 = 1;
+
+/// Resolved pack index metadata used for lockfile pinning and install.
+struct ResolvedInitLanguage {
+    manifest: RegistryManifest,
+    artifact: RegistryArtifact,
+}
 
 /// Options for `wax init`.
 #[derive(Debug, Clone)]
@@ -97,24 +105,32 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
     if !options.yes {
         return Err(InitCommandError::RequiresYesFlag);
     }
-    if options.languages.is_empty() {
+
+    let languages = dedupe_languages(&options.languages);
+    if languages.is_empty() {
         return Err(InitCommandError::MissingLanguageSelection);
     }
 
     let waxrc_path = options.repo_root.join(".waxrc");
+    let lockfile_path = options.repo_root.join("wax.lock.json");
     if waxrc_path.exists() {
         return Err(InitCommandError::WaxRcAlreadyExists { path: waxrc_path });
     }
 
-    let waxrc_contents = build_waxrc_contents(&options.languages)?;
-    write_file_atomically(&waxrc_path, &waxrc_contents)?;
-
+    let waxrc_contents = build_waxrc_contents(&languages)?;
     let registry_url = resolve_registry_url(options.registry_url)?;
     let manifests = fetch_pack_index(&registry_url)?;
     let target = options
         .target_triple
         .clone()
         .unwrap_or_else(default_target_triple);
+
+    let mut resolved_languages = Vec::with_capacity(languages.len());
+    for language_id in &languages {
+        let manifest = manifest_for_language(&manifests, language_id, None)?;
+        let artifact = select_target_artifact(&manifest, &target)?.clone();
+        resolved_languages.push(ResolvedInitLanguage { manifest, artifact });
+    }
 
     let mut lockfile = WaxLock {
         schema_version: WAX_LOCK_SCHEMA_VERSION,
@@ -123,14 +139,17 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
         locked_at: None,
         languages: BTreeMap::new(),
     };
-
-    for language_id in &options.languages {
-        let manifest = manifest_for_language(&manifests, language_id, None)?;
-        let artifact = select_target_artifact(&manifest, &target)?.clone();
-        update_lockfile_entry(&mut lockfile, &manifest, &registry_url, &target, &artifact);
+    for resolved in &resolved_languages {
+        update_lockfile_entry(
+            &mut lockfile,
+            &resolved.manifest,
+            &registry_url,
+            &target,
+            &resolved.artifact,
+        );
     }
 
-    let lockfile_path = options.repo_root.join("wax.lock.json");
+    write_file_atomically(&waxrc_path, &waxrc_contents)?;
     save_lockfile(&lockfile_path, &lockfile)?;
 
     if options.scaffold_registries {
@@ -138,15 +157,12 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
     }
 
     if !options.no_install {
-        for language_id in &options.languages {
-            run_install(
-                InstallOptions {
-                    language_id: language_id.clone(),
-                    version: None,
-                    registry_url: Some(registry_url.clone()),
-                    target_triple: options.target_triple.clone(),
-                    state_path: options.state_path.clone(),
-                },
+        for resolved in &resolved_languages {
+            install_pinned_manifest(
+                &resolved.manifest,
+                &target,
+                &resolved.artifact,
+                options.state_path.clone(),
                 writer,
             )?;
         }
@@ -159,6 +175,16 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
         }
     })?;
     Ok(())
+}
+
+fn dedupe_languages(languages: &[LanguageId]) -> Vec<LanguageId> {
+    let mut deduped = Vec::with_capacity(languages.len());
+    for language_id in languages {
+        if !deduped.iter().any(|seen| seen == language_id) {
+            deduped.push(language_id.clone());
+        }
+    }
+    deduped
 }
 
 fn build_waxrc_contents(selected: &[LanguageId]) -> Result<String, InitCommandError> {
@@ -327,31 +353,26 @@ mod tests {
         format!("file://{}", path.display())
     }
 
-    fn write_pack_artifact(path: &Path, binary_name: &str) -> String {
+    fn write_pack_artifact(path: &Path, binary: &str) -> String {
         use flate2::Compression;
         use flate2::write::GzEncoder;
         use sha2::{Digest, Sha256};
-        use tar::{Builder, Header};
 
-        let file = fs::File::create(path).expect("create artifact");
-        let encoder = GzEncoder::new(file, Compression::default());
-        let mut archive = Builder::new(encoder);
-        let mut header = Header::new_gnu();
-        header.set_path(binary_name).expect("tar path");
-        header.set_size(2);
-        header.set_mode(0o644);
-        header.set_cksum();
-        archive
-            .append(&header, &b"ok"[..])
-            .expect("append artifact");
-        archive
-            .into_inner()
-            .expect("finish archive")
-            .finish()
-            .expect("finish gzip");
-
-        let bytes = fs::read(path).expect("read artifact");
-        format!("{:x}", Sha256::digest(bytes))
+        let mut bytes = Vec::new();
+        {
+            let gz = GzEncoder::new(&mut bytes, Compression::default());
+            let mut tar = tar::Builder::new(gz);
+            let body = b"#!/bin/sh\nexit 0\n";
+            let mut header = tar::Header::new_gnu();
+            header.set_path(binary).unwrap();
+            header.set_size(body.len() as u64);
+            header.set_mode(0o755);
+            header.set_cksum();
+            tar.append(&header, body.as_slice()).unwrap();
+            tar.finish().unwrap();
+        }
+        fs::write(path, &bytes).unwrap();
+        format!("{:x}", Sha256::digest(&bytes))
     }
 
     #[test]
@@ -501,5 +522,85 @@ mod tests {
         .unwrap_err();
 
         assert!(matches!(err, InitCommandError::WaxRcAlreadyExists { .. }));
+    }
+
+    #[test]
+    fn init_leaves_repo_clean_when_registry_resolution_fails() {
+        let temp = TestDir::new("registry-failure");
+        let registry_path = temp.path.join("registry.json");
+        fs::write(
+            &registry_path,
+            r#"[{"id":"react","version":"1.0.0","api_version":1,"targets":{"test-target":{"url":"file:///tmp/react.tgz","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}}]"#,
+        )
+        .unwrap();
+
+        let repo_root = temp.path.join("repo");
+        fs::create_dir_all(&repo_root).unwrap();
+
+        let err = run_init(
+            InitOptions {
+                yes: true,
+                languages: vec![lang("compose")],
+                no_install: true,
+                registry_url: Some(file_url(&registry_path)),
+                repo_root: repo_root.clone(),
+                target_triple: Some("test-target".to_owned()),
+                state_path: None,
+                scaffold_registries: false,
+            },
+            &mut Vec::new(),
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            err,
+            InitCommandError::Language(LanguageCommandError::LanguageNotFound { .. })
+        ));
+        assert!(!repo_root.join(".waxrc").exists());
+        assert!(!repo_root.join("wax.lock.json").exists());
+        assert!(!repo_root.join("design-system/registry.json").exists());
+    }
+
+    #[test]
+    fn init_dedupes_duplicate_language_flags() {
+        let _guard = env_lock();
+        let temp = TestDir::new("dedupe");
+        let _wax_home = EnvVarGuard::set("WAX_HOME", temp.path.join("home"));
+
+        let artifact_path = temp.path.join("compose.tgz");
+        let digest = write_pack_artifact(&artifact_path, "wax-lang-compose");
+        let registry_path = temp.path.join("registry.json");
+        fs::write(
+            &registry_path,
+            format!(
+                r#"[{{"id":"compose","version":"0.4.2","api_version":1,"targets":{{"test-target":{{"url":"{}","sha256":"{}"}}}}}}]"#,
+                file_url(&artifact_path),
+                digest
+            ),
+        )
+        .unwrap();
+
+        let repo_root = temp.path.join("repo");
+        fs::create_dir_all(&repo_root).unwrap();
+
+        run_init(
+            InitOptions {
+                yes: true,
+                languages: vec![lang("compose"), lang("compose")],
+                no_install: true,
+                registry_url: Some(file_url(&registry_path)),
+                repo_root: repo_root.clone(),
+                target_triple: Some("test-target".to_owned()),
+                state_path: Some(temp.path.join("home/state.json")),
+                scaffold_registries: false,
+            },
+            &mut Vec::new(),
+        )
+        .unwrap();
+
+        let waxrc = load_waxrc(repo_root.join(".waxrc")).unwrap();
+        assert_eq!(waxrc.languages.len(), 1);
+        let lock = load_lockfile(repo_root.join("wax.lock.json")).unwrap();
+        assert_eq!(lock.languages.len(), 1);
     }
 }

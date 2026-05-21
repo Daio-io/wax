@@ -438,6 +438,36 @@ fn install_manifest(
     install_resolved_manifest(registry_manifest, &target, artifact)
 }
 
+/// Installs a language pack from registry metadata already resolved for lockfile pinning.
+pub(crate) fn install_pinned_manifest(
+    registry_manifest: &RegistryManifest,
+    target: &str,
+    artifact: &RegistryArtifact,
+    state_path: Option<PathBuf>,
+    writer: &mut impl Write,
+) -> Result<(), LanguageCommandError> {
+    let install_dir = install_resolved_manifest(registry_manifest, target, artifact)?;
+    if let Err(err) = record_installed_language(
+        state_path,
+        &registry_manifest.id,
+        &registry_manifest.version,
+        install_dir,
+    ) {
+        remove_dir_if_exists(&lang_install_dir(
+            &registry_manifest.id,
+            &registry_manifest.version,
+        )?)?;
+        return Err(err);
+    }
+    writeln!(
+        writer,
+        "installed {} {}",
+        registry_manifest.id, registry_manifest.version
+    )
+    .map_err(write_error)?;
+    Ok(())
+}
+
 fn install_resolved_manifest(
     registry_manifest: &RegistryManifest,
     target: &str,
