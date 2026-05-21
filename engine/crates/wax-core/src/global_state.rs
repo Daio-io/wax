@@ -11,6 +11,11 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 use wax_contract::LanguageId;
 
+#[cfg(windows)]
+use std::os::windows::ffi::OsStrExt;
+#[cfg(windows)]
+use std::ptr;
+
 /// Global state stored at `~/.wax/state.json`.
 #[derive(Debug, Clone, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -107,30 +112,6 @@ pub enum GlobalStateError {
         path: String,
         /// Temporary path used for the atomic write.
         temp_path: String,
-        /// Underlying I/O error.
-        #[source]
-        source: io::Error,
-    },
-    /// An existing state file could not be moved aside before replacement.
-    #[error("failed to move existing wax global state {path} to {backup_path}: {source}")]
-    BackupExisting {
-        /// Path passed to [`save_global_state`].
-        path: String,
-        /// Backup path attempted before replacing the state file.
-        backup_path: String,
-        /// Underlying I/O error.
-        #[source]
-        source: io::Error,
-    },
-    /// A moved-aside state file could not be restored after replacement failed.
-    #[error(
-        "failed to restore wax global state {path} from {backup_path} after replacement failure: {source}"
-    )]
-    RestoreBackup {
-        /// Path passed to [`save_global_state`].
-        path: String,
-        /// Backup path attempted for restoration.
-        backup_path: String,
         /// Underlying I/O error.
         #[source]
         source: io::Error,
@@ -258,45 +239,8 @@ fn replace_state_file(
     if !path.exists() {
         return rename_temp_state_file(temp_path, temp_display, path, path_display);
     }
-    if path.is_dir() {
-        remove_temp_file(temp_path);
-        return Err(GlobalStateError::Rename {
-            path: path_display.to_owned(),
-            temp_path: temp_display.to_owned(),
-            source: io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "destination state path is a directory",
-            ),
-        });
-    }
 
-    let Some((backup_path, backup_display)) =
-        backup_existing_state_file(path, path_display, temp_path)?
-    else {
-        return rename_temp_state_file(temp_path, temp_display, path, path_display);
-    };
-
-    match fs::rename(temp_path, path) {
-        Ok(()) => {
-            remove_temp_file(&backup_path);
-            Ok(())
-        }
-        Err(source) => {
-            remove_temp_file(temp_path);
-            match fs::rename(&backup_path, path) {
-                Ok(()) => Err(GlobalStateError::Rename {
-                    path: path_display.to_owned(),
-                    temp_path: temp_display.to_owned(),
-                    source,
-                }),
-                Err(restore_source) => Err(GlobalStateError::RestoreBackup {
-                    path: path_display.to_owned(),
-                    backup_path: backup_display,
-                    source: restore_source,
-                }),
-            }
-        }
-    }
+    replace_existing_state_file(temp_path, temp_display, path, path_display)
 }
 
 #[cfg(windows)]
@@ -317,39 +261,39 @@ fn rename_temp_state_file(
 }
 
 #[cfg(windows)]
-fn backup_existing_state_file(
+fn replace_existing_state_file(
+    temp_path: &Path,
+    temp_display: &str,
     path: &Path,
     path_display: &str,
-    temp_path: &Path,
-) -> Result<Option<(PathBuf, String)>, GlobalStateError> {
-    for attempt in 0..1000 {
-        let backup_path = backup_state_path(path, attempt);
-        let backup_display = backup_path.display().to_string();
-        match fs::rename(path, &backup_path) {
-            Ok(()) => return Ok(Some((backup_path, backup_display))),
-            Err(source) if source.kind() == io::ErrorKind::AlreadyExists => {}
-            Err(source) if source.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(source) => {
-                remove_temp_file(temp_path);
-                return Err(GlobalStateError::BackupExisting {
-                    path: path_display.to_owned(),
-                    backup_path: backup_display,
-                    source,
-                });
-            }
-        }
+) -> Result<(), GlobalStateError> {
+    let replaced = wide_null(path.as_os_str());
+    let replacement = wide_null(temp_path.as_os_str());
+
+    // SAFETY: both path buffers are null-terminated and live for the duration
+    // of the call; null backup/exclude/reserved pointers match ReplaceFileW.
+    let replaced = unsafe {
+        replace_file_w(
+            replaced.as_ptr(),
+            replacement.as_ptr(),
+            ptr::null(),
+            0,
+            ptr::null_mut(),
+            ptr::null_mut(),
+        )
+    };
+
+    if replaced == 0 {
+        let source = io::Error::last_os_error();
+        remove_temp_file(temp_path);
+        return Err(GlobalStateError::Rename {
+            path: path_display.to_owned(),
+            temp_path: temp_display.to_owned(),
+            source,
+        });
     }
 
-    let backup_path = backup_state_path(path, 999);
-    remove_temp_file(temp_path);
-    Err(GlobalStateError::BackupExisting {
-        path: path_display.to_owned(),
-        backup_path: backup_path.display().to_string(),
-        source: io::Error::new(
-            io::ErrorKind::AlreadyExists,
-            "could not allocate unique backup state path",
-        ),
-    })
+    Ok(())
 }
 
 fn create_temp_state_file(
@@ -392,8 +336,8 @@ fn temp_state_path(path: &Path, attempt: u32) -> PathBuf {
 }
 
 #[cfg(windows)]
-fn backup_state_path(path: &Path, attempt: u32) -> PathBuf {
-    sibling_state_path(path, attempt, "bak")
+fn wide_null(value: &std::ffi::OsStr) -> Vec<u16> {
+    value.encode_wide().chain(std::iter::once(0)).collect()
 }
 
 fn sibling_state_path(path: &Path, attempt: u32, extension: &str) -> PathBuf {
@@ -410,4 +354,18 @@ fn sibling_state_path(path: &Path, attempt: u32, extension: &str) -> PathBuf {
         ".{file_name}.{}.{attempt}.{extension}",
         std::process::id(),
     ))
+}
+
+#[cfg(windows)]
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    #[link_name = "ReplaceFileW"]
+    fn replace_file_w(
+        replaced_file_name: *const u16,
+        replacement_file_name: *const u16,
+        backup_file_name: *const u16,
+        replace_flags: u32,
+        exclude: *mut std::ffi::c_void,
+        reserved: *mut std::ffi::c_void,
+    ) -> i32;
 }
