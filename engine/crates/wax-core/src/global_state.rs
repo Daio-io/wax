@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 use wax_contract::LanguageId;
 
+use crate::paths::validate_version_segment;
+
 #[cfg(windows)]
 use std::os::windows::ffi::OsStrExt;
 #[cfg(windows)]
@@ -123,6 +125,18 @@ pub enum GlobalStateError {
         #[source]
         source: io::Error,
     },
+    /// A state entry used a language pack version that is not one path segment.
+    #[error(
+        "invalid wax global state in {path}: language {language_id} has invalid version path component {version:?}"
+    )]
+    InvalidVersion {
+        /// Path passed to [`load_global_state`] or [`save_global_state`].
+        path: String,
+        /// Language id associated with the invalid version key.
+        language_id: LanguageId,
+        /// Invalid installed language pack version.
+        version: String,
+    },
 }
 
 /// Loads global wax state from disk.
@@ -151,10 +165,31 @@ pub fn load_global_state(path: impl AsRef<Path>) -> Result<GlobalState, GlobalSt
             source,
         })?;
 
-    serde_json::from_value(value).map_err(|source| GlobalStateError::InvalidState {
-        path: path_display,
-        source,
-    })
+    let state: GlobalState =
+        serde_json::from_value(value).map_err(|source| GlobalStateError::InvalidState {
+            path: path_display.clone(),
+            source,
+        })?;
+    validate_global_state_versions(&state, &path_display)?;
+
+    Ok(state)
+}
+
+fn validate_global_state_versions(
+    state: &GlobalState,
+    path_display: &str,
+) -> Result<(), GlobalStateError> {
+    for (language_id, versions) in &state.installed_languages {
+        for version in versions.keys() {
+            validate_version_segment(version).map_err(|_| GlobalStateError::InvalidVersion {
+                path: path_display.to_owned(),
+                language_id: language_id.clone(),
+                version: version.clone(),
+            })?;
+        }
+    }
+
+    Ok(())
 }
 
 /// Saves global wax state to disk, creating parent directories when needed.
@@ -164,6 +199,7 @@ pub fn save_global_state(
 ) -> Result<(), GlobalStateError> {
     let path = path.as_ref();
     let path_display = path.display().to_string();
+    validate_global_state_versions(state, &path_display)?;
 
     if let Some(parent) = path
         .parent()

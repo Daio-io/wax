@@ -265,6 +265,31 @@ fn save_global_state_replaces_existing_file() {
 }
 
 #[test]
+fn save_global_state_rejects_invalid_version_keys() {
+    let dir = TestDir::new("save-invalid-version");
+    let path = dir.path().join("state.json");
+    let language_id = LanguageId::try_from("react").unwrap();
+    let state = GlobalState {
+        installed_languages: BTreeMap::from([(
+            language_id,
+            BTreeMap::from([(
+                "1.2.3/.".to_string(),
+                InstalledLanguagePack {
+                    install_dir: dir.path().join("langs/react/1.2.3"),
+                },
+            )]),
+        )]),
+    };
+
+    let err = save_global_state(&path, &state).unwrap_err();
+
+    assert!(matches!(err, GlobalStateError::InvalidVersion { .. }));
+    assert!(err.to_string().contains("react"));
+    assert!(err.to_string().contains("1.2.3/."));
+    assert!(!path.exists());
+}
+
+#[test]
 fn save_global_state_accepts_current_dir_filename() {
     let _guard = CWD_LOCK.lock().unwrap();
     let dir = TestDir::new("current-dir-filename");
@@ -315,4 +340,21 @@ fn load_global_state_rejects_invalid_language_ids() {
 
     assert!(matches!(err, GlobalStateError::InvalidState { .. }));
     assert!(err.to_string().contains("invalid language id"));
+}
+
+#[test]
+fn load_global_state_rejects_invalid_version_keys() {
+    let dir = TestDir::new("load-invalid-version");
+    let path = dir.path().join("state.json");
+    std::fs::write(
+        &path,
+        r#"{"installed_languages":{"react":{"1.2.3/.":{"install_dir":"/tmp/react"}}}}"#,
+    )
+    .unwrap();
+
+    let err = load_global_state(&path).unwrap_err();
+
+    assert!(matches!(err, GlobalStateError::InvalidVersion { .. }));
+    assert!(err.to_string().contains("react"));
+    assert!(err.to_string().contains("1.2.3/."));
 }

@@ -41,7 +41,7 @@ pub fn lang_install_dir(id: &LanguageId, version: &str) -> Result<PathBuf, Paths
     Ok(wax_home()?.join("langs").join(id.as_str()).join(version))
 }
 
-fn validate_version_segment(version: &str) -> Result<(), PathsError> {
+pub(crate) fn validate_version_segment(version: &str) -> Result<(), PathsError> {
     let mut components = Path::new(version).components();
     match (components.next(), components.next()) {
         (Some(Component::Normal(segment)), None) if segment == OsStr::new(version) => Ok(()),
