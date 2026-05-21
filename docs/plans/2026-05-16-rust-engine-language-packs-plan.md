@@ -381,17 +381,17 @@ Expected: PASS
 Run: `cd engine && cargo test -p wax-core registry`
 Expected: PASS
 
-### - [ ] Task 8b: Secure language install
+### - [x] Task 8b: Secure language install
 
 **Files:**
 - Create: `engine/crates/wax-core/src/install.rs`
 - Test: `engine/crates/wax-core/tests/install_language.rs`
 
-- [ ] **Step 1: Implement `install_language(id, version, target_triple)`**
+- [x] **Step 1: Implement `install_language(id, version, target_triple)`**
 
 Download artifact, verify sha256, unpack to a temp dir, write manifest, then atomically promote to `~/.wax/langs/<id>/<version>`.
 
-- [ ] **Step 2: Harden install edge cases**
+- [x] **Step 2: Harden install edge cases**
 
 Add tests that cover:
 
@@ -401,7 +401,7 @@ Add tests that cover:
 - installed binaries are executable on Unix.
 - lockfile-pinned installs refuse digest drift from the pack index.
 
-- [ ] **Step 3: Run install tests**
+- [x] **Step 3: Run install tests**
 
 Run: `cd engine && cargo test -p wax-core install_language`
 Expected: PASS

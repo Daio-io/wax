@@ -5,13 +5,20 @@ edition.workspace = true
 description = "Core repository configuration loading for the wax engine"
 
 [dependencies]
+flate2 = "1"
 libc = "0.2"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
+tar = "0.4"
 thiserror = "2"
 time = { version = "0.3", features = ["parsing", "serde", "serde-well-known"] }
 wax-contract = { path = "../wax-contract" }
 wax-lang-api = { path = "../wax-lang-api" }
 
 [dev-dependencies]
+flate2 = "1"
+sha2 = "0.10"
+tar = "0.4"
 time = { version = "0.3", features = ["macros"] }

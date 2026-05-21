@@ -5,6 +5,7 @@
 pub mod auto_install;
 pub mod config;
 pub mod global_state;
+pub mod install;
 pub mod paths;
 pub mod registry;
 pub mod subprocess_lang;
