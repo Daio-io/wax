@@ -1,5 +1,6 @@
 //! Global filesystem paths used by the wax engine.
 
+use std::ffi::{OsStr, OsString};
 use std::path::{Component, Path, PathBuf};
 use thiserror::Error;
 use wax_contract::LanguageId;
@@ -23,9 +24,9 @@ pub enum PathsError {
 /// `WAX_HOME` overrides the default. When the override is absent, the path is
 /// resolved as `~/.wax` using the current user's home directory environment.
 pub fn wax_home() -> Result<PathBuf, PathsError> {
-    match std::env::var_os("WAX_HOME") {
-        Some(path) if !path.is_empty() => Ok(PathBuf::from(path)),
-        _ => Ok(home_dir()?.join(".wax")),
+    match non_empty_os_var("WAX_HOME") {
+        Some(path) => Ok(PathBuf::from(path)),
+        None => Ok(home_dir()?.join(".wax")),
     }
 }
 
@@ -43,7 +44,7 @@ pub fn lang_install_dir(id: &LanguageId, version: &str) -> Result<PathBuf, Paths
 fn validate_version_segment(version: &str) -> Result<(), PathsError> {
     let mut components = Path::new(version).components();
     match (components.next(), components.next()) {
-        (Some(Component::Normal(_)), None) => Ok(()),
+        (Some(Component::Normal(segment)), None) if segment == OsStr::new(version) => Ok(()),
         _ => Err(PathsError::InvalidVersion {
             version: version.to_owned(),
         }),
@@ -53,10 +54,10 @@ fn validate_version_segment(version: &str) -> Result<(), PathsError> {
 fn home_dir() -> Result<PathBuf, PathsError> {
     #[cfg(windows)]
     {
-        if let Some(profile) = std::env::var_os("USERPROFILE") {
+        if let Some(profile) = non_empty_os_var("USERPROFILE") {
             return Ok(PathBuf::from(profile));
         }
-        match (std::env::var_os("HOMEDRIVE"), std::env::var_os("HOMEPATH")) {
+        match (non_empty_os_var("HOMEDRIVE"), non_empty_os_var("HOMEPATH")) {
             (Some(drive), Some(path)) => {
                 let mut home = PathBuf::from(drive);
                 home.push(path);
@@ -68,8 +69,12 @@ fn home_dir() -> Result<PathBuf, PathsError> {
 
     #[cfg(not(windows))]
     {
-        std::env::var_os("HOME")
+        non_empty_os_var("HOME")
             .map(PathBuf::from)
             .ok_or(PathsError::HomeUnavailable)
     }
+}
+
+fn non_empty_os_var(name: &str) -> Option<OsString> {
+    std::env::var_os(name).filter(|value| !value.is_empty())
 }

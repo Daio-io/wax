@@ -179,32 +179,39 @@ fn write_state_atomically(
     let (temp_path, mut temp_file) = create_temp_state_file(path, path_display)?;
     let temp_display = temp_path.display().to_string();
 
-    temp_file.write_all(contents).map_err(|source| {
-        let _ = fs::remove_file(&temp_path);
-        GlobalStateError::WriteTemp {
+    if let Err(source) = temp_file.write_all(contents) {
+        drop(temp_file);
+        remove_temp_file(&temp_path);
+        return Err(GlobalStateError::WriteTemp {
             path: path_display.to_owned(),
-            temp_path: temp_display.clone(),
+            temp_path: temp_display,
             source,
-        }
-    })?;
-    temp_file.sync_all().map_err(|source| {
-        let _ = fs::remove_file(&temp_path);
-        GlobalStateError::SyncTemp {
+        });
+    }
+
+    if let Err(source) = temp_file.sync_all() {
+        drop(temp_file);
+        remove_temp_file(&temp_path);
+        return Err(GlobalStateError::SyncTemp {
             path: path_display.to_owned(),
-            temp_path: temp_display.clone(),
+            temp_path: temp_display,
             source,
-        }
-    })?;
+        });
+    }
     drop(temp_file);
 
     fs::rename(&temp_path, path).map_err(|source| {
-        let _ = fs::remove_file(&temp_path);
+        remove_temp_file(&temp_path);
         GlobalStateError::Rename {
             path: path_display.to_owned(),
             temp_path: temp_display,
             source,
         }
     })
+}
+
+fn remove_temp_file(temp_path: &Path) {
+    let _ = fs::remove_file(temp_path);
 }
 
 fn create_temp_state_file(

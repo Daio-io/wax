@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 use wax_contract::LanguageId;
 use wax_core::global_state::{
     GlobalState, GlobalStateError, InstalledLanguagePack, load_global_state, save_global_state,
@@ -15,6 +15,10 @@ fn temp_path(name: &str) -> PathBuf {
         "wax-core-global-state-{name}-{}",
         std::process::id()
     ))
+}
+
+fn env_lock() -> MutexGuard<'static, ()> {
+    ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
 }
 
 struct TestDir {
@@ -94,7 +98,7 @@ impl Drop for TestDir {
 
 #[test]
 fn wax_home_uses_wax_home_override() {
-    let _guard = ENV_LOCK.lock().unwrap();
+    let _guard = env_lock();
     let dir = TestDir::new("wax-home-override");
     let _wax_home = EnvVarGuard::set("WAX_HOME", dir.path());
     let _home = EnvVarGuard::remove("HOME");
@@ -103,9 +107,22 @@ fn wax_home_uses_wax_home_override() {
     assert_eq!(resolved, dir.path());
 }
 
+#[cfg(not(windows))]
+#[test]
+fn wax_home_uses_home_when_wax_home_is_empty() {
+    let _guard = env_lock();
+    let dir = TestDir::new("empty-wax-home");
+    let _wax_home = EnvVarGuard::set("WAX_HOME", "");
+    let _home = EnvVarGuard::set("HOME", dir.path());
+
+    let resolved = wax_home().unwrap();
+
+    assert_eq!(resolved, dir.path().join(".wax"));
+}
+
 #[test]
 fn state_file_lives_under_wax_home() {
-    let _guard = ENV_LOCK.lock().unwrap();
+    let _guard = env_lock();
     let dir = TestDir::new("state-file");
     let _wax_home = EnvVarGuard::set("WAX_HOME", dir.path());
 
@@ -115,7 +132,7 @@ fn state_file_lives_under_wax_home() {
 
 #[test]
 fn lang_install_dir_uses_validated_language_id_and_version() {
-    let _guard = ENV_LOCK.lock().unwrap();
+    let _guard = env_lock();
     let dir = TestDir::new("lang-install-dir");
     let _wax_home = EnvVarGuard::set("WAX_HOME", dir.path());
     let language_id = LanguageId::try_from("react").unwrap();
@@ -126,12 +143,21 @@ fn lang_install_dir_uses_validated_language_id_and_version() {
 
 #[test]
 fn lang_install_dir_rejects_versions_that_escape_version_segment() {
-    let _guard = ENV_LOCK.lock().unwrap();
+    let _guard = env_lock();
     let dir = TestDir::new("lang-install-invalid");
     let _wax_home = EnvVarGuard::set("WAX_HOME", dir.path());
     let language_id = LanguageId::try_from("react").unwrap();
 
-    for version in ["../other", "a/b", "/tmp/react", ".", ""] {
+    for version in [
+        "../other",
+        "a/b",
+        "/tmp/react",
+        ".",
+        "",
+        "1.2.3/",
+        "1.2.3/.",
+        "1.2.3//",
+    ] {
         let err = lang_install_dir(&language_id, version).unwrap_err();
 
         assert!(matches!(err, PathsError::InvalidVersion { .. }));
@@ -142,9 +168,21 @@ fn lang_install_dir_rejects_versions_that_escape_version_segment() {
 #[cfg(not(windows))]
 #[test]
 fn wax_home_errors_when_home_is_unavailable() {
-    let _guard = ENV_LOCK.lock().unwrap();
+    let _guard = env_lock();
     let _wax_home = EnvVarGuard::remove("WAX_HOME");
     let _home = EnvVarGuard::remove("HOME");
+
+    let err = wax_home().unwrap_err();
+
+    assert!(matches!(err, PathsError::HomeUnavailable));
+}
+
+#[cfg(not(windows))]
+#[test]
+fn wax_home_errors_when_home_is_empty() {
+    let _guard = env_lock();
+    let _wax_home = EnvVarGuard::remove("WAX_HOME");
+    let _home = EnvVarGuard::set("HOME", "");
 
     let err = wax_home().unwrap_err();
 
