@@ -9,7 +9,7 @@ use wax_contract::LanguageId;
 #[derive(Debug, Error)]
 pub enum PathsError {
     /// The current user's home directory could not be resolved.
-    #[error("could not resolve wax home; set WAX_HOME or HOME")]
+    #[error("could not resolve wax home; set WAX_HOME or configure a user home directory")]
     HomeUnavailable,
     /// A language pack version is not a single normal path segment.
     #[error("invalid language pack version path component {version:?}")]

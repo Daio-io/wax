@@ -111,6 +111,30 @@ pub enum GlobalStateError {
         #[source]
         source: io::Error,
     },
+    /// An existing state file could not be moved aside before replacement.
+    #[error("failed to move existing wax global state {path} to {backup_path}: {source}")]
+    BackupExisting {
+        /// Path passed to [`save_global_state`].
+        path: String,
+        /// Backup path attempted before replacing the state file.
+        backup_path: String,
+        /// Underlying I/O error.
+        #[source]
+        source: io::Error,
+    },
+    /// A moved-aside state file could not be restored after replacement failed.
+    #[error(
+        "failed to restore wax global state {path} from {backup_path} after replacement failure: {source}"
+    )]
+    RestoreBackup {
+        /// Path passed to [`save_global_state`].
+        path: String,
+        /// Backup path attempted for restoration.
+        backup_path: String,
+        /// Underlying I/O error.
+        #[source]
+        source: io::Error,
+    },
 }
 
 /// Loads global wax state from disk.
@@ -200,18 +224,132 @@ fn write_state_atomically(
     }
     drop(temp_file);
 
-    fs::rename(&temp_path, path).map_err(|source| {
-        remove_temp_file(&temp_path);
+    replace_state_file(&temp_path, &temp_display, path, path_display)
+}
+
+fn remove_temp_file(temp_path: &Path) {
+    let _ = fs::remove_file(temp_path);
+}
+
+#[cfg(not(windows))]
+fn replace_state_file(
+    temp_path: &Path,
+    temp_display: &str,
+    path: &Path,
+    path_display: &str,
+) -> Result<(), GlobalStateError> {
+    fs::rename(temp_path, path).map_err(|source| {
+        remove_temp_file(temp_path);
         GlobalStateError::Rename {
             path: path_display.to_owned(),
-            temp_path: temp_display,
+            temp_path: temp_display.to_owned(),
             source,
         }
     })
 }
 
-fn remove_temp_file(temp_path: &Path) {
-    let _ = fs::remove_file(temp_path);
+#[cfg(windows)]
+fn replace_state_file(
+    temp_path: &Path,
+    temp_display: &str,
+    path: &Path,
+    path_display: &str,
+) -> Result<(), GlobalStateError> {
+    if !path.exists() {
+        return rename_temp_state_file(temp_path, temp_display, path, path_display);
+    }
+    if path.is_dir() {
+        remove_temp_file(temp_path);
+        return Err(GlobalStateError::Rename {
+            path: path_display.to_owned(),
+            temp_path: temp_display.to_owned(),
+            source: io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "destination state path is a directory",
+            ),
+        });
+    }
+
+    let Some((backup_path, backup_display)) =
+        backup_existing_state_file(path, path_display, temp_path)?
+    else {
+        return rename_temp_state_file(temp_path, temp_display, path, path_display);
+    };
+
+    match fs::rename(temp_path, path) {
+        Ok(()) => {
+            remove_temp_file(&backup_path);
+            Ok(())
+        }
+        Err(source) => {
+            remove_temp_file(temp_path);
+            match fs::rename(&backup_path, path) {
+                Ok(()) => Err(GlobalStateError::Rename {
+                    path: path_display.to_owned(),
+                    temp_path: temp_display.to_owned(),
+                    source,
+                }),
+                Err(restore_source) => Err(GlobalStateError::RestoreBackup {
+                    path: path_display.to_owned(),
+                    backup_path: backup_display,
+                    source: restore_source,
+                }),
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+fn rename_temp_state_file(
+    temp_path: &Path,
+    temp_display: &str,
+    path: &Path,
+    path_display: &str,
+) -> Result<(), GlobalStateError> {
+    fs::rename(temp_path, path).map_err(|source| {
+        remove_temp_file(temp_path);
+        GlobalStateError::Rename {
+            path: path_display.to_owned(),
+            temp_path: temp_display.to_owned(),
+            source,
+        }
+    })
+}
+
+#[cfg(windows)]
+fn backup_existing_state_file(
+    path: &Path,
+    path_display: &str,
+    temp_path: &Path,
+) -> Result<Option<(PathBuf, String)>, GlobalStateError> {
+    for attempt in 0..1000 {
+        let backup_path = backup_state_path(path, attempt);
+        let backup_display = backup_path.display().to_string();
+        match fs::rename(path, &backup_path) {
+            Ok(()) => return Ok(Some((backup_path, backup_display))),
+            Err(source) if source.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(source) if source.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(source) => {
+                remove_temp_file(temp_path);
+                return Err(GlobalStateError::BackupExisting {
+                    path: path_display.to_owned(),
+                    backup_path: backup_display,
+                    source,
+                });
+            }
+        }
+    }
+
+    let backup_path = backup_state_path(path, 999);
+    remove_temp_file(temp_path);
+    Err(GlobalStateError::BackupExisting {
+        path: path_display.to_owned(),
+        backup_path: backup_path.display().to_string(),
+        source: io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "could not allocate unique backup state path",
+        ),
+    })
 }
 
 fn create_temp_state_file(
@@ -250,6 +388,15 @@ fn create_temp_state_file(
 }
 
 fn temp_state_path(path: &Path, attempt: u32) -> PathBuf {
+    sibling_state_path(path, attempt, "tmp")
+}
+
+#[cfg(windows)]
+fn backup_state_path(path: &Path, attempt: u32) -> PathBuf {
+    sibling_state_path(path, attempt, "bak")
+}
+
+fn sibling_state_path(path: &Path, attempt: u32, extension: &str) -> PathBuf {
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -259,5 +406,8 @@ fn temp_state_path(path: &Path, attempt: u32) -> PathBuf {
         .map(|name| name.to_string_lossy())
         .unwrap_or_else(|| "state.json".into());
 
-    parent.join(format!(".{file_name}.{}.{attempt}.tmp", std::process::id(),))
+    parent.join(format!(
+        ".{file_name}.{}.{attempt}.{extension}",
+        std::process::id(),
+    ))
 }

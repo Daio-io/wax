@@ -227,6 +227,44 @@ fn save_global_state_creates_parent_dirs_and_loads_roundtrip() {
 }
 
 #[test]
+fn save_global_state_replaces_existing_file() {
+    let dir = TestDir::new("replace-existing");
+    let path = dir.path().join("state.json");
+    let compose_id = LanguageId::try_from("compose").unwrap();
+    let react_id = LanguageId::try_from("react").unwrap();
+    let first = GlobalState {
+        installed_languages: BTreeMap::from([(
+            compose_id,
+            BTreeMap::from([(
+                "0.4.2".to_string(),
+                InstalledLanguagePack {
+                    install_dir: dir.path().join("langs/compose/0.4.2"),
+                },
+            )]),
+        )]),
+    };
+    let second = GlobalState {
+        installed_languages: BTreeMap::from([(
+            react_id.clone(),
+            BTreeMap::from([(
+                "1.0.0".to_string(),
+                InstalledLanguagePack {
+                    install_dir: dir.path().join("langs/react/1.0.0"),
+                },
+            )]),
+        )]),
+    };
+
+    save_global_state(&path, &first).unwrap();
+    save_global_state(&path, &second).unwrap();
+
+    let loaded = load_global_state(&path).unwrap();
+    assert_eq!(loaded, second);
+    assert!(loaded.installed_languages.contains_key(&react_id));
+    assert_eq!(loaded.installed_languages.len(), 1);
+}
+
+#[test]
 fn save_global_state_accepts_current_dir_filename() {
     let _guard = CWD_LOCK.lock().unwrap();
     let dir = TestDir::new("current-dir-filename");
