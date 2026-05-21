@@ -16,8 +16,8 @@ pub struct AutoInstallPolicyInput {
     pub installed_manifests: BTreeMap<LanguageId, Vec<InstalledManifest>>,
     /// Whether the CLI invocation allows auto-installing missing packs.
     pub allow_auto_install: bool,
-    /// Pack-index digest metadata keyed by language id and version.
-    pub pack_index_digests: BTreeMap<LanguageId, BTreeMap<String, String>>,
+    /// Pack-index artifact metadata keyed by language id and version.
+    pub pack_index_artifacts: BTreeMap<LanguageId, BTreeMap<String, Vec<PackIndexArtifact>>>,
 }
 
 /// Minimal installed-manifest metadata used by policy evaluation.
@@ -25,6 +25,21 @@ pub struct AutoInstallPolicyInput {
 pub struct InstalledManifest {
     /// Installed language pack version.
     pub version: String,
+    /// Installed language pack API version.
+    pub api_version: u32,
+    /// Installed artifact target triple.
+    pub target: String,
+    /// Installed artifact digest.
+    pub sha256: String,
+}
+
+/// Pack-index artifact metadata used by policy evaluation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackIndexArtifact {
+    /// Artifact target triple.
+    pub target: String,
+    /// Artifact digest.
+    pub sha256: String,
 }
 
 /// Policy result split into ready, installable, and blocking outcomes.
@@ -58,15 +73,21 @@ pub enum AutoInstallPolicyError {
         /// Enabled language id.
         language_id: LanguageId,
     },
-    /// Locked language is not installed and auto-install was disabled.
+    /// Locked language is not installed as the exact pinned artifact and auto-install was disabled.
     #[error(
-        "language {language_id} locked at {version} is not installed and auto-install is disabled"
+        "language {language_id} locked at {version} ({target}, sha256={sha256}, api_version={api_version}) is not installed and auto-install is disabled"
     )]
     MissingInstalledWithAutoInstallDisabled {
         /// Language pack id.
         language_id: LanguageId,
         /// Locked version that is required locally.
         version: String,
+        /// Locked artifact target that is required locally.
+        target: String,
+        /// Locked artifact digest that is required locally.
+        sha256: String,
+        /// Locked API version that is required locally.
+        api_version: u32,
     },
     /// Locked digest differs from the pack-index digest for the same version.
     #[error(
@@ -108,7 +129,7 @@ pub fn evaluate_auto_install_policy(input: &AutoInstallPolicyInput) -> AutoInsta
             continue;
         };
 
-        if has_installed_version(&input.installed_manifests, language_id, &locked.version) {
+        if has_matching_installed_manifest(&input.installed_manifests, language_id, locked) {
             ready.insert(language_id.clone());
             continue;
         }
@@ -118,14 +139,20 @@ pub fn evaluate_auto_install_policy(input: &AutoInstallPolicyInput) -> AutoInsta
                 AutoInstallPolicyError::MissingInstalledWithAutoInstallDisabled {
                     language_id: language_id.clone(),
                     version: locked.version.clone(),
+                    target: locked.resolved.target.clone(),
+                    sha256: locked.resolved.sha256.clone(),
+                    api_version: locked.api_version,
                 },
             );
             continue;
         }
 
-        let Some(pack_index_sha) =
-            lookup_pack_index_digest(&input.pack_index_digests, language_id, &locked.version)
-        else {
+        let Some(pack_index_sha) = lookup_pack_index_digest(
+            &input.pack_index_artifacts,
+            language_id,
+            &locked.version,
+            &locked.resolved.target,
+        ) else {
             errors.push(AutoInstallPolicyError::MissingPackIndexEntry {
                 language_id: language_id.clone(),
                 version: locked.version.clone(),
@@ -157,23 +184,32 @@ pub fn evaluate_auto_install_policy(input: &AutoInstallPolicyInput) -> AutoInsta
     }
 }
 
-fn has_installed_version(
+fn has_matching_installed_manifest(
     installed_manifests: &BTreeMap<LanguageId, Vec<InstalledManifest>>,
     language_id: &LanguageId,
-    version: &str,
+    locked: &LockedLanguage,
 ) -> bool {
     installed_manifests
         .get(language_id)
-        .is_some_and(|manifests| manifests.iter().any(|manifest| manifest.version == version))
+        .is_some_and(|manifests| {
+            manifests.iter().any(|manifest| {
+                manifest.version == locked.version
+                    && manifest.api_version == locked.api_version
+                    && manifest.target == locked.resolved.target
+                    && manifest.sha256 == locked.resolved.sha256
+            })
+        })
 }
 
 fn lookup_pack_index_digest<'a>(
-    pack_index_digests: &'a BTreeMap<LanguageId, BTreeMap<String, String>>,
+    pack_index_artifacts: &'a BTreeMap<LanguageId, BTreeMap<String, Vec<PackIndexArtifact>>>,
     language_id: &LanguageId,
     version: &str,
+    target: &str,
 ) -> Option<&'a str> {
-    pack_index_digests
+    pack_index_artifacts
         .get(language_id)
         .and_then(|versions| versions.get(version))
-        .map(String::as_str)
+        .and_then(|artifacts| artifacts.iter().find(|artifact| artifact.target == target))
+        .map(|artifact| artifact.sha256.as_str())
 }
