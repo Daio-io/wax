@@ -335,4 +335,40 @@ mod tests {
         fs::remove_file(file_path).expect("temp fixture should be removed");
         fs::remove_dir_all(dir).expect("temp dir should be removed");
     }
+
+    #[test]
+    fn rejects_manifest_with_invalid_language_id() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after epoch")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("wax-registry-{nonce}"));
+        fs::create_dir_all(&dir).expect("temp dir should be created");
+
+        let file_path = dir.join("invalid-language-id.json");
+        let manifest = r#"
+[
+  {
+    "id": "React",
+    "version": "1.0.0",
+    "api_version": 1,
+    "targets": {
+      "x86_64-unknown-linux-gnu": {
+        "url": "https://registry.example.dev/react/1.0.0/react-linux.tar.zst",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    }
+  }
+]
+"#;
+        fs::write(&file_path, manifest).expect("temp fixture should be written");
+
+        let url = format!("file://{}", file_path.display());
+        let err = fetch_pack_index(&url).expect_err("invalid language id should fail");
+
+        assert!(matches!(err, RegistryError::InvalidManifest { .. }));
+
+        fs::remove_file(file_path).expect("temp fixture should be removed");
+        fs::remove_dir_all(dir).expect("temp dir should be removed");
+    }
 }
