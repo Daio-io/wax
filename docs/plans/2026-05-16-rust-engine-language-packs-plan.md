@@ -367,16 +367,16 @@ Assert digest drift between lockfile and pack index refuses install, even when a
 Run: `cd engine && cargo test -p wax-core auto_install_policy`
 Expected: PASS
 
-### - [ ] Task 8a: Pack index and manifest client
+### - [x] Task 8a: Pack index and manifest client
 
 **Files:**
 - Create: `engine/crates/wax-core/src/registry.rs`
 - Fixture: `engine/fixtures/registry/official-manifest.json`
 
-- [ ] **Step 1: Parse manifest entry** (id, version, api_version, targets map with url + sha256)
-- [ ] **Step 2: Fetch pack index from `file://` fixture URL** (no network in unit tests)
-- [ ] **Step 3: Select target artifact for host triple**
-- [ ] **Step 4: Run tests**
+- [x] **Step 1: Parse manifest entry** (id, version, api_version, targets map with url + sha256)
+- [x] **Step 2: Fetch pack index from `file://` fixture URL** (no network in unit tests)
+- [x] **Step 3: Select target artifact for host triple**
+- [x] **Step 4: Run tests**
 
 Run: `cd engine && cargo test -p wax-core registry`
 Expected: PASS
