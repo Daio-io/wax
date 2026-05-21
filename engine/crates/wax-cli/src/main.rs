@@ -33,9 +33,9 @@ enum Commands {
 
 #[derive(Debug, Args)]
 struct InitArgs {
-    /// Apply non-interactive onboarding without prompts.
-    #[arg(long)]
-    yes: bool,
+    /// Run scriptable onboarding without prompts.
+    #[arg(long = "non-interactive")]
+    non_interactive: bool,
     /// Language pack id to enable. Repeat for multiple languages.
     #[arg(long = "language", value_name = "ID")]
     languages: Vec<LanguageId>,
@@ -182,7 +182,7 @@ fn main() {
         .map_err(Into::into),
         Commands::Init(args) => run_init(
             InitOptions {
-                yes: args.yes,
+                non_interactive: args.non_interactive,
                 languages: args.languages,
                 no_install: args.no_install,
                 registry_url: args.registry,

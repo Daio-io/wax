@@ -430,10 +430,10 @@ Expected: PASS
 - [x] **Step 4: Optional registry scaffold** (copy example `registry.json` if missing)
 - [x] **Step 5: Defer interactive prompts until the non-TTY path is stable**
 
-Implement `wax init --yes --language compose` before interactive prompts. The first version should be scriptable, deterministic, and easy to test:
+Implement `wax init --non-interactive --language compose` before interactive prompts. The first version should be scriptable, deterministic, and easy to test:
 
 ```bash
-wax init --yes --language compose
+wax init --non-interactive --language compose
 ```
 
 Expected:

@@ -32,8 +32,8 @@ struct ResolvedInitLanguage {
 /// Options for `wax init`.
 #[derive(Debug, Clone)]
 pub struct InitOptions {
-    /// Skip prompts and apply the requested non-interactive configuration.
-    pub yes: bool,
+    /// Run scriptable onboarding without prompts.
+    pub non_interactive: bool,
     /// Language pack ids to enable in the new repository configuration.
     pub languages: Vec<LanguageId>,
     /// Write config and lockfile without downloading language packs.
@@ -53,11 +53,11 @@ pub struct InitOptions {
 /// Errors returned by `wax init`.
 #[derive(Debug, Error)]
 pub enum InitCommandError {
-    /// Non-interactive init requires `--yes`.
+    /// Scriptable init requires `--non-interactive`.
     #[error(
-        "wax init requires --yes for non-interactive use; interactive prompts are not implemented yet"
+        "wax init requires --non-interactive for scriptable onboarding; interactive prompts are not implemented yet"
     )]
-    RequiresYesFlag,
+    RequiresNonInteractiveFlag,
     /// No language ids were provided for onboarding.
     #[error("wax init requires at least one --language <id>")]
     MissingLanguageSelection,
@@ -102,8 +102,8 @@ pub enum InitCommandError {
 
 /// Runs `wax init`.
 pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), InitCommandError> {
-    if !options.yes {
-        return Err(InitCommandError::RequiresYesFlag);
+    if !options.non_interactive {
+        return Err(InitCommandError::RequiresNonInteractiveFlag);
     }
 
     let languages = dedupe_languages(&options.languages);
@@ -376,11 +376,11 @@ mod tests {
     }
 
     #[test]
-    fn requires_yes_flag_for_non_interactive_init() {
-        let temp = TestDir::new("requires-yes");
+    fn requires_non_interactive_flag_for_scriptable_init() {
+        let temp = TestDir::new("requires-non-interactive");
         let err = run_init(
             InitOptions {
-                yes: false,
+                non_interactive: false,
                 languages: vec![lang("compose")],
                 no_install: true,
                 registry_url: Some("file:///tmp/registry.json".to_owned()),
@@ -393,7 +393,7 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(matches!(err, InitCommandError::RequiresYesFlag));
+        assert!(matches!(err, InitCommandError::RequiresNonInteractiveFlag));
     }
 
     #[test]
@@ -421,7 +421,7 @@ mod tests {
         let mut output = Vec::new();
         run_init(
             InitOptions {
-                yes: true,
+                non_interactive: true,
                 languages: vec![lang("compose")],
                 no_install: false,
                 registry_url: Some(file_url(&registry_path)),
@@ -478,7 +478,7 @@ mod tests {
 
         run_init(
             InitOptions {
-                yes: true,
+                non_interactive: true,
                 languages: vec![lang("compose")],
                 no_install: true,
                 registry_url: Some(file_url(&registry_path)),
@@ -508,7 +508,7 @@ mod tests {
 
         let err = run_init(
             InitOptions {
-                yes: true,
+                non_interactive: true,
                 languages: vec![lang("compose")],
                 no_install: true,
                 registry_url: Some("file:///tmp/registry.json".to_owned()),
@@ -539,7 +539,7 @@ mod tests {
 
         let err = run_init(
             InitOptions {
-                yes: true,
+                non_interactive: true,
                 languages: vec![lang("compose")],
                 no_install: true,
                 registry_url: Some(file_url(&registry_path)),
@@ -585,7 +585,7 @@ mod tests {
 
         run_init(
             InitOptions {
-                yes: true,
+                non_interactive: true,
                 languages: vec![lang("compose"), lang("compose")],
                 no_install: true,
                 registry_url: Some(file_url(&registry_path)),
