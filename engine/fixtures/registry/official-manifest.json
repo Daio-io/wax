@@ -1,0 +1,28 @@
+[
+  {
+    "id": "rust",
+    "version": "1.2.3",
+    "api_version": 1,
+    "targets": {
+      "x86_64-unknown-linux-gnu": {
+        "url": "https://registry.example.dev/rust/1.2.3/rust-linux.tar.zst",
+        "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "aarch64-apple-darwin": {
+        "url": "https://registry.example.dev/rust/1.2.3/rust-macos.tar.zst",
+        "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+      }
+    }
+  },
+  {
+    "id": "go",
+    "version": "0.9.0",
+    "api_version": 1,
+    "targets": {
+      "x86_64-unknown-linux-gnu": {
+        "url": "https://registry.example.dev/go/0.9.0/go-linux.tar.zst",
+        "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+      }
+    }
+  }
+]
