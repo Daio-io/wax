@@ -111,6 +111,14 @@ pub enum InstallError {
     /// Primary binary path uses unsupported syntax for resolving install-relative paths.
     #[error("manifest.command[0] must start with ./ when specifying a bundled binary")]
     InvalidPrimaryBinaryPath,
+    /// Primary binary path does not reference a regular file inside the install directory.
+    #[error(
+        "manifest.command[0] must reference a regular file inside the install directory (got {path})"
+    )]
+    InvalidPrimaryBinary {
+        /// Resolved primary binary path.
+        path: String,
+    },
     /// Archive contained an unsupported entry type (symlinks, hard links, etc.).
     #[error("unsupported archive entry type for path {path:?}")]
     UnsupportedArchiveEntry {
@@ -213,9 +221,9 @@ pub fn install_language(
             context: format!("write manifest.json under {}", staging_dir.display()),
             source,
         })?;
-        validate_manifest_command(manifest)?;
-        apply_unix_executable_bit(&staging_dir, manifest).map_err(|source| InstallError::Io {
-            context: format!("set executable bit for {}", staging_dir.display()),
+        let bin_path = validated_manifest_binary(&staging_dir, manifest)?;
+        apply_unix_executable_bit(&bin_path).map_err(|source| InstallError::Io {
+            context: format!("set executable bit for {}", bin_path.display()),
             source,
         })?;
         Ok(())
@@ -507,62 +515,144 @@ fn write_manifest_json(dir: &Path, manifest: &LanguagePackManifestSpec) -> io::R
     Ok(())
 }
 
-fn validate_manifest_command(manifest: &LanguagePackManifestSpec) -> Result<(), InstallError> {
+fn validated_manifest_binary(
+    staging_dir: &Path,
+    manifest: &LanguagePackManifestSpec,
+) -> Result<PathBuf, InstallError> {
     let primary = manifest
         .command
         .first()
         .ok_or(InstallError::MissingPrimaryBinary)?;
 
-    primary
+    let rel = primary
         .strip_prefix("./")
         .ok_or(InstallError::InvalidPrimaryBinaryPath)?;
 
-    Ok(())
+    let safe_relative = validated_archive_relative_path(Path::new(rel))?;
+    let bin_path = staging_dir.join(&safe_relative);
+
+    if !bin_path.starts_with(staging_dir) {
+        return Err(InstallError::PathTraversal {
+            path: rel.to_owned(),
+        });
+    }
+
+    let meta = fs::metadata(&bin_path).map_err(|source| InstallError::Io {
+        context: format!("stat manifest primary binary {}", bin_path.display()),
+        source,
+    })?;
+
+    if !meta.is_file() {
+        return Err(InstallError::InvalidPrimaryBinary {
+            path: bin_path.display().to_string(),
+        });
+    }
+
+    Ok(bin_path)
 }
 
-fn apply_unix_executable_bit(
-    staging_dir: &Path,
-    manifest: &LanguagePackManifestSpec,
-) -> io::Result<()> {
+fn apply_unix_executable_bit(bin_path: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
 
-        let primary = manifest.command.first().expect("validated above");
-        let rel = primary.strip_prefix("./").expect("validated above");
-
-        let bin_path = staging_dir.join(rel);
-        let meta = fs::metadata(&bin_path)?;
+        let meta = fs::metadata(bin_path)?;
         let mut permissions = meta.permissions();
         permissions.set_mode(permissions.mode() | 0o111);
-        fs::set_permissions(&bin_path, permissions)?;
+        fs::set_permissions(bin_path, permissions)?;
     }
 
     #[cfg(not(unix))]
     {
-        let _ = staging_dir;
-        let _ = manifest;
+        let _ = bin_path;
     }
 
     Ok(())
 }
 
 fn promote_staging_dir(staging_dir: &Path, destination: &Path) -> Result<(), InstallError> {
-    if destination.exists() {
-        fs::remove_dir_all(destination).map_err(|source| InstallError::Io {
-            context: format!("remove existing install {}", destination.display()),
+    if !destination.exists() {
+        return fs::rename(staging_dir, destination).map_err(|source| InstallError::Io {
+            context: format!(
+                "promote staged dir {} -> {}",
+                staging_dir.display(),
+                destination.display()
+            ),
             source,
-        })?;
+        });
     }
 
-    fs::rename(staging_dir, destination).map_err(|source| InstallError::Io {
+    let backup = allocate_replaced_backup_dir(destination)?;
+    fs::rename(destination, &backup).map_err(|source| InstallError::Io {
         context: format!(
-            "promote staged dir {} -> {}",
-            staging_dir.display(),
-            destination.display()
+            "move existing install {} aside to {}",
+            destination.display(),
+            backup.display()
         ),
         source,
     })?;
 
-    Ok(())
+    match fs::rename(staging_dir, destination) {
+        Ok(()) => {
+            let _ = fs::remove_dir_all(&backup);
+            Ok(())
+        }
+        Err(source) => {
+            let restore = fs::rename(&backup, destination);
+            let _ = fs::remove_dir_all(staging_dir);
+            if let Err(restore_err) = restore {
+                return Err(InstallError::Io {
+                    context: format!(
+                        "promote staged dir {} -> {} failed and could not restore previous install from {}",
+                        staging_dir.display(),
+                        destination.display(),
+                        backup.display()
+                    ),
+                    source: restore_err,
+                });
+            }
+            Err(InstallError::Io {
+                context: format!(
+                    "promote staged dir {} -> {}",
+                    staging_dir.display(),
+                    destination.display()
+                ),
+                source,
+            })
+        }
+    }
+}
+
+fn allocate_replaced_backup_dir(destination: &Path) -> Result<PathBuf, InstallError> {
+    let parent = destination
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+
+    let file_name = destination
+        .file_name()
+        .map(|name| name.to_string_lossy())
+        .unwrap_or_else(|| "install".into());
+
+    for attempt in 0u32..1000 {
+        let backup = parent.join(format!(
+            ".replaced-{file_name}.{}.{attempt}.tmp",
+            std::process::id(),
+        ));
+
+        if !backup.exists() {
+            return Ok(backup);
+        }
+    }
+
+    Err(InstallError::Io {
+        context: format!(
+            "allocate replaced-install backup path for {}",
+            destination.display()
+        ),
+        source: io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "could not allocate unique replaced-install backup path",
+        ),
+    })
 }

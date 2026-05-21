@@ -107,16 +107,23 @@ fn tar_header_with_path(path: &str, body_len: usize, mode: u32) -> tar::Header {
     header
 }
 
-fn sample_manifest(id: LanguageId) -> LanguagePackManifestSpec {
+fn sample_manifest_with_command(id: LanguageId, command: Vec<String>) -> LanguagePackManifestSpec {
     LanguagePackManifestSpec {
         id,
         version: "0.4.2".to_owned(),
         api_version: 1,
-        command: vec!["./wax-lang-compose".to_owned(), "--stdio".to_owned()],
+        command,
         ecosystem: "jetpack-compose".to_owned(),
         parser_name: "tree-sitter-kotlin".to_owned(),
         parser_version: "0.3.8".to_owned(),
     }
+}
+
+fn sample_manifest(id: LanguageId) -> LanguagePackManifestSpec {
+    sample_manifest_with_command(
+        id,
+        vec!["./wax-lang-compose".to_owned(), "--stdio".to_owned()],
+    )
 }
 
 #[derive(Debug, Deserialize)]
@@ -389,5 +396,147 @@ fn install_language_cleans_staging_after_unpack_failure() {
         leftovers.count(),
         0,
         "partial installs must delete staging directories after failures"
+    );
+}
+
+#[test]
+fn install_language_rejects_unsafe_manifest_command_path() {
+    let _guard = env_lock();
+    let home = TestHome::new("manifest-traversal");
+
+    let id = LanguageId::try_from("compose").expect("language id");
+    let manifest = sample_manifest_with_command(
+        id.clone(),
+        vec!["./../outside".to_owned(), "--stdio".to_owned()],
+    );
+
+    let artifact_bytes = gzip_tar(&[("wax-lang-compose", b"ok".as_slice(), 0o644)]);
+    let digest = sha256_hex(&artifact_bytes);
+
+    let artifact_path = home.root.join("manifest-traversal.tgz");
+    fs::write(&artifact_path, &artifact_bytes).expect("artifact");
+
+    let url = format!("file://{}", artifact_path.display());
+
+    let err = install_language(
+        &id,
+        "0.4.2",
+        "aarch64-apple-darwin",
+        &url,
+        &digest,
+        None,
+        &manifest,
+    )
+    .expect_err("unsafe manifest command paths must abort");
+
+    assert!(
+        matches!(
+            err,
+            InstallError::PathTraversal { .. } | InstallError::InvalidPrimaryBinary { .. }
+        ),
+        "unexpected error: {err:?}"
+    );
+
+    let destination = lang_install_dir(&id, "0.4.2").expect("destination path");
+    assert!(
+        !destination.exists(),
+        "unsafe manifest command paths must not promote partial installs"
+    );
+}
+
+#[test]
+fn install_language_rejects_manifest_command_pointing_at_directory() {
+    let _guard = env_lock();
+    let home = TestHome::new("manifest-dir");
+
+    let id = LanguageId::try_from("compose").expect("language id");
+    let manifest = sample_manifest(id.clone());
+
+    let mut buffer = Vec::new();
+    {
+        let gz = GzEncoder::new(&mut buffer, Compression::default());
+        let mut tar = tar::Builder::new(gz);
+        let mut header = tar::Header::new_gnu();
+        header.set_path("wax-lang-compose").expect("tar path");
+        header.set_entry_type(tar::EntryType::Directory);
+        header.set_size(0);
+        header.set_mode(0o755);
+        header.set_cksum();
+        tar.append(&header, &[] as &[u8]).expect("tar append dir");
+        tar.finish().expect("tar finish");
+    }
+    let digest = sha256_hex(&buffer);
+
+    let artifact_path = home.root.join("manifest-dir.tgz");
+    fs::write(&artifact_path, &buffer).expect("artifact");
+
+    let url = format!("file://{}", artifact_path.display());
+
+    let err = install_language(
+        &id,
+        "0.4.2",
+        "aarch64-apple-darwin",
+        &url,
+        &digest,
+        None,
+        &manifest,
+    )
+    .expect_err("manifest command pointing at directory must abort");
+
+    assert!(
+        matches!(err, InstallError::InvalidPrimaryBinary { .. }),
+        "unexpected error: {err:?}"
+    );
+}
+
+#[test]
+fn install_language_replaces_existing_install() {
+    let _guard = env_lock();
+    let home = TestHome::new("replace");
+
+    let id = LanguageId::try_from("compose").expect("language id");
+    let manifest = sample_manifest(id.clone());
+
+    let install_once = |body: &[u8]| {
+        let artifact_bytes = gzip_tar(&[("wax-lang-compose", body, 0o644)]);
+        let digest = sha256_hex(&artifact_bytes);
+        let artifact_path = home.root.join(format!("replace-{digest}.tgz"));
+        fs::write(&artifact_path, &artifact_bytes).expect("artifact");
+        let url = format!("file://{}", artifact_path.display());
+        install_language(
+            &id,
+            "0.4.2",
+            "aarch64-apple-darwin",
+            &url,
+            &digest,
+            None,
+            &manifest,
+        )
+        .expect("install succeeds")
+    };
+
+    let first = install_once(b"version-one");
+    let second = install_once(b"version-two");
+
+    assert_eq!(first, second);
+
+    let bin_path = second.join("wax-lang-compose");
+    let contents = fs::read(&bin_path).expect("binary exists after replacement");
+    assert_eq!(contents, b"version-two");
+
+    let langs_language_dir = second.parent().expect("language version parent");
+    let replaced_backups = fs::read_dir(langs_language_dir)
+        .expect("read langs dir")
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".replaced-")
+        });
+    assert_eq!(
+        replaced_backups.count(),
+        0,
+        "replaced-install backup directories must not linger after promotion"
     );
 }
