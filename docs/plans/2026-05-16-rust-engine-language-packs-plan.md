@@ -346,21 +346,21 @@ Expected: PASS
 - [x] **Step 2: `lang_install_dir(id, version) -> ~/.wax/langs/<id>/<version>`**
 - [x] **Step 3: Load/save `state.json`**
 
-### - [ ] Task 7b: Auto-install policy
+### - [x] Task 7b: Auto-install policy
 
 **Files:**
 - Create: `engine/crates/wax-core/src/auto_install.rs`
 - Test: `engine/crates/wax-core/tests/auto_install_policy.rs`
 
-- [ ] **Step 1: Define policy inputs**
+- [x] **Step 1: Define policy inputs**
 
 Create a small pure policy API that takes `.waxrc` enabled ids, lockfile entries, installed manifests, CLI mode (`allow_auto_install`), and pack-index metadata.
 
-- [ ] **Step 2: Test required-lock behavior**
+- [x] **Step 2: Test required-lock behavior**
 
 Assert enabled language packs require `wax.lock.json`; `--no-auto-install` fails when an enabled pack is missing locally; auto-install chooses the exact lockfile version/digest when allowed.
 
-- [ ] **Step 3: Test drift behavior**
+- [x] **Step 3: Test drift behavior**
 
 Assert digest drift between lockfile and pack index refuses install, even when auto-install is enabled.
 
