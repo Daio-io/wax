@@ -1,7 +1,7 @@
 //! `wax.lock.json` repository lockfile parsing and consistency checks.
 
 use crate::config::waxrc::WaxRc;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
@@ -13,7 +13,7 @@ use wax_contract::LanguageId;
 pub const WAX_LOCK_SCHEMA_VERSION: u32 = 1;
 
 /// Repository lockfile pinning the language pack artifacts selected for a repo.
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct WaxLock {
     /// Version of the `wax.lock.json` JSON schema.
@@ -30,7 +30,7 @@ pub struct WaxLock {
 }
 
 /// Lockfile entry for one resolved language pack.
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct LockedLanguage {
     /// Locked language pack version.
@@ -44,7 +44,7 @@ pub struct LockedLanguage {
 }
 
 /// Resolved artifact metadata for the machine that produced the lockfile.
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResolvedLanguage {
     /// Target triple for the selected language pack artifact.
@@ -63,7 +63,7 @@ pub struct ResolvedLanguage {
 }
 
 /// Reserved reference to signature metadata for a resolved artifact.
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SignatureRef {
     /// Signature metadata format, for example `sigstore-cosign-bundle`.

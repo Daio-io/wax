@@ -1,0 +1,24 @@
+[package]
+name = "wax-cli"
+version = "0.0.0"
+edition.workspace = true
+description = "Command-line interface for the wax engine"
+
+[[bin]]
+name = "wax"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive", "env"] }
+semver = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+time = { version = "0.3", features = ["serde", "serde-well-known"] }
+wax-core = { path = "../wax-core" }
+wax-contract = { path = "../wax-contract" }
+
+[dev-dependencies]
+flate2 = "1"
+sha2 = "0.10"
+tar = "0.4"

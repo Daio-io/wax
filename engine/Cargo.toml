@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/wax-contract",
     "crates/wax-core",
+    "crates/wax-cli",
     "crates/wax-lang-api",
     "crates/wax-lang-compose",
     "crates/wax-lang-react",
