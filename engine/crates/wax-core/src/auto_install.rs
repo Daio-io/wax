@@ -12,12 +12,19 @@ pub struct AutoInstallPolicyInput {
     pub enabled_language_ids: BTreeSet<LanguageId>,
     /// Locked language-pack entries from `wax.lock.json`.
     pub locked_languages: BTreeMap<LanguageId, LockedLanguage>,
-    /// Locally installed manifest versions by language id.
-    pub installed_versions: BTreeMap<LanguageId, BTreeSet<String>>,
+    /// Locally installed manifests by language id.
+    pub installed_manifests: BTreeMap<LanguageId, Vec<InstalledManifest>>,
     /// Whether the CLI invocation allows auto-installing missing packs.
     pub allow_auto_install: bool,
     /// Pack-index digest metadata keyed by language id and version.
     pub pack_index_digests: BTreeMap<LanguageId, BTreeMap<String, String>>,
+}
+
+/// Minimal installed-manifest metadata used by policy evaluation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstalledManifest {
+    /// Installed language pack version.
+    pub version: String,
 }
 
 /// Policy result split into ready, installable, and blocking outcomes.
@@ -101,7 +108,7 @@ pub fn evaluate_auto_install_policy(input: &AutoInstallPolicyInput) -> AutoInsta
             continue;
         };
 
-        if has_installed_version(&input.installed_versions, language_id, &locked.version) {
+        if has_installed_version(&input.installed_manifests, language_id, &locked.version) {
             ready.insert(language_id.clone());
             continue;
         }
@@ -151,13 +158,13 @@ pub fn evaluate_auto_install_policy(input: &AutoInstallPolicyInput) -> AutoInsta
 }
 
 fn has_installed_version(
-    installed_versions: &BTreeMap<LanguageId, BTreeSet<String>>,
+    installed_manifests: &BTreeMap<LanguageId, Vec<InstalledManifest>>,
     language_id: &LanguageId,
     version: &str,
 ) -> bool {
-    installed_versions
+    installed_manifests
         .get(language_id)
-        .is_some_and(|versions| versions.contains(version))
+        .is_some_and(|manifests| manifests.iter().any(|manifest| manifest.version == version))
 }
 
 fn lookup_pack_index_digest<'a>(

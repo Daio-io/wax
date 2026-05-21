@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use wax_contract::LanguageId;
 use wax_core::auto_install::{
-    AutoInstallPolicyError, AutoInstallPolicyInput, InstallPlan, evaluate_auto_install_policy,
+    AutoInstallPolicyError, AutoInstallPolicyInput, InstallPlan, InstalledManifest,
+    evaluate_auto_install_policy,
 };
 use wax_core::config::lockfile::{LockedLanguage, ResolvedLanguage};
 
@@ -24,14 +25,20 @@ fn locked_language(version: &str, sha256: &str) -> LockedLanguage {
     }
 }
 
+fn installed_manifest(version: &str) -> InstalledManifest {
+    InstalledManifest {
+        version: version.to_owned(),
+    }
+}
+
 #[test]
-fn enabled_packs_require_lockfile_entries() {
+fn auto_install_policy_enabled_packs_require_lockfile_entries() {
     let react = language_id("react");
 
     let decision = evaluate_auto_install_policy(&AutoInstallPolicyInput {
         enabled_language_ids: [react.clone()].into(),
         locked_languages: BTreeMap::new(),
-        installed_versions: BTreeMap::new(),
+        installed_manifests: BTreeMap::new(),
         allow_auto_install: true,
         pack_index_digests: BTreeMap::new(),
     });
@@ -45,7 +52,7 @@ fn enabled_packs_require_lockfile_entries() {
 }
 
 #[test]
-fn no_auto_install_fails_when_enabled_pack_missing_locally() {
+fn auto_install_policy_no_auto_install_fails_when_enabled_pack_missing_locally() {
     let react = language_id("react");
     let locked_version = "1.2.3";
 
@@ -55,7 +62,7 @@ fn no_auto_install_fails_when_enabled_pack_missing_locally() {
             react.clone(),
             locked_language(locked_version, "aaaa"),
         )]),
-        installed_versions: BTreeMap::new(),
+        installed_manifests: BTreeMap::new(),
         allow_auto_install: false,
         pack_index_digests: BTreeMap::new(),
     });
@@ -64,15 +71,17 @@ fn no_auto_install_fails_when_enabled_pack_missing_locally() {
     assert_eq!(decision.needs_install, Vec::<InstallPlan>::new());
     assert_eq!(
         decision.errors,
-        vec![AutoInstallPolicyError::MissingInstalledWithAutoInstallDisabled {
-            language_id: react,
-            version: locked_version.to_owned(),
-        }]
+        vec![
+            AutoInstallPolicyError::MissingInstalledWithAutoInstallDisabled {
+                language_id: react,
+                version: locked_version.to_owned(),
+            }
+        ]
     );
 }
 
 #[test]
-fn auto_install_uses_exact_locked_version_and_digest() {
+fn auto_install_policy_uses_exact_locked_version_and_digest() {
     let react = language_id("react");
     let locked_version = "1.2.3";
     let locked_sha = "abcd1234";
@@ -83,7 +92,7 @@ fn auto_install_uses_exact_locked_version_and_digest() {
             react.clone(),
             locked_language(locked_version, locked_sha),
         )]),
-        installed_versions: BTreeMap::new(),
+        installed_manifests: BTreeMap::new(),
         allow_auto_install: true,
         pack_index_digests: BTreeMap::from([(
             react.clone(),
@@ -104,7 +113,7 @@ fn auto_install_uses_exact_locked_version_and_digest() {
 }
 
 #[test]
-fn digest_drift_refuses_install_even_when_auto_install_is_enabled() {
+fn auto_install_policy_digest_drift_refuses_install_even_when_auto_install_is_enabled() {
     let react = language_id("react");
     let locked_version = "1.2.3";
     let lockfile_sha = "lock-sha";
@@ -116,7 +125,7 @@ fn digest_drift_refuses_install_even_when_auto_install_is_enabled() {
             react.clone(),
             locked_language(locked_version, lockfile_sha),
         )]),
-        installed_versions: BTreeMap::new(),
+        installed_manifests: BTreeMap::new(),
         allow_auto_install: true,
         pack_index_digests: BTreeMap::from([(
             react.clone(),
@@ -135,4 +144,29 @@ fn digest_drift_refuses_install_even_when_auto_install_is_enabled() {
             pack_index_sha256: pack_index_sha.to_owned(),
         }]
     );
+}
+
+#[test]
+fn auto_install_policy_marks_language_ready_when_locked_version_is_installed() {
+    let react = language_id("react");
+    let locked_version = "1.2.3";
+    let locked_sha = "abcd1234";
+
+    let decision = evaluate_auto_install_policy(&AutoInstallPolicyInput {
+        enabled_language_ids: [react.clone()].into(),
+        locked_languages: BTreeMap::from([(
+            react.clone(),
+            locked_language(locked_version, locked_sha),
+        )]),
+        installed_manifests: BTreeMap::from([(
+            react.clone(),
+            vec![installed_manifest(locked_version)],
+        )]),
+        allow_auto_install: true,
+        pack_index_digests: BTreeMap::new(),
+    });
+
+    assert_eq!(decision.ready, [react].into());
+    assert_eq!(decision.needs_install, Vec::<InstallPlan>::new());
+    assert_eq!(decision.errors, Vec::<AutoInstallPolicyError>::new());
 }
