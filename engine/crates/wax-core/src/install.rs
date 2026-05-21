@@ -131,6 +131,14 @@ pub enum InstallError {
         /// Raw archive entry path text.
         path: String,
     },
+    /// Destination install directory already exists; reinstall/update is deferred to CLI update semantics.
+    #[error(
+        "language pack already installed at {path}; remove it with `wax language uninstall` before reinstalling"
+    )]
+    AlreadyInstalled {
+        /// Existing install directory path.
+        path: String,
+    },
     /// Generic filesystem failure during staging or promotion.
     #[error("{context}: {source}")]
     Io {
@@ -156,6 +164,10 @@ pub enum FetchError {
 /// Downloads an artifact, verifies digest, extracts contents to a staging dir,
 /// writes `manifest.json`, optionally compares registry digest against lockfile
 /// digest before download, then atomically promotes into `~/.wax/langs/<id>/<version>`.
+///
+/// Returns [`InstallError::AlreadyInstalled`] when that destination path already
+/// exists. Same-version reinstall and in-place update are intentionally out of
+/// scope here and belong to later CLI update/replace semantics.
 ///
 /// `target_triple` is accepted for callers wiring registry metadata; it is not
 /// persisted into `manifest.json` today but keeps install signatures aligned with
@@ -194,6 +206,13 @@ pub fn install_language(
                 pack_index: pack_digest,
             });
         }
+    }
+
+    let destination = lang_install_dir(id, version)?;
+    if destination.exists() {
+        return Err(InstallError::AlreadyInstalled {
+            path: destination.display().to_string(),
+        });
     }
 
     let bytes = fetch_artifact_bytes(artifact_url)?;
@@ -571,88 +590,24 @@ fn apply_unix_executable_bit(bin_path: &Path) -> io::Result<()> {
 }
 
 fn promote_staging_dir(staging_dir: &Path, destination: &Path) -> Result<(), InstallError> {
-    if !destination.exists() {
-        return fs::rename(staging_dir, destination).map_err(|source| InstallError::Io {
+    if destination.exists() {
+        return Err(InstallError::AlreadyInstalled {
+            path: destination.display().to_string(),
+        });
+    }
+
+    match fs::rename(staging_dir, destination) {
+        Ok(()) => Ok(()),
+        Err(_source) if destination.exists() => Err(InstallError::AlreadyInstalled {
+            path: destination.display().to_string(),
+        }),
+        Err(source) => Err(InstallError::Io {
             context: format!(
                 "promote staged dir {} -> {}",
                 staging_dir.display(),
                 destination.display()
             ),
             source,
-        });
+        }),
     }
-
-    let backup = allocate_replaced_backup_dir(destination)?;
-    fs::rename(destination, &backup).map_err(|source| InstallError::Io {
-        context: format!(
-            "move existing install {} aside to {}",
-            destination.display(),
-            backup.display()
-        ),
-        source,
-    })?;
-
-    match fs::rename(staging_dir, destination) {
-        Ok(()) => {
-            let _ = fs::remove_dir_all(&backup);
-            Ok(())
-        }
-        Err(source) => {
-            let restore = fs::rename(&backup, destination);
-            let _ = fs::remove_dir_all(staging_dir);
-            if let Err(restore_err) = restore {
-                return Err(InstallError::Io {
-                    context: format!(
-                        "promote staged dir {} -> {} failed and could not restore previous install from {}",
-                        staging_dir.display(),
-                        destination.display(),
-                        backup.display()
-                    ),
-                    source: restore_err,
-                });
-            }
-            Err(InstallError::Io {
-                context: format!(
-                    "promote staged dir {} -> {}",
-                    staging_dir.display(),
-                    destination.display()
-                ),
-                source,
-            })
-        }
-    }
-}
-
-fn allocate_replaced_backup_dir(destination: &Path) -> Result<PathBuf, InstallError> {
-    let parent = destination
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-
-    let file_name = destination
-        .file_name()
-        .map(|name| name.to_string_lossy())
-        .unwrap_or_else(|| "install".into());
-
-    for attempt in 0u32..1000 {
-        let backup = parent.join(format!(
-            ".replaced-{file_name}.{}.{attempt}.tmp",
-            std::process::id(),
-        ));
-
-        if !backup.exists() {
-            return Ok(backup);
-        }
-    }
-
-    Err(InstallError::Io {
-        context: format!(
-            "allocate replaced-install backup path for {}",
-            destination.display()
-        ),
-        source: io::Error::new(
-            io::ErrorKind::AlreadyExists,
-            "could not allocate unique replaced-install backup path",
-        ),
-    })
 }

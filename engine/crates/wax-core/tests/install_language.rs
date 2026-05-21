@@ -490,53 +490,47 @@ fn install_language_rejects_manifest_command_pointing_at_directory() {
 }
 
 #[test]
-fn install_language_replaces_existing_install() {
+fn install_language_refuses_existing_destination() {
     let _guard = env_lock();
-    let home = TestHome::new("replace");
+    let home = TestHome::new("existing");
 
     let id = LanguageId::try_from("compose").expect("language id");
     let manifest = sample_manifest(id.clone());
 
-    let install_once = |body: &[u8]| {
-        let artifact_bytes = gzip_tar(&[("wax-lang-compose", body, 0o644)]);
-        let digest = sha256_hex(&artifact_bytes);
-        let artifact_path = home.root.join(format!("replace-{digest}.tgz"));
-        fs::write(&artifact_path, &artifact_bytes).expect("artifact");
-        let url = format!("file://{}", artifact_path.display());
-        install_language(
-            &id,
-            "0.4.2",
-            "aarch64-apple-darwin",
-            &url,
-            &digest,
-            None,
-            &manifest,
-        )
-        .expect("install succeeds")
-    };
+    let artifact_bytes = gzip_tar(&[("wax-lang-compose", b"version-one".as_slice(), 0o644)]);
+    let digest = sha256_hex(&artifact_bytes);
+    let artifact_path = home.root.join("existing.tgz");
+    fs::write(&artifact_path, &artifact_bytes).expect("artifact");
+    let url = format!("file://{}", artifact_path.display());
 
-    let first = install_once(b"version-one");
-    let second = install_once(b"version-two");
+    let destination = install_language(
+        &id,
+        "0.4.2",
+        "aarch64-apple-darwin",
+        &url,
+        &digest,
+        None,
+        &manifest,
+    )
+    .expect("first install succeeds");
 
-    assert_eq!(first, second);
+    let err = install_language(
+        &id,
+        "0.4.2",
+        "aarch64-apple-darwin",
+        &url,
+        &digest,
+        None,
+        &manifest,
+    )
+    .expect_err("reinstall must be refused");
 
-    let bin_path = second.join("wax-lang-compose");
-    let contents = fs::read(&bin_path).expect("binary exists after replacement");
-    assert_eq!(contents, b"version-two");
-
-    let langs_language_dir = second.parent().expect("language version parent");
-    let replaced_backups = fs::read_dir(langs_language_dir)
-        .expect("read langs dir")
-        .filter_map(Result::ok)
-        .filter(|entry| {
-            entry
-                .file_name()
-                .to_string_lossy()
-                .starts_with(".replaced-")
-        });
-    assert_eq!(
-        replaced_backups.count(),
-        0,
-        "replaced-install backup directories must not linger after promotion"
+    assert!(
+        matches!(err, InstallError::AlreadyInstalled { .. }),
+        "unexpected error: {err:?}"
     );
+
+    let bin_path = destination.join("wax-lang-compose");
+    let contents = fs::read(&bin_path).expect("original install remains intact");
+    assert_eq!(contents, b"version-one");
 }
