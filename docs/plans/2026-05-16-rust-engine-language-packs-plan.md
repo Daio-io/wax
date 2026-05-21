@@ -406,7 +406,7 @@ Add tests that cover:
 Run: `cd engine && cargo test -p wax-core install_language`
 Expected: PASS
 
-### - [ ] Task 9: CLI `wax language list|install|uninstall|update|doctor`
+### - [x] Task 9: CLI `wax language list|install|uninstall|update|doctor`
 
 **Files:**
 - Create: `engine/crates/wax-cli/Cargo.toml`
@@ -414,9 +414,9 @@ Expected: PASS
 - Create: `engine/crates/wax-cli/src/commands/language.rs`
 - Create: `engine/crates/wax-cli/src/commands/init.rs`
 
-- [ ] **Step 1: clap subcommand tree `language {list,install,uninstall,update,doctor}`**
-- [ ] **Step 2: Wire install to registry + global state**
-- [ ] **Step 3: `doctor` prints: enabled in `.waxrc`, installed version, lock pin, missing binary**
+- [x] **Step 1: clap subcommand tree `language {list,install,uninstall,update,doctor}`**
+- [x] **Step 2: Wire install to registry + global state**
+- [x] **Step 3: `doctor` prints: enabled in `.waxrc`, installed version, lock pin, missing binary**
 
 ### - [ ] Task 10: `wax init` onboarding
 
