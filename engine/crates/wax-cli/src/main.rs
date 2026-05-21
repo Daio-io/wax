@@ -3,7 +3,11 @@ mod commands {
     pub mod language;
 }
 
+#[cfg(test)]
+mod testing;
+
 use clap::{Args, Parser, Subcommand};
+use commands::init::{InitOptions, run_init};
 use commands::language::{
     DoctorOptions, InstallOptions, LanguageInstallSpec, ListOptions, UninstallOptions,
     UpdateOptions, run_doctor, run_install, run_list, run_uninstall, run_update,
@@ -24,7 +28,32 @@ enum Commands {
     /// Manage language pack lifecycle.
     Language(LanguageCli),
     /// Initialize wax repository configuration.
-    Init,
+    Init(InitArgs),
+}
+
+#[derive(Debug, Args)]
+struct InitArgs {
+    /// Run scriptable onboarding without prompts.
+    #[arg(long = "non-interactive")]
+    non_interactive: bool,
+    /// Language pack id to enable. Repeat for multiple languages.
+    #[arg(long = "language", value_name = "ID")]
+    languages: Vec<LanguageId>,
+    /// Write config and lockfile without downloading language packs.
+    #[arg(long)]
+    no_install: bool,
+    /// Pack index URL. Defaults to WAX_LANG_INDEX when unset.
+    #[arg(long, env = "WAX_LANG_INDEX")]
+    registry: Option<String>,
+    /// Repository root that will receive `.waxrc` and `wax.lock.json`.
+    #[arg(long, default_value = ".")]
+    repo_root: PathBuf,
+    /// Target triple override, primarily for tests and cross-install workflows.
+    #[arg(long)]
+    target: Option<String>,
+    /// Skip copying example design-system registry files.
+    #[arg(long)]
+    no_scaffold_registries: bool,
 }
 
 #[derive(Debug, Args)]
@@ -104,7 +133,7 @@ struct DoctorArgs {
 fn main() {
     let cli = Cli::parse();
     let mut stdout = std::io::stdout().lock();
-    let result = match cli.command {
+    let result: Result<(), Box<dyn std::error::Error>> = match cli.command {
         Commands::Language(language) => match language.command {
             LanguageSubcommand::List(args) => run_list(
                 ListOptions {
@@ -149,11 +178,22 @@ fn main() {
                 },
                 &mut stdout,
             ),
-        },
-        Commands::Init => {
-            eprintln!("wax init is implemented in Task 10");
-            Ok(())
         }
+        .map_err(Into::into),
+        Commands::Init(args) => run_init(
+            InitOptions {
+                non_interactive: args.non_interactive,
+                languages: args.languages,
+                no_install: args.no_install,
+                registry_url: args.registry,
+                repo_root: args.repo_root,
+                target_triple: args.target,
+                state_path: None,
+                scaffold_registries: !args.no_scaffold_registries,
+            },
+            &mut stdout,
+        )
+        .map_err(Into::into),
     };
 
     if let Err(err) = result {

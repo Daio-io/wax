@@ -366,7 +366,9 @@ pub fn run_doctor(
     Ok(())
 }
 
-fn resolve_registry_url(registry_url: Option<String>) -> Result<String, LanguageCommandError> {
+pub(crate) fn resolve_registry_url(
+    registry_url: Option<String>,
+) -> Result<String, LanguageCommandError> {
     resolve_optional_registry_url(registry_url).ok_or(LanguageCommandError::MissingRegistryUrl)
 }
 
@@ -387,7 +389,7 @@ fn resolved_state_path(state_path: Option<PathBuf>) -> Result<PathBuf, LanguageC
         .map_err(LanguageCommandError::from)
 }
 
-fn manifest_for_language(
+pub(crate) fn manifest_for_language(
     manifests: &[RegistryManifest],
     language_id: &LanguageId,
     version: Option<&str>,
@@ -436,6 +438,36 @@ fn install_manifest(
     install_resolved_manifest(registry_manifest, &target, artifact)
 }
 
+/// Installs a language pack from registry metadata already resolved for lockfile pinning.
+pub(crate) fn install_pinned_manifest(
+    registry_manifest: &RegistryManifest,
+    target: &str,
+    artifact: &RegistryArtifact,
+    state_path: Option<PathBuf>,
+    writer: &mut impl Write,
+) -> Result<(), LanguageCommandError> {
+    let install_dir = install_resolved_manifest(registry_manifest, target, artifact)?;
+    if let Err(err) = record_installed_language(
+        state_path,
+        &registry_manifest.id,
+        &registry_manifest.version,
+        install_dir,
+    ) {
+        remove_dir_if_exists(&lang_install_dir(
+            &registry_manifest.id,
+            &registry_manifest.version,
+        )?)?;
+        return Err(err);
+    }
+    writeln!(
+        writer,
+        "installed {} {}",
+        registry_manifest.id, registry_manifest.version
+    )
+    .map_err(write_error)?;
+    Ok(())
+}
+
 fn install_resolved_manifest(
     registry_manifest: &RegistryManifest,
     target: &str,
@@ -465,7 +497,7 @@ fn install_resolved_manifest(
     )?)
 }
 
-fn update_lockfile_entry(
+pub(crate) fn update_lockfile_entry(
     lockfile: &mut WaxLock,
     registry_manifest: &RegistryManifest,
     registry_url: &str,
@@ -490,7 +522,7 @@ fn update_lockfile_entry(
     );
 }
 
-fn save_lockfile(path: &Path, lockfile: &WaxLock) -> Result<(), LanguageCommandError> {
+pub(crate) fn save_lockfile(path: &Path, lockfile: &WaxLock) -> Result<(), LanguageCommandError> {
     let contents =
         serde_json::to_string_pretty(lockfile).map_err(|source| LanguageCommandError::Io {
             context: format!("serialize lockfile {}", path.display()),
@@ -665,7 +697,7 @@ fn installed_pack_missing_binary(install_dir: &Path) -> bool {
     !install_dir.join(relative).is_file()
 }
 
-fn default_target_triple() -> String {
+pub(crate) fn default_target_triple() -> String {
     #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
     {
         "aarch64-apple-darwin".to_owned()
@@ -723,15 +755,10 @@ mod tests {
     use std::ffi::OsString;
     use std::fs;
     use std::path::{Path, PathBuf};
-    use std::sync::{Mutex, MutexGuard};
     use wax_contract::LanguageId;
     use wax_core::global_state::{GlobalState, InstalledLanguagePack, save_global_state};
 
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-    fn env_lock() -> MutexGuard<'static, ()> {
-        ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
-    }
+    use crate::testing::env_lock;
 
     #[test]
     fn clap_tree_exposes_language_lifecycle_subcommands() {
