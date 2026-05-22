@@ -35,6 +35,10 @@ struct InstalledManifestFile {
     version: String,
     api_version: u32,
     command: Vec<String>,
+    #[serde(default)]
+    target: String,
+    #[serde(default)]
+    sha256: String,
     #[serde(flatten)]
     _extra: serde_json::Map<String, serde_json::Value>,
 }
@@ -118,24 +122,56 @@ impl Engine {
             .collect();
 
         let installed_manifests = collect_installed_manifests(&enabled_ids, &lockfile, &state)?;
-        let pack_index_artifacts = collect_pack_index_artifacts(&enabled_ids, &lockfile)?;
-        let policy = auto_install::evaluate_auto_install_policy(&AutoInstallPolicyInput {
-            enabled_language_ids: enabled_ids.clone(),
-            locked_languages: lockfile.languages.clone(),
-            installed_manifests,
-            allow_auto_install: true,
-            pack_index_artifacts,
-        });
+        let policy_without_auto_install =
+            auto_install::evaluate_auto_install_policy(&AutoInstallPolicyInput {
+                enabled_language_ids: enabled_ids.clone(),
+                locked_languages: lockfile.languages.clone(),
+                installed_manifests,
+                allow_auto_install: false,
+                pack_index_artifacts: BTreeMap::new(),
+            });
 
-        if !policy.errors.is_empty() {
-            return Err(EngineError::AutoInstallPolicyBlocked {
-                errors: policy.errors,
-            });
+        let mut requires_install = false;
+        for error in &policy_without_auto_install.errors {
+            match error {
+                auto_install::AutoInstallPolicyError::MissingInstalledWithAutoInstallDisabled {
+                    ..
+                } => {
+                    requires_install = true;
+                }
+                _ => {
+                    return Err(EngineError::AutoInstallPolicyBlocked {
+                        errors: policy_without_auto_install.errors,
+                    });
+                }
+            }
         }
-        if !policy.needs_install.is_empty() {
-            return Err(EngineError::AutoInstallRequired {
-                plans: policy.needs_install,
-            });
+
+        if requires_install {
+            let pack_index_artifacts = collect_pack_index_artifacts(&enabled_ids, &lockfile)?;
+            let policy_with_auto_install =
+                auto_install::evaluate_auto_install_policy(&AutoInstallPolicyInput {
+                    enabled_language_ids: enabled_ids.clone(),
+                    locked_languages: lockfile.languages.clone(),
+                    installed_manifests: collect_installed_manifests(
+                        &enabled_ids,
+                        &lockfile,
+                        &state,
+                    )?,
+                    allow_auto_install: true,
+                    pack_index_artifacts,
+                });
+
+            if !policy_with_auto_install.errors.is_empty() {
+                return Err(EngineError::AutoInstallPolicyBlocked {
+                    errors: policy_with_auto_install.errors,
+                });
+            }
+            if !policy_with_auto_install.needs_install.is_empty() {
+                return Err(EngineError::AutoInstallRequired {
+                    plans: policy_with_auto_install.needs_install,
+                });
+            }
         }
 
         let mut languages = BTreeMap::new();
@@ -174,9 +210,9 @@ fn collect_installed_manifests(
 ) -> Result<BTreeMap<LanguageId, Vec<InstalledManifest>>, EngineError> {
     let mut by_language = BTreeMap::new();
     for language_id in enabled_ids {
-        let Some(locked) = lockfile.languages.get(language_id) else {
+        if !lockfile.languages.contains_key(language_id) {
             continue;
-        };
+        }
         let Some(versions) = state.installed_languages.get(language_id) else {
             continue;
         };
@@ -190,8 +226,8 @@ fn collect_installed_manifests(
             manifests.push(InstalledManifest {
                 version: version.clone(),
                 api_version: manifest.api_version,
-                target: locked.resolved.target.clone(),
-                sha256: locked.resolved.sha256.clone(),
+                target: manifest.target.clone(),
+                sha256: manifest.sha256.clone(),
             });
         }
         if !manifests.is_empty() {
