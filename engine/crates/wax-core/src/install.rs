@@ -169,10 +169,6 @@ pub enum FetchError {
 /// exists. Same-version reinstall and in-place update are intentionally out of
 /// scope here and belong to later CLI update/replace semantics.
 ///
-/// `target_triple` is accepted for callers wiring registry metadata; it is not
-/// persisted into `manifest.json` today but keeps install signatures aligned with
-/// pack-index rows.
-///
 /// When `pack_index_digest_hex` is `Some`, it must equal `expected_digest_hex`
 /// (after normalization); otherwise [`InstallError::DigestDrift`] is returned
 /// before any fetch so lockfile pins cannot silently track registry drift.
@@ -236,10 +232,12 @@ pub fn install_language(
 
     let staging_result: Result<(), InstallError> = (|| {
         unpack_tar_gz_secure(&bytes, &staging_dir)?;
-        write_manifest_json(&staging_dir, manifest).map_err(|source| InstallError::Io {
-            context: format!("write manifest.json under {}", staging_dir.display()),
-            source,
-        })?;
+        write_manifest_json(&staging_dir, manifest, target_triple, &expected_digest).map_err(
+            |source| InstallError::Io {
+                context: format!("write manifest.json under {}", staging_dir.display()),
+                source,
+            },
+        )?;
         let bin_path = validated_manifest_binary(&staging_dir, manifest)?;
         apply_unix_executable_bit(&bin_path).map_err(|source| InstallError::Io {
             context: format!("set executable bit for {}", bin_path.display()),
@@ -520,8 +518,26 @@ fn validated_archive_relative_path(path: &Path) -> Result<PathBuf, InstallError>
     Ok(cleaned)
 }
 
-fn write_manifest_json(dir: &Path, manifest: &LanguagePackManifestSpec) -> io::Result<()> {
-    let serialized = serde_json::to_string_pretty(manifest)
+#[derive(Serialize)]
+struct PersistedLanguagePackManifest<'a> {
+    #[serde(flatten)]
+    manifest: &'a LanguagePackManifestSpec,
+    target: &'a str,
+    sha256: &'a str,
+}
+
+fn write_manifest_json(
+    dir: &Path,
+    manifest: &LanguagePackManifestSpec,
+    target: &str,
+    sha256: &str,
+) -> io::Result<()> {
+    let persisted = PersistedLanguagePackManifest {
+        manifest,
+        target,
+        sha256,
+    };
+    let serialized = serde_json::to_string_pretty(&persisted)
         .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
     let manifest_path = dir.join("manifest.json");
     let mut file = OpenOptions::new()

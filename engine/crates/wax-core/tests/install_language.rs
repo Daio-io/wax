@@ -135,6 +135,8 @@ struct ManifestJson {
     ecosystem: String,
     parser_name: String,
     parser_version: String,
+    target: String,
+    sha256: String,
 }
 
 #[test]
@@ -181,6 +183,8 @@ fn install_language_writes_manifest_and_unpacks_pack() {
     assert_eq!(parsed.ecosystem, "jetpack-compose");
     assert_eq!(parsed.parser_name, "tree-sitter-kotlin");
     assert_eq!(parsed.parser_version, "0.3.8");
+    assert_eq!(parsed.target, "aarch64-apple-darwin");
+    assert_eq!(parsed.sha256, digest);
 
     let langs_language_dir = destination.parent().expect("language version parent");
     let stray_staging = fs::read_dir(langs_language_dir)

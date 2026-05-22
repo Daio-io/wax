@@ -447,15 +447,15 @@ Expected:
 
 ## Phase 4 — `wax scan` product path
 
-### - [ ] Task 11a: Engine resolves enabled languages and spawns packs
+### - [x] Task 11a: Engine resolves enabled languages and spawns packs
 
 **Files:**
 - Modify: `engine/crates/wax-core/src/lib.rs`
 
-- [ ] **Step 1: `Engine::scan_repo(repo_root)` loads `.waxrc`, filters `enabled: true`**
-- [ ] **Step 2: For each id, resolve subprocess adapter from global manifest**
-- [ ] **Step 3: Apply `auto_install::policy()` from Task 7b**
-- [ ] **Step 4: Run enabled packs serially**
+- [x] **Step 1: `Engine::scan_repo(repo_root)` loads `.waxrc`, filters `enabled: true`**
+- [x] **Step 2: For each id, resolve subprocess adapter from global manifest**
+- [x] **Step 3: Apply `auto_install::policy()` from Task 7b**
+- [x] **Step 4: Run enabled packs serially**
 
 Run: `cd engine && cargo test -p wax-core scan_resolve`
 Expected: PASS
