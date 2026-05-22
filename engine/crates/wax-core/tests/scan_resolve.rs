@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -52,7 +53,7 @@ fn build_scan_facts(language: &str, version: &str) -> ScanFacts {
     }
 }
 
-fn write_repo_files(repo: &PathBuf, registry_file: &PathBuf) {
+fn write_repo_files(repo: &Path, registry_file: &Path) {
     fs::write(
         repo.join(".waxrc"),
         r#"{
@@ -89,7 +90,7 @@ fn write_repo_files(repo: &PathBuf, registry_file: &PathBuf) {
     fs::write(repo.join("wax.lock.json"), lock).unwrap();
 }
 
-fn write_pack_index(path: &PathBuf) {
+fn write_pack_index(path: &Path) {
     fs::write(
         path,
         r#"[
