@@ -131,13 +131,14 @@ impl Engine {
                 pack_index_artifacts: BTreeMap::new(),
             });
 
-        let mut requires_install = false;
+        let mut missing_install_ids = BTreeSet::new();
         for error in &policy_without_auto_install.errors {
             match error {
                 auto_install::AutoInstallPolicyError::MissingInstalledWithAutoInstallDisabled {
+                    language_id,
                     ..
                 } => {
-                    requires_install = true;
+                    missing_install_ids.insert(language_id.clone());
                 }
                 _ => {
                     return Err(EngineError::AutoInstallPolicyBlocked {
@@ -147,8 +148,9 @@ impl Engine {
             }
         }
 
-        if requires_install {
-            let pack_index_artifacts = collect_pack_index_artifacts(&enabled_ids, &lockfile)?;
+        if !missing_install_ids.is_empty() {
+            let pack_index_artifacts =
+                collect_pack_index_artifacts(&missing_install_ids, &lockfile)?;
             let policy_with_auto_install =
                 auto_install::evaluate_auto_install_policy(&AutoInstallPolicyInput {
                     enabled_language_ids: enabled_ids.clone(),

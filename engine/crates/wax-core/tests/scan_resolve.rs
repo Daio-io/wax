@@ -313,3 +313,134 @@ fn scan_resolve_ready_install_does_not_require_registry_access() {
     let merged: MergedScan = Engine::scan_repo(&repo).expect("ready install should scan");
     assert_eq!(merged.languages.len(), 1);
 }
+
+#[test]
+fn scan_resolve_fetches_registry_only_for_missing_languages() {
+    let _guard = env_lock();
+    let root = temp_dir("scan-resolve-mixed-registry");
+    let repo = root.join("repo");
+    let wax_home = root.join("wax-home");
+    fs::create_dir_all(&repo).unwrap();
+    fs::create_dir_all(&wax_home).unwrap();
+
+    fs::write(
+        repo.join(".waxrc"),
+        r#"{
+  "schema_version": 1,
+  "languages": [
+    { "id": "compose", "enabled": true },
+    { "id": "react", "enabled": true }
+  ]
+}"#,
+    )
+    .unwrap();
+
+    let react_registry = root.join("react-registry.json");
+    fs::write(
+        &react_registry,
+        r#"[
+  {
+    "id": "react",
+    "version": "1.0.0",
+    "api_version": 1,
+    "targets": {
+      "x86_64-unknown-linux-gnu": {
+        "url": "https://example.invalid/react-1.0.0.tgz",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    }
+  }
+]"#,
+    )
+    .unwrap();
+
+    let lock = format!(
+        r#"{{
+  "schema_version": 1,
+  "engine_api_version": 1,
+  "wax_version": "0.0.0",
+  "languages": {{
+    "compose": {{
+      "version": "0.1.0",
+      "api_version": 1,
+      "source": "https://registry.example.invalid/compose.json",
+      "resolved": {{
+        "target": "x86_64-unknown-linux-gnu",
+        "url": "https://example.invalid/compose-0.1.0.tgz",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null
+      }}
+    }},
+    "react": {{
+      "version": "1.0.0",
+      "api_version": 1,
+      "source": "file://{}",
+      "resolved": {{
+        "target": "x86_64-unknown-linux-gnu",
+        "url": "https://example.invalid/react-1.0.0.tgz",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "signature": null
+      }}
+    }}
+  }}
+}}"#,
+        react_registry.display()
+    );
+    fs::write(repo.join("wax.lock.json"), lock).unwrap();
+
+    let install_dir = wax_home.join("langs/compose/0.1.0");
+    fs::create_dir_all(&install_dir).unwrap();
+    let script = install_dir.join("compose-pack.sh");
+    let wire = serde_json::json!({
+        "type": "scan_facts",
+        "api_version": 1,
+        "language_id": "compose",
+        "facts": build_scan_facts("compose", "0.1.0")
+    });
+    let script_body = format!("#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '{}'\n", wire);
+    fs::write(&script, script_body).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&script).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&script, perms).unwrap();
+    }
+    fs::write(
+        install_dir.join("manifest.json"),
+        r#"{
+  "id": "compose",
+  "version": "0.1.0",
+  "api_version": 1,
+  "command": ["./compose-pack.sh"],
+  "target": "x86_64-unknown-linux-gnu",
+  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "ecosystem": "test",
+  "parser_name": "fixture",
+  "parser_version": "1.0.0"
+}"#,
+    )
+    .unwrap();
+    fs::write(
+        wax_home.join("state.json"),
+        format!(
+            r#"{{
+  "installed_languages": {{
+    "compose": {{
+      "0.1.0": {{ "install_dir": "{}" }}
+    }}
+  }}
+}}"#,
+            install_dir.display()
+        ),
+    )
+    .unwrap();
+
+    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
+    let err = Engine::scan_repo(&repo).expect_err("react should require auto-install");
+    let message = err.to_string();
+    assert!(
+        message.contains("requires auto-install"),
+        "unexpected error: {message}"
+    );
+}
