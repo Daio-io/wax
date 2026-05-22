@@ -473,15 +473,15 @@ Expected: PASS
 Run: `cd engine && cargo test -p wax-core scan_concurrency`
 Expected: PASS
 
-### - [ ] Task 11c: Engine scan output writing
+### - [x] Task 11c: Engine scan output writing
 
 **Files:**
 - Modify: `engine/crates/wax-core/src/lib.rs`
 - Test: `engine/crates/wax-core/tests/scan_output.rs`
 
-- [ ] **Step 1: Write per-language scan files under `.wax/out/languages/`**
-- [ ] **Step 2: Write `MergedScan` to `.wax/out/scan-merged.json`**
-- [ ] **Step 3: Use atomic writes so interrupted scans do not leave corrupt JSON**
+- [x] **Step 1: Write per-language scan files under `.wax/out/languages/`**
+- [x] **Step 2: Write `MergedScan` to `.wax/out/scan-merged.json`**
+- [x] **Step 3: Use atomic writes so interrupted scans do not leave corrupt JSON**
 
 Run: `cd engine && cargo test -p wax-core scan_output`
 Expected: PASS
