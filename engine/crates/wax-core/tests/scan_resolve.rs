@@ -444,3 +444,75 @@ fn scan_resolve_fetches_registry_only_for_missing_languages() {
         "unexpected error: {message}"
     );
 }
+
+#[test]
+fn scan_resolve_ignores_stale_installed_versions() {
+    let _guard = env_lock();
+    let root = temp_dir("scan-resolve-stale-installed");
+    let repo = root.join("repo");
+    let wax_home = root.join("wax-home");
+    fs::create_dir_all(&repo).unwrap();
+    fs::create_dir_all(&wax_home).unwrap();
+
+    let registry_file = root.join("registry.json");
+    write_pack_index(&registry_file);
+    write_repo_files(&repo, &registry_file);
+
+    let install_dir = wax_home.join("langs/compose/0.1.0");
+    fs::create_dir_all(&install_dir).unwrap();
+    let script = install_dir.join("compose-pack.sh");
+    let wire = serde_json::json!({
+        "type": "scan_facts",
+        "api_version": 1,
+        "language_id": "compose",
+        "facts": build_scan_facts("compose", "0.1.0")
+    });
+    let script_body = format!("#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '{}'\n", wire);
+    fs::write(&script, script_body).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&script).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&script, perms).unwrap();
+    }
+    fs::write(
+        install_dir.join("manifest.json"),
+        r#"{
+  "id": "compose",
+  "version": "0.1.0",
+  "api_version": 1,
+  "command": ["./compose-pack.sh"],
+  "target": "x86_64-unknown-linux-gnu",
+  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "ecosystem": "test",
+  "parser_name": "fixture",
+  "parser_version": "1.0.0"
+}"#,
+    )
+    .unwrap();
+
+    let stale_install_dir = wax_home.join("langs/compose/0.0.1");
+    fs::create_dir_all(&stale_install_dir).unwrap();
+
+    fs::write(
+        wax_home.join("state.json"),
+        format!(
+            r#"{{
+  "installed_languages": {{
+    "compose": {{
+      "0.0.1": {{ "install_dir": "{}" }},
+      "0.1.0": {{ "install_dir": "{}" }}
+    }}
+  }}
+}}"#,
+            stale_install_dir.display(),
+            install_dir.display()
+        ),
+    )
+    .unwrap();
+
+    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
+    let merged: MergedScan = Engine::scan_repo(&repo).expect("locked install should scan");
+    assert_eq!(merged.languages.len(), 1);
+}

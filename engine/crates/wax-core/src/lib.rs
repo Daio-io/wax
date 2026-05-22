@@ -215,26 +215,30 @@ fn collect_installed_manifests(
         if !lockfile.languages.contains_key(language_id) {
             continue;
         }
-        let Some(versions) = state.installed_languages.get(language_id) else {
+        let Some(locked) = lockfile.languages.get(language_id) else {
+            continue;
+        };
+        let Some(pack) = state
+            .installed_languages
+            .get(language_id)
+            .and_then(|versions| versions.get(&locked.version))
+        else {
             continue;
         };
 
-        let mut manifests = Vec::new();
-        for (version, pack) in versions {
-            let manifest = load_manifest_file(pack.install_dir.join("manifest.json"))?;
-            if manifest.id != *language_id || manifest.version != *version {
-                continue;
-            }
-            manifests.push(InstalledManifest {
-                version: version.clone(),
+        let manifest = load_manifest_file(pack.install_dir.join("manifest.json"))?;
+        if manifest.id != *language_id || manifest.version != locked.version {
+            continue;
+        }
+        by_language.insert(
+            language_id.clone(),
+            vec![InstalledManifest {
+                version: locked.version.clone(),
                 api_version: manifest.api_version,
                 target: manifest.target.clone(),
                 sha256: manifest.sha256.clone(),
-            });
-        }
-        if !manifests.is_empty() {
-            by_language.insert(language_id.clone(), manifests);
-        }
+            }],
+        );
     }
     Ok(by_language)
 }
