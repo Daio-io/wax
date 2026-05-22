@@ -16,15 +16,20 @@ use config::waxrc::{WaxRcError, load_waxrc};
 use global_state::{GlobalStateError, load_global_state};
 use paths::{PathsError, state_file};
 use serde::Deserialize;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use subprocess_lang::{
-    LanguageError, LanguageExtractor, SubprocessLanguageExtractor, SubprocessLanguageManifest,
+    LanguageCancellationToken, LanguageError, SubprocessLanguageExtractor,
+    SubprocessLanguageManifest,
 };
 use thiserror::Error;
-use wax_contract::{LanguageId, MergedScan, SCHEMA_VERSION};
+use wax_contract::{LanguageId, MergedScan, SCHEMA_VERSION, ScanFacts};
 use wax_lang_api::{ScanRequest, ScanRequestType, WIRE_API_VERSION};
 
 const DEFAULT_SCAN_TIMEOUT: Duration = Duration::from_secs(120);
@@ -48,9 +53,31 @@ struct InstalledPackScanSpec {
     command: Vec<String>,
 }
 
+#[derive(Debug)]
+struct ScanJob {
+    language_id: LanguageId,
+    command: Vec<String>,
+}
+
+type ScanJobResult = Result<(LanguageId, ScanFacts), EngineError>;
+
+enum ScanWorkerMessage {
+    Job(Box<ScanJobResult>),
+    Done,
+}
+
 /// Engine scan orchestrator for repository scans.
 #[derive(Debug, Default)]
 pub struct Engine;
+
+/// Runtime options for repository scans.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ScanOptions {
+    /// Overrides `.waxrc` `engine.scan_concurrency` when set.
+    ///
+    /// Values less than 1 are treated as serial execution.
+    pub scan_concurrency: Option<u32>,
+}
 
 /// Typed failures while resolving and running repository scans.
 #[derive(Debug, Error)]
@@ -104,13 +131,25 @@ pub enum EngineError {
     /// A language scan subprocess failed.
     #[error(transparent)]
     Language(#[from] LanguageError),
+    /// A language scan worker thread panicked.
+    #[error("language scan worker panicked")]
+    ScanWorkerPanicked,
 }
 
 impl Engine {
-    /// Scans a repository by running enabled language packs serially.
+    /// Scans a repository by running enabled language packs.
     pub fn scan_repo(repo_root: impl AsRef<Path>) -> Result<MergedScan, EngineError> {
+        Self::scan_repo_with_options(repo_root, ScanOptions::default())
+    }
+
+    /// Scans a repository by running enabled language packs with runtime options.
+    pub fn scan_repo_with_options(
+        repo_root: impl AsRef<Path>,
+        options: ScanOptions,
+    ) -> Result<MergedScan, EngineError> {
         let repo_root = repo_root.as_ref();
         let waxrc = load_waxrc(repo_root.join(".waxrc"))?;
+        let scan_concurrency = effective_scan_concurrency(&waxrc.engine, &options);
         let lockfile = load_lockfile(repo_root.join("wax.lock.json"))?;
         let state = load_global_state(state_file()?)?;
 
@@ -176,26 +215,17 @@ impl Engine {
             }
         }
 
-        let mut languages = BTreeMap::new();
+        let mut jobs = Vec::new();
         for language_id in enabled_ids {
             let locked = &lockfile.languages[&language_id];
             let pack_spec =
                 load_installed_manifest_for_locked(&state, &language_id, &locked.version)?;
-            let extractor = SubprocessLanguageExtractor::new(SubprocessLanguageManifest {
+            jobs.push(ScanJob {
+                language_id,
                 command: pack_spec.command,
-                timeout: DEFAULT_SCAN_TIMEOUT,
             });
-            let request = ScanRequest {
-                request_type: ScanRequestType::Scan,
-                api_version: WIRE_API_VERSION,
-                language_id: language_id.clone(),
-                repo_root: repo_root.display().to_string(),
-                snapshot_id: new_snapshot_id(),
-                config: serde_json::Map::new(),
-            };
-            let facts = extractor.scan(request)?;
-            languages.insert(language_id, facts);
         }
+        let languages = run_scan_jobs(repo_root, jobs, scan_concurrency)?;
 
         Ok(MergedScan {
             schema_version: SCHEMA_VERSION,
@@ -203,6 +233,126 @@ impl Engine {
             languages,
         })
     }
+}
+
+fn effective_scan_concurrency(
+    engine_config: &config::waxrc::EngineConfig,
+    options: &ScanOptions,
+) -> usize {
+    let configured = options
+        .scan_concurrency
+        .unwrap_or(engine_config.scan_concurrency);
+    configured.max(1) as usize
+}
+
+fn run_scan_jobs(
+    repo_root: &Path,
+    jobs: Vec<ScanJob>,
+    scan_concurrency: usize,
+) -> Result<BTreeMap<LanguageId, ScanFacts>, EngineError> {
+    if jobs.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+
+    let repo_root = repo_root.display().to_string();
+    let worker_count = scan_concurrency.min(jobs.len());
+    let queue = Arc::new(Mutex::new(jobs.into_iter().collect::<VecDeque<_>>()));
+    let stop = Arc::new(AtomicBool::new(false));
+    let cancellation = LanguageCancellationToken::new();
+    let (tx, rx) = mpsc::channel();
+    let mut languages = BTreeMap::new();
+
+    let handles = (0..worker_count)
+        .map(|_| {
+            let queue = Arc::clone(&queue);
+            let stop = Arc::clone(&stop);
+            let cancellation = cancellation.clone();
+            let repo_root = repo_root.clone();
+            let tx = tx.clone();
+            thread::spawn(move || {
+                while !stop.load(Ordering::SeqCst) {
+                    let job = queue.lock().expect("scan job queue poisoned").pop_front();
+                    let Some(job) = job else {
+                        break;
+                    };
+
+                    let result = run_scan_job(repo_root.clone(), job, &cancellation);
+                    if result.is_err() {
+                        stop.store(true, Ordering::SeqCst);
+                    }
+                    if tx.send(ScanWorkerMessage::Job(Box::new(result))).is_err() {
+                        break;
+                    }
+                }
+                let _ = tx.send(ScanWorkerMessage::Done);
+            })
+        })
+        .collect::<Vec<_>>();
+    drop(tx);
+
+    let mut first_error = None;
+    let mut finished_workers = 0;
+    while finished_workers < worker_count {
+        match rx.recv() {
+            Ok(ScanWorkerMessage::Job(result)) => match *result {
+                Ok((language_id, facts)) => {
+                    if first_error.is_none() {
+                        languages.insert(language_id, facts);
+                    }
+                }
+                Err(error) => {
+                    if first_error.is_none() {
+                        first_error = Some(error);
+                        stop.store(true, Ordering::SeqCst);
+                        cancellation.cancel();
+                    }
+                }
+            },
+            Ok(ScanWorkerMessage::Done) => {
+                finished_workers += 1;
+            }
+            Err(_) => {
+                break;
+            }
+        }
+    }
+
+    for handle in handles {
+        if handle.join().is_err() {
+            stop.store(true, Ordering::SeqCst);
+            cancellation.cancel();
+            if first_error.is_none() {
+                first_error = Some(EngineError::ScanWorkerPanicked);
+            }
+        }
+    }
+
+    if let Some(error) = first_error {
+        return Err(error);
+    }
+
+    Ok(languages)
+}
+
+fn run_scan_job(
+    repo_root: String,
+    job: ScanJob,
+    cancellation: &LanguageCancellationToken,
+) -> Result<(LanguageId, ScanFacts), EngineError> {
+    let extractor = SubprocessLanguageExtractor::new(SubprocessLanguageManifest {
+        command: job.command,
+        timeout: DEFAULT_SCAN_TIMEOUT,
+    });
+    let request = ScanRequest {
+        request_type: ScanRequestType::Scan,
+        api_version: WIRE_API_VERSION,
+        language_id: job.language_id.clone(),
+        repo_root,
+        snapshot_id: new_snapshot_id(),
+        config: serde_json::Map::new(),
+    };
+    let facts = extractor.scan_with_cancellation(request, cancellation)?;
+    Ok((job.language_id, facts))
 }
 
 fn collect_installed_manifests(

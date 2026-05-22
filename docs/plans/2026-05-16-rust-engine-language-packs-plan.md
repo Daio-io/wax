@@ -460,15 +460,15 @@ Expected:
 Run: `cd engine && cargo test -p wax-core scan_resolve`
 Expected: PASS
 
-### - [ ] Task 11b: Engine scan concurrency
+### - [x] Task 11b: Engine scan concurrency
 
 **Files:**
 - Modify: `engine/crates/wax-core/src/lib.rs`
 - Test: `engine/crates/wax-core/tests/scan_concurrency.rs`
 
-- [ ] **Step 1: Apply `engine.scan_concurrency` default and CLI override**
-- [ ] **Step 2: Run enabled packs in parallel with bounded concurrency**
-- [ ] **Step 3: Preserve deterministic merged output ordering by `LanguageId`**
+- [x] **Step 1: Apply `engine.scan_concurrency` default and CLI override**
+- [x] **Step 2: Run enabled packs in parallel with bounded concurrency**
+- [x] **Step 3: Preserve deterministic merged output ordering by `LanguageId`**
 
 Run: `cd engine && cargo test -p wax-core scan_concurrency`
 Expected: PASS
