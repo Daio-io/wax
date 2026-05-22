@@ -1,7 +1,9 @@
+use std::ffi::OsString;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use time::OffsetDateTime;
@@ -10,6 +12,38 @@ use wax_contract::{
     ScanStatus,
 };
 use wax_core::Engine;
+
+static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+fn env_lock() -> MutexGuard<'static, ()> {
+    ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
+}
+
+struct EnvVarGuard {
+    name: &'static str,
+    previous: Option<OsString>,
+}
+
+impl EnvVarGuard {
+    fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+        let previous = std::env::var_os(name);
+        unsafe {
+            std::env::set_var(name, value);
+        }
+        Self { name, previous }
+    }
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        unsafe {
+            match &self.previous {
+                Some(value) => std::env::set_var(self.name, value),
+                None => std::env::remove_var(self.name),
+            }
+        }
+    }
+}
 
 fn temp_dir(name: &str) -> PathBuf {
     let nonce = SystemTime::now()
@@ -112,6 +146,7 @@ fn write_pack_index(path: &Path) {
 
 #[test]
 fn scan_resolve_runs_enabled_language_and_merges_results() {
+    let _guard = env_lock();
     let root = temp_dir("scan-resolve");
     let repo = root.join("repo");
     let wax_home = root.join("wax-home");
@@ -122,7 +157,9 @@ fn scan_resolve_runs_enabled_language_and_merges_results() {
     write_pack_index(&registry_file);
     write_repo_files(&repo, &registry_file);
 
-    let script = root.join("compose-pack.sh");
+    let install_dir = wax_home.join("langs/compose/0.1.0");
+    fs::create_dir_all(&install_dir).unwrap();
+    let script = install_dir.join("compose-pack.sh");
     let wire = serde_json::json!({
         "type": "scan_facts",
         "api_version": 1,
@@ -139,22 +176,17 @@ fn scan_resolve_runs_enabled_language_and_merges_results() {
         fs::set_permissions(&script, perms).unwrap();
     }
 
-    let install_dir = wax_home.join("langs/compose/0.1.0");
-    fs::create_dir_all(&install_dir).unwrap();
     fs::write(
         install_dir.join("manifest.json"),
-        format!(
-            r#"{{
+        r#"{
   "id": "compose",
   "version": "0.1.0",
   "api_version": 1,
-  "command": ["{}"],
+  "command": ["./compose-pack.sh"],
   "ecosystem": "test",
   "parser_name": "fixture",
   "parser_version": "1.0.0"
-}}"#,
-            script.display()
-        ),
+}"#,
     )
     .unwrap();
 
@@ -173,8 +205,7 @@ fn scan_resolve_runs_enabled_language_and_merges_results() {
     )
     .unwrap();
 
-    // SAFETY: tests run in-process and intentionally scope WAX_HOME per test case.
-    unsafe { std::env::set_var("WAX_HOME", &wax_home) };
+    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
     let merged: MergedScan = Engine::scan_repo(&repo).expect("scan should pass");
 
     assert_eq!(merged.schema_version, SCHEMA_VERSION);
@@ -186,6 +217,7 @@ fn scan_resolve_runs_enabled_language_and_merges_results() {
 
 #[test]
 fn scan_resolve_surfaces_missing_install_as_auto_install_required() {
+    let _guard = env_lock();
     let root = temp_dir("scan-resolve-missing");
     let repo = root.join("repo");
     let wax_home = root.join("wax-home");
@@ -201,8 +233,7 @@ fn scan_resolve_surfaces_missing_install_as_auto_install_required() {
     )
     .unwrap();
 
-    // SAFETY: tests run in-process and intentionally scope WAX_HOME per test case.
-    unsafe { std::env::set_var("WAX_HOME", &wax_home) };
+    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
     let err = Engine::scan_repo(&repo).expect_err("missing pack should be policy-blocked");
     let message = err.to_string();
     assert!(

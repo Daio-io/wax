@@ -39,6 +39,11 @@ struct InstalledManifestFile {
     _extra: serde_json::Map<String, serde_json::Value>,
 }
 
+#[derive(Debug)]
+struct InstalledPackScanSpec {
+    command: Vec<String>,
+}
+
 /// Engine scan orchestrator for repository scans.
 #[derive(Debug, Default)]
 pub struct Engine;
@@ -136,10 +141,10 @@ impl Engine {
         let mut languages = BTreeMap::new();
         for language_id in enabled_ids {
             let locked = &lockfile.languages[&language_id];
-            let manifest =
+            let pack_spec =
                 load_installed_manifest_for_locked(&state, &language_id, &locked.version)?;
             let extractor = SubprocessLanguageExtractor::new(SubprocessLanguageManifest {
-                command: manifest.command,
+                command: pack_spec.command,
                 timeout: DEFAULT_SCAN_TIMEOUT,
             });
             let request = ScanRequest {
@@ -230,7 +235,7 @@ fn load_installed_manifest_for_locked(
     state: &global_state::GlobalState,
     language_id: &LanguageId,
     expected_version: &str,
-) -> Result<InstalledManifestFile, EngineError> {
+) -> Result<InstalledPackScanSpec, EngineError> {
     let pack = state
         .installed_languages
         .get(language_id)
@@ -246,7 +251,19 @@ fn load_installed_manifest_for_locked(
             expected_version: expected_version.to_owned(),
         });
     }
-    Ok(manifest)
+    Ok(InstalledPackScanSpec {
+        command: resolve_manifest_command(pack.install_dir.as_path(), manifest.command),
+    })
+}
+
+fn resolve_manifest_command(install_dir: &Path, mut command: Vec<String>) -> Vec<String> {
+    if let Some(primary) = command.first_mut()
+        && let Some(relative) = primary.strip_prefix("./")
+    {
+        let resolved = install_dir.join(relative);
+        *primary = resolved.display().to_string();
+    }
+    command
 }
 
 fn load_manifest_file(path: PathBuf) -> Result<InstalledManifestFile, EngineError> {
