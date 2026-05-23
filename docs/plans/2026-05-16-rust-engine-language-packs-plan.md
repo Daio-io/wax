@@ -561,14 +561,14 @@ Update diagnostics and docs so `compose` reports `parser_name = "tree-sitter-kot
 Run: `cd engine && cargo test -p wax-lang-compose`
 Expected: PASS
 
-### - [ ] Task 13: Create production `wax` binary target
+### - [x] Task 13: Create production `wax` binary target
 
 **Files:**
 - Modify: `engine/crates/wax-cli/Cargo.toml`
 - Modify: `README.md`
 
-- [ ] **Step 1: Ensure `[[bin]] name = "wax"`**
-- [ ] **Step 2: Update docs to point at the production workspace, not `rust-prototype/`**
+- [x] **Step 1: Ensure `[[bin]] name = "wax"`**
+- [x] **Step 2: Update docs to point at the production workspace, not `rust-prototype/`**
 
 ---
 

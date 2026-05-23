@@ -3,6 +3,7 @@ name = "wax-cli"
 version = "0.0.0"
 edition.workspace = true
 description = "Command-line interface for the wax engine"
+default-run = "wax"
 
 [[bin]]
 name = "wax"
