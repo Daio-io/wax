@@ -2,7 +2,7 @@
 
 **Status:** Draft for review  
 **Date:** 2026-05-16  
-**Related:** [Component tracker design](./2026-05-13-component-tracker-design.md), [Rust prototype](../../rust-prototype/README.md)
+**Related:** [Component tracker design](./2026-05-13-component-tracker-design.md), [Rust engine workspace](../../engine/)
 
 ## Summary
 

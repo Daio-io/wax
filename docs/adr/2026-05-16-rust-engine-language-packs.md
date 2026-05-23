@@ -20,7 +20,7 @@ The provisional Phase 0 conclusion favored **TS + TS** for friction. That path r
 
 The approved product direction (documented in the language packs spec) is a **small Rust kernel** plus **optional, downloadable native language packs** that communicate over a versioned stdio JSON protocol and return normalized `ScanFacts`.
 
-Production code lives under [`engine/`](../../engine/). The read-only [`rust-prototype/`](../../rust-prototype/) workspace remains reference material until removed in a later plan task.
+Production code lives under [`engine/`](../../engine/).
 
 ## Decision
 
@@ -73,7 +73,6 @@ A separate ADR will be written when kernel plugin loading, trust boundaries, and
 - Terminology cleanup in [component tracker design](../specs/2026-05-13-component-tracker-design.md) (plan Task 15).
 - Release and distribution sketch in the spec (plan Task 16).
 - Pack distribution threat model: [spec § Pack distribution trust model](../specs/2026-05-16-language-packs-and-distribution.md#pack-distribution-trust-model-v1) (plan Task 17).
-- Removal of `rust-prototype/` after production crates fully replace reference material (plan Task 18).
 
 ## References
 

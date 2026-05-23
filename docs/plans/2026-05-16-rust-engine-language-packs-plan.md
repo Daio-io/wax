@@ -14,10 +14,6 @@
 
 ---
 
-## Verification note
-
-Verification commands in this plan describe the future production `engine/` workspace. This PR still contains `rust-prototype/` as read-only reference material until Task 18 removes it.
-
 ## Decision rationale
 
 Phase 0 compared TS-core and Go-core prototypes using source fixtures, golden outputs, and benchmark-oriented spikes. The provisional TS+TS direction had the lowest install friction, but it made the long-term multi-language boundary blurrier: every new ecosystem risked pulling parser/runtime concerns into the same package and making the analysis contract harder to keep stable.
@@ -27,7 +23,7 @@ This plan chooses a Rust engine with downloadable native language packs because 
 ## Prerequisites
 
 - [ ] Spec [2026-05-16-language-packs-and-distribution.md](../specs/2026-05-16-language-packs-and-distribution.md) reviewed and decisions recorded in the ADR addendum.
-- [ ] `rust-prototype/` remains read-only reference material. Do not evolve it into production code.
+- [x] `rust-prototype/` removed after production crates replaced reference material (Task 18).
 - [ ] Phase 0 spike artifacts (if used for compose goldens) live on a separate branch or PR—not required for the fresh production workspace.
 
 ## Execution model
@@ -40,7 +36,7 @@ This plan chooses a Rust engine with downloadable native language packs because 
 
 ## File structure (fresh production layout)
 
-Start a new Rust workspace under `engine/` for production. Use `rust-prototype/` only to understand prior API sketches; copy/adapt code only when it still matches the approved spec and the task PR makes that choice explicit.
+Production Rust code lives under `engine/`. New crates and tasks should follow the approved spec and existing `engine/crates/` patterns rather than reintroducing a separate prototype workspace.
 
 ```text
 engine/
@@ -72,7 +68,7 @@ Generated / local (gitignored):
 
 ## Prototype patterns not to copy
 
-When Phase 1 starts in `engine/`, do not blindly copy spike code from `rust-prototype/`:
+When extending `engine/`, do not blindly copy early spike patterns:
 
 - Do not use `#[serde(untagged)]` for success/error response envelopes; use a `type` discriminator (`scan_facts` / `error`).
 - Do not return `String` errors from public contract helpers; use `thiserror` enums that preserve error context.
@@ -611,14 +607,14 @@ Expected: PASS
 - [x] **Step 3: Record Sigstore/cosign as the planned v1.1 signing direction**
 - [x] **Step 4: Add ADR addendum pointer in Task 14**
 
-### - [ ] Task 18: Remove `rust-prototype/` reference workspace
+### - [x] Task 18: Remove `rust-prototype/` reference workspace
 
 **Files:**
 - Delete: `rust-prototype/`
 - Modify: `README.md`
 - Modify: `docs/specs/2026-05-16-language-packs-and-distribution.md`
 
-- [ ] **Step 1: Confirm production replacement exists**
+- [x] **Step 1: Confirm production replacement exists**
 
 Before deleting the prototype, verify the production `engine/` workspace has landed and covers the useful reference material:
 
@@ -630,15 +626,15 @@ cargo test -p wax-lang-api
 
 Expected: PASS
 
-- [ ] **Step 2: Remove `rust-prototype/`**
+- [x] **Step 2: Remove `rust-prototype/`**
 
 Delete the entire `rust-prototype/` directory after Tasks 1–4 have established the production contract/config/wire crates.
 
-- [ ] **Step 3: Update references**
+- [x] **Step 3: Update references**
 
 Remove README/spec links that point to `rust-prototype/`; replace them with `engine/` links where useful.
 
-- [ ] **Step 4: Run cleanup checks**
+- [x] **Step 4: Run cleanup checks**
 
 ```bash
 rg -n "rust-prototype|Rust prototype" README.md docs engine
@@ -685,7 +681,7 @@ Before implementation starts, confirm:
 
 1. Decisions in [language packs spec](../specs/2026-05-16-language-packs-and-distribution.md) are recorded: JSON-only `.waxrc`, required lockfile, Swift deferred, no fixed response cap, Sigstore/cosign v1.1 signing direction.
 2. ADR process: addendum vs superseding foundation ADR.
-3. Monorepo layout: start fresh in `engine/crates/`; keep `rust-prototype/` read-only as reference material.
+3. Monorepo layout: production crates live under `engine/crates/`; the read-only `rust-prototype/` workspace has been removed (Task 18).
 4. CI policy: `wax scan --no-auto-install` + committed `wax.lock.json`.
 5. Pack binary naming is fixed as `wax-lang-<id>` across crates, manifests, and release artifacts.
 6. Task 15 intentionally carries old component-tracker “plugin” terminology cleanup; mention this in the PR description so reviewers do not confuse old design text with the new language-pack direction.
