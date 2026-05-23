@@ -19,12 +19,17 @@ fn wax_binary_exposes_cli_help() {
         stdout.contains("Design-system analysis engine"),
         "expected wax help output, got: {stdout}"
     );
+
+    let commands_section = stdout
+        .split("Commands:")
+        .nth(1)
+        .unwrap_or("missing Commands section in help output");
     assert!(
-        stdout.contains("language"),
-        "expected language subcommand in help output, got: {stdout}"
+        commands_section.contains("language"),
+        "expected language subcommand in Commands section, got: {stdout}"
     );
     assert!(
-        stdout.contains("init"),
-        "expected init subcommand in help output, got: {stdout}"
+        commands_section.contains("init"),
+        "expected init subcommand in Commands section, got: {stdout}"
     );
 }

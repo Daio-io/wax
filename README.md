@@ -9,5 +9,8 @@ Open-source, self-hostable design system component tracker. See [component track
 - [`engine/`](engine/) — production Rust workspace (`wax` CLI, language packs, contract crates)
 
 ```bash
-cd engine && cargo build -p wax-cli && cargo test -p wax-cli
+cd engine
+cargo test -p wax-cli
+cargo build --release -p wax-cli   # optimized binary at target/release/wax
+cargo install --path crates/wax-cli --locked   # install wax into $PATH
 ```
