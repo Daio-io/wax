@@ -43,8 +43,8 @@ The following decisions from spec review are part of this foundation and are imp
 | Reproducible CI | `wax.lock.json` required when using language packs |
 | Swift | Deferred to a later phase |
 | Large scan responses | No fixed size cap; engine must handle large payloads safely |
-| Pack artifact trust (v1) | HTTPS + sha256 digest verification + lockfile pins |
-| Pack signing (v1.1) | Sigstore/cosign planned; not required for v1 |
+| Pack artifact trust (v1) | HTTPS + sha256 digest verification + lockfile pins — see spec [§ Pack distribution trust model](../specs/2026-05-16-language-packs-and-distribution.md#pack-distribution-trust-model-v1) |
+| Pack signing (v1.1) | Sigstore/cosign planned; not required for v1 — see spec [§ Planned v1.1 signing](../specs/2026-05-16-language-packs-and-distribution.md#planned-v11-signing-sigstore--cosign) |
 
 ### Deferred: kernel plugins
 
@@ -72,7 +72,7 @@ A separate ADR will be written when kernel plugin loading, trust boundaries, and
 
 - Terminology cleanup in [component tracker design](../specs/2026-05-13-component-tracker-design.md) (plan Task 15).
 - Release and distribution sketch in the spec (plan Task 16).
-- Pack distribution threat model in the spec (plan Task 17).
+- Pack distribution threat model: [spec § Pack distribution trust model](../specs/2026-05-16-language-packs-and-distribution.md#pack-distribution-trust-model-v1) (plan Task 17).
 - Removal of `rust-prototype/` after production crates fully replace reference material (plan Task 18).
 
 ## References

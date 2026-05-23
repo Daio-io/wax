@@ -275,18 +275,65 @@ Non-zero exit is a last resort. Prefer a structured line on stdout:
 
 ## Pack distribution trust model (v1)
 
+Language packs are **native executables** downloaded from a remote index. v1 assumes the operator trusts the pack index host and TLS to that host; the engine adds digest verification and repository lockfile pins so teams can detect index drift and keep CI reproducible.
+
+### v1 trust boundary
+
 | Topic | v1 decision |
 |-------|-------------|
 | **Trust root** | Default pack index URL baked into engine; override only via `WAX_LANG_INDEX` |
-| **Integrity** | sha256 of artifact bytes; index entry supplies expected hash (integrity boundary = HTTPS + index you trust) |
-| **Authenticity** | HTTPS to index/releases in v1; **Sigstore/cosign signing planned for v1.1** |
-| **Lockfile** | Required for repositories using language packs; pins digest; auto-install must not upgrade silently |
-| **Sandbox** | **No sandbox** — subprocess runs as the user; document in security notes |
-| **Mirrors** | `WAX_LANG_INDEX` may point at corporate mirror; `doctor` prints effective index URL |
+| **Integrity** | **sha256** of artifact bytes after download; index entry supplies expected hash |
+| **Authenticity** | **HTTPS** to index and release URLs in v1 (TLS + host you trust) |
+| **Lockfile** | Required for repositories using language packs; pins version + digest + target |
+| **Sandbox** | **No sandbox** — pack subprocess runs as the invoking user |
+| **Mirrors** | `WAX_LANG_INDEX` may point at a corporate mirror; `wax language doctor` prints the effective index URL |
 
-Auto-install default: **on** for local `wax scan`; CI **MUST** use `wax scan --no-auto-install` with the committed `wax.lock.json`.
+**What v1 does not verify:** code signing, publisher identity beyond TLS, or runtime isolation. A compromised index or MITM on an untrusted network could serve malicious pack bytes until digest checks fail against a committed lockfile.
 
-`wax init` writes `.waxrc` and `wax.lock.json` after resolving concrete pack artifacts.
+### Threats and mitigations (v1)
+
+| Threat | Mitigation in v1 |
+|--------|------------------|
+| Artifact tampered in transit | HTTPS to index/releases; sha256 verified against index entry at install time |
+| Index serves a newer digest for the same version string | Lockfile pins `resolved.sha256`; auto-install and `wax language install` **refuse digest drift** |
+| Silent upgrade to a newer pack version on scan | Lockfile pins `version`; auto-install installs the locked version only |
+| CI pulls “latest” instead of team-approved packs | CI **MUST** commit `wax.lock.json` and run `wax scan --no-auto-install` |
+| Wrong host triple installed | Lockfile `resolved.target` must match install host; policy treats target mismatch as not ready |
+| Malicious pack binary at rest | No v1 signature check; operator trusts download source + lockfile audit |
+
+### Lockfile vs auto-install precedence
+
+Repositories that enable language packs **MUST** commit `wax.lock.json`. Auto-install is a convenience for local dev; the lockfile is always authoritative for **which** artifact to fetch.
+
+Evaluation order for each **enabled** language id (engine policy; see `wax-core` auto-install):
+
+1. **Lockfile required** — if the id is enabled in `.waxrc` but missing from `wax.lock.json`, scan fails (no implicit “latest”).
+2. **Already satisfied** — if `~/.wax/langs/<id>/<version>/manifest.json` matches the lock (`version`, `api_version`, `resolved.target`, `resolved.sha256`), the pack is ready; no download.
+3. **Auto-install disabled** (`wax scan --no-auto-install`) — if the locked artifact is not installed locally, scan fails with a clear missing-install error (CI path).
+4. **Pack index lookup** — when auto-install is allowed, fetch index metadata for the locked `version` + `resolved.target`.
+5. **Digest drift** — if the index sha256 for that version/target differs from `resolved.sha256`, refuse install/scan even when auto-install is on.
+6. **Install plan** — when allowed and digests match, download exactly the locked `version` and verify bytes against `resolved.sha256` (never a newer index version).
+
+| Scenario | `wax.lock.json` | Local install | `--no-auto-install` | Outcome |
+|----------|-----------------|---------------|---------------------|---------|
+| CI scan | committed pin | optional pre-install | **yes** | fail if pin not installed |
+| Local dev scan | committed pin | missing | no (default) | download locked pin if index agrees |
+| Index rotated digest for same version | committed pin | any | any | **fail** (digest drift) |
+| Enable language without lock entry | absent entry | any | any | **fail** (missing lock) |
+
+Auto-install default: **on** for local `wax scan`. CI **MUST** use `wax scan --no-auto-install` with the committed `wax.lock.json`.
+
+`wax init` writes `.waxrc` and `wax.lock.json` after resolving concrete pack artifacts from the index (same digest rules apply).
+
+### Planned v1.1 signing (Sigstore / cosign)
+
+v1 records `resolved.signature: null` in `wax.lock.json`. **v1.1** will add optional **Sigstore** bundle verification (typically **cosign**-signed release artifacts) without changing the lockfile shape:
+
+- Pack index entries may advertise signature metadata alongside `sha256`.
+- `wax language install` / auto-install verify signature when `resolved.signature` is present.
+- Unsigned artifacts remain supported for mirrors that only mirror HTTPS + digest.
+
+Direction: first-party releases on GitHub/OCI signed with cosign; engine trusts a configurable Sigstore root or pinned issuer policy. Exact trust policy TBD in the v1.1 task; v1 ships digest + HTTPS only.
 
 ## CLI surface (v1)
 
