@@ -197,4 +197,27 @@ mod tests {
             other => panic!("expected scan_facts response, got {other:?}"),
         }
     }
+
+    #[test]
+    fn malformed_registry_returns_config_invalid_wire_code() {
+        let fixture_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/invalid-registry");
+        let request = format!(
+            "{{\"type\":\"scan\",\"api_version\":1,\"language_id\":\"basic\",\"repo_root\":\"{}\",\"snapshot_id\":\"snap-bad-registry\",\"config\":{{\"design_system_registry\":\"design-system/registry.json\",\"roots\":[\"app/src\"]}}}}",
+            fixture_root.display()
+        );
+        let input = Cursor::new(format!("{request}\n"));
+        let mut output = Vec::new();
+
+        run_stdio_with_reader(input, &mut output).unwrap();
+
+        let line = std::str::from_utf8(&output).unwrap().trim();
+        let response: WireScanResponse = serde_json::from_str(line).unwrap();
+        match response {
+            WireScanResponse::Error { code, .. } => {
+                assert_eq!(code, WireErrorCode::ConfigInvalid);
+            }
+            other => panic!("expected error response, got {other:?}"),
+        }
+    }
 }

@@ -52,6 +52,84 @@ fn invalid_file_extension_entry_is_config_error() {
 }
 
 #[test]
+fn absolute_registry_path_is_config_error() {
+    let mut config = serde_json::Map::new();
+    config.insert(
+        "design_system_registry".to_owned(),
+        serde_json::Value::String("/etc/passwd".to_owned()),
+    );
+    config.insert("roots".to_owned(), serde_json::json!(["app/src"]));
+
+    let err = scan_with_config(config).expect_err("absolute registry path must fail");
+    assert_config_error(err);
+}
+
+#[test]
+fn absolute_root_path_is_config_error() {
+    let mut config = serde_json::Map::new();
+    config.insert(
+        "design_system_registry".to_owned(),
+        serde_json::Value::String("design-system/registry.json".to_owned()),
+    );
+    config.insert("roots".to_owned(), serde_json::json!(["/tmp/outside"]));
+
+    let err = scan_with_config(config).expect_err("absolute root path must fail");
+    assert_config_error(err);
+}
+
+#[test]
+fn parent_dir_in_root_is_config_error() {
+    let mut config = serde_json::Map::new();
+    config.insert(
+        "design_system_registry".to_owned(),
+        serde_json::Value::String("design-system/registry.json".to_owned()),
+    );
+    config.insert("roots".to_owned(), serde_json::json!(["../outside"]));
+
+    let err = scan_with_config(config).expect_err("parent-dir root must fail");
+    assert_config_error(err);
+}
+
+#[test]
+fn parent_dir_in_registry_path_is_config_error() {
+    let mut config = serde_json::Map::new();
+    config.insert(
+        "design_system_registry".to_owned(),
+        serde_json::Value::String("../outside/registry.json".to_owned()),
+    );
+    config.insert("roots".to_owned(), serde_json::json!(["app/src"]));
+
+    let err = scan_with_config(config).expect_err("parent-dir registry path must fail");
+    assert_config_error(err);
+}
+
+#[test]
+fn malformed_registry_is_config_error() {
+    let fixture_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/invalid-registry");
+    let mut config = serde_json::Map::new();
+    config.insert(
+        "design_system_registry".to_owned(),
+        serde_json::Value::String("design-system/registry.json".to_owned()),
+    );
+    config.insert("roots".to_owned(), serde_json::json!(["app/src"]));
+
+    let request = ScanRequest {
+        request_type: ScanRequestType::Scan,
+        api_version: WIRE_API_VERSION,
+        language_id: LanguageId::try_from("basic").expect("basic id must be valid"),
+        repo_root: fixture_root.display().to_string(),
+        snapshot_id: "snap-malformed-registry".to_owned(),
+        config,
+    };
+
+    let err = BasicLanguage::new()
+        .scan(&request)
+        .expect_err("malformed registry must fail");
+    assert_config_error(err);
+}
+
+#[test]
 fn invalid_include_glob_entry_is_config_error() {
     let mut config = serde_json::Map::new();
     config.insert(
@@ -86,7 +164,8 @@ fn assert_config_error(err: BasicScanError) {
                 message.contains("roots")
                     || message.contains("design_system_registry")
                     || message.contains("file_extensions")
-                    || message.contains("include_globs"),
+                    || message.contains("include_globs")
+                    || message.contains("registry"),
                 "expected config validation message, got: {message}"
             );
         }

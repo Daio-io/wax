@@ -97,6 +97,10 @@ impl BasicLanguage {
 fn map_line_scan_error(err: LineScanError) -> BasicScanError {
     match err {
         LineScanError::ConfigInvalid { reason } => BasicScanError::InvalidConfig(reason),
+        LineScanError::RegistryInvalid { path, reason } => BasicScanError::InvalidConfig(format!(
+            "invalid design-system registry at {}: {reason}",
+            path.display()
+        )),
         other => BasicScanError::LineScan(other),
     }
 }

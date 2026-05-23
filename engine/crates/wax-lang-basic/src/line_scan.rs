@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use wax_contract::{
     DesignSystemComponent, Diagnostic, DiagnosticSeverity, MatchStatus, ScanStatus, SourceLocation,
@@ -59,6 +59,7 @@ pub fn parse_basic_scan_config(config: &ScanConfig) -> Result<BasicConfigMode, L
             reason: "design_system_registry must be a non-empty string".to_owned(),
         });
     }
+    validate_repo_relative_path(registry, "design_system_registry")?;
 
     let roots_value = config
         .get("roots")
@@ -86,6 +87,7 @@ pub fn parse_basic_scan_config(config: &ScanConfig) -> Result<BasicConfigMode, L
                 reason: format!("roots[{index}] must be a non-empty string"),
             });
         }
+        validate_repo_relative_path(root, &format!("roots[{index}]"))?;
         roots.push(PathBuf::from(root));
     }
 
@@ -122,6 +124,24 @@ fn parse_string_array(config: &ScanConfig, key: &str) -> Result<Vec<String>, Lin
         entries.push(text.to_owned());
     }
     Ok(entries)
+}
+
+fn validate_repo_relative_path(path: &str, field: &str) -> Result<(), LineScanError> {
+    let parsed = Path::new(path);
+    if parsed.is_absolute() {
+        return Err(LineScanError::ConfigInvalid {
+            reason: format!("{field} must be a repo-relative path"),
+        });
+    }
+    if parsed
+        .components()
+        .any(|component| matches!(component, Component::ParentDir))
+    {
+        return Err(LineScanError::ConfigInvalid {
+            reason: format!("{field} must not contain parent directory segments"),
+        });
+    }
+    Ok(())
 }
 
 /// Runs the text line scanner for a configured repository layout.
@@ -551,5 +571,19 @@ mod tests {
     fn glob_filter_matches_star_suffix_pattern() {
         assert!(glob_matches("Sample.src", "*.src"));
         assert!(!glob_matches("Sample.txt", "*.src"));
+    }
+
+    #[test]
+    fn validate_repo_relative_path_rejects_absolute_paths() {
+        let err = validate_repo_relative_path("/etc/passwd", "design_system_registry")
+            .expect_err("absolute path must fail");
+        assert!(matches!(err, LineScanError::ConfigInvalid { .. }));
+    }
+
+    #[test]
+    fn validate_repo_relative_path_rejects_parent_dir_segments() {
+        let err = validate_repo_relative_path("../outside", "roots[0]")
+            .expect_err("parent dir must fail");
+        assert!(matches!(err, LineScanError::ConfigInvalid { .. }));
     }
 }
