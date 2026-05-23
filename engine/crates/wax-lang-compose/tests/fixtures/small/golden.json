@@ -1,4 +1,6 @@
 {
   "usage_site_count": 3,
-  "resolved_count": 3
+  "resolved_count": 3,
+  "local_component_count": 2,
+  "design_system_component_count": 2
 }

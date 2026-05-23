@@ -335,9 +335,9 @@ First-party pack binaries use `wax-lang-<id>` names, for example `wax-lang-compo
 
 **Intentional drift (v1):**
 
-- When `design_system_registry` and `roots` are present in the scan config, the pack runs a **reference line scanner** (`compose-reference-scanner`) to populate usage facts for the gate. Full **tree-sitter-kotlin** extraction is still pending; counts may diverge from Phase 0 spike goldens until the parser lands.
-- Requests without registry/roots config still return scaffold empty facts and the `compose_scaffold` diagnostic.
-- Production tests must not depend on `prototypes/` paths; Phase 0 fixture tiers remain optional reference material on separate branches.
+- When `design_system_registry` and `roots` are present, the pack runs a **reference line scanner** (`compose-reference-scanner`) bounded by committed positive and negative fixtures under `engine/crates/wax-lang-compose/tests/fixtures/small/`. The scanner ignores line comments, requires valid config (malformed keys fail with `config_invalid`), resolves aliases to canonical registry symbols, and does not treat Phase 0 corpora as dependencies.
+- Requests without compose scan keys still return scaffold empty facts and the `compose_scaffold` diagnostic.
+- Full **tree-sitter-kotlin** extraction is still pending; production counts may diverge from Phase 0 spike goldens until the parser lands.
 
 ### Monolithic vs modular CLI
 

@@ -8,6 +8,8 @@ use wax_lang_compose::ComposeLanguage;
 struct GoldenCounts {
     usage_site_count: u32,
     resolved_count: u32,
+    local_component_count: u32,
+    design_system_component_count: u32,
 }
 
 #[test]
@@ -40,11 +42,19 @@ fn small_fixture_matches_golden_counts() {
 
     assert_eq!(
         facts.counts.usage_site_count, golden.usage_site_count,
-        "usage_site_count drifted from golden; update golden.json only when the fixture contract intentionally changes"
+        "usage_site_count drifted from golden"
     );
     assert_eq!(
         facts.counts.resolved_count, golden.resolved_count,
-        "resolved_count drifted from golden; update golden.json only when the fixture contract intentionally changes"
+        "resolved_count drifted from golden"
+    );
+    assert_eq!(
+        facts.counts.local_component_count, golden.local_component_count,
+        "local_component_count drifted from golden"
+    );
+    assert_eq!(
+        facts.counts.design_system_component_count, golden.design_system_component_count,
+        "design_system_component_count drifted from golden"
     );
 }
 
@@ -59,5 +69,13 @@ fn load_golden(path: &PathBuf) -> GoldenCounts {
         resolved_count: value["resolved_count"]
             .as_u64()
             .expect("golden.resolved_count must be a number") as u32,
+        local_component_count: value["local_component_count"]
+            .as_u64()
+            .expect("golden.local_component_count must be a number")
+            as u32,
+        design_system_component_count: value["design_system_component_count"]
+            .as_u64()
+            .expect("golden.design_system_component_count must be a number")
+            as u32,
     }
 }
