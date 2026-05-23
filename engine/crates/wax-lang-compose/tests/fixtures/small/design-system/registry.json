@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "components": [
+    {
+      "id": "ds.primary-button",
+      "symbol": "PrimaryButton"
+    },
+    {
+      "id": "ds.text-field",
+      "symbol": "TextField"
+    }
+  ]
+}

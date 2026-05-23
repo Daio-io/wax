@@ -486,15 +486,80 @@ Expected: PASS
 Run: `cd engine && cargo test -p wax-core scan_output`
 Expected: PASS
 
-### - [ ] Task 12: Compose correctness gate (after `wax-lang-compose` exists)
+### - [x] Task 12: Compose correctness gate (after `wax-lang-compose` exists)
 
 **Files:**
 - Test: `engine/crates/wax-lang-compose/tests/golden_small.rs`
 - Data: committed golden JSON under `engine/crates/wax-lang-compose/tests/fixtures/` (do not depend on `prototypes/` paths)
 
-- [ ] **Step 1: Add small Kotlin fixture + golden file in the compose crate**
-- [ ] **Step 2: Assert usage_site_count and resolved_count**
-- [ ] **Step 3: Document any intentional drift in spec**
+- [x] **Step 1: Add small Kotlin fixture + golden file in the compose crate**
+- [x] **Step 2: Assert usage_site_count and resolved_count**
+- [x] **Step 3: Document any intentional drift in spec**
+
+Run: `cd engine && cargo test -p wax-lang-compose`
+Expected: PASS
+
+### - [ ] Task 12b: Extract generic `basic` line-scanner pack
+
+**Files:**
+- Create: `engine/crates/wax-lang-basic/Cargo.toml`
+- Create: `engine/crates/wax-lang-basic/src/lib.rs`
+- Create: `engine/crates/wax-lang-basic/src/bin/wax-lang-basic.rs`
+- Modify: `engine/Cargo.toml`
+- Modify: `docs/specs/2026-05-16-language-packs-and-distribution.md`
+- Test: `engine/crates/wax-lang-basic/tests/golden_small.rs`
+
+- [ ] **Step 1: Move the reference line-scanner behavior into `wax-lang-basic`**
+
+`basic` is language-agnostic and should not claim Kotlin or Compose syntax awareness. It reads `design_system_registry` and `roots`, optionally accepts file-extension or glob filters, scans text lines for registry symbols, and emits heuristic resolved usage sites with an informational diagnostic that results are text-based.
+
+- [ ] **Step 2: Keep config validation strict**
+
+Malformed `design_system_registry`, `roots`, file filters, or registry entries must fail with `config_invalid`; invalid config must never fall back to empty scaffold facts.
+
+- [ ] **Step 3: Preserve generic fixture coverage**
+
+Carry forward positive and negative fixture coverage for comments, strings, aliases, local source columns, and count stability. Fixtures should avoid Compose-specific syntax where possible so the pack remains useful for unsupported languages.
+
+- [ ] **Step 4: Document `basic` as a fallback pack**
+
+Update the spec to state that `basic` is for unsupported languages, smoke tests, and early adoption estimates only; parser-backed packs remain the production path for supported ecosystems.
+
+Run: `cd engine && cargo test -p wax-lang-basic`
+Expected: PASS
+
+### - [ ] Task 12c: Implement production Compose extraction with `tree-sitter-kotlin`
+
+**Files:**
+- Modify: `engine/crates/wax-lang-compose/Cargo.toml`
+- Modify: `engine/crates/wax-lang-compose/src/lib.rs`
+- Modify: `engine/crates/wax-lang-compose/src/bin/wax-lang-compose.rs`
+- Test: `engine/crates/wax-lang-compose/tests/golden_small.rs`
+- Data: committed Kotlin fixtures under `engine/crates/wax-lang-compose/tests/fixtures/`
+- Modify: `docs/specs/2026-05-16-language-packs-and-distribution.md`
+
+- [ ] **Step 1: Add tree-sitter dependencies and parser initialization**
+
+Use `tree-sitter-kotlin` for `wax-lang-compose`; map parser initialization failures to the existing wire `parser_init_failed` / scan error path instead of panicking.
+
+- [ ] **Step 2: Replace Compose line scanning with syntax-tree extraction**
+
+Discover Kotlin files under configured `roots`, parse syntax trees, identify Compose function declarations and call expressions, and emit repository-relative `SourceLocation` values with one-based line and column numbers.
+
+- [ ] **Step 3: Resolve DS usages through the registry**
+
+Continue treating `design_system_registry` as the source of truth for canonical DS components and aliases. Direct and alias calls should resolve to canonical registry symbols; non-registry UI calls should not be emitted as resolved DS usage.
+
+- [ ] **Step 4: Expand golden coverage for real Kotlin shapes**
+
+Cover multiline calls, annotation-on-previous-line composables, comments, string literals, qualified calls, aliases, and at least one non-DS composable that must not count as a resolved DS usage.
+
+- [ ] **Step 5: Remove Compose reference-scanner drift**
+
+Update diagnostics and docs so `compose` reports `parser_name = "tree-sitter-kotlin"` and no longer documents the reference line scanner as Compose behavior. Keep `basic` as the explicit text-scanner fallback.
+
+Run: `cd engine && cargo test -p wax-lang-compose`
+Expected: PASS
 
 ### - [ ] Task 13: Create production `wax` binary target
 
@@ -609,7 +674,7 @@ Expected: no stale production docs references to `rust-prototype`; tests PASS.
 | CLI install/update/doctor | Task 9 |
 | Onboarding `wax init` | Task 10 |
 | Prebuilt distribution | Task 16 |
-| Compose + React first-party | Tasks 6, 6b, 12 |
+| Basic fallback + Compose + React first-party | Tasks 6, 6b, 12, 12b, 12c |
 | `ScanFacts` / `LanguageMetadata` | Task 1, production crates |
 | Scan execution and output | Tasks 11a, 11b, 11c |
 | Prototype cleanup | Task 18 |

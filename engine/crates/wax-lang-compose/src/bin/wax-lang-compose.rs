@@ -2,7 +2,7 @@ use clap::Parser;
 use std::io::{self, BufRead, Write};
 use wax_contract::LanguageId;
 use wax_lang_api::{WIRE_API_VERSION, WireErrorCode, WireScanRequest, WireScanResponse};
-use wax_lang_compose::ComposeLanguage;
+use wax_lang_compose::{ComposeLanguage, ComposeScanError};
 
 #[derive(Debug, Parser)]
 #[command(name = "wax-lang-compose")]
@@ -96,13 +96,19 @@ fn run_stdio_with_reader<R: BufRead, W: Write>(
                 language_id,
                 facts: Box::new(facts),
             },
-            Err(err) => WireScanResponse::Error {
-                api_version,
-                language_id,
-                code: WireErrorCode::ScanFailed,
-                message: err.to_string(),
-                diagnostics: Vec::new(),
-            },
+            Err(err) => {
+                let code = match &err {
+                    ComposeScanError::InvalidConfig(_) => WireErrorCode::ConfigInvalid,
+                    _ => WireErrorCode::ScanFailed,
+                };
+                WireScanResponse::Error {
+                    api_version,
+                    language_id,
+                    code,
+                    message: err.to_string(),
+                    diagnostics: Vec::new(),
+                }
+            }
         };
 
         serde_json::to_writer(&mut *writer, &response)?;

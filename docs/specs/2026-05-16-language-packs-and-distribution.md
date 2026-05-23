@@ -325,9 +325,26 @@ First-party pack binaries use `wax-lang-<id>` names, for example `wax-lang-compo
 
 | id | Parser | Notes |
 |----|--------|-------|
-| `compose` | tree-sitter-kotlin | First product language |
+| `basic` | Text line scanner | Generic fallback for unsupported languages and smoke tests |
+| `compose` | tree-sitter-kotlin | First production parser-backed language |
 | `react` | SWC | TSX/JSX extraction |
 | `swift` | Deferred | Later-phase language pack after a dedicated parser decision |
+
+### Basic fallback scanner
+
+`wax-lang-basic` is the generic text-scanner fallback for languages that do not yet have parser-backed packs. It reads a repo-local `design_system_registry` plus configured `roots`, scans source text for registry symbols, and emits heuristic usage facts with diagnostics that identify the results as text-based. It is useful for smoke tests and early adoption estimates, but it is not a substitute for parser-backed extraction.
+
+### Compose correctness gate and parser path
+
+`wax-lang-compose` commits a **small** Kotlin fixture and golden count summary under `engine/crates/wax-lang-compose/tests/fixtures/small/`. `cargo test -p wax-lang-compose` asserts `usage_site_count` and `resolved_count` against `golden.json`.
+
+**Temporary drift before Task 12b/12c land:**
+
+- Task 12b extracts the reference line-scanner behavior into `wax-lang-basic`, where it becomes the explicit generic fallback scanner.
+- Task 12c makes `wax-lang-compose` the production Compose pack backed by **tree-sitter-kotlin**.
+- Until Task 12c lands, configured Compose scans may use a bounded reference line scanner for correctness-gate fixtures. The scanner ignores line comments, requires valid config (malformed keys fail with `config_invalid`), resolves aliases to canonical registry symbols, and does not treat Phase 0 corpora as dependencies.
+- Requests without compose scan keys still return scaffold empty facts and the `compose_scaffold` diagnostic.
+- Full **tree-sitter-kotlin** extraction is required before `compose` is considered production-reliable.
 
 ### Monolithic vs modular CLI
 
