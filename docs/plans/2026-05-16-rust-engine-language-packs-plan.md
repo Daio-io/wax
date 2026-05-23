@@ -499,7 +499,7 @@ Expected: PASS
 Run: `cd engine && cargo test -p wax-lang-compose`
 Expected: PASS
 
-### - [ ] Task 12b: Extract generic `basic` line-scanner pack
+### - [x] Task 12b: Extract generic `basic` line-scanner pack
 
 **Files:**
 - Create: `engine/crates/wax-lang-basic/Cargo.toml`
@@ -509,19 +509,19 @@ Expected: PASS
 - Modify: `docs/specs/2026-05-16-language-packs-and-distribution.md`
 - Test: `engine/crates/wax-lang-basic/tests/golden_small.rs`
 
-- [ ] **Step 1: Move the reference line-scanner behavior into `wax-lang-basic`**
+- [x] **Step 1: Move the reference line-scanner behavior into `wax-lang-basic`**
 
 `basic` is language-agnostic and should not claim Kotlin or Compose syntax awareness. It reads `design_system_registry` and `roots`, optionally accepts file-extension or glob filters, scans text lines for registry symbols, and emits heuristic resolved usage sites with an informational diagnostic that results are text-based.
 
-- [ ] **Step 2: Keep config validation strict**
+- [x] **Step 2: Keep config validation strict**
 
 Malformed `design_system_registry`, `roots`, file filters, or registry entries must fail with `config_invalid`; invalid config must never fall back to empty scaffold facts.
 
-- [ ] **Step 3: Preserve generic fixture coverage**
+- [x] **Step 3: Preserve generic fixture coverage**
 
 Carry forward positive and negative fixture coverage for comments, strings, aliases, local source columns, and count stability. Fixtures should avoid Compose-specific syntax where possible so the pack remains useful for unsupported languages.
 
-- [ ] **Step 4: Document `basic` as a fallback pack**
+- [x] **Step 4: Document `basic` as a fallback pack**
 
 Update the spec to state that `basic` is for unsupported languages, smoke tests, and early adoption estimates only; parser-backed packs remain the production path for supported ecosystems.
 

@@ -1842,6 +1842,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "wax-lang-basic"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "serde_json",
+ "thiserror",
+ "time",
+ "wax-contract",
+ "wax-lang-api",
+]
+
+[[package]]
 name = "wax-lang-compose"
 version = "0.0.0"
 dependencies = [
