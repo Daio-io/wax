@@ -21,6 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      issues: read
       checks: write
       pull-requests: write
     defaults:
@@ -55,8 +56,6 @@ jobs:
 
       - name: Publish test results
         if: always()
-        continue-on-error: true
         uses: EnricoMi/publish-unit-test-result-action@v2
         with:
           files: engine/target/nextest/ci/junit.xml
-          comment_mode: off
