@@ -6,6 +6,7 @@ mod line_scan;
 
 use std::path::Path;
 
+use thiserror::Error;
 use time::OffsetDateTime;
 use wax_contract::{
     CountSummary, Diagnostic, DiagnosticSeverity, LanguageId, LanguageMetadata, Metrics,
@@ -19,37 +20,20 @@ pub use line_scan::{
 };
 
 /// Errors returned by [`BasicLanguage::scan`].
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum BasicScanError {
     /// The request contains an invalid language id.
+    #[error("invalid basic language id: {0}")]
     InvalidLanguageId(String),
     /// Failed to produce contract-valid facts.
-    InvalidFacts(ScanFactsError),
+    #[error("basic facts validation failed: {0}")]
+    InvalidFacts(#[from] ScanFactsError),
     /// Basic scan config was present but invalid.
+    #[error("invalid basic scan config: {0}")]
     InvalidConfig(String),
     /// Line scanner failed before facts could be assembled.
-    LineScan(LineScanError),
-}
-
-impl std::fmt::Display for BasicScanError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::InvalidLanguageId(id) => write!(f, "invalid basic language id: {id}"),
-            Self::InvalidFacts(err) => write!(f, "basic facts validation failed: {err}"),
-            Self::InvalidConfig(reason) => write!(f, "invalid basic scan config: {reason}"),
-            Self::LineScan(err) => write!(f, "basic line scan failed: {err}"),
-        }
-    }
-}
-
-impl std::error::Error for BasicScanError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::InvalidLanguageId(_) | Self::InvalidConfig(_) => None,
-            Self::InvalidFacts(err) => Some(err),
-            Self::LineScan(err) => Some(err),
-        }
-    }
+    #[error("basic line scan failed: {0}")]
+    LineScan(#[source] LineScanError),
 }
 
 /// Generic text line-scanner language extractor.
@@ -113,7 +97,7 @@ fn facts_from_scan(request: &ScanRequest, scan: LineScanResult) -> ScanFacts {
             version: env!("CARGO_PKG_VERSION").to_owned(),
             ecosystem: "basic".to_owned(),
             parser_name: "text-line-scanner".to_owned(),
-            parser_version: "0.1.0".to_owned(),
+            parser_version: env!("CARGO_PKG_VERSION").to_owned(),
         },
         snapshot_id: request.snapshot_id.clone(),
         scanned_at: OffsetDateTime::now_utc(),
@@ -145,7 +129,7 @@ fn scaffold_facts(request: &ScanRequest) -> ScanFacts {
             version: env!("CARGO_PKG_VERSION").to_owned(),
             ecosystem: "basic".to_owned(),
             parser_name: "text-line-scanner".to_owned(),
-            parser_version: "0.1.0".to_owned(),
+            parser_version: env!("CARGO_PKG_VERSION").to_owned(),
         },
         snapshot_id: request.snapshot_id.clone(),
         scanned_at: OffsetDateTime::now_utc(),

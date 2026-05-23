@@ -98,7 +98,9 @@ fn run_stdio_with_reader<R: BufRead, W: Write>(
             },
             Err(err) => {
                 let code = match &err {
-                    BasicScanError::InvalidConfig(_) => WireErrorCode::ConfigInvalid,
+                    BasicScanError::InvalidConfig(_) | BasicScanError::InvalidLanguageId(_) => {
+                        WireErrorCode::ConfigInvalid
+                    }
                     _ => WireErrorCode::ScanFailed,
                 };
                 WireScanResponse::Error {
@@ -170,7 +172,7 @@ mod tests {
                 language_id, code, ..
             } => {
                 assert_eq!(language_id.as_str(), "compose");
-                assert_eq!(code, WireErrorCode::ScanFailed);
+                assert_eq!(code, WireErrorCode::ConfigInvalid);
             }
             other => panic!("expected error response, got {other:?}"),
         }

@@ -4,11 +4,14 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
+use thiserror::Error;
 use wax_contract::{
     DesignSystemComponent, Diagnostic, DiagnosticSeverity, MatchStatus, ScanStatus, SourceLocation,
     UsageSite,
 };
 use wax_lang_api::ScanConfig;
+
+const BASIC_TEXT_SCAN_DIAGNOSTIC: &str = "Basic text line scanner produced heuristic usage facts; parser-backed extraction is recommended for production. Heuristics strip // comments before matching (code after // inside strings or URLs may be missed).";
 
 /// Parsed basic scan configuration from the engine request payload.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,7 +22,10 @@ pub struct BasicScanConfig {
     pub roots: Vec<PathBuf>,
     /// Optional file extensions to include (with or without a leading dot).
     pub file_extensions: Vec<String>,
-    /// Optional glob patterns to include (for example `*.src`).
+    /// Optional filename patterns to include.
+    ///
+    /// Only `*suffix` wildcard patterns are supported (for example `*.src`).
+    /// Full glob syntax such as `src/**/*.kt` or `*.{kt,kts}` is not supported.
     pub include_globs: Vec<String>,
 }
 
@@ -212,8 +218,7 @@ pub fn scan_repository(
         diagnostics: vec![Diagnostic {
             severity: DiagnosticSeverity::Info,
             code: "basic_text_scan".to_owned(),
-            message: "Basic text line scanner produced heuristic usage facts; parser-backed extraction is recommended for production."
-                .to_owned(),
+            message: BASIC_TEXT_SCAN_DIAGNOSTIC.to_owned(),
             location: None,
         }],
         status: ScanStatus::Partial,
@@ -238,14 +243,16 @@ pub struct LineScanResult {
 }
 
 /// Errors produced while running the text line scanner.
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum LineScanError {
     /// Scan config payload was present but invalid.
+    #[error("invalid basic scan config: {reason}")]
     ConfigInvalid {
         /// Human-readable validation failure.
         reason: String,
     },
     /// Registry JSON could not be read or parsed.
+    #[error("invalid design-system registry at {path}: {reason}")]
     RegistryInvalid {
         /// Registry path that failed.
         path: PathBuf,
@@ -253,37 +260,14 @@ pub enum LineScanError {
         reason: String,
     },
     /// A filesystem operation failed.
+    #[error("{context}: {source}")]
     Io {
         /// Human-readable context.
         context: String,
         /// Underlying I/O error.
+        #[source]
         source: std::io::Error,
     },
-}
-
-impl std::fmt::Display for LineScanError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::ConfigInvalid { reason } => write!(f, "invalid basic scan config: {reason}"),
-            Self::RegistryInvalid { path, reason } => {
-                write!(
-                    f,
-                    "invalid design-system registry at {}: {reason}",
-                    path.display()
-                )
-            }
-            Self::Io { context, source } => write!(f, "{context}: {source}"),
-        }
-    }
-}
-
-impl std::error::Error for LineScanError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::ConfigInvalid { .. } | Self::RegistryInvalid { .. } => None,
-            Self::Io { source, .. } => Some(source),
-        }
-    }
 }
 
 struct RegistryIndex {
@@ -374,7 +358,16 @@ fn collect_source_files(
             source,
         })?;
         let path = entry.path();
-        if path.is_dir() {
+        let file_type = fs::symlink_metadata(&path)
+            .map_err(|source| LineScanError::Io {
+                context: format!("read metadata for {}", path.display()),
+                source,
+            })?
+            .file_type();
+        if file_type.is_symlink() {
+            continue;
+        }
+        if file_type.is_dir() {
             collect_source_files(&path, file_extensions, include_globs, files)?;
         } else if should_include_file(&path, file_extensions, include_globs) {
             files.push(path);
@@ -571,6 +564,10 @@ mod tests {
     fn glob_filter_matches_star_suffix_pattern() {
         assert!(glob_matches("Sample.src", "*.src"));
         assert!(!glob_matches("Sample.txt", "*.src"));
+        assert!(
+            !glob_matches("src/main/Sample.kt", "src/**/*.kt"),
+            "only *suffix patterns are supported"
+        );
     }
 
     #[test]

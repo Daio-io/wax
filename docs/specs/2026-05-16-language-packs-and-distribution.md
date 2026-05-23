@@ -334,6 +334,8 @@ First-party pack binaries use `wax-lang-<id>` names, for example `wax-lang-compo
 
 `wax-lang-basic` is the generic text-scanner fallback for languages that do not yet have parser-backed packs. It reads a repo-local `design_system_registry` plus configured `roots`, optionally filters files with `file_extensions` or `include_globs`, scans source text for registry symbols, and emits heuristic resolved usage facts with an informational `basic_text_scan` diagnostic. It does not extract local components or claim ecosystem-specific syntax awareness.
 
+`include_globs` supports only `*suffix` filename patterns (for example `*.src`); full glob syntax such as `src/**/*.kt` is not supported. The line scanner strips `//` comments before matching, so code after `//` inside strings or URLs may be missed.
+
 Use `basic` for unsupported languages, smoke tests, and early adoption estimates only. Parser-backed packs such as `compose` and `react` remain the production path for supported ecosystems.
 
 `engine/crates/wax-lang-basic/tests/fixtures/small/` commits a language-agnostic fixture and golden count summary. `cargo test -p wax-lang-basic` asserts usage counts, alias resolution, comment/string false-positive guards, and one-based source columns against `golden.json`.
