@@ -486,15 +486,18 @@ Expected: PASS
 Run: `cd engine && cargo test -p wax-core scan_output`
 Expected: PASS
 
-### - [ ] Task 12: Compose correctness gate (after `wax-lang-compose` exists)
+### - [x] Task 12: Compose correctness gate (after `wax-lang-compose` exists)
 
 **Files:**
 - Test: `engine/crates/wax-lang-compose/tests/golden_small.rs`
 - Data: committed golden JSON under `engine/crates/wax-lang-compose/tests/fixtures/` (do not depend on `prototypes/` paths)
 
-- [ ] **Step 1: Add small Kotlin fixture + golden file in the compose crate**
-- [ ] **Step 2: Assert usage_site_count and resolved_count**
-- [ ] **Step 3: Document any intentional drift in spec**
+- [x] **Step 1: Add small Kotlin fixture + golden file in the compose crate**
+- [x] **Step 2: Assert usage_site_count and resolved_count**
+- [x] **Step 3: Document any intentional drift in spec**
+
+Run: `cd engine && cargo test -p wax-lang-compose`
+Expected: PASS
 
 ### - [ ] Task 13: Create production `wax` binary target
 

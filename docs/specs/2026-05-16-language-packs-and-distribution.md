@@ -329,6 +329,16 @@ First-party pack binaries use `wax-lang-<id>` names, for example `wax-lang-compo
 | `react` | SWC | TSX/JSX extraction |
 | `swift` | Deferred | Later-phase language pack after a dedicated parser decision |
 
+### Compose correctness gate
+
+`wax-lang-compose` commits a **small** Kotlin fixture and golden count summary under `engine/crates/wax-lang-compose/tests/fixtures/small/`. `cargo test -p wax-lang-compose` asserts `usage_site_count` and `resolved_count` against `golden.json`.
+
+**Intentional drift (v1):**
+
+- When `design_system_registry` and `roots` are present in the scan config, the pack runs a **reference line scanner** (`compose-reference-scanner`) to populate usage facts for the gate. Full **tree-sitter-kotlin** extraction is still pending; counts may diverge from Phase 0 spike goldens until the parser lands.
+- Requests without registry/roots config still return scaffold empty facts and the `compose_scaffold` diagnostic.
+- Production tests must not depend on `prototypes/` paths; Phase 0 fixture tiers remain optional reference material on separate branches.
+
 ### Monolithic vs modular CLI
 
 Some tools ship one package with a single prebuilt native addon. Wax ships a **slim engine** plus **optional language packs** so monorepos enable only what they need.
