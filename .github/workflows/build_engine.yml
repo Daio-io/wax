@@ -50,12 +50,11 @@ jobs:
       - name: Run workspace tests and emit JUnit
         run: cargo nextest run --workspace --profile ci
 
-      - name: Run clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
-
       - name: Publish test results
         if: always()
         uses: EnricoMi/publish-unit-test-result-action@v2
         with:
           files: engine/target/nextest/ci/junit.xml
-          comment_mode: off
+
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
