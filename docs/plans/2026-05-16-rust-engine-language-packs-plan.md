@@ -592,14 +592,14 @@ Expected: PASS
 - [x] **Step 2: Add glossary note: **plugin** = future kernel hook**
 - [x] **Step 3: Point to [2026-05-16-language-packs-and-distribution.md](../specs/2026-05-16-language-packs-and-distribution.md)**
 
-### - [ ] Task 16: Release sketch (document only)
+### - [x] Task 16: Release sketch (document only)
 
 **Files:**
 - Modify: `docs/specs/2026-05-16-language-packs-and-distribution.md` § Distribution
 
-- [ ] **Step 1: Document cargo-dist or GitHub Actions matrix** (darwin-arm64, darwin-x64, linux-x64-gnu, linux-arm64-gnu)
-- [ ] **Step 2: Separate artifacts: `wax`, `wax-lang-compose`, `wax-lang-react` per triple**
-- [ ] **Step 3: Note npm wrapper as optional Phase 5b (not blocking v1)**
+- [x] **Step 1: Document cargo-dist or GitHub Actions matrix** (darwin-arm64, darwin-x64, linux-x64-gnu, linux-arm64-gnu)
+- [x] **Step 2: Separate artifacts: `wax`, `wax-lang-compose`, `wax-lang-react` per triple**
+- [x] **Step 3: Note npm wrapper as optional Phase 5b (not blocking v1)**
 
 ### - [ ] Task 17: Pack distribution threat model
 
