@@ -574,14 +574,14 @@ Expected: PASS
 
 ## Phase 5 — Distribution and docs (review, not full CI in one pass)
 
-### - [ ] Task 14: ADR addendum for Rust foundation
+### - [x] Task 14: ADR addendum for Rust foundation
 
 **Files:**
 - Create: `docs/adr/2026-05-16-rust-engine-language-packs.md`
 
-- [ ] **Step 1: State decision to adopt Rust engine + language packs (pending spec approval)**
-- [ ] **Step 2: Link Phase 0 evidence and decisions from spec**
-- [ ] **Step 3: Explicitly defer kernel **plugins** to future ADR**
+- [x] **Step 1: State decision to adopt Rust engine + language packs (pending spec approval)**
+- [x] **Step 2: Link Phase 0 evidence and decisions from spec**
+- [x] **Step 3: Explicitly defer kernel **plugins** to future ADR**
 
 ### - [ ] Task 15: Update component tracker design terminology
 
