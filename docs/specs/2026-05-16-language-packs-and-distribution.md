@@ -342,15 +342,16 @@ Use `basic` for unsupported languages, smoke tests, and early adoption estimates
 
 ### Compose correctness gate and parser path
 
-`wax-lang-compose` commits a **small** Kotlin fixture and golden count summary under `engine/crates/wax-lang-compose/tests/fixtures/small/`. `cargo test -p wax-lang-compose` asserts `usage_site_count` and `resolved_count` against `golden.json`.
+`wax-lang-compose` commits a small Kotlin fixture set and golden count summary under `engine/crates/wax-lang-compose/tests/fixtures/small/`. `cargo test -p wax-lang-compose` asserts `usage_site_count`, `resolved_count`, `local_component_count`, and `design_system_component_count` against `golden.json`.
 
-**Temporary drift before Task 12c lands:**
+**Production parser path (tree-sitter-kotlin):**
 
-- Task 12c makes `wax-lang-compose` the production Compose pack backed by **tree-sitter-kotlin**.
-- Until Task 12c lands, configured Compose scans may use a bounded reference line scanner for correctness-gate fixtures. The scanner ignores line comments, requires valid config (malformed keys fail with `config_invalid`), resolves aliases to canonical registry symbols, and does not treat Phase 0 corpora as dependencies.
-- Requests without compose scan keys still return scaffold empty facts and the `compose_scaffold` diagnostic.
-- Full **tree-sitter-kotlin** extraction is required before `compose` is considered production-reliable.
-- `wax-lang-basic` is the explicit text-scanner fallback for unsupported languages; Compose should not depend on it once tree-sitter extraction lands.
+- `wax-lang-compose` uses **tree-sitter-kotlin** for AST-based Kotlin parsing. `language.parser_name` is `"tree-sitter-kotlin"`.
+- The scanner discovers Kotlin files under configured `roots`, parses syntax trees, identifies `@Composable` function declarations (local components) and call expressions matching registry symbols (resolved DS usages), and emits repository-relative `SourceLocation` values with one-based line and column numbers.
+- Direct calls and alias calls resolve to canonical registry symbols. Qualified (navigation) calls, comments, and string literal content are not counted.
+- Parser initialisation failures map to the `parser_init_failed` wire error code rather than panicking.
+- Requests without compose scan keys return scaffold facts with the `compose_scaffold` diagnostic.
+- `wax-lang-basic` is the explicit text-scanner fallback for unsupported languages; Compose does not use line scanning.
 
 ### Monolithic vs modular CLI
 

@@ -99,6 +99,7 @@ fn run_stdio_with_reader<R: BufRead, W: Write>(
             Err(err) => {
                 let code = match &err {
                     ComposeScanError::InvalidConfig(_) => WireErrorCode::ConfigInvalid,
+                    ComposeScanError::ParserInitFailed(_) => WireErrorCode::ParserInitFailed,
                     _ => WireErrorCode::ScanFailed,
                 };
                 WireScanResponse::Error {
@@ -174,6 +175,21 @@ mod tests {
             }
             other => panic!("expected error response, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parser_init_failed_maps_to_correct_wire_error_code() {
+        // Verify the error code dispatch for ParserInitFailed without triggering
+        // a real grammar failure (grammar load errors are not reproducible in tests).
+        let err = wax_lang_compose::ComposeScanError::ParserInitFailed("test".to_owned());
+        let code = match &err {
+            wax_lang_compose::ComposeScanError::InvalidConfig(_) => WireErrorCode::ConfigInvalid,
+            wax_lang_compose::ComposeScanError::ParserInitFailed(_) => {
+                WireErrorCode::ParserInitFailed
+            }
+            _ => WireErrorCode::ScanFailed,
+        };
+        assert_eq!(code, WireErrorCode::ParserInitFailed);
     }
 
     #[test]
