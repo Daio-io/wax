@@ -372,18 +372,18 @@ fn extract_usage_sites(
         let Some(scannable) = scannable_line(line) else {
             continue;
         };
-        let scannable = strip_string_literals(scannable);
+        let stripped = strip_string_literals(scannable.code);
         for (call_symbol, registry_symbol) in resolve_targets {
             let pattern = format!("{call_symbol}(");
             let mut search_from = 0;
-            while let Some(offset) = scannable[search_from..].find(&pattern) {
+            while let Some(offset) = stripped[search_from..].find(&pattern) {
                 let start = search_from + offset;
-                if !is_symbol_boundary(&scannable, start) {
+                if !is_symbol_boundary(&stripped, start) {
                     search_from = start + pattern.len();
                     continue;
                 }
                 let line = u32::try_from(line_index + 1).unwrap_or(u32::MAX);
-                let column = u32::try_from(start + 1).unwrap_or(u32::MAX);
+                let column = u32::try_from(scannable.start_column + start + 1).unwrap_or(u32::MAX);
                 out.push(UsageSite {
                     id: format!("usage.{file}:{line}:{column}:{call_symbol}"),
                     location: SourceLocation {
@@ -401,8 +401,16 @@ fn extract_usage_sites(
     }
 }
 
-fn scannable_line(line: &str) -> Option<&str> {
-    let trimmed = line.trim();
+struct ScannableLine<'a> {
+    code: &'a str,
+    start_column: usize,
+}
+
+fn scannable_line(line: &str) -> Option<ScannableLine<'_>> {
+    let start_column = line
+        .char_indices()
+        .find_map(|(index, ch)| (!ch.is_whitespace()).then_some(index))?;
+    let trimmed = &line[start_column..];
     if trimmed.starts_with("//") {
         return None;
     }
@@ -410,7 +418,7 @@ fn scannable_line(line: &str) -> Option<&str> {
     if code.is_empty() {
         return None;
     }
-    Some(code)
+    Some(ScannableLine { code, start_column })
 }
 
 fn strip_string_literals(line: &str) -> String {
@@ -467,11 +475,11 @@ mod tests {
 
     #[test]
     fn scannable_line_ignores_line_comments() {
-        assert_eq!(scannable_line("// PrimaryButton( must not count"), None);
-        assert_eq!(
-            scannable_line("val x = 1 // PrimaryButton( trailing"),
-            Some("val x = 1")
-        );
+        assert!(scannable_line("// PrimaryButton( must not count").is_none());
+        let scannable = scannable_line("    val x = 1 // PrimaryButton( trailing")
+            .expect("code before trailing comment should be scannable");
+        assert_eq!(scannable.code, "val x = 1");
+        assert_eq!(scannable.start_column, 4);
     }
 
     #[test]
