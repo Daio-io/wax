@@ -4,6 +4,10 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Grammar version bundled via the `tree-sitter-kotlin` crate dependency.
+/// Update this constant when bumping the crate in `Cargo.toml`.
+pub const TREE_SITTER_KOTLIN_GRAMMAR_VERSION: &str = "0.3.8";
+
 use wax_contract::{
     DesignSystemComponent, Diagnostic, DiagnosticSeverity, LocalComponent, MatchStatus, ScanStatus,
     SourceLocation, UsageSite,
@@ -248,10 +252,6 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, TreeSitterScanError> {
 // ── File collection ───────────────────────────────────────────────────────────
 
 fn collect_kotlin_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), TreeSitterScanError> {
-    if !dir.exists() {
-        return Ok(());
-    }
-
     let entries = fs::read_dir(dir).map_err(|source| TreeSitterScanError::Io {
         context: format!("read Kotlin root {}", dir.display()),
         source,
@@ -389,10 +389,11 @@ fn extract_from_source(
             });
         }
 
-        let mut cursor = node.walk();
-        let children: Vec<_> = node.children(&mut cursor).collect();
-        for child in children.into_iter().rev() {
-            stack.push(child);
+        let child_count = node.child_count();
+        for i in (0..child_count).rev() {
+            if let Some(child) = node.child(i) {
+                stack.push(child);
+            }
         }
     }
 }
@@ -415,8 +416,22 @@ pub fn scan_repository(
     let registry = load_registry(&registry_path)?;
 
     let mut kotlin_files = Vec::new();
+    let mut diagnostics = Vec::new();
     for root in &config.roots {
-        collect_kotlin_files(&repo_root.join(root), &mut kotlin_files)?;
+        let abs_root = repo_root.join(root);
+        if !abs_root.exists() {
+            diagnostics.push(Diagnostic {
+                severity: DiagnosticSeverity::Warning,
+                code: "root_not_found".to_owned(),
+                message: format!(
+                    "configured root '{}' does not exist under repo root; no files scanned from it",
+                    root.display()
+                ),
+                location: None,
+            });
+        } else {
+            collect_kotlin_files(&abs_root, &mut kotlin_files)?;
+        }
     }
     kotlin_files.sort();
 
@@ -433,7 +448,7 @@ pub fn scan_repository(
     let mut local_components = Vec::new();
     let mut usage_sites = Vec::new();
     let mut files_scanned = 0_u32;
-    let mut diagnostics = Vec::new();
+    let mut parse_failures = 0_u32;
 
     for file_path in &kotlin_files {
         files_scanned += 1;
@@ -459,6 +474,7 @@ pub fn scan_repository(
                 );
             }
             None => {
+                parse_failures += 1;
                 diagnostics.push(Diagnostic {
                     severity: DiagnosticSeverity::Warning,
                     code: "parse_failed".to_owned(),
@@ -479,13 +495,22 @@ pub fn scan_repository(
             .then(l.symbol.cmp(&r.symbol))
     });
 
+    // Report Partial when any file was skipped (parse failure) or any root was missing,
+    // so downstream adoption metrics are not treated as complete.
+    let has_gaps = parse_failures > 0 || diagnostics.iter().any(|d| d.code == "root_not_found");
+    let status = if has_gaps {
+        ScanStatus::Partial
+    } else {
+        ScanStatus::Complete
+    };
+
     Ok(TreeSitterScanResult {
         design_system_components,
         local_components,
         usage_sites,
         files_scanned,
         diagnostics,
-        status: ScanStatus::Complete,
+        status,
     })
 }
 
@@ -640,5 +665,38 @@ mod tests {
         config.insert("roots".to_owned(), serde_json::json!(["src"]));
         let err = parse_compose_scan_config(&config).expect_err("missing registry must fail");
         assert!(matches!(err, TreeSitterScanError::ConfigInvalid { .. }));
+    }
+
+    #[test]
+    fn missing_root_emits_warning_diagnostic_and_partial_status() {
+        let config = ComposeScanConfig {
+            design_system_registry: std::path::PathBuf::from("does-not-exist/registry.json"),
+            roots: vec![std::path::PathBuf::from("no-such-root")],
+        };
+
+        // Create a temp dir with just a minimal registry file.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let registry_dir = tmp.path().join("does-not-exist");
+        std::fs::create_dir_all(&registry_dir).unwrap();
+        std::fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"Btn"}]}"#,
+        )
+        .unwrap();
+
+        let result = scan_repository(tmp.path(), &config)
+            .expect("scan should succeed even with missing root");
+
+        let has_root_warning = result
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "root_not_found");
+        assert!(has_root_warning, "expected root_not_found diagnostic");
+        assert_eq!(
+            result.status,
+            ScanStatus::Partial,
+            "missing root must yield Partial, not Complete"
+        );
+        assert_eq!(result.files_scanned, 0);
     }
 }

@@ -180,8 +180,6 @@ fn scaffold_facts(request: &ScanRequest) -> ScanFacts {
     }
 }
 
-/// Returns the version of the bundled tree-sitter-kotlin grammar.
 fn tree_sitter_kotlin_version() -> String {
-    // The grammar version matches the crate version.
-    "0.3.8".to_owned()
+    tree_sitter_scan::TREE_SITTER_KOTLIN_GRAMMAR_VERSION.to_owned()
 }

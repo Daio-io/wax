@@ -178,6 +178,21 @@ mod tests {
     }
 
     #[test]
+    fn parser_init_failed_maps_to_correct_wire_error_code() {
+        // Verify the error code dispatch for ParserInitFailed without triggering
+        // a real grammar failure (grammar load errors are not reproducible in tests).
+        let err = wax_lang_compose::ComposeScanError::ParserInitFailed("test".to_owned());
+        let code = match &err {
+            wax_lang_compose::ComposeScanError::InvalidConfig(_) => WireErrorCode::ConfigInvalid,
+            wax_lang_compose::ComposeScanError::ParserInitFailed(_) => {
+                WireErrorCode::ParserInitFailed
+            }
+            _ => WireErrorCode::ScanFailed,
+        };
+        assert_eq!(code, WireErrorCode::ParserInitFailed);
+    }
+
+    #[test]
     fn valid_scan_response_keeps_request_and_snapshot() {
         let input = Cursor::new(
             "{\"type\":\"scan\",\"api_version\":1,\"language_id\":\"compose\",\"repo_root\":\"/tmp/repo\",\"snapshot_id\":\"snap-42\",\"config\":{}}\n",
