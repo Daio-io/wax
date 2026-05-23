@@ -583,14 +583,14 @@ Expected: PASS
 - [x] **Step 2: Link Phase 0 evidence and decisions from spec**
 - [x] **Step 3: Explicitly defer kernel **plugins** to future ADR**
 
-### - [ ] Task 15: Update component tracker design terminology
+### - [x] Task 15: Update component tracker design terminology
 
 **Files:**
 - Modify: `docs/specs/2026-05-13-component-tracker-design.md` (surgical edits)
 
-- [ ] **Step 1: Replace “ecosystem plugin” (extractor sense) with **language pack****
-- [ ] **Step 2: Add glossary note: **plugin** = future kernel hook**
-- [ ] **Step 3: Point to [2026-05-16-language-packs-and-distribution.md](../specs/2026-05-16-language-packs-and-distribution.md)**
+- [x] **Step 1: Replace “ecosystem plugin” (extractor sense) with **language pack****
+- [x] **Step 2: Add glossary note: **plugin** = future kernel hook**
+- [x] **Step 3: Point to [2026-05-16-language-packs-and-distribution.md](../specs/2026-05-16-language-packs-and-distribution.md)**
 
 ### - [ ] Task 16: Release sketch (document only)
 

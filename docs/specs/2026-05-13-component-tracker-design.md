@@ -9,12 +9,21 @@ The product is designed to track:
 - local non-design-system components built from those components
 - adoption, composition, wrapper, drift, and reach relationships
 
-The system should be useful without AI, fully runnable in local and CI environments, and extensible to future ecosystems through plugins. AI is treated as an optional ecosystem of external skills that help refine artifacts produced by the core tool, not as a dependency of the runtime.
+The system should be useful without AI, fully runnable in local and CI environments, and extensible to future ecosystems through **language packs**. AI is treated as an optional ecosystem of external skills that help refine artifacts produced by the core tool, not as a dependency of the runtime.
+
+## Terminology
+
+| Term | Meaning |
+|------|---------|
+| **Language pack** | Installable extractor for one stack (Compose, React, …): discover → parse → emit normalized scan facts |
+| **Plugin** (future) | Optional **kernel** hook (export formatters, custom rules, fact transforms)—not a language pipeline |
+
+Authoritative definitions, wire protocol, and distribution are in [Language packs, configuration, and distribution](./2026-05-16-language-packs-and-distribution.md).
 
 ## Goals
 
 - Build a reusable analysis kernel that is not tied to Compose-specific semantics.
-- Support Jetpack Compose / Compose Multiplatform as the first extraction plugin.
+- Support Jetpack Compose / Compose Multiplatform as the first language pack.
 - Track both design system components and local composed components built from them.
 - Produce reports and dashboards for design system maintainers.
 - Support self-hosted OSS usage with CLI-first workflows and optional web reporting.
@@ -42,22 +51,22 @@ The initial audience is design system maintainers. The system should optimize fo
 
 The first spec focuses on the scanner core and extension model. It includes:
 - a core analysis kernel
-- a Compose plugin
+- a Compose language pack
 - a CLI for discovery, registry authoring, scanning, validation, and export
 - storage for scan snapshots and graph data
 - a backend/API and simple report-oriented web UI
 
-It does not attempt to fully solve every future plugin shape up front, but it does require clean plugin boundaries so later ecosystems can reuse the same kernel and reporting semantics.
+It does not attempt to fully solve every future language-pack shape up front, but it does require clean language-pack boundaries so later ecosystems can reuse the same kernel and reporting semantics.
 
 ## Architecture
 
-The system is built as a layered analysis platform with strict separation between the core tracking logic and technology-specific extraction plugins.
+The system is built as a layered analysis platform with strict separation between the core tracking logic and technology-specific language packs.
 
 ### Analysis Kernel
 
 The kernel is ecosystem-agnostic. It owns:
 - scan orchestration
-- plugin execution
+- language pack execution
 - normalized graph ingestion
 - persistence of scan snapshots
 - metric and report calculation
@@ -71,18 +80,18 @@ The kernel must not embed Compose-specific meaning. It should define generic con
 - snapshots
 - diagnostics
 
-The kernel is also where reporting semantics live. Plugins emit facts; the kernel interprets them into higher-level results such as wrappers, adoption rollups, drift signals, and reach analysis.
+The kernel is also where reporting semantics live. Language packs emit facts; the kernel interprets them into higher-level results such as wrappers, adoption rollups, drift signals, and reach analysis.
 
-### Ecosystem Plugins
+### Language packs
 
-Plugins are responsible only for technology-specific extraction. A plugin should:
+Language packs are responsible only for technology-specific extraction. A language pack should:
 - understand source layout and file discovery for its ecosystem
-- load and validate plugin-specific config sections
+- load and validate language-pack-specific config sections
 - parse source artifacts
 - emit normalized graph entities and relationships
 - emit structured diagnostics
 
-The first plugin is for Jetpack Compose / Compose Multiplatform.
+The first language pack is for Jetpack Compose / Compose Multiplatform.
 
 ### User-Facing Surfaces
 
@@ -210,7 +219,7 @@ A source repository or codebase root that owns one or more reporting boundaries 
 
 #### Module
 
-A generic reporting boundary in the kernel. In the Compose plugin this will usually map to a Gradle module, but the kernel must not assume Gradle semantics.
+A generic reporting boundary in the kernel. In the Compose language pack this will usually map to a Gradle module, but the kernel must not assume Gradle semantics.
 
 #### Team
 
@@ -226,7 +235,7 @@ Suggested fields:
 - snapshot id
 - scan timestamp
 - repo revision when available
-- plugin versions
+- language pack versions
 - cache metadata
 - status
 - diagnostic summary
@@ -261,7 +270,7 @@ Interpretation:
 - `references_token`: a usage site or component styling decision references a known design token
 - `hardcodes_value`: a usage site or component styling decision hardcodes a value where token alignment might be expected
 
-`wraps` should not be a plugin-emitted edge in v1. Wrapper detection is a kernel-derived annotation computed from composition facts, parameter bindings, and customization heuristics.
+`wraps` should not be a language-pack-emitted edge in v1. Wrapper detection is a kernel-derived annotation computed from composition facts, parameter bindings, and customization heuristics.
 
 ### Why A Graph
 
@@ -272,11 +281,11 @@ This graph model enables:
 - drill-down from canonical DS components to local compositions that depend on them
 - future cross-ecosystem reporting using the same semantics
 
-## Plugin Contract
+## Language pack contract
 
-The plugin contract should be narrow and stable. Plugins should emit normalized facts, not interpretive reports.
+The language pack contract should be narrow and stable. Language packs should emit normalized facts, not interpretive reports.
 
-### Required Plugin Capabilities
+### Required language pack capabilities
 
 - metadata
 - registry loader
@@ -287,14 +296,14 @@ The plugin contract should be narrow and stable. Plugins should emit normalized 
 ### Metadata
 
 Metadata should include:
-- plugin name
-- plugin version
+- language pack name
+- language pack version
 - supported ecosystem
 - declared capabilities
 
 ### Registry Loader
 
-Loads plugin-specific config and returns a validated registry definition plus any warnings.
+Loads language-pack-specific config and returns a validated registry definition plus any warnings.
 
 ### Target Discovery
 
@@ -329,7 +338,7 @@ Emits structured warnings and errors such as:
 
 ### Contract Rule
 
-Plugins emit facts like:
+Language packs emit facts like:
 
 `LocalComponent FeatureButtonRow composes DesignSystemComponent Button`
 
@@ -339,11 +348,11 @@ They do not emit conclusions like:
 
 Wrapper detection, drift classification, and other higher-level semantics remain kernel responsibilities.
 
-## Compose Plugin Design
+## Compose language pack design
 
-The first plugin targets Jetpack Compose / Compose Multiplatform with a source-only scanning approach optimized for predictable CI and local execution.
+The first language pack targets Jetpack Compose / Compose Multiplatform with a source-only scanning approach optimized for predictable CI and local execution.
 
-### Compose Plugin Responsibilities
+### Compose language pack responsibilities
 
 - read the DS registry config
 - discover Kotlin source files
@@ -569,7 +578,7 @@ The system should prefer useful partial results over all-or-nothing execution.
 - ambiguous matches are excluded from canonical counts until resolved
 - unknown repeated symbols become review candidates
 - low-confidence matches are counted separately from high-confidence matches and surfaced in reports
-- plugin capability limits are explicit in summaries and exports
+- language pack capability limits are explicit in summaries and exports
 
 ### Snapshot Status
 
@@ -586,7 +595,7 @@ Each scan should also produce:
 
 ## Testing Strategy
 
-Testing should be layered so the kernel and plugins can evolve independently.
+Testing should be layered so the kernel and language packs can evolve independently.
 
 ### Kernel Tests
 
@@ -599,9 +608,9 @@ Cover:
 - token-alignment classification
 - report queries
 
-### Plugin Contract Tests
+### Language pack contract tests
 
-Provide a reusable conformance suite for any plugin implementation.
+Provide a reusable conformance suite for any language pack implementation.
 
 ### Compose Fixture Tests
 
@@ -657,11 +666,11 @@ The design is intentionally scoped to support one implementation plan. The recom
 
 1. define the kernel graph model and persistence contract
 2. implement snapshot diffing, adoption coverage semantics, and token-aware schema support
-3. implement the Compose plugin contract and source extraction path
+3. implement the Compose language pack contract and source extraction path
 4. implement CLI registry discovery, draft, validate, scan, and diff workflows
 5. implement baseline reports and exports
 6. add backend/API and report-oriented web UI
-7. document the artifact interface for external AI skills and future ecosystem plugins
+7. document the artifact interface for external AI skills, future language packs, and (later) kernel plugins
 
 ## Open Source And Self-Hosting Position
 
@@ -679,4 +688,4 @@ That means:
 
 ## Final Design Decision
 
-The recommended architecture is a plugin-first analysis kernel with a Compose-first extraction plugin, a graph-based tracking model, CLI-led registry authoring, report-oriented web surfaces, and an external AI skill ecosystem that augments but never defines the system of record.
+The recommended architecture is a language-pack-first analysis kernel with a Compose-first language pack, a graph-based tracking model, CLI-led registry authoring, report-oriented web surfaces, and an external AI skill ecosystem that augments but never defines the system of record. Optional kernel **plugins** (export hooks, custom rules) are deferred to a later phase; see [Language packs, configuration, and distribution](./2026-05-16-language-packs-and-distribution.md).
