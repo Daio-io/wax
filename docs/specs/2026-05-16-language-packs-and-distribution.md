@@ -319,6 +319,44 @@ Flags:
 - **No Rust toolchain** required when using prebuilt artifacts.
 - Language packs: downloaded per id + platform triple from the pack index.
 
+### Prebuilt release matrix (v1 sketch)
+
+v1 ships **prebuilt binaries only** for the engine and first-party language packs. Implementation may use **[cargo-dist](https://github.com/axodotdev/cargo-dist)** (preferred when it fits the monorepo layout) or an equivalent **GitHub Actions release matrix** that cross-compiles each crate target and uploads per-triple archives to GitHub Releases. This section is a distribution sketch; wiring CI is a follow-on task.
+
+**Supported host triples (v1):**
+
+| Shorthand | Rust target triple | Notes |
+|-----------|-------------------|--------|
+| darwin-arm64 | `aarch64-apple-darwin` | Apple Silicon macOS |
+| darwin-x64 | `x86_64-apple-darwin` | Intel macOS |
+| linux-x64-gnu | `x86_64-unknown-linux-gnu` | glibc Linux (CI and most dev containers) |
+| linux-arm64-gnu | `aarch64-unknown-linux-gnu` | ARM64 Linux (e.g. Graviton CI) |
+
+Windows (`x86_64-pc-windows-msvc`, `aarch64-pc-windows-msvc`) is recognized by the CLI for local dev but **out of scope** for the v1 prebuilt matrix above.
+
+**Separate artifacts per triple:**
+
+Each supported triple gets its own downloadable archive(s). Do not bundle language packs inside the `wax` binary.
+
+| Binary | Crate / role | Release artifact name (example) |
+|--------|--------------|----------------------------------|
+| `wax` | `wax-cli` | `wax-<version>-<triple>.tar.gz` |
+| `wax-lang-compose` | `wax-lang-compose` | `wax-lang-compose-<version>-<triple>.tar.gz` |
+| `wax-lang-react` | `wax-lang-react` | `wax-lang-react-<version>-<triple>.tar.gz` |
+
+Pack index entries and `wax.lock.json` `resolved.target` use the **Rust triple** strings above (same as `wax language install` host detection). First-party pack ids in manifests remain `compose` and `react`; only the on-disk binary names use the `wax-lang-<id>` prefix.
+
+**Release flow (sketch):**
+
+1. Tag `wax` + pack versions; CI builds the matrix for `wax`, `wax-lang-compose`, and `wax-lang-react`.
+2. Upload per-triple archives to GitHub Releases (or object storage behind `releases.wax.dev`).
+3. Publish/update the pack index (`WAX_LANG_INDEX`) with `targets` maps keyed by triple, `url`, and `sha256` per language id + version.
+4. `wax language install` / `wax init` resolve the host triple and download the matching artifact; lockfiles pin the resolved digest.
+
+**Optional Phase 5b — npm wrapper (not blocking v1):**
+
+A future `@wax/cli` (or similar) npm package may download the correct prebuilt `wax` binary for the host triple via `postinstall`. That improves Node-centric onboarding but is **not required** for v1: users can install `wax` from GitHub Releases, Homebrew, or a curl installer script. Defer npm packaging until the release matrix and pack index are stable.
+
 ### First-party language packs (v1 targets)
 
 First-party pack binaries use `wax-lang-<id>` names, for example `wax-lang-compose` and `wax-lang-react`. Keep crate names, install manifests, release artifacts, and examples aligned with that convention.
