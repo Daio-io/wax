@@ -601,15 +601,15 @@ Expected: PASS
 - [x] **Step 2: Separate artifacts: `wax`, `wax-lang-compose`, `wax-lang-react` per triple**
 - [x] **Step 3: Note npm wrapper as optional Phase 5b (not blocking v1)**
 
-### - [ ] Task 17: Pack distribution threat model
+### - [x] Task 17: Pack distribution threat model
 
 **Files:**
 - Modify: `docs/specs/2026-05-16-language-packs-and-distribution.md` § Pack distribution trust model
 
-- [ ] **Step 1: Record v1 decision (sha256 + HTTPS; Sigstore/cosign planned for v1.1)**
-- [ ] **Step 2: Document lockfile vs auto-install precedence**
-- [ ] **Step 3: Record Sigstore/cosign as the planned v1.1 signing direction**
-- [ ] **Step 4: Add ADR addendum pointer in Task 14**
+- [x] **Step 1: Record v1 decision (sha256 + HTTPS; Sigstore/cosign planned for v1.1)**
+- [x] **Step 2: Document lockfile vs auto-install precedence**
+- [x] **Step 3: Record Sigstore/cosign as the planned v1.1 signing direction**
+- [x] **Step 4: Add ADR addendum pointer in Task 14**
 
 ### - [ ] Task 18: Remove `rust-prototype/` reference workspace
 
