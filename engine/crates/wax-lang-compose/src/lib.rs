@@ -2,20 +2,19 @@
 
 #![deny(missing_docs)]
 
-mod reference_scan;
+mod tree_sitter_scan;
 
 use std::path::Path;
 
 use time::OffsetDateTime;
 use wax_contract::{
-    CountSummary, Diagnostic, LanguageId, LanguageMetadata, Metrics, SCHEMA_VERSION, ScanFacts,
-    ScanFactsError, ScanStatus,
+    CountSummary, Diagnostic, DiagnosticSeverity, LanguageId, LanguageMetadata, Metrics,
+    SCHEMA_VERSION, ScanFacts, ScanFactsError, ScanStatus,
 };
 use wax_lang_api::ScanRequest;
 
-pub use reference_scan::{
-    ComposeConfigMode, ComposeScanConfig, ReferenceScanError, ReferenceScanResult,
-};
+use tree_sitter_scan::TreeSitterScanError;
+pub use tree_sitter_scan::{ComposeConfigMode, ComposeScanConfig};
 
 /// Errors returned by [`ComposeLanguage::scan`].
 #[derive(Debug)]
@@ -26,8 +25,10 @@ pub enum ComposeScanError {
     InvalidFacts(ScanFactsError),
     /// Compose scan config was present but invalid.
     InvalidConfig(String),
-    /// Reference scanner failed before facts could be assembled.
-    ReferenceScan(ReferenceScanError),
+    /// Tree-sitter parser failed to initialise.
+    ParserInitFailed(String),
+    /// Tree-sitter scanner failed before facts could be assembled.
+    Scanner(TreeSitterScanError),
 }
 
 impl std::fmt::Display for ComposeScanError {
@@ -36,7 +37,8 @@ impl std::fmt::Display for ComposeScanError {
             Self::InvalidLanguageId(id) => write!(f, "invalid compose language id: {id}"),
             Self::InvalidFacts(err) => write!(f, "compose facts validation failed: {err}"),
             Self::InvalidConfig(reason) => write!(f, "invalid compose scan config: {reason}"),
-            Self::ReferenceScan(err) => write!(f, "compose reference scan failed: {err}"),
+            Self::ParserInitFailed(reason) => write!(f, "parser init failed: {reason}"),
+            Self::Scanner(err) => write!(f, "compose scan failed: {err}"),
         }
     }
 }
@@ -44,25 +46,25 @@ impl std::fmt::Display for ComposeScanError {
 impl std::error::Error for ComposeScanError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::InvalidLanguageId(_) | Self::InvalidConfig(_) => None,
+            Self::InvalidLanguageId(_) | Self::InvalidConfig(_) | Self::ParserInitFailed(_) => None,
             Self::InvalidFacts(err) => Some(err),
-            Self::ReferenceScan(err) => Some(err),
+            Self::Scanner(err) => Some(err),
         }
     }
 }
 
-/// Compose language extractor.
+/// Compose language extractor backed by `tree-sitter-kotlin`.
 #[derive(Debug, Default)]
 pub struct ComposeLanguage;
 
 impl ComposeLanguage {
-    /// Creates a compose language extractor.
+    /// Creates a Compose language extractor.
     #[must_use]
     pub fn new() -> Self {
         Self
     }
 
-    /// Executes a compose scan for the provided request.
+    /// Executes a Compose scan for the provided request.
     pub fn scan(&self, request: &ScanRequest) -> Result<ScanFacts, ComposeScanError> {
         let compose_language_id =
             LanguageId::try_from("compose").expect("hardcoded compose id must be valid");
@@ -73,15 +75,15 @@ impl ComposeLanguage {
             ));
         }
 
-        let mut facts = match reference_scan::parse_compose_scan_config(&request.config)
-            .map_err(map_reference_error)?
+        let mut facts = match tree_sitter_scan::parse_compose_scan_config(&request.config)
+            .map_err(map_scan_error)?
         {
-            reference_scan::ComposeConfigMode::Scaffold => scaffold_facts(request),
-            reference_scan::ComposeConfigMode::Configured(scan_config) => {
+            ComposeConfigMode::Scaffold => scaffold_facts(request),
+            ComposeConfigMode::Configured(scan_config) => {
                 let repo_root = Path::new(&request.repo_root);
-                let reference = reference_scan::scan_repository(repo_root, &scan_config)
-                    .map_err(map_reference_error)?;
-                facts_from_reference(request, reference)
+                let result = tree_sitter_scan::scan_repository(repo_root, &scan_config)
+                    .map_err(map_scan_error)?;
+                facts_from_scan(request, result)
             }
         };
 
@@ -94,34 +96,40 @@ impl ComposeLanguage {
     }
 }
 
-fn map_reference_error(err: ReferenceScanError) -> ComposeScanError {
+fn map_scan_error(err: TreeSitterScanError) -> ComposeScanError {
     match err {
-        ReferenceScanError::ConfigInvalid { reason } => ComposeScanError::InvalidConfig(reason),
-        other => ComposeScanError::ReferenceScan(other),
+        TreeSitterScanError::ConfigInvalid { reason } => ComposeScanError::InvalidConfig(reason),
+        TreeSitterScanError::ParserInitFailed { reason } => {
+            ComposeScanError::ParserInitFailed(reason)
+        }
+        other => ComposeScanError::Scanner(other),
     }
 }
 
-fn facts_from_reference(request: &ScanRequest, reference: ReferenceScanResult) -> ScanFacts {
+fn facts_from_scan(
+    request: &ScanRequest,
+    result: tree_sitter_scan::TreeSitterScanResult,
+) -> ScanFacts {
     ScanFacts {
         schema_version: SCHEMA_VERSION,
         language: LanguageMetadata {
             id: LanguageId::try_from("compose").expect("hardcoded compose id must be valid"),
             version: env!("CARGO_PKG_VERSION").to_owned(),
             ecosystem: "compose".to_owned(),
-            parser_name: "compose-reference-scanner".to_owned(),
-            parser_version: "0.1.0".to_owned(),
+            parser_name: "tree-sitter-kotlin".to_owned(),
+            parser_version: tree_sitter_kotlin_version(),
         },
         snapshot_id: request.snapshot_id.clone(),
         scanned_at: OffsetDateTime::now_utc(),
-        status: reference.status,
-        design_system_components: reference.design_system_components,
-        local_components: reference.local_components,
-        usage_sites: reference.usage_sites,
-        diagnostics: reference.diagnostics,
+        status: result.status,
+        design_system_components: result.design_system_components,
+        local_components: result.local_components,
+        usage_sites: result.usage_sites,
+        diagnostics: result.diagnostics,
         metrics: Metrics {
             adoption_coverage_ratio: None,
             parse_extract_ms: 0,
-            files_scanned: reference.files_scanned,
+            files_scanned: result.files_scanned,
         },
         counts: CountSummary {
             design_system_component_count: 0,
@@ -140,8 +148,8 @@ fn scaffold_facts(request: &ScanRequest) -> ScanFacts {
             id: LanguageId::try_from("compose").expect("hardcoded compose id must be valid"),
             version: env!("CARGO_PKG_VERSION").to_owned(),
             ecosystem: "compose".to_owned(),
-            parser_name: "compose-parser".to_owned(),
-            parser_version: "0.1.0".to_owned(),
+            parser_name: "tree-sitter-kotlin".to_owned(),
+            parser_version: tree_sitter_kotlin_version(),
         },
         snapshot_id: request.snapshot_id.clone(),
         scanned_at: OffsetDateTime::now_utc(),
@@ -150,10 +158,11 @@ fn scaffold_facts(request: &ScanRequest) -> ScanFacts {
         local_components: Vec::new(),
         usage_sites: Vec::new(),
         diagnostics: vec![Diagnostic {
-            severity: wax_contract::DiagnosticSeverity::Info,
+            severity: DiagnosticSeverity::Info,
             code: "compose_scaffold".to_owned(),
-            message: "Compose extraction entrypoint is scaffolded; parser integration is pending."
-                .to_owned(),
+            message:
+                "Compose extraction is scaffolded; configure design_system_registry and roots to scan."
+                    .to_owned(),
             location: None,
         }],
         metrics: Metrics {
@@ -169,4 +178,10 @@ fn scaffold_facts(request: &ScanRequest) -> ScanFacts {
             candidate_count: 0,
         },
     }
+}
+
+/// Returns the version of the bundled tree-sitter-kotlin grammar.
+fn tree_sitter_kotlin_version() -> String {
+    // The grammar version matches the crate version.
+    "0.3.8".to_owned()
 }

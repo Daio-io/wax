@@ -99,6 +99,7 @@ fn run_stdio_with_reader<R: BufRead, W: Write>(
             Err(err) => {
                 let code = match &err {
                     ComposeScanError::InvalidConfig(_) => WireErrorCode::ConfigInvalid,
+                    ComposeScanError::ParserInitFailed(_) => WireErrorCode::ParserInitFailed,
                     _ => WireErrorCode::ScanFailed,
                 };
                 WireScanResponse::Error {

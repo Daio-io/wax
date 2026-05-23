@@ -528,7 +528,7 @@ Update the spec to state that `basic` is for unsupported languages, smoke tests,
 Run: `cd engine && cargo test -p wax-lang-basic`
 Expected: PASS
 
-### - [ ] Task 12c: Implement production Compose extraction with `tree-sitter-kotlin`
+### - [x] Task 12c: Implement production Compose extraction with `tree-sitter-kotlin`
 
 **Files:**
 - Modify: `engine/crates/wax-lang-compose/Cargo.toml`
@@ -538,23 +538,23 @@ Expected: PASS
 - Data: committed Kotlin fixtures under `engine/crates/wax-lang-compose/tests/fixtures/`
 - Modify: `docs/specs/2026-05-16-language-packs-and-distribution.md`
 
-- [ ] **Step 1: Add tree-sitter dependencies and parser initialization**
+- [x] **Step 1: Add tree-sitter dependencies and parser initialization**
 
 Use `tree-sitter-kotlin` for `wax-lang-compose`; map parser initialization failures to the existing wire `parser_init_failed` / scan error path instead of panicking.
 
-- [ ] **Step 2: Replace Compose line scanning with syntax-tree extraction**
+- [x] **Step 2: Replace Compose line scanning with syntax-tree extraction**
 
 Discover Kotlin files under configured `roots`, parse syntax trees, identify Compose function declarations and call expressions, and emit repository-relative `SourceLocation` values with one-based line and column numbers.
 
-- [ ] **Step 3: Resolve DS usages through the registry**
+- [x] **Step 3: Resolve DS usages through the registry**
 
 Continue treating `design_system_registry` as the source of truth for canonical DS components and aliases. Direct and alias calls should resolve to canonical registry symbols; non-registry UI calls should not be emitted as resolved DS usage.
 
-- [ ] **Step 4: Expand golden coverage for real Kotlin shapes**
+- [x] **Step 4: Expand golden coverage for real Kotlin shapes**
 
 Cover multiline calls, annotation-on-previous-line composables, comments, string literals, qualified calls, aliases, and at least one non-DS composable that must not count as a resolved DS usage.
 
-- [ ] **Step 5: Remove Compose reference-scanner drift**
+- [x] **Step 5: Remove Compose reference-scanner drift**
 
 Update diagnostics and docs so `compose` reports `parser_name = "tree-sitter-kotlin"` and no longer documents the reference line scanner as Compose behavior. Keep `basic` as the explicit text-scanner fallback.
 

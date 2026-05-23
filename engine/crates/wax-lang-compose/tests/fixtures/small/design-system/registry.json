@@ -3,7 +3,8 @@
   "components": [
     {
       "id": "ds.primary-button",
-      "symbol": "PrimaryButton"
+      "symbol": "PrimaryButton",
+      "aliases": ["PrimaryBtn"]
     },
     {
       "id": "ds.text-field",
