@@ -12,6 +12,10 @@
 
 End users install a **`wax` binary** and download language packs globally. Each repository uses **`.waxrc`** to enable languages and hold per-language config. Language packs **do not communicate with each other**; only the engine talks to each pack.
 
+## Implementation plan roadmap
+
+Plan order, doc/implementation status, gates, and agent rules live in **[`docs/plans/README.md`](../plans/README.md)** only. Do not duplicate that table here.
+
 ## Terminology
 
 | Term | Meaning |
