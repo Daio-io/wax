@@ -652,7 +652,11 @@ Expected: no stale production docs references to `rust-prototype`; tests PASS.
 - WASM language packs
 - Kernel **plugins** (export hooks, custom rules)
 - Backend API and web UI from component tracker design
-- npm meta-installer package
+- npm meta-installer package — [Release and rollout plan](./2026-05-24-release-and-rollout-plan.md) Task 14
+
+## Next phase
+
+Release and rollout: [Release and rollout plan](./2026-05-24-release-and-rollout-plan.md) — v1 CLI surface (`wax scan`, `wax validate`), HTTPS pack index, prebuilt releases, and install channels (curl, Homebrew, npm). See [plan roadmap](./README.md).
 
 ---
 
@@ -669,10 +673,11 @@ Expected: no stale production docs references to `rust-prototype`; tests PASS.
 | No pack-to-pack IPC | Spec invariants; Task 11a engine-only merge |
 | CLI install/update/doctor | Task 9 |
 | Onboarding `wax init` | Task 10 |
-| Prebuilt distribution | Task 16 |
+| Prebuilt distribution | Task 16 (sketch); [release plan](./2026-05-24-release-and-rollout-plan.md) Tasks 9–13 |
 | Basic fallback + Compose + React first-party | Tasks 6, 6b, 12, 12b, 12c |
 | `ScanFacts` / `LanguageMetadata` | Task 1, production crates |
-| Scan execution and output | Tasks 11a, 11b, 11c |
+| Scan execution and output | Tasks 11a, 11b, 11c; [release plan](./2026-05-24-release-and-rollout-plan.md) Tasks 1–3 |
+| `wax validate` CLI | [release plan](./2026-05-24-release-and-rollout-plan.md) Task 4 |
 | Prototype cleanup | Task 18 |
 
 ## Review checklist for humans
