@@ -4,8 +4,9 @@ Open-source, self-hostable design system component tracker. See [component track
 
 ## Rust engine + language packs direction
 
+- [Implementation plan roadmap](docs/plans/README.md) — plan order and status for agents
 - [Language packs and distribution](docs/specs/2026-05-16-language-packs-and-distribution.md) — `.waxrc`, global install, IPC, terminology
-- [Rust engine implementation plan](docs/plans/2026-05-16-rust-engine-language-packs-plan.md) — phased tasks
+- [Rust engine implementation plan](docs/plans/2026-05-16-rust-engine-language-packs-plan.md) — engine foundation (order 1)
 - [`engine/`](engine/) — production Rust workspace (`wax` CLI, language packs, contract crates)
 
 ```bash
