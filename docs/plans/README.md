@@ -24,6 +24,8 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 
 **Implementation status:** `not-started` | `in-progress` | `complete`.
 
+Set order 1 to `complete` only after `cd engine && cargo test --workspace` passes on `main` (including `wax-lang-basic` and `wax-lang-compose`). Do not infer completion from foundation plan doc checkboxes alone.
+
 ---
 
 ## Which plan should I run?
