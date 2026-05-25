@@ -17,7 +17,7 @@
 
 **Previous phase:** [Rust engine and language packs plan](./2026-05-16-rust-engine-language-packs-plan.md) Phases 1–5.
 
-**Roadmap:** [Plan execution order](./README.md) — this is **order 2**; do not start until order 1 implementation is `complete` and this plan doc is `merged`.
+**Roadmap:** `docs/plans/README.md` (order 2; merges in #33). Do not start release **implementation** until order 1 is `complete` in that roadmap and this plan doc is `merged`.
 
 ---
 
@@ -42,7 +42,22 @@ Alpha **does not** include static site export, backend API, web UI, Swift pack, 
 
 ## Prerequisites
 
-- [x] [Rust engine and language packs plan](./2026-05-16-rust-engine-language-packs-plan.md) Phases 1–5 complete.
+Plan document PRs: merge #33 (roadmap) before or with this PR so `docs/plans/README.md` exists on `main`.
+
+**Order 1 gate (verify in repo; do not rely on stale plan checkboxes alone):**
+
+- [ ] [`docs/plans/README.md`](./README.md) on `main` shows order 1 implementation status `complete` (update the roadmap when foundation work is actually done).
+- [ ] Foundation **code** is present and tests pass on `main`:
+
+```bash
+cd engine
+cargo test --workspace
+cargo test -p wax-lang-basic
+cargo test -p wax-lang-compose
+```
+
+Required on `main` before release Task 1: `wax-lang-basic` and `wax-lang-compose` crates (foundation Tasks 12b, 12c), `Engine::scan_repo`, language install path (Tasks 8–11). Foundation **documentation-only** tasks (e.g. Task 16 release sketch) do not block release implementation.
+
 - [ ] This plan reviewed; alpha scope (below) agreed with maintainers.
 - [ ] GitHub repo has **Releases** enabled and a decision on org/domain for default index URL (e.g. `https://github.com/<org>/wax/releases/download/...` for alpha, custom domain later).
 
@@ -369,9 +384,9 @@ Prefer **cargo-dist** per spec; document fallback if monorepo layout requires ma
 
 - [ ] **Step 2: Configure artifacts for v1 triple matrix**
 
-Required binaries for alpha public index: `wax`, `wax-lang-compose`.
+**Required** for alpha (must match Task 7 / 11 index entries): `wax`, `wax-lang-compose`, `wax-lang-basic`.
 
-Optional in release matrix (maintainer choice): `wax-lang-basic` (smoke/CI), `wax-lang-react` (build artifact only — **omit from alpha index** until production-ready).
+**Not in alpha index:** `wax-lang-react` may still build in the matrix for contributors, but do **not** list `react` in `index.json` until production extraction is ready.
 
 Targets: `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`.
 
@@ -398,7 +413,7 @@ Include SHA256 checksums file per asset.
 
 Run: merge workflow; maintainers tag `v0.1.0-alpha.1` to validate.
 
-Expected: Release page shows 8 archives (2 alpha-index binaries × 4 triples), or more if optional packs are included + checksums.
+Expected: Release page shows **12** archives (3 alpha-index binaries × 4 triples) + checksums. Every id listed in `index.json` must have a corresponding uploaded archive.
 
 ### - [ ] Task 11: Pack index generation and publication
 
@@ -570,7 +585,7 @@ Completed in the PR that introduced this plan. Re-verify links remain accurate a
 
 ## Follow-on plans
 
-After **public alpha** ships, implement **order 3** in the [roadmap](./README.md): [Post-alpha UX plan](./2026-05-24-post-alpha-ux-plan.md) (separate plan document PR; merge after this plan doc).
+After **public alpha** ships, implement **order 3** in `docs/plans/README.md`: **Post-alpha UX plan** (`docs/plans/2026-05-24-post-alpha-ux-plan.md` — separate plan doc PR #34; merge after this PR so the file exists on `main` before adding markdown links).
 
 ---
 
@@ -581,11 +596,11 @@ Each item includes a **target** so follow-up work can be scheduled without reope
 | Item | Target |
 |------|--------|
 | Static site export (`wax export`) | Interpretability plan — before full web UI |
-| PR diff / markdown scan summaries for CI | [Post-alpha UX plan](./2026-05-24-post-alpha-ux-plan.md) Task 3 |
+| PR diff / markdown scan summaries for CI | Post-alpha UX plan Task 3 (#34) |
 | Registry discover / draft CLI workflows | Separate plan after alpha (component tracker design) |
 | Rich `wax validate` (dead entries, ambiguous matches) | After discover/draft or using scan facts |
-| Interactive `wax init` TTY wizard | [Post-alpha UX plan](./2026-05-24-post-alpha-ux-plan.md) order 3 |
-| Richer `wax scan` output formats | [Post-alpha UX plan](./2026-05-24-post-alpha-ux-plan.md) order 3 |
+| Interactive `wax init` TTY wizard | Post-alpha UX plan order 3 (#34) |
+| Richer `wax scan` output formats | Post-alpha UX plan order 3 (#34) |
 | Swift language pack | Dedicated parser spike plan |
 | WASM language packs | Future platform plan |
 | Kernel **plugins** | Future ADR |
@@ -617,7 +632,7 @@ Each item includes a **target** so follow-up work can be scheduled without reope
 | Default `WAX_LANG_INDEX` | Task 6 |
 | Hosted pack index | Tasks 7, 11 |
 | Prebuilt release matrix | Tasks 9, 10 |
-| `wax-lang-basic` in release matrix (optional) | Task 9 (maintainer decision) |
+| `wax-lang-basic` in release matrix (required for alpha index) | Tasks 9, 10, 11 |
 | GitHub Releases install | Tasks 10, 12 |
 | Homebrew | Task 13 |
 | npm wrapper | Task 14 (optional) |
@@ -646,8 +661,8 @@ Before starting implementation, confirm:
 7. **Getting started uses Compose only** until `wax-lang-react` is production-ready; alpha index lists `compose` + `basic` only.
 8. **Minimum scan stdout summary** is defined in Task 3 (path, languages, adoption %, capped diagnostics)—not JSON path alone.
 9. **Empty registry:** documented in Task 15; Task 4 warns on `components: []` without failing validate.
-10. **Post-alpha UX** is order 3 in [roadmap](./README.md); separate plan doc PR after this plan merges.
-11. **`wax-lang-basic` in release matrix:** ship prebuilt + index entry for smoke/CI, or defer to contributor builds only.
+10. **Post-alpha UX** is order 3 in `docs/plans/README.md`; plan doc is PR #34 (no markdown link to that file in this plan until #34 merges).
+11. **`wax-lang-basic` is required** in the release matrix whenever it appears in the alpha index (`compose` + `basic` + `wax`).
 
 ---
 
