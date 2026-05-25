@@ -4,6 +4,8 @@
 
 This document defines the first design for an open source, self-hostable design system component tracker built around a pluggable analysis model. The first supported ecosystem is Jetpack Compose / Compose Multiplatform.
 
+Terminology note (superseded by the language-pack spec): extractor units are now called **language packs**. In this document, legacy mentions of "plugin" in the extraction sense should be read as "language pack". "Plugin" is reserved for future kernel hooks. See [language packs and distribution](./2026-05-16-language-packs-and-distribution.md).
+
 The product is designed to track:
 - canonical design system components
 - local non-design-system components built from those components

@@ -14,11 +14,12 @@ fn stdio_cli_emits_one_scan_facts_response() {
 
     {
         let stdin = child.stdin.as_mut().expect("child stdin must be piped");
+        let repo_root = format!("{}/tests/fixtures/small", env!("CARGO_MANIFEST_DIR"));
+        let input = format!(
+            "{{\"type\":\"scan\",\"api_version\":1,\"language_id\":\"compose\",\"repo_root\":\"{repo_root}\",\"snapshot_id\":\"snap-cli\",\"config\":{{\"design_system_registry\":\"design-system/registry.json\",\"roots\":[\"app/src/main/kotlin\"]}}}}\n"
+        );
         stdin
-            .write_all(
-                br#"{"type":"scan","api_version":1,"language_id":"compose","repo_root":"/tmp/repo","snapshot_id":"snap-cli","config":{}}
-"#,
-            )
+            .write_all(input.as_bytes())
             .expect("failed to write scan request");
     }
 
