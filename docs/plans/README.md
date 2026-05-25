@@ -57,11 +57,11 @@ ELSE
 
 Merge these **documentation PRs** in sequence (separate from implementation task PRs):
 
-| PR sequence | Branch (example) | Contents |
-|-------------|------------------|----------|
-| 1 | `docs/plans-roadmap` | This `README.md` + spec roadmap section |
-| 2 | `docs/release-and-rollout-plan` | Release plan + links; no post-alpha plan file |
-| 3 | `docs/post-alpha-ux-plan` | Post-alpha UX plan + links |
+| PR sequence | Branch | PR | Contents |
+|-------------|--------|-----|----------|
+| 1 | `docs/plans-roadmap` | #33 | This `README.md` + spec roadmap section |
+| 2 | `docs/release-and-rollout-plan` | #32 | Release plan + links; no post-alpha plan file |
+| 3 | `docs/post-alpha-ux-plan` | #34 | Post-alpha UX plan + links |
 
 After PR 1 merges, set order 2 doc row to `pending` when PR 2 opens; set to `merged` when PR 2 lands; then start release **implementation** Task 1.
 
