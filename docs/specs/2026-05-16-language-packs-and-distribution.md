@@ -14,15 +14,7 @@ End users install a **`wax` binary** and download language packs globally. Each 
 
 ## Implementation plan roadmap
 
-Execute plans **in order**. Full status table, gates, and agent rules: **[`docs/plans/README.md`](../plans/README.md)** (source of truth).
-
-| Order | Plan | Doc status | Implementation status | Start when |
-|------:|------|------------|------------------------|------------|
-| 1 | [Rust engine and language packs](../plans/2026-05-16-rust-engine-language-packs-plan.md) | merged | complete | — |
-| 2 | [Release and rollout (alpha)](../plans/2026-05-24-release-and-rollout-plan.md) | pending | not-started | Order 1 complete |
-| 3 | [Post-alpha UX](../plans/2026-05-24-post-alpha-ux-plan.md) | pending | not-started | Order 2 public alpha shipped |
-
-Update **Doc status** to `merged` and **Implementation status** in the plans README when each plan document PR lands; tick implementation `complete` when all tasks in that plan are done.
+Plan order, doc/implementation status, gates, and agent rules live in **[`docs/plans/README.md`](../plans/README.md)** only. Do not duplicate that table here.
 
 ## Terminology
 

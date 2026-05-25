@@ -7,7 +7,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 1. **Plan document PRs** land in the order below (roadmap → release plan → post-alpha UX plan). Do not open implementation PRs from a plan until that plan’s doc row is `merged`.
 2. **Implementation** follows one plan at a time: complete (or explicitly defer) all tasks in the active plan before starting the next plan’s Task 1.
 3. Each implementation task remains **one PR per task** inside the active plan, per that plan’s execution model.
-4. Update the **Status** column in this table when a plan doc PR merges or when implementation of a plan finishes.
+4. Update the **Doc status** and **Implementation status** columns when a plan doc PR merges or when implementation of a plan finishes.
 
 ---
 
@@ -16,8 +16,8 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 | Order | Plan | Document | Doc status | Implementation status | Gate (start implementation) |
 |------:|------|----------|------------|------------------------|-----------------------------|
 | 1 | Rust engine and language packs | [2026-05-16-rust-engine-language-packs-plan.md](./2026-05-16-rust-engine-language-packs-plan.md) | `merged` | `complete` | — |
-| 2 | Release and rollout (alpha) | [2026-05-24-release-and-rollout-plan.md](./2026-05-24-release-and-rollout-plan.md) | `pending` | `not-started` | Order 1 implementation `complete` |
-| 3 | Post-alpha UX | [2026-05-24-post-alpha-ux-plan.md](./2026-05-24-post-alpha-ux-plan.md) | `pending` | `not-started` | Order 2 public alpha shipped (`v0.1.0-alpha.1` or agreed tag) |
+| 2 | Release and rollout (alpha) | `2026-05-24-release-and-rollout-plan.md` (PR #32; add link after merge) | `pending` | `not-started` | Order 1 implementation `complete` |
+| 3 | Post-alpha UX | `2026-05-24-post-alpha-ux-plan.md` (PR #34; add link after merge) | `pending` | `not-started` | Order 2 public alpha shipped (`v0.1.0-alpha.1` or agreed tag) |
 | — | Registry discover / draft | *not written* | `planned` | `not-started` | Post-alpha UX or alpha stable; see [component tracker design](../specs/2026-05-13-component-tracker-design.md) |
 
 **Doc status:** `pending` → plan PR open; `merged` → plan doc on `main`; `planned` → not yet drafted.
@@ -65,7 +65,7 @@ Merge these **documentation PRs** in sequence (separate from implementation task
 | 2 | `docs/release-and-rollout-plan` | #32 | Release plan + links; no post-alpha plan file |
 | 3 | `docs/post-alpha-ux-plan` | #34 | Post-alpha UX plan + links |
 
-After PR 1 merges, set order 2 doc row to `pending` when PR 2 opens; set to `merged` when PR 2 lands; then start release **implementation** Task 1.
+After PR 1 (#33) merges: order 2 remains `pending` while #32 is open; set order 2 doc status to `merged` when #32 lands, then start release **implementation** Task 1. Set order 3 doc status to `merged` when #34 lands.
 
 ---
 
