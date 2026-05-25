@@ -16,8 +16,8 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 | Order | Plan | Document | Doc status | Implementation status | Gate (start implementation) |
 |------:|------|----------|------------|------------------------|-----------------------------|
 | 1 | Rust engine and language packs | [2026-05-16-rust-engine-language-packs-plan.md](./2026-05-16-rust-engine-language-packs-plan.md) | `merged` | `complete` | — |
-| 2 | Release and rollout (alpha) | `2026-05-24-release-and-rollout-plan.md` (PR #32; add link after merge) | `pending` | `not-started` | Order 1 implementation `complete` |
-| 3 | Post-alpha UX | `2026-05-24-post-alpha-ux-plan.md` (PR #34; add link after merge) | `pending` | `not-started` | Order 2 public alpha shipped (`v0.1.0-alpha.1` or agreed tag) |
+| 2 | Release and rollout (alpha) | [2026-05-24-release-and-rollout-plan.md](./2026-05-24-release-and-rollout-plan.md) | `merged` | `not-started` | Order 1 implementation `complete` |
+| 3 | Post-alpha UX | `2026-05-24-post-alpha-ux-plan.md` (PR #34; add link when #34 merges) | `pending` | `not-started` | Order 2 public alpha shipped (`v0.1.0-alpha.1` or agreed tag) |
 | — | Registry discover / draft | *not written* | `planned` | `not-started` | Post-alpha UX or alpha stable; see [component tracker design](../specs/2026-05-13-component-tracker-design.md) |
 
 **Doc status:** `pending` → plan PR open; `merged` → plan doc on `main`; `planned` → not yet drafted.
@@ -62,10 +62,10 @@ Merge these **documentation PRs** in sequence (separate from implementation task
 | PR sequence | Branch | PR | Contents |
 |-------------|--------|-----|----------|
 | 1 | `docs/plans-roadmap` | #33 | This `README.md` + spec roadmap section |
-| 2 | `docs/release-and-rollout-plan` | #32 | Release plan + links; no post-alpha plan file |
+| 2 | `docs/release-and-rollout-plan` | #32 (merged) | Release plan on `main` |
 | 3 | `docs/post-alpha-ux-plan` | #34 | Post-alpha UX plan + links |
 
-After PR 1 (#33) merges: order 2 remains `pending` while #32 is open; set order 2 doc status to `merged` when #32 lands, then start release **implementation** Task 1. Set order 3 doc status to `merged` when #34 lands.
+#32 merged the order 2 plan doc. After this PR (#33) merges, begin release **implementation** Task 1 when order 1 implementation is `complete`. Set order 3 doc status to `merged` when #34 lands.
 
 ---
 
