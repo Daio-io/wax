@@ -17,7 +17,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 |------:|------|----------|------------|------------------------|-----------------------------|
 | 1 | Rust engine and language packs | [2026-05-16-rust-engine-language-packs-plan.md](./2026-05-16-rust-engine-language-packs-plan.md) | `merged` | `complete` | — |
 | 2 | Release and rollout (alpha) | [2026-05-24-release-and-rollout-plan.md](./2026-05-24-release-and-rollout-plan.md) | `merged` | `not-started` | Order 1 implementation `complete` |
-| 3 | Post-alpha UX | `2026-05-24-post-alpha-ux-plan.md` (PR #34; add link when #34 merges) | `pending` | `not-started` | Order 2 public alpha shipped (`v0.1.0-alpha.1` or agreed tag) |
+| 3 | Post-alpha UX | [2026-05-24-post-alpha-ux-plan.md](./2026-05-24-post-alpha-ux-plan.md) | `merged` | `not-started` | Order 2 public alpha shipped (`v0.1.0-alpha.1` or agreed tag) |
 | — | Registry discover / draft | *not written* | `planned` | `not-started` | Post-alpha UX or alpha stable; see [component tracker design](../specs/2026-05-13-component-tracker-design.md) |
 
 **Doc status:** `pending` → plan PR open; `merged` → plan doc on `main`; `planned` → not yet drafted.
