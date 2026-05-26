@@ -33,7 +33,7 @@ use subprocess_lang::{
 };
 use thiserror::Error;
 use wax_contract::{LanguageId, MergedScan, SCHEMA_VERSION, ScanFacts};
-use wax_lang_api::{ScanRequest, ScanRequestType, WIRE_API_VERSION};
+use wax_lang_api::{ScanConfig, ScanRequest, ScanRequestType, WIRE_API_VERSION};
 
 const DEFAULT_SCAN_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_SCAN_OUTPUT_TEMP_ATTEMPTS: u32 = 1000;
@@ -73,6 +73,7 @@ struct InstalledPackScanSpec {
 struct ScanJob {
     language_id: LanguageId,
     command: Vec<String>,
+    config: ScanConfig,
 }
 
 type ScanJobResult = Result<(LanguageId, ScanFacts), EngineError>;
@@ -187,12 +188,15 @@ impl Engine {
         let lockfile = load_lockfile(repo_root.join("wax.lock.json"))?;
         let state = load_global_state(state_file()?)?;
 
-        let enabled_ids: BTreeSet<LanguageId> = waxrc
-            .languages
-            .into_iter()
-            .filter(|entry| entry.enabled)
-            .map(|entry| entry.id)
-            .collect();
+        let mut enabled_ids = BTreeSet::new();
+        let mut language_configs = BTreeMap::new();
+        for entry in waxrc.languages {
+            if !entry.enabled {
+                continue;
+            }
+            language_configs.insert(entry.id.clone(), entry.extra);
+            enabled_ids.insert(entry.id);
+        }
 
         let installed_manifests = collect_installed_manifests(&enabled_ids, &lockfile, &state)?;
         let policy_without_auto_install =
@@ -254,9 +258,11 @@ impl Engine {
             let locked = &lockfile.languages[&language_id];
             let pack_spec =
                 load_installed_manifest_for_locked(&state, &language_id, &locked.version)?;
+            let config = language_configs.remove(&language_id).unwrap_or_default();
             jobs.push(ScanJob {
                 language_id,
                 command: pack_spec.command,
+                config,
             });
         }
         let languages = run_scan_jobs(repo_root, jobs, scan_concurrency)?;
@@ -385,7 +391,7 @@ fn run_scan_job(
         language_id: job.language_id.clone(),
         repo_root,
         snapshot_id: new_snapshot_id(),
-        config: serde_json::Map::new(),
+        config: job.config,
     };
     let facts = extractor.scan_with_cancellation(request, cancellation)?;
     Ok((job.language_id, facts))
