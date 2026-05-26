@@ -656,7 +656,8 @@ Expected: no stale production docs references to `rust-prototype`; tests PASS.
 
 ## Next phase
 
-Release and rollout: [Release and rollout plan](./2026-05-24-release-and-rollout-plan.md) — v1 CLI surface (`wax scan`, `wax validate`), HTTPS pack index, prebuilt releases, and install channels (curl, Homebrew, npm). See [plan roadmap](./README.md).
+- Release and rollout: [Release and rollout plan](./2026-05-24-release-and-rollout-plan.md) — v1 CLI surface (`wax scan`, `wax validate`), HTTPS pack index, prebuilt releases, and install channels (curl, Homebrew, npm). See [plan roadmap](./README.md) order 2.
+- Post-alpha UX: [Post-alpha UX plan](./2026-05-24-post-alpha-ux-plan.md) — order 3; after public alpha tag.
 
 ---
 
