@@ -126,7 +126,7 @@ Release-attached or gh-pages index.json
 
 **Execution checkpoint:** Phase 1 completes the spec v1 **scan path**. Do not tag alpha releases until Phase 2 (HTTPS index + default URL) is also done—otherwise `wax init`/`wax scan` auto-install cannot reach a real index.
 
-### - [ ] Task 1: Forward `.waxrc` language config into scan requests
+### - [x] Task 1: Forward `.waxrc` language config into scan requests
 
 **Files:**
 
@@ -134,19 +134,19 @@ Release-attached or gh-pages index.json
 - Modify: `engine/crates/wax-core/tests/scan_resolve.rs`
 - Modify: `engine/crates/wax-core/tests/scan_output.rs`
 
-- [ ] **Step 1: Build per-language config map when loading `.waxrc`**
+- [x] **Step 1: Build per-language config map when loading `.waxrc`**
 
 For each enabled `LanguageEntry`, copy `extra` (all keys beyond `id` / `enabled`) into a `BTreeMap<LanguageId, serde_json::Map<...>>` (or extend `ScanJob` with a `config` field).
 
-- [ ] **Step 2: Thread config through job construction**
+- [x] **Step 2: Thread config through job construction**
 
 When building each `ScanJob` in `run_scan_jobs`, attach the map entry for that `language_id` so jobs carry config before execution.
 
-- [ ] **Step 3: Pass config in `run_scan_job`**
+- [x] **Step 3: Pass config in `run_scan_job`**
 
 Replace `config: serde_json::Map::new()` with the config from the job (or lookup for `job.language_id`).
 
-- [ ] **Step 4: Add integration test asserting config reaches stub pack**
+- [x] **Step 4: Add integration test asserting config reaches stub pack**
 
 Extend `scan_resolve` (or subprocess protocol test) to assert `design_system_registry` and `roots` appear on the wire when present in `.waxrc`.
 
