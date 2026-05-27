@@ -11,7 +11,7 @@ use wax_contract::{
     CountSummary, LanguageId, LanguageMetadata, MergedScan, Metrics, SCHEMA_VERSION, ScanFacts,
     ScanStatus,
 };
-use wax_core::Engine;
+use wax_core::{Engine, EngineError, ScanOptions};
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -351,10 +351,17 @@ fn scan_resolve_surfaces_missing_install_as_auto_install_required() {
     .unwrap();
 
     let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
-    let err = Engine::scan_repo(&repo).expect_err("missing pack should be policy-blocked");
+    let err = Engine::scan_repo_with_options(
+        &repo,
+        ScanOptions {
+            scan_concurrency: None,
+            allow_auto_install: false,
+        },
+    )
+    .expect_err("missing pack should be policy-blocked");
     let message = err.to_string();
     assert!(
-        message.contains("requires auto-install"),
+        message.contains("run `wax language install`"),
         "unexpected error: {message}"
     );
 }
@@ -457,7 +464,7 @@ fn scan_resolve_fetches_registry_only_for_missing_languages() {
     "targets": {
       "x86_64-unknown-linux-gnu": {
         "url": "https://example.invalid/react-1.0.0.tgz",
-        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
       }
     }
   }
@@ -548,12 +555,45 @@ fn scan_resolve_fetches_registry_only_for_missing_languages() {
     .unwrap();
 
     let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
-    let err = Engine::scan_repo(&repo).expect_err("react should require auto-install");
-    let message = err.to_string();
-    assert!(
-        message.contains("requires auto-install"),
-        "unexpected error: {message}"
-    );
+    let err = Engine::scan_repo(&repo).expect_err("react digest drift should block scan");
+    let EngineError::AutoInstallPolicyBlocked { errors } = err else {
+        panic!("expected digest drift policy block, got {err:?}");
+    };
+    assert!(matches!(
+        errors.as_slice(),
+        [wax_core::auto_install::AutoInstallPolicyError::DigestDrift { language_id, .. }]
+            if language_id.as_str() == "react"
+    ));
+}
+
+#[test]
+fn scan_resolve_no_auto_install_validates_missing_pack_index_before_required_error() {
+    let _guard = env_lock();
+    let root = temp_dir("scan-resolve-no-auto-install-validates-index");
+    let repo = root.join("repo");
+    let wax_home = root.join("wax-home");
+    fs::create_dir_all(&repo).unwrap();
+    fs::create_dir_all(&wax_home).unwrap();
+
+    let registry_file = root.join("registry.json");
+    write_pack_index(&registry_file);
+    write_repo_files(&repo, &registry_file);
+    fs::write(
+        wax_home.join("state.json"),
+        "{\"installed_languages\":{}}\n",
+    )
+    .unwrap();
+
+    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
+    let err = Engine::scan_repo_with_options(
+        &repo,
+        ScanOptions {
+            scan_concurrency: None,
+            allow_auto_install: false,
+        },
+    )
+    .expect_err("missing pack should require install after index validation");
+    assert!(matches!(err, EngineError::AutoInstallRequired { .. }));
 }
 
 #[test]
