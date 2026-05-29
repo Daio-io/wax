@@ -9,6 +9,7 @@ pub mod install;
 pub mod paths;
 pub mod registry;
 pub mod subprocess_lang;
+pub mod validate;
 
 use auto_install::{AutoInstallPolicyInput, InstalledManifest, PackIndexArtifact};
 use config::lockfile::{LockfileError, load_lockfile};

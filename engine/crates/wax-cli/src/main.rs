@@ -2,6 +2,7 @@ mod commands {
     pub mod init;
     pub mod language;
     pub mod scan;
+    pub mod validate;
 }
 
 #[cfg(test)]
@@ -14,6 +15,7 @@ use commands::language::{
     UpdateOptions, run_doctor, run_install, run_list, run_uninstall, run_update,
 };
 use commands::scan::{ScanCommandOptions, run_scan};
+use commands::validate::{ValidateCommandOptions, run_validate};
 use std::path::PathBuf;
 use wax_contract::LanguageId;
 
@@ -33,6 +35,8 @@ enum Commands {
     Init(InitArgs),
     /// Scan repository source with enabled language packs.
     Scan(ScanArgs),
+    /// Validate repository wax inputs for CI usage.
+    Validate(ValidateArgs),
 }
 
 #[derive(Debug, Args)]
@@ -147,6 +151,13 @@ struct ScanArgs {
     scan_concurrency: Option<u32>,
 }
 
+#[derive(Debug, Args)]
+struct ValidateArgs {
+    /// Repository root containing `.waxrc` and `wax.lock.json`.
+    #[arg(long, default_value = ".")]
+    repo_root: PathBuf,
+}
+
 fn main() {
     let cli = Cli::parse();
     let mut stdout = std::io::stdout().lock();
@@ -216,6 +227,13 @@ fn main() {
                 repo_root: args.repo_root,
                 allow_auto_install: !args.no_auto_install,
                 scan_concurrency: args.scan_concurrency,
+            },
+            &mut stdout,
+        )
+        .map_err(Into::into),
+        Commands::Validate(args) => run_validate(
+            ValidateCommandOptions {
+                repo_root: args.repo_root,
             },
             &mut stdout,
         )
