@@ -222,6 +222,38 @@ fn scan_auto_install_disabled_returns_required_error_without_installing() {
 }
 
 #[test]
+fn scan_auto_install_disabled_does_not_fetch_registry_index() {
+    let _guard = env_lock();
+    let fixture = fixture("scan-auto-install-disabled-offline");
+    let _wax_home = EnvVarGuard::set("WAX_HOME", &fixture.wax_home);
+
+    let lockfile_path = fixture.repo.join("wax.lock.json");
+    let mut lockfile: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&lockfile_path).unwrap()).unwrap();
+    lockfile["languages"]["compose"]["source"] =
+        serde_json::json!("https://example.invalid/unreachable-index.json");
+    fs::write(
+        &lockfile_path,
+        format!("{}\n", serde_json::to_string_pretty(&lockfile).unwrap()),
+    )
+    .unwrap();
+
+    let err = Engine::scan_repo_with_options(
+        &fixture.repo,
+        ScanOptions {
+            scan_concurrency: None,
+            allow_auto_install: false,
+        },
+    )
+    .expect_err("disabled auto-install should fail without registry fetch");
+
+    assert!(
+        matches!(err, EngineError::AutoInstallRequired { .. }),
+        "expected AutoInstallRequired, got: {err}"
+    );
+}
+
+#[test]
 fn scan_auto_install_downloads_from_lockfile_url_not_registry_url() {
     let _guard = env_lock();
     let fixture = fixture_with_registry_url(

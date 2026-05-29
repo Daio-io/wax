@@ -253,6 +253,18 @@ impl Engine {
         }
 
         if !missing_install_ids.is_empty() {
+            if !options.allow_auto_install {
+                let plans = missing_install_ids
+                    .iter()
+                    .map(|language_id| auto_install::InstallPlan {
+                        language_id: language_id.clone(),
+                        version: lockfile.languages[language_id].version.clone(),
+                        sha256: lockfile.languages[language_id].resolved.sha256.clone(),
+                    })
+                    .collect();
+                return Err(EngineError::AutoInstallRequired { plans });
+            }
+
             let pack_index_artifacts =
                 collect_pack_index_artifacts(&missing_install_ids, &lockfile)?;
             let policy_with_auto_install =
@@ -274,12 +286,6 @@ impl Engine {
                 });
             }
             if !policy_with_auto_install.needs_install.is_empty() {
-                if !options.allow_auto_install {
-                    return Err(EngineError::AutoInstallRequired {
-                        plans: policy_with_auto_install.needs_install,
-                    });
-                }
-
                 execute_install_plans(
                     &policy_with_auto_install.needs_install,
                     &lockfile,

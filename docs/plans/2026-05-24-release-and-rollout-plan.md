@@ -181,7 +181,7 @@ Run: `cd engine && cargo test -p wax-core scan_auto_install auto_install_policy`
 
 Expected: PASS.
 
-### - [ ] Task 3: `wax scan` CLI command
+### - [x] Task 3: `wax scan` CLI command
 
 **Files:**
 
@@ -189,7 +189,7 @@ Expected: PASS.
 - Modify: `engine/crates/wax-cli/src/main.rs`
 - Create: `engine/crates/wax-cli/tests/scan_command.rs`
 
-- [ ] **Step 1: Add `Scan` subcommand with flags**
+- [x] **Step 1: Add `Scan` subcommand with flags**
 
 Support:
 
@@ -197,11 +197,11 @@ Support:
 - `--no-auto-install`
 - `--concurrency=N`
 
-- [ ] **Step 2: Wire to `Engine::scan_repo_with_options`**
+- [x] **Step 2: Wire to `Engine::scan_repo_with_options`**
 
 Map flags to `ScanOptions { scan_concurrency, allow_auto_install }`.
 
-- [ ] **Step 3: Print scan success summary on stdout**
+- [x] **Step 3: Print scan success summary on stdout**
 
 Minimum alpha summary (human-readable, not only a JSON path):
 
@@ -212,7 +212,7 @@ Minimum alpha summary (human-readable, not only a JSON path):
 
 Full `wax export` / HTML reports remain deferred; this stdout block is the minimum interpretability bar for alpha.
 
-- [ ] **Step 4: CLI integration test**
+- [x] **Step 4: CLI integration test**
 
 Spawn `wax` binary with fixture repo + `file://` index (via env) and assert exit 0 and output file exists.
 
