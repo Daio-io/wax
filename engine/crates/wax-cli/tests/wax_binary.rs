@@ -36,4 +36,8 @@ fn wax_binary_exposes_cli_help() {
         commands_section.contains("scan"),
         "expected scan subcommand in Commands section, got: {stdout}"
     );
+    assert!(
+        commands_section.contains("validate"),
+        "expected validate subcommand in Commands section, got: {stdout}"
+    );
 }

@@ -220,7 +220,7 @@ Run: `cd engine && cargo test -p wax-cli scan_command && cargo test -p wax-cli w
 
 Expected: PASS; `wax --help` lists `scan`.
 
-### - [ ] Task 4: `wax validate` CLI command
+### - [x] Task 4: `wax validate` CLI command
 
 **Files:**
 
@@ -231,7 +231,7 @@ Expected: PASS; `wax --help` lists `scan`.
 - Modify: `engine/crates/wax-cli/src/main.rs`
 - Create: `engine/crates/wax-cli/tests/validate_command.rs`
 
-- [ ] **Step 1: Define repo-only validation rules (alpha minimum)**
+- [x] **Step 1: Define repo-only validation rules (alpha minimum)**
 
 Validate without reading `~/.wax/`:
 
@@ -244,15 +244,15 @@ Validate without reading `~/.wax/`:
 
 Defer registry **usage cross-checks** (dead entries, ambiguous matches) to post-alpha unless trivial to add from existing pack config validators.
 
-- [ ] **Step 2: Implement `validate_repo(repo_root) -> Result<ValidateReport, ValidateError>`**
+- [x] **Step 2: Implement `validate_repo(repo_root) -> Result<ValidateReport, ValidateError>`**
 
 Structured errors with field paths for CI.
 
-- [ ] **Step 3: Add `wax validate` CLI**
+- [x] **Step 3: Add `wax validate` CLI**
 
 `--repo-root` (default `.`); exit code 1 on validation failure; print human-readable issues to stderr.
 
-- [ ] **Step 4: Tests for valid fixture repo and common failure modes**
+- [x] **Step 4: Tests for valid fixture repo and common failure modes**
 
 Include: valid repo passes; empty `components: []` emits warning and exit 0.
 
