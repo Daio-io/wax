@@ -1,6 +1,7 @@
 mod commands {
     pub mod init;
     pub mod language;
+    pub mod scan;
 }
 
 #[cfg(test)]
@@ -12,6 +13,7 @@ use commands::language::{
     DoctorOptions, InstallOptions, LanguageInstallSpec, ListOptions, UninstallOptions,
     UpdateOptions, run_doctor, run_install, run_list, run_uninstall, run_update,
 };
+use commands::scan::{ScanCommandOptions, run_scan};
 use std::path::PathBuf;
 use wax_contract::LanguageId;
 
@@ -29,6 +31,8 @@ enum Commands {
     Language(LanguageCli),
     /// Initialize wax repository configuration.
     Init(InitArgs),
+    /// Scan repository source with enabled language packs.
+    Scan(ScanArgs),
 }
 
 #[derive(Debug, Args)]
@@ -130,6 +134,19 @@ struct DoctorArgs {
     repo_root: PathBuf,
 }
 
+#[derive(Debug, Args)]
+struct ScanArgs {
+    /// Repository root containing .waxrc and wax.lock.json.
+    #[arg(long, default_value = ".")]
+    repo_root: PathBuf,
+    /// Disable automatic install of missing language packs before scan.
+    #[arg(long)]
+    no_auto_install: bool,
+    /// Override scan worker concurrency.
+    #[arg(long = "concurrency")]
+    scan_concurrency: Option<u32>,
+}
+
 fn main() {
     let cli = Cli::parse();
     let mut stdout = std::io::stdout().lock();
@@ -190,6 +207,15 @@ fn main() {
                 target_triple: args.target,
                 state_path: None,
                 scaffold_registries: !args.no_scaffold_registries,
+            },
+            &mut stdout,
+        )
+        .map_err(Into::into),
+        Commands::Scan(args) => run_scan(
+            ScanCommandOptions {
+                repo_root: args.repo_root,
+                allow_auto_install: !args.no_auto_install,
+                scan_concurrency: args.scan_concurrency,
             },
             &mut stdout,
         )
