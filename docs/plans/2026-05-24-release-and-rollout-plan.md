@@ -266,7 +266,7 @@ Expected: PASS; `wax --help` lists `validate`.
 
 **Execution checkpoint:** After Phase 2, `wax init` and `wax language install` work against HTTPS index URLs without manual `file://` setup.
 
-### - [ ] Task 5: HTTPS pack index fetch
+### - [x] Task 5: HTTPS pack index fetch
 
 **Files:**
 
@@ -274,15 +274,15 @@ Expected: PASS; `wax --help` lists `validate`.
 - Modify: `engine/crates/wax-core/tests/` (registry tests)
 - Modify: `engine/crates/wax-core/Cargo.toml` (if reqwest features needed)
 
-- [ ] **Step 1: Extend `fetch_pack_index` to support `https://` and `http://`**
+- [x] **Step 1: Extend `fetch_pack_index` to support `https://` and `http://`**
 
 Reuse the same blocking HTTP client pattern as `install.rs`. Keep `file://` for unit tests.
 
-- [ ] **Step 2: Add error variants for HTTP status, timeout, and malformed remote JSON**
+- [x] **Step 2: Add error variants for HTTP status, timeout, and malformed remote JSON**
 
 Preserve typed errors; no bare strings at crate boundary.
 
-- [ ] **Step 3: Unit tests**
+- [x] **Step 3: Unit tests**
 
 Keep existing `file://` tests; add test with mock HTTP server or recorded fixture (prefer local mock via `httptest` / `wiremock` if already in workspace—otherwise minimal integration test behind `file://` plus one https test against example.com invalid JSON disabled; use `httpmock` crate sparingly).
 

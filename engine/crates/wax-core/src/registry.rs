@@ -4,6 +4,7 @@ use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
+use std::time::Duration;
 use thiserror::Error;
 use wax_contract::LanguageId;
 
@@ -35,7 +36,9 @@ pub struct RegistryArtifact {
 #[derive(Debug, Error)]
 pub enum RegistryError {
     /// Registry URL does not use a supported scheme.
-    #[error("unsupported registry URL scheme in {url}; only file:// is supported")]
+    #[error(
+        "unsupported registry URL scheme in {url}; only file://, http://, and https:// are supported"
+    )]
     UnsupportedScheme {
         /// The URL passed to [`fetch_pack_index`].
         url: String,
@@ -57,6 +60,29 @@ pub enum RegistryError {
         #[source]
         source: std::io::Error,
     },
+    /// Registry index request exceeded timeout.
+    #[error("timed out fetching registry manifest index from {url}")]
+    Timeout {
+        /// URL passed to [`fetch_pack_index`].
+        url: String,
+    },
+    /// Registry index request returned a non-success HTTP status.
+    #[error("failed to fetch registry manifest index from {url}: HTTP {status}")]
+    HttpStatus {
+        /// URL passed to [`fetch_pack_index`].
+        url: String,
+        /// HTTP response status code.
+        status: reqwest::StatusCode,
+    },
+    /// Registry index request failed.
+    #[error("failed to fetch registry manifest index from {url}: {source}")]
+    HttpRequest {
+        /// URL passed to [`fetch_pack_index`].
+        url: String,
+        /// Underlying HTTP error.
+        #[source]
+        source: reqwest::Error,
+    },
     /// Registry index contains malformed JSON.
     #[error("malformed registry manifest index JSON in {path}: {source}")]
     MalformedJson {
@@ -66,10 +92,19 @@ pub enum RegistryError {
         #[source]
         source: serde_json::Error,
     },
+    /// Remote registry index contains malformed JSON.
+    #[error("malformed remote registry manifest index JSON from {url}: {source}")]
+    MalformedRemoteJson {
+        /// URL passed to [`fetch_pack_index`].
+        url: String,
+        /// Underlying JSON syntax error.
+        #[source]
+        source: serde_json::Error,
+    },
     /// Registry index JSON does not match the expected manifest shape.
     #[error("invalid registry manifest index in {path}: {source}")]
     InvalidManifest {
-        /// Filesystem path derived from the provided URL.
+        /// Filesystem path or URL passed to [`fetch_pack_index`].
         path: String,
         /// Underlying JSON decode error.
         #[source]
@@ -89,29 +124,17 @@ pub enum RegistryError {
     },
 }
 
-/// Loads a pack-index manifest list from a `file://` URL.
+/// Loads a pack-index manifest list from a `file://`, `http://`, or `https://` URL.
 pub fn fetch_pack_index(url: &str) -> Result<Vec<RegistryManifest>, RegistryError> {
-    let path = file_url_to_path(url)?;
-    let path_display = path.display().to_string();
-
-    let contents = fs::read_to_string(&path).map_err(|source| RegistryError::Read {
-        path: path_display.clone(),
-        source,
-    })?;
-
-    let value: serde_json::Value =
-        serde_json::from_str(&contents).map_err(|source| RegistryError::MalformedJson {
-            path: path_display.clone(),
-            source,
-        })?;
-
-    let manifests =
-        serde_json::from_value(value).map_err(|source| RegistryError::InvalidManifest {
-            path: path_display,
-            source,
-        })?;
-
-    Ok(manifests)
+    if url.starts_with("file://") {
+        return fetch_file_pack_index(url);
+    }
+    if url.starts_with("http://") || url.starts_with("https://") {
+        return fetch_remote_pack_index(url, Duration::from_secs(30));
+    }
+    Err(RegistryError::UnsupportedScheme {
+        url: url.to_owned(),
+    })
 }
 
 /// Selects the target artifact for the current host triple.
@@ -127,6 +150,83 @@ pub fn select_target_artifact<'a>(
             version: manifest.version.clone(),
             host_target: host_target.to_owned(),
         })
+}
+
+fn fetch_file_pack_index(url: &str) -> Result<Vec<RegistryManifest>, RegistryError> {
+    let path = file_url_to_path(url)?;
+    let path_display = path.display().to_string();
+    let contents = fs::read_to_string(&path).map_err(|source| RegistryError::Read {
+        path: path_display.clone(),
+        source,
+    })?;
+
+    let value: serde_json::Value =
+        serde_json::from_str(&contents).map_err(|source| RegistryError::MalformedJson {
+            path: path_display.clone(),
+            source,
+        })?;
+
+    serde_json::from_value(value).map_err(|source| RegistryError::InvalidManifest {
+        path: path_display,
+        source,
+    })
+}
+
+fn fetch_remote_pack_index(
+    url: &str,
+    timeout: Duration,
+) -> Result<Vec<RegistryManifest>, RegistryError> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(timeout)
+        .build()
+        .map_err(|source| RegistryError::HttpRequest {
+            url: url.to_owned(),
+            source,
+        })?;
+
+    let response = client.get(url).send().map_err(|source| {
+        if source.is_timeout() {
+            RegistryError::Timeout {
+                url: url.to_owned(),
+            }
+        } else {
+            RegistryError::HttpRequest {
+                url: url.to_owned(),
+                source,
+            }
+        }
+    })?;
+
+    if !response.status().is_success() {
+        return Err(RegistryError::HttpStatus {
+            url: url.to_owned(),
+            status: response.status(),
+        });
+    }
+
+    let body = response.text().map_err(|source| {
+        if source.is_timeout() {
+            RegistryError::Timeout {
+                url: url.to_owned(),
+            }
+        } else {
+            RegistryError::HttpRequest {
+                url: url.to_owned(),
+                source,
+            }
+        }
+    })?;
+
+    let value: serde_json::Value =
+        serde_json::from_str(&body).map_err(|source| RegistryError::MalformedRemoteJson {
+            url: url.to_owned(),
+            source,
+        })?;
+
+    serde_json::from_value(value).map_err(|source| RegistryError::InvalidManifest {
+        path: url.to_owned(),
+        source,
+    })
 }
 
 fn file_url_to_path(url: &str) -> Result<PathBuf, RegistryError> {
@@ -210,7 +310,10 @@ fn from_hex(byte: u8) -> Option<u8> {
 mod tests {
     use super::*;
     use std::fs;
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, TcpStream};
     use std::path::Path;
+    use std::thread;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn fixture_file_url() -> String {
@@ -226,7 +329,6 @@ mod tests {
     #[test]
     fn parses_manifest_entry_from_fixture() {
         let manifests = fetch_pack_index(&fixture_file_url()).expect("fixture should parse");
-
         assert_eq!(manifests.len(), 2);
 
         let entry = manifests
@@ -252,11 +354,60 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_file_registry_url() {
-        let err = fetch_pack_index("https://registry.example.dev/index.json")
-            .expect_err("https URL should be rejected in unit tests");
-
+    fn rejects_unsupported_registry_url_scheme() {
+        let err = fetch_pack_index("s3://registry.example.dev/index.json")
+            .expect_err("unsupported URL should be rejected");
         assert!(matches!(err, RegistryError::UnsupportedScheme { .. }));
+    }
+
+    #[test]
+    fn fetches_manifest_entry_from_http() {
+        let body = fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("..")
+                .join("..")
+                .join("fixtures")
+                .join("registry")
+                .join("official-manifest.json"),
+        )
+        .expect("fixture should load");
+        let url = serve_one_response("HTTP/1.1 200 OK", "application/json", &body);
+
+        let manifests = fetch_pack_index(&url).expect("http manifest should parse");
+        assert_eq!(manifests.len(), 2);
+    }
+
+    #[test]
+    fn returns_typed_http_status_error() {
+        let url = serve_one_response("HTTP/1.1 404 Not Found", "text/plain", "missing");
+        let err = fetch_pack_index(&url).expect_err("404 should fail");
+        assert!(matches!(
+            err,
+            RegistryError::HttpStatus { status, .. } if status == reqwest::StatusCode::NOT_FOUND
+        ));
+    }
+
+    #[test]
+    fn returns_typed_timeout_error() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind should work");
+        let addr = listener.local_addr().expect("local addr should resolve");
+        let handle = thread::spawn(move || {
+            let (_stream, _) = listener.accept().expect("accept should work");
+            thread::sleep(Duration::from_millis(100));
+        });
+
+        let url = format!("http://{addr}/index.json");
+        let err = fetch_remote_pack_index(&url, Duration::from_millis(10))
+            .expect_err("slow response should time out");
+        assert!(matches!(err, RegistryError::Timeout { .. }));
+        handle.join().expect("thread should join");
+    }
+
+    #[test]
+    fn returns_typed_malformed_remote_json_error() {
+        let url = serve_one_response("HTTP/1.1 200 OK", "application/json", "{bad-json");
+        let err = fetch_pack_index(&url).expect_err("invalid JSON should fail");
+        assert!(matches!(err, RegistryError::MalformedRemoteJson { .. }));
     }
 
     #[test]
@@ -365,10 +516,36 @@ mod tests {
 
         let url = format!("file://{}", file_path.display());
         let err = fetch_pack_index(&url).expect_err("invalid language id should fail");
-
         assert!(matches!(err, RegistryError::InvalidManifest { .. }));
 
         fs::remove_file(file_path).expect("temp fixture should be removed");
         fs::remove_dir_all(dir).expect("temp dir should be removed");
+    }
+
+    fn serve_one_response(status_line: &str, content_type: &str, body: &str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind should work");
+        let addr = listener.local_addr().expect("local addr should resolve");
+        let status_line = status_line.to_owned();
+        let content_type = content_type.to_owned();
+        let body = body.to_owned();
+
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept should work");
+            drain_request(&mut stream);
+            let response = format!(
+                "{status_line}\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream
+                .write_all(response.as_bytes())
+                .expect("response write should work");
+        });
+
+        format!("http://{addr}/index.json")
+    }
+
+    fn drain_request(stream: &mut TcpStream) {
+        let mut buf = [0_u8; 1024];
+        let _ = stream.read(&mut buf);
     }
 }
