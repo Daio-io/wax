@@ -199,6 +199,7 @@ fn scan_output_writes_per_language_and_merged_output_json() {
         &fixture.repo,
         ScanOptions {
             scan_concurrency: Some(2),
+            ..ScanOptions::default()
         },
     )
     .expect("scan should pass");

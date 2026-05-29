@@ -154,7 +154,7 @@ Run: `cd engine && cargo test -p wax-core scan_resolve scan_output subprocess_pr
 
 Expected: PASS; configured `.waxrc` keys appear in `ScanRequest.config`.
 
-### - [ ] Task 2: Auto-install execution during scan
+### - [x] Task 2: Auto-install execution during scan
 
 **Files:**
 
@@ -163,19 +163,19 @@ Expected: PASS; configured `.waxrc` keys appear in `ScanRequest.config`.
 - Create: `engine/crates/wax-core/tests/scan_auto_install.rs`
 - Modify: `engine/crates/wax-core/src/install.rs` (reuse from scan path if needed)
 
-- [ ] **Step 1: Extend `ScanOptions` with `allow_auto_install: bool`**
+- [x] **Step 1: Extend `ScanOptions` with `allow_auto_install: bool`**
 
 Default `true` for local scans; CLI will set `false` for `--no-auto-install`.
 
-- [ ] **Step 2: When policy returns `needs_install` and auto-install is allowed, execute install plans**
+- [x] **Step 2: When policy returns `needs_install` and auto-install is allowed, execute install plans**
 
 Call existing `install_language` (or shared helper used by CLI) for each plan, refresh global state, then continue scan—do not return `AutoInstallRequired` when installs succeed.
 
-- [ ] **Step 3: When auto-install is disabled, preserve current fail-fast behavior**
+- [x] **Step 3: When auto-install is disabled, preserve current fail-fast behavior**
 
 Return typed error instructing user to run `wax language install` or enable auto-install.
 
-- [ ] **Step 4: Test happy path and `--no-auto-install` equivalent**
+- [x] **Step 4: Test happy path and `--no-auto-install` equivalent**
 
 Run: `cd engine && cargo test -p wax-core scan_auto_install auto_install_policy`
 

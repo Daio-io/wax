@@ -13,7 +13,8 @@ pub mod subprocess_lang;
 use auto_install::{AutoInstallPolicyInput, InstalledManifest, PackIndexArtifact};
 use config::lockfile::{LockfileError, load_lockfile};
 use config::waxrc::{WaxRcError, load_waxrc};
-use global_state::{GlobalStateError, load_global_state};
+use global_state::{GlobalStateError, InstalledLanguagePack, load_global_state, save_global_state};
+use install::{InstallError, LanguagePackManifestSpec, install_language};
 use paths::{PathsError, state_file};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -88,12 +89,23 @@ enum ScanWorkerMessage {
 pub struct Engine;
 
 /// Runtime options for repository scans.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScanOptions {
     /// Overrides `.waxrc` `engine.scan_concurrency` when set.
     ///
     /// Values less than 1 are treated as serial execution.
     pub scan_concurrency: Option<u32>,
+    /// Allows scan to install missing locked language packs before execution.
+    pub allow_auto_install: bool,
+}
+
+impl Default for ScanOptions {
+    fn default() -> Self {
+        Self {
+            scan_concurrency: None,
+            allow_auto_install: true,
+        }
+    }
 }
 
 /// Typed failures while resolving and running repository scans.
@@ -139,11 +151,25 @@ pub enum EngineError {
         /// Typed policy errors returned by evaluation.
         errors: Vec<auto_install::AutoInstallPolicyError>,
     },
-    /// Auto-install would be required, but install orchestration is deferred.
-    #[error("scan requires auto-install before execution: {plans:?}")]
+    /// Auto-install would be required, but scan auto-install is disabled.
+    #[error(
+        "scan requires language packs to be installed; run `wax language install` or enable auto-install: {plans:?}"
+    )]
     AutoInstallRequired {
         /// Required installs returned by policy.
         plans: Vec<auto_install::InstallPlan>,
+    },
+    /// A language pack could not be installed before scan execution.
+    #[error(transparent)]
+    Install(#[from] InstallError),
+    /// A promoted language pack could not be removed after state persistence failed.
+    #[error("failed to clean up installed language pack at {path}: {source}")]
+    InstallCleanup {
+        /// Install directory cleanup path.
+        path: String,
+        /// Underlying source error.
+        #[source]
+        source: io::Error,
     },
     /// A language scan subprocess failed.
     #[error(transparent)]
@@ -186,7 +212,8 @@ impl Engine {
         let waxrc = load_waxrc(repo_root.join(".waxrc"))?;
         let scan_concurrency = effective_scan_concurrency(&waxrc.engine, &options);
         let lockfile = load_lockfile(repo_root.join("wax.lock.json"))?;
-        let state = load_global_state(state_file()?)?;
+        let state_path = state_file()?;
+        let mut state = load_global_state(&state_path)?;
 
         let mut enabled_ids = BTreeSet::new();
         let mut language_configs = BTreeMap::new();
@@ -238,7 +265,7 @@ impl Engine {
                         &state,
                     )?,
                     allow_auto_install: true,
-                    pack_index_artifacts,
+                    pack_index_artifacts: pack_index_artifacts.clone(),
                 });
 
             if !policy_with_auto_install.errors.is_empty() {
@@ -247,9 +274,19 @@ impl Engine {
                 });
             }
             if !policy_with_auto_install.needs_install.is_empty() {
-                return Err(EngineError::AutoInstallRequired {
-                    plans: policy_with_auto_install.needs_install,
-                });
+                if !options.allow_auto_install {
+                    return Err(EngineError::AutoInstallRequired {
+                        plans: policy_with_auto_install.needs_install,
+                    });
+                }
+
+                execute_install_plans(
+                    &policy_with_auto_install.needs_install,
+                    &lockfile,
+                    &pack_index_artifacts,
+                    &state_path,
+                )?;
+                state = load_global_state(&state_path)?;
             }
         }
 
@@ -708,6 +745,105 @@ fn collect_pack_index_artifacts(
     Ok(out)
 }
 
+fn execute_install_plans(
+    plans: &[auto_install::InstallPlan],
+    lockfile: &config::lockfile::WaxLock,
+    pack_index_artifacts: &BTreeMap<LanguageId, BTreeMap<String, Vec<PackIndexArtifact>>>,
+    state_path: &Path,
+) -> Result<(), EngineError> {
+    for plan in plans {
+        let locked = &lockfile.languages[&plan.language_id];
+        let artifact = pack_index_artifacts
+            .get(&plan.language_id)
+            .and_then(|versions| versions.get(&plan.version))
+            .and_then(|artifacts| {
+                artifacts
+                    .iter()
+                    .find(|artifact| artifact.target == locked.resolved.target)
+            })
+            .ok_or_else(|| EngineError::AutoInstallPolicyBlocked {
+                errors: vec![
+                    auto_install::AutoInstallPolicyError::MissingPackIndexEntry {
+                        language_id: plan.language_id.clone(),
+                        version: plan.version.clone(),
+                    },
+                ],
+            })?;
+
+        let manifest = LanguagePackManifestSpec {
+            id: plan.language_id.clone(),
+            version: plan.version.clone(),
+            api_version: locked.api_version,
+            command: vec![
+                format!("./wax-lang-{}", plan.language_id),
+                "--stdio".to_owned(),
+            ],
+            ecosystem: plan.language_id.to_string(),
+            parser_name: plan.language_id.to_string(),
+            parser_version: plan.version.clone(),
+        };
+
+        let install_dir = install_language(
+            &plan.language_id,
+            &plan.version,
+            &locked.resolved.target,
+            &locked.resolved.url,
+            &plan.sha256,
+            Some(&artifact.sha256),
+            &manifest,
+        )?;
+
+        record_installed_language_or_cleanup(
+            state_path,
+            &plan.language_id,
+            &plan.version,
+            install_dir,
+        )?;
+    }
+    Ok(())
+}
+
+fn record_installed_language_or_cleanup(
+    state_path: &Path,
+    language_id: &LanguageId,
+    version: &str,
+    install_dir: PathBuf,
+) -> Result<(), EngineError> {
+    let record_result = (|| {
+        let mut state = load_global_state(state_path)?;
+        state
+            .installed_languages
+            .entry(language_id.clone())
+            .or_default()
+            .insert(
+                version.to_owned(),
+                InstalledLanguagePack {
+                    install_dir: install_dir.clone(),
+                },
+            );
+        save_global_state(state_path, &state)?;
+        Ok(())
+    })();
+
+    if let Err(err) = record_result {
+        remove_installed_dir(&install_dir)?;
+        return Err(err);
+    }
+
+    Ok(())
+}
+
+fn remove_installed_dir(path: &Path) -> Result<(), EngineError> {
+    match fs::remove_dir_all(path) {
+        Ok(()) => Ok(()),
+        Err(source) if source.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(source) => Err(EngineError::InstallCleanup {
+            path: path.display().to_string(),
+            source,
+        }),
+    }
+}
+
 fn load_installed_manifest_for_locked(
     state: &global_state::GlobalState,
     language_id: &LanguageId,
@@ -764,4 +900,38 @@ fn new_snapshot_id() -> String {
         .unwrap_or_default()
         .as_nanos();
     format!("scan-{nanos}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn record_installed_language_cleans_up_when_state_load_fails() {
+        let root = std::env::temp_dir().join(format!(
+            "wax-core-record-cleanup-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let install_dir = root.join("langs/compose/0.1.0");
+        fs::create_dir_all(&install_dir).unwrap();
+        let state_path = root.join("state.json");
+        fs::write(&state_path, "{not valid json").unwrap();
+
+        let language_id = LanguageId::try_from("compose").unwrap();
+        let err = record_installed_language_or_cleanup(
+            &state_path,
+            &language_id,
+            "0.1.0",
+            install_dir.clone(),
+        )
+        .expect_err("malformed state should fail");
+
+        assert!(matches!(err, EngineError::GlobalState(_)));
+        assert!(!install_dir.exists());
+
+        let _ = fs::remove_dir_all(root);
+    }
 }

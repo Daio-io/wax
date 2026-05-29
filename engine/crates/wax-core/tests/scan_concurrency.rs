@@ -406,6 +406,7 @@ fn scan_repo_options_can_override_waxrc_scan_concurrency_to_serial() {
         &fixture.repo,
         ScanOptions {
             scan_concurrency: Some(1),
+            ..ScanOptions::default()
         },
     )
     .expect("scan should pass");
