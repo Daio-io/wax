@@ -2,6 +2,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(unix)]
+use std::os::unix::fs as unix_fs;
 use wax_core::validate::{ValidateError, ValidateWarning, validate_repo};
 
 struct TestDir {
@@ -187,6 +189,39 @@ fn validate_repo_rejects_missing_registry_file() {
 
     let err = validate_repo(&root.path).expect_err("missing registry file should fail");
     assert!(matches!(err, ValidateError::RegistryRead { .. }));
+}
+
+#[cfg(unix)]
+#[test]
+fn validate_repo_rejects_symlink_registry_that_escapes_repo_root() {
+    let root = TestDir::new("validate-repo-symlink-escape");
+    let outside_registry = std::env::temp_dir().join(format!(
+        "wax-outside-registry-{}.json",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after unix epoch")
+            .as_nanos()
+    ));
+    fs::write(
+        &outside_registry,
+        r#"{
+  "schema_version": 1,
+  "components": []
+}
+"#,
+    )
+    .unwrap();
+
+    let registry_link = root.path.join("design-system/registry.json");
+    fs::create_dir_all(registry_link.parent().unwrap()).unwrap();
+    unix_fs::symlink(&outside_registry, &registry_link).unwrap();
+
+    write_repo_with_registry_path(&root.path, "design-system/registry.json");
+    write_lockfile(&root.path);
+
+    let err = validate_repo(&root.path).expect_err("symlink escape should fail");
+    let _ = fs::remove_file(outside_registry);
+    assert!(matches!(err, ValidateError::RegistryPathEscapesRepo { .. }));
 }
 
 fn write_valid_repo(repo_root: &Path, registry_path: &str, components: &str) {

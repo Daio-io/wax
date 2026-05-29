@@ -72,6 +72,12 @@ pub enum ValidateError {
         #[source]
         source: std::io::Error,
     },
+    /// Registry path resolved outside the repository root after canonicalization.
+    #[error("invalid .waxrc field {field}: resolved path escapes repository root")]
+    RegistryPathEscapesRepo {
+        /// `.waxrc` field path.
+        field: String,
+    },
     /// Registry JSON was malformed.
     #[error("malformed design-system registry JSON for {field} in {path}: {source}")]
     RegistryMalformedJson {
@@ -112,6 +118,12 @@ pub enum ValidateError {
 /// Validates repository-local wax configuration for CI workflows.
 pub fn validate_repo(repo_root: impl AsRef<Path>) -> Result<ValidateReport, ValidateError> {
     let repo_root = repo_root.as_ref();
+    let canonical_repo_root =
+        fs::canonicalize(repo_root).map_err(|source| ValidateError::RegistryRead {
+            field: "repo_root".to_owned(),
+            path: repo_root.display().to_string(),
+            source,
+        })?;
     let waxrc = load_waxrc(repo_root.join(".waxrc"))?;
 
     let enabled = waxrc
@@ -149,6 +161,8 @@ pub fn validate_repo(repo_root: impl AsRef<Path>) -> Result<ValidateReport, Vali
         validate_repo_relative_registry_path(&registry_field, registry_path)?;
 
         let resolved_registry = repo_root.join(registry_path);
+        let canonical_registry =
+            canonicalize_registry_path(&registry_field, &resolved_registry, &canonical_repo_root)?;
         let contents = fs::read_to_string(&resolved_registry).map_err(|source| {
             ValidateError::RegistryRead {
                 field: registry_field.clone(),
@@ -159,7 +173,7 @@ pub fn validate_repo(repo_root: impl AsRef<Path>) -> Result<ValidateReport, Vali
         let value: Value = serde_json::from_str(&contents).map_err(|source| {
             ValidateError::RegistryMalformedJson {
                 field: registry_field.clone(),
-                path: resolved_registry.display().to_string(),
+                path: canonical_registry.display().to_string(),
                 source,
             }
         })?;
@@ -167,7 +181,7 @@ pub fn validate_repo(repo_root: impl AsRef<Path>) -> Result<ValidateReport, Vali
         let Some(obj) = value.as_object() else {
             return Err(ValidateError::RegistryInvalidShape {
                 field: registry_field,
-                path: resolved_registry.display().to_string(),
+                path: canonical_registry.display().to_string(),
                 reason: "expected top-level object",
             });
         };
@@ -175,7 +189,7 @@ pub fn validate_repo(repo_root: impl AsRef<Path>) -> Result<ValidateReport, Vali
         let Some(schema_version) = obj.get("schema_version").and_then(Value::as_u64) else {
             return Err(ValidateError::RegistryInvalidShape {
                 field: format!("languages[{index}].design_system_registry"),
-                path: resolved_registry.display().to_string(),
+                path: canonical_registry.display().to_string(),
                 reason: "missing numeric schema_version",
             });
         };
@@ -183,7 +197,7 @@ pub fn validate_repo(repo_root: impl AsRef<Path>) -> Result<ValidateReport, Vali
         if schema_version != REGISTRY_SCHEMA_VERSION {
             return Err(ValidateError::RegistryUnsupportedSchemaVersion {
                 field: format!("languages[{index}].design_system_registry"),
-                path: resolved_registry.display().to_string(),
+                path: canonical_registry.display().to_string(),
                 found: schema_version,
                 supported: REGISTRY_SCHEMA_VERSION,
             });
@@ -194,7 +208,7 @@ pub fn validate_repo(repo_root: impl AsRef<Path>) -> Result<ValidateReport, Vali
             Some(_) => {
                 return Err(ValidateError::RegistryInvalidShape {
                     field: format!("languages[{index}].design_system_registry"),
-                    path: resolved_registry.display().to_string(),
+                    path: canonical_registry.display().to_string(),
                     reason: "components must be an array when present",
                 });
             }
@@ -241,4 +255,25 @@ fn validate_repo_relative_registry_path(field: &str, value: &str) -> Result<(), 
     }
 
     Ok(())
+}
+
+fn canonicalize_registry_path(
+    field: &str,
+    registry_path: &Path,
+    canonical_repo_root: &Path,
+) -> Result<std::path::PathBuf, ValidateError> {
+    let canonical_registry =
+        fs::canonicalize(registry_path).map_err(|source| ValidateError::RegistryRead {
+            field: field.to_owned(),
+            path: registry_path.display().to_string(),
+            source,
+        })?;
+
+    if !canonical_registry.starts_with(canonical_repo_root) {
+        return Err(ValidateError::RegistryPathEscapesRepo {
+            field: field.to_owned(),
+        });
+    }
+
+    Ok(canonical_registry)
 }
