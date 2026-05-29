@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use wax_core::validate::{ValidateError, ValidateWarning, validate_repo};
@@ -27,22 +27,30 @@ impl Drop for TestDir {
 }
 
 #[test]
-fn validate_repo_accepts_valid_repo() {
-    let root = TestDir::new("validate-repo-valid");
-    write_valid_repo(&root.path, "design-system/registry.json", "[]");
+fn validate_repo_accepts_populated_components_without_warnings() {
+    let root = TestDir::new("validate-repo-valid-populated");
+    write_valid_repo(
+        &root.path,
+        "design-system/registry.json",
+        r#"[
+    {
+      "canonical_name": "Button",
+      "aliases": [],
+      "kind": "component",
+      "props": [],
+      "slots": [],
+      "events": []
+    }
+  ]"#,
+    );
 
     let report = validate_repo(&root.path).expect("valid repo should pass");
-    assert_eq!(report.warnings.len(), 1);
-    assert!(matches!(
-        &report.warnings[0],
-        ValidateWarning::EmptyRegistryComponents { language_id, .. }
-            if language_id.as_str() == "compose"
-    ));
+    assert!(report.warnings.is_empty());
 }
 
 #[test]
 fn validate_repo_warns_when_components_array_empty() {
-    let root = TestDir::new("validate-repo-warning");
+    let root = TestDir::new("validate-repo-warning-empty-components");
     write_valid_repo(&root.path, "design-system/registry.json", "[]");
 
     let report = validate_repo(&root.path).expect("empty components should warn");
@@ -51,6 +59,45 @@ fn validate_repo_warns_when_components_array_empty() {
         [ValidateWarning::EmptyRegistryComponents { language_id, registry_path }]
         if language_id.as_str() == "compose" && registry_path == "design-system/registry.json"
     ));
+}
+
+#[test]
+fn validate_repo_warns_when_components_key_missing() {
+    let root = TestDir::new("validate-repo-warning-missing-components");
+    write_repo_with_registry_json(
+        &root.path,
+        "design-system/registry.json",
+        r#"{
+  "schema_version": 1
+}
+"#,
+    );
+
+    let report = validate_repo(&root.path).expect("missing components should warn");
+    assert!(matches!(
+        &report.warnings[..],
+        [ValidateWarning::EmptyRegistryComponents { language_id, registry_path }]
+        if language_id.as_str() == "compose" && registry_path == "design-system/registry.json"
+    ));
+}
+
+#[test]
+fn validate_repo_requires_lockfile_when_language_enabled() {
+    let root = TestDir::new("validate-repo-missing-lockfile");
+    write_repo_with_registry_json(
+        &root.path,
+        "design-system/registry.json",
+        r#"{
+  "schema_version": 1,
+  "components": []
+}
+"#,
+    );
+
+    fs::remove_file(root.path.join("wax.lock.json")).expect("lockfile should exist");
+
+    let err = validate_repo(&root.path).expect_err("missing lockfile should fail");
+    assert!(matches!(err, ValidateError::Lockfile(_)));
 }
 
 #[test]
@@ -105,17 +152,63 @@ fn validate_repo_rejects_duplicate_enabled_language_ids() {
     ));
 }
 
-fn write_valid_repo(repo_root: &std::path::Path, registry_path: &str, components: &str) {
+#[test]
+fn validate_repo_rejects_absolute_registry_path() {
+    let root = TestDir::new("validate-repo-absolute-path");
+    let absolute = root.path.join("design-system/registry.json");
+    write_repo_with_registry_path(&root.path, absolute.to_string_lossy().as_ref());
+    write_lockfile(&root.path);
+
+    let err = validate_repo(&root.path).expect_err("absolute path should fail");
+    assert!(matches!(
+        err,
+        ValidateError::InvalidDesignSystemRegistryPath { .. }
+    ));
+}
+
+#[test]
+fn validate_repo_rejects_parent_dir_registry_path() {
+    let root = TestDir::new("validate-repo-parent-dir-path");
+    write_repo_with_registry_path(&root.path, "../registry.json");
+    write_lockfile(&root.path);
+
+    let err = validate_repo(&root.path).expect_err("parent dir path should fail");
+    assert!(matches!(
+        err,
+        ValidateError::InvalidDesignSystemRegistryPath { .. }
+    ));
+}
+
+#[test]
+fn validate_repo_rejects_missing_registry_file() {
+    let root = TestDir::new("validate-repo-missing-registry-file");
+    write_repo_with_registry_path(&root.path, "design-system/missing.json");
+    write_lockfile(&root.path);
+
+    let err = validate_repo(&root.path).expect_err("missing registry file should fail");
+    assert!(matches!(err, ValidateError::RegistryRead { .. }));
+}
+
+fn write_valid_repo(repo_root: &Path, registry_path: &str, components: &str) {
+    write_repo_with_registry_json(
+        repo_root,
+        registry_path,
+        &format!("{{\n  \"schema_version\": 1,\n  \"components\": {components}\n}}\n"),
+    );
+}
+
+fn write_repo_with_registry_json(repo_root: &Path, registry_path: &str, registry_json: &str) {
     let registry_abs = repo_root.join(registry_path);
     if let Some(parent) = registry_abs.parent() {
         fs::create_dir_all(parent).unwrap();
     }
-    fs::write(
-        &registry_abs,
-        format!("{{\n  \"schema_version\": 1,\n  \"components\": {components}\n}}\n"),
-    )
-    .unwrap();
+    fs::write(&registry_abs, registry_json).unwrap();
 
+    write_repo_with_registry_path(repo_root, registry_path);
+    write_lockfile(repo_root);
+}
+
+fn write_repo_with_registry_path(repo_root: &Path, registry_path: &str) {
     fs::write(
         repo_root.join(".waxrc"),
         format!(
@@ -123,10 +216,9 @@ fn write_valid_repo(repo_root: &std::path::Path, registry_path: &str, components
         ),
     )
     .unwrap();
-    write_lockfile(repo_root);
 }
 
-fn write_lockfile(repo_root: &std::path::Path) {
+fn write_lockfile(repo_root: &Path) {
     fs::write(
         repo_root.join("wax.lock.json"),
         r#"{
