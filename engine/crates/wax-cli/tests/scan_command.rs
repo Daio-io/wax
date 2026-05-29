@@ -1,3 +1,6 @@
+use flate2::Compression;
+use flate2::write::GzEncoder;
+use sha2::{Digest, Sha256};
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -151,6 +154,59 @@ fn scan_command_no_auto_install_fails_when_pack_missing() {
     );
 }
 
+#[test]
+fn scan_command_default_auto_installs_missing_pack() {
+    let _guard = env_lock();
+    let root = TestDir::new("scan-command-auto-install");
+    let repo = root.path.join("repo");
+    let wax_home = root.path.join("wax-home");
+    fs::create_dir_all(&repo).expect("create repo fixture");
+    fs::create_dir_all(&wax_home).expect("create wax-home fixture");
+
+    let artifact_path = root.path.join("compose-0.1.0.tgz");
+    let digest = write_pack_artifact(&artifact_path);
+    let registry_file = root.path.join("registry.json");
+    write_pack_index_with_artifacts(
+        &registry_file,
+        &[(
+            "compose",
+            &format!("file://{}", artifact_path.display()),
+            &digest,
+        )],
+    );
+    write_repo_files_with_resolved_artifacts(
+        &repo,
+        &registry_file,
+        &[(
+            "compose",
+            &format!("file://{}", artifact_path.display()),
+            &digest,
+        )],
+    );
+
+    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
+    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .args(["scan", "--repo-root"])
+        .arg(&repo)
+        .output()
+        .expect("spawn wax scan");
+
+    assert!(
+        output.status.success(),
+        "expected auto-install to succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let state: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(wax_home.join("state.json")).unwrap()).unwrap();
+    assert!(
+        state["installed_languages"]["compose"]["0.1.0"]["install_dir"]
+            .as_str()
+            .is_some(),
+        "compose should be installed in global state"
+    );
+}
+
 fn write_repo_files(repo: &Path, registry_file: &Path, languages: &[&str]) {
     let languages_json = languages
         .iter()
@@ -207,45 +263,141 @@ fn write_repo_files(repo: &Path, registry_file: &Path, languages: &[&str]) {
 }
 
 fn write_pack_index(path: &Path) {
+    write_pack_index_with_artifacts(
+        path,
+        &[
+            (
+                "compose",
+                "https://example.invalid/compose-0.1.0.tgz",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            ),
+            (
+                "react",
+                "https://example.invalid/react-0.1.0.tgz",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            ),
+            (
+                "swift",
+                "https://example.invalid/swift-0.1.0.tgz",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            ),
+        ],
+    );
+}
+
+fn write_pack_index_with_artifacts(path: &Path, entries: &[(&str, &str, &str)]) {
+    let manifests = entries
+        .iter()
+        .map(|(id, url, sha256)| {
+            serde_json::json!({
+                "id": id,
+                "version": "0.1.0",
+                "api_version": 1,
+                "targets": {
+                    "x86_64-unknown-linux-gnu": {
+                        "url": url,
+                        "sha256": sha256
+                    }
+                }
+            })
+        })
+        .collect::<Vec<_>>();
     fs::write(
         path,
-        r#"[
-  {
-    "id": "compose",
-    "version": "0.1.0",
-    "api_version": 1,
-    "targets": {
-      "x86_64-unknown-linux-gnu": {
-        "url": "https://example.invalid/compose-0.1.0.tgz",
-        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-      }
-    }
-  },
-  {
-    "id": "react",
-    "version": "0.1.0",
-    "api_version": 1,
-    "targets": {
-      "x86_64-unknown-linux-gnu": {
-        "url": "https://example.invalid/react-0.1.0.tgz",
-        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-      }
-    }
-  },
-  {
-    "id": "swift",
-    "version": "0.1.0",
-    "api_version": 1,
-    "targets": {
-      "x86_64-unknown-linux-gnu": {
-        "url": "https://example.invalid/swift-0.1.0.tgz",
-        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-      }
-    }
-  }
-]"#,
+        format!("{}\n", serde_json::to_string_pretty(&manifests).unwrap()),
     )
     .expect("write pack index");
+}
+
+fn write_repo_files_with_resolved_artifacts(
+    repo: &Path,
+    registry_file: &Path,
+    entries: &[(&str, &str, &str)],
+) {
+    let languages = entries.iter().map(|(id, _, _)| *id).collect::<Vec<_>>();
+    let languages_json = languages
+        .iter()
+        .map(|language| format!(r#"    {{ "id": "{language}", "enabled": true }}"#))
+        .collect::<Vec<_>>()
+        .join(",\n");
+    fs::write(
+        repo.join(".waxrc"),
+        format!(
+            r#"{{
+  "schema_version": 1,
+  "languages": [
+{languages_json}
+  ]
+}}"#
+        ),
+    )
+    .expect("write .waxrc");
+
+    let lock_entries = entries
+        .iter()
+        .map(|(language, artifact_url, sha256)| {
+            format!(
+                r#"    "{language}": {{
+      "version": "0.1.0",
+      "api_version": 1,
+      "source": "file://{}",
+      "resolved": {{
+        "target": "x86_64-unknown-linux-gnu",
+        "url": "{artifact_url}",
+        "sha256": "{sha256}",
+        "signature": null
+      }}
+    }}"#,
+                registry_file.display()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",\n");
+    fs::write(
+        repo.join("wax.lock.json"),
+        format!(
+            r#"{{
+  "schema_version": 1,
+  "engine_api_version": 1,
+  "wax_version": "0.0.0",
+  "languages": {{
+{lock_entries}
+  }}
+}}"#
+        ),
+    )
+    .expect("write lockfile");
+}
+
+fn write_pack_artifact(path: &Path) -> String {
+    let script = r#"#!/bin/sh
+set -eu
+cat >/dev/null
+cat <<JSON
+{"type":"scan_facts","api_version":1,"language_id":"compose","facts":{"schema_version":1,"language":{"id":"compose","version":"0.1.0","ecosystem":"test","parser_name":"fixture","parser_version":"1.0.0"},"snapshot_id":"snap-compose","scanned_at":"1970-01-01T00:00:00Z","status":"complete","design_system_components":[],"local_components":[],"usage_sites":[],"diagnostics":[],"metrics":{"parse_extract_ms":0,"files_scanned":0,"adoption_coverage_ratio":null},"counts":{"design_system_component_count":0,"local_component_count":0,"usage_site_count":0,"resolved_count":0,"candidate_count":0}}}
+JSON
+"#;
+    let artifact = gzip_tar(&[("wax-lang-compose", script.as_bytes(), 0o755)]);
+    fs::write(path, &artifact).expect("write artifact");
+    format!("{:x}", Sha256::digest(&artifact))
+}
+
+fn gzip_tar(entries: &[(&str, &[u8], u32)]) -> Vec<u8> {
+    let mut buffer = Vec::new();
+    {
+        let gz = GzEncoder::new(&mut buffer, Compression::default());
+        let mut tar = tar::Builder::new(gz);
+        for (path, body, mode) in entries {
+            let mut header = tar::Header::new_gnu();
+            header.set_path(path).unwrap();
+            header.set_size(body.len() as u64);
+            header.set_mode(*mode);
+            header.set_cksum();
+            tar.append(&header, *body).unwrap();
+        }
+        tar.finish().unwrap();
+    }
+    buffer
 }
 
 fn write_installed_packs(wax_home: &Path, specs: &[(&str, &str, &str, &str, &str)]) {

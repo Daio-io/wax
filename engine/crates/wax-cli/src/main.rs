@@ -143,7 +143,7 @@ struct ScanArgs {
     #[arg(long)]
     no_auto_install: bool,
     /// Override scan worker concurrency.
-    #[arg(long = "concurrency")]
+    #[arg(long = "concurrency", value_parser = clap::value_parser!(u32).range(1..))]
     scan_concurrency: Option<u32>,
 }
 
