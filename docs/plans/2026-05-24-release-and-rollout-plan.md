@@ -353,7 +353,7 @@ Expected: PASS.
 
 **Execution checkpoint:** Create the first **release tag** (`v0.1.0-alpha.1` or agreed name) only after Tasks 8–11 land and manual smoke on one triple succeeds. This is not **public alpha** (see Milestones)—install channels come in Phase 4.
 
-### - [ ] Task 8: Workspace semver alignment
+### - [x] Task 8: Workspace semver alignment
 
 **Files:**
 
@@ -361,13 +361,13 @@ Expected: PASS.
 - Modify: `engine/crates/*/Cargo.toml`
 - Create: `CHANGELOG.md`
 
-- [ ] **Step 1: Set workspace version to `0.1.0-alpha.1` (or agreed alpha semver)**
+- [x] **Step 1: Set workspace version to `0.1.0-alpha.1` (or agreed alpha semver)**
 
 All publishable crates align: `wax-cli`, `wax-core`, `wax-contract`, `wax-lang-api`, `wax-lang-basic`, `wax-lang-compose`, `wax-lang-react`.
 
-- [ ] **Step 2: Ensure `wax.lock.json` example / init writes matching `wax_version`**
+- [x] **Step 2: Ensure `wax.lock.json` example / init writes matching `wax_version`**
 
-- [ ] **Step 3: Add CHANGELOG alpha section**
+- [x] **Step 3: Add CHANGELOG alpha section**
 
 Run: `cd engine && cargo build --workspace`
 

@@ -1,7 +1,7 @@
 {
   "schema_version": 999,
   "engine_api_version": 1,
-  "wax_version": "0.1.0",
+  "wax_version": "0.1.0-alpha.1",
   "locked_at": "2026-05-16T12:00:00Z",
   "languages": {
     "compose": {

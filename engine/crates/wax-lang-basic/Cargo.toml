@@ -1,6 +1,6 @@
 [package]
 name = "wax-lang-basic"
-version = "0.0.0"
+version.workspace = true
 edition.workspace = true
 description = "Generic text line-scanner language pack for the wax engine"
 

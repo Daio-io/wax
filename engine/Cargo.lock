@@ -2191,7 +2191,7 @@ dependencies = [
 
 [[package]]
 name = "wax-cli"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "clap",
  "flate2",
@@ -2208,7 +2208,7 @@ dependencies = [
 
 [[package]]
 name = "wax-contract"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "jsonschema",
  "serde",
@@ -2219,7 +2219,7 @@ dependencies = [
 
 [[package]]
 name = "wax-core"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "flate2",
  "libc",
@@ -2236,7 +2236,7 @@ dependencies = [
 
 [[package]]
 name = "wax-lang-api"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -2247,7 +2247,7 @@ dependencies = [
 
 [[package]]
 name = "wax-lang-basic"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "clap",
  "serde_json",
@@ -2259,7 +2259,7 @@ dependencies = [
 
 [[package]]
 name = "wax-lang-compose"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "clap",
  "serde_json",
@@ -2273,7 +2273,7 @@ dependencies = [
 
 [[package]]
 name = "wax-lang-react"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "clap",
  "serde_json",

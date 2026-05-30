@@ -1,6 +1,6 @@
 [package]
 name = "wax-lang-compose"
-version = "0.0.0"
+version.workspace = true
 edition.workspace = true
 description = "Compose language pack for the wax engine"
 

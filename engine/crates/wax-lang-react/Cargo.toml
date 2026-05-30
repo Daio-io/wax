@@ -1,6 +1,6 @@
 [package]
 name = "wax-lang-react"
-version = "0.0.0"
+version.workspace = true
 edition.workspace = true
 description = "React language pack for the wax engine"
 

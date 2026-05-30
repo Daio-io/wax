@@ -1,6 +1,6 @@
 [package]
 name = "wax-lang-api"
-version = "0.0.0"
+version.workspace = true
 edition.workspace = true
 description = "Language pack API and wire protocol contracts for the wax engine"
 
