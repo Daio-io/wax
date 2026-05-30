@@ -143,7 +143,13 @@ fn temp_dir(name: &str) -> PathBuf {
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    Sha256::digest(bytes)
+        .iter()
+        .fold(String::with_capacity(64), |mut hex, byte| {
+            use std::fmt::Write;
+            let _ = write!(hex, "{byte:02x}");
+            hex
+        })
 }
 
 fn gzip_tar(entries: &[(&str, &[u8], u32)]) -> Vec<u8> {
