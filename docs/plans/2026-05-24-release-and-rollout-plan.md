@@ -294,7 +294,7 @@ Run: `cd engine && cargo test -p wax-core registry`
 
 Expected: PASS.
 
-### - [ ] Task 6: Default `WAX_LANG_INDEX` and doctor visibility
+### - [x] Task 6: Default `WAX_LANG_INDEX` and doctor visibility
 
 **Files:**
 
@@ -303,19 +303,19 @@ Expected: PASS.
 - Modify: `engine/crates/wax-cli/src/commands/language.rs`
 - Modify: `engine/crates/wax-cli/tests/` (doctor output test)
 
-- [ ] **Step 1: Define `DEFAULT_WAX_LANG_INDEX` constant**
+- [x] **Step 1: Define `DEFAULT_WAX_LANG_INDEX` constant**
 
 Alpha default: GitHub Releases–hosted `index.json` URL for this repo (document exact URL in constant doc comment). Override remains via `WAX_LANG_INDEX` env and `--registry`.
 
-- [ ] **Step 2: Update `resolve_registry_url` to fall back to default**
+- [x] **Step 2: Update `resolve_registry_url` to fall back to default**
 
 When neither `--registry` nor `WAX_LANG_INDEX` is set, use `DEFAULT_WAX_LANG_INDEX`.
 
-- [ ] **Step 3: `wax language doctor` prints effective index URL**
+- [x] **Step 3: `wax language doctor` prints effective index URL**
 
 Include default vs override in output.
 
-- [ ] **Step 4: Tests for default resolution and override precedence**
+- [x] **Step 4: Tests for default resolution and override precedence**
 
 Run: `cd engine && cargo test -p wax-cli` (doctor tests)
 

@@ -13,6 +13,7 @@ use wax_core::config::lockfile::{
     LockedLanguage, LockfileError, ResolvedLanguage, WaxLock, load_lockfile,
 };
 use wax_core::config::waxrc::{WaxRcError, load_waxrc};
+use wax_core::defaults::DEFAULT_WAX_LANG_INDEX;
 use wax_core::global_state::{
     GlobalState, GlobalStateError, InstalledLanguagePack, load_global_state, save_global_state,
 };
@@ -77,7 +78,7 @@ pub struct InstallOptions {
     pub language_id: LanguageId,
     /// Optional exact version to install.
     pub version: Option<String>,
-    /// Pack index URL. Falls back to `WAX_LANG_INDEX`.
+    /// Pack index URL. Resolution precedence: `--registry` > `WAX_LANG_INDEX` > built-in default.
     pub registry_url: Option<String>,
     /// Target triple override for tests.
     pub target_triple: Option<String>,
@@ -103,7 +104,7 @@ pub struct UpdateOptions {
     pub language_id: Option<LanguageId>,
     /// Whether every installed language should be updated.
     pub all: bool,
-    /// Pack index URL. Falls back to `WAX_LANG_INDEX`.
+    /// Pack index URL. Resolution precedence: `--registry` > `WAX_LANG_INDEX` > built-in default.
     pub registry_url: Option<String>,
     /// Target triple override for tests.
     pub target_triple: Option<String>,
@@ -125,9 +126,6 @@ pub struct DoctorOptions {
 /// Errors returned by language lifecycle commands.
 #[derive(Debug, Error)]
 pub enum LanguageCommandError {
-    /// Neither CLI nor environment provided a registry URL.
-    #[error("missing pack registry URL; pass --registry or set WAX_LANG_INDEX")]
-    MissingRegistryUrl,
     /// Install spec was malformed.
     #[error("invalid language install spec {spec:?}; expected <id> or <id>@<version>")]
     InvalidLanguageSpec {
@@ -334,6 +332,19 @@ pub fn run_doctor(
     }
     language_ids.extend(state.installed_languages.keys().cloned());
 
+    let effective_registry = resolve_effective_registry_url(None);
+    writeln!(writer, "pack index: {}", effective_registry.url).map_err(write_error)?;
+    writeln!(
+        writer,
+        "  source: {}",
+        match effective_registry.source {
+            RegistryUrlSource::Cli => "--registry",
+            RegistryUrlSource::Env => "WAX_LANG_INDEX",
+            RegistryUrlSource::Default => "default",
+        }
+    )
+    .map_err(write_error)?;
+
     for language_id in language_ids {
         let installed_versions = state
             .installed_languages
@@ -369,13 +380,43 @@ pub fn run_doctor(
 pub(crate) fn resolve_registry_url(
     registry_url: Option<String>,
 ) -> Result<String, LanguageCommandError> {
-    resolve_optional_registry_url(registry_url).ok_or(LanguageCommandError::MissingRegistryUrl)
+    Ok(resolve_effective_registry_url(registry_url).url)
 }
 
-fn resolve_optional_registry_url(registry_url: Option<String>) -> Option<String> {
-    registry_url
-        .or_else(|| std::env::var("WAX_LANG_INDEX").ok())
+fn resolve_effective_registry_url(registry_url: Option<String>) -> EffectiveRegistryUrl {
+    if let Some(url) = registry_url.filter(|url| !url.trim().is_empty()) {
+        return EffectiveRegistryUrl {
+            url,
+            source: RegistryUrlSource::Cli,
+        };
+    }
+    if let Some(url) = std::env::var("WAX_LANG_INDEX")
+        .ok()
         .filter(|url| !url.trim().is_empty())
+    {
+        return EffectiveRegistryUrl {
+            url,
+            source: RegistryUrlSource::Env,
+        };
+    }
+
+    EffectiveRegistryUrl {
+        url: DEFAULT_WAX_LANG_INDEX.to_owned(),
+        source: RegistryUrlSource::Default,
+    }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum RegistryUrlSource {
+    Cli,
+    Env,
+    Default,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct EffectiveRegistryUrl {
+    url: String,
+    source: RegistryUrlSource,
 }
 
 fn load_state(state_path: Option<PathBuf>) -> Result<GlobalState, LanguageCommandError> {
@@ -896,6 +937,32 @@ mod tests {
     }
 
     #[test]
+    fn resolve_registry_url_uses_default_when_cli_and_env_are_unset() {
+        let _guard = env_lock();
+        let _lang_index = EnvVarGuard::remove("WAX_LANG_INDEX");
+        let resolved = resolve_registry_url(None).unwrap();
+        assert_eq!(resolved, DEFAULT_WAX_LANG_INDEX);
+    }
+
+    #[test]
+    fn resolve_registry_url_prefers_env_over_default() {
+        let _guard = env_lock();
+        let expected = "https://example.invalid/index.json";
+        let _lang_index = EnvVarGuard::set("WAX_LANG_INDEX", expected);
+        let resolved = resolve_registry_url(None).unwrap();
+        assert_eq!(resolved, expected);
+    }
+
+    #[test]
+    fn resolve_registry_url_prefers_cli_over_env() {
+        let _guard = env_lock();
+        let _lang_index = EnvVarGuard::set("WAX_LANG_INDEX", "https://example.invalid/env.json");
+        let resolved =
+            resolve_registry_url(Some("https://example.invalid/cli.json".to_owned())).unwrap();
+        assert_eq!(resolved, "https://example.invalid/cli.json");
+    }
+
+    #[test]
     fn parses_language_install_spec_with_optional_version() {
         let latest = LanguageInstallSpec::parse("compose").unwrap();
         assert_eq!(latest.language_id, lang("compose"));
@@ -1389,7 +1456,37 @@ mod tests {
         .unwrap();
 
         let output = String::from_utf8(output).unwrap();
+        assert!(output.contains(DEFAULT_WAX_LANG_INDEX));
+        assert!(output.contains("pack index:"));
+        assert!(output.contains("source: default"));
         assert!(output.contains("missing binary: no"));
+    }
+
+    #[test]
+    fn doctor_reports_env_registry_source() {
+        let _guard = env_lock();
+        let temp = TestDir::new("doctor-env-source");
+        let _lang_index = EnvVarGuard::set("WAX_LANG_INDEX", "https://example.invalid/index.json");
+
+        fs::write(
+            temp.path().join(".waxrc"),
+            r#"{"schema_version":1,"languages":[]}"#,
+        )
+        .unwrap();
+
+        let mut output = Vec::new();
+        run_doctor(
+            DoctorOptions {
+                repo_root: temp.path().to_path_buf(),
+                state_path: Some(temp.path().join("state.json")),
+            },
+            &mut output,
+        )
+        .unwrap();
+
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("pack index: https://example.invalid/index.json"));
+        assert!(output.contains("source: WAX_LANG_INDEX"));
     }
 
     fn lang(id: &str) -> LanguageId {
