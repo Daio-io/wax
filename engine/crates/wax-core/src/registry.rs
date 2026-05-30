@@ -326,6 +326,16 @@ mod tests {
         format!("file://{}", fixture.display())
     }
 
+    fn alpha_fixture_file_url() -> String {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
+        let fixture = root
+            .join("fixtures")
+            .join("registry")
+            .join("alpha-index.json");
+
+        format!("file://{}", fixture.display())
+    }
+
     #[test]
     fn parses_manifest_entry_from_fixture() {
         let manifests = fetch_pack_index(&fixture_file_url()).expect("fixture should parse");
@@ -333,10 +343,10 @@ mod tests {
 
         let entry = manifests
             .iter()
-            .find(|manifest| manifest.id.as_str() == "rust")
-            .expect("rust entry should exist");
+            .find(|manifest| manifest.id.as_str() == "compose")
+            .expect("compose entry should exist");
 
-        assert_eq!(entry.version, "1.2.3");
+        assert_eq!(entry.version, "0.1.0-alpha.0");
         assert_eq!(entry.api_version, 1);
 
         let linux = entry
@@ -345,12 +355,36 @@ mod tests {
             .expect("linux artifact should exist");
         assert_eq!(
             linux.url,
-            "https://registry.example.dev/rust/1.2.3/rust-linux.tar.zst"
+            "https://github.com/Daio-io/wax/releases/latest/download/wax-lang-compose-0.1.0-alpha.0-x86_64-unknown-linux-gnu.tar.gz"
         );
         assert_eq!(
             linux.sha256,
             "1111111111111111111111111111111111111111111111111111111111111111"
         );
+    }
+
+    #[test]
+    fn official_manifest_urls_stay_aligned_with_alpha_index() {
+        let official = fetch_pack_index(&fixture_file_url()).expect("official fixture parses");
+        let alpha = fetch_pack_index(&alpha_fixture_file_url()).expect("alpha fixture parses");
+
+        for official_manifest in official {
+            let alpha_manifest = alpha
+                .iter()
+                .find(|manifest| manifest.id == official_manifest.id)
+                .expect("official fixture ids should exist in alpha index");
+
+            assert_eq!(alpha_manifest.version, official_manifest.version);
+            assert_eq!(alpha_manifest.api_version, official_manifest.api_version);
+
+            for (target, official_artifact) in official_manifest.targets {
+                let alpha_artifact = alpha_manifest
+                    .targets
+                    .get(&target)
+                    .expect("official fixture targets should exist in alpha index");
+                assert_eq!(alpha_artifact.url, official_artifact.url);
+            }
+        }
     }
 
     #[test]
@@ -413,17 +447,17 @@ mod tests {
     #[test]
     fn selects_target_artifact_for_host_triple() {
         let manifests = fetch_pack_index(&fixture_file_url()).expect("fixture should parse");
-        let rust_manifest = manifests
+        let compose_manifest = manifests
             .iter()
-            .find(|manifest| manifest.id.as_str() == "rust")
-            .expect("rust entry should exist");
+            .find(|manifest| manifest.id.as_str() == "compose")
+            .expect("compose entry should exist");
 
-        let artifact = select_target_artifact(rust_manifest, "aarch64-apple-darwin")
+        let artifact = select_target_artifact(compose_manifest, "aarch64-apple-darwin")
             .expect("darwin artifact should exist");
 
         assert_eq!(
             artifact.url,
-            "https://registry.example.dev/rust/1.2.3/rust-macos.tar.zst"
+            "https://github.com/Daio-io/wax/releases/latest/download/wax-lang-compose-0.1.0-alpha.0-aarch64-apple-darwin.tar.gz"
         );
         assert_eq!(
             artifact.sha256,
@@ -434,12 +468,12 @@ mod tests {
     #[test]
     fn returns_typed_error_when_target_missing() {
         let manifests = fetch_pack_index(&fixture_file_url()).expect("fixture should parse");
-        let go_manifest = manifests
+        let basic_manifest = manifests
             .iter()
-            .find(|manifest| manifest.id.as_str() == "go")
-            .expect("go entry should exist");
+            .find(|manifest| manifest.id.as_str() == "basic")
+            .expect("basic entry should exist");
 
-        let err = select_target_artifact(go_manifest, "x86_64-pc-windows-msvc")
+        let err = select_target_artifact(basic_manifest, "x86_64-pc-windows-msvc")
             .expect_err("missing host target should return an error");
 
         assert!(matches!(
@@ -448,7 +482,7 @@ mod tests {
                 language_id,
                 version,
                 host_target
-            } if language_id.as_str() == "go" && version == "0.9.0" && host_target == "x86_64-pc-windows-msvc"
+            } if language_id.as_str() == "basic" && version == "0.1.0-alpha.0" && host_target == "x86_64-pc-windows-msvc"
         ));
     }
 

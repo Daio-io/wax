@@ -321,7 +321,7 @@ Run: `cd engine && cargo test -p wax-cli` (doctor tests)
 
 Expected: PASS.
 
-### - [ ] Task 7: First-party alpha pack index fixture
+### - [x] Task 7: First-party alpha pack index fixture
 
 **Files:**
 
@@ -331,15 +331,17 @@ Expected: PASS.
 
 **Alpha index scope:** List **`compose`** and **`basic`** only. Do **not** publish `react` in the alpha index until `wax-lang-react` has production extraction (stub today). Task 11 generator must match this list; README getting started must not feature `wax init --language react`.
 
-- [ ] **Step 1: Author index listing `compose` and `basic`**
+- [x] **Step 1: Author index listing `compose` and `basic`**
 
 Each entry: `id`, `version`, `api_version`, `targets` map with release URLs and sha256 filled by Task 11 generator (placeholders OK in fixture until first tag).
 
-- [ ] **Step 2: Document index schema in spec or plan comment block**
+- [x] **Step 2: Document index schema in spec or plan comment block**
 
 Match [language packs spec § Distribution](../specs/2026-05-16-language-packs-and-distribution.md). Note `react` deferred from alpha index.
 
-- [ ] **Step 3: Wire one CLI integration test to load `file://` copy of alpha index**
+Plan note: `engine/fixtures/registry/alpha-index.json` follows the v1 Distribution shape from the language packs spec: a top-level array of pack entries, each with `id`, `version`, `api_version`, and a `targets` object keyed by Rust target triple. Each target contains a release asset `url` and artifact `sha256`; the fixture uses placeholder zero digests until Task 11 generates the first release index. Alpha publishes only `compose` and `basic`; `react` is deferred until production extraction is ready.
+
+- [x] **Step 3: Wire one CLI integration test to load `file://` copy of alpha index**
 
 Run: `cd engine && cargo test -p wax-cli`
 
