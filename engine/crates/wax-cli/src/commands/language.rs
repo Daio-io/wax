@@ -78,7 +78,7 @@ pub struct InstallOptions {
     pub language_id: LanguageId,
     /// Optional exact version to install.
     pub version: Option<String>,
-    /// Pack index URL. Falls back to `WAX_LANG_INDEX`.
+    /// Pack index URL. Resolution precedence: `--registry` > `WAX_LANG_INDEX` > built-in default.
     pub registry_url: Option<String>,
     /// Target triple override for tests.
     pub target_triple: Option<String>,
@@ -104,7 +104,7 @@ pub struct UpdateOptions {
     pub language_id: Option<LanguageId>,
     /// Whether every installed language should be updated.
     pub all: bool,
-    /// Pack index URL. Falls back to `WAX_LANG_INDEX`.
+    /// Pack index URL. Resolution precedence: `--registry` > `WAX_LANG_INDEX` > built-in default.
     pub registry_url: Option<String>,
     /// Target triple override for tests.
     pub target_triple: Option<String>,
@@ -1456,6 +1456,7 @@ mod tests {
         .unwrap();
 
         let output = String::from_utf8(output).unwrap();
+        assert!(output.contains(DEFAULT_WAX_LANG_INDEX));
         assert!(output.contains("pack index:"));
         assert!(output.contains("source: default"));
         assert!(output.contains("missing binary: no"));

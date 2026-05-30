@@ -38,7 +38,7 @@ pub struct InitOptions {
     pub languages: Vec<LanguageId>,
     /// Write config and lockfile without downloading language packs.
     pub no_install: bool,
-    /// Pack index URL. Falls back to `WAX_LANG_INDEX`.
+    /// Pack index URL. Resolution precedence: `--registry` > `WAX_LANG_INDEX` > built-in default.
     pub registry_url: Option<String>,
     /// Repository root that will receive `.waxrc` and `wax.lock.json`.
     pub repo_root: PathBuf,

@@ -50,7 +50,7 @@ struct InitArgs {
     /// Write config and lockfile without downloading language packs.
     #[arg(long)]
     no_install: bool,
-    /// Pack index URL. Defaults to WAX_LANG_INDEX when unset.
+    /// Pack index URL. Resolution precedence: --registry > WAX_LANG_INDEX > built-in default.
     #[arg(long, env = "WAX_LANG_INDEX")]
     registry: Option<String>,
     /// Repository root that will receive `.waxrc` and `wax.lock.json`.
@@ -95,7 +95,7 @@ struct RegistryArgs {
 struct InstallArgs {
     /// Language id to install, optionally pinned as <id>@<version>.
     language: LanguageInstallSpec,
-    /// Pack index URL. Defaults to WAX_LANG_INDEX when unset.
+    /// Pack index URL. Resolution precedence: --registry > WAX_LANG_INDEX > built-in default.
     #[arg(long, env = "WAX_LANG_INDEX")]
     registry: Option<String>,
     /// Target triple override, primarily for tests and cross-install workflows.
@@ -111,7 +111,7 @@ struct UpdateArgs {
     /// Update every installed language.
     #[arg(long, conflicts_with = "language_id")]
     all: bool,
-    /// Pack index URL. Defaults to WAX_LANG_INDEX when unset.
+    /// Pack index URL. Resolution precedence: --registry > WAX_LANG_INDEX > built-in default.
     #[arg(long, env = "WAX_LANG_INDEX")]
     registry: Option<String>,
     /// Target triple override, primarily for tests and cross-install workflows.
