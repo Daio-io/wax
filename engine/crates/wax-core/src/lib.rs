@@ -4,6 +4,7 @@
 
 pub mod auto_install;
 pub mod config;
+pub mod defaults;
 pub mod global_state;
 pub mod install;
 pub mod paths;
