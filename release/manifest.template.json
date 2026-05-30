@@ -13,10 +13,6 @@
       "wax-lang-basic": {
         "url": "https://github.com/Daio-io/wax/releases/download/v{{VERSION}}/wax-lang-basic-{{VERSION}}-aarch64-apple-darwin.tar.gz",
         "sha256": "REPLACE_ME"
-      },
-      "wax-lang-react": {
-        "url": "https://github.com/Daio-io/wax/releases/download/v{{VERSION}}/wax-lang-react-{{VERSION}}-aarch64-apple-darwin.tar.gz",
-        "sha256": "REPLACE_ME"
       }
     },
     "x86_64-apple-darwin": {
@@ -30,10 +26,6 @@
       },
       "wax-lang-basic": {
         "url": "https://github.com/Daio-io/wax/releases/download/v{{VERSION}}/wax-lang-basic-{{VERSION}}-x86_64-apple-darwin.tar.gz",
-        "sha256": "REPLACE_ME"
-      },
-      "wax-lang-react": {
-        "url": "https://github.com/Daio-io/wax/releases/download/v{{VERSION}}/wax-lang-react-{{VERSION}}-x86_64-apple-darwin.tar.gz",
         "sha256": "REPLACE_ME"
       }
     },
@@ -49,10 +41,6 @@
       "wax-lang-basic": {
         "url": "https://github.com/Daio-io/wax/releases/download/v{{VERSION}}/wax-lang-basic-{{VERSION}}-x86_64-unknown-linux-gnu.tar.gz",
         "sha256": "REPLACE_ME"
-      },
-      "wax-lang-react": {
-        "url": "https://github.com/Daio-io/wax/releases/download/v{{VERSION}}/wax-lang-react-{{VERSION}}-x86_64-unknown-linux-gnu.tar.gz",
-        "sha256": "REPLACE_ME"
       }
     },
     "aarch64-unknown-linux-gnu": {
@@ -67,15 +55,11 @@
       "wax-lang-basic": {
         "url": "https://github.com/Daio-io/wax/releases/download/v{{VERSION}}/wax-lang-basic-{{VERSION}}-aarch64-unknown-linux-gnu.tar.gz",
         "sha256": "REPLACE_ME"
-      },
-      "wax-lang-react": {
-        "url": "https://github.com/Daio-io/wax/releases/download/v{{VERSION}}/wax-lang-react-{{VERSION}}-aarch64-unknown-linux-gnu.tar.gz",
-        "sha256": "REPLACE_ME"
       }
     }
   },
   "notes": [
-    "Alpha index generation consumes wax, wax-lang-compose, wax-lang-basic.",
-    "wax-lang-react may be built for contributors but must not be emitted into alpha index.json."
+    "Alpha release assets include wax, wax-lang-compose, and wax-lang-basic.",
+    "Contributor-only binaries (e.g. wax-lang-react) are built separately and are excluded from alpha release uploads/index."
   ]
 }
