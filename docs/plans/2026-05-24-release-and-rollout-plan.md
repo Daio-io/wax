@@ -373,18 +373,18 @@ Run: `cd engine && cargo build --workspace`
 
 Expected: PASS.
 
-### - [ ] Task 9: Release packaging configuration
+### - [x] Task 9: Release packaging configuration
 
 **Files:**
 
 - Create: `engine/dist.toml` (cargo-dist) **or** `scripts/build-release.sh` + `release/manifest.template.json`
 - Modify: `engine/Cargo.toml` (dist metadata)
 
-- [ ] **Step 1: Choose cargo-dist vs hand-rolled matrix**
+- [x] **Step 1: Choose cargo-dist vs hand-rolled matrix**
 
-Prefer **cargo-dist** per spec; document fallback if monorepo layout requires manual matrix.
+Used the documented hand-rolled matrix fallback (`scripts/build-release.sh`) because `cargo-dist` install currently fails on a yanked upstream dependency (`color-backtrace = 0.7.3`) in the published `cargo-dist` crate.
 
-- [ ] **Step 2: Configure artifacts for v1 triple matrix**
+- [x] **Step 2: Configure artifacts for v1 triple matrix**
 
 **Required** for alpha (must match Task 7 / 11 index entries): `wax`, `wax-lang-compose`, `wax-lang-basic`.
 
@@ -392,7 +392,7 @@ Prefer **cargo-dist** per spec; document fallback if monorepo layout requires ma
 
 Targets: `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`.
 
-- [ ] **Step 3: Local dry-run build for host triple**
+- [x] **Step 3: Local dry-run build for host triple**
 
 Run: documented command (e.g. `cd engine && cargo dist build --artifacts=local` or `./scripts/build-release.sh`)
 

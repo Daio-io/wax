@@ -1,0 +1,65 @@
+{
+  "version": "{{VERSION}}",
+  "targets": {
+    "aarch64-apple-darwin": {
+      "wax": {
+        "url": "https://github.com/Daio-io/wax/releases/download/v{{VERSION}}/wax-{{VERSION}}-aarch64-apple-darwin.tar.gz",
+        "sha256": "REPLACE_ME"
+      },
+      "wax-lang-compose": {
+        "url": "https://github.com/Daio-io/wax/releases/download/v{{VERSION}}/wax-lang-compose-{{VERSION}}-aarch64-apple-darwin.tar.gz",
+        "sha256": "REPLACE_ME"
+      },
+      "wax-lang-basic": {
+        "url": "https://github.com/Daio-io/wax/releases/download/v{{VERSION}}/wax-lang-basic-{{VERSION}}-aarch64-apple-darwin.tar.gz",
+        "sha256": "REPLACE_ME"
+      }
+    },
+    "x86_64-apple-darwin": {
+      "wax": {
+        "url": "https://github.com/Daio-io/wax/releases/download/v{{VERSION}}/wax-{{VERSION}}-x86_64-apple-darwin.tar.gz",
+        "sha256": "REPLACE_ME"
+      },
+      "wax-lang-compose": {
+        "url": "https://github.com/Daio-io/wax/releases/download/v{{VERSION}}/wax-lang-compose-{{VERSION}}-x86_64-apple-darwin.tar.gz",
+        "sha256": "REPLACE_ME"
+      },
+      "wax-lang-basic": {
+        "url": "https://github.com/Daio-io/wax/releases/download/v{{VERSION}}/wax-lang-basic-{{VERSION}}-x86_64-apple-darwin.tar.gz",
+        "sha256": "REPLACE_ME"
+      }
+    },
+    "x86_64-unknown-linux-gnu": {
+      "wax": {
+        "url": "https://github.com/Daio-io/wax/releases/download/v{{VERSION}}/wax-{{VERSION}}-x86_64-unknown-linux-gnu.tar.gz",
+        "sha256": "REPLACE_ME"
+      },
+      "wax-lang-compose": {
+        "url": "https://github.com/Daio-io/wax/releases/download/v{{VERSION}}/wax-lang-compose-{{VERSION}}-x86_64-unknown-linux-gnu.tar.gz",
+        "sha256": "REPLACE_ME"
+      },
+      "wax-lang-basic": {
+        "url": "https://github.com/Daio-io/wax/releases/download/v{{VERSION}}/wax-lang-basic-{{VERSION}}-x86_64-unknown-linux-gnu.tar.gz",
+        "sha256": "REPLACE_ME"
+      }
+    },
+    "aarch64-unknown-linux-gnu": {
+      "wax": {
+        "url": "https://github.com/Daio-io/wax/releases/download/v{{VERSION}}/wax-{{VERSION}}-aarch64-unknown-linux-gnu.tar.gz",
+        "sha256": "REPLACE_ME"
+      },
+      "wax-lang-compose": {
+        "url": "https://github.com/Daio-io/wax/releases/download/v{{VERSION}}/wax-lang-compose-{{VERSION}}-aarch64-unknown-linux-gnu.tar.gz",
+        "sha256": "REPLACE_ME"
+      },
+      "wax-lang-basic": {
+        "url": "https://github.com/Daio-io/wax/releases/download/v{{VERSION}}/wax-lang-basic-{{VERSION}}-aarch64-unknown-linux-gnu.tar.gz",
+        "sha256": "REPLACE_ME"
+      }
+    }
+  },
+  "notes": [
+    "Alpha release assets include wax, wax-lang-compose, and wax-lang-basic.",
+    "Contributor-only binaries (e.g. wax-lang-react) are built separately and are excluded from alpha release uploads/index."
+  ]
+}
