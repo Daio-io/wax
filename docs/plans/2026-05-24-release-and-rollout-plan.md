@@ -398,20 +398,20 @@ Run: documented command (e.g. `cd engine && cargo dist build --artifacts=local` 
 
 Expected: tar.gz containing expected binary names.
 
-### - [ ] Task 10: GitHub Actions release workflow
+### - [x] Task 10: GitHub Actions release workflow
 
 **Files:**
 
 - Create: `.github/workflows/release.yml`
 - Modify: `.github/workflows/build_engine.yml` (optional: skip duplicate work)
 
-- [ ] **Step 1: Trigger on version tags `v*`**
+- [x] **Step 1: Trigger on version tags `v*`**
 
-- [ ] **Step 2: Build matrix and upload GitHub Release assets**
+- [x] **Step 2: Build matrix and upload GitHub Release assets**
 
 Include SHA256 checksums file per asset.
 
-- [ ] **Step 3: Smoke step: download host artifact and run `wax --version`**
+- [x] **Step 3: Smoke step: download host artifact and run `wax --version`**
 
 Run: merge workflow; maintainers tag `v0.1.0-alpha.1` to validate.
 

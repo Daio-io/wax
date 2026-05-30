@@ -21,7 +21,7 @@ use wax_contract::LanguageId;
 
 #[derive(Debug, Parser)]
 #[command(name = "wax")]
-#[command(about = "Design-system analysis engine")]
+#[command(version, about = "Design-system analysis engine")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
