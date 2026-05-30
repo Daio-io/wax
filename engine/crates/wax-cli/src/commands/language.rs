@@ -1525,7 +1525,13 @@ mod tests {
             tar.finish().unwrap();
         }
         fs::write(path, &bytes).unwrap();
-        format!("{:x}", Sha256::digest(&bytes))
+        Sha256::digest(&bytes)
+            .iter()
+            .fold(String::with_capacity(64), |mut hex, byte| {
+                use std::fmt::Write;
+                let _ = write!(hex, "{byte:02x}");
+                hex
+            })
     }
 
     struct TestDir {

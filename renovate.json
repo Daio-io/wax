@@ -35,6 +35,12 @@
       "description": "Require dashboard approval before opening major dependency update PRs.",
       "matchUpdateTypes": ["major"],
       "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Hold tree-sitter until tree-sitter-kotlin supports 0.26+.",
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["tree-sitter"],
+      "allowedVersions": "<0.23"
     }
   ]
 }

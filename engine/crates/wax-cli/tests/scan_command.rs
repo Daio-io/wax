@@ -379,7 +379,13 @@ JSON
 "#;
     let artifact = gzip_tar(&[("wax-lang-compose", script.as_bytes(), 0o755)]);
     fs::write(path, &artifact).expect("write artifact");
-    format!("{:x}", Sha256::digest(&artifact))
+    Sha256::digest(&artifact)
+        .iter()
+        .fold(String::with_capacity(64), |mut hex, byte| {
+            use std::fmt::Write;
+            let _ = write!(hex, "{byte:02x}");
+            hex
+        })
 }
 
 fn gzip_tar(entries: &[(&str, &[u8], u32)]) -> Vec<u8> {

@@ -279,7 +279,13 @@ fn normalize_sha256_hex(hex: &str) -> Result<String, InstallError> {
 
 fn hex_lower_sha256(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
-    format!("{digest:x}")
+    digest
+        .iter()
+        .fold(String::with_capacity(64), |mut hex, byte| {
+            use std::fmt::Write;
+            let _ = write!(hex, "{byte:02x}");
+            hex
+        })
 }
 
 fn fetch_artifact_bytes(url: &str) -> Result<Vec<u8>, InstallError> {
