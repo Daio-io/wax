@@ -1,0 +1,27 @@
+{
+  "version": "0.1.0-alpha.1",
+  "targets": {
+    "aarch64-apple-darwin": {
+      "wax": {
+        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.1/wax-0.1.0-alpha.1-aarch64-apple-darwin.tar.gz",
+        "sha256": "REPLACE_ME"
+      },
+      "wax-lang-compose": {
+        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.1/wax-lang-compose-0.1.0-alpha.1-aarch64-apple-darwin.tar.gz",
+        "sha256": "REPLACE_ME"
+      },
+      "wax-lang-basic": {
+        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.1/wax-lang-basic-0.1.0-alpha.1-aarch64-apple-darwin.tar.gz",
+        "sha256": "REPLACE_ME"
+      },
+      "wax-lang-react": {
+        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.1/wax-lang-react-0.1.0-alpha.1-aarch64-apple-darwin.tar.gz",
+        "sha256": "REPLACE_ME"
+      }
+    }
+  },
+  "notes": [
+    "Alpha index generation consumes wax, wax-lang-compose, wax-lang-basic.",
+    "wax-lang-react may be built for contributors but must not be emitted into alpha index.json."
+  ]
+}

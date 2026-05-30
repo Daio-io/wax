@@ -2,3 +2,6 @@ node_modules/
 .wax/
 .worktrees/
 target/
+
+# local release dry-runs
+release/artifacts/
