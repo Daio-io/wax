@@ -25,7 +25,7 @@ fn loads_minimal_lockfile() {
 
     assert_eq!(lock.schema_version, 1);
     assert_eq!(lock.engine_api_version, 1);
-    assert_eq!(lock.wax_version, "0.1.0");
+    assert_eq!(lock.wax_version, "0.1.0-alpha.1");
     assert_eq!(
         lock.locked_at.unwrap(),
         time::macros::datetime!(2026-05-16 12:00 UTC)

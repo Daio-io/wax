@@ -1,6 +1,6 @@
 [package]
 name = "wax-contract"
-version = "0.0.0"
+version.workspace = true
 edition.workspace = true
 description = "Normalized scan facts exchanged between wax language packs and the engine"
 
