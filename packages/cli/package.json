@@ -1,0 +1,27 @@
+{
+  "name": "@wax/cli",
+  "version": "0.1.0-alpha.1",
+  "description": "npm wrapper for the wax design-system analysis CLI",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Daio-io/wax.git",
+    "directory": "packages/cli"
+  },
+  "bin": {
+    "wax": "./run.js"
+  },
+  "scripts": {
+    "postinstall": "node postinstall.js"
+  },
+  "files": [
+    "postinstall.js",
+    "run.js"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
