@@ -1,6 +1,6 @@
 # Language Packs, Configuration, and Distribution
 
-**Status:** Draft for review  
+**Status:** Active spec; partially implemented in alpha rollout (see release plan Task 15 for getting-started/docs)  
 **Date:** 2026-05-16  
 **Related:** [Component tracker design](./2026-05-13-component-tracker-design.md), [Rust engine workspace](../../engine/)
 

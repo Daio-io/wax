@@ -518,7 +518,7 @@ Expected: `npx @wax/cli --help` works.
 
 ## Phase 5 — Alpha documentation and verification
 
-### - [ ] Task 15: Alpha getting started documentation
+### - [x] Task 15: Alpha getting started documentation
 
 **Files:**
 
@@ -527,29 +527,29 @@ Expected: `npx @wax/cli --help` works.
 - Modify: `docs/specs/2026-05-16-language-packs-and-distribution.md` (mark distribution § implementation status if accurate)
 - Modify: `docs/plans/2026-05-16-rust-engine-language-packs-plan.md` (link to this plan)
 
-- [ ] **Step 1: Replace cargo-only install section with alpha paths**
+- [x] **Step 1: Replace cargo-only install section with alpha paths**
 
 Primary: curl + Homebrew. npm only if Task 14 shipped; otherwise document expected npm timeline (e.g. alpha+1). Keep `cargo install --path` for contributors.
 
-- [ ] **Step 2: Document end-to-end flow (Compose-only for alpha)**
+- [x] **Step 2: Document end-to-end flow (Compose-only for alpha)**
 
 `install → wax init --non-interactive --language compose → populate design-system/registry.json → wax validate → wax scan → inspect .wax/out/`
 
 State clearly: **`wax init` scaffolds an empty registry**; users must add canonical components manually for meaningful adoption metrics until registry discover/draft ships (post-alpha). Do not document `wax init --language react` in getting started until the react pack is production-ready.
 
-- [ ] **Step 3: Commit JSON Schema for `.waxrc`**
+- [x] **Step 3: Commit JSON Schema for `.waxrc`**
 
 Enable editor validation/autocomplete; reference schema path from README.
 
-- [ ] **Step 4: Document monorepo / multi-repo usage**
+- [x] **Step 4: Document monorepo / multi-repo usage**
 
 One `.waxrc` + `wax.lock.json` per repo; shared pack index via default `WAX_LANG_INDEX`; language packs installed once globally under `~/.wax/langs/`.
 
-- [ ] **Step 5: Document CI recipe**
+- [x] **Step 5: Document CI recipe**
 
 Commit `wax.lock.json`; run `wax validate` and `wax scan --no-auto-install`.
 
-- [ ] **Step 6: Tick completed tasks in this plan**
+- [x] **Step 6: Tick completed tasks in this plan**
 
 Run: `rg -n "cargo install --path" README.md` — ensure contributor path remains.
 

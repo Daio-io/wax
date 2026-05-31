@@ -34,8 +34,9 @@ Language packs are not bundled with the CLI binary. After installing `wax`, run:
 
 ```bash
 wax init --non-interactive --language compose
-wax language install compose
 ```
+
+`wax init` scaffolds an empty `design-system/registry.json`. Add canonical components before scanning; otherwise adoption metrics will be empty.
 
 To install a specific release:
 
@@ -44,6 +45,17 @@ curl -fsSL https://raw.githubusercontent.com/Daio-io/wax/main/scripts/install.sh
 ```
 
 Note: `--dry-run` without `--version` still queries the GitHub API to resolve the latest release tag.
+
+### Homebrew (tap) — pending
+
+Homebrew is part of the alpha rollout path, but the tap is not published yet.
+
+- The formula currently lives in this repo as a draft at `homebrew/Formula/wax.rb`.
+- A working tap install requires a dedicated tap repo (`Daio-io/homebrew-wax`) with `Formula/wax.rb`.
+- The draft formula still needs real 64-character `sha256` values from published GitHub Release assets.
+- Current formula targets macOS archives only.
+
+Use the curl installer above for now.
 
 ### npm (optional alpha wrapper)
 
@@ -62,18 +74,56 @@ npx @wax/cli --help
 
 The curl installer remains the primary alpha path while the npm package is validated across supported hosts.
 
-### Homebrew (tap) — pending
+## Getting started (compose alpha path)
 
-Homebrew is not a usable install path yet.
+1. Install `wax` (curl path above).
+2. Initialize repo config:
 
-- The formula currently lives in this repo as a draft at `homebrew/Formula/wax.rb`.
-- A working tap install requires a dedicated tap repo (`Daio-io/homebrew-wax`) with `Formula/wax.rb`.
-- The draft formula still needs real 64-character `sha256` values from published GitHub Release assets.
-- Current formula targets macOS archives only.
+```bash
+wax init --non-interactive --language compose
+```
 
-Use the curl installer above for now.
+3. Populate `design-system/registry.json` with canonical components.
+4. Validate repository configuration:
 
-Contributor/local install path:
+```bash
+wax validate
+```
+
+5. Run scan:
+
+```bash
+wax scan
+```
+
+6. Inspect outputs in `.wax/out/` (including `.wax/out/scan-merged.json`).
+
+For editor validation/autocomplete on `.waxrc`, use:
+
+```json
+{
+  "$schema": "./engine/crates/wax-contract/schemas/waxrc.schema.json"
+}
+```
+
+## Monorepo and multi-repo notes
+
+- Use one `.waxrc` and one `wax.lock.json` per repository.
+- The default pack index is shared (`WAX_LANG_INDEX` can still override per shell/CI job).
+- Language packs install once globally under `~/.wax/langs/` and are reused across repos.
+
+## CI recipe
+
+Commit `wax.lock.json`, then run:
+
+```bash
+wax validate
+wax scan --no-auto-install
+```
+
+This keeps CI reproducible and prevents network installs during scan jobs.
+
+## Contributor/local install path
 
 ```bash
 cd engine

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wax.dev/schemas/waxrc.v1.schema.json",
+  "title": "waxrc v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "languages"],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scan_concurrency": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "languages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "enabled"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  }
+}
