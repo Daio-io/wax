@@ -18,6 +18,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      issues: write
+      pull-requests: write
 
     steps:
       - name: Checkout
@@ -29,18 +31,22 @@ jobs:
           node-version: "20"
 
       - name: Check JavaScript syntax
+        id: syntax
         run: |
           node --check packages/cli/postinstall.js
           node --check packages/cli/run.js
 
       - name: Run package tests
+        id: tests
         run: npm --prefix packages/cli test
 
       - name: Check npm package contents
+        id: pack
         run: npm pack --dry-run --json
         working-directory: packages/cli
 
       - name: Smoke local release mirror install
+        id: smoke
         run: |
           set -euo pipefail
           release_dir="$(mktemp -d)"
@@ -59,3 +65,49 @@ jobs:
           npm init -y >/dev/null
           WAX_CLI_RELEASE_BASE_URL="file://${release_dir}" npm install "${GITHUB_WORKSPACE}/packages/cli"
           ./node_modules/.bin/wax --help | grep -F "wax dummy --help"
+
+      - name: Post PR result comment
+        if: ${{ always() && github.event_name == 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SYNTAX_OUTCOME: ${{ steps.syntax.outcome }}
+          TESTS_OUTCOME: ${{ steps.tests.outcome }}
+          PACK_OUTCOME: ${{ steps.pack.outcome }}
+          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+        run: |
+          set -euo pipefail
+          marker="<!-- wax-npm-cli-wrapper-result -->"
+          body_file="$(mktemp)"
+          cat > "$body_file" <<EOF
+          ${marker}
+          ## npm CLI wrapper CI
+
+          | Check | Result |
+          | --- | --- |
+          | JavaScript syntax | ${SYNTAX_OUTCOME} |
+          | Package tests | ${TESTS_OUTCOME} |
+          | npm pack contents | ${PACK_OUTCOME} |
+          | Local release mirror smoke | ${SMOKE_OUTCOME} |
+
+          [View workflow run](${RUN_URL})
+          EOF
+
+          existing_id="$(
+            gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+              --jq ".[] | select(.body | contains(\"${marker}\")) | .id" \
+              | head -n 1
+          )"
+
+          if [[ -n "$existing_id" ]]; then
+            gh api \
+              --method PATCH \
+              "repos/${GITHUB_REPOSITORY}/issues/comments/${existing_id}" \
+              --field "body=$(cat "$body_file")"
+          else
+            gh api \
+              --method POST \
+              "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+              --field "body=$(cat "$body_file")"
+          fi
