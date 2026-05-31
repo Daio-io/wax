@@ -394,20 +394,27 @@ mod tests {
             .expect("default published pack index should fetch and parse");
         let expected_release_tag = std::env::var("WAX_EXPECTED_RELEASE_TAG").ok();
 
-        let ids: Vec<_> = manifests
-            .iter()
-            .map(|manifest| manifest.id.as_str())
-            .collect();
-        assert_eq!(ids, ["compose", "basic"]);
-
-        assert_index_matches_release(&manifests, expected_release_tag.as_deref())
+        assert_alpha_index_matches_release(&manifests, expected_release_tag.as_deref())
             .expect("published default pack index should match the current release");
+    }
+
+    #[test]
+    #[ignore = "release workflow provides WAX_PACK_INDEX_URL and WAX_EXPECTED_RELEASE_TAG"]
+    fn validates_pack_index_from_env() {
+        let index_url = std::env::var("WAX_PACK_INDEX_URL")
+            .expect("WAX_PACK_INDEX_URL should point at generated index.json");
+        let expected_release_tag = std::env::var("WAX_EXPECTED_RELEASE_TAG")
+            .expect("WAX_EXPECTED_RELEASE_TAG should name the current release tag");
+        let manifests = fetch_pack_index(&index_url).expect("pack index should fetch and parse");
+
+        assert_alpha_index_matches_release(&manifests, Some(&expected_release_tag))
+            .expect("pack index should match the current release");
     }
 
     #[test]
     fn current_release_validation_rejects_stale_index() {
         let manifests = registry_manifests_for_release("v0.1.0-alpha.0");
-        let err = assert_index_matches_release(&manifests, Some("v0.1.0-alpha.1"))
+        let err = assert_alpha_index_matches_release(&manifests, Some("v0.1.0-alpha.1"))
             .expect_err("stale index should be rejected");
 
         assert!(
@@ -419,8 +426,43 @@ mod tests {
     #[test]
     fn current_release_validation_accepts_matching_index() {
         let manifests = registry_manifests_for_release("v0.1.0-alpha.1");
-        assert_index_matches_release(&manifests, Some("v0.1.0-alpha.1"))
+        assert_alpha_index_matches_release(&manifests, Some("v0.1.0-alpha.1"))
             .expect("matching release index should pass");
+    }
+
+    #[test]
+    fn current_release_validation_rejects_extra_target() {
+        let mut manifests = registry_manifests_for_release("v0.1.0-alpha.1");
+        manifests[0].targets.insert(
+            "wasm32-unknown-unknown".to_owned(),
+            RegistryArtifact {
+                url: "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.1/wax-lang-compose-0.1.0-alpha.1-wasm32-unknown-unknown.tar.gz".to_owned(),
+                sha256: "3333333333333333333333333333333333333333333333333333333333333333".to_owned(),
+            },
+        );
+
+        let err = assert_alpha_index_matches_release(&manifests, Some("v0.1.0-alpha.1"))
+            .expect_err("extra target should be rejected");
+
+        assert!(
+            err.contains("targets"),
+            "expected target set mismatch, got: {err}"
+        );
+    }
+
+    #[test]
+    fn current_release_validation_rejects_wrong_artifact_host() {
+        let mut manifests = registry_manifests_for_release("v0.1.0-alpha.1");
+        manifests[0]
+            .targets
+            .get_mut("x86_64-unknown-linux-gnu")
+            .expect("target should exist")
+            .url = "https://example.invalid/releases/download/v0.1.0-alpha.1/wax-lang-compose-0.1.0-alpha.1-x86_64-unknown-linux-gnu.tar.gz".to_owned();
+
+        let err = assert_alpha_index_matches_release(&manifests, Some("v0.1.0-alpha.1"))
+            .expect_err("wrong artifact host should be rejected");
+
+        assert!(err.contains("URL"), "expected URL mismatch, got: {err}");
     }
 
     fn registry_manifests_for_release(release_tag: &str) -> Vec<RegistryManifest> {
@@ -480,27 +522,37 @@ mod tests {
         serde_json::from_str(&json).expect("synthetic manifest should parse")
     }
 
-    fn assert_index_matches_release(
+    fn assert_alpha_index_matches_release(
         manifests: &[RegistryManifest],
         expected_release_tag: Option<&str>,
     ) -> Result<(), String> {
+        let ids: Vec<_> = manifests
+            .iter()
+            .map(|manifest| manifest.id.as_str())
+            .collect();
+        if ids != ["compose", "basic"] {
+            return Err(format!("expected compose/basic only, got {ids:?}"));
+        }
+
         let Some(expected_release_tag) = expected_release_tag else {
             return Ok(());
         };
         let expected_version = expected_release_tag.trim_start_matches('v');
+        let expected_targets = [
+            "aarch64-apple-darwin",
+            "aarch64-unknown-linux-gnu",
+            "x86_64-apple-darwin",
+            "x86_64-unknown-linux-gnu",
+        ];
 
         for manifest in manifests {
             assert_eq!(manifest.api_version, 1);
-            let expected_targets = [
-                "aarch64-apple-darwin",
-                "x86_64-apple-darwin",
-                "x86_64-unknown-linux-gnu",
-                "aarch64-unknown-linux-gnu",
-            ];
-            for target in expected_targets {
-                if !manifest.targets.contains_key(target) {
-                    return Err(format!("pack {} missing target {}", manifest.id, target));
-                }
+            let targets: Vec<_> = manifest.targets.keys().map(String::as_str).collect();
+            if targets != expected_targets {
+                return Err(format!(
+                    "pack {} targets {:?} did not match expected {:?}",
+                    manifest.id, targets, expected_targets
+                ));
             }
             if manifest.version != expected_version {
                 return Err(format!(
@@ -509,19 +561,15 @@ mod tests {
                 ));
             }
             let binary = format!("wax-lang-{}", manifest.id);
-            let release_path = format!("/releases/download/{expected_release_tag}/");
             for (target, artifact) in &manifest.targets {
-                if !artifact.url.contains(&release_path) {
-                    return Err(format!(
-                        "pack {} target {} URL {} did not point at {}",
-                        manifest.id, target, artifact.url, release_path
-                    ));
-                }
                 let expected_asset = format!("{binary}-{expected_version}-{target}.tar.gz");
-                if !artifact.url.ends_with(&expected_asset) {
+                let expected_url = format!(
+                    "https://github.com/Daio-io/wax/releases/download/{expected_release_tag}/{expected_asset}"
+                );
+                if artifact.url != expected_url {
                     return Err(format!(
-                        "pack {} target {} URL {} did not end with {}",
-                        manifest.id, target, artifact.url, expected_asset
+                        "pack {} target {} URL {} did not match {}",
+                        manifest.id, target, artifact.url, expected_url
                     ));
                 }
             }

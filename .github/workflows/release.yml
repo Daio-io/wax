@@ -269,6 +269,24 @@ jobs:
       - name: Generate pack index
         run: ./scripts/generate-pack-index.sh release-manifests release-assets/index.json
 
+      - name: Install Rust toolchain
+        # dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+        with:
+          toolchain: stable
+
+      - name: Cache cargo
+        # Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          workspaces: engine
+
+      - name: Validate generated pack index
+        env:
+          WAX_EXPECTED_RELEASE_TAG: ${{ env.WAX_RELEASE_TAG }}
+          WAX_PACK_INDEX_URL: file://${{ github.workspace }}/release-assets/index.json
+        run: cd engine && cargo test -p wax-core validates_pack_index_from_env -- --ignored --nocapture
+
       - name: Publish release assets
         # softprops/action-gh-release@v2
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65

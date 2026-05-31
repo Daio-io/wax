@@ -69,6 +69,18 @@ require_includes!(
 
 require_includes!(
   workflow,
+  "WAX_PACK_INDEX_URL: file://${{ github.workspace }}/release-assets/index.json",
+  "generated pack index validation URL"
+)
+
+require_includes!(
+  workflow,
+  "cargo test -p wax-core validates_pack_index_from_env -- --ignored --nocapture",
+  "pre-publish generated pack index validation"
+)
+
+require_includes!(
+  workflow,
   "release-assets/index.json",
   "index.json release asset publication"
 )
