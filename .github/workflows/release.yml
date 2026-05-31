@@ -159,19 +159,19 @@ jobs:
           version_output="$("$wax_bin" --version)"
           echo "$version_output"
           expected_version="${WAX_RELEASE_TAG#v}"
-          if [[ "$version_output" != *"$expected_version"* ]]; then
-            echo "wax --version output did not include ${expected_version}" >&2
+          if [[ "$version_output" != "wax ${expected_version}" ]]; then
+            echo "wax --version output was '${version_output}', expected 'wax ${expected_version}'" >&2
             exit 1
           fi
 
-  release:
-    name: Publish GitHub Release
+  verify-release-assets:
+    name: Verify release assets
     runs-on: ubuntu-latest
     needs:
       - build
       - smoke
     permissions:
-      contents: write
+      contents: read
 
     steps:
       - name: Download release assets
@@ -185,6 +185,21 @@ jobs:
       - name: Verify release asset set
         run: |
           set -euo pipefail
+          version="${WAX_RELEASE_TAG#v}"
+          for binary in wax wax-lang-compose wax-lang-basic; do
+            for target in aarch64-apple-darwin x86_64-apple-darwin x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
+              archive="release-assets/${binary}-${version}-${target}.tar.gz"
+              checksum="${archive}.sha256"
+              if [[ ! -f "$archive" ]]; then
+                echo "missing expected release archive: $archive" >&2
+                exit 1
+              fi
+              if [[ ! -f "$checksum" ]]; then
+                echo "missing expected release checksum: $checksum" >&2
+                exit 1
+              fi
+            done
+          done
           archive_count="$(find release-assets -maxdepth 1 -type f -name '*.tar.gz' | wc -l | tr -d ' ')"
           checksum_count="$(find release-assets -maxdepth 1 -type f -name '*.tar.gz.sha256' | wc -l | tr -d ' ')"
           if [[ "$archive_count" != "12" || "$checksum_count" != "12" ]]; then
@@ -198,8 +213,24 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         run: echo "release dry run passed for ${WAX_RELEASE_TAG}; skipping GitHub Release publish"
 
+  publish:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    needs: verify-release-assets
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download release assets
+        # actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          path: release-assets
+          pattern: release-assets-*
+          merge-multiple: true
+
       - name: Publish release assets
-        if: github.event_name == 'push'
         # softprops/action-gh-release@v2
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
