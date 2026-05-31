@@ -473,15 +473,16 @@ Expected: `wax --help` works after install.
 - [ ] **Step 1: Formula installs `wax` binary only from GitHub Release**
 
 Use versioned URL + sha256 from release.
+Blocked until the first published `wax` GitHub Release provides macOS archive checksums.
 
-- [ ] **Step 2: Document tap install**
+- [x] **Step 2: Document tap install**
 
 ```bash
 brew tap <org>/wax
 brew install wax
 ```
 
-- [ ] **Step 3: Caveats section explains language pack download on first use**
+- [x] **Step 3: Caveats section explains language pack download on first use**
 
 Optional: automate formula bump in release workflow (post-alpha).
 

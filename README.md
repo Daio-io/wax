@@ -45,6 +45,22 @@ curl -fsSL https://raw.githubusercontent.com/Daio-io/wax/main/scripts/install.sh
 
 Note: `--dry-run` without `--version` still queries the GitHub API to resolve the latest release tag.
 
+### Homebrew (tap)
+
+```bash
+brew tap Daio-io/wax
+brew install wax
+```
+
+Homebrew install uses release archives from GitHub Releases and requires versioned checksums in the tap formula.
+
+Language packs are not bundled with the CLI binary. After Homebrew install, run:
+
+```bash
+wax init --non-interactive --language compose
+wax language install compose
+```
+
 Contributor/local install path:
 
 ```bash
