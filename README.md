@@ -30,13 +30,7 @@ Verify the installed binary directly with:
 $HOME/.wax/bin/wax --help
 ```
 
-Language packs are not bundled with the CLI binary. After installing `wax`, run:
-
-```bash
-wax init --non-interactive --language compose
-```
-
-`wax init` scaffolds an empty `design-system/registry.json`. Add canonical components before scanning; otherwise adoption metrics will be empty.
+Language packs are not bundled with the CLI binary. Continue with the compose walkthrough in [Getting started](#getting-started-compose-alpha-path).
 
 To install a specific release:
 
@@ -77,13 +71,27 @@ The curl installer remains the primary alpha path while the npm package is valid
 ## Getting started (compose alpha path)
 
 1. Install `wax` (curl path above).
-2. Initialize repo config:
+2. Initialize repo config (one-time per repository):
 
 ```bash
 wax init --non-interactive --language compose
 ```
 
-3. Populate `design-system/registry.json` with canonical components.
+3. Populate `design-system/registry.json` with canonical components. Minimal valid example:
+
+```json
+{
+  "schema_version": 1,
+  "components": [
+    {
+      "id": "ds.primary-button",
+      "symbol": "PrimaryButton"
+    }
+  ]
+}
+```
+
+`wax init` scaffolds an empty registry; `wax scan` requires at least one component symbol in `components[]`.
 4. Validate repository configuration:
 
 ```bash
@@ -102,9 +110,11 @@ For editor validation/autocomplete on `.waxrc`, use:
 
 ```json
 {
-  "$schema": "./engine/crates/wax-contract/schemas/waxrc.schema.json"
+  "$schema": "https://raw.githubusercontent.com/Daio-io/wax/main/engine/crates/wax-contract/schemas/waxrc.schema.json"
 }
 ```
+
+If your environment cannot fetch remote schemas, copy that schema file into your repository and point `$schema` at the vendored path instead.
 
 ## Monorepo and multi-repo notes
 
@@ -114,14 +124,15 @@ For editor validation/autocomplete on `.waxrc`, use:
 
 ## CI recipe
 
-Commit `wax.lock.json`, then run:
+Commit `wax.lock.json`. In CI, restore cached installs from `~/.wax/langs` (and `~/.wax/state.json`) or install pinned languages before scanning:
 
 ```bash
 wax validate
+wax language install compose
 wax scan --no-auto-install
 ```
 
-This keeps CI reproducible and prevents network installs during scan jobs.
+`--no-auto-install` expects required language packs to already be present on disk.
 
 ## Contributor/local install path
 
