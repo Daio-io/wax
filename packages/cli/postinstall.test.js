@@ -8,6 +8,32 @@ const { spawnSync } = require("node:child_process");
 const { download, expectedSha256, validateArchive } = require("./postinstall");
 
 const digest = "a".repeat(64);
+const version = "0.1.0-alpha.1";
+const target = "aarch64-apple-darwin";
+const expectedDir = `wax-${version}-${target}`;
+const expectedMember = `${expectedDir}/wax`;
+
+function createArchive(tmpDir, entries) {
+  for (const entry of entries) {
+    const entryPath = path.join(tmpDir, entry.path);
+    fs.mkdirSync(path.dirname(entryPath), { recursive: true });
+    if (entry.type === "symlink") {
+      fs.symlinkSync(entry.target, entryPath);
+    } else {
+      fs.writeFileSync(entryPath, entry.content || "");
+      if (entry.executable) {
+        fs.chmodSync(entryPath, 0o755);
+      }
+    }
+  }
+
+  const archivePath = path.join(tmpDir, `${expectedDir}.tar.gz`);
+  const result = spawnSync("tar", ["-czf", archivePath, "-C", tmpDir, expectedDir], {
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  return archivePath;
+}
 
 test("expectedSha256 accepts checksum line for requested archive", () => {
   assert.equal(expectedSha256(`${digest}  wax-0.1.0-alpha.1-aarch64-apple-darwin.tar.gz\n`, "wax-0.1.0-alpha.1-aarch64-apple-darwin.tar.gz"), digest);
@@ -36,22 +62,73 @@ test("download rejects plaintext http URLs", async () => {
   }
 });
 
+test("download copies file URLs", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "wax-cli-test-"));
+  try {
+    const source = path.join(tmpDir, "source.txt");
+    const destination = path.join(tmpDir, "destination.txt");
+    fs.writeFileSync(source, "wax");
+
+    await download(new URL(`file://${source}`).toString(), destination);
+
+    assert.equal(fs.readFileSync(destination, "utf8"), "wax");
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("validateArchive accepts expected release archive shape", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "wax-cli-test-"));
+  try {
+    const archivePath = createArchive(tmpDir, [
+      { path: expectedMember, content: "#!/bin/sh\n", executable: true },
+    ]);
+
+    assert.doesNotThrow(() => validateArchive(archivePath, tmpDir, expectedDir, expectedMember));
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("validateArchive rejects archives missing wax binary", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "wax-cli-test-"));
+  try {
+    const archivePath = createArchive(tmpDir, [
+      { path: `${expectedDir}/README.txt`, content: "not wax" },
+    ]);
+
+    assert.throws(
+      () => validateArchive(archivePath, tmpDir, expectedDir, expectedMember),
+      /archive is missing expected entry: wax-0.1.0-alpha.1-aarch64-apple-darwin\/wax/
+    );
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("validateArchive rejects archives with unexpected entries", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "wax-cli-test-"));
+  try {
+    const archivePath = createArchive(tmpDir, [
+      { path: expectedMember, content: "#!/bin/sh\n", executable: true },
+      { path: `${expectedDir}/extra`, content: "nope" },
+    ]);
+
+    assert.throws(
+      () => validateArchive(archivePath, tmpDir, expectedDir, expectedMember),
+      /archive contains unexpected entries: wax-0.1.0-alpha.1-aarch64-apple-darwin\/extra/
+    );
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
 test("validateArchive rejects symlink wax entries before extraction", () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "wax-cli-test-"));
   try {
-    const version = "0.1.0-alpha.1";
-    const target = "aarch64-apple-darwin";
-    const expectedDir = `wax-${version}-${target}`;
-    const expectedMember = `${expectedDir}/wax`;
-    const stageDir = path.join(tmpDir, expectedDir);
-    const archivePath = path.join(tmpDir, `${expectedDir}.tar.gz`);
-
-    fs.mkdirSync(stageDir);
-    fs.symlinkSync("/tmp/not-wax", path.join(stageDir, "wax"));
-    const result = spawnSync("tar", ["-czf", archivePath, "-C", tmpDir, expectedDir], {
-      encoding: "utf8",
-    });
-    assert.equal(result.status, 0, result.stderr);
+    const archivePath = createArchive(tmpDir, [
+      { path: expectedMember, type: "symlink", target: "/tmp/not-wax" },
+    ]);
 
     assert.throws(
       () => validateArchive(archivePath, tmpDir, expectedDir, expectedMember),

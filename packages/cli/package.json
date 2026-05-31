@@ -13,7 +13,7 @@
   },
   "scripts": {
     "postinstall": "node postinstall.js",
-    "test": "node --test postinstall.test.js"
+    "test": "node --test *.test.js"
   },
   "files": [
     "README.md",
