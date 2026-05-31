@@ -392,12 +392,86 @@ mod tests {
     fn fetches_published_default_pack_index() {
         let manifests = fetch_pack_index(crate::defaults::DEFAULT_WAX_LANG_INDEX)
             .expect("default published pack index should fetch and parse");
+        let expected_release_tag = std::env::var("WAX_EXPECTED_RELEASE_TAG").ok();
 
         let ids: Vec<_> = manifests
             .iter()
             .map(|manifest| manifest.id.as_str())
             .collect();
         assert_eq!(ids, ["compose", "basic"]);
+
+        assert_index_matches_release(&manifests, expected_release_tag.as_deref())
+            .expect("published default pack index should match the current release");
+    }
+
+    #[test]
+    fn current_release_validation_rejects_stale_index() {
+        let manifests = registry_manifests_for_release("v0.1.0-alpha.0");
+        let err = assert_index_matches_release(&manifests, Some("v0.1.0-alpha.1"))
+            .expect_err("stale index should be rejected");
+
+        assert!(
+            err.contains("version"),
+            "expected version mismatch, got: {err}"
+        );
+    }
+
+    #[test]
+    fn current_release_validation_accepts_matching_index() {
+        let manifests = registry_manifests_for_release("v0.1.0-alpha.1");
+        assert_index_matches_release(&manifests, Some("v0.1.0-alpha.1"))
+            .expect("matching release index should pass");
+    }
+
+    fn registry_manifests_for_release(release_tag: &str) -> Vec<RegistryManifest> {
+        let version = release_tag.trim_start_matches('v');
+        let json = format!(
+            r#"
+[
+  {{
+    "id": "compose",
+    "version": "{version}",
+    "api_version": 1,
+    "targets": {{
+      "x86_64-unknown-linux-gnu": {{
+        "url": "https://github.com/Daio-io/wax/releases/download/{release_tag}/wax-lang-compose-{version}-x86_64-unknown-linux-gnu.tar.gz",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }},
+      "aarch64-apple-darwin": {{
+        "url": "https://github.com/Daio-io/wax/releases/download/{release_tag}/wax-lang-compose-{version}-aarch64-apple-darwin.tar.gz",
+        "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }}
+    }}
+  }},
+  {{
+    "id": "basic",
+    "version": "{version}",
+    "api_version": 1,
+    "targets": {{
+      "x86_64-unknown-linux-gnu": {{
+        "url": "https://github.com/Daio-io/wax/releases/download/{release_tag}/wax-lang-basic-{version}-x86_64-unknown-linux-gnu.tar.gz",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }},
+      "aarch64-apple-darwin": {{
+        "url": "https://github.com/Daio-io/wax/releases/download/{release_tag}/wax-lang-basic-{version}-aarch64-apple-darwin.tar.gz",
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      }}
+    }}
+  }}
+]
+"#
+        );
+        serde_json::from_str(&json).expect("synthetic manifest should parse")
+    }
+
+    fn assert_index_matches_release(
+        manifests: &[RegistryManifest],
+        expected_release_tag: Option<&str>,
+    ) -> Result<(), String> {
+        let Some(expected_release_tag) = expected_release_tag else {
+            return Ok(());
+        };
+        let expected_version = expected_release_tag.trim_start_matches('v');
 
         for manifest in manifests {
             assert_eq!(manifest.api_version, 1);
@@ -411,7 +485,32 @@ mod tests {
                 "{} should publish macOS arm64",
                 manifest.id
             );
+            if manifest.version != expected_version {
+                return Err(format!(
+                    "pack {} version {} did not match expected release version {}",
+                    manifest.id, manifest.version, expected_version
+                ));
+            }
+            let binary = format!("wax-lang-{}", manifest.id);
+            let release_path = format!("/releases/download/{expected_release_tag}/");
+            for (target, artifact) in &manifest.targets {
+                if !artifact.url.contains(&release_path) {
+                    return Err(format!(
+                        "pack {} target {} URL {} did not point at {}",
+                        manifest.id, target, artifact.url, release_path
+                    ));
+                }
+                let expected_asset = format!("{binary}-{expected_version}-{target}.tar.gz");
+                if !artifact.url.ends_with(&expected_asset) {
+                    return Err(format!(
+                        "pack {} target {} URL {} did not end with {}",
+                        manifest.id, target, artifact.url, expected_asset
+                    ));
+                }
+            }
         }
+
+        Ok(())
     }
 
     #[test]

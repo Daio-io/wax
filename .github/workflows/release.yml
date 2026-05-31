@@ -333,4 +333,15 @@ jobs:
           workspaces: engine
 
       - name: Verify fetch_pack_index against default URL
-        run: cargo test -p wax-core fetches_published_default_pack_index -- --ignored --nocapture
+        env:
+          WAX_EXPECTED_RELEASE_TAG: ${{ env.WAX_RELEASE_TAG }}
+        run: |
+          set -euo pipefail
+          for attempt in {1..12}; do
+            if cargo test -p wax-core fetches_published_default_pack_index -- --ignored --nocapture; then
+              exit 0
+            fi
+            echo "published index not ready for ${WAX_EXPECTED_RELEASE_TAG}; retry ${attempt}/12"
+            sleep 10
+          done
+          cargo test -p wax-core fetches_published_default_pack_index -- --ignored --nocapture

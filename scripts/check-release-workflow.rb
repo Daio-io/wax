@@ -100,3 +100,15 @@ require_includes!(
   "cargo test -p wax-core fetches_published_default_pack_index -- --ignored --nocapture",
   "post-release fetch_pack_index default URL verification"
 )
+
+require_includes!(
+  workflow,
+  "WAX_EXPECTED_RELEASE_TAG: ${{ env.WAX_RELEASE_TAG }}",
+  "current release tag passed to pack index verification"
+)
+
+require_includes!(
+  workflow,
+  "for attempt in {1..12}; do",
+  "published pack index verification retry loop"
+)

@@ -305,7 +305,7 @@ Expected: PASS.
 
 - [x] **Step 1: Define `DEFAULT_WAX_LANG_INDEX` constant**
 
-Alpha default: branch-backed raw `index.json` URL for this repo: `https://raw.githubusercontent.com/Daio-io/wax/gh-pages/index.json`. Override remains via `WAX_LANG_INDEX` env and `--registry`.
+Alpha default: branch-backed raw `index.json` URL for this repo: `https://raw.githubusercontent.com/Daio-io/wax/gh-pages/index.json`. The first successful release workflow bootstraps `gh-pages`; before that first tag completes, the default URL may 404 and maintainers should use `--registry` / `WAX_LANG_INDEX` for local dry-runs. Override remains via `WAX_LANG_INDEX` env and `--registry`.
 
 - [x] **Step 2: Update `resolve_registry_url` to fall back to default**
 
@@ -430,11 +430,11 @@ Emit entries for **`compose` and `basic` only** in alpha (see Task 7). Exclude `
 
 - [x] **Step 2: Attach `index.json` to GitHub Release and/or commit to `gh-pages`**
 
-Default index URL from Task 6 must resolve here.
+Default index URL from Task 6 is the `gh-pages` raw URL. The first alpha tag must create or update `gh-pages/index.json` before the post-release verification job runs.
 
 - [x] **Step 3: Post-release job verifies `fetch_pack_index` against published URL**
 
-Run: manual on first alpha tag; automate in Task 16.
+Run: manual on first alpha tag; automate in Task 16. The release workflow retries this verification to allow raw GitHub content propagation, and it must reject stale `gh-pages` content by checking the fetched index version and artifact URLs against the current release tag.
 
 Expected: `wax language install compose` downloads from release URL on supported host.
 
