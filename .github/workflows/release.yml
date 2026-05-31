@@ -1,0 +1,242 @@
+name: Release
+
+"on":
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to dry-run, for example v0.1.0-alpha.1"
+        required: true
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+  WAX_RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
+
+jobs:
+  validate-tag:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        # actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Check tag matches workspace version
+        run: |
+          set -euo pipefail
+          version="$(awk -F '"' '
+            /^\[workspace\.package\]/ { in_section=1; next }
+            /^\[/ && in_section { exit }
+            in_section && /^version =/ { print $2; exit }
+          ' engine/Cargo.toml)"
+          expected_tag="v${version}"
+          if [[ "${WAX_RELEASE_TAG}" != "$expected_tag" ]]; then
+            echo "release tag ${WAX_RELEASE_TAG} does not match workspace version ${expected_tag}" >&2
+            exit 1
+          fi
+
+  verify:
+    name: Verify engine
+    runs-on: ubuntu-latest
+    needs: validate-tag
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: engine
+
+    steps:
+      - name: Checkout
+        # actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Install Rust toolchain
+        # dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        # Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          workspaces: engine
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Run contract tests
+        run: cargo test -p wax-contract
+
+      - name: Run clippy
+        run: cargo clippy -p wax-contract --all-targets -- -D warnings
+
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    needs: verify
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-14
+          - target: x86_64-apple-darwin
+            os: macos-15-intel
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout
+        # actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Install Rust toolchain
+        # dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        # Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          workspaces: engine
+
+      - name: Build release archives
+        run: ./scripts/build-release.sh "${{ matrix.target }}"
+
+      - name: Upload release assets
+        # actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-assets-${{ matrix.target }}
+          path: |
+            release/artifacts/${{ matrix.target }}/*.tar.gz
+            release/artifacts/${{ matrix.target }}/*.tar.gz.sha256
+          if-no-files-found: error
+
+  smoke:
+    name: Smoke downloaded host artifact
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: read
+
+    steps:
+      - name: Download host release assets
+        # actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-assets-x86_64-unknown-linux-gnu
+          path: host-release-assets
+
+      - name: Smoke wax version
+        run: |
+          set -euo pipefail
+          archive="$(find host-release-assets -maxdepth 1 -name 'wax-[0-9]*-x86_64-unknown-linux-gnu.tar.gz' -print -quit)"
+          test -n "$archive"
+          checksum_file="${archive}.sha256"
+          test -f "$checksum_file"
+          (cd "$(dirname "$archive")" && shasum -a 256 -c "$(basename "$checksum_file")")
+          mkdir -p smoke
+          tar -xzf "$archive" -C smoke
+          wax_bin="$(find smoke -type f -name wax -print -quit)"
+          test -n "$wax_bin"
+          version_output="$("$wax_bin" --version)"
+          echo "$version_output"
+          expected_version="${WAX_RELEASE_TAG#v}"
+          if [[ "$version_output" != "wax ${expected_version}" ]]; then
+            echo "wax --version output was '${version_output}', expected 'wax ${expected_version}'" >&2
+            exit 1
+          fi
+
+  verify-release-assets:
+    name: Verify release assets
+    runs-on: ubuntu-latest
+    needs:
+      - build
+      - smoke
+    permissions:
+      contents: read
+
+    steps:
+      - name: Download release assets
+        # actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          path: release-assets
+          pattern: release-assets-*
+          merge-multiple: true
+
+      - name: Verify release asset set
+        run: |
+          set -euo pipefail
+          version="${WAX_RELEASE_TAG#v}"
+          for binary in wax wax-lang-compose wax-lang-basic; do
+            for target in aarch64-apple-darwin x86_64-apple-darwin x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
+              archive="release-assets/${binary}-${version}-${target}.tar.gz"
+              checksum="${archive}.sha256"
+              if [[ ! -f "$archive" ]]; then
+                echo "missing expected release archive: $archive" >&2
+                exit 1
+              fi
+              if [[ ! -f "$checksum" ]]; then
+                echo "missing expected release checksum: $checksum" >&2
+                exit 1
+              fi
+            done
+          done
+          archive_count="$(find release-assets -maxdepth 1 -type f -name '*.tar.gz' | wc -l | tr -d ' ')"
+          checksum_count="$(find release-assets -maxdepth 1 -type f -name '*.tar.gz.sha256' | wc -l | tr -d ' ')"
+          if [[ "$archive_count" != "12" || "$checksum_count" != "12" ]]; then
+            echo "expected 12 archives and 12 checksums; found ${archive_count} archives and ${checksum_count} checksums" >&2
+            find release-assets -maxdepth 1 -type f -print | sort >&2
+            exit 1
+          fi
+          (cd release-assets && shasum -a 256 -c ./*.tar.gz.sha256)
+
+      - name: Report dry-run success
+        if: github.event_name == 'workflow_dispatch'
+        run: echo "release dry run passed for ${WAX_RELEASE_TAG}; skipping GitHub Release publish"
+
+  publish:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    needs: verify-release-assets
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download release assets
+        # actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          path: release-assets
+          pattern: release-assets-*
+          merge-multiple: true
+
+      - name: Publish release assets
+        # softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+        with:
+          files: |
+            release-assets/*.tar.gz
+            release-assets/*.tar.gz.sha256
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          prerelease: ${{ contains(env.WAX_RELEASE_TAG, '-') }}
