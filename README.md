@@ -45,6 +45,23 @@ curl -fsSL https://raw.githubusercontent.com/Daio-io/wax/main/scripts/install.sh
 
 Note: `--dry-run` without `--version` still queries the GitHub API to resolve the latest release tag.
 
+### npm (optional alpha wrapper)
+
+The npm wrapper is available as an optional alpha install path. It downloads the same host `wax` binary from GitHub Releases during `postinstall`, verifies the `sha256`, and exposes the `wax` executable through npm:
+
+```bash
+npm install -g @wax/cli
+wax --help
+```
+
+You can also run it without a separate global install:
+
+```bash
+npx @wax/cli --help
+```
+
+The curl installer remains the primary alpha path while the npm package is validated across supported hosts.
+
 ### Homebrew (tap) — pending
 
 Homebrew is not a usable install path yet.

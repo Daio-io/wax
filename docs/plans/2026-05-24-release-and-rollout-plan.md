@@ -490,7 +490,7 @@ Optional: automate formula bump in release workflow (post-alpha).
 
 Expected: `brew install` succeeds on macOS for at least one arch.
 
-### - [ ] Task 14: npm `@wax/cli` wrapper (optional for alpha)
+### - [x] Task 14: npm `@wax/cli` wrapper (optional for alpha)
 
 **Files:**
 
@@ -500,13 +500,13 @@ Expected: `brew install` succeeds on macOS for at least one arch.
 
 **Decision:** Task 14 is **optional for public alpha**. If deferred to alpha+1, README and Task 15 must lead with curl + Homebrew and state npm timeline explicitly.
 
-- [ ] **Step 1: Package downloads host `wax` binary from GitHub Releases on postinstall**
+- [x] **Step 1: Package downloads host `wax` binary from GitHub Releases on postinstall**
 
 Mirror patterns from esbuild/turbo; verify sha256.
 
-- [ ] **Step 2: Expose `wax` bin in npm**
+- [x] **Step 2: Expose `wax` bin in npm**
 
-- [ ] **Step 3: Document `npm install -g @wax/cli` in README**
+- [x] **Step 3: Document `npm install -g @wax/cli` in README**
 
 Mark optional in alpha if schedule tight; move to post-alpha if needed.
 

@@ -1,0 +1,113 @@
+name: npm CLI Wrapper
+
+on:
+  pull_request:
+    paths:
+      - "packages/cli/**"
+      - ".github/workflows/npm_cli.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "packages/cli/**"
+      - ".github/workflows/npm_cli.yml"
+
+jobs:
+  verify:
+    name: Verify npm wrapper
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+
+      - name: Check JavaScript syntax
+        id: syntax
+        run: |
+          node --check packages/cli/postinstall.js
+          node --check packages/cli/run.js
+
+      - name: Run package tests
+        id: tests
+        run: npm --prefix packages/cli test
+
+      - name: Check npm package contents
+        id: pack
+        run: npm pack --dry-run --json
+        working-directory: packages/cli
+
+      - name: Smoke local release mirror install
+        id: smoke
+        run: |
+          set -euo pipefail
+          release_dir="$(mktemp -d)"
+          install_dir="$(mktemp -d)"
+          version="$(node -p 'require("./packages/cli/package.json").version')"
+          target="x86_64-unknown-linux-gnu"
+          stage="${release_dir}/wax-${version}-${target}"
+          mkdir -p "$stage"
+          printf '#!/bin/sh\necho wax dummy "$@"\n' > "$stage/wax"
+          chmod +x "$stage/wax"
+          archive="${release_dir}/wax-${version}-${target}.tar.gz"
+          tar -C "$release_dir" -czf "$archive" "$(basename "$stage")"
+          (cd "$release_dir" && shasum -a 256 "$(basename "$archive")") > "${archive}.sha256"
+
+          cd "$install_dir"
+          npm init -y >/dev/null
+          WAX_CLI_RELEASE_BASE_URL="file://${release_dir}" npm install "${GITHUB_WORKSPACE}/packages/cli"
+          ./node_modules/.bin/wax --help | grep -F "wax dummy --help"
+
+      - name: Post PR result comment
+        if: ${{ always() && github.event_name == 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SYNTAX_OUTCOME: ${{ steps.syntax.outcome }}
+          TESTS_OUTCOME: ${{ steps.tests.outcome }}
+          PACK_OUTCOME: ${{ steps.pack.outcome }}
+          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+        run: |
+          set -euo pipefail
+          marker="<!-- wax-npm-cli-wrapper-result -->"
+          body_file="$(mktemp)"
+          cat > "$body_file" <<EOF
+          ${marker}
+          ## npm CLI wrapper CI
+
+          | Check | Result |
+          | --- | --- |
+          | JavaScript syntax | ${SYNTAX_OUTCOME} |
+          | Package tests | ${TESTS_OUTCOME} |
+          | npm pack contents | ${PACK_OUTCOME} |
+          | Local release mirror smoke | ${SMOKE_OUTCOME} |
+
+          [View workflow run](${RUN_URL})
+          EOF
+
+          existing_id="$(
+            gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+              --jq ".[] | select(.body | contains(\"${marker}\")) | .id" \
+              | head -n 1
+          )"
+
+          if [[ -n "$existing_id" ]]; then
+            gh api \
+              --method PATCH \
+              "repos/${GITHUB_REPOSITORY}/issues/comments/${existing_id}" \
+              --field "body=$(cat "$body_file")"
+          else
+            gh api \
+              --method POST \
+              "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+              --field "body=$(cat "$body_file")"
+          fi
