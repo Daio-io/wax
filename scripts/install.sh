@@ -16,7 +16,7 @@ Options:
   --version <semver>   Version to install (for example 0.1.0-alpha.1)
   --repo <owner/repo>  GitHub repository to download from (default: Daio-io/wax)
   --install-dir <path> Install destination directory
-  --dry-run            Print planned actions without changing files
+  --dry-run            Print planned actions without changing files (without --version, still queries GitHub API)
   -h, --help           Show this help
 USAGE
 }
@@ -86,6 +86,9 @@ done
 need_cmd uname
 need_cmd tar
 need_cmd curl
+need_cmd mktemp
+need_cmd find
+need_cmd install
 
 os="$(uname -s)"
 arch="$(uname -m)"
@@ -157,28 +160,52 @@ run mkdir -p "$INSTALL_DIR"
 
 extract_dir="$tmp_dir/extract"
 run mkdir -p "$extract_dir"
-run tar -xzf "$archive_path" -C "$extract_dir"
+expected_dir="wax-${version}-${target}"
+expected_member="${expected_dir}/wax"
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
+  log "[dry-run] validate archive entries contain only: ${expected_dir}/ and ${expected_member}"
+  log "[dry-run] tar -xzf $archive_path -C $extract_dir $expected_member"
   log "[dry-run] would install wax to $INSTALL_DIR/wax"
+  log ""
+  log "Verify with: $INSTALL_DIR/wax --help"
+  if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
+    log "PATH note: $INSTALL_DIR is not currently on PATH."
+    log "Add it with: export PATH=\"$INSTALL_DIR:\$PATH\""
+  fi
   log ""
   log "Next steps:"
   log "  wax init --non-interactive --language compose"
   log "  wax language install compose"
-  log ""
-  log "Verify with: wax --help"
   exit 0
 fi
 
-wax_bin="$(find "$extract_dir" -type f -name wax -print -quit)"
+archive_entries="$(tar -tzf "$archive_path")"
+printf '%s\n' "$archive_entries" | grep -Fx "$expected_member" >/dev/null 2>&1 || \
+  die "archive is missing expected entry: ${expected_member}"
+
+unexpected_entries="$(
+  printf '%s\n' "$archive_entries" | awk -v expected_dir="$expected_dir" '
+    $0 != expected_dir "/" && $0 != expected_dir "/wax" { print }
+  '
+)"
+[[ -z "$unexpected_entries" ]] || die "archive contains unexpected entries"
+
+run tar -xzf "$archive_path" -C "$extract_dir" "$expected_member"
+
+wax_bin="$(find "$extract_dir" -type f -path "*/${expected_member}" -print -quit)"
 [[ -n "$wax_bin" ]] || die "could not find wax binary in archive"
 
 run install -m 0755 "$wax_bin" "$INSTALL_DIR/wax"
 
 log "Installed to $INSTALL_DIR/wax"
 log ""
+log "Verify with: $INSTALL_DIR/wax --help"
+if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
+  log "PATH note: $INSTALL_DIR is not currently on PATH."
+  log "Add it with: export PATH=\"$INSTALL_DIR:\$PATH\""
+fi
+log ""
 log "Next steps:"
 log "  wax init --non-interactive --language compose"
 log "  wax language install compose"
-log ""
-log "Verify with: wax --help"
