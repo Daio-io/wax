@@ -30,11 +30,9 @@ require_includes!(
 
 require_includes!(
   workflow,
-  'permissions:
-      contents: read
-
-    steps:
-      - name: Download release assets',
+  'verify-release-assets:
+    name: Verify release assets
+    runs-on: ubuntu-latest',
   "read-only release asset validation job"
 )
 
@@ -49,4 +47,86 @@ require_includes!(
   workflow,
   "if: github.event_name == 'push'",
   "push-only publish guard"
+)
+
+require_includes!(
+  workflow,
+  "release/artifacts/${{ matrix.target }}/manifest.json",
+  "release manifest artifact upload"
+)
+
+require_includes!(
+  workflow,
+  "./scripts/test-generate-pack-index.sh",
+  "pack index generator regression test"
+)
+
+require_includes!(
+  workflow,
+  "./scripts/generate-pack-index.sh release-manifests release-assets/index.json",
+  "pack index generation from downloaded release manifests"
+)
+
+require_includes!(
+  workflow,
+  "WAX_PACK_INDEX_URL: file://${{ github.workspace }}/release-assets/index.json",
+  "generated pack index validation URL"
+)
+
+require_includes!(
+  workflow,
+  "cargo test -p wax-core validates_pack_index_from_env -- --ignored --nocapture",
+  "pre-publish generated pack index validation"
+)
+
+require_includes!(
+  workflow,
+  "release-assets/index.json",
+  "index.json release asset publication"
+)
+
+require_includes!(
+  workflow,
+  "git fetch origin refs/heads/gh-pages:refs/remotes/origin/gh-pages || true",
+  "gh-pages remote-tracking ref fetch"
+)
+
+require_includes!(
+  workflow,
+  "git -C gh-pages-worktree push origin HEAD:gh-pages",
+  "gh-pages pack index publication"
+)
+
+if workflow.include?("make_latest:")
+  warn "release workflow must not set make_latest for prerelease alpha tags"
+  exit 1
+end
+
+if workflow.include?("/releases/latest/download/index.json")
+  warn "release workflow must not rely on GitHub Releases latest for alpha index"
+  exit 1
+end
+
+require_includes!(
+  workflow,
+  "cp release-assets/index.json gh-pages-worktree/index.json",
+  "gh-pages index copy"
+)
+
+require_includes!(
+  workflow,
+  "cargo test -p wax-core fetches_published_default_pack_index -- --ignored --nocapture",
+  "post-release fetch_pack_index default URL verification"
+)
+
+require_includes!(
+  workflow,
+  "WAX_EXPECTED_RELEASE_TAG: ${{ env.WAX_RELEASE_TAG }}",
+  "current release tag passed to pack index verification"
+)
+
+require_includes!(
+  workflow,
+  "for attempt in {1..12}; do",
+  "published pack index verification retry loop"
 )

@@ -4,12 +4,20 @@ on:
   pull_request:
     paths:
       - "engine/**"
+      - "scripts/generate-pack-index.sh"
+      - "scripts/test-generate-pack-index.sh"
+      - "scripts/check-release-workflow.rb"
+      - ".github/workflows/release.yml"
       - ".github/workflows/build_engine.yml"
   push:
     branches:
       - main
     paths:
       - "engine/**"
+      - "scripts/generate-pack-index.sh"
+      - "scripts/test-generate-pack-index.sh"
+      - "scripts/check-release-workflow.rb"
+      - ".github/workflows/release.yml"
       - ".github/workflows/build_engine.yml"
 
 env:
@@ -44,6 +52,12 @@ jobs:
 
       - name: Check formatting
         run: cargo fmt --all --check
+
+      - name: Test pack index generator
+        run: ../scripts/test-generate-pack-index.sh
+
+      - name: Check release workflow
+        run: ruby ../scripts/check-release-workflow.rb
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
