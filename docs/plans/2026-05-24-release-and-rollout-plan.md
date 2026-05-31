@@ -482,6 +482,8 @@ brew tap <org>/wax
 brew install wax
 ```
 
+Status: README now marks Homebrew as pending until a dedicated tap repository exists (expected: `<org>/homebrew-wax`) and checksums are published.
+
 - [x] **Step 3: Caveats section explains language pack download on first use**
 
 Optional: automate formula bump in release workflow (post-alpha).

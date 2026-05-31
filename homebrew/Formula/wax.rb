@@ -1,4 +1,6 @@
 class Wax < Formula
+  # Draft formula tracked in main repo until first release checksums are published
+  # and the formula is copied to the tap repository (Daio-io/homebrew-wax).
   desc "Design-system component tracker CLI"
   homepage "https://github.com/Daio-io/wax"
   version "0.1.0-alpha.1"

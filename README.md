@@ -45,21 +45,16 @@ curl -fsSL https://raw.githubusercontent.com/Daio-io/wax/main/scripts/install.sh
 
 Note: `--dry-run` without `--version` still queries the GitHub API to resolve the latest release tag.
 
-### Homebrew (tap)
+### Homebrew (tap) — pending
 
-```bash
-brew tap Daio-io/wax
-brew install wax
-```
+Homebrew is not a usable install path yet.
 
-Homebrew install uses release archives from GitHub Releases and requires versioned checksums in the tap formula.
+- The formula currently lives in this repo as a draft at `homebrew/Formula/wax.rb`.
+- A working tap install requires a dedicated tap repo (`Daio-io/homebrew-wax`) with `Formula/wax.rb`.
+- The draft formula still needs real 64-character `sha256` values from published GitHub Release assets.
+- Current formula targets macOS archives only.
 
-Language packs are not bundled with the CLI binary. After Homebrew install, run:
-
-```bash
-wax init --non-interactive --language compose
-wax language install compose
-```
+Use the curl installer above for now.
 
 Contributor/local install path:
 
