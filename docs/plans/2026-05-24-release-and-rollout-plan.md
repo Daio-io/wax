@@ -444,20 +444,20 @@ Expected: `wax language install compose` downloads from release URL on supported
 
 **Execution checkpoint:** Required for **public alpha**. May start once Task 10 release workflow is merged; curl/Homebrew (Tasks 12–13) should land before announcing public alpha. Task 11 (published index) can run in parallel with Task 12 once the first release tag exists.
 
-### - [ ] Task 12: curl install script
+### - [x] Task 12: curl install script
 
 **Files:**
 
 - Create: `scripts/install.sh`
 - Modify: `README.md`
 
-- [ ] **Step 1: Detect OS/arch and map to Rust triple**
+- [x] **Step 1: Detect OS/arch and map to Rust triple**
 
-- [ ] **Step 2: Download `wax` release archive, verify sha256, install to `/usr/local/bin` or `~/.wax/bin`**
+- [x] **Step 2: Download `wax` release archive, verify sha256, install to `/usr/local/bin` or `~/.wax/bin`**
 
 Language packs **not** bundled; print next steps (`wax init`, `wax language install`).
 
-- [ ] **Step 3: Document one-liner in README**
+- [x] **Step 3: Document one-liner in README**
 
 Run: `./scripts/install.sh --dry-run` or manual test against alpha release.
 

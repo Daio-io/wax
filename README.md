@@ -11,6 +11,42 @@ Open-source, self-hostable design system component tracker. See [component track
 - [Post-alpha UX plan](docs/plans/2026-05-24-post-alpha-ux-plan.md) — guided init, scan exports, CI summaries, local reports (order 3)
 - [`engine/`](engine/) — production Rust workspace (`wax` CLI, language packs, contract crates)
 
+## Install (alpha)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Daio-io/wax/main/scripts/install.sh | bash
+```
+
+The installer detects your OS/arch, downloads the matching release archive from GitHub Releases, verifies the `sha256`, and installs `wax` to `/usr/local/bin` (or `~/.wax/bin` when `/usr/local/bin` is not writable).
+If the installer falls back to `~/.wax/bin`, add it to your shell PATH:
+
+```bash
+export PATH="$HOME/.wax/bin:$PATH"
+```
+
+Verify the installed binary directly with:
+
+```bash
+$HOME/.wax/bin/wax --help
+```
+
+Language packs are not bundled with the CLI binary. After installing `wax`, run:
+
+```bash
+wax init --non-interactive --language compose
+wax language install compose
+```
+
+To install a specific release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Daio-io/wax/main/scripts/install.sh | bash -s -- --version 0.1.0-alpha.1
+```
+
+Note: `--dry-run` without `--version` still queries the GitHub API to resolve the latest release tag.
+
+Contributor/local install path:
+
 ```bash
 cd engine
 cargo test -p wax-cli
