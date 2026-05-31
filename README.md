@@ -11,7 +11,7 @@ Open-source, self-hostable design system component tracker. See [component track
 - [Post-alpha UX plan](docs/plans/2026-05-24-post-alpha-ux-plan.md) — guided init, scan exports, CI summaries, local reports (order 3)
 - [`engine/`](engine/) — production Rust workspace (`wax` CLI, language packs, contract crates)
 
-## Install (alpha)
+## Install (alpha: curl-ready, Homebrew pending)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Daio-io/wax/main/scripts/install.sh | bash

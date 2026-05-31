@@ -520,6 +520,8 @@ Expected: `npx @wax/cli --help` works.
 
 ### - [x] Task 15: Alpha getting started documentation
 
+Task 15 covers documentation readiness only. Homebrew install availability remains gated by Task 13.
+
 **Files:**
 
 - Modify: `README.md`
@@ -529,7 +531,7 @@ Expected: `npx @wax/cli --help` works.
 
 - [x] **Step 1: Replace cargo-only install section with alpha paths**
 
-Primary: curl now, Homebrew when tap is published. npm only if Task 14 shipped; otherwise document expected npm timeline (e.g. alpha+1). Keep `cargo install --path` for contributors.
+Primary: curl now. Homebrew remains pending until Task 13 publishes the tap and release checksums. npm only if Task 14 shipped; otherwise document expected npm timeline (e.g. alpha+1). Keep `cargo install --path` for contributors.
 
 - [x] **Step 2: Document end-to-end flow (Compose-only for alpha)**
 
