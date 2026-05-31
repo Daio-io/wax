@@ -2,7 +2,6 @@
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
-const http = require("node:http");
 const https = require("node:https");
 const os = require("node:os");
 const path = require("node:path");
@@ -73,13 +72,12 @@ function download(url, destination, redirectsLeft = MAX_REDIRECTS) {
       return;
     }
 
-    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+    if (parsedUrl.protocol !== "https:") {
       reject(new Error(`unsupported download URL protocol: ${parsedUrl.protocol}`));
       return;
     }
 
-    const client = parsedUrl.protocol === "http:" ? http : https;
-    const request = client.get(
+    const request = https.get(
       url,
       {
         headers: {
@@ -161,6 +159,47 @@ function runTar(args, cwd) {
   return result.stdout;
 }
 
+function archiveEntries(archivePath, cwd) {
+  return runTar(["-tzf", archivePath], cwd)
+    .trim()
+    .split("\n")
+    .filter(Boolean);
+}
+
+function archiveListing(archivePath, cwd) {
+  return runTar(["-tvzf", archivePath], cwd)
+    .trim()
+    .split("\n")
+    .filter(Boolean);
+}
+
+function validateArchive(archivePath, cwd, expectedDir, expectedMember) {
+  const entries = archiveEntries(archivePath, cwd);
+  if (!entries.includes(expectedMember)) {
+    throw new Error(`archive is missing expected entry: ${expectedMember}`);
+  }
+
+  const unexpected = entries.filter((entry) => entry !== `${expectedDir}/` && entry !== expectedMember);
+  if (unexpected.length > 0) {
+    throw new Error(`archive contains unexpected entries: ${unexpected.join(", ")}`);
+  }
+
+  const listing = archiveListing(archivePath, cwd);
+  if (listing.length !== entries.length) {
+    throw new Error("archive listing did not match archive entries");
+  }
+
+  for (const [index, entry] of entries.entries()) {
+    const type = listing[index][0];
+    if (entry === `${expectedDir}/` && type !== "d") {
+      throw new Error(`archive entry is not a directory: ${entry}`);
+    }
+    if (entry === expectedMember && type !== "-") {
+      throw new Error(`archive entry is not a regular file: ${entry}`);
+    }
+  }
+}
+
 async function install() {
   if (process.env.WAX_CLI_SKIP_DOWNLOAD === "1") {
     console.log("Skipping wax binary download because WAX_CLI_SKIP_DOWNLOAD=1");
@@ -196,18 +235,7 @@ async function install() {
       fail(`checksum mismatch for ${archiveName}; expected ${expected}, got ${actual}`);
     }
 
-    const entries = runTar(["-tzf", archivePath], tmpDir)
-      .trim()
-      .split("\n")
-      .filter(Boolean);
-    if (!entries.includes(expectedMember)) {
-      fail(`archive is missing expected entry: ${expectedMember}`);
-    }
-
-    const unexpected = entries.filter((entry) => entry !== `${expectedDir}/` && entry !== expectedMember);
-    if (unexpected.length > 0) {
-      fail(`archive contains unexpected entries: ${unexpected.join(", ")}`);
-    }
+    validateArchive(archivePath, tmpDir, expectedDir, expectedMember);
 
     fs.mkdirSync(extractDir, { recursive: true });
     runTar(["-xzf", archivePath, "-C", extractDir, expectedMember], tmpDir);
@@ -232,5 +260,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  download,
   expectedSha256,
+  validateArchive,
 };

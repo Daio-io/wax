@@ -16,8 +16,17 @@
     "test": "node --test postinstall.test.js"
   },
   "files": [
+    "README.md",
     "postinstall.js",
     "run.js"
+  ],
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
   ],
   "publishConfig": {
     "access": "public"
