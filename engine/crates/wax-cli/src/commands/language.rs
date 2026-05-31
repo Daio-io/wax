@@ -941,6 +941,10 @@ mod tests {
         let _guard = env_lock();
         let _lang_index = EnvVarGuard::remove("WAX_LANG_INDEX");
         let resolved = resolve_registry_url(None).unwrap();
+        assert_eq!(
+            resolved,
+            "https://raw.githubusercontent.com/Daio-io/wax/gh-pages/index.json"
+        );
         assert_eq!(resolved, DEFAULT_WAX_LANG_INDEX);
     }
 

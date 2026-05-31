@@ -305,7 +305,7 @@ Expected: PASS.
 
 - [x] **Step 1: Define `DEFAULT_WAX_LANG_INDEX` constant**
 
-Alpha default: GitHub Releases–hosted `index.json` URL for this repo (document exact URL in constant doc comment). Override remains via `WAX_LANG_INDEX` env and `--registry`.
+Alpha default: branch-backed raw `index.json` URL for this repo: `https://raw.githubusercontent.com/Daio-io/wax/gh-pages/index.json`. Override remains via `WAX_LANG_INDEX` env and `--registry`.
 
 - [x] **Step 2: Update `resolve_registry_url` to fall back to default**
 

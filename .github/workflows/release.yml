@@ -73,6 +73,9 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all --check
 
+      - name: Test pack index generator
+        run: ../scripts/test-generate-pack-index.sh
+
       - name: Run contract tests
         run: cargo test -p wax-contract
 
@@ -276,8 +279,29 @@ jobs:
             release-assets/index.json
           fail_on_unmatched_files: true
           generate_release_notes: true
-          make_latest: true
           prerelease: ${{ contains(env.WAX_RELEASE_TAG, '-') }}
+
+      - name: Publish pack index to gh-pages
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin gh-pages || true
+          if git show-ref --verify --quiet refs/remotes/origin/gh-pages; then
+            git worktree add gh-pages-worktree origin/gh-pages
+          else
+            git worktree add --detach gh-pages-worktree
+            git -C gh-pages-worktree checkout --orphan gh-pages
+            git -C gh-pages-worktree rm -rf . || true
+          fi
+          cp release-assets/index.json gh-pages-worktree/index.json
+          git -C gh-pages-worktree add index.json
+          if git -C gh-pages-worktree diff --cached --quiet; then
+            echo "gh-pages index.json already current"
+          else
+            git -C gh-pages-worktree commit -m "chore: publish pack index for ${WAX_RELEASE_TAG}"
+            git -C gh-pages-worktree push origin HEAD:gh-pages
+          fi
 
   verify-published-pack-index:
     name: Verify published pack index

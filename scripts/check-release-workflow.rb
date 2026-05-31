@@ -57,6 +57,12 @@ require_includes!(
 
 require_includes!(
   workflow,
+  "./scripts/test-generate-pack-index.sh",
+  "pack index generator regression test"
+)
+
+require_includes!(
+  workflow,
   "./scripts/generate-pack-index.sh release-manifests release-assets/index.json",
   "pack index generation from downloaded release manifests"
 )
@@ -69,8 +75,24 @@ require_includes!(
 
 require_includes!(
   workflow,
-  "make_latest: true",
-  "published release marked latest for default index URL"
+  "git -C gh-pages-worktree push origin HEAD:gh-pages",
+  "gh-pages pack index publication"
+)
+
+if workflow.include?("make_latest:")
+  warn "release workflow must not set make_latest for prerelease alpha tags"
+  exit 1
+end
+
+if workflow.include?("/releases/latest/download/index.json")
+  warn "release workflow must not rely on GitHub Releases latest for alpha index"
+  exit 1
+end
+
+require_includes!(
+  workflow,
+  "cp release-assets/index.json gh-pages-worktree/index.json",
+  "gh-pages index copy"
 )
 
 require_includes!(

@@ -388,7 +388,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "post-release smoke hits the published GitHub Release index"]
+    #[ignore = "post-release smoke hits the published default pack index"]
     fn fetches_published_default_pack_index() {
         let manifests = fetch_pack_index(crate::defaults::DEFAULT_WAX_LANG_INDEX)
             .expect("default published pack index should fetch and parse");

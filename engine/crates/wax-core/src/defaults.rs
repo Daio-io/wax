@@ -2,7 +2,7 @@
 
 /// Default language pack index for alpha releases.
 ///
-/// This points at the GitHub Releases "latest" asset URL for this repository's
-/// `index.json`: `https://github.com/Daio-io/wax/releases/latest/download/index.json`.
+/// This points at the branch-backed raw URL for this repository's published
+/// `index.json`: `https://raw.githubusercontent.com/Daio-io/wax/gh-pages/index.json`.
 pub const DEFAULT_WAX_LANG_INDEX: &str =
-    "https://github.com/Daio-io/wax/releases/latest/download/index.json";
+    "https://raw.githubusercontent.com/Daio-io/wax/gh-pages/index.json";
