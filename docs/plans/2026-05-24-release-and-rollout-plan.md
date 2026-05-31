@@ -417,22 +417,22 @@ Run: merge workflow; maintainers tag `v0.1.0-alpha.1` to validate.
 
 Expected: Release page shows **12** archives (3 alpha-index binaries × 4 triples) + checksums. Every id listed in `index.json` must have a corresponding uploaded archive.
 
-### - [ ] Task 11: Pack index generation and publication
+### - [x] Task 11: Pack index generation and publication
 
 **Files:**
 
 - Create: `scripts/generate-pack-index.sh` (or Rust bin in `engine/tools/`)
 - Modify: `.github/workflows/release.yml`
 
-- [ ] **Step 1: Script reads release manifest (URLs + sha256 per triple) and emits `index.json`**
+- [x] **Step 1: Script reads release manifest (URLs + sha256 per triple) and emits `index.json`**
 
 Emit entries for **`compose` and `basic` only** in alpha (see Task 7). Exclude `react` until a follow-up release plan task promotes it.
 
-- [ ] **Step 2: Attach `index.json` to GitHub Release and/or commit to `gh-pages`**
+- [x] **Step 2: Attach `index.json` to GitHub Release and/or commit to `gh-pages`**
 
 Default index URL from Task 6 must resolve here.
 
-- [ ] **Step 3: Post-release job verifies `fetch_pack_index` against published URL**
+- [x] **Step 3: Post-release job verifies `fetch_pack_index` against published URL**
 
 Run: manual on first alpha tag; automate in Task 16.
 

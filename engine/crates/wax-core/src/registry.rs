@@ -388,6 +388,33 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "post-release smoke hits the published GitHub Release index"]
+    fn fetches_published_default_pack_index() {
+        let manifests = fetch_pack_index(crate::defaults::DEFAULT_WAX_LANG_INDEX)
+            .expect("default published pack index should fetch and parse");
+
+        let ids: Vec<_> = manifests
+            .iter()
+            .map(|manifest| manifest.id.as_str())
+            .collect();
+        assert_eq!(ids, ["compose", "basic"]);
+
+        for manifest in manifests {
+            assert_eq!(manifest.api_version, 1);
+            assert!(
+                manifest.targets.contains_key("x86_64-unknown-linux-gnu"),
+                "{} should publish linux x86_64",
+                manifest.id
+            );
+            assert!(
+                manifest.targets.contains_key("aarch64-apple-darwin"),
+                "{} should publish macOS arm64",
+                manifest.id
+            );
+        }
+    }
+
+    #[test]
     fn rejects_unsupported_registry_url_scheme() {
         let err = fetch_pack_index("s3://registry.example.dev/index.json")
             .expect_err("unsupported URL should be rejected");

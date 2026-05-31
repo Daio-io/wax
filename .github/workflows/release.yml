@@ -129,6 +129,14 @@ jobs:
             release/artifacts/${{ matrix.target }}/*.tar.gz.sha256
           if-no-files-found: error
 
+      - name: Upload release manifest
+        # actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-manifest-${{ matrix.target }}
+          path: release/artifacts/${{ matrix.target }}/manifest.json
+          if-no-files-found: error
+
   smoke:
     name: Smoke downloaded host artifact
     runs-on: ubuntu-latest
@@ -174,6 +182,10 @@ jobs:
       contents: read
 
     steps:
+      - name: Checkout
+        # actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
       - name: Download release assets
         # actions/download-artifact@v4
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
@@ -181,6 +193,13 @@ jobs:
           path: release-assets
           pattern: release-assets-*
           merge-multiple: true
+
+      - name: Download release manifests
+        # actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          path: release-manifests
+          pattern: release-manifest-*
 
       - name: Verify release asset set
         run: |
@@ -209,6 +228,9 @@ jobs:
           fi
           (cd release-assets && shasum -a 256 -c ./*.tar.gz.sha256)
 
+      - name: Generate pack index
+        run: ./scripts/generate-pack-index.sh release-manifests release-assets/index.json
+
       - name: Report dry-run success
         if: github.event_name == 'workflow_dispatch'
         run: echo "release dry run passed for ${WAX_RELEASE_TAG}; skipping GitHub Release publish"
@@ -222,6 +244,10 @@ jobs:
       contents: write
 
     steps:
+      - name: Checkout
+        # actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
       - name: Download release assets
         # actions/download-artifact@v4
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
@@ -230,6 +256,16 @@ jobs:
           pattern: release-assets-*
           merge-multiple: true
 
+      - name: Download release manifests
+        # actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          path: release-manifests
+          pattern: release-manifest-*
+
+      - name: Generate pack index
+        run: ./scripts/generate-pack-index.sh release-manifests release-assets/index.json
+
       - name: Publish release assets
         # softprops/action-gh-release@v2
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
@@ -237,6 +273,40 @@ jobs:
           files: |
             release-assets/*.tar.gz
             release-assets/*.tar.gz.sha256
+            release-assets/index.json
           fail_on_unmatched_files: true
           generate_release_notes: true
+          make_latest: true
           prerelease: ${{ contains(env.WAX_RELEASE_TAG, '-') }}
+
+  verify-published-pack-index:
+    name: Verify published pack index
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    needs: publish
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: engine
+
+    steps:
+      - name: Checkout
+        # actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Install Rust toolchain
+        # dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+        with:
+          toolchain: stable
+
+      - name: Cache cargo
+        # Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          workspaces: engine
+
+      - name: Verify fetch_pack_index against default URL
+        run: cargo test -p wax-core fetches_published_default_pack_index -- --ignored --nocapture

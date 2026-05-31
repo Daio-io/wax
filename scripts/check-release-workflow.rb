@@ -30,11 +30,9 @@ require_includes!(
 
 require_includes!(
   workflow,
-  'permissions:
-      contents: read
-
-    steps:
-      - name: Download release assets',
+  'verify-release-assets:
+    name: Verify release assets
+    runs-on: ubuntu-latest',
   "read-only release asset validation job"
 )
 
@@ -49,4 +47,34 @@ require_includes!(
   workflow,
   "if: github.event_name == 'push'",
   "push-only publish guard"
+)
+
+require_includes!(
+  workflow,
+  "release/artifacts/${{ matrix.target }}/manifest.json",
+  "release manifest artifact upload"
+)
+
+require_includes!(
+  workflow,
+  "./scripts/generate-pack-index.sh release-manifests release-assets/index.json",
+  "pack index generation from downloaded release manifests"
+)
+
+require_includes!(
+  workflow,
+  "release-assets/index.json",
+  "index.json release asset publication"
+)
+
+require_includes!(
+  workflow,
+  "make_latest: true",
+  "published release marked latest for default index URL"
+)
+
+require_includes!(
+  workflow,
+  "cargo test -p wax-core fetches_published_default_pack_index -- --ignored --nocapture",
+  "post-release fetch_pack_index default URL verification"
 )
