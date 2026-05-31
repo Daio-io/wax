@@ -75,6 +75,12 @@ require_includes!(
 
 require_includes!(
   workflow,
+  "git fetch origin refs/heads/gh-pages:refs/remotes/origin/gh-pages || true",
+  "gh-pages remote-tracking ref fetch"
+)
+
+require_includes!(
+  workflow,
   "git -C gh-pages-worktree push origin HEAD:gh-pages",
   "gh-pages pack index publication"
 )

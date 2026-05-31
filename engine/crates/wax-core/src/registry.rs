@@ -440,6 +440,14 @@ mod tests {
       "aarch64-apple-darwin": {{
         "url": "https://github.com/Daio-io/wax/releases/download/{release_tag}/wax-lang-compose-{version}-aarch64-apple-darwin.tar.gz",
         "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }},
+      "x86_64-apple-darwin": {{
+        "url": "https://github.com/Daio-io/wax/releases/download/{release_tag}/wax-lang-compose-{version}-x86_64-apple-darwin.tar.gz",
+        "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      }},
+      "aarch64-unknown-linux-gnu": {{
+        "url": "https://github.com/Daio-io/wax/releases/download/{release_tag}/wax-lang-compose-{version}-aarch64-unknown-linux-gnu.tar.gz",
+        "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
       }}
     }}
   }},
@@ -455,6 +463,14 @@ mod tests {
       "aarch64-apple-darwin": {{
         "url": "https://github.com/Daio-io/wax/releases/download/{release_tag}/wax-lang-basic-{version}-aarch64-apple-darwin.tar.gz",
         "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      }},
+      "x86_64-apple-darwin": {{
+        "url": "https://github.com/Daio-io/wax/releases/download/{release_tag}/wax-lang-basic-{version}-x86_64-apple-darwin.tar.gz",
+        "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+      }},
+      "aarch64-unknown-linux-gnu": {{
+        "url": "https://github.com/Daio-io/wax/releases/download/{release_tag}/wax-lang-basic-{version}-aarch64-unknown-linux-gnu.tar.gz",
+        "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
       }}
     }}
   }}
@@ -475,16 +491,17 @@ mod tests {
 
         for manifest in manifests {
             assert_eq!(manifest.api_version, 1);
-            assert!(
-                manifest.targets.contains_key("x86_64-unknown-linux-gnu"),
-                "{} should publish linux x86_64",
-                manifest.id
-            );
-            assert!(
-                manifest.targets.contains_key("aarch64-apple-darwin"),
-                "{} should publish macOS arm64",
-                manifest.id
-            );
+            let expected_targets = [
+                "aarch64-apple-darwin",
+                "x86_64-apple-darwin",
+                "x86_64-unknown-linux-gnu",
+                "aarch64-unknown-linux-gnu",
+            ];
+            for target in expected_targets {
+                if !manifest.targets.contains_key(target) {
+                    return Err(format!("pack {} missing target {}", manifest.id, target));
+                }
+            }
             if manifest.version != expected_version {
                 return Err(format!(
                     "pack {} version {} did not match expected release version {}",
