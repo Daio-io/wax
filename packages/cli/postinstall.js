@@ -132,12 +132,15 @@ function sha256(filePath) {
   return hash.digest("hex");
 }
 
-function expectedSha256(checksumText) {
-  const match = checksumText.match(/[a-fA-F0-9]{64}/);
-  if (!match) {
-    fail("checksum file did not contain a 64-character sha256 digest");
+function expectedSha256(checksumText, archiveName) {
+  for (const line of checksumText.split(/\r?\n/)) {
+    const match = line.match(/^([a-fA-F0-9]{64})\s+\*?(.+)$/);
+    if (match && path.basename(match[2].trim()) === archiveName) {
+      return match[1].toLowerCase();
+    }
   }
-  return match[0].toLowerCase();
+
+  throw new Error(`checksum file did not contain a sha256 for ${archiveName}`);
 }
 
 function runTar(args, cwd) {
@@ -187,7 +190,7 @@ async function install() {
     await download(archiveUrl, archivePath);
     await download(checksumUrl, checksumPath);
 
-    const expected = expectedSha256(fs.readFileSync(checksumPath, "utf8"));
+    const expected = expectedSha256(fs.readFileSync(checksumPath, "utf8"), archiveName);
     const actual = sha256(archivePath);
     if (actual !== expected) {
       fail(`checksum mismatch for ${archiveName}; expected ${expected}, got ${actual}`);
@@ -206,15 +209,15 @@ async function install() {
       fail(`archive contains unexpected entries: ${unexpected.join(", ")}`);
     }
 
-    fs.rmSync(installDir, { recursive: true, force: true });
     fs.mkdirSync(extractDir, { recursive: true });
-    fs.mkdirSync(installDir, { recursive: true });
     runTar(["-xzf", archivePath, "-C", extractDir, expectedMember], tmpDir);
     const extractedBinary = path.join(extractDir, expectedMember);
     const extractedStat = fs.lstatSync(extractedBinary);
     if (!extractedStat.isFile()) {
       fail(`archive entry is not a regular file: ${expectedMember}`);
     }
+    fs.rmSync(installDir, { recursive: true, force: true });
+    fs.mkdirSync(installDir, { recursive: true });
     fs.copyFileSync(extractedBinary, installPath);
     fs.chmodSync(installPath, 0o755);
 
@@ -224,4 +227,10 @@ async function install() {
   }
 }
 
-install().catch((error) => fail(error.message));
+if (require.main === module) {
+  install().catch((error) => fail(error.message));
+}
+
+module.exports = {
+  expectedSha256,
+};

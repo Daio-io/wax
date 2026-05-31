@@ -12,7 +12,8 @@
     "wax": "./run.js"
   },
   "scripts": {
-    "postinstall": "node postinstall.js"
+    "postinstall": "node postinstall.js",
+    "test": "node --test postinstall.test.js"
   },
   "files": [
     "postinstall.js",

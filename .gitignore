@@ -5,3 +5,6 @@ target/
 
 # local release dry-runs
 release/artifacts/
+
+# npm wrapper downloads host binaries during local postinstall smoke tests
+packages/cli/bin/

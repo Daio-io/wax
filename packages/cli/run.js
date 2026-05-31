@@ -13,6 +13,7 @@ if (!fs.existsSync(binaryPath)) {
   console.error("  npm install -g @wax/cli");
   console.error("");
   console.error("If npm lifecycle scripts were disabled, reinstall without --ignore-scripts.");
+  console.error("If WAX_CLI_SKIP_DOWNLOAD=1 was intentional, provide packages/cli/bin/wax before running.");
   process.exit(1);
 }
 
