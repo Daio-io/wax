@@ -25,7 +25,7 @@ jobs:
     steps:
       - name: Checkout
         # actions/checkout@v6
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@v6
 
       - name: Check tag matches workspace version
         run: |
@@ -55,18 +55,18 @@ jobs:
     steps:
       - name: Checkout
         # actions/checkout@v6
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         # dtolnay/rust-toolchain@stable
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
           components: clippy, rustfmt
 
       - name: Cache cargo
         # Swatinem/rust-cache@v2
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        uses: Swatinem/rust-cache@v2
         with:
           workspaces: engine
 
@@ -104,18 +104,18 @@ jobs:
     steps:
       - name: Checkout
         # actions/checkout@v6
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         # dtolnay/rust-toolchain@stable
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
           targets: ${{ matrix.target }}
 
       - name: Cache cargo
         # Swatinem/rust-cache@v2
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        uses: Swatinem/rust-cache@v2
         with:
           workspaces: engine
 
@@ -124,7 +124,7 @@ jobs:
 
       - name: Upload release assets
         # actions/upload-artifact@v4
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@v4
         with:
           name: release-assets-${{ matrix.target }}
           path: |
@@ -134,7 +134,7 @@ jobs:
 
       - name: Upload release manifest
         # actions/upload-artifact@v4
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@v4
         with:
           name: release-manifest-${{ matrix.target }}
           path: release/artifacts/${{ matrix.target }}/manifest.json
@@ -150,7 +150,7 @@ jobs:
     steps:
       - name: Download host release assets
         # actions/download-artifact@v4
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@v4
         with:
           name: release-assets-x86_64-unknown-linux-gnu
           path: host-release-assets
@@ -187,11 +187,11 @@ jobs:
     steps:
       - name: Checkout
         # actions/checkout@v6
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@v6
 
       - name: Download release assets
         # actions/download-artifact@v4
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@v4
         with:
           path: release-assets
           pattern: release-assets-*
@@ -199,7 +199,7 @@ jobs:
 
       - name: Download release manifests
         # actions/download-artifact@v4
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@v4
         with:
           path: release-manifests
           pattern: release-manifest-*
@@ -249,11 +249,11 @@ jobs:
     steps:
       - name: Checkout
         # actions/checkout@v6
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@v6
 
       - name: Download release assets
         # actions/download-artifact@v4
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@v4
         with:
           path: release-assets
           pattern: release-assets-*
@@ -261,7 +261,7 @@ jobs:
 
       - name: Download release manifests
         # actions/download-artifact@v4
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@v4
         with:
           path: release-manifests
           pattern: release-manifest-*
@@ -271,13 +271,13 @@ jobs:
 
       - name: Install Rust toolchain
         # dtolnay/rust-toolchain@stable
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
 
       - name: Cache cargo
         # Swatinem/rust-cache@v2
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        uses: Swatinem/rust-cache@v2
         with:
           workspaces: engine
 
@@ -289,7 +289,7 @@ jobs:
 
       - name: Publish release assets
         # softprops/action-gh-release@v2
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             release-assets/*.tar.gz
@@ -336,17 +336,17 @@ jobs:
     steps:
       - name: Checkout
         # actions/checkout@v6
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         # dtolnay/rust-toolchain@stable
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
 
       - name: Cache cargo
         # Swatinem/rust-cache@v2
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        uses: Swatinem/rust-cache@v2
         with:
           workspaces: engine
 
