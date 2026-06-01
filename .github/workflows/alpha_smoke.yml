@@ -33,6 +33,8 @@ jobs:
       RELEASE_TAG: ${{ github.event.inputs.release_tag }}
       REGISTRY_URL_OVERRIDE: ${{ github.event.inputs.registry_url }}
       LANGUAGE_ID: compose
+      SMOKE_COMPONENT_NAME: Text
+      SMOKE_COMPONENT_ALIAS: androidx.compose.material3.Text
 
     steps:
       - name: Download wax archive + checksum from release
@@ -73,15 +75,15 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p fixture-repo/app/src/main/kotlin/com/example
-          cat > fixture-repo/app/src/main/kotlin/com/example/Hello.kt <<'KOTLIN'
+          cat > fixture-repo/app/src/main/kotlin/com/example/Hello.kt <<KOTLIN
           package com.example
 
-          import androidx.compose.material3.Text
+          import ${SMOKE_COMPONENT_ALIAS}
           import androidx.compose.runtime.Composable
 
           @Composable
           fun Greeting() {
-            Text("Hello, Wax")
+            ${SMOKE_COMPONENT_NAME}("Hello, Wax")
           }
           KOTLIN
 
@@ -93,13 +95,13 @@ jobs:
             --repo-root fixture-repo
 
           mkdir -p fixture-repo/design-system
-          cat > fixture-repo/design-system/registry.json <<'JSON'
+          cat > fixture-repo/design-system/registry.json <<JSON
           {
             "schema_version": 1,
             "components": [
               {
-                "canonical_name": "Text",
-                "aliases": ["androidx.compose.material3.Text"],
+                "canonical_name": "${SMOKE_COMPONENT_NAME}",
+                "aliases": ["${SMOKE_COMPONENT_ALIAS}"],
                 "kind": "component",
                 "props": [],
                 "slots": [],
