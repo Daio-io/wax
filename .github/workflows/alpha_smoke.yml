@@ -1,4 +1,4 @@
-name: Alpha Smoke (Compose)
+name: Alpha Smoke
 
 "on":
   workflow_dispatch:
@@ -15,7 +15,7 @@ name: Alpha Smoke (Compose)
 
 jobs:
   smoke:
-    name: Smoke ${{ matrix.target }}
+    name: Smoke ${{ matrix.language_id }} on ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -25,18 +25,28 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            language_id: compose
+            fixture_path: engine/fixtures/smoke/compose/repo
+            require_non_scaffold_counts: "true"
           - os: macos-14
             target: aarch64-apple-darwin
+            language_id: compose
+            fixture_path: engine/fixtures/smoke/compose/repo
+            require_non_scaffold_counts: "true"
 
     env:
       REPOSITORY: ${{ github.repository }}
       RELEASE_TAG: ${{ github.event.inputs.release_tag }}
       REGISTRY_URL_OVERRIDE: ${{ github.event.inputs.registry_url }}
-      LANGUAGE_ID: compose
-      SMOKE_COMPONENT_NAME: Text
-      SMOKE_COMPONENT_ALIAS: androidx.compose.material3.Text
+      LANGUAGE_ID: ${{ matrix.language_id }}
+      FIXTURE_PATH: ${{ matrix.fixture_path }}
+      REQUIRE_NON_SCAFFOLD_COUNTS: ${{ matrix.require_non_scaffold_counts }}
 
     steps:
+      - name: Checkout
+        # actions/checkout@v6
+        uses: actions/checkout@v6
+
       - name: Download wax archive + checksum from release
         run: |
           set -euo pipefail
@@ -74,18 +84,9 @@ jobs:
       - name: Smoke init, validate, scan
         run: |
           set -euo pipefail
-          mkdir -p fixture-repo/app/src/main/kotlin/com/example
-          cat > fixture-repo/app/src/main/kotlin/com/example/ComposeSmokeFixture.kt <<KOTLIN
-          package com.example
-
-          import ${SMOKE_COMPONENT_ALIAS}
-          import androidx.compose.runtime.Composable
-
-          @Composable
-          fun ComposeSmokeFixture() {
-            ${SMOKE_COMPONENT_NAME}("Hello, Wax")
-          }
-          KOTLIN
+          rm -rf fixture-repo
+          mkdir -p fixture-repo
+          cp -R "${FIXTURE_PATH}/." fixture-repo/
 
           "${WAX_BIN}" init \
             --non-interactive \
@@ -93,23 +94,6 @@ jobs:
             --target "${{ matrix.target }}" \
             --registry "${REGISTRY_URL}" \
             --repo-root fixture-repo
-
-          mkdir -p fixture-repo/design-system
-          cat > fixture-repo/design-system/registry.json <<JSON
-          {
-            "schema_version": 1,
-            "components": [
-              {
-                "canonical_name": "${SMOKE_COMPONENT_NAME}",
-                "aliases": ["${SMOKE_COMPONENT_ALIAS}"],
-                "kind": "component",
-                "props": [],
-                "slots": [],
-                "events": []
-              }
-            ]
-          }
-          JSON
 
           "${WAX_BIN}" validate --repo-root fixture-repo
           "${WAX_BIN}" scan --repo-root fixture-repo
@@ -133,23 +117,24 @@ jobs:
           if not language_facts:
               raise SystemExit(f"scan output is missing {language_id} language facts")
 
-          counts = language_facts.get("counts", {})
-          non_scaffold_total = 0
-          for key in (
-              "design_system_component_count",
-              "local_component_count",
-              "usage_site_count",
-              "resolved_count",
-              "candidate_count",
-          ):
-              value = counts.get(key)
-              if isinstance(value, int):
-                  non_scaffold_total += value
+          if os.environ.get("REQUIRE_NON_SCAFFOLD_COUNTS") == "true":
+              counts = language_facts.get("counts", {})
+              non_scaffold_total = 0
+              for key in (
+                  "design_system_component_count",
+                  "local_component_count",
+                  "usage_site_count",
+                  "resolved_count",
+                  "candidate_count",
+              ):
+                  value = counts.get(key)
+                  if isinstance(value, int):
+                      non_scaffold_total += value
 
-          if non_scaffold_total <= 0:
-              raise SystemExit(
-                  f"{language_id} counts are all zero; expected non-scaffold facts in smoke fixture"
-              )
+              if non_scaffold_total <= 0:
+                  raise SystemExit(
+                      f"{language_id} counts are all zero; expected non-scaffold facts in smoke fixture"
+                  )
           PY
 
       - name: Upload smoke artifacts on failure
