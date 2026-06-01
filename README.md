@@ -68,6 +68,51 @@ npx @wax/cli --help
 
 The curl installer remains the primary alpha path while the npm package is validated across supported hosts.
 
+## Uninstall
+
+### Remove the `wax` binary
+
+If you installed via the curl script, remove whichever install location exists:
+
+```bash
+rm -f /usr/local/bin/wax
+rm -f "$HOME/.wax/bin/wax"
+```
+
+If you installed via npm:
+
+```bash
+npm uninstall -g @wax/cli
+```
+
+If you installed via Homebrew (once the tap is published):
+
+```bash
+brew uninstall wax
+```
+
+### Remove installed language packs
+
+Uninstall a specific language (all installed versions):
+
+```bash
+wax language uninstall compose
+```
+
+Uninstall one version only:
+
+```bash
+wax language uninstall compose --version 0.1.0
+```
+
+### Remove all global `wax` state (optional)
+
+This removes cached language packs, install state, and fallback binaries under `~/.wax`:
+
+```bash
+rm -rf "$HOME/.wax"
+```
+
 ## Getting started (compose alpha path)
 
 1. Install `wax` (curl path above).
