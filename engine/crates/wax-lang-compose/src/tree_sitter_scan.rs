@@ -12,7 +12,7 @@ use wax_contract::{
     DesignSystemComponent, Diagnostic, DiagnosticSeverity, LocalComponent, MatchStatus, ScanStatus,
     SourceLocation, UsageSite,
 };
-use wax_lang_api::ScanConfig;
+use wax_lang_api::{RootPatternKind, RootResolutionError, ScanConfig, resolve_source_roots};
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -418,16 +418,16 @@ pub fn scan_repository(
     let mut kotlin_files = Vec::new();
     let mut diagnostics = Vec::new();
     for root in &config.roots {
-        let resolved_roots = resolve_source_roots(repo_root, root)?;
-        if resolved_roots.is_empty() {
+        let resolved = resolve_source_roots(repo_root, root).map_err(map_root_resolution_error)?;
+        if resolved.roots.is_empty() {
             diagnostics.push(Diagnostic {
                 severity: DiagnosticSeverity::Warning,
-                code: root_not_found_code(root),
-                message: root_not_found_message(root),
+                code: root_not_found_code(resolved.kind),
+                message: root_not_found_message(root, resolved.kind),
                 location: None,
             });
         } else {
-            for abs_root in resolved_roots {
+            for abs_root in resolved.roots {
                 collect_kotlin_files(&abs_root, &mut kotlin_files)?;
             }
         }
@@ -516,88 +516,29 @@ pub fn scan_repository(
     })
 }
 
-fn resolve_source_roots(
-    repo_root: &Path,
-    root: &Path,
-) -> Result<Vec<PathBuf>, TreeSitterScanError> {
-    if !has_wildcard_segment(root) {
-        let abs_root = repo_root.join(root);
-        return Ok(abs_root.exists().then_some(abs_root).into_iter().collect());
-    }
-
-    let mut candidates = vec![repo_root.to_path_buf()];
-    for component in root.components() {
-        let text = component.as_os_str();
-        if text == "*" {
-            let mut expanded = Vec::new();
-            for candidate in &candidates {
-                if !candidate.exists() {
-                    continue;
-                }
-                let entries =
-                    fs::read_dir(candidate).map_err(|source| TreeSitterScanError::Io {
-                        context: format!("read wildcard root segment {}", candidate.display()),
-                        source,
-                    })?;
-                for entry in entries {
-                    let entry = entry.map_err(|source| TreeSitterScanError::Io {
-                        context: format!("read wildcard root entry {}", candidate.display()),
-                        source,
-                    })?;
-                    let path = entry.path();
-                    let file_type = fs::symlink_metadata(&path)
-                        .map_err(|source| TreeSitterScanError::Io {
-                            context: format!("read metadata for {}", path.display()),
-                            source,
-                        })?
-                        .file_type();
-                    if file_type.is_dir() && !file_type.is_symlink() {
-                        expanded.push(path);
-                    }
-                }
-            }
-            expanded.sort();
-            candidates = expanded;
-        } else {
-            candidates = candidates
-                .into_iter()
-                .map(|candidate| candidate.join(text))
-                .collect();
-        }
-    }
-
-    let mut roots = candidates
-        .into_iter()
-        .filter(|candidate| candidate.exists())
-        .collect::<Vec<_>>();
-    roots.sort();
-    Ok(roots)
-}
-
-fn has_wildcard_segment(path: &Path) -> bool {
-    path.components()
-        .any(|component| component.as_os_str() == "*")
-}
-
-fn root_not_found_code(root: &Path) -> String {
-    if has_wildcard_segment(root) {
-        "root_glob_not_found".to_owned()
-    } else {
-        "root_not_found".to_owned()
+fn map_root_resolution_error(err: RootResolutionError) -> TreeSitterScanError {
+    match err {
+        RootResolutionError::Io { context, source } => TreeSitterScanError::Io { context, source },
     }
 }
 
-fn root_not_found_message(root: &Path) -> String {
-    if has_wildcard_segment(root) {
-        format!(
-            "configured root pattern '{}' matched no directories under repo root; no files scanned from it",
-            root.display()
-        )
-    } else {
-        format!(
+fn root_not_found_code(kind: RootPatternKind) -> String {
+    match kind {
+        RootPatternKind::Literal => "root_not_found".to_owned(),
+        RootPatternKind::Wildcard => "root_glob_not_found".to_owned(),
+    }
+}
+
+fn root_not_found_message(root: &Path, kind: RootPatternKind) -> String {
+    match kind {
+        RootPatternKind::Literal => format!(
             "configured root '{}' does not exist under repo root; no files scanned from it",
             root.display()
-        )
+        ),
+        RootPatternKind::Wildcard => format!(
+            "configured root pattern '{}' matched no directories under repo root; no files scanned from it",
+            root.display()
+        ),
     }
 }
 

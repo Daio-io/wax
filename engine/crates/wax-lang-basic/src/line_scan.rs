@@ -9,7 +9,7 @@ use wax_contract::{
     DesignSystemComponent, Diagnostic, DiagnosticSeverity, MatchStatus, ScanStatus, SourceLocation,
     UsageSite,
 };
-use wax_lang_api::ScanConfig;
+use wax_lang_api::{RootPatternKind, RootResolutionError, ScanConfig, resolve_source_roots};
 
 const BASIC_TEXT_SCAN_DIAGNOSTIC: &str = "Basic text line scanner produced heuristic usage facts; parser-backed extraction is recommended for production. Heuristics strip // comments before matching (code after // inside strings or URLs may be missed).";
 
@@ -165,19 +165,16 @@ pub fn scan_repository(
         location: None,
     }];
     for root in &config.roots {
-        let resolved_roots = resolve_source_roots(repo_root, root)?;
-        if resolved_roots.is_empty() && has_wildcard_segment(root) {
+        let resolved = resolve_source_roots(repo_root, root).map_err(map_root_resolution_error)?;
+        if resolved.roots.is_empty() {
             diagnostics.push(Diagnostic {
                 severity: DiagnosticSeverity::Warning,
-                code: "root_glob_not_found".to_owned(),
-                message: format!(
-                    "configured root pattern '{}' matched no directories under repo root; no files scanned from it",
-                    root.display()
-                ),
+                code: root_not_found_code(resolved.kind),
+                message: root_not_found_message(root, resolved.kind),
                 location: None,
             });
         }
-        for source_root in resolved_roots {
+        for source_root in resolved.roots {
             collect_source_files(
                 &source_root,
                 &config.file_extensions,
@@ -238,6 +235,32 @@ pub fn scan_repository(
         diagnostics,
         status: ScanStatus::Partial,
     })
+}
+
+fn map_root_resolution_error(err: RootResolutionError) -> LineScanError {
+    match err {
+        RootResolutionError::Io { context, source } => LineScanError::Io { context, source },
+    }
+}
+
+fn root_not_found_code(kind: RootPatternKind) -> String {
+    match kind {
+        RootPatternKind::Literal => "root_not_found".to_owned(),
+        RootPatternKind::Wildcard => "root_glob_not_found".to_owned(),
+    }
+}
+
+fn root_not_found_message(root: &Path, kind: RootPatternKind) -> String {
+    match kind {
+        RootPatternKind::Literal => format!(
+            "configured root '{}' does not exist under repo root; no files scanned from it",
+            root.display()
+        ),
+        RootPatternKind::Wildcard => format!(
+            "configured root pattern '{}' matched no directories under repo root; no files scanned from it",
+            root.display()
+        ),
+    }
 }
 
 /// Output of the text line scanner before contract validation.
@@ -389,65 +412,6 @@ fn collect_source_files(
         }
     }
     Ok(())
-}
-
-fn resolve_source_roots(repo_root: &Path, root: &Path) -> Result<Vec<PathBuf>, LineScanError> {
-    if !has_wildcard_segment(root) {
-        let abs_root = repo_root.join(root);
-        return Ok(abs_root.exists().then_some(abs_root).into_iter().collect());
-    }
-
-    let mut candidates = vec![repo_root.to_path_buf()];
-    for component in root.components() {
-        let text = component.as_os_str();
-        if text == "*" {
-            let mut expanded = Vec::new();
-            for candidate in &candidates {
-                if !candidate.exists() {
-                    continue;
-                }
-                let entries = fs::read_dir(candidate).map_err(|source| LineScanError::Io {
-                    context: format!("read wildcard root segment {}", candidate.display()),
-                    source,
-                })?;
-                for entry in entries {
-                    let entry = entry.map_err(|source| LineScanError::Io {
-                        context: format!("read wildcard root entry {}", candidate.display()),
-                        source,
-                    })?;
-                    let path = entry.path();
-                    let file_type = fs::symlink_metadata(&path)
-                        .map_err(|source| LineScanError::Io {
-                            context: format!("read metadata for {}", path.display()),
-                            source,
-                        })?
-                        .file_type();
-                    if file_type.is_dir() && !file_type.is_symlink() {
-                        expanded.push(path);
-                    }
-                }
-            }
-            expanded.sort();
-            candidates = expanded;
-        } else {
-            candidates = candidates
-                .into_iter()
-                .map(|candidate| candidate.join(text))
-                .collect();
-        }
-    }
-
-    let mut roots = candidates
-        .into_iter()
-        .filter(|candidate| candidate.exists())
-        .collect::<Vec<_>>();
-    roots.sort();
-    Ok(roots)
-}
-
-fn has_wildcard_segment(path: &Path) -> bool {
-    path.components()
-        .any(|component| component.as_os_str() == "*")
 }
 
 fn should_include_file(path: &Path, file_extensions: &[String], include_globs: &[String]) -> bool {
@@ -691,6 +655,39 @@ mod tests {
 
         assert_eq!(result.files_scanned, 2);
         assert_eq!(result.usage_sites.len(), 2);
+
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[test]
+    fn missing_literal_root_emits_warning_diagnostic() {
+        let repo_root = temp_repo("basic-missing-literal-root");
+        let registry_dir = repo_root.join("design-system");
+        fs::create_dir_all(&registry_dir).unwrap();
+        fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"PrimaryButton"}]}"#,
+        )
+        .unwrap();
+
+        let config = BasicScanConfig {
+            design_system_registry: PathBuf::from("design-system/registry.json"),
+            roots: vec![PathBuf::from("app/src/main/kotlin")],
+            file_extensions: vec!["kt".to_owned()],
+            include_globs: Vec::new(),
+        };
+
+        let result = scan_repository(&repo_root, &config)
+            .expect("missing literal root should warn without failing");
+
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "root_not_found"),
+            "expected root_not_found diagnostic"
+        );
+        assert_eq!(result.files_scanned, 0);
 
         fs::remove_dir_all(repo_root).unwrap();
     }
