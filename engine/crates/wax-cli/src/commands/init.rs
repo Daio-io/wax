@@ -554,7 +554,7 @@ mod tests {
                 registry_url: Some(file_url(&registry_path)),
                 repo_root: second_repo.clone(),
                 target_triple: Some("test-target".to_owned()),
-                state_path: Some(state_path),
+                state_path: Some(state_path.clone()),
                 scaffold_registries: false,
             },
             &mut output,
@@ -564,8 +564,17 @@ mod tests {
         assert!(first_repo.join(".waxrc").is_file());
         assert!(second_repo.join(".waxrc").is_file());
         assert!(second_repo.join("wax.lock.json").is_file());
+        let state = load_global_state(state_path).unwrap();
+        assert!(state.installed_languages[&lang("compose")].contains_key("0.4.2"));
+        let first_lock = load_lockfile(first_repo.join("wax.lock.json")).unwrap();
+        let second_lock = load_lockfile(second_repo.join("wax.lock.json")).unwrap();
+        assert_eq!(
+            first_lock.languages[&lang("compose")],
+            second_lock.languages[&lang("compose")]
+        );
         let output = String::from_utf8(output).unwrap();
         assert!(output.contains("initialized wax"));
+        assert!(output.contains("installed compose 0.4.2"));
     }
 
     #[test]

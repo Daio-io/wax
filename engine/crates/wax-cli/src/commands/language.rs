@@ -479,7 +479,7 @@ fn install_manifest(
     install_resolved_manifest(registry_manifest, &target, artifact)
 }
 
-/// Installs a language pack from registry metadata already resolved for lockfile pinning.
+/// Installs or reuses a language pack from registry metadata already resolved for lockfile pinning.
 pub(crate) fn install_pinned_manifest(
     registry_manifest: &RegistryManifest,
     target: &str,
@@ -487,21 +487,26 @@ pub(crate) fn install_pinned_manifest(
     state_path: Option<PathBuf>,
     writer: &mut impl Write,
 ) -> Result<(), LanguageCommandError> {
-    let install_dir = match install_resolved_manifest(registry_manifest, target, artifact) {
-        Ok(install_dir) => install_dir,
-        Err(LanguageCommandError::Install(InstallError::AlreadyInstalled { path })) => path.into(),
-        Err(err) => return Err(err),
-    };
+    let (install_dir, installed_fresh) =
+        match install_resolved_manifest(registry_manifest, target, artifact) {
+            Ok(install_dir) => (install_dir, true),
+            Err(LanguageCommandError::Install(InstallError::AlreadyInstalled { path })) => {
+                (path.into(), false)
+            }
+            Err(err) => return Err(err),
+        };
     if let Err(err) = record_installed_language(
         state_path,
         &registry_manifest.id,
         &registry_manifest.version,
         install_dir,
     ) {
-        remove_dir_if_exists(&lang_install_dir(
-            &registry_manifest.id,
-            &registry_manifest.version,
-        )?)?;
+        if installed_fresh {
+            remove_dir_if_exists(&lang_install_dir(
+                &registry_manifest.id,
+                &registry_manifest.version,
+            )?)?;
+        }
         return Err(err);
     }
     writeln!(
@@ -1341,6 +1346,37 @@ mod tests {
 
         assert!(err.to_string().contains("global state"));
         assert!(!temp.path().join("langs/compose/0.4.2").exists());
+    }
+
+    #[test]
+    fn install_pinned_manifest_keeps_reused_directory_when_recording_state_fails() {
+        let _guard = env_lock();
+        let temp = TestDir::new("init-reuse-rollback");
+        let _wax_home = EnvVarGuard::set("WAX_HOME", temp.path());
+
+        let install_dir = temp.path().join("langs/compose/0.4.2");
+        fs::create_dir_all(&install_dir).unwrap();
+        fs::write(install_dir.join("wax-lang-compose"), "#!/bin/sh\nexit 0\n").unwrap();
+
+        let bad_state_path = temp.path().join("state-dir");
+        fs::create_dir_all(&bad_state_path).unwrap();
+        let manifest = registry_manifest("compose", "0.4.2");
+        let artifact = RegistryArtifact {
+            url: "file:///tmp/not-used-on-reuse.tgz".to_owned(),
+            sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned(),
+        };
+
+        let err = install_pinned_manifest(
+            &manifest,
+            "test-target",
+            &artifact,
+            Some(bad_state_path),
+            &mut Vec::new(),
+        )
+        .expect_err("recording state should fail");
+
+        assert!(err.to_string().contains("global state"));
+        assert!(install_dir.exists());
     }
 
     #[test]
