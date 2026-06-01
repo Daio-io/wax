@@ -70,9 +70,17 @@ The curl installer remains the primary alpha path while the npm package is valid
 
 ## Uninstall
 
+To remove the installed binary and global wax state in one command:
+
+```bash
+wax uninstall --full
+```
+
+This removes `~/.wax` and attempts to remove common binary locations such as `/usr/local/bin/wax` and `~/.wax/bin/wax`.
+
 ### Remove the `wax` binary
 
-If you installed via the curl script, remove whichever install location exists:
+If you prefer manual cleanup, remove whichever binary install location exists:
 
 ```bash
 rm -f /usr/local/bin/wax
