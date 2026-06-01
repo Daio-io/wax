@@ -1,0 +1,150 @@
+name: Alpha Smoke
+
+"on":
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to smoke, for example v0.1.0-alpha.1"
+        required: true
+        type: string
+      registry_url:
+        description: "Optional pack index override; defaults to this release tag asset URL"
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  smoke:
+    name: Smoke ${{ matrix.language_id }} on ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            language_id: compose
+            fixture_path: engine/fixtures/smoke/compose/repo
+            require_non_scaffold_counts: "true"
+          - os: macos-14
+            target: aarch64-apple-darwin
+            language_id: compose
+            fixture_path: engine/fixtures/smoke/compose/repo
+            require_non_scaffold_counts: "true"
+
+    env:
+      REPOSITORY: ${{ github.repository }}
+      RELEASE_TAG: ${{ github.event.inputs.release_tag }}
+      REGISTRY_URL_OVERRIDE: ${{ github.event.inputs.registry_url }}
+      LANGUAGE_ID: ${{ matrix.language_id }}
+      FIXTURE_PATH: ${{ matrix.fixture_path }}
+      REQUIRE_NON_SCAFFOLD_COUNTS: ${{ matrix.require_non_scaffold_counts }}
+
+    steps:
+      - name: Checkout
+        # actions/checkout@v6
+        uses: actions/checkout@v6
+
+      - name: Download wax archive + checksum from release
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          base_url="https://github.com/${REPOSITORY}/releases/download/${RELEASE_TAG}"
+          archive="wax-${version}-${{ matrix.target }}.tar.gz"
+          curl -fL --retry 3 --retry-delay 2 "${base_url}/${archive}" -o "${archive}"
+          curl -fL --retry 3 --retry-delay 2 "${base_url}/${archive}.sha256" -o "${archive}.sha256"
+          shasum -a 256 -c "${archive}.sha256"
+
+      - name: Resolve registry URL
+        run: |
+          set -euo pipefail
+          default_registry_url="https://github.com/${REPOSITORY}/releases/download/${RELEASE_TAG}/index.json"
+          if [[ -n "${REGISTRY_URL_OVERRIDE}" ]]; then
+            registry_url="${REGISTRY_URL_OVERRIDE}"
+          else
+            registry_url="${default_registry_url}"
+          fi
+          echo "REGISTRY_URL=${registry_url}" >> "$GITHUB_ENV"
+          echo "Using registry URL: ${registry_url}"
+
+      - name: Unpack wax binary
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          archive="wax-${version}-${{ matrix.target }}.tar.gz"
+          mkdir -p smoke-bin
+          tar -xzf "${archive}" -C smoke-bin
+          wax_bin="smoke-bin/wax-${version}-${{ matrix.target }}/wax"
+          test -f "${wax_bin}"
+          chmod +x "${wax_bin}"
+          echo "WAX_BIN=${wax_bin}" >> "$GITHUB_ENV"
+
+      - name: Smoke init, validate, scan
+        run: |
+          set -euo pipefail
+          rm -rf fixture-repo
+          mkdir -p fixture-repo
+          cp -R "${FIXTURE_PATH}/." fixture-repo/
+
+          "${WAX_BIN}" init \
+            --non-interactive \
+            --language "${LANGUAGE_ID}" \
+            --target "${{ matrix.target }}" \
+            --registry "${REGISTRY_URL}" \
+            --repo-root fixture-repo
+
+          "${WAX_BIN}" validate --repo-root fixture-repo
+          "${WAX_BIN}" scan --repo-root fixture-repo
+
+      - name: Assert scan output contract
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path("fixture-repo/.wax/out/scan-merged.json")
+          data = json.loads(path.read_text())
+          if data.get("schema_version") != 1:
+              raise SystemExit(f"expected schema_version 1, got {data.get('schema_version')!r}")
+
+          languages = data.get("languages", {})
+          language_id = os.environ["LANGUAGE_ID"]
+          language_facts = languages.get(language_id)
+          if not language_facts:
+              raise SystemExit(f"scan output is missing {language_id} language facts")
+
+          if os.environ.get("REQUIRE_NON_SCAFFOLD_COUNTS") == "true":
+              counts = language_facts.get("counts", {})
+              for key in (
+                  "local_component_count",
+                  "usage_site_count",
+                  "resolved_count",
+              ):
+                  value = counts.get(key)
+                  if not isinstance(value, int) or value <= 0:
+                      raise SystemExit(
+                          f"{language_id} count {key} was {value!r}; expected a positive fixture scan count"
+                      )
+
+              if language_facts.get("status") != "complete":
+                  raise SystemExit(
+                      f"{language_id} status was {language_facts.get('status')!r}; expected complete"
+                  )
+          PY
+
+      - name: Upload smoke artifacts on failure
+        if: failure()
+        # actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4
+        with:
+          name: alpha-smoke-debug-${{ matrix.target }}
+          path: |
+            fixture-repo/.waxrc
+            fixture-repo/wax.lock.json
+            fixture-repo/design-system/registry.json
+            fixture-repo/.wax/out
+          if-no-files-found: warn
