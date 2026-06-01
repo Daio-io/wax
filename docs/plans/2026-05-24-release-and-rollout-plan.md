@@ -463,17 +463,16 @@ Run: `./scripts/install.sh --dry-run` or manual test against alpha release.
 
 Expected: `wax --help` works after install.
 
-### - [ ] Task 13: Homebrew tap formula
+### - [x] Task 13: Homebrew tap formula
 
 **Files:**
 
 - Create: `homebrew/Formula/wax.rb`
 - Modify: `README.md`
 
-- [ ] **Step 1: Formula installs `wax` binary only from GitHub Release**
+- [x] **Step 1: Formula installs `wax` binary only from GitHub Release**
 
 Use versioned URL + sha256 from release.
-Blocked until the first published `wax` GitHub Release provides macOS archive checksums.
 
 - [x] **Step 2: Document tap install**
 
@@ -482,7 +481,7 @@ brew tap <org>/wax
 brew install wax
 ```
 
-Status: README now marks Homebrew as pending until a dedicated tap repository exists (expected: `<org>/homebrew-wax`) and checksums are published.
+Status: README documents the published `Daio-io/wax` tap install path.
 
 - [x] **Step 3: Caveats section explains language pack download on first use**
 

@@ -11,7 +11,7 @@ Open-source, self-hostable design system component tracker. See [component track
 - [Post-alpha UX plan](docs/plans/2026-05-24-post-alpha-ux-plan.md) — guided init, scan exports, CI summaries, local reports (order 3)
 - [`engine/`](engine/) — production Rust workspace (`wax` CLI, language packs, contract crates)
 
-## Install (alpha: curl-ready, Homebrew pending)
+## Install (alpha)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Daio-io/wax/main/scripts/install.sh | bash
@@ -40,16 +40,14 @@ curl -fsSL https://raw.githubusercontent.com/Daio-io/wax/main/scripts/install.sh
 
 Note: `--dry-run` without `--version` still queries the GitHub API to resolve the latest release tag.
 
-### Homebrew (tap) — pending
+### Homebrew (tap)
 
-Homebrew is part of the alpha rollout path, but the tap is not published yet.
+```bash
+brew tap Daio-io/wax
+brew install wax
+```
 
-- The formula currently lives in this repo as a draft at `homebrew/Formula/wax.rb`.
-- A working tap install requires a dedicated tap repo (`Daio-io/homebrew-wax`) with `Formula/wax.rb`.
-- The draft formula still needs real 64-character `sha256` values from published GitHub Release assets.
-- Current formula targets macOS archives only.
-
-Use the curl installer above for now.
+The Homebrew formula currently targets macOS archives only. Language packs are not bundled with the CLI binary; continue with the compose walkthrough in [Getting started](#getting-started-compose-alpha-path).
 
 ### npm (optional alpha wrapper)
 
