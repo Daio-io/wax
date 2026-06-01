@@ -2,7 +2,8 @@
   "schema_version": 1,
   "components": [
     {
-      "canonical_name": "Text",
+      "id": "ds.text",
+      "symbol": "Text",
       "aliases": ["androidx.compose.material3.Text"],
       "kind": "component",
       "props": [],

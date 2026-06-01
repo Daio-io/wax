@@ -119,21 +119,20 @@ jobs:
 
           if os.environ.get("REQUIRE_NON_SCAFFOLD_COUNTS") == "true":
               counts = language_facts.get("counts", {})
-              non_scaffold_total = 0
               for key in (
-                  "design_system_component_count",
                   "local_component_count",
                   "usage_site_count",
                   "resolved_count",
-                  "candidate_count",
               ):
                   value = counts.get(key)
-                  if isinstance(value, int):
-                      non_scaffold_total += value
+                  if not isinstance(value, int) or value <= 0:
+                      raise SystemExit(
+                          f"{language_id} count {key} was {value!r}; expected a positive fixture scan count"
+                      )
 
-              if non_scaffold_total <= 0:
+              if language_facts.get("status") != "complete":
                   raise SystemExit(
-                      f"{language_id} counts are all zero; expected non-scaffold facts in smoke fixture"
+                      f"{language_id} status was {language_facts.get('status')!r}; expected complete"
                   )
           PY
 
