@@ -2,6 +2,7 @@ mod commands {
     pub mod init;
     pub mod language;
     pub mod scan;
+    pub mod uninstall;
     pub mod validate;
 }
 
@@ -15,6 +16,7 @@ use commands::language::{
     UpdateOptions, run_doctor, run_install, run_list, run_uninstall, run_update,
 };
 use commands::scan::{ScanCommandOptions, run_scan};
+use commands::uninstall::{UninstallCliOptions, run_uninstall_cli};
 use commands::validate::{ValidateCommandOptions, run_validate};
 use std::path::PathBuf;
 use wax_contract::LanguageId;
@@ -37,6 +39,8 @@ enum Commands {
     Scan(ScanArgs),
     /// Validate repository wax inputs for CI usage.
     Validate(ValidateArgs),
+    /// Uninstall wax global state and local binary paths.
+    Uninstall(GlobalUninstallArgs),
 }
 
 #[derive(Debug, Args)]
@@ -158,6 +162,13 @@ struct ValidateArgs {
     repo_root: PathBuf,
 }
 
+#[derive(Debug, Args)]
+struct GlobalUninstallArgs {
+    /// Remove global state (`~/.wax`) and best-effort binary install paths.
+    #[arg(long)]
+    full: bool,
+}
+
 fn main() {
     let cli = Cli::parse();
     let mut stdout = std::io::stdout().lock();
@@ -238,6 +249,10 @@ fn main() {
             &mut stdout,
         )
         .map_err(Into::into),
+        Commands::Uninstall(args) => {
+            run_uninstall_cli(UninstallCliOptions { full: args.full }, &mut stdout)
+                .map_err(Into::into)
+        }
     };
 
     if let Err(err) = result {
