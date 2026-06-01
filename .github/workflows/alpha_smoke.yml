@@ -9,9 +9,9 @@ name: Alpha Smoke
         default: "v0.1.0-alpha.1"
         type: string
       registry_url:
-        description: "Pack index URL to use during smoke"
-        required: true
-        default: "https://raw.githubusercontent.com/Daio-io/wax/gh-pages/index.json"
+        description: "Optional pack index override; defaults to this release tag asset URL"
+        required: false
+        default: ""
         type: string
 
 jobs:
@@ -31,7 +31,7 @@ jobs:
 
     env:
       RELEASE_TAG: ${{ github.event.inputs.release_tag }}
-      REGISTRY_URL: ${{ github.event.inputs.registry_url }}
+      REGISTRY_URL_OVERRIDE: ${{ github.event.inputs.registry_url }}
 
     steps:
       - name: Download wax archive + checksum from release
@@ -44,6 +44,18 @@ jobs:
           curl -fL --retry 3 --retry-delay 2 "${base_url}/${archive}.sha256" -o "${archive}.sha256"
           shasum -a 256 -c "${archive}.sha256"
 
+      - name: Resolve registry URL
+        run: |
+          set -euo pipefail
+          default_registry_url="https://github.com/Daio-io/wax/releases/download/${RELEASE_TAG}/index.json"
+          if [[ -n "${REGISTRY_URL_OVERRIDE}" ]]; then
+            registry_url="${REGISTRY_URL_OVERRIDE}"
+          else
+            registry_url="${default_registry_url}"
+          fi
+          echo "REGISTRY_URL=${registry_url}" >> "$GITHUB_ENV"
+          echo "Using registry URL: ${registry_url}"
+
       - name: Unpack wax binary
         run: |
           set -euo pipefail
@@ -51,16 +63,16 @@ jobs:
           archive="wax-${version}-${{ matrix.target }}.tar.gz"
           mkdir -p smoke-bin
           tar -xzf "${archive}" -C smoke-bin
-          wax_bin="$(find smoke-bin -type f -name wax -print -quit)"
-          test -n "${wax_bin}"
+          wax_bin="smoke-bin/wax-${version}-${{ matrix.target }}/wax"
+          test -f "${wax_bin}"
           chmod +x "${wax_bin}"
           echo "WAX_BIN=${wax_bin}" >> "$GITHUB_ENV"
 
       - name: Smoke init, validate, scan
         run: |
           set -euo pipefail
-          mkdir -p fixture-repo/app/src/main/java/com/example
-          cat > fixture-repo/app/src/main/java/com/example/Hello.kt <<'KOTLIN'
+          mkdir -p fixture-repo/app/src/main/kotlin/com/example
+          cat > fixture-repo/app/src/main/kotlin/com/example/Hello.kt <<'KOTLIN'
           package com.example
 
           import androidx.compose.material3.Text
@@ -78,6 +90,23 @@ jobs:
             --target "${{ matrix.target }}" \
             --registry "${REGISTRY_URL}" \
             --repo-root fixture-repo
+
+          mkdir -p fixture-repo/design-system
+          cat > fixture-repo/design-system/registry.json <<'JSON'
+          {
+            "schema_version": 1,
+            "components": [
+              {
+                "canonical_name": "Text",
+                "aliases": ["androidx.compose.material3.Text"],
+                "kind": "component",
+                "props": [],
+                "slots": [],
+                "events": []
+              }
+            ]
+          }
+          JSON
 
           "${WAX_BIN}" validate --repo-root fixture-repo
           "${WAX_BIN}" scan --repo-root fixture-repo
@@ -117,3 +146,16 @@ jobs:
                   "compose counts are all zero; expected non-scaffold compose facts in smoke fixture"
               )
           PY
+
+      - name: Upload smoke artifacts on failure
+        if: failure()
+        # actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4
+        with:
+          name: alpha-smoke-debug-${{ matrix.target }}
+          path: |
+            fixture-repo/.waxrc
+            fixture-repo/wax.lock.json
+            fixture-repo/design-system/registry.json
+            fixture-repo/.wax/out
+          if-no-files-found: warn
