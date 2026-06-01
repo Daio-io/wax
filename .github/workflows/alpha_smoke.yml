@@ -12,6 +12,21 @@ name: Alpha Smoke
         required: false
         default: ""
         type: string
+      language_id:
+        description: "Language id to smoke"
+        required: true
+        default: "compose"
+        type: string
+      smoke_component_name:
+        description: "Canonical component name expected in registry/usage"
+        required: true
+        default: "Text"
+        type: string
+      smoke_component_alias:
+        description: "Component alias/import path expected in scanned source"
+        required: true
+        default: "androidx.compose.material3.Text"
+        type: string
 
 jobs:
   smoke:
@@ -32,9 +47,9 @@ jobs:
       REPOSITORY: ${{ github.repository }}
       RELEASE_TAG: ${{ github.event.inputs.release_tag }}
       REGISTRY_URL_OVERRIDE: ${{ github.event.inputs.registry_url }}
-      LANGUAGE_ID: compose
-      SMOKE_COMPONENT_NAME: Text
-      SMOKE_COMPONENT_ALIAS: androidx.compose.material3.Text
+      LANGUAGE_ID: ${{ github.event.inputs.language_id }}
+      SMOKE_COMPONENT_NAME: ${{ github.event.inputs.smoke_component_name }}
+      SMOKE_COMPONENT_ALIAS: ${{ github.event.inputs.smoke_component_alias }}
 
     steps:
       - name: Download wax archive + checksum from release
@@ -74,6 +89,12 @@ jobs:
       - name: Smoke init, validate, scan
         run: |
           set -euo pipefail
+          if [[ "${LANGUAGE_ID}" != "compose" ]]; then
+            echo "This smoke fixture currently supports only compose; got '${LANGUAGE_ID}'." >&2
+            echo "Set language_id=compose or extend fixture generation for additional language packs." >&2
+            exit 1
+          fi
+
           mkdir -p fixture-repo/app/src/main/kotlin/com/example
           cat > fixture-repo/app/src/main/kotlin/com/example/Hello.kt <<KOTLIN
           package com.example
