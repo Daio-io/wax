@@ -557,18 +557,18 @@ Run: `rg -n "cargo install --path" README.md` — ensure contributor path remain
 
 Expected: New user can follow README without reading plans.
 
-### - [ ] Task 16: Alpha smoke verification
+### - [x] Task 16: Alpha smoke verification
 
 **Files:**
 
 - Create: `.github/workflows/alpha_smoke.yml` (optional scheduled or post-release)
 - Create: `engine/crates/wax-cli/tests/alpha_smoke.rs` (ignored test or feature-gated)
 
-- [ ] **Step 1: Script downloads released `wax` for runner triple**
+- [x] **Step 1: Script downloads released `wax` for runner triple**
 
-- [ ] **Step 2: Run init (file or https index), validate, scan against small fixture**
+- [x] **Step 2: Run init (file or https index), validate, scan against small fixture**
 
-- [ ] **Step 3: Assert `scan-merged.json` schema_version and non-scaffold compose counts where applicable**
+- [x] **Step 3: Assert `scan-merged.json` schema_version and non-scaffold compose counts where applicable**
 
 Run: workflow_dispatch after first alpha tag.
 

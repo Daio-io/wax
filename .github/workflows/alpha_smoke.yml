@@ -1,0 +1,119 @@
+name: Alpha Smoke
+
+"on":
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to smoke, for example v0.1.0-alpha.1"
+        required: true
+        default: "v0.1.0-alpha.1"
+        type: string
+      registry_url:
+        description: "Pack index URL to use during smoke"
+        required: true
+        default: "https://raw.githubusercontent.com/Daio-io/wax/gh-pages/index.json"
+        type: string
+
+jobs:
+  smoke:
+    name: Smoke ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-14
+            target: aarch64-apple-darwin
+
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.release_tag }}
+      REGISTRY_URL: ${{ github.event.inputs.registry_url }}
+
+    steps:
+      - name: Download wax archive + checksum from release
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          base_url="https://github.com/Daio-io/wax/releases/download/${RELEASE_TAG}"
+          archive="wax-${version}-${{ matrix.target }}.tar.gz"
+          curl -fL --retry 3 --retry-delay 2 "${base_url}/${archive}" -o "${archive}"
+          curl -fL --retry 3 --retry-delay 2 "${base_url}/${archive}.sha256" -o "${archive}.sha256"
+          shasum -a 256 -c "${archive}.sha256"
+
+      - name: Unpack wax binary
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          archive="wax-${version}-${{ matrix.target }}.tar.gz"
+          mkdir -p smoke-bin
+          tar -xzf "${archive}" -C smoke-bin
+          wax_bin="$(find smoke-bin -type f -name wax -print -quit)"
+          test -n "${wax_bin}"
+          chmod +x "${wax_bin}"
+          echo "WAX_BIN=${wax_bin}" >> "$GITHUB_ENV"
+
+      - name: Smoke init, validate, scan
+        run: |
+          set -euo pipefail
+          mkdir -p fixture-repo/app/src/main/java/com/example
+          cat > fixture-repo/app/src/main/java/com/example/Hello.kt <<'KOTLIN'
+          package com.example
+
+          import androidx.compose.material3.Text
+          import androidx.compose.runtime.Composable
+
+          @Composable
+          fun Greeting() {
+            Text("Hello, Wax")
+          }
+          KOTLIN
+
+          "${WAX_BIN}" init \
+            --non-interactive \
+            --language compose \
+            --target "${{ matrix.target }}" \
+            --registry "${REGISTRY_URL}" \
+            --repo-root fixture-repo
+
+          "${WAX_BIN}" validate --repo-root fixture-repo
+          "${WAX_BIN}" scan --repo-root fixture-repo
+
+      - name: Assert scan output contract
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("fixture-repo/.wax/out/scan-merged.json")
+          data = json.loads(path.read_text())
+          if data.get("schema_version") != 1:
+              raise SystemExit(f"expected schema_version 1, got {data.get('schema_version')!r}")
+
+          languages = data.get("languages", {})
+          compose = languages.get("compose")
+          if not compose:
+              raise SystemExit("scan output is missing compose language facts")
+
+          counts = compose.get("counts", {})
+          non_scaffold_total = 0
+          for key in (
+              "design_system_component_count",
+              "local_component_count",
+              "usage_site_count",
+              "resolved_count",
+              "candidate_count",
+          ):
+              value = counts.get(key)
+              if isinstance(value, int):
+                  non_scaffold_total += value
+
+          if non_scaffold_total <= 0:
+              raise SystemExit(
+                  "compose counts are all zero; expected non-scaffold compose facts in smoke fixture"
+              )
+          PY
