@@ -506,6 +506,69 @@ mod tests {
     }
 
     #[test]
+    fn init_reuses_already_installed_language_for_second_repo() {
+        let _guard = env_lock();
+        let temp = TestDir::new("second-repo");
+        let _wax_home = EnvVarGuard::set("WAX_HOME", temp.path.join("home"));
+
+        let artifact_path = temp.path.join("compose.tgz");
+        let digest = write_pack_artifact(&artifact_path, "wax-lang-compose");
+        let registry_path = temp.path.join("registry.json");
+        fs::write(
+            &registry_path,
+            format!(
+                r#"[{{"id":"compose","version":"0.4.2","api_version":1,"targets":{{"test-target":{{"url":"{}","sha256":"{}"}}}}}}]"#,
+                file_url(&artifact_path),
+                digest
+            ),
+        )
+        .unwrap();
+
+        let first_repo = temp.path.join("first-repo");
+        let second_repo = temp.path.join("second-repo");
+        fs::create_dir_all(&first_repo).unwrap();
+        fs::create_dir_all(&second_repo).unwrap();
+        let state_path = temp.path.join("home/state.json");
+
+        run_init(
+            InitOptions {
+                non_interactive: true,
+                languages: vec![lang("compose")],
+                no_install: false,
+                registry_url: Some(file_url(&registry_path)),
+                repo_root: first_repo.clone(),
+                target_triple: Some("test-target".to_owned()),
+                state_path: Some(state_path.clone()),
+                scaffold_registries: false,
+            },
+            &mut Vec::new(),
+        )
+        .unwrap();
+
+        let mut output = Vec::new();
+        run_init(
+            InitOptions {
+                non_interactive: true,
+                languages: vec![lang("compose")],
+                no_install: false,
+                registry_url: Some(file_url(&registry_path)),
+                repo_root: second_repo.clone(),
+                target_triple: Some("test-target".to_owned()),
+                state_path: Some(state_path),
+                scaffold_registries: false,
+            },
+            &mut output,
+        )
+        .unwrap();
+
+        assert!(first_repo.join(".waxrc").is_file());
+        assert!(second_repo.join(".waxrc").is_file());
+        assert!(second_repo.join("wax.lock.json").is_file());
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("initialized wax"));
+    }
+
+    #[test]
     fn init_refuses_existing_waxrc() {
         let temp = TestDir::new("existing");
         let repo_root = temp.path.join("repo");

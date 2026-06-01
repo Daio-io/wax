@@ -487,7 +487,11 @@ pub(crate) fn install_pinned_manifest(
     state_path: Option<PathBuf>,
     writer: &mut impl Write,
 ) -> Result<(), LanguageCommandError> {
-    let install_dir = install_resolved_manifest(registry_manifest, target, artifact)?;
+    let install_dir = match install_resolved_manifest(registry_manifest, target, artifact) {
+        Ok(install_dir) => install_dir,
+        Err(LanguageCommandError::Install(InstallError::AlreadyInstalled { path })) => path.into(),
+        Err(err) => return Err(err),
+    };
     if let Err(err) = record_installed_language(
         state_path,
         &registry_manifest.id,
