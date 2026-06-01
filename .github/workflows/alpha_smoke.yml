@@ -32,6 +32,7 @@ jobs:
       REPOSITORY: ${{ github.repository }}
       RELEASE_TAG: ${{ github.event.inputs.release_tag }}
       REGISTRY_URL_OVERRIDE: ${{ github.event.inputs.registry_url }}
+      LANGUAGE_ID: compose
 
     steps:
       - name: Download wax archive + checksum from release
@@ -86,7 +87,7 @@ jobs:
 
           "${WAX_BIN}" init \
             --non-interactive \
-            --language compose \
+            --language "${LANGUAGE_ID}" \
             --target "${{ matrix.target }}" \
             --registry "${REGISTRY_URL}" \
             --repo-root fixture-repo
@@ -116,6 +117,7 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           import json
+          import os
           from pathlib import Path
 
           path = Path("fixture-repo/.wax/out/scan-merged.json")
@@ -124,11 +126,12 @@ jobs:
               raise SystemExit(f"expected schema_version 1, got {data.get('schema_version')!r}")
 
           languages = data.get("languages", {})
-          compose = languages.get("compose")
-          if not compose:
-              raise SystemExit("scan output is missing compose language facts")
+          language_id = os.environ["LANGUAGE_ID"]
+          language_facts = languages.get(language_id)
+          if not language_facts:
+              raise SystemExit(f"scan output is missing {language_id} language facts")
 
-          counts = compose.get("counts", {})
+          counts = language_facts.get("counts", {})
           non_scaffold_total = 0
           for key in (
               "design_system_component_count",
@@ -143,7 +146,7 @@ jobs:
 
           if non_scaffold_total <= 0:
               raise SystemExit(
-                  "compose counts are all zero; expected non-scaffold compose facts in smoke fixture"
+                  f"{language_id} counts are all zero; expected non-scaffold facts in smoke fixture"
               )
           PY
 
