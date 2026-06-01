@@ -9,7 +9,7 @@ use wax_contract::{
     DesignSystemComponent, Diagnostic, DiagnosticSeverity, MatchStatus, ScanStatus, SourceLocation,
     UsageSite,
 };
-use wax_lang_api::ScanConfig;
+use wax_lang_api::{RootPatternKind, RootResolutionError, ScanConfig, resolve_source_roots};
 
 const BASIC_TEXT_SCAN_DIAGNOSTIC: &str = "Basic text line scanner produced heuristic usage facts; parser-backed extraction is recommended for production. Heuristics strip // comments before matching (code after // inside strings or URLs may be missed).";
 
@@ -158,13 +158,30 @@ pub fn scan_repository(
     let registry_path = repo_root.join(&config.design_system_registry);
     let registry = load_registry(&registry_path)?;
     let mut source_files = Vec::new();
+    let mut diagnostics = vec![Diagnostic {
+        severity: DiagnosticSeverity::Info,
+        code: "basic_text_scan".to_owned(),
+        message: BASIC_TEXT_SCAN_DIAGNOSTIC.to_owned(),
+        location: None,
+    }];
     for root in &config.roots {
-        collect_source_files(
-            &repo_root.join(root),
-            &config.file_extensions,
-            &config.include_globs,
-            &mut source_files,
-        )?;
+        let resolved = resolve_source_roots(repo_root, root).map_err(map_root_resolution_error)?;
+        if resolved.roots.is_empty() {
+            diagnostics.push(Diagnostic {
+                severity: DiagnosticSeverity::Warning,
+                code: root_not_found_code(resolved.kind),
+                message: root_not_found_message(root, resolved.kind),
+                location: None,
+            });
+        }
+        for source_root in resolved.roots {
+            collect_source_files(
+                &source_root,
+                &config.file_extensions,
+                &config.include_globs,
+                &mut source_files,
+            )?;
+        }
     }
     source_files.sort();
 
@@ -215,14 +232,35 @@ pub fn scan_repository(
         local_components: Vec::new(),
         usage_sites,
         files_scanned,
-        diagnostics: vec![Diagnostic {
-            severity: DiagnosticSeverity::Info,
-            code: "basic_text_scan".to_owned(),
-            message: BASIC_TEXT_SCAN_DIAGNOSTIC.to_owned(),
-            location: None,
-        }],
+        diagnostics,
         status: ScanStatus::Partial,
     })
+}
+
+fn map_root_resolution_error(err: RootResolutionError) -> LineScanError {
+    match err {
+        RootResolutionError::Io { context, source } => LineScanError::Io { context, source },
+    }
+}
+
+fn root_not_found_code(kind: RootPatternKind) -> String {
+    match kind {
+        RootPatternKind::Literal => "root_not_found".to_owned(),
+        RootPatternKind::Wildcard => "root_glob_not_found".to_owned(),
+    }
+}
+
+fn root_not_found_message(root: &Path, kind: RootPatternKind) -> String {
+    match kind {
+        RootPatternKind::Literal => format!(
+            "configured root '{}' does not exist under repo root; no files scanned from it",
+            root.display()
+        ),
+        RootPatternKind::Wildcard => format!(
+            "configured root pattern '{}' matched no directories under repo root; no files scanned from it",
+            root.display()
+        ),
+    }
 }
 
 /// Output of the text line scanner before contract validation.
@@ -582,5 +620,122 @@ mod tests {
         let err = validate_repo_relative_path("../outside", "roots[0]")
             .expect_err("parent dir must fail");
         assert!(matches!(err, LineScanError::ConfigInvalid { .. }));
+    }
+
+    #[test]
+    fn wildcard_root_scans_each_matching_module() {
+        let repo_root = temp_repo("basic-wildcard-root");
+        let registry_dir = repo_root.join("design-system");
+        fs::create_dir_all(&registry_dir).unwrap();
+        fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"PrimaryButton"}]}"#,
+        )
+        .unwrap();
+
+        for module in ["app", "feature-profile"] {
+            let source_dir = repo_root.join(module).join("src/main/kotlin");
+            fs::create_dir_all(&source_dir).unwrap();
+            fs::write(
+                source_dir.join("Screen.kt"),
+                "fun Screen() {\n    PrimaryButton()\n}\n",
+            )
+            .unwrap();
+        }
+
+        let config = BasicScanConfig {
+            design_system_registry: PathBuf::from("design-system/registry.json"),
+            roots: vec![PathBuf::from("*/src/main/kotlin")],
+            file_extensions: vec!["kt".to_owned()],
+            include_globs: Vec::new(),
+        };
+
+        let result =
+            scan_repository(&repo_root, &config).expect("wildcard roots should scan modules");
+
+        assert_eq!(result.files_scanned, 2);
+        assert_eq!(result.usage_sites.len(), 2);
+
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[test]
+    fn missing_literal_root_emits_warning_diagnostic() {
+        let repo_root = temp_repo("basic-missing-literal-root");
+        let registry_dir = repo_root.join("design-system");
+        fs::create_dir_all(&registry_dir).unwrap();
+        fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"PrimaryButton"}]}"#,
+        )
+        .unwrap();
+
+        let config = BasicScanConfig {
+            design_system_registry: PathBuf::from("design-system/registry.json"),
+            roots: vec![PathBuf::from("app/src/main/kotlin")],
+            file_extensions: vec!["kt".to_owned()],
+            include_globs: Vec::new(),
+        };
+
+        let result = scan_repository(&repo_root, &config)
+            .expect("missing literal root should warn without failing");
+
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "root_not_found"),
+            "expected root_not_found diagnostic"
+        );
+        assert_eq!(result.files_scanned, 0);
+
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[test]
+    fn unmatched_wildcard_root_emits_glob_warning() {
+        let repo_root = temp_repo("basic-unmatched-wildcard-root");
+        let registry_dir = repo_root.join("design-system");
+        fs::create_dir_all(&registry_dir).unwrap();
+        fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"PrimaryButton"}]}"#,
+        )
+        .unwrap();
+
+        let config = BasicScanConfig {
+            design_system_registry: PathBuf::from("design-system/registry.json"),
+            roots: vec![PathBuf::from("*/src/main/kotlin")],
+            file_extensions: vec!["kt".to_owned()],
+            include_globs: Vec::new(),
+        };
+
+        let result =
+            scan_repository(&repo_root, &config).expect("unmatched wildcard should not fail");
+
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "root_glob_not_found"),
+            "expected root_glob_not_found diagnostic"
+        );
+        assert_eq!(result.files_scanned, 0);
+
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    fn temp_repo(name: &str) -> PathBuf {
+        let unique = format!(
+            "wax-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let path = std::env::temp_dir().join(unique);
+        fs::create_dir_all(&path).unwrap();
+        path
     }
 }

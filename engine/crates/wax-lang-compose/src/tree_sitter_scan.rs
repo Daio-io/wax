@@ -12,7 +12,7 @@ use wax_contract::{
     DesignSystemComponent, Diagnostic, DiagnosticSeverity, LocalComponent, MatchStatus, ScanStatus,
     SourceLocation, UsageSite,
 };
-use wax_lang_api::ScanConfig;
+use wax_lang_api::{RootPatternKind, RootResolutionError, ScanConfig, resolve_source_roots};
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -418,19 +418,18 @@ pub fn scan_repository(
     let mut kotlin_files = Vec::new();
     let mut diagnostics = Vec::new();
     for root in &config.roots {
-        let abs_root = repo_root.join(root);
-        if !abs_root.exists() {
+        let resolved = resolve_source_roots(repo_root, root).map_err(map_root_resolution_error)?;
+        if resolved.roots.is_empty() {
             diagnostics.push(Diagnostic {
                 severity: DiagnosticSeverity::Warning,
-                code: "root_not_found".to_owned(),
-                message: format!(
-                    "configured root '{}' does not exist under repo root; no files scanned from it",
-                    root.display()
-                ),
+                code: root_not_found_code(resolved.kind),
+                message: root_not_found_message(root, resolved.kind),
                 location: None,
             });
         } else {
-            collect_kotlin_files(&abs_root, &mut kotlin_files)?;
+            for abs_root in resolved.roots {
+                collect_kotlin_files(&abs_root, &mut kotlin_files)?;
+            }
         }
     }
     kotlin_files.sort();
@@ -497,7 +496,10 @@ pub fn scan_repository(
 
     // Report Partial when any file was skipped (parse failure) or any root was missing,
     // so downstream adoption metrics are not treated as complete.
-    let has_gaps = parse_failures > 0 || diagnostics.iter().any(|d| d.code == "root_not_found");
+    let has_gaps = parse_failures > 0
+        || diagnostics
+            .iter()
+            .any(|d| d.code == "root_not_found" || d.code == "root_glob_not_found");
     let status = if has_gaps {
         ScanStatus::Partial
     } else {
@@ -512,6 +514,32 @@ pub fn scan_repository(
         diagnostics,
         status,
     })
+}
+
+fn map_root_resolution_error(err: RootResolutionError) -> TreeSitterScanError {
+    match err {
+        RootResolutionError::Io { context, source } => TreeSitterScanError::Io { context, source },
+    }
+}
+
+fn root_not_found_code(kind: RootPatternKind) -> String {
+    match kind {
+        RootPatternKind::Literal => "root_not_found".to_owned(),
+        RootPatternKind::Wildcard => "root_glob_not_found".to_owned(),
+    }
+}
+
+fn root_not_found_message(root: &Path, kind: RootPatternKind) -> String {
+    match kind {
+        RootPatternKind::Literal => format!(
+            "configured root '{}' does not exist under repo root; no files scanned from it",
+            root.display()
+        ),
+        RootPatternKind::Wildcard => format!(
+            "configured root pattern '{}' matched no directories under repo root; no files scanned from it",
+            root.display()
+        ),
+    }
 }
 
 // ── Unit tests ────────────────────────────────────────────────────────────────
@@ -698,5 +726,76 @@ mod tests {
             "missing root must yield Partial, not Complete"
         );
         assert_eq!(result.files_scanned, 0);
+    }
+
+    #[test]
+    fn unmatched_wildcard_root_emits_glob_warning() {
+        let config = ComposeScanConfig {
+            design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
+            roots: vec![std::path::PathBuf::from("*/src/main/kotlin")],
+        };
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let registry_dir = tmp.path().join("design-system");
+        std::fs::create_dir_all(&registry_dir).unwrap();
+        std::fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"Btn"}]}"#,
+        )
+        .unwrap();
+
+        let result = scan_repository(tmp.path(), &config)
+            .expect("scan should succeed even when wildcard roots match nothing");
+
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "root_glob_not_found"),
+            "expected root_glob_not_found diagnostic"
+        );
+        assert_eq!(result.status, ScanStatus::Partial);
+        assert_eq!(result.files_scanned, 0);
+    }
+
+    #[test]
+    fn wildcard_root_scans_each_matching_module() {
+        let config = ComposeScanConfig {
+            design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
+            roots: vec![std::path::PathBuf::from("*/src/main/kotlin")],
+        };
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let registry_dir = tmp.path().join("design-system");
+        std::fs::create_dir_all(&registry_dir).unwrap();
+        std::fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"PrimaryButton"}]}"#,
+        )
+        .unwrap();
+
+        for module in ["app", "feature-profile"] {
+            let source_dir = tmp.path().join(module).join("src/main/kotlin");
+            std::fs::create_dir_all(&source_dir).unwrap();
+            std::fs::write(
+                source_dir.join("Screen.kt"),
+                "@Composable\nfun Screen() {\n    PrimaryButton(onClick = {})\n}\n",
+            )
+            .unwrap();
+        }
+
+        let result = scan_repository(tmp.path(), &config)
+            .expect("wildcard roots should scan matching modules");
+
+        assert_eq!(result.files_scanned, 2);
+        assert_eq!(result.usage_sites.len(), 2);
+        assert_eq!(result.status, ScanStatus::Complete);
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.code != "root_not_found"),
+            "matching wildcard roots must not emit root_not_found diagnostics"
+        );
     }
 }
