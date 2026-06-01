@@ -29,6 +29,7 @@ jobs:
             target: aarch64-apple-darwin
 
     env:
+      REPOSITORY: ${{ github.repository }}
       RELEASE_TAG: ${{ github.event.inputs.release_tag }}
       REGISTRY_URL_OVERRIDE: ${{ github.event.inputs.registry_url }}
 
@@ -37,7 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           version="${RELEASE_TAG#v}"
-          base_url="https://github.com/Daio-io/wax/releases/download/${RELEASE_TAG}"
+          base_url="https://github.com/${REPOSITORY}/releases/download/${RELEASE_TAG}"
           archive="wax-${version}-${{ matrix.target }}.tar.gz"
           curl -fL --retry 3 --retry-delay 2 "${base_url}/${archive}" -o "${archive}"
           curl -fL --retry 3 --retry-delay 2 "${base_url}/${archive}.sha256" -o "${archive}.sha256"
@@ -46,7 +47,7 @@ jobs:
       - name: Resolve registry URL
         run: |
           set -euo pipefail
-          default_registry_url="https://github.com/Daio-io/wax/releases/download/${RELEASE_TAG}/index.json"
+          default_registry_url="https://github.com/${REPOSITORY}/releases/download/${RELEASE_TAG}/index.json"
           if [[ -n "${REGISTRY_URL_OVERRIDE}" ]]; then
             registry_url="${REGISTRY_URL_OVERRIDE}"
           else
