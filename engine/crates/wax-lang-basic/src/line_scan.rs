@@ -158,13 +158,33 @@ pub fn scan_repository(
     let registry_path = repo_root.join(&config.design_system_registry);
     let registry = load_registry(&registry_path)?;
     let mut source_files = Vec::new();
+    let mut diagnostics = vec![Diagnostic {
+        severity: DiagnosticSeverity::Info,
+        code: "basic_text_scan".to_owned(),
+        message: BASIC_TEXT_SCAN_DIAGNOSTIC.to_owned(),
+        location: None,
+    }];
     for root in &config.roots {
-        collect_source_files(
-            &repo_root.join(root),
-            &config.file_extensions,
-            &config.include_globs,
-            &mut source_files,
-        )?;
+        let resolved_roots = resolve_source_roots(repo_root, root)?;
+        if resolved_roots.is_empty() && has_wildcard_segment(root) {
+            diagnostics.push(Diagnostic {
+                severity: DiagnosticSeverity::Warning,
+                code: "root_glob_not_found".to_owned(),
+                message: format!(
+                    "configured root pattern '{}' matched no directories under repo root; no files scanned from it",
+                    root.display()
+                ),
+                location: None,
+            });
+        }
+        for source_root in resolved_roots {
+            collect_source_files(
+                &source_root,
+                &config.file_extensions,
+                &config.include_globs,
+                &mut source_files,
+            )?;
+        }
     }
     source_files.sort();
 
@@ -215,12 +235,7 @@ pub fn scan_repository(
         local_components: Vec::new(),
         usage_sites,
         files_scanned,
-        diagnostics: vec![Diagnostic {
-            severity: DiagnosticSeverity::Info,
-            code: "basic_text_scan".to_owned(),
-            message: BASIC_TEXT_SCAN_DIAGNOSTIC.to_owned(),
-            location: None,
-        }],
+        diagnostics,
         status: ScanStatus::Partial,
     })
 }
@@ -374,6 +389,65 @@ fn collect_source_files(
         }
     }
     Ok(())
+}
+
+fn resolve_source_roots(repo_root: &Path, root: &Path) -> Result<Vec<PathBuf>, LineScanError> {
+    if !has_wildcard_segment(root) {
+        let abs_root = repo_root.join(root);
+        return Ok(abs_root.exists().then_some(abs_root).into_iter().collect());
+    }
+
+    let mut candidates = vec![repo_root.to_path_buf()];
+    for component in root.components() {
+        let text = component.as_os_str();
+        if text == "*" {
+            let mut expanded = Vec::new();
+            for candidate in &candidates {
+                if !candidate.exists() {
+                    continue;
+                }
+                let entries = fs::read_dir(candidate).map_err(|source| LineScanError::Io {
+                    context: format!("read wildcard root segment {}", candidate.display()),
+                    source,
+                })?;
+                for entry in entries {
+                    let entry = entry.map_err(|source| LineScanError::Io {
+                        context: format!("read wildcard root entry {}", candidate.display()),
+                        source,
+                    })?;
+                    let path = entry.path();
+                    let file_type = fs::symlink_metadata(&path)
+                        .map_err(|source| LineScanError::Io {
+                            context: format!("read metadata for {}", path.display()),
+                            source,
+                        })?
+                        .file_type();
+                    if file_type.is_dir() && !file_type.is_symlink() {
+                        expanded.push(path);
+                    }
+                }
+            }
+            expanded.sort();
+            candidates = expanded;
+        } else {
+            candidates = candidates
+                .into_iter()
+                .map(|candidate| candidate.join(text))
+                .collect();
+        }
+    }
+
+    let mut roots = candidates
+        .into_iter()
+        .filter(|candidate| candidate.exists())
+        .collect::<Vec<_>>();
+    roots.sort();
+    Ok(roots)
+}
+
+fn has_wildcard_segment(path: &Path) -> bool {
+    path.components()
+        .any(|component| component.as_os_str() == "*")
 }
 
 fn should_include_file(path: &Path, file_extensions: &[String], include_globs: &[String]) -> bool {
@@ -582,5 +656,89 @@ mod tests {
         let err = validate_repo_relative_path("../outside", "roots[0]")
             .expect_err("parent dir must fail");
         assert!(matches!(err, LineScanError::ConfigInvalid { .. }));
+    }
+
+    #[test]
+    fn wildcard_root_scans_each_matching_module() {
+        let repo_root = temp_repo("basic-wildcard-root");
+        let registry_dir = repo_root.join("design-system");
+        fs::create_dir_all(&registry_dir).unwrap();
+        fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"PrimaryButton"}]}"#,
+        )
+        .unwrap();
+
+        for module in ["app", "feature-profile"] {
+            let source_dir = repo_root.join(module).join("src/main/kotlin");
+            fs::create_dir_all(&source_dir).unwrap();
+            fs::write(
+                source_dir.join("Screen.kt"),
+                "fun Screen() {\n    PrimaryButton()\n}\n",
+            )
+            .unwrap();
+        }
+
+        let config = BasicScanConfig {
+            design_system_registry: PathBuf::from("design-system/registry.json"),
+            roots: vec![PathBuf::from("*/src/main/kotlin")],
+            file_extensions: vec!["kt".to_owned()],
+            include_globs: Vec::new(),
+        };
+
+        let result =
+            scan_repository(&repo_root, &config).expect("wildcard roots should scan modules");
+
+        assert_eq!(result.files_scanned, 2);
+        assert_eq!(result.usage_sites.len(), 2);
+
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[test]
+    fn unmatched_wildcard_root_emits_glob_warning() {
+        let repo_root = temp_repo("basic-unmatched-wildcard-root");
+        let registry_dir = repo_root.join("design-system");
+        fs::create_dir_all(&registry_dir).unwrap();
+        fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"PrimaryButton"}]}"#,
+        )
+        .unwrap();
+
+        let config = BasicScanConfig {
+            design_system_registry: PathBuf::from("design-system/registry.json"),
+            roots: vec![PathBuf::from("*/src/main/kotlin")],
+            file_extensions: vec!["kt".to_owned()],
+            include_globs: Vec::new(),
+        };
+
+        let result =
+            scan_repository(&repo_root, &config).expect("unmatched wildcard should not fail");
+
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "root_glob_not_found"),
+            "expected root_glob_not_found diagnostic"
+        );
+        assert_eq!(result.files_scanned, 0);
+
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    fn temp_repo(name: &str) -> PathBuf {
+        let unique = format!(
+            "wax-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let path = std::env::temp_dir().join(unique);
+        fs::create_dir_all(&path).unwrap();
+        path
     }
 }

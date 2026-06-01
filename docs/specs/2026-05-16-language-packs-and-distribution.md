@@ -117,7 +117,7 @@ Primary project config. Format: **JSON** (v1).
       "id": "compose",
       "enabled": true,
       "design_system_registry": "design-system/registry.json",
-      "roots": ["app/src/main/kotlin"]
+      "roots": ["*/src/main/kotlin"]
     },
     {
       "id": "react",
@@ -132,6 +132,7 @@ Primary project config. Format: **JSON** (v1).
 `engine.scan_concurrency` defaults to `2`; override via CLI `wax scan --concurrency=N`. Packs run in separate processes and should not assume exclusive host access. v1 does **not** pass concurrency into the wire request (isolation is by process boundary); revisit if in-process packs need shared resource hints.
 
 Per-language keys beyond `id` / `enabled` are validated by that language pack’s config schema.
+Source `roots` are repo-relative directories. Language packs may also expand `*` path segments in roots, so Android multi-module repositories can use patterns such as `*/src/main/kotlin`.
 
 ### `wax.lock.json` (repository, committed)
 
@@ -209,7 +210,7 @@ In-process and subprocess scan request types MUST share the same fields. The eng
   "snapshot_id": "scan-20260516-abc123",
   "config": {
     "design_system_registry": "design-system/registry.json",
-    "roots": ["app/src/main/kotlin"]
+    "roots": ["*/src/main/kotlin"]
   }
 }
 ```
@@ -421,7 +422,7 @@ First-party pack binaries use `wax-lang-<id>` names, for example `wax-lang-compo
 
 ### Basic fallback scanner
 
-`wax-lang-basic` is the generic text-scanner fallback for languages that do not yet have parser-backed packs. It reads a repo-local `design_system_registry` plus configured `roots`, optionally filters files with `file_extensions` or `include_globs`, scans source text for registry symbols, and emits heuristic resolved usage facts with an informational `basic_text_scan` diagnostic. It does not extract local components or claim ecosystem-specific syntax awareness.
+`wax-lang-basic` is the generic text-scanner fallback for languages that do not yet have parser-backed packs. It reads a repo-local `design_system_registry` plus configured `roots`, optionally expands `*` path segments in roots for multi-module repositories, optionally filters files with `file_extensions` or `include_globs`, scans source text for registry symbols, and emits heuristic resolved usage facts with an informational `basic_text_scan` diagnostic. It does not extract local components or claim ecosystem-specific syntax awareness.
 
 `include_globs` supports only `*suffix` filename patterns (for example `*.src`); full glob syntax such as `src/**/*.kt` is not supported. The line scanner strips `//` comments before matching, so code after `//` inside strings or URLs may be missed.
 
@@ -436,7 +437,7 @@ Use `basic` for unsupported languages, smoke tests, and early adoption estimates
 **Production parser path (tree-sitter-kotlin):**
 
 - `wax-lang-compose` uses **tree-sitter-kotlin** for AST-based Kotlin parsing. `language.parser_name` is `"tree-sitter-kotlin"`.
-- The scanner discovers Kotlin files under configured `roots`, parses syntax trees, identifies `@Composable` function declarations (local components) and call expressions matching registry symbols (resolved DS usages), and emits repository-relative `SourceLocation` values with one-based line and column numbers.
+- The scanner discovers Kotlin files under configured `roots`, expands `*` path segments such as `*/src/main/kotlin` for Android multi-module repositories, parses syntax trees, identifies `@Composable` function declarations (local components) and call expressions matching registry symbols (resolved DS usages), and emits repository-relative `SourceLocation` values with one-based line and column numbers.
 - Direct calls and alias calls resolve to canonical registry symbols. Qualified (navigation) calls, comments, and string literal content are not counted.
 - Parser initialisation failures map to the `parser_init_failed` wire error code rather than panicking.
 - Requests without compose scan keys return scaffold facts with the `compose_scaffold` diagnostic.
