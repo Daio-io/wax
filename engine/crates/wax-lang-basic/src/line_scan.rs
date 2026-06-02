@@ -660,6 +660,54 @@ mod tests {
     }
 
     #[test]
+    fn recursive_wildcard_root_scans_nested_modules() {
+        let repo_root = temp_repo("basic-recursive-wildcard-root");
+        let registry_dir = repo_root.join("design-system");
+        fs::create_dir_all(&registry_dir).unwrap();
+        fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"PrimaryButton"}]}"#,
+        )
+        .unwrap();
+
+        for module in ["shared/feature", "design-system"] {
+            let source_dir = repo_root
+                .join("capsule")
+                .join(module)
+                .join("src/main/kotlin");
+            fs::create_dir_all(&source_dir).unwrap();
+            fs::write(
+                source_dir.join("Screen.kt"),
+                "fun Screen() {\n    PrimaryButton()\n}\n",
+            )
+            .unwrap();
+        }
+
+        let excluded_dir = repo_root.join("other/shared/feature/src/main/kotlin");
+        fs::create_dir_all(&excluded_dir).unwrap();
+        fs::write(
+            excluded_dir.join("Screen.kt"),
+            "fun Screen() {\n    PrimaryButton()\n}\n",
+        )
+        .unwrap();
+
+        let config = BasicScanConfig {
+            design_system_registry: PathBuf::from("design-system/registry.json"),
+            roots: vec![PathBuf::from("capsule/**/src/main/kotlin")],
+            file_extensions: vec!["kt".to_owned()],
+            include_globs: Vec::new(),
+        };
+
+        let result =
+            scan_repository(&repo_root, &config).expect("recursive wildcard should scan modules");
+
+        assert_eq!(result.files_scanned, 2);
+        assert_eq!(result.usage_sites.len(), 2);
+
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[test]
     fn missing_literal_root_emits_warning_diagnostic() {
         let repo_root = temp_repo("basic-missing-literal-root");
         let registry_dir = repo_root.join("design-system");

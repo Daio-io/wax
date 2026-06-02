@@ -10,7 +10,7 @@ use thiserror::Error;
 pub enum RootPatternKind {
     /// A literal repo-relative source root with no wildcard path segments.
     Literal,
-    /// A source root containing one or more `*` path segments.
+    /// A source root containing one or more `*` or `**` path segments.
     Wildcard,
 }
 
@@ -37,10 +37,12 @@ pub enum RootResolutionError {
     },
 }
 
-/// Resolves a repo-relative source root, expanding path components that are exactly `*`.
+/// Resolves a repo-relative source root, expanding wildcard path components.
 ///
-/// This is intentionally smaller than full glob syntax: `*/src/main/kotlin` is supported,
-/// while `**`, `?`, and mixed wildcard segments such as `app-*` are treated literally.
+/// This is intentionally smaller than full glob syntax: `*` expands one directory
+/// level and `**` expands zero or more directory levels. `?` and mixed wildcard
+/// segments such as `app-*` are treated literally. Prefer anchoring recursive
+/// roots behind a literal prefix to avoid walking the whole repository.
 pub fn resolve_source_roots(
     repo_root: &Path,
     root: &Path,
@@ -57,33 +59,11 @@ pub fn resolve_source_roots(
     for component in root.components() {
         let text = component.as_os_str();
         if text == "*" {
-            let mut expanded = Vec::new();
-            for candidate in &candidates {
-                if !candidate.exists() {
-                    continue;
-                }
-                let entries =
-                    fs::read_dir(candidate).map_err(|source| RootResolutionError::Io {
-                        context: format!("read wildcard root segment {}", candidate.display()),
-                        source,
-                    })?;
-                for entry in entries {
-                    let entry = entry.map_err(|source| RootResolutionError::Io {
-                        context: format!("read wildcard root entry {}", candidate.display()),
-                        source,
-                    })?;
-                    let path = entry.path();
-                    let file_type = fs::symlink_metadata(&path)
-                        .map_err(|source| RootResolutionError::Io {
-                            context: format!("read metadata for {}", path.display()),
-                            source,
-                        })?
-                        .file_type();
-                    if file_type.is_dir() && !file_type.is_symlink() {
-                        expanded.push(path);
-                    }
-                }
-            }
+            let mut expanded = expand_one_directory_level(&candidates)?;
+            expanded.sort();
+            candidates = expanded;
+        } else if text == "**" {
+            let mut expanded = expand_recursive_directory_levels(&candidates)?;
             expanded.sort();
             candidates = expanded;
         } else {
@@ -99,6 +79,7 @@ pub fn resolve_source_roots(
         .filter(|candidate| candidate.exists())
         .collect::<Vec<_>>();
     roots.sort();
+    roots.dedup();
 
     Ok(RootResolution {
         kind: RootPatternKind::Wildcard,
@@ -106,10 +87,82 @@ pub fn resolve_source_roots(
     })
 }
 
-/// Returns true when a path contains a component that is exactly `*`.
+fn expand_one_directory_level(candidates: &[PathBuf]) -> Result<Vec<PathBuf>, RootResolutionError> {
+    let mut expanded = Vec::new();
+    for candidate in candidates {
+        collect_child_directories(candidate, &mut expanded)?;
+    }
+    Ok(expanded)
+}
+
+fn expand_recursive_directory_levels(
+    candidates: &[PathBuf],
+) -> Result<Vec<PathBuf>, RootResolutionError> {
+    let mut expanded = Vec::new();
+    for candidate in candidates {
+        if !candidate.exists() {
+            continue;
+        }
+        expanded.push(candidate.clone());
+        collect_descendant_directories(candidate, &mut expanded)?;
+    }
+    Ok(expanded)
+}
+
+fn collect_descendant_directories(
+    dir: &Path,
+    out: &mut Vec<PathBuf>,
+) -> Result<(), RootResolutionError> {
+    let children = child_directories(dir)?;
+    for child in children {
+        out.push(child.clone());
+        collect_descendant_directories(&child, out)?;
+    }
+    Ok(())
+}
+
+fn collect_child_directories(
+    dir: &Path,
+    out: &mut Vec<PathBuf>,
+) -> Result<(), RootResolutionError> {
+    out.extend(child_directories(dir)?);
+    Ok(())
+}
+
+fn child_directories(dir: &Path) -> Result<Vec<PathBuf>, RootResolutionError> {
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let entries = fs::read_dir(dir).map_err(|source| RootResolutionError::Io {
+        context: format!("read wildcard root segment {}", dir.display()),
+        source,
+    })?;
+    let mut directories = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|source| RootResolutionError::Io {
+            context: format!("read wildcard root entry {}", dir.display()),
+            source,
+        })?;
+        let path = entry.path();
+        let file_type = fs::symlink_metadata(&path)
+            .map_err(|source| RootResolutionError::Io {
+                context: format!("read metadata for {}", path.display()),
+                source,
+            })?
+            .file_type();
+        if file_type.is_dir() && !file_type.is_symlink() {
+            directories.push(path);
+        }
+    }
+    directories.sort();
+    Ok(directories)
+}
+
+/// Returns true when a path contains a component that is exactly `*` or `**`.
 pub fn has_wildcard_segment(path: &Path) -> bool {
     path.components()
-        .any(|component| component.as_os_str() == "*")
+        .any(|component| component.as_os_str() == "*" || component.as_os_str() == "**")
 }
 
 #[cfg(test)]
@@ -154,6 +207,110 @@ mod tests {
                 repo_root.join("feature/src/main/kotlin")
             ]
         );
+
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[test]
+    fn recursive_wildcard_root_resolves_nested_modules() {
+        let repo_root = temp_repo("recursive-wildcard-root");
+        fs::create_dir_all(repo_root.join("capsule/shared/feature/src/main/kotlin")).unwrap();
+        fs::create_dir_all(repo_root.join("capsule/design-system/src/main/kotlin")).unwrap();
+        fs::create_dir_all(repo_root.join("capsule/shared/feature/src/test/kotlin")).unwrap();
+        fs::create_dir_all(repo_root.join("other/shared/feature/src/main/kotlin")).unwrap();
+
+        let resolved = resolve_source_roots(
+            &repo_root,
+            PathBuf::from("capsule/**/src/main/kotlin").as_path(),
+        )
+        .expect("recursive wildcard root should resolve");
+
+        assert_eq!(resolved.kind, RootPatternKind::Wildcard);
+        assert_eq!(
+            resolved.roots,
+            vec![
+                repo_root.join("capsule/design-system/src/main/kotlin"),
+                repo_root.join("capsule/shared/feature/src/main/kotlin")
+            ]
+        );
+
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[test]
+    fn recursive_wildcard_root_deduplicates_converging_matches() {
+        let repo_root = temp_repo("recursive-wildcard-root-dedup");
+        fs::create_dir_all(repo_root.join("capsule/shared/feature/src/main/kotlin")).unwrap();
+
+        let resolved = resolve_source_roots(
+            &repo_root,
+            PathBuf::from("capsule/**/**/src/main/kotlin").as_path(),
+        )
+        .expect("recursive wildcard root should resolve");
+
+        assert_eq!(
+            resolved.roots,
+            vec![repo_root.join("capsule/shared/feature/src/main/kotlin")]
+        );
+
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[test]
+    fn unmatched_recursive_wildcard_root_resolves_empty_wildcard_result() {
+        let repo_root = temp_repo("recursive-wildcard-root-empty");
+        fs::create_dir_all(repo_root.join("capsule/shared/feature/src/test/kotlin")).unwrap();
+
+        let resolved = resolve_source_roots(
+            &repo_root,
+            PathBuf::from("capsule/**/src/main/kotlin").as_path(),
+        )
+        .expect("recursive wildcard root should resolve");
+
+        assert_eq!(resolved.kind, RootPatternKind::Wildcard);
+        assert!(resolved.roots.is_empty());
+
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[test]
+    fn recursive_wildcard_root_matches_zero_directory_levels() {
+        let repo_root = temp_repo("recursive-wildcard-root-zero-level");
+        fs::create_dir_all(repo_root.join("capsule/src/main/kotlin")).unwrap();
+
+        let resolved = resolve_source_roots(
+            &repo_root,
+            PathBuf::from("capsule/**/src/main/kotlin").as_path(),
+        )
+        .expect("recursive wildcard root should resolve");
+
+        assert_eq!(
+            resolved.roots,
+            vec![repo_root.join("capsule/src/main/kotlin")]
+        );
+
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recursive_wildcard_root_skips_symlinked_directories() {
+        let repo_root = temp_repo("recursive-wildcard-root-symlink");
+        fs::create_dir_all(repo_root.join("linked-target/src/main/kotlin")).unwrap();
+        fs::create_dir_all(repo_root.join("capsule")).unwrap();
+        std::os::unix::fs::symlink(
+            repo_root.join("linked-target"),
+            repo_root.join("capsule/linked"),
+        )
+        .unwrap();
+
+        let resolved = resolve_source_roots(
+            &repo_root,
+            PathBuf::from("capsule/**/src/main/kotlin").as_path(),
+        )
+        .expect("recursive wildcard root should resolve");
+
+        assert!(resolved.roots.is_empty());
 
         fs::remove_dir_all(repo_root).unwrap();
     }
