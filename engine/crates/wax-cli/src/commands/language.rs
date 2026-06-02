@@ -22,6 +22,7 @@ use wax_core::paths::{PathsError, lang_install_dir, state_file};
 use wax_core::registry::{
     RegistryArtifact, RegistryError, RegistryManifest, fetch_pack_index, select_target_artifact,
 };
+use wax_lang_api::build_version;
 
 /// Options for `wax language list`.
 #[derive(Debug, Clone)]
@@ -545,7 +546,7 @@ pub(crate) fn update_lockfile_entry(
     target: &str,
     artifact: &RegistryArtifact,
 ) {
-    lockfile.wax_version = env!("CARGO_PKG_VERSION").to_owned();
+    lockfile.wax_version = build_version().to_owned();
     lockfile.locked_at = Some(time::OffsetDateTime::now_utc());
     lockfile.languages.insert(
         registry_manifest.id.clone(),

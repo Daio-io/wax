@@ -2,8 +2,10 @@
 
 //! Public language pack API for wax.
 
+pub mod build_info;
 pub mod protocol;
 
+pub use build_info::build_version;
 pub use wax_contract::Diagnostic;
 
 pub use protocol::{

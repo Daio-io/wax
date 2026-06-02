@@ -11,7 +11,7 @@ use wax_contract::{
     CountSummary, Diagnostic, DiagnosticSeverity, LanguageId, LanguageMetadata, Metrics,
     SCHEMA_VERSION, ScanFacts, ScanFactsError, ScanStatus,
 };
-use wax_lang_api::ScanRequest;
+use wax_lang_api::{ScanRequest, build_version};
 
 use tree_sitter_scan::TreeSitterScanError;
 pub use tree_sitter_scan::{ComposeConfigMode, ComposeScanConfig};
@@ -114,7 +114,7 @@ fn facts_from_scan(
         schema_version: SCHEMA_VERSION,
         language: LanguageMetadata {
             id: LanguageId::try_from("compose").expect("hardcoded compose id must be valid"),
-            version: env!("CARGO_PKG_VERSION").to_owned(),
+            version: build_version().to_owned(),
             ecosystem: "compose".to_owned(),
             parser_name: "tree-sitter-kotlin".to_owned(),
             parser_version: tree_sitter_kotlin_version(),
@@ -146,7 +146,7 @@ fn scaffold_facts(request: &ScanRequest) -> ScanFacts {
         schema_version: SCHEMA_VERSION,
         language: LanguageMetadata {
             id: LanguageId::try_from("compose").expect("hardcoded compose id must be valid"),
-            version: env!("CARGO_PKG_VERSION").to_owned(),
+            version: build_version().to_owned(),
             ecosystem: "compose".to_owned(),
             parser_name: "tree-sitter-kotlin".to_owned(),
             parser_version: tree_sitter_kotlin_version(),

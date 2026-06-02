@@ -81,7 +81,17 @@ if [[ "$is_supported" -ne 1 ]]; then
   exit 1
 fi
 
-version="$(awk -F '\"' '/^\[workspace.package\]/{flag=1;next} flag && /^version =/{print $2; exit}' "$engine_dir/Cargo.toml")"
+workspace_version="$(awk -F '\"' '/^\[workspace.package\]/{flag=1;next} flag && /^version =/{print $2; exit}' "$engine_dir/Cargo.toml")"
+version="${WAX_RELEASE_VERSION:-}"
+if [[ -z "$version" && -n "${WAX_RELEASE_TAG:-}" ]]; then
+  version="${WAX_RELEASE_TAG#v}"
+fi
+version="${version:-$workspace_version}"
+version="${version#v}"
+if [[ -z "$version" || "$version" == *"/"* ]]; then
+  echo "error: invalid release version '$version'" >&2
+  exit 1
+fi
 alpha_index_binaries="$(read_release_array "alpha_index_binaries")"
 contributor_only_binaries="$(read_release_array "contributor_only_binaries")"
 binaries=($alpha_index_binaries)
@@ -119,7 +129,7 @@ for i in "${!packages[@]}"; do
   package="${packages[$i]}"
   binary="${binaries[$i]}"
 
-  (cd "$engine_dir" && cargo build --release --package "$package" --target "$target")
+  (cd "$engine_dir" && WAX_BUILD_VERSION="$version" cargo build --release --package "$package" --target "$target")
 
   stage_dir="$out_dir/$target/${binary}-${version}-${target}"
   mkdir -p "$stage_dir"

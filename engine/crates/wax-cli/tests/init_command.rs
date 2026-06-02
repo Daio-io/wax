@@ -106,7 +106,8 @@ fn init_loads_file_copy_of_alpha_pack_index() {
 
     let lockfile: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(repo.join("wax.lock.json")).unwrap()).unwrap();
-    assert_eq!(lockfile["wax_version"], "0.1.0-alpha.1");
+    let expected_version = option_env!("WAX_BUILD_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
+    assert_eq!(lockfile["wax_version"], expected_version);
     let compose = &lockfile["languages"]["compose"];
     assert_eq!(compose["version"], "0.1.0-alpha.0");
     assert_eq!(compose["api_version"], 1);

@@ -12,7 +12,7 @@ use wax_contract::{
     CountSummary, Diagnostic, DiagnosticSeverity, LanguageId, LanguageMetadata, Metrics,
     SCHEMA_VERSION, ScanFacts, ScanFactsError, ScanStatus,
 };
-use wax_lang_api::ScanRequest;
+use wax_lang_api::{ScanRequest, build_version};
 
 pub use line_scan::{
     BasicConfigMode, BasicScanConfig, LineScanError, LineScanResult, parse_basic_scan_config,
@@ -94,10 +94,10 @@ fn facts_from_scan(request: &ScanRequest, scan: LineScanResult) -> ScanFacts {
         schema_version: SCHEMA_VERSION,
         language: LanguageMetadata {
             id: LanguageId::try_from("basic").expect("hardcoded basic id must be valid"),
-            version: env!("CARGO_PKG_VERSION").to_owned(),
+            version: build_version().to_owned(),
             ecosystem: "basic".to_owned(),
             parser_name: "text-line-scanner".to_owned(),
-            parser_version: env!("CARGO_PKG_VERSION").to_owned(),
+            parser_version: build_version().to_owned(),
         },
         snapshot_id: request.snapshot_id.clone(),
         scanned_at: OffsetDateTime::now_utc(),
@@ -126,10 +126,10 @@ fn scaffold_facts(request: &ScanRequest) -> ScanFacts {
         schema_version: SCHEMA_VERSION,
         language: LanguageMetadata {
             id: LanguageId::try_from("basic").expect("hardcoded basic id must be valid"),
-            version: env!("CARGO_PKG_VERSION").to_owned(),
+            version: build_version().to_owned(),
             ecosystem: "basic".to_owned(),
             parser_name: "text-line-scanner".to_owned(),
-            parser_version: env!("CARGO_PKG_VERSION").to_owned(),
+            parser_version: build_version().to_owned(),
         },
         snapshot_id: request.snapshot_id.clone(),
         scanned_at: OffsetDateTime::now_utc(),

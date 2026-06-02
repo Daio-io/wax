@@ -7,7 +7,7 @@ use wax_contract::{
     CountSummary, Diagnostic, DiagnosticSeverity, LanguageId, LanguageMetadata, Metrics,
     SCHEMA_VERSION, ScanFacts, ScanFactsError, ScanStatus,
 };
-use wax_lang_api::ScanRequest;
+use wax_lang_api::{ScanRequest, build_version};
 
 /// Errors returned by [`ReactLanguage::scan`].
 #[derive(Debug)]
@@ -55,7 +55,7 @@ impl ReactLanguage {
             schema_version: SCHEMA_VERSION,
             language: LanguageMetadata {
                 id: react_language_id,
-                version: env!("CARGO_PKG_VERSION").to_owned(),
+                version: build_version().to_owned(),
                 ecosystem: "react".to_owned(),
                 parser_name: "react-parser".to_owned(),
                 parser_version: "0.1.0".to_owned(),
