@@ -12,7 +12,7 @@
 
 ## Reference Spec
 
-- Design spec: `docs/superpowers/specs/2026-06-02-registry-sources-and-wax-layout-design.md`
+- Design spec: `docs/specs/2026-06-02-registry-sources-and-wax-layout-design.md`
 - Active roadmap source: `docs/plans/README.md`
 - Current product specs to keep consistent:
   - `docs/specs/2026-05-16-language-packs-and-distribution.md`
@@ -2272,7 +2272,7 @@ git commit -m "docs: document centralized registry configuration"
 
 **Files:**
 - Modify active plan docs if this work is inserted as a task in `docs/plans/README.md` or a new product plan.
-- Modify `docs/superpowers/plans/2026-06-02-registry-sources-and-wax-layout.md` task checkboxes as work completes.
+- Modify `docs/plans/2026-06-02-registry-sources-and-wax-layout.md` task checkboxes as work completes.
 
 - [ ] **Step 1: Run formatting**
 
@@ -2322,7 +2322,7 @@ If this feature is added to an official plan under `docs/plans/`, update that pl
 - [ ] **Step 5: Commit verification/doc checkbox updates**
 
 ```bash
-git add docs/superpowers/plans/2026-06-02-registry-sources-and-wax-layout.md docs/plans
+git add docs/plans/2026-06-02-registry-sources-and-wax-layout.md docs/plans
 git commit -m "chore: mark registry source plan progress"
 ```
 
