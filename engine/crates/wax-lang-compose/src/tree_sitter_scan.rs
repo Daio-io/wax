@@ -798,4 +798,57 @@ mod tests {
             "matching wildcard roots must not emit root_not_found diagnostics"
         );
     }
+
+    #[test]
+    fn recursive_wildcard_root_scans_nested_modules() {
+        let config = ComposeScanConfig {
+            design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
+            roots: vec![std::path::PathBuf::from("capsule/**/src/main/kotlin")],
+        };
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let registry_dir = tmp.path().join("design-system");
+        std::fs::create_dir_all(&registry_dir).unwrap();
+        std::fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"PrimaryButton"}]}"#,
+        )
+        .unwrap();
+
+        for module in ["shared/feature", "design-system"] {
+            let source_dir = tmp
+                .path()
+                .join("capsule")
+                .join(module)
+                .join("src/main/kotlin");
+            std::fs::create_dir_all(&source_dir).unwrap();
+            std::fs::write(
+                source_dir.join("Screen.kt"),
+                "@Composable\nfun Screen() {\n    PrimaryButton(onClick = {})\n}\n",
+            )
+            .unwrap();
+        }
+
+        let excluded_dir = tmp.path().join("other/shared/feature/src/main/kotlin");
+        std::fs::create_dir_all(&excluded_dir).unwrap();
+        std::fs::write(
+            excluded_dir.join("Screen.kt"),
+            "@Composable\nfun Screen() {\n    PrimaryButton(onClick = {})\n}\n",
+        )
+        .unwrap();
+
+        let result = scan_repository(tmp.path(), &config)
+            .expect("recursive wildcard roots should scan matching modules");
+
+        assert_eq!(result.files_scanned, 2);
+        assert_eq!(result.usage_sites.len(), 2);
+        assert_eq!(result.status, ScanStatus::Complete);
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.code != "root_not_found"),
+            "matching recursive wildcard roots must not emit root_not_found diagnostics"
+        );
+    }
 }
