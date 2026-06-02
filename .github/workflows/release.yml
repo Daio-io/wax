@@ -27,19 +27,15 @@ jobs:
         # actions/checkout@v6
         uses: actions/checkout@v6
 
-      - name: Check tag matches workspace version
+      - name: Validate release tag
         run: |
           set -euo pipefail
-          version="$(awk -F '"' '
-            /^\[workspace\.package\]/ { in_section=1; next }
-            /^\[/ && in_section { exit }
-            in_section && /^version =/ { print $2; exit }
-          ' engine/Cargo.toml)"
-          expected_tag="v${version}"
-          if [[ "${WAX_RELEASE_TAG}" != "$expected_tag" ]]; then
-            echo "release tag ${WAX_RELEASE_TAG} does not match workspace version ${expected_tag}" >&2
+          version="${WAX_RELEASE_TAG#v}"
+          if [[ "${version}" == "${WAX_RELEASE_TAG}" || -z "${version}" || "${version}" == */* ]]; then
+            echo "release tag ${WAX_RELEASE_TAG} must look like v<version>" >&2
             exit 1
           fi
+          echo "release version ${version}"
 
   verify:
     name: Verify engine

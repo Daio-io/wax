@@ -57,8 +57,9 @@ fn wax_binary_exposes_cli_version() {
     );
 
     let stdout = String::from_utf8(output.stdout).expect("stdout must be valid UTF-8");
+    let expected_version = option_env!("WAX_BUILD_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
     assert!(
-        stdout.contains(env!("CARGO_PKG_VERSION")),
-        "expected wax version output to contain package version, got: {stdout}"
+        stdout.contains(expected_version),
+        "expected wax version output to contain build version {expected_version}, got: {stdout}"
     );
 }

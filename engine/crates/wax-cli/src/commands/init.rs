@@ -15,6 +15,7 @@ use wax_core::config::waxrc::WAXRC_SCHEMA_VERSION;
 use wax_core::registry::{
     RegistryArtifact, RegistryError, RegistryManifest, fetch_pack_index, select_target_artifact,
 };
+use wax_lang_api::build_version;
 
 const EXAMPLE_WAXRC: &str = include_str!("../../../../fixtures/config/example.waxrc");
 const EXAMPLE_DESIGN_SYSTEM_REGISTRY: &str =
@@ -135,7 +136,7 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
     let mut lockfile = WaxLock {
         schema_version: WAX_LOCK_SCHEMA_VERSION,
         engine_api_version: ENGINE_API_VERSION,
-        wax_version: env!("CARGO_PKG_VERSION").to_owned(),
+        wax_version: build_version().to_owned(),
         locked_at: None,
         languages: BTreeMap::new(),
     };

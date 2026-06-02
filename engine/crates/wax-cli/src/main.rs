@@ -20,10 +20,11 @@ use commands::uninstall::{UninstallCliOptions, run_uninstall_cli};
 use commands::validate::{ValidateCommandOptions, run_validate};
 use std::path::PathBuf;
 use wax_contract::LanguageId;
+use wax_lang_api::build_version;
 
 #[derive(Debug, Parser)]
 #[command(name = "wax")]
-#[command(version, about = "Design-system analysis engine")]
+#[command(version = build_version(), about = "Design-system analysis engine")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
