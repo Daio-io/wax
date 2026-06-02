@@ -74,6 +74,10 @@ The canonical config path is `.wax/wax.config.json`. Its schema remains close to
 ```
 
 Missing `registry` means the enabled language uses `.wax/wax.registry.json`.
+This shared default is intentional. Repositories with multiple enabled
+languages use one default registry unless a language entry declares its own
+`registry`; multi-stack repositories with different DS definitions should set
+an explicit registry per language.
 
 A string `registry` is a repo-relative path:
 
@@ -154,6 +158,8 @@ Before `wax validate` or `wax scan` runs language-pack validation or scanning, w
 
 Language packs should continue to scan from local inputs. Remote fetching, digest checks, lockfile policy, and compatibility handling stay in `wax-core`.
 
+Hosted `http://` and `https://` registry sources are networked inputs. `wax validate` and `wax scan` fetch them to verify that the current content still matches the lockfile digest. CI jobs that depend on hosted registries therefore need network access, or they need to use a repo-local or `file://` registry source instead.
+
 ## Lockfile Behavior
 
 The canonical lockfile path is `.wax/wax.lock.json`. It continues to lock language-pack artifacts and gains registry source locks per enabled language.
@@ -166,7 +172,22 @@ Each registry lock entry records:
 
 `wax scan` rejects registry drift when the current resolved registry digest differs from the lockfile digest. This applies to hosted sources, `file://` sources, and repo-relative sources. Local repo-relative registries remain editable source files, but the lockfile gives CI a deterministic check that the committed registry and lock agree.
 
-`wax validate` checks that enabled languages have registry lock entries and reports missing or mismatched locks with precise field paths. A future update command can refresh these locks intentionally.
+`wax validate` checks that enabled languages have registry lock entries and reports missing or mismatched locks with precise field paths.
+
+## Lock Refresh and Migration
+
+`wax init` writes registry lock entries for the generated `.wax/wax.registry.json`.
+
+`wax language update` refreshes registry lock entries for every enabled language
+when it writes `.wax/wax.lock.json`. It resolves each language's registry source
+using the same rules as validate and scan, computes the current SHA-256 digest,
+and upserts the matching lock entry. Existing repositories that only have
+language-pack locks migrate by running `wax language update` after adopting the
+centralized config or after editing a local registry.
+
+Local registry edits are intentionally lock-protected. After changing
+`.wax/wax.registry.json` or another repo-relative registry, users refresh the
+lock before CI scans by running `wax language update`.
 
 ## Compatibility and Precedence
 

@@ -4,7 +4,7 @@
 
 **Goal:** Move repo-local wax files into `.wax/wax.*.json`, support optional local/hosted registry sources, and lock registry content by digest for deterministic validation and scans.
 
-**Architecture:** Add repo file discovery helpers in `wax-core` so all commands can prefer the new `.wax/` layout while continuing to read legacy files. Add registry source parsing/resolution in `wax-core`, materialize non-repo-local registry content into `.wax/cache/registries/`, and rewrite language-pack config to a repo-relative local `registry` path before scan. Extend `wax.lock.json` with registry locks per language and wire the new behavior through `validate`, `scan`, `init`, and user-facing docs.
+**Architecture:** Add repo file discovery helpers in `wax-core` so all commands can prefer the new `.wax/` layout while continuing to read legacy files. Add registry source parsing/resolution in `wax-core`, materialize non-repo-local registry content into `.wax/cache/registries/`, and rewrite language-pack config to a repo-relative local `registry` path before scan. Extend `wax.lock.json` with registry locks per language, add a lock refresh path through `wax language update`, and wire the new behavior through `validate`, `scan`, `init`, and user-facing docs.
 
 **Tech Stack:** Rust 2024, serde JSON, reqwest blocking HTTP client, SHA-256 via `sha2`, existing `wax-core` and `wax-cli` test fixtures.
 
@@ -37,6 +37,7 @@
   - Compute SHA-256 digest.
   - Materialize external sources under `.wax/cache/registries/`.
   - Rewrite language config to a local repo-relative `registry` path.
+  - Keep design-system registry source handling separate from `engine/crates/wax-core/src/registry.rs`, which remains the language-pack index loader.
 - Modify `engine/crates/wax-core/src/lib.rs`
   - Use repo file discovery and registry source resolution before scan jobs are built.
   - Check registry lock digests during scan.
@@ -281,7 +282,8 @@ git commit -m "feat: discover centralized wax repo files"
 **Files:**
 - Modify: `engine/crates/wax-core/src/config/waxrc.rs`
 - Test: `engine/crates/wax-core/tests/waxrc_load.rs`
-- Fixture: `engine/crates/wax-core/tests/fixtures/config/with-registry-object.waxrc`
+- Fixture: `engine/fixtures/config/with-registry-string.waxrc`
+- Fixture: `engine/fixtures/config/with-registry-object.waxrc`
 
 - [ ] **Step 1: Add failing config parser tests**
 
@@ -290,16 +292,20 @@ Append to `engine/crates/wax-core/tests/waxrc_load.rs`:
 ```rust
 #[test]
 fn parses_registry_string_without_removing_pack_config() {
-    let rc = load_waxrc(fixture_path("with-extra.waxrc")).unwrap();
+    let rc = load_waxrc(fixture_path("with-registry-string.waxrc")).unwrap();
     let language = &rc.languages[0];
 
     assert_eq!(
         language.registry_source().unwrap().source,
-        "design-system/registry.json"
+        ".wax/compose.registry.json"
     );
     assert_eq!(
-        language.extra["design_system_registry"],
-        serde_json::Value::String("design-system/registry.json".to_owned())
+        language.extra["registry"],
+        serde_json::Value::String(".wax/compose.registry.json".to_owned())
+    );
+    assert_eq!(
+        language.extra["roots"],
+        serde_json::json!(["app/src/main/kotlin"])
     );
 }
 
@@ -315,7 +321,23 @@ fn parses_registry_source_object() {
 }
 ```
 
-Create fixture `engine/crates/wax-core/tests/fixtures/config/with-registry-object.waxrc`:
+Create fixture `engine/fixtures/config/with-registry-string.waxrc`:
+
+```json
+{
+  "schema_version": 1,
+  "languages": [
+    {
+      "id": "compose",
+      "enabled": true,
+      "registry": ".wax/compose.registry.json",
+      "roots": ["app/src/main/kotlin"]
+    }
+  ]
+}
+```
+
+Create fixture `engine/fixtures/config/with-registry-object.waxrc`:
 
 ```json
 {
@@ -397,6 +419,11 @@ impl LanguageEntry {
 }
 ```
 
+Update `WaxRcError` display strings and docs in this file from `.waxrc` to
+`wax config` where the error can now refer to either `.wax/wax.config.json` or
+legacy `.waxrc`. Keep the concrete path in each error so users can see which
+file failed.
+
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run:
@@ -411,7 +438,7 @@ Expected: pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add engine/crates/wax-core/src/config/waxrc.rs engine/crates/wax-core/tests/waxrc_load.rs engine/crates/wax-core/tests/fixtures/config/with-registry-object.waxrc
+git add engine/crates/wax-core/src/config/waxrc.rs engine/crates/wax-core/tests/waxrc_load.rs engine/fixtures/config/with-registry-string.waxrc engine/fixtures/config/with-registry-object.waxrc
 git commit -m "feat: parse registry config sources"
 ```
 
@@ -489,6 +516,22 @@ fn file_url_materializes_under_cache() {
 }
 
 #[test]
+fn http_url_materializes_under_cache() {
+    let repo = common::TestRepo::new();
+    let server = common::HttpFixtureServer::spawn(REGISTRY_JSON);
+
+    let resolved = resolve_registry_source(RegistrySourceInput {
+        repo_root: &repo.path,
+        language_id: "compose",
+        source: Some(&server.url()),
+    })
+    .unwrap();
+
+    assert!(resolved.repo_relative_path.starts_with(".wax/cache/registries/compose-"));
+    assert!(repo.path.join(&resolved.repo_relative_path).is_file());
+}
+
+#[test]
 fn absolute_path_is_rejected() {
     let repo = common::TestRepo::new();
     let err = resolve_registry_source(RegistrySourceInput {
@@ -517,6 +560,11 @@ fn malformed_registry_is_rejected() {
     assert!(matches!(err, RegistrySourceError::InvalidShape { .. }));
 }
 ```
+
+If `common::HttpFixtureServer` does not exist, add it to this test file as a
+small `TcpListener` fixture like the local HTTP server in
+`engine/crates/wax-core/src/registry.rs` tests. It should serve one 200 response
+with `REGISTRY_JSON` and expose a `url()` method returning `http://127.0.0.1:<port>/registry.json`.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -848,10 +896,11 @@ git commit -m "feat: resolve design system registry sources"
 
 **Files:**
 - Modify: `engine/crates/wax-core/src/config/lockfile.rs`
-- Fixture: `engine/crates/wax-core/tests/fixtures/config/minimal.wax.lock.json`
+- Fixture: `engine/fixtures/config/minimal.wax.lock.json`
+- Fixture: `engine/fixtures/config/minimal-v1-no-registries.wax.lock.json`
 - Test: `engine/crates/wax-core/tests/lockfile_load.rs`
 
-- [ ] **Step 1: Add failing lockfile tests**
+- [ ] **Step 1: Add failing lockfile schema and registry tests**
 
 Append to `engine/crates/wax-core/tests/lockfile_load.rs`:
 
@@ -870,9 +919,17 @@ fn parses_registry_locks() {
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     );
 }
+
+#[test]
+fn parses_v1_lockfile_without_registry_locks_for_migration() {
+    let lock = load_lockfile(fixture_path("minimal-v1-no-registries.wax.lock.json")).unwrap();
+
+    assert_eq!(lock.schema_version, 1);
+    assert!(lock.registries.is_empty());
+}
 ```
 
-Update `engine/crates/wax-core/tests/fixtures/config/minimal.wax.lock.json` by adding a top-level `registries` object:
+Update `engine/fixtures/config/minimal.wax.lock.json` by adding a top-level `registries` object:
 
 ```json
 "registries": {
@@ -885,6 +942,10 @@ Update `engine/crates/wax-core/tests/fixtures/config/minimal.wax.lock.json` by a
 
 Place it after `locked_at` and before `languages`.
 
+Create `engine/fixtures/config/minimal-v1-no-registries.wax.lock.json` by copying
+the previous minimal lockfile shape without the new `registries` object. Keep
+`schema_version` set to `1`.
+
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run:
@@ -894,9 +955,17 @@ cd engine
 cargo test -p wax-core --test lockfile_load parses_registry_locks
 ```
 
-Expected: fail because `WaxLock` has no `registries` field or fixture rejects unknown field.
+Expected: fail because `WaxLock` has no `registries` field or schema v2 support.
 
-- [ ] **Step 3: Extend lockfile types**
+- [ ] **Step 3: Extend lockfile types and schema handling**
+
+Change `WAX_LOCK_SCHEMA_VERSION` in `engine/crates/wax-core/src/config/lockfile.rs`:
+
+```rust
+/// Current `wax.lock.json` schema version written by this engine.
+pub const WAX_LOCK_SCHEMA_VERSION: u32 = 2;
+const MIN_SUPPORTED_WAX_LOCK_SCHEMA_VERSION: u32 = 1;
+```
 
 Modify `engine/crates/wax-core/src/config/lockfile.rs`:
 
@@ -938,6 +1007,23 @@ Update all `WaxLock` literal construction sites to include:
 registries: BTreeMap::new(),
 ```
 
+Update schema validation in `load_lockfile` so versions `1` and `2` are accepted:
+
+```rust
+if version.schema_version < MIN_SUPPORTED_WAX_LOCK_SCHEMA_VERSION
+    || version.schema_version > WAX_LOCK_SCHEMA_VERSION
+{
+    return Err(LockfileError::UnsupportedSchemaVersion {
+        path: path_display,
+        found: version.schema_version,
+        supported: WAX_LOCK_SCHEMA_VERSION,
+    });
+}
+```
+
+Writers must emit schema version `2`. Readers accept v1 so existing repositories
+can run the lock refresh command before strict registry-lock checks are enforced.
+
 - [ ] **Step 4: Run focused tests**
 
 Run:
@@ -963,7 +1049,7 @@ Expected: pass.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add engine/crates/wax-core/src/config/lockfile.rs engine/crates/wax-core/tests/lockfile_load.rs engine/crates/wax-core/tests/fixtures/config/minimal.wax.lock.json
+git add engine/crates/wax-core/src/config/lockfile.rs engine/crates/wax-core/tests/lockfile_load.rs engine/fixtures/config/minimal.wax.lock.json engine/fixtures/config/minimal-v1-no-registries.wax.lock.json
 git commit -m "feat: lock registry source digests"
 ```
 
@@ -1343,11 +1429,22 @@ impl ScanFixture {
 
     fn write_centralized_config_with_registry_source(&self, source: &str) {
         std::fs::create_dir_all(self.repo.join(".wax")).unwrap();
+        let config = serde_json::json!({
+            "schema_version": 1,
+            "languages": [
+                {
+                    "id": "compose",
+                    "enabled": true,
+                    "registry": {
+                        "source": source
+                    },
+                    "roots": ["src"]
+                }
+            ]
+        });
         std::fs::write(
             self.repo.join(".wax/wax.config.json"),
-            format!(
-                r#"{{"schema_version":1,"languages":[{{"id":"compose","enabled":true,"registry":{{"source":"{source}"}},"roots":["src"]}}]}}"#
-            ),
+            format!("{}\n", serde_json::to_string(&config).unwrap()),
         )
         .unwrap();
     }
@@ -1592,6 +1689,11 @@ if registry.is_empty() {
 }
 ```
 
+The internal struct field may remain named `design_system_registry: PathBuf` in
+this task if that keeps the change small. The user-facing config key and error
+messages should say `registry`; internal renaming can happen in a later cleanup
+if it becomes confusing.
+
 - [ ] **Step 5: Run focused tests**
 
 Run:
@@ -1656,6 +1758,17 @@ fn init_does_not_duplicate_gitignore_entries() {
     assert_eq!(gitignore.matches("/.wax/cache/").count(), 1);
     assert_eq!(gitignore.matches("/.wax/out/").count(), 1);
 }
+
+#[test]
+fn init_scaffolds_only_default_centralized_registry() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = temp.path();
+
+    run_init_for_test(repo, &["compose"]);
+
+    assert!(repo.join(".wax/wax.registry.json").is_file());
+    assert!(!repo.join("design-system/registry.json").exists());
+}
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -1704,16 +1817,23 @@ for entry in &mut filtered {
 }
 ```
 
+Replace `scaffold_design_system_registries` with a simpler centralized scaffold
+that writes only `DEFAULT_REGISTRY_RELATIVE_PATH` when `scaffold_registries` is
+true. Do not keep the old per-language `design_system_registry` scaffold loop,
+because new config omits registry keys by default.
+
 Write:
 
 ```rust
 fs::create_dir_all(&wax_dir)?;
 write_file_atomically(&config_path, &waxrc_contents)?;
 save_lockfile(&lockfile_path, &lockfile)?;
-write_file_atomically(
-    &options.repo_root.join(wax_core::config::repo_files::DEFAULT_REGISTRY_RELATIVE_PATH),
-    &format!("{EXAMPLE_DESIGN_SYSTEM_REGISTRY}\n"),
-)?;
+if options.scaffold_registries {
+    write_file_atomically(
+        &options.repo_root.join(wax_core::config::repo_files::DEFAULT_REGISTRY_RELATIVE_PATH),
+        &format!("{EXAMPLE_DESIGN_SYSTEM_REGISTRY}\n"),
+    )?;
+}
 update_gitignore(&options.repo_root)?;
 ```
 
@@ -1811,7 +1931,7 @@ git commit -m "feat: initialize centralized wax layout"
 - Modify: `engine/crates/wax-cli/src/commands/language.rs`
 - Test: existing tests in `engine/crates/wax-cli/src/commands/language.rs`
 
-- [ ] **Step 1: Add failing unit tests**
+- [ ] **Step 1: Add failing unit tests for discovered files and registry refresh**
 
 Add tests in the existing `#[cfg(test)]` module in `engine/crates/wax-cli/src/commands/language.rs`:
 
@@ -1851,6 +1971,31 @@ fn language_doctor_reads_centralized_config() {
 
     assert!(String::from_utf8(output).unwrap().contains("language: compose"));
 }
+
+#[test]
+fn language_update_refreshes_registry_locks_for_enabled_languages() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::create_dir_all(temp.path().join(".wax")).unwrap();
+    fs::write(
+        temp.path().join(".wax/wax.config.json"),
+        r#"{"schema_version":1,"languages":[{"id":"compose","enabled":true}]}"#,
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join(".wax/wax.registry.json"),
+        r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
+    )
+    .unwrap();
+    fs::write(temp.path().join(".wax/wax.lock.json"), minimal_v1_lockfile_json()).unwrap();
+
+    refresh_registry_locks_for_repo(temp.path()).unwrap();
+
+    let lock = wax_core::config::lockfile::load_lockfile(temp.path().join(".wax/wax.lock.json")).unwrap();
+    let registry = lock.registries.get(&LanguageId::from_str("compose").unwrap()).unwrap();
+    assert_eq!(registry.source, ".wax/wax.registry.json");
+    assert_eq!(registry.sha256.len(), 64);
+    assert_eq!(lock.schema_version, wax_core::config::lockfile::WAX_LOCK_SCHEMA_VERSION);
+}
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -1860,9 +2005,10 @@ Run:
 ```bash
 cd engine
 cargo test -p wax-cli language_update_uses_centralized_lockfile_when_present language_doctor_reads_centralized_config
+cargo test -p wax-cli language_update_refreshes_registry_locks_for_enabled_languages
 ```
 
-Expected: fail because helpers still read legacy paths.
+Expected: fail because helpers still read legacy paths and no registry refresh helper exists.
 
 - [ ] **Step 3: Implement repo file discovery in language commands**
 
@@ -1891,7 +2037,51 @@ fn load_optional_lockfile_for_repo(repo_root: &Path) -> Result<Option<WaxLock>, 
 }
 ```
 
-- [ ] **Step 4: Run language command tests**
+- [ ] **Step 4: Implement registry lock refresh**
+
+Add to `LanguageCommandError`:
+
+```rust
+/// Registry source resolution failed.
+#[error(transparent)]
+RegistrySource(#[from] wax_core::registry_source::RegistrySourceError),
+```
+
+Add helper in `engine/crates/wax-cli/src/commands/language.rs`:
+
+```rust
+fn refresh_registry_locks_for_repo(repo_root: &Path) -> Result<(), LanguageCommandError> {
+    let repo_files = wax_core::config::repo_files::discover_repo_files(repo_root);
+    let waxrc = load_waxrc(&repo_files.config_path)?;
+    let mut lockfile = load_lockfile(&repo_files.lockfile_path)?;
+
+    for entry in waxrc.languages.iter().filter(|entry| entry.enabled) {
+        let registry_setting = entry.registry_source();
+        let resolved = wax_core::registry_source::resolve_registry_source_with_deprecation(
+            wax_core::registry_source::RegistrySourceInput {
+                repo_root,
+                language_id: entry.id.as_str(),
+                source: registry_setting.as_ref().map(|setting| setting.source.as_str()),
+            },
+            registry_setting.as_ref().is_some_and(|setting| setting.deprecated),
+        )?;
+        lockfile.registries.insert(
+            entry.id.clone(),
+            wax_core::config::lockfile::LockedRegistry {
+                source: resolved.source,
+                sha256: resolved.sha256,
+            },
+        );
+    }
+
+    lockfile.schema_version = wax_core::config::lockfile::WAX_LOCK_SCHEMA_VERSION;
+    save_lockfile(&repo_files.lockfile_path, &lockfile)
+}
+```
+
+Call this helper from `run_update` after language-pack lock entries are updated and before writing the final lockfile. The helper is intentionally reusable so a future explicit `wax registry update` command can share it.
+
+- [ ] **Step 5: Run language command tests**
 
 Run:
 
@@ -1902,7 +2092,7 @@ cargo test -p wax-cli language_
 
 Expected: pass after updating existing fixtures with `registries`.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add engine/crates/wax-cli/src/commands/language.rs
@@ -1918,6 +2108,7 @@ git commit -m "feat: use centralized wax files in language commands"
 - Modify: `docs/specs/2026-05-16-language-packs-and-distribution.md`
 - Modify: `docs/specs/2026-05-13-component-tracker-design.md`
 - Modify: `engine/crates/wax-contract/schemas/waxrc.schema.json`
+- Modify: `engine/crates/wax-contract/schemas/wax-lock.schema.json` if present; otherwise add a note in docs that no public lockfile schema is published yet.
 - Modify: `engine/fixtures/config/example.waxrc`
 
 - [ ] **Step 1: Update `.waxrc` schema to centralized config shape**
@@ -1955,7 +2146,40 @@ Keep `design_system_registry` in the schema as deprecated-compatible:
 }
 ```
 
-- [ ] **Step 2: Update fixture config**
+Update schema descriptions and docs to refer to `.wax/wax.config.json` as the
+canonical config file while preserving compatibility with `.waxrc`.
+
+- [ ] **Step 2: Update lockfile schema documentation**
+
+If `engine/crates/wax-contract/schemas/wax-lock.schema.json` exists, add:
+
+```json
+"registries": {
+  "type": "object",
+  "additionalProperties": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["source", "sha256"],
+    "properties": {
+      "source": {
+        "type": "string",
+        "minLength": 1
+      },
+      "sha256": {
+        "type": "string",
+        "pattern": "^[a-fA-F0-9]{64}$"
+      }
+    }
+  }
+}
+```
+
+If there is no public lockfile schema file, add a short note to
+`docs/specs/2026-05-16-language-packs-and-distribution.md` that lockfile schema
+version 2 adds top-level `registries` entries and that schema publication is
+tracked separately.
+
+- [ ] **Step 3: Update fixture config**
 
 Modify `engine/fixtures/config/example.waxrc` to omit registry fields by default:
 
@@ -1980,7 +2204,7 @@ Modify `engine/fixtures/config/example.waxrc` to omit registry fields by default
 }
 ```
 
-- [ ] **Step 3: Update README onboarding**
+- [ ] **Step 4: Update README onboarding**
 
 Replace the onboarding file list and registry path text with:
 
@@ -2005,7 +2229,7 @@ Add hosted registry example:
 }
 ```
 
-- [ ] **Step 4: Update specs**
+- [ ] **Step 5: Update specs**
 
 In `docs/specs/2026-05-16-language-packs-and-distribution.md`, replace `.waxrc`, top-level `wax.lock.json`, and `design-system/registry.json` default references with:
 
@@ -2023,7 +2247,7 @@ In `docs/specs/2026-05-13-component-tracker-design.md`, update the registry desi
 - validation and scan operate on lockfile-pinned registry content
 ```
 
-- [ ] **Step 5: Run docs/schema adjacent checks**
+- [ ] **Step 6: Run docs/schema adjacent checks**
 
 Run:
 
@@ -2035,7 +2259,7 @@ cargo test -p wax-cli --test init_command
 
 Expected: pass.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add README.md docs/specs/2026-05-16-language-packs-and-distribution.md docs/specs/2026-05-13-component-tracker-design.md engine/crates/wax-contract/schemas/waxrc.schema.json engine/fixtures/config/example.waxrc
