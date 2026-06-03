@@ -325,6 +325,37 @@ fn validate_repo_warns_for_legacy_design_system_registry() {
 }
 
 #[test]
+fn validate_repo_warns_for_preferred_config_with_legacy_lockfile() {
+    let root = TestDir::new("validate-repo-partial-layout");
+    fs::create_dir_all(root.path.join(".wax")).unwrap();
+    fs::write(
+        root.path.join(".wax/wax.config.json"),
+        r#"{"schema_version":1,"languages":[{"id":"compose","enabled":true,"registry":"design-system/registry.json"}]}"#,
+    )
+    .unwrap();
+    fs::create_dir_all(root.path.join("design-system")).unwrap();
+    fs::write(
+        root.path.join("design-system/registry.json"),
+        r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
+    )
+    .unwrap();
+    write_legacy_lockfile_with_registry(&root.path, "design-system/registry.json");
+
+    let report = validate_repo(&root.path).unwrap();
+
+    assert!(report.warnings.iter().any(|warning| {
+        matches!(
+            warning,
+            ValidateWarning::PreferredConfigWithLegacyLockfile {
+                config_path,
+                lockfile_path,
+            } if config_path.ends_with(".wax/wax.config.json")
+                && lockfile_path.ends_with("wax.lock.json")
+        )
+    }));
+}
+
+#[test]
 fn validate_repo_rejects_missing_registry_lock() {
     let root = TestDir::new("validate-repo-missing-registry-lock");
     fs::create_dir_all(root.path.join("design-system")).unwrap();

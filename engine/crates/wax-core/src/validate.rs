@@ -3,6 +3,7 @@
 use crate::config::lockfile::{LockfileError, load_lockfile};
 use crate::config::repo_files::{RepoFileWarning, discover_repo_files};
 use crate::config::waxrc::{WaxRcError, load_waxrc};
+use crate::registry_lock::{self, RegistryLockMismatch};
 use crate::registry_source::{
     RegistrySourceInput, resolve_registry_source_allowing_missing_components_with_deprecation,
 };
@@ -228,25 +229,8 @@ pub fn validate_repo(repo_root: impl AsRef<Path>) -> Result<ValidateReport, Vali
         }
 
         if let Some(lockfile) = &lockfile {
-            let Some(locked_registry) = lockfile.registries.get(&entry.id) else {
-                return Err(ValidateError::MissingRegistryLock {
-                    language_id: entry.id.clone(),
-                });
-            };
-            if locked_registry.source != resolved.source {
-                return Err(ValidateError::RegistrySourceDrift {
-                    language_id: entry.id.clone(),
-                    lockfile_source: locked_registry.source.clone(),
-                    resolved_source: resolved.source,
-                });
-            }
-            if locked_registry.sha256 != resolved.sha256 {
-                return Err(ValidateError::RegistryDigestDrift {
-                    language_id: entry.id.clone(),
-                    lockfile_sha256: locked_registry.sha256.clone(),
-                    resolved_sha256: resolved.sha256,
-                });
-            }
+            registry_lock::verify_registry_lock(&entry.id, &resolved, lockfile)
+                .map_err(registry_lock_mismatch_to_validate_error)?;
         }
 
         let resolved_registry = repo_root.join(&resolved.repo_relative_path);
@@ -335,4 +319,30 @@ pub fn validate_repo(repo_root: impl AsRef<Path>) -> Result<ValidateReport, Vali
     }
 
     Ok(ValidateReport { warnings })
+}
+
+fn registry_lock_mismatch_to_validate_error(mismatch: RegistryLockMismatch) -> ValidateError {
+    match mismatch {
+        RegistryLockMismatch::Missing { language_id } => {
+            ValidateError::MissingRegistryLock { language_id }
+        }
+        RegistryLockMismatch::SourceDrift {
+            language_id,
+            lockfile_source,
+            resolved_source,
+        } => ValidateError::RegistrySourceDrift {
+            language_id,
+            lockfile_source,
+            resolved_source,
+        },
+        RegistryLockMismatch::DigestDrift {
+            language_id,
+            lockfile_sha256,
+            resolved_sha256,
+        } => ValidateError::RegistryDigestDrift {
+            language_id,
+            lockfile_sha256,
+            resolved_sha256,
+        },
+    }
 }

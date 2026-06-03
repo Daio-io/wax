@@ -232,6 +232,42 @@ fn validate_command_prints_ignored_legacy_file_warnings() {
 }
 
 #[test]
+fn validate_command_exits_non_zero_on_registry_source_drift() {
+    let _guard = env_lock();
+    let root = TestDir::new("validate-command-registry-source-drift");
+    let repo = root.path.join("repo");
+    write_repo(
+        &repo,
+        "design-system/registry.json",
+        r#"[{"id":"ds.button","symbol":"Button"}]"#,
+    );
+    let registry_sha256 = wax_core::registry_source::resolve_registry_source(
+        wax_core::registry_source::RegistrySourceInput {
+            repo_root: &repo,
+            language_id: "compose",
+            source: Some("design-system/registry.json"),
+        },
+    )
+    .unwrap()
+    .sha256;
+    fs::write(
+        repo.join("wax.lock.json"),
+        lockfile_json_with_sha256("legacy/registry.json", &registry_sha256),
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .args(["validate", "--repo-root"])
+        .arg(&repo)
+        .output()
+        .expect("spawn wax validate");
+
+    assert!(!output.status.success(), "expected validation failure");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("registry source drift"));
+}
+
+#[test]
 fn validate_command_prints_partial_layout_migration_warning() {
     let _guard = env_lock();
     let root = TestDir::new("validate-command-partial-layout");
@@ -316,6 +352,10 @@ fn lockfile_json(repo_root: &Path, source: &str) -> String {
         },
     )
     .unwrap();
+    lockfile_json_with_sha256(source, &resolved.sha256)
+}
+
+fn lockfile_json_with_sha256(source: &str, sha256: &str) -> String {
     format!(
         r#"{{
   "schema_version": 1,
@@ -325,7 +365,7 @@ fn lockfile_json(repo_root: &Path, source: &str) -> String {
   "registries": {{
     "compose": {{
       "source": "{source}",
-      "sha256": "{}"
+      "sha256": "{sha256}"
     }}
   }},
   "languages": {{
@@ -342,7 +382,6 @@ fn lockfile_json(repo_root: &Path, source: &str) -> String {
     }}
   }}
 }}
-"#,
-        resolved.sha256
+"#
     )
 }

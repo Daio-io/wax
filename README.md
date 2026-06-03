@@ -198,6 +198,7 @@ Optional hosted registry source on a language entry in `.wax/wax.config.json`:
 
 - New repos: `wax init` writes `.wax/wax.config.json`, `.wax/wax.lock.json`, and `.wax/wax.registry.json` only.
 - Existing repos can keep legacy `.waxrc` and top-level `wax.lock.json` until you copy or move them under `.wax/`. `wax validate` warns when both old and new files exist.
+- If you migrate config to `.wax/wax.config.json` but still use a top-level `wax.lock.json`, `wax validate` warns to move the lockfile to `.wax/wax.lock.json`.
 - Lockfiles upgraded from schema v1 may lack per-language `registries` entries. After adopting centralized config or changing a registry source/path, run `wax language update` to refresh registry locks before CI scan.
 - After editing a repo-local registry (for example `.wax/wax.registry.json`), run `wax language update` so `registries` digests and sources stay aligned with config.
 
