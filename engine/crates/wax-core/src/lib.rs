@@ -9,6 +9,7 @@ pub mod global_state;
 pub mod install;
 pub mod paths;
 pub mod registry;
+pub mod registry_source;
 pub mod subprocess_lang;
 pub mod validate;
 

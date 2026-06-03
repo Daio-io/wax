@@ -451,7 +451,7 @@ git commit -m "feat: parse registry config sources"
 - Modify: `engine/crates/wax-core/src/lib.rs`
 - Test: `engine/crates/wax-core/tests/registry_source.rs`
 
-- [ ] **Step 1: Write failing registry source tests**
+- [x] **Step 1: Write failing registry source tests**
 
 Create `engine/crates/wax-core/tests/registry_source.rs`:
 
@@ -566,7 +566,7 @@ small `TcpListener` fixture like the local HTTP server in
 `engine/crates/wax-core/src/registry.rs` tests. It should serve one 200 response
 with `REGISTRY_JSON` and expose a `url()` method returning `http://127.0.0.1:<port>/registry.json`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -577,7 +577,7 @@ cargo test -p wax-core --test registry_source
 
 Expected: fail with unresolved module `registry_source`.
 
-- [ ] **Step 3: Implement registry source resolver**
+- [x] **Step 3: Implement registry source resolver**
 
 Add `pub mod registry_source;` to `engine/crates/wax-core/src/lib.rs`.
 
@@ -872,7 +872,7 @@ fn file_url_to_path(url: &str) -> Result<PathBuf, RegistrySourceError> {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run:
 
@@ -883,7 +883,7 @@ cargo test -p wax-core --test registry_source
 
 Expected: pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add engine/crates/wax-core/src/lib.rs engine/crates/wax-core/src/registry_source.rs engine/crates/wax-core/tests/registry_source.rs

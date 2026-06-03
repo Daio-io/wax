@@ -1,0 +1,299 @@
+use std::fs;
+use std::io::{Read, Write};
+use std::net::TcpListener;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use wax_core::registry_source::{
+    RegistrySourceError, RegistrySourceInput, resolve_registry_source,
+    resolve_registry_source_with_deprecation,
+};
+
+const REGISTRY_JSON: &str =
+    r#"{"schema_version":1,"components":[{"id":"ds.primary-button","symbol":"PrimaryButton"}]}"#;
+
+struct TestRepo {
+    path: PathBuf,
+}
+
+impl TestRepo {
+    fn new() -> Self {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "wax-core-registry-source-{}-{nonce}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&path);
+        fs::create_dir_all(&path).unwrap();
+        Self { path }
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for TestRepo {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
+struct HttpFixtureServer {
+    url: String,
+    cancel: Arc<AtomicBool>,
+    handle: Option<thread::JoinHandle<()>>,
+}
+
+impl HttpFixtureServer {
+    fn spawn(body: &'static str) -> Self {
+        Self::spawn_with_delay(body, Duration::ZERO)
+    }
+
+    fn spawn_with_delay(body: &'static str, delay: Duration) -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let url = format!("http://{address}/registry.json");
+        let cancel = Arc::new(AtomicBool::new(false));
+        let cancel_for_thread = Arc::clone(&cancel);
+
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buffer = [0_u8; 1024];
+            let _ = stream.read(&mut buffer);
+            if !delay.is_zero() {
+                let sleep_step = Duration::from_millis(10);
+                let started = Instant::now();
+                while started.elapsed() < delay {
+                    if cancel_for_thread.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    thread::sleep(sleep_step.min(delay - started.elapsed()));
+                }
+            }
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+            stream.flush().unwrap();
+        });
+
+        Self {
+            url,
+            cancel,
+            handle: Some(handle),
+        }
+    }
+
+    fn url(&self) -> &str {
+        &self.url
+    }
+}
+
+impl Drop for HttpFixtureServer {
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::Relaxed);
+        if let Some(handle) = self.handle.take() {
+            handle.join().unwrap();
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn repo_relative_symlink_cannot_escape_repo() {
+    use std::os::unix::fs::symlink;
+
+    let repo = TestRepo::new();
+    let outside = repo.path().with_extension("outside-registry.json");
+    fs::write(&outside, REGISTRY_JSON).unwrap();
+    symlink(&outside, repo.path().join("linked.registry.json")).unwrap();
+
+    let err = resolve_registry_source(RegistrySourceInput {
+        repo_root: repo.path(),
+        language_id: "compose",
+        source: Some("linked.registry.json"),
+    })
+    .unwrap_err();
+
+    assert!(matches!(err, RegistrySourceError::PathEscapesRepo { .. }));
+}
+
+#[test]
+fn missing_registry_defaults_to_centralized_local_registry() {
+    let repo = TestRepo::new();
+    fs::create_dir_all(repo.path().join(".wax")).unwrap();
+    fs::write(repo.path().join(".wax/wax.registry.json"), REGISTRY_JSON).unwrap();
+
+    let resolved = resolve_registry_source(RegistrySourceInput {
+        repo_root: repo.path(),
+        language_id: "compose",
+        source: None,
+    })
+    .unwrap();
+
+    assert_eq!(resolved.source, ".wax/wax.registry.json");
+    assert_eq!(resolved.repo_relative_path, ".wax/wax.registry.json");
+    assert_eq!(resolved.sha256.len(), 64);
+    assert!(!resolved.deprecated);
+}
+
+#[test]
+fn registry_string_resolves_repo_relative_path() {
+    let repo = TestRepo::new();
+    fs::write(repo.path().join("compose.registry.json"), REGISTRY_JSON).unwrap();
+
+    let resolved = resolve_registry_source(RegistrySourceInput {
+        repo_root: repo.path(),
+        language_id: "compose",
+        source: Some("compose.registry.json"),
+    })
+    .unwrap();
+
+    assert_eq!(resolved.source, "compose.registry.json");
+    assert_eq!(resolved.repo_relative_path, "compose.registry.json");
+    assert_eq!(resolved.sha256.len(), 64);
+}
+
+#[test]
+fn file_url_materializes_under_cache() {
+    let repo = TestRepo::new();
+    let outside = repo.path().with_extension("outside-registry.json");
+    fs::write(&outside, REGISTRY_JSON).unwrap();
+
+    let source = format!("file://{}", outside.display());
+    let resolved = resolve_registry_source(RegistrySourceInput {
+        repo_root: repo.path(),
+        language_id: "compose",
+        source: Some(&source),
+    })
+    .unwrap();
+
+    assert_eq!(resolved.source, source);
+    assert!(
+        resolved
+            .repo_relative_path
+            .starts_with(".wax/cache/registries/compose-")
+    );
+    assert!(resolved.repo_relative_path.ends_with(".json"));
+    assert!(repo.path().join(&resolved.repo_relative_path).is_file());
+}
+
+#[test]
+fn http_url_materializes_under_cache() {
+    let repo = TestRepo::new();
+    let server = HttpFixtureServer::spawn(REGISTRY_JSON);
+
+    let resolved = resolve_registry_source(RegistrySourceInput {
+        repo_root: repo.path(),
+        language_id: "compose",
+        source: Some(server.url()),
+    })
+    .unwrap();
+
+    assert_eq!(resolved.source, server.url());
+    assert!(
+        resolved
+            .repo_relative_path
+            .starts_with(".wax/cache/registries/compose-")
+    );
+    assert!(resolved.repo_relative_path.ends_with(".json"));
+    assert!(repo.path().join(&resolved.repo_relative_path).is_file());
+}
+
+#[test]
+fn http_url_uses_a_request_timeout() {
+    let repo = TestRepo::new();
+    let server = HttpFixtureServer::spawn_with_delay(REGISTRY_JSON, Duration::from_secs(6));
+    let started = Instant::now();
+
+    let err = resolve_registry_source(RegistrySourceInput {
+        repo_root: repo.path(),
+        language_id: "compose",
+        source: Some(server.url()),
+    })
+    .unwrap_err();
+
+    assert!(matches!(err, RegistrySourceError::Fetch { .. }));
+    let elapsed = started.elapsed();
+    drop(server);
+    assert!(elapsed < Duration::from_secs(6));
+}
+
+#[test]
+fn absolute_path_is_rejected() {
+    let repo = TestRepo::new();
+    let err = resolve_registry_source(RegistrySourceInput {
+        repo_root: repo.path(),
+        language_id: "compose",
+        source: Some("/tmp/registry.json"),
+    })
+    .unwrap_err();
+
+    assert!(matches!(err, RegistrySourceError::PlainAbsolutePath { .. }));
+}
+
+#[test]
+fn malformed_registry_is_rejected() {
+    let repo = TestRepo::new();
+    fs::create_dir_all(repo.path().join(".wax")).unwrap();
+    fs::write(
+        repo.path().join(".wax/wax.registry.json"),
+        "{\"components\":[]}",
+    )
+    .unwrap();
+
+    let err = resolve_registry_source(RegistrySourceInput {
+        repo_root: repo.path(),
+        language_id: "compose",
+        source: None,
+    })
+    .unwrap_err();
+
+    assert!(matches!(err, RegistrySourceError::InvalidShape { .. }));
+}
+
+#[test]
+fn preserves_deprecated_source_marker() {
+    let repo = TestRepo::new();
+    fs::create_dir_all(repo.path().join(".wax")).unwrap();
+    fs::write(repo.path().join(".wax/wax.registry.json"), REGISTRY_JSON).unwrap();
+
+    let resolved = resolve_registry_source_with_deprecation(
+        RegistrySourceInput {
+            repo_root: repo.path(),
+            language_id: "compose",
+            source: None,
+        },
+        true,
+    )
+    .unwrap();
+
+    assert!(resolved.deprecated);
+}
+
+#[test]
+fn language_id_cannot_escape_registry_cache_path() {
+    let repo = TestRepo::new();
+    let outside = repo.path().with_extension("outside-registry.json");
+    fs::write(&outside, REGISTRY_JSON).unwrap();
+
+    let source = format!("file://{}", outside.display());
+    let err = resolve_registry_source(RegistrySourceInput {
+        repo_root: repo.path(),
+        language_id: "../../../../escape",
+        source: Some(&source),
+    })
+    .unwrap_err();
+
+    assert!(matches!(err, RegistrySourceError::PathEscapesRepo { .. }));
+    assert!(!repo.path().join(".wax/cache/registries").exists());
+}
