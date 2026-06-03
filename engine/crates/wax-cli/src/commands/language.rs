@@ -576,8 +576,10 @@ pub(crate) fn update_lockfile_entry(
 }
 
 pub(crate) fn save_lockfile(path: &Path, lockfile: &WaxLock) -> Result<(), LanguageCommandError> {
+    let mut lockfile = lockfile.clone();
+    lockfile.schema_version = WAX_LOCK_SCHEMA_VERSION;
     let contents =
-        serde_json::to_string_pretty(lockfile).map_err(|source| LanguageCommandError::Io {
+        serde_json::to_string_pretty(&lockfile).map_err(|source| LanguageCommandError::Io {
             context: format!("serialize lockfile {}", path.display()),
             source: io::Error::new(io::ErrorKind::InvalidData, source),
         })?;
@@ -1306,6 +1308,7 @@ mod tests {
         let lockfile =
             wax_core::config::lockfile::load_lockfile(temp.path().join("wax.lock.json")).unwrap();
         assert_eq!(lockfile.schema_version, WAX_LOCK_SCHEMA_VERSION);
+        assert!(lockfile.registries.is_empty());
         let locked = &lockfile.languages[&lang("compose")];
         assert_eq!(locked.version, "0.4.2");
         assert_eq!(locked.api_version, 1);

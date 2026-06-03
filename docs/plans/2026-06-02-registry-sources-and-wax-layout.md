@@ -978,16 +978,15 @@ pub struct WaxLock {
     pub schema_version: u32,
     /// Engine orchestration API version expected by the locked language packs.
     pub engine_api_version: u32,
-    /// Version of the wax engine that wrote this lockfile.
-    pub wax_version: String,
-    /// Time this lockfile was produced, when recorded by the writer.
-    #[serde(default, with = "time::serde::rfc3339::option")]
-    pub locked_at: Option<OffsetDateTime>,
-    /// Locked design-system registry sources by language id.
-    #[serde(default)]
-    pub registries: BTreeMap<LanguageId, LockedRegistry>,
-    /// Locked language pack artifacts by validated language id.
-    pub languages: BTreeMap<LanguageId, LockedLanguage>,
+/// Version of the wax engine that wrote this lockfile.
+pub wax_version: String,
+/// Time this lockfile was produced, when recorded by the writer.
+#[serde(default, with = "time::serde::rfc3339::option")]
+pub locked_at: Option<OffsetDateTime>,
+/// Locked design-system registry sources by language id.
+pub registries: BTreeMap<LanguageId, LockedRegistry>,
+/// Locked language pack artifacts by validated language id.
+pub languages: BTreeMap<LanguageId, LockedLanguage>,
 }
 
 /// Lockfile entry for one resolved design-system registry.
@@ -1016,10 +1015,15 @@ if version.schema_version < MIN_SUPPORTED_WAX_LOCK_SCHEMA_VERSION
     return Err(LockfileError::UnsupportedSchemaVersion {
         path: path_display,
         found: version.schema_version,
-        supported: WAX_LOCK_SCHEMA_VERSION,
+        min_supported: MIN_SUPPORTED_WAX_LOCK_SCHEMA_VERSION,
+        max_supported: WAX_LOCK_SCHEMA_VERSION,
     });
 }
 ```
+
+Before deserializing into `WaxLock`, inject an empty `registries` object only for
+schema version `1` inputs so migration stays backward-compatible while schema
+version `2` still requires an explicit `registries` field.
 
 Writers must emit schema version `2`. Readers accept v1 so existing repositories
 can run the lock refresh command before strict registry-lock checks are enforced.
