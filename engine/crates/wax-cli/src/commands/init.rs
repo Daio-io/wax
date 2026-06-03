@@ -350,7 +350,11 @@ fn write_file_atomically(path: &Path, contents: &str) -> Result<(), InitCommandE
 }
 
 fn rendered_file_contents(contents: &str) -> String {
-    format!("{contents}\n")
+    if contents.ends_with('\n') {
+        contents.to_owned()
+    } else {
+        format!("{contents}\n")
+    }
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -824,6 +828,51 @@ mod tests {
 
         let registry_contents = fs::read_to_string(existing_registry).unwrap();
         assert!(registry_contents.contains("\"ds.keep\""));
+    }
+
+    #[test]
+    fn init_scaffolded_registry_digest_matches_written_file() {
+        let _guard = env_lock();
+        let temp = TestDir::new("scaffolded-registry-digest");
+        let _wax_home = EnvVarGuard::set("WAX_HOME", temp.path.join("home"));
+
+        let artifact_path = temp.path.join("compose.tgz");
+        let digest = write_pack_artifact(&artifact_path, "wax-lang-compose");
+        let registry_path = temp.path.join("registry.json");
+        fs::write(
+            &registry_path,
+            format!(
+                r#"[{{"id":"compose","version":"0.4.2","api_version":1,"targets":{{"test-target":{{"url":"{}","sha256":"{}"}}}}}}]"#,
+                file_url(&artifact_path),
+                digest
+            ),
+        )
+        .unwrap();
+
+        let repo_root = temp.path.join("repo");
+        fs::create_dir_all(&repo_root).unwrap();
+
+        run_init(
+            InitOptions {
+                non_interactive: true,
+                languages: vec![lang("compose")],
+                no_install: true,
+                registry_url: Some(file_url(&registry_path)),
+                repo_root: repo_root.clone(),
+                target_triple: Some("test-target".to_owned()),
+                state_path: Some(temp.path.join("home/state.json")),
+                scaffold_registries: true,
+            },
+            &mut Vec::new(),
+        )
+        .unwrap();
+
+        let lock = load_lockfile(repo_root.join(PREFERRED_LOCKFILE_RELATIVE_PATH)).unwrap();
+        let registry_bytes = fs::read(repo_root.join(DEFAULT_REGISTRY_RELATIVE_PATH)).unwrap();
+        assert_eq!(
+            lock.registries[&lang("compose")].sha256,
+            sha256_hex(&registry_bytes)
+        );
     }
 
     #[test]
