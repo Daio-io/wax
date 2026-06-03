@@ -13,7 +13,7 @@ use wax_core::config::lockfile::{
     LockedLanguage, LockedRegistry, LockfileError, ResolvedLanguage, WAX_LOCK_SCHEMA_VERSION,
     WaxLock, load_lockfile,
 };
-use wax_core::config::waxrc::{WaxRcError, load_waxrc};
+use wax_core::config::waxrc::{WaxRc, WaxRcError, load_waxrc};
 use wax_core::defaults::DEFAULT_WAX_LANG_INDEX;
 use wax_core::global_state::{
     GlobalState, GlobalStateError, InstalledLanguagePack, load_global_state, save_global_state,
@@ -112,14 +112,14 @@ pub struct UpdateOptions {
     pub target_triple: Option<String>,
     /// State path override for tests.
     pub state_path: Option<PathBuf>,
-    /// Repository root containing `wax.lock.json`.
+    /// Repository root; config and lock paths are discovered under `.wax/` or legacy paths.
     pub repo_root: PathBuf,
 }
 
 /// Options for `wax language doctor`.
 #[derive(Debug, Clone)]
 pub struct DoctorOptions {
-    /// Repository root containing `.waxrc` and optionally `wax.lock.json`.
+    /// Repository root; config and lock paths are discovered under `.wax/` or legacy paths.
     pub repo_root: PathBuf,
     /// State path override for tests.
     pub state_path: Option<PathBuf>,
@@ -261,8 +261,8 @@ pub fn run_update(
     let mut state = load_global_state(&state_path)?;
     let repo_files = wax_core::config::repo_files::discover_repo_files(&options.repo_root);
     let lockfile_path = repo_files.lockfile_path;
+    let should_refresh_registry_locks = repo_files.config_path.is_file();
     let mut lockfile = load_optional_lockfile(&lockfile_path)?;
-    let lockfile_present = lockfile.is_some();
 
     let language_ids = update_language_ids(&state, options.language_id.as_ref(), options.all)?;
     let mut updated = Vec::new();
@@ -297,7 +297,6 @@ pub fn run_update(
 
         if let Some(lockfile) = lockfile.as_mut() {
             update_lockfile_entry(lockfile, &manifest, &registry_url, &target, &artifact);
-            save_lockfile(&lockfile_path, lockfile)?;
         }
 
         total_removed += remove_installed_versions_except(
@@ -309,8 +308,12 @@ pub fn run_update(
         updated.push((manifest.id, manifest.version));
     }
 
-    if lockfile_present && repo_files.config_path.is_file() {
-        refresh_registry_locks_for_repo(&options.repo_root)?;
+    if let Some(lockfile) = lockfile.as_mut() {
+        if should_refresh_registry_locks {
+            let waxrc = load_waxrc(&repo_files.config_path)?;
+            refresh_registry_locks_in_lockfile(lockfile, &options.repo_root, &waxrc)?;
+        }
+        save_lockfile(&lockfile_path, lockfile)?;
     }
 
     for (language_id, version) in updated {
@@ -739,11 +742,11 @@ fn load_optional_lockfile_for_repo(
     load_optional_lockfile(&repo_files.lockfile_path)
 }
 
-fn refresh_registry_locks_for_repo(repo_root: &Path) -> Result<(), LanguageCommandError> {
-    let repo_files = wax_core::config::repo_files::discover_repo_files(repo_root);
-    let waxrc = load_waxrc(&repo_files.config_path)?;
-    let mut lockfile = load_lockfile(&repo_files.lockfile_path)?;
-
+fn refresh_registry_locks_in_lockfile(
+    lockfile: &mut WaxLock,
+    repo_root: &Path,
+    waxrc: &WaxRc,
+) -> Result<(), LanguageCommandError> {
     for entry in waxrc.languages.iter().filter(|entry| entry.enabled) {
         let registry_setting = entry.registry_source();
         let resolved = wax_core::registry_source::resolve_registry_source_with_deprecation(
@@ -768,6 +771,18 @@ fn refresh_registry_locks_for_repo(repo_root: &Path) -> Result<(), LanguageComma
     }
 
     lockfile.schema_version = WAX_LOCK_SCHEMA_VERSION;
+    Ok(())
+}
+
+/// Refreshes registry lock entries for enabled languages and writes the lockfile.
+#[allow(dead_code)] // unit tests; reserved for a future `wax registry update` command
+pub(crate) fn refresh_registry_locks_for_repo(
+    repo_root: &Path,
+) -> Result<(), LanguageCommandError> {
+    let repo_files = wax_core::config::repo_files::discover_repo_files(repo_root);
+    let waxrc = load_waxrc(&repo_files.config_path)?;
+    let mut lockfile = load_lockfile(&repo_files.lockfile_path)?;
+    refresh_registry_locks_in_lockfile(&mut lockfile, repo_root, &waxrc)?;
     save_lockfile(&repo_files.lockfile_path, &lockfile)
 }
 
@@ -1366,6 +1381,86 @@ mod tests {
         assert_eq!(locked.resolved.target, "test-target");
         assert_eq!(locked.resolved.url, file_url(&artifact_path));
         assert_eq!(locked.resolved.sha256, digest);
+    }
+
+    #[test]
+    fn update_refreshes_registry_locks_for_centralized_layout() {
+        let _guard = env_lock();
+        let temp = TestDir::new("update-centralized-registry");
+        let _wax_home = EnvVarGuard::set("WAX_HOME", temp.path());
+
+        fs::create_dir_all(temp.path().join(".wax")).unwrap();
+        fs::write(
+            temp.path().join(".wax/wax.config.json"),
+            r#"{"schema_version":1,"languages":[{"id":"compose","enabled":true}]}"#,
+        )
+        .unwrap();
+        fs::write(
+            temp.path().join(".wax/wax.registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
+        )
+        .unwrap();
+        fs::write(
+            temp.path().join(".wax/wax.lock.json"),
+            minimal_v1_lockfile_json(),
+        )
+        .unwrap();
+
+        let mut state = GlobalState::default();
+        state.installed_languages.insert(
+            lang("compose"),
+            BTreeMap::from([(
+                "0.4.1".to_owned(),
+                InstalledLanguagePack {
+                    install_dir: temp.path().join("langs/compose/0.4.1"),
+                },
+            )]),
+        );
+        save_global_state(temp.path().join("state.json"), &state).unwrap();
+
+        let artifact_path = temp.path().join("compose-new.tgz");
+        let digest = write_pack_artifact(&artifact_path, "wax-lang-compose");
+        let registry_path = temp.path().join("registry.json");
+        let registry_url = file_url(&registry_path);
+        fs::write(
+            &registry_path,
+            format!(
+                r#"[
+                    {{"id":"compose","version":"0.4.1","api_version":1,"targets":{{"test-target":{{"url":"{}","sha256":"{}"}}}}}},
+                    {{"id":"compose","version":"0.4.2","api_version":1,"targets":{{"test-target":{{"url":"{}","sha256":"{}"}}}}}}
+                ]"#,
+                file_url(&artifact_path),
+                digest,
+                file_url(&artifact_path),
+                digest
+            ),
+        )
+        .unwrap();
+
+        run_update(
+            UpdateOptions {
+                language_id: Some(lang("compose")),
+                all: false,
+                registry_url: Some(registry_url),
+                target_triple: Some("test-target".to_owned()),
+                state_path: None,
+                repo_root: temp.path().to_path_buf(),
+            },
+            &mut Vec::new(),
+        )
+        .unwrap();
+
+        let lockfile =
+            wax_core::config::lockfile::load_lockfile(temp.path().join(".wax/wax.lock.json"))
+                .unwrap();
+        let registry = lockfile
+            .registries
+            .get(&lang("compose"))
+            .expect("compose registry lock should exist after update");
+        assert_eq!(registry.source, ".wax/wax.registry.json");
+        assert_eq!(registry.sha256.len(), 64);
+        assert_eq!(lockfile.schema_version, WAX_LOCK_SCHEMA_VERSION);
+        assert_eq!(lockfile.languages[&lang("compose")].version, "0.4.2");
     }
 
     #[test]
