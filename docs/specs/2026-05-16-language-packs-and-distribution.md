@@ -268,7 +268,7 @@ Non-zero exit is a last resort. Prefer a structured line on stdout:
   "api_version": 1,
   "language_id": "compose",
   "code": "registry_not_found",
-  "message": "design_system_registry path missing",
+  "message": "registry path missing",
   "diagnostics": []
 }
 ```

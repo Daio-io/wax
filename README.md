@@ -128,10 +128,9 @@ rm -rf "$HOME/.wax"
 wax init --non-interactive --language compose
 ```
 
-`wax init` writes `.wax/wax.config.json`, `.wax/wax.lock.json`, and `.wax/wax.registry.json`.
-Populate `.wax/wax.registry.json` with canonical components. Generated scan output lands in `.wax/out/`, which init adds to `.gitignore`.
+`wax init` writes `.wax/wax.config.json`, `.wax/wax.lock.json`, and `.wax/wax.registry.json`. Generated scan output lands in `.wax/out/`, which init adds to `.gitignore`.
 
-Minimal valid registry example:
+3. Populate `.wax/wax.registry.json` with canonical components. Minimal valid example:
 
 ```json
 {
@@ -145,7 +144,8 @@ Minimal valid registry example:
 }
 ```
 
-`wax init` scaffolds `.wax/wax.registry.json`; `wax scan` requires at least one component symbol in `components[]`.
+`wax scan` requires at least one component symbol in `components[]`.
+
 4. Validate repository configuration:
 
 ```bash
@@ -170,11 +170,21 @@ For editor validation/autocomplete on `.wax/wax.config.json` (or legacy `.waxrc`
 
 If your environment cannot fetch remote schemas, copy that schema file into your repository and point `$schema` at the vendored path instead.
 
-Optional hosted registry source in `.wax/wax.config.json`:
+Optional hosted registry source on a language entry in `.wax/wax.config.json`:
 
 ```json
-"registry": {
-  "source": "https://example.com/acme-ds/registry/v2.4.1/compose.json"
+{
+  "schema_version": 1,
+  "languages": [
+    {
+      "id": "compose",
+      "enabled": true,
+      "registry": {
+        "source": "https://example.com/acme-ds/registry/v2.4.1/compose.json"
+      },
+      "roots": ["app/src/main/kotlin"]
+    }
+  ]
 }
 ```
 
