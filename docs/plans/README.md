@@ -16,9 +16,9 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 | Order | Plan | Document | Doc status | Implementation status | Gate (start implementation) |
 |------:|------|----------|------------|------------------------|-----------------------------|
 | 1 | Rust engine and language packs | [2026-05-16-rust-engine-language-packs-plan.md](./2026-05-16-rust-engine-language-packs-plan.md) | `merged` | `complete` | — |
-| 2 | Release and rollout (alpha) | [2026-05-24-release-and-rollout-plan.md](./2026-05-24-release-and-rollout-plan.md) | `merged` | `not-started` | Order 1 implementation `complete` |
+| 2 | Release and rollout (alpha) | [2026-05-24-release-and-rollout-plan.md](./2026-05-24-release-and-rollout-plan.md) | `merged` | `complete` | Order 1 implementation `complete` |
 | 3 | Post-alpha UX | [2026-05-24-post-alpha-ux-plan.md](./2026-05-24-post-alpha-ux-plan.md) | `merged` | `not-started` | Order 2 public alpha shipped (`v0.1.0-alpha.1` or agreed tag) |
-| 4 | Registry sources and centralized wax layout | [2026-06-02-registry-sources-and-wax-layout.md](./2026-06-02-registry-sources-and-wax-layout.md) | `pending` | `not-started` | Order 2 implementation `complete`; may run before registry discover/draft |
+| 4 | Registry sources and centralized wax layout | [2026-06-02-registry-sources-and-wax-layout.md](./2026-06-02-registry-sources-and-wax-layout.md) | `merged` | `not-started` | Order 2 implementation `complete`; may run before registry discover/draft |
 | — | Registry discover / draft | *not written* | `planned` | `not-started` | Post-alpha UX or alpha stable; see [component tracker design](../specs/2026-05-13-component-tracker-design.md) |
 
 **Doc status:** `pending` → plan PR open; `merged` → plan doc on `main`; `planned` → not yet drafted.
@@ -68,12 +68,12 @@ Merge these **documentation PRs** in sequence (separate from implementation task
 
 | PR sequence | Branch | PR | Contents |
 |-------------|--------|-----|----------|
-| 1 | `docs/plans-roadmap` | #33 | This `README.md` + spec roadmap section |
+| 1 | `docs/plans-roadmap` | #33 (merged) | This `README.md` + spec roadmap section |
 | 2 | `docs/release-and-rollout-plan` | #32 (merged) | Release plan on `main` |
-| 3 | `docs/post-alpha-ux-plan` | #34 | Post-alpha UX plan + links |
-| 4 | `dai/registry-sources-plans` | #66 | Registry sources and centralized wax layout design + implementation plan |
+| 3 | `docs/post-alpha-ux-plan` | #34 (merged) | Post-alpha UX plan + links |
+| 4 | `dai/registry-sources-plans` | #66 (merged) | Registry sources and centralized wax layout design + implementation plan |
 
-#32 merged the order 2 plan doc. After this PR (#33) merges, begin release **implementation** Task 1 when order 1 implementation is `complete`. Set order 3 doc status to `merged` when #34 lands.
+Plan document PRs #32, #33, #34, and #66 are merged on `main`.
 
 ---
 
