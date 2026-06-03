@@ -217,14 +217,11 @@ fn parses_legacy_design_system_registry_source() {
 }
 
 #[test]
-fn malformed_registry_does_not_fall_back_to_legacy_alias() {
-    let rc = load_waxrc(fixture_path("with-malformed-registry-and-legacy.waxrc")).unwrap();
-    let language = &rc.languages[0];
+fn malformed_registry_is_reported_as_invalid_config_without_legacy_fallback() {
+    let err = load_waxrc(fixture_path("with-malformed-registry-and-legacy.waxrc")).unwrap_err();
 
-    assert_eq!(language.extra["registry"], serde_json::json!({}));
-    assert_eq!(
-        language.extra["design_system_registry"],
-        "design-system/registry.json"
-    );
-    assert_eq!(language.registry_source(), None);
+    assert!(matches!(err, WaxRcError::InvalidConfig { .. }));
+    assert!(err.to_string().contains("invalid wax config"));
+    assert!(err.to_string().contains("registry"));
+    assert!(err.to_string().contains("string"));
 }
