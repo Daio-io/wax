@@ -40,7 +40,8 @@ pub enum BasicConfigMode {
 
 /// Loads basic scan settings from the engine request payload.
 pub fn parse_basic_scan_config(config: &ScanConfig) -> Result<BasicConfigMode, LineScanError> {
-    let has_registry = config.contains_key("design_system_registry");
+    let has_registry =
+        config.contains_key("registry") || config.contains_key("design_system_registry");
     let has_roots = config.contains_key("roots");
     let has_extensions = config.contains_key("file_extensions");
     let has_globs = config.contains_key("include_globs");
@@ -48,24 +49,23 @@ pub fn parse_basic_scan_config(config: &ScanConfig) -> Result<BasicConfigMode, L
         return Ok(BasicConfigMode::Scaffold);
     }
 
-    let registry =
-        config
-            .get("design_system_registry")
-            .ok_or_else(|| LineScanError::ConfigInvalid {
-                reason: "design_system_registry is required when basic scan config is present"
-                    .to_owned(),
-            })?;
+    let registry = config
+        .get("registry")
+        .or_else(|| config.get("design_system_registry"))
+        .ok_or_else(|| LineScanError::ConfigInvalid {
+            reason: "registry is required when basic scan config is present".to_owned(),
+        })?;
     let registry = registry
         .as_str()
         .ok_or_else(|| LineScanError::ConfigInvalid {
-            reason: "design_system_registry must be a non-empty string".to_owned(),
+            reason: "registry must be a non-empty string".to_owned(),
         })?;
     if registry.is_empty() {
         return Err(LineScanError::ConfigInvalid {
-            reason: "design_system_registry must be a non-empty string".to_owned(),
+            reason: "registry must be a non-empty string".to_owned(),
         });
     }
-    validate_repo_relative_path(registry, "design_system_registry")?;
+    validate_repo_relative_path(registry, "registry")?;
 
     let roots_value = config
         .get("roots")
@@ -610,7 +610,7 @@ mod tests {
 
     #[test]
     fn validate_repo_relative_path_rejects_absolute_paths() {
-        let err = validate_repo_relative_path("/etc/passwd", "design_system_registry")
+        let err = validate_repo_relative_path("/etc/passwd", "registry")
             .expect_err("absolute path must fail");
         assert!(matches!(err, LineScanError::ConfigInvalid { .. }));
     }
