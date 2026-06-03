@@ -105,7 +105,8 @@ fn init_loads_file_copy_of_alpha_pack_index() {
     );
 
     let lockfile: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(repo.join("wax.lock.json")).unwrap()).unwrap();
+        serde_json::from_str(&fs::read_to_string(repo.join(".wax/wax.lock.json")).unwrap())
+            .unwrap();
     assert_eq!(lockfile["schema_version"], 2);
     let expected_version = option_env!("WAX_BUILD_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
     assert_eq!(lockfile["wax_version"], expected_version);
@@ -113,11 +114,14 @@ fn init_loads_file_copy_of_alpha_pack_index() {
         lockfile["registries"].as_object().is_some(),
         "init should write an explicit registries object for schema v2"
     );
+    assert_eq!(
+        lockfile["registries"]["compose"]["source"],
+        ".wax/wax.registry.json"
+    );
     assert!(
-        lockfile["registries"]
-            .as_object()
-            .is_some_and(|registries| registries.is_empty()),
-        "task 4 should not invent registry locks during init"
+        lockfile["registries"]["compose"]["sha256"]
+            .as_str()
+            .is_some_and(|sha256| !sha256.is_empty())
     );
     let compose = &lockfile["languages"]["compose"];
     assert_eq!(compose["version"], "0.1.0-alpha.0");
@@ -153,4 +157,159 @@ fn assert_alpha_index_ids(index_path: &Path) {
         .collect::<Vec<_>>();
 
     assert_eq!(ids, ["compose", "basic"]);
+}
+
+#[test]
+fn init_writes_centralized_wax_layout_and_gitignore() {
+    let _guard = env_lock();
+    let root = TestDir::new("init-centralized-layout");
+    let repo = root.path.join("repo");
+    let wax_home = root.path.join("wax-home");
+    fs::create_dir_all(&repo).expect("create repo fixture");
+    fs::create_dir_all(&wax_home).expect("create wax home fixture");
+
+    let alpha_index = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("fixtures")
+        .join("registry")
+        .join("alpha-index.json");
+    let registry_copy = root.path.join("alpha-index.json");
+    fs::copy(&alpha_index, &registry_copy).expect("copy alpha index fixture");
+    let registry_url = format!("file://{}", registry_copy.display());
+
+    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
+    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .args([
+            "init",
+            "--non-interactive",
+            "--language",
+            "compose",
+            "--no-install",
+            "--target",
+            "x86_64-unknown-linux-gnu",
+            "--registry",
+        ])
+        .arg(&registry_url)
+        .args(["--repo-root"])
+        .arg(&repo)
+        .output()
+        .expect("spawn wax init");
+
+    assert!(
+        output.status.success(),
+        "wax init exited with {:?}; stderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert!(repo.join(".wax/wax.config.json").is_file());
+    assert!(repo.join(".wax/wax.lock.json").is_file());
+    assert!(repo.join(".wax/wax.registry.json").is_file());
+    assert!(!repo.join(".waxrc").exists());
+    assert!(!repo.join("wax.lock.json").exists());
+    assert!(!repo.join("design-system/registry.json").exists());
+
+    let gitignore = fs::read_to_string(repo.join(".gitignore")).expect("read .gitignore");
+    assert!(gitignore.contains("/.wax/cache/"));
+    assert!(gitignore.contains("/.wax/out/"));
+}
+
+#[test]
+fn init_does_not_duplicate_gitignore_entries() {
+    let _guard = env_lock();
+    let root = TestDir::new("init-gitignore-dedupe");
+    let repo = root.path.join("repo");
+    let wax_home = root.path.join("wax-home");
+    fs::create_dir_all(&repo).expect("create repo fixture");
+    fs::create_dir_all(&wax_home).expect("create wax home fixture");
+    fs::write(&repo.join(".gitignore"), "/.wax/cache/\n/.wax/out/\n")
+        .expect("write existing gitignore");
+
+    let alpha_index = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("fixtures")
+        .join("registry")
+        .join("alpha-index.json");
+    let registry_copy = root.path.join("alpha-index.json");
+    fs::copy(&alpha_index, &registry_copy).expect("copy alpha index fixture");
+    let registry_url = format!("file://{}", registry_copy.display());
+
+    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
+    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .args([
+            "init",
+            "--non-interactive",
+            "--language",
+            "compose",
+            "--no-install",
+            "--target",
+            "x86_64-unknown-linux-gnu",
+            "--registry",
+        ])
+        .arg(&registry_url)
+        .args(["--repo-root"])
+        .arg(&repo)
+        .output()
+        .expect("spawn wax init");
+
+    assert!(
+        output.status.success(),
+        "wax init exited with {:?}; stderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let gitignore = fs::read_to_string(repo.join(".gitignore")).expect("read .gitignore");
+    assert_eq!(gitignore.matches("/.wax/cache/").count(), 1);
+    assert_eq!(gitignore.matches("/.wax/out/").count(), 1);
+}
+
+#[test]
+fn init_scaffolds_only_default_centralized_registry() {
+    let _guard = env_lock();
+    let root = TestDir::new("init-centralized-registry");
+    let repo = root.path.join("repo");
+    let wax_home = root.path.join("wax-home");
+    fs::create_dir_all(&repo).expect("create repo fixture");
+    fs::create_dir_all(&wax_home).expect("create wax home fixture");
+
+    let alpha_index = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("fixtures")
+        .join("registry")
+        .join("alpha-index.json");
+    let registry_copy = root.path.join("alpha-index.json");
+    fs::copy(&alpha_index, &registry_copy).expect("copy alpha index fixture");
+    let registry_url = format!("file://{}", registry_copy.display());
+
+    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
+    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .args([
+            "init",
+            "--non-interactive",
+            "--language",
+            "compose",
+            "--no-install",
+            "--target",
+            "x86_64-unknown-linux-gnu",
+            "--registry",
+        ])
+        .arg(&registry_url)
+        .args(["--repo-root"])
+        .arg(&repo)
+        .output()
+        .expect("spawn wax init");
+
+    assert!(
+        output.status.success(),
+        "wax init exited with {:?}; stderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert!(repo.join(".wax/wax.registry.json").is_file());
+    assert!(!repo.join("design-system/registry.json").exists());
 }

@@ -10,10 +10,17 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 use wax_contract::LanguageId;
-use wax_core::config::lockfile::{WAX_LOCK_SCHEMA_VERSION, WaxLock};
+use wax_core::config::lockfile::{LockedRegistry, WAX_LOCK_SCHEMA_VERSION, WaxLock};
+use wax_core::config::repo_files::{
+    DEFAULT_REGISTRY_RELATIVE_PATH, PREFERRED_CONFIG_RELATIVE_PATH,
+    PREFERRED_LOCKFILE_RELATIVE_PATH,
+};
 use wax_core::config::waxrc::WAXRC_SCHEMA_VERSION;
 use wax_core::registry::{
     RegistryArtifact, RegistryError, RegistryManifest, fetch_pack_index, select_target_artifact,
+};
+use wax_core::registry_source::{
+    RegistrySourceError, RegistrySourceInput, resolve_registry_source,
 };
 use wax_lang_api::build_version;
 
@@ -41,7 +48,7 @@ pub struct InitOptions {
     pub no_install: bool,
     /// Pack index URL. Resolution precedence: `--registry` > `WAX_LANG_INDEX` > built-in default.
     pub registry_url: Option<String>,
-    /// Repository root that will receive `.waxrc` and `wax.lock.json`.
+    /// Repository root that will receive `.wax/wax.config.json` and `.wax/wax.lock.json`.
     pub repo_root: PathBuf,
     /// Target triple override for tests.
     pub target_triple: Option<String>,
@@ -63,8 +70,8 @@ pub enum InitCommandError {
     #[error("wax init requires at least one --language <id>")]
     MissingLanguageSelection,
     /// Repository configuration already exists.
-    #[error(".waxrc already exists at {path}; remove it or run init in a fresh directory")]
-    WaxRcAlreadyExists {
+    #[error("wax config already exists at {path}; remove it or run init in a fresh directory")]
+    WaxConfigAlreadyExists {
         /// Existing configuration path.
         path: PathBuf,
     },
@@ -90,6 +97,9 @@ pub enum InitCommandError {
     /// Pack index fetch or resolution failed.
     #[error(transparent)]
     Registry(#[from] RegistryError),
+    /// Registry source resolution failed while creating initial registry locks.
+    #[error(transparent)]
+    RegistrySource(#[from] RegistrySourceError),
     /// Filesystem operation failed.
     #[error("{context}: {source}")]
     Io {
@@ -112,10 +122,11 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
         return Err(InitCommandError::MissingLanguageSelection);
     }
 
-    let waxrc_path = options.repo_root.join(".waxrc");
-    let lockfile_path = options.repo_root.join("wax.lock.json");
-    if waxrc_path.exists() {
-        return Err(InitCommandError::WaxRcAlreadyExists { path: waxrc_path });
+    let wax_dir = options.repo_root.join(".wax");
+    let config_path = options.repo_root.join(PREFERRED_CONFIG_RELATIVE_PATH);
+    let lockfile_path = options.repo_root.join(PREFERRED_LOCKFILE_RELATIVE_PATH);
+    if config_path.exists() {
+        return Err(InitCommandError::WaxConfigAlreadyExists { path: config_path });
     }
 
     let waxrc_contents = build_waxrc_contents(&languages)?;
@@ -131,6 +142,20 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
         let manifest = manifest_for_language(&manifests, language_id, None)?;
         let artifact = select_target_artifact(&manifest, &target)?.clone();
         resolved_languages.push(ResolvedInitLanguage { manifest, artifact });
+    }
+
+    fs::create_dir_all(&wax_dir).map_err(|source| InitCommandError::Io {
+        context: format!("create {}", wax_dir.display()),
+        source,
+    })?;
+
+    write_file_atomically(&config_path, &waxrc_contents)?;
+
+    if options.scaffold_registries {
+        write_file_atomically(
+            &options.repo_root.join(DEFAULT_REGISTRY_RELATIVE_PATH),
+            EXAMPLE_DESIGN_SYSTEM_REGISTRY,
+        )?;
     }
 
     let mut lockfile = WaxLock {
@@ -149,14 +174,22 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
             &target,
             &resolved.artifact,
         );
+        let registry_source = resolve_registry_source(RegistrySourceInput {
+            repo_root: &options.repo_root,
+            language_id: resolved.manifest.id.as_str(),
+            source: None,
+        })?;
+        lockfile.registries.insert(
+            resolved.manifest.id.clone(),
+            LockedRegistry {
+                source: registry_source.source,
+                sha256: registry_source.sha256,
+            },
+        );
     }
 
-    write_file_atomically(&waxrc_path, &waxrc_contents)?;
     save_lockfile(&lockfile_path, &lockfile)?;
-
-    if options.scaffold_registries {
-        scaffold_design_system_registries(&options.repo_root, &waxrc_contents)?;
-    }
+    update_gitignore(&options.repo_root)?;
 
     if !options.no_install {
         for resolved in &resolved_languages {
@@ -225,54 +258,49 @@ fn build_waxrc_contents(selected: &[LanguageId]) -> Result<String, InitCommandEr
         }
     }
 
+    for entry in &mut filtered {
+        if let Some(object) = entry.as_object_mut() {
+            object.remove("design_system_registry");
+            object.remove("registry");
+        }
+    }
+
     *languages = filtered;
     template["schema_version"] = serde_json::json!(WAXRC_SCHEMA_VERSION);
 
     serde_json::to_string_pretty(&template).map_err(|source| InitCommandError::Io {
-        context: "serialize .waxrc".to_owned(),
+        context: "serialize wax config".to_owned(),
         source: io::Error::new(io::ErrorKind::InvalidData, source),
     })
 }
 
-fn scaffold_design_system_registries(
-    repo_root: &Path,
-    waxrc_contents: &str,
-) -> Result<(), InitCommandError> {
-    let value: serde_json::Value =
-        serde_json::from_str(waxrc_contents).map_err(|source| InitCommandError::Io {
-            context: "parse generated .waxrc for registry scaffold".to_owned(),
-            source: io::Error::new(io::ErrorKind::InvalidData, source),
-        })?;
-    let Some(languages) = value.get("languages").and_then(serde_json::Value::as_array) else {
-        return Ok(());
+fn update_gitignore(repo_root: &Path) -> Result<(), InitCommandError> {
+    let path = repo_root.join(".gitignore");
+    let mut contents = match fs::read_to_string(&path) {
+        Ok(contents) => contents,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => String::new(),
+        Err(source) => {
+            return Err(InitCommandError::Io {
+                context: format!("read {}", path.display()),
+                source,
+            });
+        }
     };
 
-    for entry in languages {
-        let Some(path) = entry
-            .get("design_system_registry")
-            .and_then(serde_json::Value::as_str)
-        else {
-            continue;
-        };
-        let destination = repo_root.join(path);
-        if destination.exists() {
-            continue;
+    for entry in ["/.wax/cache/", "/.wax/out/"] {
+        if !contents.lines().any(|line| line.trim() == entry) {
+            if !contents.is_empty() && !contents.ends_with('\n') {
+                contents.push('\n');
+            }
+            contents.push_str(entry);
+            contents.push('\n');
         }
-        if let Some(parent) = destination.parent() {
-            fs::create_dir_all(parent).map_err(|source| InitCommandError::Io {
-                context: format!("create parent directory for {}", destination.display()),
-                source,
-            })?;
-        }
-        fs::write(&destination, format!("{EXAMPLE_DESIGN_SYSTEM_REGISTRY}\n")).map_err(
-            |source| InitCommandError::Io {
-                context: format!("write design-system registry {}", destination.display()),
-                source,
-            },
-        )?;
     }
 
-    Ok(())
+    fs::write(&path, contents).map_err(|source| InitCommandError::Io {
+        context: format!("write {}", path.display()),
+        source,
+    })
 }
 
 fn write_file_atomically(path: &Path, contents: &str) -> Result<(), InitCommandError> {
@@ -353,6 +381,18 @@ mod tests {
 
     fn file_url(path: &Path) -> String {
         format!("file://{}", path.display())
+    }
+
+    fn write_default_registry(repo_root: &Path) {
+        let registry_path = repo_root.join(DEFAULT_REGISTRY_RELATIVE_PATH);
+        if let Some(parent) = registry_path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(
+            &registry_path,
+            format!("{EXAMPLE_DESIGN_SYSTEM_REGISTRY}\n"),
+        )
+        .unwrap();
     }
 
     fn write_pack_artifact(path: &Path, binary: &str) -> String {
@@ -442,17 +482,20 @@ mod tests {
         )
         .unwrap();
 
-        let waxrc = load_waxrc(repo_root.join(".waxrc")).unwrap();
+        let waxrc = load_waxrc(repo_root.join(PREFERRED_CONFIG_RELATIVE_PATH)).unwrap();
         assert_eq!(waxrc.languages.len(), 1);
         assert_eq!(waxrc.languages[0].id, lang("compose"));
         assert!(waxrc.languages[0].enabled);
+        assert!(waxrc.languages[0].registry_source().is_none());
 
-        let lock = load_lockfile(repo_root.join("wax.lock.json")).unwrap();
+        let lock = load_lockfile(repo_root.join(PREFERRED_LOCKFILE_RELATIVE_PATH)).unwrap();
         let compose = lock.languages.get(&lang("compose")).unwrap();
         assert_eq!(compose.version, "0.4.2");
         assert_eq!(compose.resolved.target, "test-target");
+        let registry = lock.registries.get(&lang("compose")).unwrap();
+        assert_eq!(registry.source, DEFAULT_REGISTRY_RELATIVE_PATH);
 
-        assert!(repo_root.join("design-system/registry.json").is_file());
+        assert!(repo_root.join(DEFAULT_REGISTRY_RELATIVE_PATH).is_file());
 
         let state = load_global_state(temp.path.join("home/state.json")).unwrap();
         assert!(state.installed_languages[&lang("compose")].contains_key("0.4.2"));
@@ -483,6 +526,7 @@ mod tests {
 
         let repo_root = temp.path.join("repo");
         fs::create_dir_all(&repo_root).unwrap();
+        write_default_registry(&repo_root);
 
         run_init(
             InitOptions {
@@ -504,7 +548,7 @@ mod tests {
                 installed_languages: BTreeMap::new(),
             });
         assert!(state.installed_languages.is_empty());
-        assert!(repo_root.join("wax.lock.json").is_file());
+        assert!(repo_root.join(PREFERRED_LOCKFILE_RELATIVE_PATH).is_file());
     }
 
     #[test]
@@ -530,6 +574,8 @@ mod tests {
         let second_repo = temp.path.join("second-repo");
         fs::create_dir_all(&first_repo).unwrap();
         fs::create_dir_all(&second_repo).unwrap();
+        write_default_registry(&first_repo);
+        write_default_registry(&second_repo);
         let state_path = temp.path.join("home/state.json");
 
         run_init(
@@ -563,13 +609,14 @@ mod tests {
         )
         .unwrap();
 
-        assert!(first_repo.join(".waxrc").is_file());
-        assert!(second_repo.join(".waxrc").is_file());
-        assert!(second_repo.join("wax.lock.json").is_file());
+        assert!(first_repo.join(PREFERRED_CONFIG_RELATIVE_PATH).is_file());
+        assert!(second_repo.join(PREFERRED_CONFIG_RELATIVE_PATH).is_file());
+        assert!(second_repo.join(PREFERRED_LOCKFILE_RELATIVE_PATH).is_file());
         let state = load_global_state(state_path).unwrap();
         assert!(state.installed_languages[&lang("compose")].contains_key("0.4.2"));
-        let first_lock = load_lockfile(first_repo.join("wax.lock.json")).unwrap();
-        let second_lock = load_lockfile(second_repo.join("wax.lock.json")).unwrap();
+        let first_lock = load_lockfile(first_repo.join(PREFERRED_LOCKFILE_RELATIVE_PATH)).unwrap();
+        let second_lock =
+            load_lockfile(second_repo.join(PREFERRED_LOCKFILE_RELATIVE_PATH)).unwrap();
         assert_eq!(
             first_lock.languages[&lang("compose")],
             second_lock.languages[&lang("compose")]
@@ -580,11 +627,13 @@ mod tests {
     }
 
     #[test]
-    fn init_refuses_existing_waxrc() {
+    fn init_refuses_existing_wax_config() {
         let temp = TestDir::new("existing");
         let repo_root = temp.path.join("repo");
         fs::create_dir_all(&repo_root).unwrap();
-        fs::write(repo_root.join(".waxrc"), "{}\n").unwrap();
+        let config_path = repo_root.join(PREFERRED_CONFIG_RELATIVE_PATH);
+        fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+        fs::write(&config_path, "{}\n").unwrap();
 
         let err = run_init(
             InitOptions {
@@ -601,7 +650,10 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(matches!(err, InitCommandError::WaxRcAlreadyExists { .. }));
+        assert!(matches!(
+            err,
+            InitCommandError::WaxConfigAlreadyExists { .. }
+        ));
     }
 
     #[test]
@@ -636,9 +688,9 @@ mod tests {
             err,
             InitCommandError::Language(LanguageCommandError::LanguageNotFound { .. })
         ));
-        assert!(!repo_root.join(".waxrc").exists());
-        assert!(!repo_root.join("wax.lock.json").exists());
-        assert!(!repo_root.join("design-system/registry.json").exists());
+        assert!(!repo_root.join(PREFERRED_CONFIG_RELATIVE_PATH).exists());
+        assert!(!repo_root.join(PREFERRED_LOCKFILE_RELATIVE_PATH).exists());
+        assert!(!repo_root.join(DEFAULT_REGISTRY_RELATIVE_PATH).exists());
     }
 
     #[test]
@@ -662,6 +714,7 @@ mod tests {
 
         let repo_root = temp.path.join("repo");
         fs::create_dir_all(&repo_root).unwrap();
+        write_default_registry(&repo_root);
 
         run_init(
             InitOptions {
@@ -678,9 +731,9 @@ mod tests {
         )
         .unwrap();
 
-        let waxrc = load_waxrc(repo_root.join(".waxrc")).unwrap();
+        let waxrc = load_waxrc(repo_root.join(PREFERRED_CONFIG_RELATIVE_PATH)).unwrap();
         assert_eq!(waxrc.languages.len(), 1);
-        let lock = load_lockfile(repo_root.join("wax.lock.json")).unwrap();
+        let lock = load_lockfile(repo_root.join(PREFERRED_LOCKFILE_RELATIVE_PATH)).unwrap();
         assert_eq!(lock.languages.len(), 1);
     }
 }

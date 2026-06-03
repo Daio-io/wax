@@ -58,7 +58,7 @@ struct InitArgs {
     /// Pack index URL. Resolution precedence: --registry > WAX_LANG_INDEX > built-in default.
     #[arg(long, env = "WAX_LANG_INDEX")]
     registry: Option<String>,
-    /// Repository root that will receive `.waxrc` and `wax.lock.json`.
+    /// Repository root that will receive `.wax/wax.config.json` and `.wax/wax.lock.json`.
     #[arg(long, default_value = ".")]
     repo_root: PathBuf,
     /// Target triple override, primarily for tests and cross-install workflows.
@@ -122,7 +122,7 @@ struct UpdateArgs {
     /// Target triple override, primarily for tests and cross-install workflows.
     #[arg(long)]
     target: Option<String>,
-    /// Repository root containing wax.lock.json.
+    /// Repository root containing wax config and lock files.
     #[arg(long, default_value = ".")]
     repo_root: PathBuf,
 }
@@ -138,14 +138,14 @@ struct UninstallArgs {
 
 #[derive(Debug, Args)]
 struct DoctorArgs {
-    /// Repository root containing .waxrc and optionally wax.lock.json.
+    /// Repository root containing wax config and optionally lock files.
     #[arg(long, default_value = ".")]
     repo_root: PathBuf,
 }
 
 #[derive(Debug, Args)]
 struct ScanArgs {
-    /// Repository root containing .waxrc and wax.lock.json.
+    /// Repository root containing wax config and lock files.
     #[arg(long, default_value = ".")]
     repo_root: PathBuf,
     /// Disable automatic install of missing language packs before scan.
@@ -158,7 +158,7 @@ struct ScanArgs {
 
 #[derive(Debug, Args)]
 struct ValidateArgs {
-    /// Repository root containing `.waxrc` and `wax.lock.json`.
+    /// Repository root containing wax config and lock files.
     #[arg(long, default_value = ".")]
     repo_root: PathBuf,
 }
