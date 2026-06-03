@@ -2115,7 +2115,7 @@ git commit -m "feat: use centralized wax files in language commands"
 - Modify: `engine/crates/wax-contract/schemas/wax-lock.schema.json` if present; otherwise add a note in docs that no public lockfile schema is published yet.
 - Modify: `engine/fixtures/config/example.waxrc`
 
-- [ ] **Step 1: Update `.waxrc` schema to centralized config shape**
+- [x] **Step 1: Update `.waxrc` schema to centralized config shape**
 
 Modify `engine/crates/wax-contract/schemas/waxrc.schema.json` so language entries accept optional `registry`:
 
@@ -2153,7 +2153,7 @@ Keep `design_system_registry` in the schema as deprecated-compatible:
 Update schema descriptions and docs to refer to `.wax/wax.config.json` as the
 canonical config file while preserving compatibility with `.waxrc`.
 
-- [ ] **Step 2: Update lockfile schema documentation**
+- [x] **Step 2: Update lockfile schema documentation**
 
 If `engine/crates/wax-contract/schemas/wax-lock.schema.json` exists, add:
 
@@ -2183,7 +2183,7 @@ If there is no public lockfile schema file, add a short note to
 version 2 adds top-level `registries` entries and that schema publication is
 tracked separately.
 
-- [ ] **Step 3: Update fixture config**
+- [x] **Step 3: Update fixture config**
 
 Modify `engine/fixtures/config/example.waxrc` to omit registry fields by default:
 
@@ -2208,7 +2208,7 @@ Modify `engine/fixtures/config/example.waxrc` to omit registry fields by default
 }
 ```
 
-- [ ] **Step 4: Update README onboarding**
+- [x] **Step 4: Update README onboarding**
 
 Replace the onboarding file list and registry path text with:
 
@@ -2233,7 +2233,7 @@ Add hosted registry example:
 }
 ```
 
-- [ ] **Step 5: Update specs**
+- [x] **Step 5: Update specs**
 
 In `docs/specs/2026-05-16-language-packs-and-distribution.md`, replace `.waxrc`, top-level `wax.lock.json`, and `design-system/registry.json` default references with:
 
@@ -2251,7 +2251,7 @@ In `docs/specs/2026-05-13-component-tracker-design.md`, update the registry desi
 - validation and scan operate on lockfile-pinned registry content
 ```
 
-- [ ] **Step 6: Run docs/schema adjacent checks**
+- [x] **Step 6: Run docs/schema adjacent checks**
 
 Run:
 
@@ -2263,7 +2263,7 @@ cargo test -p wax-cli --test init_command
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add README.md docs/specs/2026-05-16-language-packs-and-distribution.md docs/specs/2026-05-13-component-tracker-design.md engine/crates/wax-contract/schemas/waxrc.schema.json engine/fixtures/config/example.waxrc

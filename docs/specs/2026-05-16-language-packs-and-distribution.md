@@ -10,7 +10,7 @@
 
 **Plugins** (reserved for a later phase) are **small kernel hooks**—export formatters, custom rules, fact transforms—not full language pipelines.
 
-End users install a **`wax` binary** and download language packs globally. Each repository uses **`.waxrc`** to enable languages and hold per-language config. Language packs **do not communicate with each other**; only the engine talks to each pack.
+End users install a **`wax` binary** and download language packs globally. Each repository uses **`.wax/wax.config.json`** (legacy **`.waxrc`** still supported) to enable languages and hold per-language config. Language packs **do not communicate with each other**; only the engine talks to each pack.
 
 ## Implementation plan roadmap
 
@@ -22,21 +22,21 @@ Plan order, doc/implementation status, gates, and agent rules live in **[`docs/p
 |------|---------|
 | **Engine / kernel** | `wax` binary: orchestration, merge, graph, metrics, static site export |
 | **Language pack** | Installable unit for one stack (`compose`, `react`, `swift`): discover → parse → extract → `ScanFacts` |
-| **Language id** | Stable string key used in `.waxrc`, CLI, and global install paths |
-| **Design system registry** | Repo-local file listing canonical DS components (per language config) |
+| **Language id** | Stable string key used in wax config, CLI, and global install paths |
+| **Design system registry** | Repo-local file listing canonical DS components (default `.wax/wax.registry.json`) |
 | **Pack index** | Remote manifest listing downloadable language pack artifacts (`WAX_LANG_INDEX`) |
 | **`scan`** | CLI command that runs all **enabled** language packs and produces merged artifacts |
 | **Plugin** (future) | Optional kernel extension; not used for language extraction in v1 |
 
-Avoid overloading **registry**: in `.waxrc`, use `design_system_registry` for the in-repo DS file path; reserve **pack index** for the remote install source.
+Avoid overloading **registry**: in wax config, use `registry` for the design-system registry source (repo-relative path, `file://`, or `https://` URL); legacy `design_system_registry` remains accepted during migration. Reserve **pack index** for language-pack install artifacts.
 
-Production Rust code MUST model language ids as a validated `LanguageId` newtype, not raw `String`. Valid ids are lowercase ASCII slugs (`[a-z][a-z0-9-]*`) and the same type is used across `.waxrc`, manifests, lockfiles, wire messages, and `ScanFacts`.
+Production Rust code MUST model language ids as a validated `LanguageId` newtype, not raw `String`. Valid ids are lowercase ASCII slugs (`[a-z][a-z0-9-]*`) and the same type is used across wax config, manifests, lockfiles, wire messages, and `ScanFacts`.
 
 ## Architecture
 
 ```text
-  .waxrc (repo)              ~/.wax/ (global)
-  languages: enabled         langs/<id>/<version>/binary + manifest.json
+  .wax/wax.config.json (repo)   ~/.wax/ (global)
+  languages: enabled            langs/<id>/<version>/binary + manifest.json
        │                              │
        └──────────┬───────────────────┘
                   ▼
@@ -54,14 +54,14 @@ Production Rust code MUST model language ids as a validated `LanguageId` newtype
 1. Language packs emit **facts only**; the kernel emits **reports**.
 2. Language packs **MUST NOT** call other language packs.
 3. v1 wire format: **one JSON object on stdin, one JSON object on stdout** (upgrade to NDJSON multi-message when daemon mode lands).
-4. **Enabled** in `.waxrc` is separate from **installed** globally; `wax scan` may auto-install when enabled and missing (overridable for CI).
+4. **Enabled** in wax config is separate from **installed** globally; `wax scan` may auto-install when enabled and missing (overridable for CI).
 
 ## Versioning matrix
 
 | Field | Where | Bumps when |
 |-------|--------|------------|
-| `schema_version` | `.waxrc`, `wax.lock.json`, `ScanFacts`, `MergedScan` | Repo config or fact JSON shape changes |
-| `engine_api_version` | `wax.lock.json` | Engine orchestration / CLI contract changes |
+| `schema_version` | `.wax/wax.config.json`, `.wax/wax.lock.json`, `ScanFacts`, `MergedScan` | Repo config or fact JSON shape changes |
+| `engine_api_version` | `.wax/wax.lock.json` | Engine orchestration / CLI contract changes |
 | `api_version` | Pack manifest, wire `scan` request | Engine ↔ pack message shape changes |
 | `LanguageMetadata.version` | `ScanFacts` | Language pack release only |
 
@@ -79,7 +79,7 @@ The production `wax-contract` crate is the stable boundary for language packs an
 - expose typed error enums instead of returning `String` errors from contract parsing/validation helpers;
 - use typed timestamps (`time::OffsetDateTime` or equivalent) for recorded times, with RFC 3339 JSON serialization;
 - use `SourceLocation { file, line, column: Option<u32> }` for source references instead of duplicating `file` / `line` fields across fact types;
-- model language ids as a validated `LanguageId` newtype and use it across `.waxrc`, manifests, lockfiles, wire messages, and `ScanFacts`;
+- model language ids as a validated `LanguageId` newtype and use it across wax config, manifests, lockfiles, wire messages, and `ScanFacts`;
 - split parser metadata into `parser_name` and `parser_version` fields instead of a combined parser string;
 - define `adoption_coverage_ratio` as `resolved_count / usage_site_count`, excluding `candidate` matches from the numerator; when `usage_site_count == 0`, the ratio is `null`;
 - reserve extension fields only where the engine has a known compatibility need.
@@ -102,9 +102,9 @@ The production `wax-contract` crate is the stable boundary for language packs an
 
 ## Configuration
 
-### `.waxrc` (repository, committed)
+### `.wax/wax.config.json` (repository, committed)
 
-Primary project config. Format: **JSON** (v1).
+Primary project config. Canonical path: **`.wax/wax.config.json`**. Legacy **`.waxrc`** at the repository root is still read when the preferred file is absent. Format: **JSON** (v1).
 
 ```json
 {
@@ -116,16 +116,22 @@ Primary project config. Format: **JSON** (v1).
     {
       "id": "compose",
       "enabled": true,
-      "design_system_registry": "design-system/registry.json",
       "roots": ["*/src/main/kotlin"]
     },
     {
       "id": "react",
       "enabled": true,
-      "design_system_registry": "packages/ui/registry.json",
       "roots": ["apps/web/src"]
     }
   ]
+}
+```
+
+When a language omits `registry`, the engine defaults to `.wax/wax.registry.json`. Hosted sources use `registry.source`:
+
+```json
+"registry": {
+  "source": "https://example.com/acme-ds/registry/v2.4.1/compose.json"
 }
 ```
 
@@ -134,16 +140,24 @@ Primary project config. Format: **JSON** (v1).
 Per-language keys beyond `id` / `enabled` are validated by that language pack’s config schema.
 Source `roots` are repo-relative directories. Language packs may also expand path components that are exactly `*` or `**`. `*` expands one directory level; `**` expands zero or more directory levels. This is not full glob syntax: `?` and mixed wildcard segments such as `app-*` are not expanded. Literal missing roots report `root_not_found`; wildcard roots that match no directories report `root_glob_not_found`.
 
-### `wax.lock.json` (repository, committed)
+### `.wax/wax.lock.json` (repository, committed)
 
-Pins resolved artifacts for reproducible local and CI scans. **Required for repositories using language packs**; `wax init` writes it after resolving selected pack artifacts.
+Pins resolved artifacts and design-system registry digests for reproducible local and CI scans. Canonical path: **`.wax/wax.lock.json`**. Legacy top-level **`wax.lock.json`** is still read when the preferred file is absent. **Required for repositories using language packs**; `wax init` writes it after resolving selected pack artifacts.
+
+Lockfile schema version **2** adds top-level `registries` entries keyed by language id (`source` + `sha256`). A published JSON Schema for the lockfile is tracked separately; this spec documents the shape only.
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "engine_api_version": 1,
   "wax_version": "0.1.0",
   "locked_at": "2026-05-16T12:00:00Z",
+  "registries": {
+    "compose": {
+      "source": ".wax/wax.registry.json",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  },
   "languages": {
     "compose": {
       "version": "0.4.2",
@@ -209,7 +223,7 @@ In-process and subprocess scan request types MUST share the same fields. The eng
   "repo_root": "/abs/path/to/repo",
   "snapshot_id": "scan-20260516-abc123",
   "config": {
-    "design_system_registry": "design-system/registry.json",
+    "registry": ".wax/wax.registry.json",
     "roots": ["*/src/main/kotlin"]
   }
 }
@@ -254,7 +268,7 @@ Non-zero exit is a last resort. Prefer a structured line on stdout:
   "api_version": 1,
   "language_id": "compose",
   "code": "registry_not_found",
-  "message": "design_system_registry path missing",
+  "message": "registry path missing",
   "diagnostics": []
 }
 ```
@@ -302,37 +316,37 @@ Language packs are **native executables** downloaded from a remote index. v1 ass
 | Artifact tampered in transit | HTTPS to index/releases; sha256 verified against index entry at install time |
 | Index serves a newer digest for the same version string | Lockfile pins `resolved.sha256`; auto-install and `wax language install` **refuse digest drift** |
 | Silent upgrade to a newer pack version on scan | Lockfile pins `version`; auto-install installs the locked version only |
-| CI pulls “latest” instead of team-approved packs | CI **MUST** commit `wax.lock.json` and run `wax scan --no-auto-install` |
+| CI pulls “latest” instead of team-approved packs | CI **MUST** commit `.wax/wax.lock.json` and run `wax scan --no-auto-install` |
 | Wrong host triple installed | Lockfile `resolved.target` must match install host; policy treats target mismatch as not ready |
 | Malicious pack binary at rest | No v1 signature check; operator trusts download source + lockfile audit |
 
 ### Lockfile vs auto-install precedence
 
-Repositories that enable language packs **MUST** commit `wax.lock.json`. Auto-install is a convenience for local dev; the lockfile is always authoritative for **which** artifact to fetch.
+Repositories that enable language packs **MUST** commit `.wax/wax.lock.json`. Auto-install is a convenience for local dev; the lockfile is always authoritative for **which** artifact to fetch.
 
 Evaluation order for each **enabled** language id (engine policy; see `wax-core` auto-install):
 
-1. **Lockfile required** — if the id is enabled in `.waxrc` but missing from `wax.lock.json`, scan fails (no implicit “latest”).
+1. **Lockfile required** — if the id is enabled in wax config but missing from `.wax/wax.lock.json`, scan fails (no implicit “latest”).
 2. **Already satisfied** — if `~/.wax/langs/<id>/<version>/manifest.json` matches the lock (`version`, `api_version`, `resolved.target`, `resolved.sha256`), the pack is ready; no download.
 3. **Auto-install disabled** (`wax scan --no-auto-install`) — if the locked artifact is not installed locally, scan fails with a clear missing-install error (CI path).
 4. **Pack index lookup** — when auto-install is allowed, fetch index metadata for the locked `version` + `resolved.target`.
 5. **Digest drift** — if the index sha256 for that version/target differs from `resolved.sha256`, refuse install/scan even when auto-install is on.
 6. **Install plan** — when allowed and digests match, download exactly the locked `version` and verify bytes against `resolved.sha256` (never a newer index version).
 
-| Scenario | `wax.lock.json` | Local install | `--no-auto-install` | Outcome |
+| Scenario | `.wax/wax.lock.json` | Local install | `--no-auto-install` | Outcome |
 |----------|-----------------|---------------|---------------------|---------|
 | CI scan | committed pin | optional pre-install | **yes** | fail if pin not installed |
 | Local dev scan | committed pin | missing | no (default) | download locked pin if index agrees |
 | Index rotated digest for same version | committed pin | any | any | **fail** (digest drift) |
 | Enable language without lock entry | absent entry | any | any | **fail** (missing lock) |
 
-Auto-install default: **on** for local `wax scan`. CI **MUST** use `wax scan --no-auto-install` with the committed `wax.lock.json`.
+Auto-install default: **on** for local `wax scan`. CI **MUST** use `wax scan --no-auto-install` with the committed `.wax/wax.lock.json`.
 
-`wax init` writes `.waxrc` and `wax.lock.json` after resolving concrete pack artifacts from the index (same digest rules apply).
+`wax init` writes `.wax/wax.config.json`, `.wax/wax.lock.json`, and `.wax/wax.registry.json` after resolving concrete pack artifacts from the index (same digest rules apply).
 
 ### Planned v1.1 signing (Sigstore / cosign)
 
-v1 records `resolved.signature: null` in `wax.lock.json`. **v1.1** will add optional **Sigstore** bundle verification (typically **cosign**-signed release artifacts) without changing the lockfile shape:
+v1 records `resolved.signature: null` in `.wax/wax.lock.json`. **v1.1** will add optional **Sigstore** bundle verification (typically **cosign**-signed release artifacts) without changing the lockfile shape:
 
 - Pack index entries may advertise signature metadata alongside `sha256`.
 - `wax language install` / auto-install verify signature when `resolved.signature` is present.
@@ -346,21 +360,21 @@ All language lifecycle commands use the **`wax language`** group (singular):
 
 | Command | Purpose |
 |---------|---------|
-| `wax init` | Onboard: write `.waxrc`, resolve packs, write `wax.lock.json`, scaffold DS registries |
+| `wax init` | Onboard: write `.wax/wax.config.json`, resolve packs, write `.wax/wax.lock.json`, scaffold `.wax/wax.registry.json` |
 | `wax language list` | Installed language ids (all packs are downloaded; none ship inside `wax`) |
 | `wax language install <id>[@version]` | Download to `~/.wax/langs/` |
 | `wax language uninstall <id>` | Remove global install |
 | `wax language update [<id>] [--all]` | Upgrade; update lockfile |
-| `wax language doctor` | Global install vs lock vs `.waxrc` enabled set |
+| `wax language doctor` | Global install vs lock vs wax config enabled set |
 | `wax scan` | Run enabled languages; merge; write artifacts under `.wax/` |
-| `wax validate` | **Repo-only:** `.waxrc` + DS registry files consistent (no `~/.wax/` access) |
+| `wax validate` | **Repo-only:** wax config + DS registry files consistent (no `~/.wax/` access) |
 
 **`validate` vs `doctor`:** `validate` is fast, local, CI-friendly. `doctor` checks global install state and lock skew.
 
 Flags:
 
 - `wax scan --no-auto-install` — fail if enabled language missing (CI)
-- `wax scan --concurrency=N` — override `.waxrc` `engine.scan_concurrency`
+- `wax scan --concurrency=N` — override wax config `engine.scan_concurrency`
 - `WAX_LANG_INDEX` — pack index URL for air-gapped / mirror installs
 
 ## Distribution
@@ -396,7 +410,7 @@ Each supported triple gets its own downloadable archive(s). Do not bundle langua
 | `wax-lang-compose` | `wax-lang-compose` | `wax-lang-compose-<version>-<triple>.tar.gz` |
 | `wax-lang-react` | `wax-lang-react` | `wax-lang-react-<version>-<triple>.tar.gz` |
 
-Pack index entries and `wax.lock.json` `resolved.target` use the **Rust triple** strings above (same as `wax language install` host detection). First-party pack ids in manifests remain `compose` and `react`; only the on-disk binary names use the `wax-lang-<id>` prefix.
+Pack index entries and `.wax/wax.lock.json` `resolved.target` use the **Rust triple** strings above (same as `wax language install` host detection). First-party pack ids in manifests remain `compose` and `react`; only the on-disk binary names use the `wax-lang-<id>` prefix.
 
 **Release flow (sketch):**
 
@@ -422,7 +436,7 @@ First-party pack binaries use `wax-lang-<id>` names, for example `wax-lang-compo
 
 ### Basic fallback scanner
 
-`wax-lang-basic` is the generic text-scanner fallback for languages that do not yet have parser-backed packs. It reads a repo-local `design_system_registry` plus configured `roots`, optionally expands path components that are exactly `*` or `**` in roots for multi-module repositories, optionally filters files with `file_extensions` or `include_globs`, scans source text for registry symbols, and emits heuristic resolved usage facts with an informational `basic_text_scan` diagnostic. It does not extract local components or claim ecosystem-specific syntax awareness.
+`wax-lang-basic` is the generic text-scanner fallback for languages that do not yet have parser-backed packs. It reads a repo-local `registry` path (engine-rewritten from wax config) plus configured `roots`, optionally expands path components that are exactly `*` or `**` in roots for multi-module repositories, optionally filters files with `file_extensions` or `include_globs`, scans source text for registry symbols, and emits heuristic resolved usage facts with an informational `basic_text_scan` diagnostic. It does not extract local components or claim ecosystem-specific syntax awareness.
 
 `include_globs` supports only `*suffix` filename patterns (for example `*.src`); full glob syntax such as `src/**/*.kt` is not supported. The line scanner strips `//` comments before matching, so code after `//` inside strings or URLs may be missed.
 
@@ -480,7 +494,7 @@ Phase 0 compared TS-core and Go-core spikes (fixtures, goldens, benchmarks). Pro
 
 ## Decisions from review
 
-1. **`.waxrc` format:** JSON-only for v1.
+1. **Wax config format:** JSON-only for v1 (`.wax/wax.config.json`, legacy `.waxrc`).
 2. **Lockfile:** required for repositories using language packs.
 3. **Swift parser:** deferred to a later phase.
 4. **Response size:** no fixed cap; engine implementation must handle large responses safely.

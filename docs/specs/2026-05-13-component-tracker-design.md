@@ -432,8 +432,9 @@ Allow users to edit the registry and rerun validation until stable.
 
 ### Registry Design Principles
 
-- the registry is the canonical source of DS truth in v1
-- it lives in the repo
+- the default registry lives at `.wax/wax.registry.json`
+- external registry sources are allowed through `.wax/wax.config.json` `registry`
+- validation and scan operate on lockfile-pinned registry content
 - it is versioned and reviewable
 - generated drafts are safe starting points, not hidden state
 - validation must be deterministic and explainable

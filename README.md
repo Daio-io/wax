@@ -5,7 +5,7 @@ Open-source, self-hostable design system component tracker. See [component track
 ## Rust engine + language packs direction
 
 - [Implementation plan roadmap](docs/plans/README.md) — plan order and status for agents
-- [Language packs and distribution](docs/specs/2026-05-16-language-packs-and-distribution.md) — `.waxrc`, global install, IPC, terminology
+- [Language packs and distribution](docs/specs/2026-05-16-language-packs-and-distribution.md) — `.wax/wax.config.json`, global install, IPC, terminology
 - [Rust engine implementation plan](docs/plans/2026-05-16-rust-engine-language-packs-plan.md) — engine foundation (order 1)
 - [Release and rollout plan](docs/plans/2026-05-24-release-and-rollout-plan.md) — alpha release, install channels (order 2)
 - [Post-alpha UX plan](docs/plans/2026-05-24-post-alpha-ux-plan.md) — guided init, scan exports, CI summaries, local reports (order 3)
@@ -128,7 +128,9 @@ rm -rf "$HOME/.wax"
 wax init --non-interactive --language compose
 ```
 
-3. Populate `design-system/registry.json` with canonical components. Minimal valid example:
+`wax init` writes `.wax/wax.config.json`, `.wax/wax.lock.json`, and `.wax/wax.registry.json`. Generated scan output lands in `.wax/out/`, which init adds to `.gitignore`.
+
+3. Populate `.wax/wax.registry.json` with canonical components. Minimal valid example:
 
 ```json
 {
@@ -142,7 +144,8 @@ wax init --non-interactive --language compose
 }
 ```
 
-`wax init` scaffolds an empty registry; `wax scan` requires at least one component symbol in `components[]`.
+`wax scan` requires at least one component symbol in `components[]`.
+
 4. Validate repository configuration:
 
 ```bash
@@ -157,7 +160,7 @@ wax scan
 
 6. Inspect outputs in `.wax/out/` (including `.wax/out/scan-merged.json`).
 
-For editor validation/autocomplete on `.waxrc`, use:
+For editor validation/autocomplete on `.wax/wax.config.json` (or legacy `.waxrc`), use:
 
 ```json
 {
@@ -167,15 +170,33 @@ For editor validation/autocomplete on `.waxrc`, use:
 
 If your environment cannot fetch remote schemas, copy that schema file into your repository and point `$schema` at the vendored path instead.
 
+Optional hosted registry source on a language entry in `.wax/wax.config.json`:
+
+```json
+{
+  "schema_version": 1,
+  "languages": [
+    {
+      "id": "compose",
+      "enabled": true,
+      "registry": {
+        "source": "https://example.com/acme-ds/registry/v2.4.1/compose.json"
+      },
+      "roots": ["app/src/main/kotlin"]
+    }
+  ]
+}
+```
+
 ## Monorepo and multi-repo notes
 
-- Use one `.waxrc` and one `wax.lock.json` per repository.
+- Use one `.wax/wax.config.json` and one `.wax/wax.lock.json` per repository (legacy `.waxrc` and top-level `wax.lock.json` are still read when preferred files are absent).
 - The default pack index is shared (`WAX_LANG_INDEX` can still override per shell/CI job).
 - Language packs install once globally under `~/.wax/langs/` and are reused across repos.
 
 ## CI recipe
 
-Commit `wax.lock.json`. In CI, restore cached installs from `~/.wax/langs` (and `~/.wax/state.json`) or install pinned languages before scanning:
+Commit `.wax/wax.lock.json`. In CI, restore cached installs from `~/.wax/langs` (and `~/.wax/state.json`) or install pinned languages before scanning:
 
 ```bash
 wax validate

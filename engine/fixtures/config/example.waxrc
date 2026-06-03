@@ -7,13 +7,11 @@
     {
       "id": "compose",
       "enabled": true,
-      "design_system_registry": "design-system/registry.json",
       "roots": ["app/src/main/kotlin"]
     },
     {
       "id": "react",
       "enabled": true,
-      "design_system_registry": "packages/ui/registry.json",
       "roots": ["apps/web/src"]
     }
   ]
