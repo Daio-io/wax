@@ -775,7 +775,7 @@ fn refresh_registry_locks_in_lockfile(
 }
 
 /// Refreshes registry lock entries for enabled languages and writes the lockfile.
-#[allow(dead_code)] // unit tests; reserved for a future `wax registry update` command
+#[cfg(test)]
 pub(crate) fn refresh_registry_locks_for_repo(
     repo_root: &Path,
 ) -> Result<(), LanguageCommandError> {

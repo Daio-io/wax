@@ -344,6 +344,45 @@ fn validate_repo_rejects_missing_registry_lock() {
 }
 
 #[test]
+fn validate_repo_rejects_registry_source_drift() {
+    let root = TestDir::new("validate-repo-registry-source-drift");
+    write_repo_with_registry_json(
+        &root.path,
+        "design-system/registry.json",
+        r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
+    );
+    let registry_sha256 = {
+        use sha2::{Digest, Sha256};
+        let bytes = fs::read(root.path.join("design-system/registry.json")).unwrap();
+        Sha256::digest(bytes)
+            .iter()
+            .fold(String::with_capacity(64), |mut hex, byte| {
+                use std::fmt::Write;
+                let _ = write!(hex, "{byte:02x}");
+                hex
+            })
+    };
+    write_legacy_lockfile_with_registry_and_sha256(
+        &root.path,
+        "legacy/registry.json",
+        &registry_sha256,
+    );
+
+    let err = validate_repo(&root.path).expect_err("registry source drift should fail");
+
+    assert!(matches!(
+        err,
+        ValidateError::RegistrySourceDrift {
+            language_id,
+            lockfile_source,
+            resolved_source,
+        } if language_id.as_str() == "compose"
+            && lockfile_source == "legacy/registry.json"
+            && resolved_source == "design-system/registry.json"
+    ));
+}
+
+#[test]
 fn validate_repo_rejects_registry_digest_drift() {
     let root = TestDir::new("validate-repo-registry-digest-drift");
     write_repo_with_registry_json(

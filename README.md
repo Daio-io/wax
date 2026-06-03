@@ -194,9 +194,16 @@ Optional hosted registry source on a language entry in `.wax/wax.config.json`:
 - The default pack index is shared (`WAX_LANG_INDEX` can still override per shell/CI job).
 - Language packs install once globally under `~/.wax/langs/` and are reused across repos.
 
+## Migrating layout and registry locks
+
+- New repos: `wax init` writes `.wax/wax.config.json`, `.wax/wax.lock.json`, and `.wax/wax.registry.json` only.
+- Existing repos can keep legacy `.waxrc` and top-level `wax.lock.json` until you copy or move them under `.wax/`. `wax validate` warns when both old and new files exist.
+- Lockfiles upgraded from schema v1 may lack per-language `registries` entries. After adopting centralized config or changing a registry source/path, run `wax language update` to refresh registry locks before CI scan.
+- After editing a repo-local registry (for example `.wax/wax.registry.json`), run `wax language update` so `registries` digests and sources stay aligned with config.
+
 ## CI recipe
 
-Commit `.wax/wax.lock.json`. In CI, restore cached installs from `~/.wax/langs` (and `~/.wax/state.json`) or install pinned languages before scanning:
+Commit `.wax/wax.lock.json`. In CI, restore cached installs from `~/.wax/langs` (and `~/.wax/state.json`) or install pinned languages before scanning. If the lockfile predates registry locks or you change registry sources, refresh locks locally with `wax language update` before committing.
 
 ```bash
 wax validate

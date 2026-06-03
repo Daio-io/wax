@@ -45,6 +45,13 @@ pub enum RepoFileWarning {
         /// Ignored legacy lockfile path.
         legacy: PathBuf,
     },
+    /// Centralized config exists but only the legacy lockfile is present.
+    PreferredConfigWithLegacyLockfile {
+        /// Preferred config path.
+        preferred_config: PathBuf,
+        /// Legacy lockfile path selected for use.
+        legacy_lockfile: PathBuf,
+    },
 }
 
 /// Discovers preferred or legacy wax repo files under `repo_root`.
@@ -56,8 +63,9 @@ pub fn discover_repo_files(repo_root: impl AsRef<Path>) -> RepoFileSet {
     let legacy_lockfile = repo_root.join(LEGACY_LOCKFILE_RELATIVE_PATH);
 
     let mut warnings = Vec::new();
+    let uses_preferred_config = preferred_config.is_file();
 
-    let config_path = if preferred_config.is_file() {
+    let config_path = if uses_preferred_config {
         if legacy_config.is_file() {
             warnings.push(RepoFileWarning::IgnoredLegacyConfig {
                 preferred: preferred_config.clone(),
@@ -80,6 +88,12 @@ pub fn discover_repo_files(repo_root: impl AsRef<Path>) -> RepoFileSet {
         }
         preferred_lockfile
     } else if legacy_lockfile.is_file() {
+        if uses_preferred_config {
+            warnings.push(RepoFileWarning::PreferredConfigWithLegacyLockfile {
+                preferred_config: repo_root.join(PREFERRED_CONFIG_RELATIVE_PATH),
+                legacy_lockfile: legacy_lockfile.clone(),
+            });
+        }
         legacy_lockfile
     } else {
         preferred_lockfile
