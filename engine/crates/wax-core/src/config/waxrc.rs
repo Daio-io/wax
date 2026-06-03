@@ -64,6 +64,11 @@ pub struct LanguageRegistrySource {
 
 impl LanguageEntry {
     /// Returns the configured registry source if one was declared.
+    ///
+    /// `registry` takes precedence over the deprecated `design_system_registry`
+    /// field. Returns `None` when neither field is present, or when `registry`
+    /// is present but not shaped as a supported string or object with a string
+    /// `source`.
     pub fn registry_source(&self) -> Option<LanguageRegistrySource> {
         if let Some(value) = self.extra.get("registry") {
             match value {

@@ -1,4 +1,4 @@
-use wax_core::config::waxrc::{WaxRcError, load_waxrc};
+use wax_core::config::waxrc::{LanguageRegistrySource, WaxRcError, load_waxrc};
 
 fn fixture_path(name: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -159,8 +159,12 @@ fn parses_registry_string_without_removing_pack_config() {
     let language = &rc.languages[0];
 
     assert_eq!(
-        language.registry_source().unwrap().source,
-        ".wax/compose.registry.json"
+        language.registry_source().unwrap(),
+        LanguageRegistrySource {
+            source: ".wax/compose.registry.json".to_owned(),
+            field_name: "registry",
+            deprecated: false,
+        }
     );
     assert_eq!(
         language.extra["registry"],
@@ -178,7 +182,36 @@ fn parses_registry_source_object() {
     let language = &rc.languages[0];
 
     assert_eq!(
-        language.registry_source().unwrap().source,
-        "https://example.com/acme-ds/registry/v2.4.1/compose.json"
+        language.registry_source().unwrap(),
+        LanguageRegistrySource {
+            source: "https://example.com/acme-ds/registry/v2.4.1/compose.json".to_owned(),
+            field_name: "registry.source",
+            deprecated: false,
+        }
+    );
+    assert_eq!(
+        language.extra["registry"],
+        serde_json::json!({
+            "source": "https://example.com/acme-ds/registry/v2.4.1/compose.json"
+        })
+    );
+    assert_eq!(
+        language.extra["roots"],
+        serde_json::json!(["app/src/main/kotlin"])
+    );
+}
+
+#[test]
+fn parses_legacy_design_system_registry_source() {
+    let rc = load_waxrc(fixture_path("with-extra.waxrc")).unwrap();
+    let language = &rc.languages[0];
+
+    assert_eq!(
+        language.registry_source().unwrap(),
+        LanguageRegistrySource {
+            source: "design-system/registry.json".to_owned(),
+            field_name: "design_system_registry",
+            deprecated: true,
+        }
     );
 }
