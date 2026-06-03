@@ -1726,7 +1726,7 @@ git commit -m "feat: accept registry key in language packs"
 - Modify: `engine/crates/wax-cli/tests/init_command.rs`
 - Modify: `engine/crates/wax-cli/src/main.rs`
 
-- [ ] **Step 1: Add failing init tests**
+- [x] **Step 1: Add failing init tests**
 
 Append to `engine/crates/wax-cli/tests/init_command.rs`:
 
@@ -1775,7 +1775,7 @@ fn init_scaffolds_only_default_centralized_registry() {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -1786,7 +1786,7 @@ cargo test -p wax-cli --test init_command init_writes_centralized_wax_layout_and
 
 Expected: fail because init still writes `.waxrc` and top-level `wax.lock.json`.
 
-- [ ] **Step 3: Update init paths and config template generation**
+- [x] **Step 3: Update init paths and config template generation**
 
 Modify `run_init` in `engine/crates/wax-cli/src/commands/init.rs`:
 
@@ -1895,7 +1895,7 @@ lockfile.registries.insert(
 
 Add `RegistrySource(#[from] wax_core::registry_source::RegistrySourceError)` to `InitCommandError`.
 
-- [ ] **Step 4: Update CLI help comments**
+- [x] **Step 4: Update CLI help comments**
 
 Modify `engine/crates/wax-cli/src/main.rs` doc comments that say `.waxrc` and top-level `wax.lock.json`:
 
@@ -1909,7 +1909,7 @@ and:
 /// Repository root containing wax config and lock files.
 ```
 
-- [ ] **Step 5: Run init tests**
+- [x] **Step 5: Run init tests**
 
 Run:
 
@@ -1920,7 +1920,7 @@ cargo test -p wax-cli --test init_command
 
 Expected: pass after updating existing expectations to `.wax/wax.config.json`, `.wax/wax.lock.json`, and `.wax/wax.registry.json`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add engine/crates/wax-cli/src/commands/init.rs engine/crates/wax-cli/tests/init_command.rs engine/crates/wax-cli/src/main.rs
