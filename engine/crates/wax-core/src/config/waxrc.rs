@@ -51,6 +51,53 @@ pub struct LanguageEntry {
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
+/// Parsed registry source setting from a language entry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LanguageRegistrySource {
+    /// Raw source string from `registry`, `registry.source`, or legacy `design_system_registry`.
+    pub source: String,
+    /// Field path source used for diagnostics.
+    pub field_name: &'static str,
+    /// Whether this came from deprecated `design_system_registry`.
+    pub deprecated: bool,
+}
+
+impl LanguageEntry {
+    /// Returns the configured registry source if one was declared.
+    pub fn registry_source(&self) -> Option<LanguageRegistrySource> {
+        if let Some(value) = self.extra.get("registry") {
+            match value {
+                serde_json::Value::String(source) => {
+                    return Some(LanguageRegistrySource {
+                        source: source.clone(),
+                        field_name: "registry",
+                        deprecated: false,
+                    });
+                }
+                serde_json::Value::Object(object) => {
+                    if let Some(source) = object.get("source").and_then(serde_json::Value::as_str) {
+                        return Some(LanguageRegistrySource {
+                            source: source.to_owned(),
+                            field_name: "registry.source",
+                            deprecated: false,
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        self.extra
+            .get("design_system_registry")
+            .and_then(serde_json::Value::as_str)
+            .map(|source| LanguageRegistrySource {
+                source: source.to_owned(),
+                field_name: "design_system_registry",
+                deprecated: true,
+            })
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct WaxRcVersion {
     schema_version: u32,
@@ -60,7 +107,7 @@ struct WaxRcVersion {
 #[derive(Debug, Error)]
 pub enum WaxRcError {
     /// The file could not be read from disk.
-    #[error("failed to read .waxrc from {path}: {source}")]
+    #[error("failed to read wax config from {path}: {source}")]
     Read {
         /// Path passed to [`load_waxrc`].
         path: String,
@@ -69,7 +116,7 @@ pub enum WaxRcError {
         source: std::io::Error,
     },
     /// The file is not syntactically valid JSON.
-    #[error("malformed .waxrc JSON in {path}: {source}")]
+    #[error("malformed wax config JSON in {path}: {source}")]
     MalformedJson {
         /// Path passed to [`load_waxrc`].
         path: String,
@@ -77,8 +124,8 @@ pub enum WaxRcError {
         #[source]
         source: serde_json::Error,
     },
-    /// The JSON is valid but does not match the supported `.waxrc` config shape.
-    #[error("invalid .waxrc config in {path}: {source}")]
+    /// The JSON is valid but does not match the supported wax config shape.
+    #[error("invalid wax config in {path}: {source}")]
     InvalidConfig {
         /// Path passed to [`load_waxrc`].
         path: String,
@@ -88,7 +135,7 @@ pub enum WaxRcError {
     },
     /// The file uses a schema version this engine does not understand.
     #[error(
-        "unsupported .waxrc schema_version {found} in {path}; this engine supports {supported}"
+        "unsupported wax config schema_version {found} in {path}; this engine supports {supported}"
     )]
     UnsupportedSchemaVersion {
         /// Path passed to [`load_waxrc`].

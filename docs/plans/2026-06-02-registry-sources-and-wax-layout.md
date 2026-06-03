@@ -285,7 +285,7 @@ git commit -m "feat: discover centralized wax repo files"
 - Fixture: `engine/fixtures/config/with-registry-string.waxrc`
 - Fixture: `engine/fixtures/config/with-registry-object.waxrc`
 
-- [ ] **Step 1: Add failing config parser tests**
+- [x] **Step 1: Add failing config parser tests**
 
 Append to `engine/crates/wax-core/tests/waxrc_load.rs`:
 
@@ -355,7 +355,7 @@ Create fixture `engine/fixtures/config/with-registry-object.waxrc`:
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -366,7 +366,7 @@ cargo test -p wax-core --test waxrc_load parses_registry
 
 Expected: fail with no method named `registry_source`.
 
-- [ ] **Step 3: Add typed registry config accessors**
+- [x] **Step 3: Add typed registry config accessors**
 
 Modify `engine/crates/wax-core/src/config/waxrc.rs` by adding these types near `LanguageEntry`:
 
@@ -424,7 +424,7 @@ Update `WaxRcError` display strings and docs in this file from `.waxrc` to
 legacy `.waxrc`. Keep the concrete path in each error so users can see which
 file failed.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run:
 
@@ -435,7 +435,7 @@ cargo test -p wax-core --test waxrc_load parses_registry
 
 Expected: pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add engine/crates/wax-core/src/config/waxrc.rs engine/crates/wax-core/tests/waxrc_load.rs engine/fixtures/config/with-registry-string.waxrc engine/fixtures/config/with-registry-object.waxrc
