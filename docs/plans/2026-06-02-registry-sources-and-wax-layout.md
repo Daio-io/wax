@@ -1935,7 +1935,7 @@ git commit -m "feat: initialize centralized wax layout"
 - Modify: `engine/crates/wax-cli/src/commands/language.rs`
 - Test: existing tests in `engine/crates/wax-cli/src/commands/language.rs`
 
-- [ ] **Step 1: Add failing unit tests for discovered files and registry refresh**
+- [x] **Step 1: Add failing unit tests for discovered files and registry refresh**
 
 Add tests in the existing `#[cfg(test)]` module in `engine/crates/wax-cli/src/commands/language.rs`:
 
@@ -2002,7 +2002,7 @@ fn language_update_refreshes_registry_locks_for_enabled_languages() {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -2014,7 +2014,7 @@ cargo test -p wax-cli language_update_refreshes_registry_locks_for_enabled_langu
 
 Expected: fail because helpers still read legacy paths and no registry refresh helper exists.
 
-- [ ] **Step 3: Implement repo file discovery in language commands**
+- [x] **Step 3: Implement repo file discovery in language commands**
 
 In `run_update`:
 
@@ -2041,7 +2041,7 @@ fn load_optional_lockfile_for_repo(repo_root: &Path) -> Result<Option<WaxLock>, 
 }
 ```
 
-- [ ] **Step 4: Implement registry lock refresh**
+- [x] **Step 4: Implement registry lock refresh**
 
 Add to `LanguageCommandError`:
 
@@ -2085,7 +2085,7 @@ fn refresh_registry_locks_for_repo(repo_root: &Path) -> Result<(), LanguageComma
 
 Call this helper from `run_update` after language-pack lock entries are updated and before writing the final lockfile. The helper is intentionally reusable so a future explicit `wax registry update` command can share it.
 
-- [ ] **Step 5: Run language command tests**
+- [x] **Step 5: Run language command tests**
 
 Run:
 
@@ -2096,7 +2096,7 @@ cargo test -p wax-cli language_
 
 Expected: pass after updating existing fixtures with `registries`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add engine/crates/wax-cli/src/commands/language.rs
