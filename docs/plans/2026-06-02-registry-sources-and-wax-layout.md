@@ -71,7 +71,7 @@
 - Modify: `engine/crates/wax-core/src/config.rs`
 - Test: `engine/crates/wax-core/tests/repo_files.rs`
 
-- [ ] **Step 1: Write failing tests for preferred and legacy config discovery**
+- [x] **Step 1: Write failing tests for preferred and legacy config discovery**
 
 Create `engine/crates/wax-core/tests/repo_files.rs` with:
 
@@ -136,7 +136,7 @@ fn returns_preferred_paths_when_files_do_not_exist() {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -147,7 +147,7 @@ cargo test -p wax-core --test repo_files
 
 Expected: fail with unresolved import `wax_core::config::repo_files`.
 
-- [ ] **Step 3: Implement repo file discovery**
+- [x] **Step 3: Implement repo file discovery**
 
 Add `engine/crates/wax-core/src/config/repo_files.rs`:
 
@@ -211,29 +211,29 @@ pub fn discover_repo_files(repo_root: impl AsRef<Path>) -> RepoFileSet {
 
     let mut warnings = Vec::new();
 
-    let config_path = if preferred_config.exists() {
-        if legacy_config.exists() {
+    let config_path = if preferred_config.is_file() {
+        if legacy_config.is_file() {
             warnings.push(RepoFileWarning::IgnoredLegacyConfig {
                 preferred: preferred_config.clone(),
                 legacy: legacy_config,
             });
         }
         preferred_config
-    } else if legacy_config.exists() {
+    } else if legacy_config.is_file() {
         legacy_config
     } else {
         preferred_config
     };
 
-    let lockfile_path = if preferred_lock.exists() {
-        if legacy_lock.exists() {
+    let lockfile_path = if preferred_lock.is_file() {
+        if legacy_lock.is_file() {
             warnings.push(RepoFileWarning::IgnoredLegacyLockfile {
                 preferred: preferred_lock.clone(),
                 legacy: legacy_lock,
             });
         }
         preferred_lock
-    } else if legacy_lock.exists() {
+    } else if legacy_lock.is_file() {
         legacy_lock
     } else {
         preferred_lock
@@ -257,7 +257,7 @@ pub mod repo_files;
 pub mod waxrc;
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run:
 
@@ -268,7 +268,7 @@ cargo test -p wax-core --test repo_files
 
 Expected: pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add engine/crates/wax-core/src/config.rs engine/crates/wax-core/src/config/repo_files.rs engine/crates/wax-core/tests/repo_files.rs
