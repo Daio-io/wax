@@ -2278,7 +2278,7 @@ git commit -m "docs: document centralized registry configuration"
 - Modify active plan docs if this work is inserted as a task in `docs/plans/README.md` or a new product plan.
 - Modify `docs/plans/2026-06-02-registry-sources-and-wax-layout.md` task checkboxes as work completes.
 
-- [ ] **Step 1: Run formatting**
+- [x] **Step 1: Run formatting**
 
 Run:
 
@@ -2289,7 +2289,7 @@ cargo fmt --all
 
 Expected: command exits 0.
 
-- [ ] **Step 2: Run engine checks**
+- [x] **Step 2: Run engine checks**
 
 Run:
 
@@ -2302,7 +2302,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 Expected: all commands exit 0.
 
-- [ ] **Step 3: Run release/install adjacent checks**
+- [x] **Step 3: Run release/install adjacent checks**
 
 Run:
 
@@ -2313,7 +2313,7 @@ scripts/install.sh --help
 
 Expected: both commands exit 0.
 
-- [ ] **Step 4: Update plan checkboxes**
+- [x] **Step 4: Update plan checkboxes**
 
 Mark completed implementation tasks in this file using checked boxes:
 
@@ -2323,7 +2323,7 @@ Mark completed implementation tasks in this file using checked boxes:
 
 If this feature is added to an official plan under `docs/plans/`, update that plan's task checkbox and every completed step checkbox in the same commit.
 
-- [ ] **Step 5: Commit verification/doc checkbox updates**
+- [x] **Step 5: Commit verification/doc checkbox updates**
 
 ```bash
 git add docs/plans/2026-06-02-registry-sources-and-wax-layout.md docs/plans
