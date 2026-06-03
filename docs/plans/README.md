@@ -17,7 +17,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 |------:|------|----------|------------|------------------------|-----------------------------|
 | 1 | Rust engine and language packs | [2026-05-16-rust-engine-language-packs-plan.md](./2026-05-16-rust-engine-language-packs-plan.md) | `merged` | `complete` | — |
 | 2 | Release and rollout (alpha) | [2026-05-24-release-and-rollout-plan.md](./2026-05-24-release-and-rollout-plan.md) | `merged` | `complete` | Order 1 implementation `complete` |
-| 3 | Registry sources and centralized wax layout | [2026-06-02-registry-sources-and-wax-layout.md](./2026-06-02-registry-sources-and-wax-layout.md) | `merged` | `in-progress` | Order 2 implementation `complete`; may run before registry discover/draft |
+| 3 | Registry sources and centralized wax layout | [2026-06-02-registry-sources-and-wax-layout.md](./2026-06-02-registry-sources-and-wax-layout.md) | `merged` | `complete` | Order 2 implementation `complete`; may run before registry discover/draft |
 | 4 | Post-alpha UX | [2026-05-24-post-alpha-ux-plan.md](./2026-05-24-post-alpha-ux-plan.md) | `merged` | `not-started` | Order 2 public alpha shipped (`v0.1.0-alpha.1` or agreed tag) |
 | — | Registry discover / draft | *not written* | `planned` | `not-started` | Post-alpha UX or alpha stable; see [component tracker design](../specs/2026-05-13-component-tracker-design.md) |
 
