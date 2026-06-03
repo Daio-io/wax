@@ -9,8 +9,9 @@ use thiserror::Error;
 use time::OffsetDateTime;
 use wax_contract::LanguageId;
 
-/// Current `wax.lock.json` schema version supported by this engine.
-pub const WAX_LOCK_SCHEMA_VERSION: u32 = 1;
+/// Current `wax.lock.json` schema version written by this engine.
+pub const WAX_LOCK_SCHEMA_VERSION: u32 = 2;
+const MIN_SUPPORTED_WAX_LOCK_SCHEMA_VERSION: u32 = 1;
 
 /// Repository lockfile pinning the language pack artifacts selected for a repo.
 #[derive(Debug, Clone, Deserialize, PartialEq, Serialize)]
@@ -25,8 +26,20 @@ pub struct WaxLock {
     /// Time this lockfile was produced, when recorded by the writer.
     #[serde(default, with = "time::serde::rfc3339::option")]
     pub locked_at: Option<OffsetDateTime>,
+    /// Locked design-system registry sources by validated language id.
+    pub registries: BTreeMap<LanguageId, LockedRegistry>,
     /// Locked language pack artifacts by validated language id.
     pub languages: BTreeMap<LanguageId, LockedLanguage>,
+}
+
+/// Lockfile entry for one resolved design-system registry.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LockedRegistry {
+    /// Registry source string from config or default resolution.
+    pub source: String,
+    /// SHA-256 digest of the exact registry JSON content.
+    pub sha256: String,
 }
 
 /// Lockfile entry for one resolved language pack.
@@ -119,15 +132,17 @@ pub enum LockfileError {
     },
     /// The file uses a schema version this engine does not understand.
     #[error(
-        "unsupported wax.lock.json schema_version {found} in {path}; this engine supports {supported}"
+        "unsupported wax.lock.json schema_version {found} in {path}; this engine supports {min_supported} through {max_supported}"
     )]
     UnsupportedSchemaVersion {
         /// Path passed to [`load_lockfile`].
         path: String,
         /// Schema version found in the file.
         found: u32,
-        /// Schema version supported by this crate.
-        supported: u32,
+        /// Minimum schema version supported by this crate.
+        min_supported: u32,
+        /// Maximum schema version written by this crate.
+        max_supported: u32,
     },
 }
 
@@ -151,12 +166,24 @@ pub fn load_lockfile(path: impl AsRef<Path>) -> Result<WaxLock, LockfileError> {
             path: path_display.clone(),
             source,
         })?;
-    if version.schema_version != WAX_LOCK_SCHEMA_VERSION {
+    if version.schema_version < MIN_SUPPORTED_WAX_LOCK_SCHEMA_VERSION
+        || version.schema_version > WAX_LOCK_SCHEMA_VERSION
+    {
         return Err(LockfileError::UnsupportedSchemaVersion {
             path: path_display,
             found: version.schema_version,
-            supported: WAX_LOCK_SCHEMA_VERSION,
+            min_supported: MIN_SUPPORTED_WAX_LOCK_SCHEMA_VERSION,
+            max_supported: WAX_LOCK_SCHEMA_VERSION,
         });
+    }
+
+    let mut value = value;
+    if version.schema_version == MIN_SUPPORTED_WAX_LOCK_SCHEMA_VERSION {
+        value
+            .as_object_mut()
+            .expect("lockfile root should stay an object after version decode")
+            .entry("registries")
+            .or_insert_with(|| serde_json::Value::Object(Default::default()));
     }
 
     let lock: WaxLock =

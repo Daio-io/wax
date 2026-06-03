@@ -10,7 +10,8 @@ use std::str::FromStr;
 use thiserror::Error;
 use wax_contract::{LanguageId, LanguageIdError};
 use wax_core::config::lockfile::{
-    LockedLanguage, LockfileError, ResolvedLanguage, WaxLock, load_lockfile,
+    LockedLanguage, LockfileError, ResolvedLanguage, WAX_LOCK_SCHEMA_VERSION, WaxLock,
+    load_lockfile,
 };
 use wax_core::config::waxrc::{WaxRcError, load_waxrc};
 use wax_core::defaults::DEFAULT_WAX_LANG_INDEX;
@@ -555,6 +556,7 @@ pub(crate) fn update_lockfile_entry(
     target: &str,
     artifact: &RegistryArtifact,
 ) {
+    lockfile.schema_version = WAX_LOCK_SCHEMA_VERSION;
     lockfile.wax_version = build_version().to_owned();
     lockfile.locked_at = Some(time::OffsetDateTime::now_utc());
     lockfile.languages.insert(
@@ -574,8 +576,10 @@ pub(crate) fn update_lockfile_entry(
 }
 
 pub(crate) fn save_lockfile(path: &Path, lockfile: &WaxLock) -> Result<(), LanguageCommandError> {
+    let mut lockfile = lockfile.clone();
+    lockfile.schema_version = WAX_LOCK_SCHEMA_VERSION;
     let contents =
-        serde_json::to_string_pretty(lockfile).map_err(|source| LanguageCommandError::Io {
+        serde_json::to_string_pretty(&lockfile).map_err(|source| LanguageCommandError::Io {
             context: format!("serialize lockfile {}", path.display()),
             source: io::Error::new(io::ErrorKind::InvalidData, source),
         })?;
@@ -1303,6 +1307,8 @@ mod tests {
 
         let lockfile =
             wax_core::config::lockfile::load_lockfile(temp.path().join("wax.lock.json")).unwrap();
+        assert_eq!(lockfile.schema_version, WAX_LOCK_SCHEMA_VERSION);
+        assert!(lockfile.registries.is_empty());
         let locked = &lockfile.languages[&lang("compose")];
         assert_eq!(locked.version, "0.4.2");
         assert_eq!(locked.api_version, 1);

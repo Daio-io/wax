@@ -900,7 +900,7 @@ git commit -m "feat: resolve design system registry sources"
 - Fixture: `engine/fixtures/config/minimal-v1-no-registries.wax.lock.json`
 - Test: `engine/crates/wax-core/tests/lockfile_load.rs`
 
-- [ ] **Step 1: Add failing lockfile schema and registry tests**
+- [x] **Step 1: Add failing lockfile schema and registry tests**
 
 Append to `engine/crates/wax-core/tests/lockfile_load.rs`:
 
@@ -946,7 +946,7 @@ Create `engine/fixtures/config/minimal-v1-no-registries.wax.lock.json` by copyin
 the previous minimal lockfile shape without the new `registries` object. Keep
 `schema_version` set to `1`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -957,7 +957,7 @@ cargo test -p wax-core --test lockfile_load parses_registry_locks
 
 Expected: fail because `WaxLock` has no `registries` field or schema v2 support.
 
-- [ ] **Step 3: Extend lockfile types and schema handling**
+- [x] **Step 3: Extend lockfile types and schema handling**
 
 Change `WAX_LOCK_SCHEMA_VERSION` in `engine/crates/wax-core/src/config/lockfile.rs`:
 
@@ -978,16 +978,15 @@ pub struct WaxLock {
     pub schema_version: u32,
     /// Engine orchestration API version expected by the locked language packs.
     pub engine_api_version: u32,
-    /// Version of the wax engine that wrote this lockfile.
-    pub wax_version: String,
-    /// Time this lockfile was produced, when recorded by the writer.
-    #[serde(default, with = "time::serde::rfc3339::option")]
-    pub locked_at: Option<OffsetDateTime>,
-    /// Locked design-system registry sources by language id.
-    #[serde(default)]
-    pub registries: BTreeMap<LanguageId, LockedRegistry>,
-    /// Locked language pack artifacts by validated language id.
-    pub languages: BTreeMap<LanguageId, LockedLanguage>,
+/// Version of the wax engine that wrote this lockfile.
+pub wax_version: String,
+/// Time this lockfile was produced, when recorded by the writer.
+#[serde(default, with = "time::serde::rfc3339::option")]
+pub locked_at: Option<OffsetDateTime>,
+/// Locked design-system registry sources by language id.
+pub registries: BTreeMap<LanguageId, LockedRegistry>,
+/// Locked language pack artifacts by validated language id.
+pub languages: BTreeMap<LanguageId, LockedLanguage>,
 }
 
 /// Lockfile entry for one resolved design-system registry.
@@ -1016,15 +1015,20 @@ if version.schema_version < MIN_SUPPORTED_WAX_LOCK_SCHEMA_VERSION
     return Err(LockfileError::UnsupportedSchemaVersion {
         path: path_display,
         found: version.schema_version,
-        supported: WAX_LOCK_SCHEMA_VERSION,
+        min_supported: MIN_SUPPORTED_WAX_LOCK_SCHEMA_VERSION,
+        max_supported: WAX_LOCK_SCHEMA_VERSION,
     });
 }
 ```
 
+Before deserializing into `WaxLock`, inject an empty `registries` object only for
+schema version `1` inputs so migration stays backward-compatible while schema
+version `2` still requires an explicit `registries` field.
+
 Writers must emit schema version `2`. Readers accept v1 so existing repositories
 can run the lock refresh command before strict registry-lock checks are enforced.
 
-- [ ] **Step 4: Run focused tests**
+- [x] **Step 4: Run focused tests**
 
 Run:
 
@@ -1035,7 +1039,7 @@ cargo test -p wax-core --test lockfile_load parses_registry_locks
 
 Expected: pass.
 
-- [ ] **Step 5: Run broader lockfile tests**
+- [x] **Step 5: Run broader lockfile tests**
 
 Run:
 
@@ -1046,7 +1050,7 @@ cargo test -p wax-core --test lockfile_load
 
 Expected: pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add engine/crates/wax-core/src/config/lockfile.rs engine/crates/wax-core/tests/lockfile_load.rs engine/fixtures/config/minimal.wax.lock.json engine/fixtures/config/minimal-v1-no-registries.wax.lock.json

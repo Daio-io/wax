@@ -1,14 +1,8 @@
 {
-  "schema_version": 2,
+  "schema_version": 1,
   "engine_api_version": 1,
   "wax_version": "0.1.0-alpha.1",
   "locked_at": "2026-05-16T12:00:00Z",
-  "registries": {
-    "compose": {
-      "source": ".wax/wax.registry.json",
-      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    }
-  },
   "languages": {
     "compose": {
       "version": "0.4.2",
