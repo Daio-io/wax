@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use sha2::{Digest, Sha256};
 use wax_contract::LanguageId;
 use wax_core::{Engine, ScanOptions};
 
@@ -72,6 +73,7 @@ fn fixture(
     fs::write(log_dir.join("max"), "0\n").unwrap();
 
     write_waxrc(&repo, languages, scan_concurrency);
+    write_default_registry(&repo);
     write_lockfile(&repo, languages);
     write_installed_packs(&wax_home, languages, &log_dir, barrier_target);
 
@@ -80,6 +82,15 @@ fn fixture(
         wax_home,
         log_dir,
     }
+}
+
+fn write_default_registry(repo: &Path) {
+    fs::create_dir_all(repo.join(".wax")).unwrap();
+    fs::write(
+        repo.join(".wax/wax.registry.json"),
+        r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
+    )
+    .unwrap();
 }
 
 fn write_waxrc(repo: &Path, languages: &[&str], scan_concurrency: Option<u32>) {
@@ -106,6 +117,19 @@ fn write_waxrc(repo: &Path, languages: &[&str], scan_concurrency: Option<u32>) {
 }
 
 fn write_lockfile(repo: &Path, languages: &[&str]) {
+    let registry_sha256 = file_sha256(&repo.join(".wax/wax.registry.json"));
+    let registry_entries = languages
+        .iter()
+        .map(|language| {
+            format!(
+                r#"    "{language}": {{
+      "source": ".wax/wax.registry.json",
+      "sha256": "{registry_sha256}"
+    }}"#
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",\n");
     let entries = languages
         .iter()
         .map(|language| {
@@ -129,9 +153,12 @@ fn write_lockfile(repo: &Path, languages: &[&str]) {
         repo.join("wax.lock.json"),
         format!(
             r#"{{
-  "schema_version": 1,
+  "schema_version": 2,
   "engine_api_version": 1,
   "wax_version": "0.0.0",
+  "registries": {{
+{registry_entries}
+  }},
   "languages": {{
 {entries}
   }}
@@ -139,6 +166,17 @@ fn write_lockfile(repo: &Path, languages: &[&str]) {
         ),
     )
     .unwrap();
+}
+
+fn file_sha256(path: &Path) -> String {
+    let digest = Sha256::digest(fs::read(path).unwrap());
+    digest
+        .iter()
+        .fold(String::with_capacity(64), |mut hex, byte| {
+            use std::fmt::Write;
+            let _ = write!(hex, "{byte:02x}");
+            hex
+        })
 }
 
 fn write_installed_packs(
@@ -458,6 +496,7 @@ fn scan_concurrency_cancels_in_flight_scans_after_first_error() {
     fs::create_dir_all(&log_dir).unwrap();
 
     write_waxrc(&repo, &["fail", "sleeper"], Some(2));
+    write_default_registry(&repo);
     write_lockfile(&repo, &["fail", "sleeper"]);
     let fail_dir = write_installed_pack(&wax_home, "fail", &log_dir, failing_script(), &[]);
     let sleeper_dir =

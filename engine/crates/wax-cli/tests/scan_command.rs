@@ -208,6 +208,7 @@ fn scan_command_default_auto_installs_missing_pack() {
 }
 
 fn write_repo_files(repo: &Path, registry_file: &Path, languages: &[&str]) {
+    write_default_registry(repo);
     let languages_json = languages
         .iter()
         .map(|language| format!(r#"    {{ "id": "{language}", "enabled": true }}"#))
@@ -226,6 +227,7 @@ fn write_repo_files(repo: &Path, registry_file: &Path, languages: &[&str]) {
     )
     .expect("write .waxrc");
 
+    let registry_entries = registry_lock_entries(repo, languages);
     let lock_entries = languages
         .iter()
         .map(|language| {
@@ -250,9 +252,12 @@ fn write_repo_files(repo: &Path, registry_file: &Path, languages: &[&str]) {
         repo.join("wax.lock.json"),
         format!(
             r#"{{
-  "schema_version": 1,
+  "schema_version": 2,
   "engine_api_version": 1,
   "wax_version": "0.0.0",
+  "registries": {{
+{registry_entries}
+  }},
   "languages": {{
 {lock_entries}
   }}
@@ -314,6 +319,7 @@ fn write_repo_files_with_resolved_artifacts(
     registry_file: &Path,
     entries: &[(&str, &str, &str)],
 ) {
+    write_default_registry(repo);
     let languages = entries.iter().map(|(id, _, _)| *id).collect::<Vec<_>>();
     let languages_json = languages
         .iter()
@@ -333,6 +339,7 @@ fn write_repo_files_with_resolved_artifacts(
     )
     .expect("write .waxrc");
 
+    let registry_entries = registry_lock_entries(repo, &languages);
     let lock_entries = entries
         .iter()
         .map(|(language, artifact_url, sha256)| {
@@ -357,9 +364,12 @@ fn write_repo_files_with_resolved_artifacts(
         repo.join("wax.lock.json"),
         format!(
             r#"{{
-  "schema_version": 1,
+  "schema_version": 2,
   "engine_api_version": 1,
   "wax_version": "0.0.0",
+  "registries": {{
+{registry_entries}
+  }},
   "languages": {{
 {lock_entries}
   }}
@@ -367,6 +377,41 @@ fn write_repo_files_with_resolved_artifacts(
         ),
     )
     .expect("write lockfile");
+}
+
+fn write_default_registry(repo: &Path) {
+    fs::create_dir_all(repo.join(".wax")).expect("create .wax dir");
+    fs::write(
+        repo.join(".wax/wax.registry.json"),
+        r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
+    )
+    .expect("write default registry");
+}
+
+fn registry_lock_entries(repo: &Path, languages: &[&str]) -> String {
+    let registry_sha256 = file_sha256(&repo.join(".wax/wax.registry.json"));
+    languages
+        .iter()
+        .map(|language| {
+            format!(
+                r#"    "{language}": {{
+      "source": ".wax/wax.registry.json",
+      "sha256": "{registry_sha256}"
+    }}"#
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",\n")
+}
+
+fn file_sha256(path: &Path) -> String {
+    Sha256::digest(fs::read(path).expect("read registry file"))
+        .iter()
+        .fold(String::with_capacity(64), |mut hex, byte| {
+            use std::fmt::Write;
+            let _ = write!(hex, "{byte:02x}");
+            hex
+        })
 }
 
 fn write_pack_artifact(path: &Path) -> String {

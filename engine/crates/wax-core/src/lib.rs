@@ -148,6 +148,17 @@ pub enum EngineError {
     /// Registry index could not be loaded while evaluating auto-install policy.
     #[error(transparent)]
     Registry(#[from] registry::RegistryError),
+    /// Design-system registry source could not be resolved before scan.
+    #[error(transparent)]
+    RegistrySource(#[from] registry_source::RegistrySourceError),
+    /// Design-system registry lock did not match resolved registry content.
+    #[error("registry lock mismatch for language {language_id}: {reason}")]
+    RegistryLock {
+        /// Language id whose registry lock failed.
+        language_id: LanguageId,
+        /// Human-readable mismatch reason.
+        reason: String,
+    },
     /// Auto-install policy blocked scan execution.
     #[error("scan auto-install policy blocked execution: {errors:?}")]
     AutoInstallPolicyBlocked {
@@ -212,9 +223,10 @@ impl Engine {
         options: ScanOptions,
     ) -> Result<MergedScan, EngineError> {
         let repo_root = repo_root.as_ref();
-        let waxrc = load_waxrc(repo_root.join(".waxrc"))?;
+        let repo_files = config::repo_files::discover_repo_files(repo_root);
+        let waxrc = load_waxrc(&repo_files.config_path)?;
         let scan_concurrency = effective_scan_concurrency(&waxrc.engine, &options);
-        let lockfile = load_lockfile(repo_root.join("wax.lock.json"))?;
+        let lockfile = load_lockfile(&repo_files.lockfile_path)?;
         let state_path = state_file()?;
         let mut state = load_global_state(&state_path)?;
 
@@ -224,7 +236,28 @@ impl Engine {
             if !entry.enabled {
                 continue;
             }
-            language_configs.insert(entry.id.clone(), entry.extra);
+            let registry_setting = entry.registry_source();
+            let resolved_registry = registry_source::resolve_registry_source_with_deprecation(
+                registry_source::RegistrySourceInput {
+                    repo_root,
+                    language_id: entry.id.as_str(),
+                    source: registry_setting
+                        .as_ref()
+                        .map(|setting| setting.source.as_str()),
+                },
+                registry_setting
+                    .as_ref()
+                    .is_some_and(|setting| setting.deprecated),
+            )?;
+            verify_registry_lock(&entry.id, &resolved_registry, &lockfile)?;
+
+            let mut config = entry.extra;
+            config.remove("design_system_registry");
+            config.insert(
+                "registry".to_owned(),
+                serde_json::Value::String(resolved_registry.repo_relative_path),
+            );
+            language_configs.insert(entry.id.clone(), config);
             enabled_ids.insert(entry.id);
         }
 
@@ -331,6 +364,42 @@ fn effective_scan_concurrency(
         .scan_concurrency
         .unwrap_or(engine_config.scan_concurrency);
     configured.max(1) as usize
+}
+
+fn verify_registry_lock(
+    language_id: &LanguageId,
+    resolved: &registry_source::ResolvedRegistrySource,
+    lockfile: &config::lockfile::WaxLock,
+) -> Result<(), EngineError> {
+    let locked = lockfile
+        .registries
+        .get(language_id)
+        .ok_or_else(|| EngineError::RegistryLock {
+            language_id: language_id.clone(),
+            reason: "missing registry lock entry".to_owned(),
+        })?;
+
+    if locked.source != resolved.source {
+        return Err(EngineError::RegistryLock {
+            language_id: language_id.clone(),
+            reason: format!(
+                "source changed from {} to {}",
+                locked.source, resolved.source
+            ),
+        });
+    }
+
+    if locked.sha256 != resolved.sha256 {
+        return Err(EngineError::RegistryLock {
+            language_id: language_id.clone(),
+            reason: format!(
+                "digest changed from {} to {}",
+                locked.sha256, resolved.sha256
+            ),
+        });
+    }
+
+    Ok(())
 }
 
 fn run_scan_jobs(
