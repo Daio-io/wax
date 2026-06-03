@@ -828,6 +828,11 @@ mod tests {
 
         let registry_contents = fs::read_to_string(existing_registry).unwrap();
         assert!(registry_contents.contains("\"ds.keep\""));
+        let lock = load_lockfile(repo_root.join(PREFERRED_LOCKFILE_RELATIVE_PATH)).unwrap();
+        assert_eq!(
+            lock.registries[&lang("compose")].sha256,
+            sha256_hex(registry_contents.as_bytes())
+        );
     }
 
     #[test]

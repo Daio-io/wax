@@ -1909,7 +1909,7 @@ and:
 /// Repository root containing wax config and lock files.
 ```
 
-- [ ] **Step 5: Run init tests**
+- [x] **Step 5: Run init tests**
 
 Run:
 
@@ -1920,7 +1920,7 @@ cargo test -p wax-cli --test init_command
 
 Expected: pass after updating existing expectations to `.wax/wax.config.json`, `.wax/wax.lock.json`, and `.wax/wax.registry.json`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add engine/crates/wax-cli/src/commands/init.rs engine/crates/wax-cli/tests/init_command.rs engine/crates/wax-cli/src/main.rs
