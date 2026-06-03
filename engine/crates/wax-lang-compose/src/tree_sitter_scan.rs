@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 /// Grammar version bundled via the `tree-sitter-kotlin` crate dependency.
 /// Update this constant when bumping the crate in `Cargo.toml`.
@@ -61,6 +61,7 @@ pub fn parse_compose_scan_config(
             reason: "registry must be a non-empty string".to_owned(),
         });
     }
+    validate_repo_relative_path(registry, "registry")?;
 
     let roots_value = config
         .get("roots")
@@ -97,6 +98,24 @@ pub fn parse_compose_scan_config(
         design_system_registry: PathBuf::from(registry),
         roots,
     }))
+}
+
+fn validate_repo_relative_path(path: &str, field: &str) -> Result<(), TreeSitterScanError> {
+    let parsed = Path::new(path);
+    if parsed.is_absolute() {
+        return Err(TreeSitterScanError::ConfigInvalid {
+            reason: format!("{field} must be a repo-relative path"),
+        });
+    }
+    if parsed
+        .components()
+        .any(|component| matches!(component, Component::ParentDir))
+    {
+        return Err(TreeSitterScanError::ConfigInvalid {
+            reason: format!("{field} must not contain parent directory segments"),
+        });
+    }
+    Ok(())
 }
 
 // ── Errors ────────────────────────────────────────────────────────────────────

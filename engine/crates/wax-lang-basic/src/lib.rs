@@ -140,7 +140,7 @@ fn scaffold_facts(request: &ScanRequest) -> ScanFacts {
         diagnostics: vec![Diagnostic {
             severity: DiagnosticSeverity::Info,
             code: "basic_scaffold".to_owned(),
-            message: "Basic text scanner is scaffolded; configure design_system_registry and roots to scan."
+            message: "Basic text scanner is scaffolded; configure registry and roots to scan."
                 .to_owned(),
             location: None,
         }],

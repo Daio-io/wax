@@ -14,6 +14,26 @@ fn registry_key_is_accepted_as_canonical_registry_path() {
 }
 
 #[test]
+fn design_system_registry_key_still_scans() {
+    let facts = scan_with_config(valid_config()).expect("legacy registry key should still scan");
+
+    assert_eq!(facts.counts.design_system_component_count, 2);
+}
+
+#[test]
+fn registry_key_wins_when_both_registry_keys_are_present() {
+    let mut config = valid_config();
+    config.insert(
+        "registry".to_owned(),
+        serde_json::Value::String("alt-design-system/registry.json".to_owned()),
+    );
+
+    let facts = scan_with_config(config).expect("canonical registry key should win");
+
+    assert_eq!(facts.counts.design_system_component_count, 1);
+}
+
+#[test]
 fn empty_roots_array_is_config_error_not_scaffold() {
     let mut config = serde_json::Map::new();
     config.insert(
@@ -48,6 +68,30 @@ fn roots_without_registry_is_config_error() {
     );
 
     let err = scan_with_config(config).expect_err("roots without registry must fail");
+    assert_config_error(err);
+}
+
+#[test]
+fn absolute_registry_path_is_config_error() {
+    let mut config = valid_config();
+    config.insert(
+        "registry".to_owned(),
+        serde_json::Value::String("/etc/passwd".to_owned()),
+    );
+
+    let err = scan_with_config(config).expect_err("absolute registry path must fail");
+    assert_config_error(err);
+}
+
+#[test]
+fn parent_dir_in_registry_path_is_config_error() {
+    let mut config = valid_config();
+    config.insert(
+        "registry".to_owned(),
+        serde_json::Value::String("../outside/registry.json".to_owned()),
+    );
+
+    let err = scan_with_config(config).expect_err("parent-dir registry path must fail");
     assert_config_error(err);
 }
 
