@@ -1,6 +1,6 @@
 //! `wax validate` command implementation.
 
-use crate::progress::{CliProgress, validate_progress_sink};
+use crate::progress::{CliProgress, optional_validate_progress_sink};
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -37,7 +37,7 @@ pub fn run_validate(
     let progress = Arc::new(CliProgress::new());
     let report = validate_repo_with_progress(
         &options.repo_root,
-        validate_progress_sink(Arc::clone(&progress)),
+        optional_validate_progress_sink(&progress),
     )?;
     progress.finish();
 

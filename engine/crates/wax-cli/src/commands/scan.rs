@@ -1,6 +1,6 @@
 //! `wax scan` command implementation.
 
-use crate::progress::{CliProgress, scan_progress_sink};
+use crate::progress::{CliProgress, optional_scan_progress_sink};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -48,7 +48,7 @@ pub fn run_scan(
         ScanOptions {
             scan_concurrency: options.scan_concurrency,
             allow_auto_install: options.allow_auto_install,
-            progress: scan_progress_sink(Arc::clone(&progress)),
+            progress: optional_scan_progress_sink(&progress),
         },
     )?;
     progress.finish();

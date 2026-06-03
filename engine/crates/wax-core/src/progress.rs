@@ -15,15 +15,22 @@ pub enum ScanProgressEvent {
         /// Locked version being installed.
         version: String,
     },
-    /// Running a language pack scan subprocess.
+    /// Running one language pack scan subprocess (serial scans only).
     Scanning {
         /// Language pack id.
         language_id: LanguageId,
     },
-    /// A language pack scan finished successfully.
+    /// One language pack scan finished successfully (serial scans only).
     ScanComplete {
         /// Language pack id.
         language_id: LanguageId,
+    },
+    /// Parallel language scans in flight; `completed` is finished count out of `total`.
+    LanguagesScanning {
+        /// Languages that have finished scanning successfully so far.
+        completed: usize,
+        /// Total enabled languages being scanned.
+        total: usize,
     },
     /// Writing merged and per-language scan output files.
     WritingOutputs,

@@ -86,6 +86,7 @@ struct ScanJob {
 type ScanJobResult = Result<(LanguageId, ScanFacts), EngineError>;
 
 enum ScanWorkerMessage {
+    Started(LanguageId),
     Job(Box<ScanJobResult>),
     Done,
 }
@@ -415,7 +416,15 @@ fn run_scan_jobs(
     }
 
     let repo_root = repo_root.display().to_string();
-    let worker_count = scan_concurrency.min(jobs.len());
+    let total_jobs = jobs.len();
+    let worker_count = scan_concurrency.min(total_jobs);
+    let parallel_scans = worker_count > 1;
+    if parallel_scans {
+        progress.emit(ScanProgressEvent::LanguagesScanning {
+            completed: 0,
+            total: total_jobs,
+        });
+    }
     let queue = Arc::new(Mutex::new(jobs.into_iter().collect::<VecDeque<_>>()));
     let stop = Arc::new(AtomicBool::new(false));
     let cancellation = LanguageCancellationToken::new();
@@ -429,7 +438,6 @@ fn run_scan_jobs(
             let cancellation = cancellation.clone();
             let repo_root = repo_root.clone();
             let tx = tx.clone();
-            let progress = progress.clone();
             thread::spawn(move || {
                 while !stop.load(Ordering::SeqCst) {
                     let job = queue.lock().expect("scan job queue poisoned").pop_front();
@@ -437,9 +445,10 @@ fn run_scan_jobs(
                         break;
                     };
 
-                    progress.emit(ScanProgressEvent::Scanning {
-                        language_id: job.language_id.clone(),
-                    });
+                    let language_id = job.language_id.clone();
+                    if tx.send(ScanWorkerMessage::Started(language_id)).is_err() {
+                        break;
+                    }
                     let result = run_scan_job(repo_root.clone(), job, &cancellation);
                     if result.is_err() {
                         stop.store(true, Ordering::SeqCst);
@@ -456,14 +465,28 @@ fn run_scan_jobs(
 
     let mut first_error = None;
     let mut finished_workers = 0;
+    let mut completed_scans = 0;
     while finished_workers < worker_count {
         match rx.recv() {
+            Ok(ScanWorkerMessage::Started(language_id)) => {
+                if !parallel_scans {
+                    progress.emit(ScanProgressEvent::Scanning { language_id });
+                }
+            }
             Ok(ScanWorkerMessage::Job(result)) => match *result {
                 Ok((language_id, facts)) => {
                     if first_error.is_none() {
-                        progress.emit(ScanProgressEvent::ScanComplete {
-                            language_id: language_id.clone(),
-                        });
+                        if parallel_scans {
+                            completed_scans += 1;
+                            progress.emit(ScanProgressEvent::LanguagesScanning {
+                                completed: completed_scans,
+                                total: total_jobs,
+                            });
+                        } else {
+                            progress.emit(ScanProgressEvent::ScanComplete {
+                                language_id: language_id.clone(),
+                            });
+                        }
                         languages.insert(language_id, facts);
                     }
                 }

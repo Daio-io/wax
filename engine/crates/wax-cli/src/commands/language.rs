@@ -234,6 +234,7 @@ pub fn run_install(
         remove_dir_if_exists(&lang_install_dir(&manifest.id, &manifest.version)?)?;
         return Err(err);
     }
+    progress.finish();
     writeln!(writer, "installed {} {}", manifest.id, manifest.version).map_err(write_error)?;
     Ok(())
 }

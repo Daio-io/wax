@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### wax-cli
+
+- Show TTY progress spinners on stderr for `wax scan`, `wax validate`, and `wax language install`; suppressed when stderr is piped (CI and scripts).
+
 ### wax-core
 
 - Add shared `registry_lock::verify_registry_lock` used by validate and scan.
