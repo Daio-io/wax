@@ -8,7 +8,7 @@ use wax_core::validate::{ValidateError, ValidateWarning, validate_repo};
 /// Options for `wax validate`.
 #[derive(Debug, Clone)]
 pub struct ValidateCommandOptions {
-    /// Repository root containing `.waxrc` and repo-local inputs.
+    /// Repository root containing `.wax/wax.config.json` (or legacy `.waxrc`) and lockfile inputs.
     pub repo_root: PathBuf,
 }
 
@@ -54,6 +54,14 @@ pub fn run_validate(
             }
             ValidateWarning::IgnoredLegacyLockfile { path } => {
                 eprintln!("warning: ignored legacy lockfile {path}");
+            }
+            ValidateWarning::PreferredConfigWithLegacyLockfile {
+                config_path,
+                lockfile_path,
+            } => {
+                eprintln!(
+                    "warning: using legacy lockfile {lockfile_path} with centralized config {config_path}; migrate lockfile to .wax/wax.lock.json"
+                );
             }
         }
     }

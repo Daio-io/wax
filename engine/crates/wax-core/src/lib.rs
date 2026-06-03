@@ -9,6 +9,7 @@ pub mod global_state;
 pub mod install;
 pub mod paths;
 pub mod registry;
+pub mod registry_lock;
 pub mod registry_source;
 pub mod subprocess_lang;
 pub mod validate;
@@ -249,7 +250,8 @@ impl Engine {
                     .as_ref()
                     .is_some_and(|setting| setting.deprecated),
             )?;
-            verify_registry_lock(&entry.id, &resolved_registry, &lockfile)?;
+            registry_lock::verify_registry_lock(&entry.id, &resolved_registry, &lockfile)
+                .map_err(registry_lock_mismatch_to_engine_error)?;
 
             let mut config = entry.extra;
             config.remove("design_system_registry");
@@ -366,40 +368,31 @@ fn effective_scan_concurrency(
     configured.max(1) as usize
 }
 
-fn verify_registry_lock(
-    language_id: &LanguageId,
-    resolved: &registry_source::ResolvedRegistrySource,
-    lockfile: &config::lockfile::WaxLock,
-) -> Result<(), EngineError> {
-    let locked = lockfile
-        .registries
-        .get(language_id)
-        .ok_or_else(|| EngineError::RegistryLock {
-            language_id: language_id.clone(),
+fn registry_lock_mismatch_to_engine_error(
+    mismatch: registry_lock::RegistryLockMismatch,
+) -> EngineError {
+    match mismatch {
+        registry_lock::RegistryLockMismatch::Missing { language_id } => EngineError::RegistryLock {
+            language_id,
             reason: "missing registry lock entry".to_owned(),
-        })?;
-
-    if locked.source != resolved.source {
-        return Err(EngineError::RegistryLock {
-            language_id: language_id.clone(),
-            reason: format!(
-                "source changed from {} to {}",
-                locked.source, resolved.source
-            ),
-        });
+        },
+        registry_lock::RegistryLockMismatch::SourceDrift {
+            language_id,
+            lockfile_source,
+            resolved_source,
+        } => EngineError::RegistryLock {
+            language_id,
+            reason: format!("source changed from {lockfile_source} to {resolved_source}"),
+        },
+        registry_lock::RegistryLockMismatch::DigestDrift {
+            language_id,
+            lockfile_sha256,
+            resolved_sha256,
+        } => EngineError::RegistryLock {
+            language_id,
+            reason: format!("digest changed from {lockfile_sha256} to {resolved_sha256}"),
+        },
     }
-
-    if locked.sha256 != resolved.sha256 {
-        return Err(EngineError::RegistryLock {
-            language_id: language_id.clone(),
-            reason: format!(
-                "digest changed from {} to {}",
-                locked.sha256, resolved.sha256
-            ),
-        });
-    }
-
-    Ok(())
 }
 
 fn run_scan_jobs(

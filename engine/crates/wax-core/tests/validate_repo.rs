@@ -325,6 +325,37 @@ fn validate_repo_warns_for_legacy_design_system_registry() {
 }
 
 #[test]
+fn validate_repo_warns_for_preferred_config_with_legacy_lockfile() {
+    let root = TestDir::new("validate-repo-partial-layout");
+    fs::create_dir_all(root.path.join(".wax")).unwrap();
+    fs::write(
+        root.path.join(".wax/wax.config.json"),
+        r#"{"schema_version":1,"languages":[{"id":"compose","enabled":true,"registry":"design-system/registry.json"}]}"#,
+    )
+    .unwrap();
+    fs::create_dir_all(root.path.join("design-system")).unwrap();
+    fs::write(
+        root.path.join("design-system/registry.json"),
+        r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
+    )
+    .unwrap();
+    write_legacy_lockfile_with_registry(&root.path, "design-system/registry.json");
+
+    let report = validate_repo(&root.path).unwrap();
+
+    assert!(report.warnings.iter().any(|warning| {
+        matches!(
+            warning,
+            ValidateWarning::PreferredConfigWithLegacyLockfile {
+                config_path,
+                lockfile_path,
+            } if config_path.ends_with(".wax/wax.config.json")
+                && lockfile_path.ends_with("wax.lock.json")
+        )
+    }));
+}
+
+#[test]
 fn validate_repo_rejects_missing_registry_lock() {
     let root = TestDir::new("validate-repo-missing-registry-lock");
     fs::create_dir_all(root.path.join("design-system")).unwrap();
@@ -341,6 +372,45 @@ fn validate_repo_rejects_missing_registry_lock() {
     assert!(
         matches!(err, ValidateError::MissingRegistryLock { language_id } if language_id.as_str() == "compose")
     );
+}
+
+#[test]
+fn validate_repo_rejects_registry_source_drift() {
+    let root = TestDir::new("validate-repo-registry-source-drift");
+    write_repo_with_registry_json(
+        &root.path,
+        "design-system/registry.json",
+        r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
+    );
+    let registry_sha256 = {
+        use sha2::{Digest, Sha256};
+        let bytes = fs::read(root.path.join("design-system/registry.json")).unwrap();
+        Sha256::digest(bytes)
+            .iter()
+            .fold(String::with_capacity(64), |mut hex, byte| {
+                use std::fmt::Write;
+                let _ = write!(hex, "{byte:02x}");
+                hex
+            })
+    };
+    write_legacy_lockfile_with_registry_and_sha256(
+        &root.path,
+        "legacy/registry.json",
+        &registry_sha256,
+    );
+
+    let err = validate_repo(&root.path).expect_err("registry source drift should fail");
+
+    assert!(matches!(
+        err,
+        ValidateError::RegistrySourceDrift {
+            language_id,
+            lockfile_source,
+            resolved_source,
+        } if language_id.as_str() == "compose"
+            && lockfile_source == "legacy/registry.json"
+            && resolved_source == "design-system/registry.json"
+    ));
 }
 
 #[test]

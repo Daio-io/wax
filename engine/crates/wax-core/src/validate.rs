@@ -3,6 +3,7 @@
 use crate::config::lockfile::{LockfileError, load_lockfile};
 use crate::config::repo_files::{RepoFileWarning, discover_repo_files};
 use crate::config::waxrc::{WaxRcError, load_waxrc};
+use crate::registry_lock::{self, RegistryLockMismatch};
 use crate::registry_source::{
     RegistrySourceInput, resolve_registry_source_allowing_missing_components_with_deprecation,
 };
@@ -49,6 +50,13 @@ pub enum ValidateWarning {
         /// Ignored legacy lockfile path.
         path: String,
     },
+    /// Centralized config is in use but the lockfile is still at the legacy path.
+    PreferredConfigWithLegacyLockfile {
+        /// Preferred config path.
+        config_path: String,
+        /// Legacy lockfile path in use.
+        lockfile_path: String,
+    },
 }
 
 /// Typed validation failures with machine-friendly field paths.
@@ -68,20 +76,6 @@ pub enum ValidateError {
         /// Duplicate language id.
         language_id: LanguageId,
     },
-    /// Enabled language requires `design_system_registry`.
-    #[error("invalid .waxrc field {field}: missing required `design_system_registry`")]
-    MissingDesignSystemRegistry {
-        /// `.waxrc` field path.
-        field: String,
-    },
-    /// Registry path was not a non-empty repo-relative path.
-    #[error("invalid .waxrc field {field}: {reason}")]
-    InvalidDesignSystemRegistryPath {
-        /// `.waxrc` field path.
-        field: String,
-        /// Validation reason.
-        reason: &'static str,
-    },
     /// Registry file could not be read.
     #[error("failed to read design-system registry for {field} from {path}: {source}")]
     RegistryRead {
@@ -92,12 +86,6 @@ pub enum ValidateError {
         /// Underlying error.
         #[source]
         source: std::io::Error,
-    },
-    /// Registry path resolved outside the repository root after canonicalization.
-    #[error("invalid .waxrc field {field}: resolved path escapes repository root")]
-    RegistryPathEscapesRepo {
-        /// `.waxrc` field path.
-        field: String,
     },
     /// Registry JSON was malformed.
     #[error("malformed design-system registry JSON for {field} in {path}: {source}")]
@@ -148,6 +136,18 @@ pub enum ValidateError {
     MissingRegistryLock {
         /// Language id.
         language_id: LanguageId,
+    },
+    /// Enabled language registry source differs from lockfile.
+    #[error(
+        "enabled language {language_id} registry source drift: lockfile={lockfile_source} resolved={resolved_source}"
+    )]
+    RegistrySourceDrift {
+        /// Language id.
+        language_id: LanguageId,
+        /// Lockfile source.
+        lockfile_source: String,
+        /// Resolved source.
+        resolved_source: String,
     },
     /// Enabled language registry digest differs from lockfile.
     #[error(
@@ -229,18 +229,8 @@ pub fn validate_repo(repo_root: impl AsRef<Path>) -> Result<ValidateReport, Vali
         }
 
         if let Some(lockfile) = &lockfile {
-            let Some(locked_registry) = lockfile.registries.get(&entry.id) else {
-                return Err(ValidateError::MissingRegistryLock {
-                    language_id: entry.id.clone(),
-                });
-            };
-            if locked_registry.sha256 != resolved.sha256 {
-                return Err(ValidateError::RegistryDigestDrift {
-                    language_id: entry.id.clone(),
-                    lockfile_sha256: locked_registry.sha256.clone(),
-                    resolved_sha256: resolved.sha256,
-                });
-            }
+            registry_lock::verify_registry_lock(&entry.id, &resolved, lockfile)
+                .map_err(registry_lock_mismatch_to_validate_error)?;
         }
 
         let resolved_registry = repo_root.join(&resolved.repo_relative_path);
@@ -316,8 +306,43 @@ pub fn validate_repo(repo_root: impl AsRef<Path>) -> Result<ValidateReport, Vali
                     path: legacy.display().to_string(),
                 });
             }
+            RepoFileWarning::PreferredConfigWithLegacyLockfile {
+                preferred_config,
+                legacy_lockfile,
+            } => {
+                warnings.push(ValidateWarning::PreferredConfigWithLegacyLockfile {
+                    config_path: preferred_config.display().to_string(),
+                    lockfile_path: legacy_lockfile.display().to_string(),
+                });
+            }
         }
     }
 
     Ok(ValidateReport { warnings })
+}
+
+fn registry_lock_mismatch_to_validate_error(mismatch: RegistryLockMismatch) -> ValidateError {
+    match mismatch {
+        RegistryLockMismatch::Missing { language_id } => {
+            ValidateError::MissingRegistryLock { language_id }
+        }
+        RegistryLockMismatch::SourceDrift {
+            language_id,
+            lockfile_source,
+            resolved_source,
+        } => ValidateError::RegistrySourceDrift {
+            language_id,
+            lockfile_source,
+            resolved_source,
+        },
+        RegistryLockMismatch::DigestDrift {
+            language_id,
+            lockfile_sha256,
+            resolved_sha256,
+        } => ValidateError::RegistryDigestDrift {
+            language_id,
+            lockfile_sha256,
+            resolved_sha256,
+        },
+    }
 }

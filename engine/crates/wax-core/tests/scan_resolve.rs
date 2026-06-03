@@ -768,6 +768,91 @@ fn scan_resolve_fetches_registry_only_for_missing_languages() {
 }
 
 #[test]
+fn scan_resolve_rejects_registry_lock_source_drift() {
+    let _guard = env_lock();
+    let root = temp_dir("scan-resolve-registry-lock-source");
+    let repo = root.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    write_default_registry(&repo);
+    fs::write(
+        repo.join(".waxrc"),
+        r#"{
+  "schema_version": 1,
+  "languages": [
+    { "id": "compose", "enabled": true }
+  ]
+}"#,
+    )
+    .unwrap();
+
+    let registry_sha256 = file_sha256(&repo.join(".wax/wax.registry.json"));
+    let lock = format!(
+        r#"{{
+  "schema_version": 2,
+  "engine_api_version": 1,
+  "wax_version": "0.0.0",
+  "registries": {{
+    "compose": {{
+      "source": "legacy/wax.registry.json",
+      "sha256": "{registry_sha256}"
+    }}
+  }},
+  "languages": {{}}
+}}"#,
+    );
+    fs::write(repo.join("wax.lock.json"), lock).unwrap();
+
+    let err = Engine::scan_repo(&repo).expect_err("registry source drift should block scan");
+    assert!(matches!(
+        err,
+        EngineError::RegistryLock { language_id, reason }
+            if language_id.as_str() == "compose"
+                && reason.contains("source changed")
+    ));
+}
+
+#[test]
+fn scan_resolve_rejects_registry_lock_digest_drift() {
+    let _guard = env_lock();
+    let root = temp_dir("scan-resolve-registry-lock-digest");
+    let repo = root.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    write_default_registry(&repo);
+    fs::write(
+        repo.join(".waxrc"),
+        r#"{
+  "schema_version": 1,
+  "languages": [
+    { "id": "compose", "enabled": true }
+  ]
+}"#,
+    )
+    .unwrap();
+
+    let lock = r#"{
+  "schema_version": 2,
+  "engine_api_version": 1,
+  "wax_version": "0.0.0",
+  "registries": {
+    "compose": {
+      "source": ".wax/wax.registry.json",
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+    }
+  },
+  "languages": {}
+}"#;
+    fs::write(repo.join("wax.lock.json"), lock).unwrap();
+
+    let err = Engine::scan_repo(&repo).expect_err("registry digest drift should block scan");
+    assert!(matches!(
+        err,
+        EngineError::RegistryLock { language_id, reason }
+            if language_id.as_str() == "compose"
+                && reason.contains("digest changed")
+    ));
+}
+
+#[test]
 fn scan_resolve_no_auto_install_validates_missing_pack_index_before_required_error() {
     let _guard = env_lock();
     let root = temp_dir("scan-resolve-no-auto-install-validates-index");
