@@ -133,6 +133,22 @@ pub fn resolve_registry_source_with_deprecation(
     input: RegistrySourceInput<'_>,
     deprecated: bool,
 ) -> Result<ResolvedRegistrySource, RegistrySourceError> {
+    resolve_registry_source_with_options(input, deprecated, false)
+}
+
+/// Resolves a registry source for validate, allowing a missing `components` key to warn later.
+pub(crate) fn resolve_registry_source_allowing_missing_components_with_deprecation(
+    input: RegistrySourceInput<'_>,
+    deprecated: bool,
+) -> Result<ResolvedRegistrySource, RegistrySourceError> {
+    resolve_registry_source_with_options(input, deprecated, true)
+}
+
+fn resolve_registry_source_with_options(
+    input: RegistrySourceInput<'_>,
+    deprecated: bool,
+    allow_missing_components: bool,
+) -> Result<ResolvedRegistrySource, RegistrySourceError> {
     let source = input
         .source
         .map(str::trim)
@@ -141,7 +157,7 @@ pub fn resolve_registry_source_with_deprecation(
 
     let source = source.to_owned();
     let (bytes, repo_relative_path, external) = read_source(input.repo_root, &source)?;
-    validate_registry_json(&source, &bytes)?;
+    validate_registry_json(&source, &bytes, allow_missing_components)?;
     let sha256 = hex_lower_sha256(&bytes);
 
     let repo_relative_path = if external {
@@ -234,7 +250,11 @@ fn read_source(
     Ok((bytes, source.to_owned(), false))
 }
 
-fn validate_registry_json(source: &str, bytes: &[u8]) -> Result<(), RegistrySourceError> {
+fn validate_registry_json(
+    source: &str,
+    bytes: &[u8],
+    allow_missing_components: bool,
+) -> Result<(), RegistrySourceError> {
     let value: Value =
         serde_json::from_slice(bytes).map_err(|json| RegistrySourceError::MalformedJson {
             input: source.to_owned(),
@@ -261,6 +281,7 @@ fn validate_registry_json(source: &str, bytes: &[u8]) -> Result<(), RegistrySour
             input: source.to_owned(),
             reason: "components must be an array",
         }),
+        None if allow_missing_components => Ok(()),
         None => Err(RegistrySourceError::InvalidShape {
             input: source.to_owned(),
             reason: "missing components array",

@@ -1066,7 +1066,7 @@ git commit -m "feat: lock registry source digests"
 - Test: `engine/crates/wax-core/tests/validate_repo.rs`
 - Test: `engine/crates/wax-cli/tests/validate_command.rs`
 
-- [ ] **Step 1: Add failing validation tests for default registry and deprecated alias**
+- [x] **Step 1: Add failing validation tests for default registry and deprecated alias**
 
 Append to `engine/crates/wax-core/tests/validate_repo.rs`:
 
@@ -1167,7 +1167,7 @@ fn lockfile_json(repo_root: &Path, source: &str) -> String {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -1178,7 +1178,7 @@ cargo test -p wax-core --test validate_repo validate_repo_accepts_default_centra
 
 Expected: fail because validate still requires `design_system_registry`.
 
-- [ ] **Step 3: Implement validate integration**
+- [x] **Step 3: Implement validate integration**
 
 Modify `ValidateWarning` in `engine/crates/wax-core/src/validate.rs`:
 
@@ -1329,7 +1329,7 @@ for warning in repo_files.warnings {
 }
 ```
 
-- [ ] **Step 4: Update CLI warning rendering**
+- [x] **Step 4: Update CLI warning rendering**
 
 Modify `engine/crates/wax-cli/src/commands/validate.rs` warning rendering to include:
 
@@ -1348,7 +1348,7 @@ ValidateWarning::IgnoredLegacyLockfile { path } => {
 }
 ```
 
-- [ ] **Step 5: Run focused validation tests**
+- [x] **Step 5: Run focused validation tests**
 
 Run:
 
@@ -1360,7 +1360,7 @@ cargo test -p wax-cli --test validate_command
 
 Expected: pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add engine/crates/wax-core/src/validate.rs engine/crates/wax-core/tests/validate_repo.rs engine/crates/wax-cli/src/commands/validate.rs engine/crates/wax-cli/tests/validate_command.rs

@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use sha2::Digest;
 #[cfg(unix)]
 use std::os::unix::fs as unix_fs;
 use wax_core::validate::{ValidateError, ValidateWarning, validate_repo};
@@ -84,6 +85,37 @@ fn validate_repo_warns_when_components_key_missing() {
 }
 
 #[test]
+fn validate_repo_warns_when_file_registry_components_key_missing() {
+    let root = TestDir::new("validate-repo-warning-file-missing-components");
+    let outside_registry = root.path.with_extension("outside-registry.json");
+    fs::write(
+        &outside_registry,
+        r#"{
+  "schema_version": 1
+}
+"#,
+    )
+    .unwrap();
+    let source = format!("file://{}", outside_registry.display());
+    write_repo_with_registry_path(&root.path, &source);
+    write_legacy_lockfile_with_registry_and_sha256(
+        &root.path,
+        &source,
+        &file_sha256(&outside_registry),
+    );
+
+    let report = validate_repo(&root.path).expect("missing components should warn");
+
+    assert!(matches!(
+        &report.warnings[..],
+        [ValidateWarning::EmptyRegistryComponents { language_id, registry_path }]
+        if language_id.as_str() == "compose"
+            && registry_path.starts_with(".wax/cache/registries/compose-")
+            && root.path.join(registry_path).is_file()
+    ));
+}
+
+#[test]
 fn validate_repo_requires_lockfile_when_language_enabled() {
     let root = TestDir::new("validate-repo-missing-lockfile");
     write_repo_with_registry_json(
@@ -103,8 +135,8 @@ fn validate_repo_requires_lockfile_when_language_enabled() {
 }
 
 #[test]
-fn validate_repo_rejects_missing_design_system_registry() {
-    let root = TestDir::new("validate-repo-missing-registry-field");
+fn validate_repo_rejects_missing_default_registry_file() {
+    let root = TestDir::new("validate-repo-missing-default-registry");
     fs::write(
         root.path.join(".waxrc"),
         r#"{
@@ -115,10 +147,13 @@ fn validate_repo_rejects_missing_design_system_registry() {
     .unwrap();
     write_lockfile(&root.path);
 
-    let err = validate_repo(&root.path).expect_err("missing registry field should fail");
+    let err = validate_repo(&root.path).expect_err("missing default registry should fail");
     assert!(matches!(
         err,
-        ValidateError::MissingDesignSystemRegistry { .. }
+        ValidateError::RegistrySource {
+            source: wax_core::registry_source::RegistrySourceError::Read { .. },
+            ..
+        }
     ));
 }
 
@@ -164,7 +199,10 @@ fn validate_repo_rejects_absolute_registry_path() {
     let err = validate_repo(&root.path).expect_err("absolute path should fail");
     assert!(matches!(
         err,
-        ValidateError::InvalidDesignSystemRegistryPath { .. }
+        ValidateError::RegistrySource {
+            source: wax_core::registry_source::RegistrySourceError::PlainAbsolutePath { .. },
+            ..
+        }
     ));
 }
 
@@ -177,7 +215,10 @@ fn validate_repo_rejects_parent_dir_registry_path() {
     let err = validate_repo(&root.path).expect_err("parent dir path should fail");
     assert!(matches!(
         err,
-        ValidateError::InvalidDesignSystemRegistryPath { .. }
+        ValidateError::RegistrySource {
+            source: wax_core::registry_source::RegistrySourceError::PathEscapesRepo { .. },
+            ..
+        }
     ));
 }
 
@@ -188,7 +229,13 @@ fn validate_repo_rejects_missing_registry_file() {
     write_lockfile(&root.path);
 
     let err = validate_repo(&root.path).expect_err("missing registry file should fail");
-    assert!(matches!(err, ValidateError::RegistryRead { .. }));
+    assert!(matches!(
+        err,
+        ValidateError::RegistrySource {
+            source: wax_core::registry_source::RegistrySourceError::Read { .. },
+            ..
+        }
+    ));
 }
 
 #[cfg(unix)]
@@ -221,7 +268,107 @@ fn validate_repo_rejects_symlink_registry_that_escapes_repo_root() {
 
     let err = validate_repo(&root.path).expect_err("symlink escape should fail");
     let _ = fs::remove_file(outside_registry);
-    assert!(matches!(err, ValidateError::RegistryPathEscapesRepo { .. }));
+    assert!(matches!(
+        err,
+        ValidateError::RegistrySource {
+            source: wax_core::registry_source::RegistrySourceError::PathEscapesRepo { .. },
+            ..
+        }
+    ));
+}
+
+#[test]
+fn validate_repo_accepts_default_centralized_registry() {
+    let root = TestDir::new("validate-repo-default-centralized-registry");
+    fs::create_dir_all(root.path.join(".wax")).unwrap();
+    fs::write(
+        root.path.join(".wax/wax.config.json"),
+        r#"{"schema_version":1,"languages":[{"id":"compose","enabled":true}]}"#,
+    )
+    .unwrap();
+    fs::write(
+        root.path.join(".wax/wax.registry.json"),
+        r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
+    )
+    .unwrap();
+    write_lockfile_with_registry(&root.path, ".wax/wax.registry.json");
+
+    let report = validate_repo(&root.path).unwrap();
+
+    assert!(report.warnings.is_empty());
+}
+
+#[test]
+fn validate_repo_warns_for_legacy_design_system_registry() {
+    let root = TestDir::new("validate-repo-legacy-design-system-registry");
+    fs::write(
+        root.path.join(".waxrc"),
+        r#"{"schema_version":1,"languages":[{"id":"compose","enabled":true,"design_system_registry":"design-system/registry.json"}]}"#,
+    )
+    .unwrap();
+    fs::create_dir_all(root.path.join("design-system")).unwrap();
+    fs::write(
+        root.path.join("design-system/registry.json"),
+        r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
+    )
+    .unwrap();
+    write_legacy_lockfile_with_registry(&root.path, "design-system/registry.json");
+
+    let report = validate_repo(&root.path).unwrap();
+
+    assert!(report.warnings.iter().any(|warning| {
+        matches!(
+            warning,
+            ValidateWarning::DeprecatedDesignSystemRegistry { .. }
+        )
+    }));
+}
+
+#[test]
+fn validate_repo_rejects_missing_registry_lock() {
+    let root = TestDir::new("validate-repo-missing-registry-lock");
+    fs::create_dir_all(root.path.join("design-system")).unwrap();
+    fs::write(
+        root.path.join("design-system/registry.json"),
+        r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
+    )
+    .unwrap();
+    write_repo_with_registry_path(&root.path, "design-system/registry.json");
+    write_lockfile(&root.path);
+
+    let err = validate_repo(&root.path).expect_err("missing registry lock should fail");
+
+    assert!(
+        matches!(err, ValidateError::MissingRegistryLock { language_id } if language_id.as_str() == "compose")
+    );
+}
+
+#[test]
+fn validate_repo_rejects_registry_digest_drift() {
+    let root = TestDir::new("validate-repo-registry-digest-drift");
+    write_repo_with_registry_json(
+        &root.path,
+        "design-system/registry.json",
+        r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
+    );
+    write_legacy_lockfile_with_registry_and_sha256(
+        &root.path,
+        "design-system/registry.json",
+        "2222222222222222222222222222222222222222222222222222222222222222",
+    );
+
+    let err = validate_repo(&root.path).expect_err("registry digest drift should fail");
+
+    assert!(matches!(
+        err,
+        ValidateError::RegistryDigestDrift {
+            language_id,
+            lockfile_sha256,
+            resolved_sha256,
+        } if language_id.as_str() == "compose"
+            && lockfile_sha256 == "2222222222222222222222222222222222222222222222222222222222222222"
+            && resolved_sha256.len() == 64
+    ));
 }
 
 fn write_valid_repo(repo_root: &Path, registry_path: &str, components: &str) {
@@ -240,14 +387,14 @@ fn write_repo_with_registry_json(repo_root: &Path, registry_path: &str, registry
     fs::write(&registry_abs, registry_json).unwrap();
 
     write_repo_with_registry_path(repo_root, registry_path);
-    write_lockfile(repo_root);
+    write_legacy_lockfile_with_registry(repo_root, registry_path);
 }
 
 fn write_repo_with_registry_path(repo_root: &Path, registry_path: &str) {
     fs::write(
         repo_root.join(".waxrc"),
         format!(
-            "{{\n  \"schema_version\": 1,\n  \"languages\": [{{\"id\":\"compose\",\"enabled\":true,\"design_system_registry\":\"{registry_path}\"}}]\n}}\n"
+            "{{\n  \"schema_version\": 1,\n  \"languages\": [{{\"id\":\"compose\",\"enabled\":true,\"registry\":\"{registry_path}\"}}]\n}}\n"
         ),
     )
     .unwrap();
@@ -277,4 +424,85 @@ fn write_lockfile(repo_root: &Path) {
 "#,
     )
     .unwrap();
+}
+
+fn write_lockfile_with_registry(repo_root: &Path, source: &str) {
+    fs::write(
+        repo_root.join(".wax/wax.lock.json"),
+        lockfile_json(repo_root, source),
+    )
+    .unwrap();
+}
+
+fn write_legacy_lockfile_with_registry(repo_root: &Path, source: &str) {
+    fs::write(
+        repo_root.join("wax.lock.json"),
+        lockfile_json(repo_root, source),
+    )
+    .unwrap();
+}
+
+fn write_legacy_lockfile_with_registry_and_sha256(repo_root: &Path, source: &str, sha256: &str) {
+    fs::write(
+        repo_root.join("wax.lock.json"),
+        lockfile_json_with_sha256(source, sha256),
+    )
+    .unwrap();
+}
+
+fn lockfile_json(repo_root: &Path, source: &str) -> String {
+    let sha256 = repo_registry_sha256(repo_root, source);
+    lockfile_json_with_sha256(source, &sha256)
+}
+
+fn lockfile_json_with_sha256(source: &str, sha256: &str) -> String {
+    format!(
+        r#"{{
+  "schema_version": 1,
+  "engine_api_version": 1,
+  "wax_version": "0.1.0",
+  "locked_at": null,
+  "registries": {{
+    "compose": {{
+      "source": "{source}",
+      "sha256": "{}"
+    }}
+  }},
+  "languages": {{
+    "compose": {{
+      "version": "0.1.0-alpha.0",
+      "api_version": 1,
+      "source": "file:///tmp/index.json",
+      "resolved": {{
+        "target": "x86_64-unknown-linux-gnu",
+        "url": "file:///tmp/wax-lang-compose.tar.gz",
+        "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "signature": null
+      }}
+    }}
+  }}
+}}"#,
+        sha256
+    )
+}
+
+fn repo_registry_sha256(repo_root: &Path, source: &str) -> String {
+    let bytes = fs::read(repo_root.join(source)).unwrap();
+    bytes_sha256(&bytes)
+}
+
+fn file_sha256(path: &Path) -> String {
+    let bytes = fs::read(path).unwrap();
+    bytes_sha256(&bytes)
+}
+
+fn bytes_sha256(bytes: &[u8]) -> String {
+    let digest = sha2::Sha256::digest(bytes);
+    digest
+        .iter()
+        .fold(String::with_capacity(64), |mut hex, byte| {
+            use std::fmt::Write;
+            let _ = write!(hex, "{byte:02x}");
+            hex
+        })
 }
