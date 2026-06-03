@@ -1,11 +1,15 @@
 //! Repository validation rules for `wax validate`.
 
 use crate::config::lockfile::{LockfileError, load_lockfile};
+use crate::config::repo_files::{RepoFileWarning, discover_repo_files};
 use crate::config::waxrc::{WaxRcError, load_waxrc};
+use crate::registry_source::{
+    RegistrySourceInput, resolve_registry_source_allowing_missing_components_with_deprecation,
+};
 use serde_json::Value;
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::{Component, Path};
+use std::path::Path;
 use thiserror::Error;
 use wax_contract::LanguageId;
 
@@ -27,6 +31,23 @@ pub enum ValidateWarning {
         language_id: LanguageId,
         /// Registry path relative to repo root.
         registry_path: String,
+    },
+    /// Deprecated `design_system_registry` key was used.
+    DeprecatedDesignSystemRegistry {
+        /// Language this registry belongs to.
+        language_id: LanguageId,
+        /// Field path.
+        field: String,
+    },
+    /// Legacy config was ignored in favor of centralized config.
+    IgnoredLegacyConfig {
+        /// Ignored legacy config path.
+        path: String,
+    },
+    /// Legacy lockfile was ignored in favor of centralized lockfile.
+    IgnoredLegacyLockfile {
+        /// Ignored legacy lockfile path.
+        path: String,
     },
 }
 
@@ -113,18 +134,40 @@ pub enum ValidateError {
         /// Validation reason.
         reason: &'static str,
     },
+    /// Registry source resolution failed.
+    #[error("invalid .wax config field {field}: {source}")]
+    RegistrySource {
+        /// Config field path.
+        field: String,
+        /// Source error.
+        #[source]
+        source: crate::registry_source::RegistrySourceError,
+    },
+    /// Enabled language registry is missing from lockfile.
+    #[error("enabled language {language_id} registry is missing from wax lockfile")]
+    MissingRegistryLock {
+        /// Language id.
+        language_id: LanguageId,
+    },
+    /// Enabled language registry digest differs from lockfile.
+    #[error(
+        "enabled language {language_id} registry digest drift: lockfile={lockfile_sha256} resolved={resolved_sha256}"
+    )]
+    RegistryDigestDrift {
+        /// Language id.
+        language_id: LanguageId,
+        /// Lockfile digest.
+        lockfile_sha256: String,
+        /// Resolved digest.
+        resolved_sha256: String,
+    },
 }
 
 /// Validates repository-local wax configuration for CI workflows.
 pub fn validate_repo(repo_root: impl AsRef<Path>) -> Result<ValidateReport, ValidateError> {
     let repo_root = repo_root.as_ref();
-    let canonical_repo_root =
-        fs::canonicalize(repo_root).map_err(|source| ValidateError::RegistryRead {
-            field: "repo_root".to_owned(),
-            path: repo_root.display().to_string(),
-            source,
-        })?;
-    let waxrc = load_waxrc(repo_root.join(".waxrc"))?;
+    let repo_files = discover_repo_files(repo_root);
+    let waxrc = load_waxrc(&repo_files.config_path)?;
 
     let enabled = waxrc
         .languages
@@ -133,14 +176,16 @@ pub fn validate_repo(repo_root: impl AsRef<Path>) -> Result<ValidateReport, Vali
         .filter(|(_, entry)| entry.enabled)
         .collect::<Vec<_>>();
 
-    if !enabled.is_empty() {
-        load_lockfile(repo_root.join("wax.lock.json"))?;
-    }
+    let lockfile = if enabled.is_empty() {
+        None
+    } else {
+        Some(load_lockfile(&repo_files.lockfile_path)?)
+    };
 
     let mut seen_ids = BTreeSet::new();
     let mut warnings = Vec::new();
 
-    for (index, entry) in enabled {
+    for (index, entry) in &enabled {
         let field = format!("languages[{index}].id");
         if !seen_ids.insert(entry.id.clone()) {
             return Err(ValidateError::DuplicateEnabledLanguageId {
@@ -148,21 +193,57 @@ pub fn validate_repo(repo_root: impl AsRef<Path>) -> Result<ValidateReport, Vali
                 language_id: entry.id.clone(),
             });
         }
+    }
 
-        let registry_field = format!("languages[{index}].design_system_registry");
-        let registry_path = entry
-            .extra
-            .get("design_system_registry")
-            .and_then(Value::as_str)
-            .ok_or_else(|| ValidateError::MissingDesignSystemRegistry {
+    for (index, entry) in enabled {
+        let registry_setting = entry.registry_source();
+        let registry_field = format!(
+            "languages[{index}].{}",
+            registry_setting
+                .as_ref()
+                .map(|setting| setting.field_name)
+                .unwrap_or("registry")
+        );
+        let resolved = resolve_registry_source_allowing_missing_components_with_deprecation(
+            RegistrySourceInput {
+                repo_root,
+                language_id: entry.id.as_str(),
+                source: registry_setting
+                    .as_ref()
+                    .map(|setting| setting.source.as_str()),
+            },
+            registry_setting
+                .as_ref()
+                .is_some_and(|setting| setting.deprecated),
+        )
+        .map_err(|source| ValidateError::RegistrySource {
+            field: registry_field.clone(),
+            source,
+        })?;
+
+        if resolved.deprecated {
+            warnings.push(ValidateWarning::DeprecatedDesignSystemRegistry {
+                language_id: entry.id.clone(),
                 field: registry_field.clone(),
-            })?;
+            });
+        }
 
-        validate_repo_relative_registry_path(&registry_field, registry_path)?;
+        if let Some(lockfile) = &lockfile {
+            let Some(locked_registry) = lockfile.registries.get(&entry.id) else {
+                return Err(ValidateError::MissingRegistryLock {
+                    language_id: entry.id.clone(),
+                });
+            };
+            if locked_registry.sha256 != resolved.sha256 {
+                return Err(ValidateError::RegistryDigestDrift {
+                    language_id: entry.id.clone(),
+                    lockfile_sha256: locked_registry.sha256.clone(),
+                    resolved_sha256: resolved.sha256,
+                });
+            }
+        }
 
-        let resolved_registry = repo_root.join(registry_path);
-        let canonical_registry =
-            canonicalize_registry_path(&registry_field, &resolved_registry, &canonical_repo_root)?;
+        let resolved_registry = repo_root.join(&resolved.repo_relative_path);
         let contents = fs::read_to_string(&resolved_registry).map_err(|source| {
             ValidateError::RegistryRead {
                 field: registry_field.clone(),
@@ -173,7 +254,7 @@ pub fn validate_repo(repo_root: impl AsRef<Path>) -> Result<ValidateReport, Vali
         let value: Value = serde_json::from_str(&contents).map_err(|source| {
             ValidateError::RegistryMalformedJson {
                 field: registry_field.clone(),
-                path: canonical_registry.display().to_string(),
+                path: resolved_registry.display().to_string(),
                 source,
             }
         })?;
@@ -181,23 +262,23 @@ pub fn validate_repo(repo_root: impl AsRef<Path>) -> Result<ValidateReport, Vali
         let Some(obj) = value.as_object() else {
             return Err(ValidateError::RegistryInvalidShape {
                 field: registry_field,
-                path: canonical_registry.display().to_string(),
+                path: resolved_registry.display().to_string(),
                 reason: "expected top-level object",
             });
         };
 
         let Some(schema_version) = obj.get("schema_version").and_then(Value::as_u64) else {
             return Err(ValidateError::RegistryInvalidShape {
-                field: format!("languages[{index}].design_system_registry"),
-                path: canonical_registry.display().to_string(),
+                field: registry_field,
+                path: resolved_registry.display().to_string(),
                 reason: "missing numeric schema_version",
             });
         };
 
         if schema_version != REGISTRY_SCHEMA_VERSION {
             return Err(ValidateError::RegistryUnsupportedSchemaVersion {
-                field: format!("languages[{index}].design_system_registry"),
-                path: canonical_registry.display().to_string(),
+                field: registry_field,
+                path: resolved_registry.display().to_string(),
                 found: schema_version,
                 supported: REGISTRY_SCHEMA_VERSION,
             });
@@ -207,8 +288,8 @@ pub fn validate_repo(repo_root: impl AsRef<Path>) -> Result<ValidateReport, Vali
             Some(Value::Array(components)) => components.is_empty(),
             Some(_) => {
                 return Err(ValidateError::RegistryInvalidShape {
-                    field: format!("languages[{index}].design_system_registry"),
-                    path: canonical_registry.display().to_string(),
+                    field: registry_field,
+                    path: resolved_registry.display().to_string(),
                     reason: "components must be an array when present",
                 });
             }
@@ -218,62 +299,25 @@ pub fn validate_repo(repo_root: impl AsRef<Path>) -> Result<ValidateReport, Vali
         if components_missing_or_empty {
             warnings.push(ValidateWarning::EmptyRegistryComponents {
                 language_id: entry.id.clone(),
-                registry_path: registry_path.to_owned(),
+                registry_path: resolved.repo_relative_path,
             });
+        }
+    }
+
+    for warning in repo_files.warnings {
+        match warning {
+            RepoFileWarning::IgnoredLegacyConfig { legacy, .. } => {
+                warnings.push(ValidateWarning::IgnoredLegacyConfig {
+                    path: legacy.display().to_string(),
+                });
+            }
+            RepoFileWarning::IgnoredLegacyLockfile { legacy, .. } => {
+                warnings.push(ValidateWarning::IgnoredLegacyLockfile {
+                    path: legacy.display().to_string(),
+                });
+            }
         }
     }
 
     Ok(ValidateReport { warnings })
-}
-
-fn validate_repo_relative_registry_path(field: &str, value: &str) -> Result<(), ValidateError> {
-    if value.trim().is_empty() {
-        return Err(ValidateError::InvalidDesignSystemRegistryPath {
-            field: field.to_owned(),
-            reason: "path must be a non-empty string",
-        });
-    }
-
-    let path = Path::new(value);
-    if path.is_absolute() {
-        return Err(ValidateError::InvalidDesignSystemRegistryPath {
-            field: field.to_owned(),
-            reason: "path must be repo-relative (not absolute)",
-        });
-    }
-
-    for component in path.components() {
-        if matches!(
-            component,
-            Component::ParentDir | Component::RootDir | Component::Prefix(_)
-        ) {
-            return Err(ValidateError::InvalidDesignSystemRegistryPath {
-                field: field.to_owned(),
-                reason: "path must not escape the repository root",
-            });
-        }
-    }
-
-    Ok(())
-}
-
-fn canonicalize_registry_path(
-    field: &str,
-    registry_path: &Path,
-    canonical_repo_root: &Path,
-) -> Result<std::path::PathBuf, ValidateError> {
-    let canonical_registry =
-        fs::canonicalize(registry_path).map_err(|source| ValidateError::RegistryRead {
-            field: field.to_owned(),
-            path: registry_path.display().to_string(),
-            source,
-        })?;
-
-    if !canonical_registry.starts_with(canonical_repo_root) {
-        return Err(ValidateError::RegistryPathEscapesRepo {
-            field: field.to_owned(),
-        });
-    }
-
-    Ok(canonical_registry)
 }

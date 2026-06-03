@@ -44,6 +44,17 @@ pub fn run_validate(
                     "warning: `{language_id}` registry `{registry_path}` has no components; adoption metrics stay empty until the registry is populated"
                 );
             }
+            ValidateWarning::DeprecatedDesignSystemRegistry { language_id, field } => {
+                eprintln!(
+                    "warning: language {language_id} uses deprecated {field}; use registry instead"
+                );
+            }
+            ValidateWarning::IgnoredLegacyConfig { path } => {
+                eprintln!("warning: ignored legacy config {path}");
+            }
+            ValidateWarning::IgnoredLegacyLockfile { path } => {
+                eprintln!("warning: ignored legacy lockfile {path}");
+            }
         }
     }
 

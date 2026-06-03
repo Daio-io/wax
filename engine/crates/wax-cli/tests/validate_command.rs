@@ -1,6 +1,6 @@
 use std::ffi::OsString;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -136,10 +136,102 @@ fn validate_command_exits_non_zero_on_invalid_repo() {
 
     assert!(!output.status.success(), "expected validation failure");
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("missing required `design_system_registry`"));
+    assert!(stderr.contains("invalid .wax config field languages[0].registry"));
 }
 
-fn write_repo(repo: &std::path::Path, registry_path: &str, components: &str) {
+#[test]
+fn validate_command_prints_deprecated_registry_warning() {
+    let _guard = env_lock();
+    let root = TestDir::new("validate-command-deprecated-registry-warning");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+
+    let registry_path = "design-system/registry.json";
+    let registry_abs = repo.join(registry_path);
+    fs::create_dir_all(registry_abs.parent().unwrap()).unwrap();
+    fs::write(
+        &registry_abs,
+        r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
+    )
+    .unwrap();
+    fs::write(
+        repo.join(".waxrc"),
+        format!(
+            "{{\n  \"schema_version\": 1,\n  \"languages\": [{{\"id\":\"compose\",\"enabled\":true,\"design_system_registry\":\"{registry_path}\"}}]\n}}\n"
+        ),
+    )
+    .unwrap();
+    write_legacy_lockfile_with_registry(&repo, registry_path);
+    let _wax_home = EnvVarGuard::set("WAX_HOME", root.path.join("wax-home"));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .args(["validate", "--repo-root"])
+        .arg(&repo)
+        .output()
+        .expect("spawn wax validate");
+
+    assert!(
+        output.status.success(),
+        "expected success, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains(
+        "warning: language compose uses deprecated languages[0].design_system_registry; use registry instead"
+    ));
+}
+
+#[test]
+fn validate_command_prints_ignored_legacy_file_warnings() {
+    let _guard = env_lock();
+    let root = TestDir::new("validate-command-ignored-legacy-warnings");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(repo.join(".wax")).unwrap();
+
+    fs::write(
+        repo.join(".wax/wax.config.json"),
+        r#"{"schema_version":1,"languages":[{"id":"compose","enabled":true}]}"#,
+    )
+    .unwrap();
+    fs::write(
+        repo.join(".wax/wax.registry.json"),
+        r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
+    )
+    .unwrap();
+    write_lockfile_with_registry(&repo, ".wax/wax.registry.json");
+    fs::write(
+        repo.join(".waxrc"),
+        r#"{"schema_version":1,"languages":[]}"#,
+    )
+    .unwrap();
+    fs::write(
+        repo.join("wax.lock.json"),
+        r#"{"schema_version":1,"engine_api_version":1,"wax_version":"0.0.0","languages":{}}"#,
+    )
+    .unwrap();
+    let _wax_home = EnvVarGuard::set("WAX_HOME", root.path.join("wax-home"));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .args(["validate", "--repo-root"])
+        .arg(&repo)
+        .output()
+        .expect("spawn wax validate");
+
+    assert!(
+        output.status.success(),
+        "expected success, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("warning: ignored legacy config"));
+    assert!(stderr.contains(".waxrc"));
+    assert!(stderr.contains("warning: ignored legacy lockfile"));
+    assert!(stderr.contains("wax.lock.json"));
+}
+
+fn write_repo(repo: &Path, registry_path: &str, components: &str) {
     let registry_abs = repo.join(registry_path);
     if let Some(parent) = registry_abs.parent() {
         fs::create_dir_all(parent).unwrap();
@@ -153,32 +245,66 @@ fn write_repo(repo: &std::path::Path, registry_path: &str, components: &str) {
     fs::write(
         repo.join(".waxrc"),
         format!(
-            "{{\n  \"schema_version\": 1,\n  \"languages\": [{{\"id\":\"compose\",\"enabled\":true,\"design_system_registry\":\"{registry_path}\"}}]\n}}\n"
+            "{{\n  \"schema_version\": 1,\n  \"languages\": [{{\"id\":\"compose\",\"enabled\":true,\"registry\":\"{registry_path}\"}}]\n}}\n"
         ),
     )
     .unwrap();
 
+    write_legacy_lockfile_with_registry(repo, registry_path);
+}
+
+fn write_lockfile_with_registry(repo_root: &Path, source: &str) {
     fs::write(
-        repo.join("wax.lock.json"),
-        r#"{
+        repo_root.join(".wax/wax.lock.json"),
+        lockfile_json(repo_root, source),
+    )
+    .unwrap();
+}
+
+fn write_legacy_lockfile_with_registry(repo_root: &Path, source: &str) {
+    fs::write(
+        repo_root.join("wax.lock.json"),
+        lockfile_json(repo_root, source),
+    )
+    .unwrap();
+}
+
+fn lockfile_json(repo_root: &Path, source: &str) -> String {
+    let resolved = wax_core::registry_source::resolve_registry_source(
+        wax_core::registry_source::RegistrySourceInput {
+            repo_root,
+            language_id: "compose",
+            source: Some(source),
+        },
+    )
+    .unwrap();
+    format!(
+        r#"{{
   "schema_version": 1,
   "engine_api_version": 1,
   "wax_version": "0.0.0",
-  "languages": {
-    "compose": {
+  "locked_at": null,
+  "registries": {{
+    "compose": {{
+      "source": "{source}",
+      "sha256": "{}"
+    }}
+  }},
+  "languages": {{
+    "compose": {{
       "version": "0.1.0",
       "api_version": 1,
       "source": "file:///tmp/registry.json",
-      "resolved": {
+      "resolved": {{
         "target": "x86_64-unknown-linux-gnu",
         "url": "https://example.invalid/compose-0.1.0.tgz",
         "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "signature": null
-      }
-    }
-  }
-}
+      }}
+    }}
+  }}
+}}
 "#,
+        resolved.sha256
     )
-    .unwrap();
 }
