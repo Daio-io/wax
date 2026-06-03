@@ -211,29 +211,29 @@ pub fn discover_repo_files(repo_root: impl AsRef<Path>) -> RepoFileSet {
 
     let mut warnings = Vec::new();
 
-    let config_path = if preferred_config.exists() {
-        if legacy_config.exists() {
+    let config_path = if preferred_config.is_file() {
+        if legacy_config.is_file() {
             warnings.push(RepoFileWarning::IgnoredLegacyConfig {
                 preferred: preferred_config.clone(),
                 legacy: legacy_config,
             });
         }
         preferred_config
-    } else if legacy_config.exists() {
+    } else if legacy_config.is_file() {
         legacy_config
     } else {
         preferred_config
     };
 
-    let lockfile_path = if preferred_lock.exists() {
-        if legacy_lock.exists() {
+    let lockfile_path = if preferred_lock.is_file() {
+        if legacy_lock.is_file() {
             warnings.push(RepoFileWarning::IgnoredLegacyLockfile {
                 preferred: preferred_lock.clone(),
                 legacy: legacy_lock,
             });
         }
         preferred_lock
-    } else if legacy_lock.exists() {
+    } else if legacy_lock.is_file() {
         legacy_lock
     } else {
         preferred_lock
