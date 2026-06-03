@@ -4,6 +4,7 @@ use super::language::{
     LanguageCommandError, default_target_triple, install_pinned_manifest, manifest_for_language,
     resolve_registry_url, save_lockfile, update_lockfile_entry,
 };
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Write};
@@ -35,6 +36,12 @@ const ENGINE_API_VERSION: u32 = 1;
 struct ResolvedInitLanguage {
     manifest: RegistryManifest,
     artifact: RegistryArtifact,
+}
+
+struct PendingRegistryScaffold {
+    path: PathBuf,
+    contents: String,
+    sha256: String,
 }
 
 /// Options for `wax init`.
@@ -132,6 +139,8 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
     let waxrc_contents = build_waxrc_contents(&languages)?;
     let registry_url = resolve_registry_url(options.registry_url)?;
     let manifests = fetch_pack_index(&registry_url)?;
+    let pending_registry_scaffold =
+        pending_default_registry_scaffold(&options.repo_root, options.scaffold_registries);
     let target = options
         .target_triple
         .clone()
@@ -142,20 +151,6 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
         let manifest = manifest_for_language(&manifests, language_id, None)?;
         let artifact = select_target_artifact(&manifest, &target)?.clone();
         resolved_languages.push(ResolvedInitLanguage { manifest, artifact });
-    }
-
-    fs::create_dir_all(&wax_dir).map_err(|source| InitCommandError::Io {
-        context: format!("create {}", wax_dir.display()),
-        source,
-    })?;
-
-    write_file_atomically(&config_path, &waxrc_contents)?;
-
-    if options.scaffold_registries {
-        write_file_atomically(
-            &options.repo_root.join(DEFAULT_REGISTRY_RELATIVE_PATH),
-            EXAMPLE_DESIGN_SYSTEM_REGISTRY,
-        )?;
     }
 
     let mut lockfile = WaxLock {
@@ -174,20 +169,35 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
             &target,
             &resolved.artifact,
         );
-        let registry_source = resolve_registry_source(RegistrySourceInput {
-            repo_root: &options.repo_root,
-            language_id: resolved.manifest.id.as_str(),
-            source: None,
-        })?;
-        lockfile.registries.insert(
-            resolved.manifest.id.clone(),
+        let registry_source = if let Some(scaffold) = &pending_registry_scaffold {
+            LockedRegistry {
+                source: DEFAULT_REGISTRY_RELATIVE_PATH.to_owned(),
+                sha256: scaffold.sha256.clone(),
+            }
+        } else {
+            let registry_source = resolve_registry_source(RegistrySourceInput {
+                repo_root: &options.repo_root,
+                language_id: resolved.manifest.id.as_str(),
+                source: None,
+            })?;
             LockedRegistry {
                 source: registry_source.source,
                 sha256: registry_source.sha256,
-            },
-        );
+            }
+        };
+        lockfile
+            .registries
+            .insert(resolved.manifest.id.clone(), registry_source);
     }
 
+    fs::create_dir_all(&wax_dir).map_err(|source| InitCommandError::Io {
+        context: format!("create {}", wax_dir.display()),
+        source,
+    })?;
+    write_file_atomically(&config_path, &waxrc_contents)?;
+    if let Some(scaffold) = &pending_registry_scaffold {
+        write_file_atomically(&scaffold.path, &scaffold.contents)?;
+    }
     save_lockfile(&lockfile_path, &lockfile)?;
     update_gitignore(&options.repo_root)?;
 
@@ -303,6 +313,27 @@ fn update_gitignore(repo_root: &Path) -> Result<(), InitCommandError> {
     })
 }
 
+fn pending_default_registry_scaffold(
+    repo_root: &Path,
+    scaffold_registries: bool,
+) -> Option<PendingRegistryScaffold> {
+    if !scaffold_registries {
+        return None;
+    }
+
+    let path = repo_root.join(DEFAULT_REGISTRY_RELATIVE_PATH);
+    if path.exists() {
+        return None;
+    }
+
+    let contents = rendered_file_contents(EXAMPLE_DESIGN_SYSTEM_REGISTRY);
+    Some(PendingRegistryScaffold {
+        path,
+        sha256: sha256_hex(contents.as_bytes()),
+        contents,
+    })
+}
+
 fn write_file_atomically(path: &Path, contents: &str) -> Result<(), InitCommandError> {
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
@@ -312,10 +343,24 @@ fn write_file_atomically(path: &Path, contents: &str) -> Result<(), InitCommandE
             source,
         })?;
     }
-    fs::write(path, format!("{contents}\n")).map_err(|source| InitCommandError::Io {
+    fs::write(path, rendered_file_contents(contents)).map_err(|source| InitCommandError::Io {
         context: format!("write {}", path.display()),
         source,
     })
+}
+
+fn rendered_file_contents(contents: &str) -> String {
+    format!("{contents}\n")
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .fold(String::with_capacity(64), |mut hex, byte| {
+            use std::fmt::Write;
+            let _ = write!(hex, "{byte:02x}");
+            hex
+        })
 }
 
 #[cfg(test)]
@@ -691,6 +736,94 @@ mod tests {
         assert!(!repo_root.join(PREFERRED_CONFIG_RELATIVE_PATH).exists());
         assert!(!repo_root.join(PREFERRED_LOCKFILE_RELATIVE_PATH).exists());
         assert!(!repo_root.join(DEFAULT_REGISTRY_RELATIVE_PATH).exists());
+    }
+
+    #[test]
+    fn init_leaves_repo_clean_when_default_registry_is_missing_and_scaffold_is_disabled() {
+        let temp = TestDir::new("missing-default-registry");
+        let artifact_path = temp.path.join("compose.tgz");
+        let digest = write_pack_artifact(&artifact_path, "wax-lang-compose");
+        let registry_path = temp.path.join("registry.json");
+        fs::write(
+            &registry_path,
+            format!(
+                r#"[{{"id":"compose","version":"0.4.2","api_version":1,"targets":{{"test-target":{{"url":"{}","sha256":"{}"}}}}}}]"#,
+                file_url(&artifact_path),
+                digest
+            ),
+        )
+        .unwrap();
+
+        let repo_root = temp.path.join("repo");
+        fs::create_dir_all(&repo_root).unwrap();
+
+        let err = run_init(
+            InitOptions {
+                non_interactive: true,
+                languages: vec![lang("compose")],
+                no_install: true,
+                registry_url: Some(file_url(&registry_path)),
+                repo_root: repo_root.clone(),
+                target_triple: Some("test-target".to_owned()),
+                state_path: None,
+                scaffold_registries: false,
+            },
+            &mut Vec::new(),
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, InitCommandError::RegistrySource(_)));
+        assert!(!repo_root.join(PREFERRED_CONFIG_RELATIVE_PATH).exists());
+        assert!(!repo_root.join(PREFERRED_LOCKFILE_RELATIVE_PATH).exists());
+        assert!(!repo_root.join(DEFAULT_REGISTRY_RELATIVE_PATH).exists());
+    }
+
+    #[test]
+    fn init_does_not_overwrite_existing_centralized_registry_when_scaffolding() {
+        let _guard = env_lock();
+        let temp = TestDir::new("preserve-existing-registry");
+        let _wax_home = EnvVarGuard::set("WAX_HOME", temp.path.join("home"));
+
+        let artifact_path = temp.path.join("compose.tgz");
+        let digest = write_pack_artifact(&artifact_path, "wax-lang-compose");
+        let registry_path = temp.path.join("registry.json");
+        fs::write(
+            &registry_path,
+            format!(
+                r#"[{{"id":"compose","version":"0.4.2","api_version":1,"targets":{{"test-target":{{"url":"{}","sha256":"{}"}}}}}}]"#,
+                file_url(&artifact_path),
+                digest
+            ),
+        )
+        .unwrap();
+
+        let repo_root = temp.path.join("repo");
+        fs::create_dir_all(&repo_root).unwrap();
+        let existing_registry = repo_root.join(DEFAULT_REGISTRY_RELATIVE_PATH);
+        fs::create_dir_all(existing_registry.parent().unwrap()).unwrap();
+        fs::write(
+            &existing_registry,
+            "{\n  \"schema_version\": 1,\n  \"components\": [{\"id\": \"ds.keep\"}]\n}\n",
+        )
+        .unwrap();
+
+        run_init(
+            InitOptions {
+                non_interactive: true,
+                languages: vec![lang("compose")],
+                no_install: true,
+                registry_url: Some(file_url(&registry_path)),
+                repo_root: repo_root.clone(),
+                target_triple: Some("test-target".to_owned()),
+                state_path: Some(temp.path.join("home/state.json")),
+                scaffold_registries: true,
+            },
+            &mut Vec::new(),
+        )
+        .unwrap();
+
+        let registry_contents = fs::read_to_string(existing_registry).unwrap();
+        assert!(registry_contents.contains("\"ds.keep\""));
     }
 
     #[test]

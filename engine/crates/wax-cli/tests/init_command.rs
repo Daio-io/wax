@@ -223,7 +223,7 @@ fn init_does_not_duplicate_gitignore_entries() {
     let wax_home = root.path.join("wax-home");
     fs::create_dir_all(&repo).expect("create repo fixture");
     fs::create_dir_all(&wax_home).expect("create wax home fixture");
-    fs::write(&repo.join(".gitignore"), "/.wax/cache/\n/.wax/out/\n")
+    fs::write(repo.join(".gitignore"), "/.wax/cache/\n/.wax/out/\n")
         .expect("write existing gitignore");
 
     let alpha_index = Path::new(env!("CARGO_MANIFEST_DIR"))
