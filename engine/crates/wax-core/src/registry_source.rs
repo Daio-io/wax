@@ -278,16 +278,25 @@ fn materialize_external_registry(
     validate_cache_language_id(language_id)?;
     let repo_relative_path = format!("{REGISTRY_CACHE_RELATIVE_DIR}/{language_id}-{sha256}.json");
     let path = repo_root.join(&repo_relative_path);
-
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|io| RegistrySourceError::CacheWrite {
+    let parent = path
+        .parent()
+        .ok_or_else(|| RegistrySourceError::PathEscapesRepo {
             input: source.to_owned(),
-            path: path.display().to_string(),
-            io,
         })?;
-    }
 
-    fs::write(&path, bytes).map_err(|io| RegistrySourceError::CacheWrite {
+    ensure_cache_directory_within_repo(repo_root, parent, source)?;
+    reject_symlink_path(&path, source)?;
+
+    let temp_path = parent.join(format!(
+        ".tmp-{language_id}-{sha256}-{}",
+        std::process::id()
+    ));
+    fs::write(&temp_path, bytes).map_err(|io| RegistrySourceError::CacheWrite {
+        input: source.to_owned(),
+        path: temp_path.display().to_string(),
+        io,
+    })?;
+    fs::rename(&temp_path, &path).map_err(|io| RegistrySourceError::CacheWrite {
         input: source.to_owned(),
         path: path.display().to_string(),
         io,
@@ -346,6 +355,89 @@ fn validate_cache_language_id(language_id: &str) -> Result<(), RegistrySourceErr
         _ => Err(RegistrySourceError::PathEscapesRepo {
             input: language_id.to_owned(),
         }),
+    }
+}
+
+fn ensure_cache_directory_within_repo(
+    repo_root: &Path,
+    directory: &Path,
+    source: &str,
+) -> Result<(), RegistrySourceError> {
+    let canonical_repo_root =
+        fs::canonicalize(repo_root).map_err(|io| RegistrySourceError::Read {
+            input: source.to_owned(),
+            io,
+        })?;
+    let relative =
+        directory
+            .strip_prefix(repo_root)
+            .map_err(|_| RegistrySourceError::PathEscapesRepo {
+                input: source.to_owned(),
+            })?;
+    let mut current = repo_root.to_path_buf();
+
+    for component in relative.components() {
+        current.push(component.as_os_str());
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) => {
+                if metadata.file_type().is_symlink() {
+                    return Err(RegistrySourceError::PathEscapesRepo {
+                        input: source.to_owned(),
+                    });
+                }
+                if !metadata.is_dir() {
+                    return Err(RegistrySourceError::CacheWrite {
+                        input: source.to_owned(),
+                        path: current.display().to_string(),
+                        io: std::io::Error::other("cache parent is not a directory"),
+                    });
+                }
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                fs::create_dir(&current).map_err(|io| RegistrySourceError::CacheWrite {
+                    input: source.to_owned(),
+                    path: current.display().to_string(),
+                    io,
+                })?;
+            }
+            Err(io) => {
+                return Err(RegistrySourceError::CacheWrite {
+                    input: source.to_owned(),
+                    path: current.display().to_string(),
+                    io,
+                });
+            }
+        }
+    }
+
+    let canonical_directory =
+        fs::canonicalize(directory).map_err(|io| RegistrySourceError::CacheWrite {
+            input: source.to_owned(),
+            path: directory.display().to_string(),
+            io,
+        })?;
+    if !canonical_directory.starts_with(&canonical_repo_root) {
+        return Err(RegistrySourceError::PathEscapesRepo {
+            input: source.to_owned(),
+        });
+    }
+
+    Ok(())
+}
+
+fn reject_symlink_path(path: &Path, source: &str) -> Result<(), RegistrySourceError> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => Err(RegistrySourceError::CacheWrite {
+            input: source.to_owned(),
+            path: path.display().to_string(),
+            io: std::io::Error::other("cache target must not be a symlink"),
+        }),
+        Ok(metadata) if metadata.is_dir() => Err(RegistrySourceError::CacheWrite {
+            input: source.to_owned(),
+            path: path.display().to_string(),
+            io: std::io::Error::other("cache target is a directory"),
+        }),
+        Ok(_) | Err(_) => Ok(()),
     }
 }
 

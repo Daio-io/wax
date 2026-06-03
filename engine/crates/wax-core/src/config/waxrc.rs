@@ -1,6 +1,7 @@
 //! Repository wax config parsing.
 
 use serde::Deserialize;
+use serde::de::Error as _;
 use std::fs;
 use std::path::Path;
 use thiserror::Error;
@@ -103,6 +104,29 @@ impl LanguageEntry {
                 deprecated: true,
             })
     }
+
+    fn validate_registry_source_config(&self) -> Result<(), serde_json::Error> {
+        let Some(value) = self.extra.get("registry") else {
+            return Ok(());
+        };
+
+        match value {
+            serde_json::Value::String(_) => Ok(()),
+            serde_json::Value::Object(object)
+                if object
+                    .get("source")
+                    .is_some_and(serde_json::Value::is_string) =>
+            {
+                Ok(())
+            }
+            serde_json::Value::Object(_) => Err(serde_json::Error::custom(
+                "languages[].registry object must contain a string source field",
+            )),
+            _ => Err(serde_json::Error::custom(
+                "languages[].registry must be a string or object with string source",
+            )),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -183,9 +207,18 @@ pub fn load_waxrc(path: impl AsRef<Path>) -> Result<WaxRc, WaxRcError> {
     }
 
     let rc: WaxRc = serde_json::from_value(value).map_err(|source| WaxRcError::InvalidConfig {
-        path: path_display,
+        path: path_display.clone(),
         source,
     })?;
+
+    for language in &rc.languages {
+        language
+            .validate_registry_source_config()
+            .map_err(|source| WaxRcError::InvalidConfig {
+                path: path_display.clone(),
+                source,
+            })?;
+    }
 
     Ok(rc)
 }

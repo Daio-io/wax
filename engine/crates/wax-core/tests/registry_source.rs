@@ -297,3 +297,76 @@ fn language_id_cannot_escape_registry_cache_path() {
     assert!(matches!(err, RegistrySourceError::PathEscapesRepo { .. }));
     assert!(!repo.path().join(".wax/cache/registries").exists());
 }
+
+#[cfg(unix)]
+#[test]
+fn cache_parent_symlink_cannot_escape_repo_on_write() {
+    use std::os::unix::fs::symlink;
+
+    let repo = TestRepo::new();
+    let outside_registry = repo.path().with_extension("outside-registry.json");
+    let outside_cache_dir = repo.path().with_extension("outside-cache-dir");
+    fs::write(&outside_registry, REGISTRY_JSON).unwrap();
+    fs::create_dir_all(&outside_cache_dir).unwrap();
+    fs::create_dir_all(repo.path().join(".wax/cache")).unwrap();
+    symlink(
+        &outside_cache_dir,
+        repo.path().join(".wax/cache/registries"),
+    )
+    .unwrap();
+
+    let source = format!("file://{}", outside_registry.display());
+    let err = resolve_registry_source(RegistrySourceInput {
+        repo_root: repo.path(),
+        language_id: "compose",
+        source: Some(&source),
+    })
+    .unwrap_err();
+
+    assert!(matches!(err, RegistrySourceError::PathEscapesRepo { .. }));
+    assert_eq!(fs::read_dir(&outside_cache_dir).unwrap().count(), 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn cache_file_symlink_is_not_followed_on_write() {
+    use std::os::unix::fs::symlink;
+
+    let repo = TestRepo::new();
+    let outside_registry = repo.path().with_extension("outside-registry.json");
+    let outside_target = repo.path().with_extension("outside-cache-target.json");
+    fs::write(&outside_registry, REGISTRY_JSON).unwrap();
+    fs::write(&outside_target, "do not overwrite").unwrap();
+
+    let sha256 = {
+        use sha2::{Digest, Sha256};
+
+        let digest = Sha256::digest(REGISTRY_JSON.as_bytes());
+        digest
+            .iter()
+            .fold(String::with_capacity(64), |mut hex, byte| {
+                use std::fmt::Write;
+                let _ = write!(hex, "{byte:02x}");
+                hex
+            })
+    };
+
+    let cache_dir = repo.path().join(".wax/cache/registries");
+    fs::create_dir_all(&cache_dir).unwrap();
+    let cache_path = cache_dir.join(format!("compose-{sha256}.json"));
+    symlink(&outside_target, &cache_path).unwrap();
+
+    let source = format!("file://{}", outside_registry.display());
+    let err = resolve_registry_source(RegistrySourceInput {
+        repo_root: repo.path(),
+        language_id: "compose",
+        source: Some(&source),
+    })
+    .unwrap_err();
+
+    assert!(matches!(err, RegistrySourceError::CacheWrite { .. }));
+    assert_eq!(
+        fs::read_to_string(&outside_target).unwrap(),
+        "do not overwrite"
+    );
+}
