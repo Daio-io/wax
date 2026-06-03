@@ -1,4 +1,4 @@
-//! `.waxrc` repository configuration parsing.
+//! Repository wax config parsing.
 
 use serde::Deserialize;
 use std::fs;
@@ -6,14 +6,14 @@ use std::path::Path;
 use thiserror::Error;
 use wax_contract::LanguageId;
 
-/// Current `.waxrc` schema version supported by this engine.
+/// Current wax config schema version supported by this engine.
 pub const WAXRC_SCHEMA_VERSION: u32 = 1;
 
-/// Repository-level wax configuration loaded from `.waxrc`.
+/// Repository-level wax configuration loaded from a repo config file.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WaxRc {
-    /// Version of the `.waxrc` JSON schema.
+    /// Version of the wax config JSON schema.
     pub schema_version: u32,
     /// Engine-owned configuration.
     #[serde(default)]
@@ -22,7 +22,7 @@ pub struct WaxRc {
     pub languages: Vec<LanguageEntry>,
 }
 
-/// Engine-owned `.waxrc` settings.
+/// Engine-owned wax config settings.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EngineConfig {
@@ -39,7 +39,7 @@ impl Default for EngineConfig {
     }
 }
 
-/// Per-language `.waxrc` entry.
+/// Per-language wax config entry.
 #[derive(Debug, Deserialize)]
 pub struct LanguageEntry {
     /// Validated language pack identifier.
@@ -90,6 +90,8 @@ impl LanguageEntry {
                 }
                 _ => {}
             }
+
+            return None;
         }
 
         self.extra
@@ -108,7 +110,7 @@ struct WaxRcVersion {
     schema_version: u32,
 }
 
-/// Errors returned while loading `.waxrc`.
+/// Errors returned while loading wax config.
 #[derive(Debug, Error)]
 pub enum WaxRcError {
     /// The file could not be read from disk.
@@ -152,7 +154,7 @@ pub enum WaxRcError {
     },
 }
 
-/// Loads and validates a `.waxrc` JSON file from disk.
+/// Loads and validates a wax config JSON file from disk.
 pub fn load_waxrc(path: impl AsRef<Path>) -> Result<WaxRc, WaxRcError> {
     let path = path.as_ref();
     let path_display = path.display().to_string();
