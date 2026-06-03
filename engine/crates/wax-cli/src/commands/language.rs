@@ -1,5 +1,6 @@
 //! `wax language` command implementations.
 
+use crate::progress::CliProgress;
 use semver::Version;
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -7,6 +8,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::Arc;
 use thiserror::Error;
 use wax_contract::{LanguageId, LanguageIdError};
 use wax_core::config::lockfile::{
@@ -210,11 +212,19 @@ pub fn run_install(
     options: InstallOptions,
     writer: &mut impl Write,
 ) -> Result<(), LanguageCommandError> {
+    let progress = Arc::new(CliProgress::new());
+    progress.set_message("Fetching pack index…");
+
     let registry_url = resolve_registry_url(options.registry_url)?;
     let manifests = fetch_pack_index(&registry_url)?;
     let manifest =
         manifest_for_language(&manifests, &options.language_id, options.version.as_deref())?;
+    progress.set_message(format!("Installing {}@{}…", manifest.id, manifest.version));
     let install_dir = install_manifest(&manifest, options.target_triple.as_deref())?;
+    progress.set_message(format!(
+        "Recording {}@{} install…",
+        manifest.id, manifest.version
+    ));
     if let Err(err) = record_installed_language(
         options.state_path,
         &manifest.id,
@@ -224,6 +234,7 @@ pub fn run_install(
         remove_dir_if_exists(&lang_install_dir(&manifest.id, &manifest.version)?)?;
         return Err(err);
     }
+    progress.finish();
     writeln!(writer, "installed {} {}", manifest.id, manifest.version).map_err(write_error)?;
     Ok(())
 }

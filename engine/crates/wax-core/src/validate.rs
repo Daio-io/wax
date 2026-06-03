@@ -3,6 +3,7 @@
 use crate::config::lockfile::{LockfileError, load_lockfile};
 use crate::config::repo_files::{RepoFileWarning, discover_repo_files};
 use crate::config::waxrc::{WaxRcError, load_waxrc};
+use crate::progress::{ValidateProgress, ValidateProgressEvent};
 use crate::registry_lock::{self, RegistryLockMismatch};
 use crate::registry_source::{
     RegistrySourceInput, resolve_registry_source_allowing_missing_components_with_deprecation,
@@ -165,7 +166,16 @@ pub enum ValidateError {
 
 /// Validates repository-local wax configuration for CI workflows.
 pub fn validate_repo(repo_root: impl AsRef<Path>) -> Result<ValidateReport, ValidateError> {
+    validate_repo_with_progress(repo_root, ValidateProgress::default())
+}
+
+/// Validates repository-local wax configuration, emitting optional progress events.
+pub fn validate_repo_with_progress(
+    repo_root: impl AsRef<Path>,
+    progress: ValidateProgress,
+) -> Result<ValidateReport, ValidateError> {
     let repo_root = repo_root.as_ref();
+    progress.emit(ValidateProgressEvent::LoadingConfig);
     let repo_files = discover_repo_files(repo_root);
     let waxrc = load_waxrc(&repo_files.config_path)?;
 
@@ -196,6 +206,9 @@ pub fn validate_repo(repo_root: impl AsRef<Path>) -> Result<ValidateReport, Vali
     }
 
     for (index, entry) in enabled {
+        progress.emit(ValidateProgressEvent::ValidatingLanguage {
+            language_id: entry.id.clone(),
+        });
         let registry_setting = entry.registry_source();
         let registry_field = format!(
             "languages[{index}].{}",

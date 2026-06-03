@@ -1,9 +1,11 @@
 //! `wax validate` command implementation.
 
+use crate::progress::{CliProgress, optional_validate_progress_sink};
 use std::io::{self, Write};
 use std::path::PathBuf;
+use std::sync::Arc;
 use thiserror::Error;
-use wax_core::validate::{ValidateError, ValidateWarning, validate_repo};
+use wax_core::validate::{ValidateError, ValidateWarning, validate_repo_with_progress};
 
 /// Options for `wax validate`.
 #[derive(Debug, Clone)]
@@ -32,7 +34,12 @@ pub fn run_validate(
     options: ValidateCommandOptions,
     writer: &mut impl Write,
 ) -> Result<(), ValidateCommandError> {
-    let report = validate_repo(&options.repo_root)?;
+    let progress = Arc::new(CliProgress::new());
+    let report = validate_repo_with_progress(
+        &options.repo_root,
+        optional_validate_progress_sink(&progress),
+    )?;
+    progress.finish();
 
     for warning in report.warnings {
         match warning {
