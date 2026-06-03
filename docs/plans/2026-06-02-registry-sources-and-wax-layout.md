@@ -1375,7 +1375,7 @@ git commit -m "feat: validate registry sources"
 - Modify: `engine/crates/wax-core/src/lib.rs`
 - Test: `engine/crates/wax-core/tests/scan_resolve.rs`
 
-- [ ] **Step 1: Add failing scan tests for default registry and remote materialization**
+- [x] **Step 1: Add failing scan tests for default registry and remote materialization**
 
 Append to `engine/crates/wax-core/tests/scan_resolve.rs`:
 
@@ -1464,7 +1464,7 @@ impl ScanFixture {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -1475,7 +1475,7 @@ cargo test -p wax-core --test scan_resolve scan_repo_rewrites_default_registry_t
 
 Expected: fail because scan still loads `.waxrc` and passes old config unchanged.
 
-- [ ] **Step 3: Implement scan integration**
+- [x] **Step 3: Implement scan integration**
 
 Modify `Engine::scan_repo_with_options` in `engine/crates/wax-core/src/lib.rs`:
 
@@ -1563,7 +1563,7 @@ fn verify_registry_lock(
 }
 ```
 
-- [ ] **Step 4: Run focused scan tests**
+- [x] **Step 4: Run focused scan tests**
 
 Run:
 
@@ -1574,7 +1574,7 @@ cargo test -p wax-core --test scan_resolve scan_repo_rewrites_default_registry_t
 
 Expected: pass.
 
-- [ ] **Step 5: Run scan test suite**
+- [x] **Step 5: Run scan test suite**
 
 Run:
 
@@ -1588,7 +1588,7 @@ cargo test -p wax-core --test scan_concurrency
 
 Expected: pass after updating test fixture lockfiles with `registries`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add engine/crates/wax-core/src/lib.rs engine/crates/wax-core/tests/scan_resolve.rs engine/crates/wax-core/tests/scan_auto_install.rs engine/crates/wax-core/tests/scan_output.rs engine/crates/wax-core/tests/scan_concurrency.rs

@@ -59,6 +59,7 @@ fn fixture_with_registry_url(name: &str, registry_artifact_url: Option<&str>) ->
     let wax_home = root.join("wax-home");
     fs::create_dir_all(&repo).unwrap();
     fs::create_dir_all(&wax_home).unwrap();
+    fs::create_dir_all(repo.join(".wax")).unwrap();
 
     let artifact_bytes = gzip_tar(&[("wax-lang-compose", fixture_script().as_bytes(), 0o644)]);
     let digest = sha256_hex(&artifact_bytes);
@@ -88,6 +89,11 @@ fn fixture_with_registry_url(name: &str, registry_artifact_url: Option<&str>) ->
     )
     .unwrap();
 
+    let design_registry =
+        r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#;
+    fs::write(repo.join(".wax/wax.registry.json"), design_registry).unwrap();
+    let design_registry_sha256 = sha256_hex(design_registry.as_bytes());
+
     fs::write(
         repo.join(".waxrc"),
         r#"{
@@ -103,9 +109,15 @@ fn fixture_with_registry_url(name: &str, registry_artifact_url: Option<&str>) ->
         repo.join("wax.lock.json"),
         format!(
             r#"{{
-  "schema_version": 1,
+  "schema_version": 2,
   "engine_api_version": 1,
   "wax_version": "0.0.0",
+  "registries": {{
+    "compose": {{
+      "source": ".wax/wax.registry.json",
+      "sha256": "{design_registry_sha256}"
+    }}
+  }},
   "languages": {{
     "compose": {{
       "version": "0.1.0",

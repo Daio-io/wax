@@ -6,6 +6,7 @@ use std::str::FromStr;
 use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 use wax_contract::{
     CountSummary, LanguageId, LanguageMetadata, MergedScan, Metrics, SCHEMA_VERSION, ScanFacts,
@@ -92,6 +93,7 @@ fn write_repo_files(repo: &Path, registry_file: &Path) {
 }
 
 fn write_repo_files_with_source(repo: &Path, source: &str) {
+    write_default_registry(repo);
     fs::write(
         repo.join(".waxrc"),
         r#"{
@@ -107,12 +109,36 @@ fn write_repo_files_with_source(repo: &Path, source: &str) {
     write_lockfile_with_source(repo, source);
 }
 
-fn write_lockfile_with_source(repo: &Path, source: &str) {
+fn write_default_registry(repo: &Path) {
+    fs::create_dir_all(repo.join(".wax")).unwrap();
+    fs::write(
+        repo.join(".wax/wax.registry.json"),
+        r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
+    )
+    .unwrap();
+}
+
+fn write_lockfile_with_source(repo: &Path, pack_index_source: &str) {
+    write_lockfile_with_sources(repo, pack_index_source, ".wax/wax.registry.json");
+}
+
+fn write_lockfile_with_sources(repo: &Path, pack_index_source: &str, registry_source: &str) {
+    let registry_sha256 = if let Some(path) = registry_source.strip_prefix("file://") {
+        file_sha256(Path::new(path))
+    } else {
+        file_sha256(&repo.join(registry_source))
+    };
     let lock = format!(
         r#"{{
-  "schema_version": 1,
+  "schema_version": 2,
   "engine_api_version": 1,
   "wax_version": "0.0.0",
+  "registries": {{
+    "compose": {{
+      "source": "{}",
+      "sha256": "{}"
+    }}
+  }},
   "languages": {{
     "compose": {{
       "version": "0.1.0",
@@ -127,9 +153,24 @@ fn write_lockfile_with_source(repo: &Path, source: &str) {
     }}
   }}
 }}"#,
-        source
+        registry_source, registry_sha256, pack_index_source
     );
     fs::write(repo.join("wax.lock.json"), lock).unwrap();
+}
+
+fn file_sha256(path: &Path) -> String {
+    bytes_sha256(&fs::read(path).unwrap())
+}
+
+fn bytes_sha256(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    digest
+        .iter()
+        .fold(String::with_capacity(64), |mut hex, byte| {
+            use std::fmt::Write;
+            let _ = write!(hex, "{byte:02x}");
+            hex
+        })
 }
 
 fn write_pack_index(path: &Path) {
@@ -150,6 +191,65 @@ fn write_pack_index(path: &Path) {
 ]"#,
     )
     .unwrap();
+}
+
+fn install_capturing_pack(wax_home: &Path, root: &Path, capture_name: &str) -> (PathBuf, PathBuf) {
+    let install_dir = wax_home.join("langs/compose/0.1.0");
+    fs::create_dir_all(&install_dir).unwrap();
+    let captured_request = root.join(capture_name);
+    let script = install_dir.join("compose-pack.sh");
+    let wire = serde_json::json!({
+        "type": "scan_facts",
+        "api_version": 1,
+        "language_id": "compose",
+        "facts": build_scan_facts("compose", "0.1.0")
+    });
+    let script_body = format!(
+        "#!/bin/sh\nset -eu\ncat > \"$1\"\nprintf '%s\\n' '{}'\n",
+        wire
+    );
+    fs::write(&script, script_body).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&script).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&script, perms).unwrap();
+    }
+
+    let manifest = serde_json::json!({
+        "id": "compose",
+        "version": "0.1.0",
+        "api_version": 1,
+        "command": ["./compose-pack.sh", captured_request],
+        "target": "x86_64-unknown-linux-gnu",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ecosystem": "test",
+        "parser_name": "fixture",
+        "parser_version": "1.0.0"
+    });
+    fs::write(
+        install_dir.join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    fs::write(
+        wax_home.join("state.json"),
+        format!(
+            r#"{{
+  "installed_languages": {{
+    "compose": {{
+      "0.1.0": {{ "install_dir": "{}" }}
+    }}
+  }}
+}}"#,
+            install_dir.display()
+        ),
+    )
+    .unwrap();
+
+    (install_dir, captured_request)
 }
 
 #[test]
@@ -236,7 +336,16 @@ fn scan_resolve_forwards_enabled_language_config_to_pack_request() {
 
     let registry_file = root.join("registry.json");
     write_pack_index(&registry_file);
-    write_lockfile_with_source(&repo, &format!("file://{}", registry_file.display()));
+    fs::write(
+        repo.join("design-system.json"),
+        r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
+    )
+    .unwrap();
+    write_lockfile_with_sources(
+        &repo,
+        &format!("file://{}", registry_file.display()),
+        "design-system.json",
+    );
     fs::write(
         repo.join(".waxrc"),
         r#"{
@@ -322,14 +431,93 @@ fn scan_resolve_forwards_enabled_language_config_to_pack_request() {
     assert_eq!(request["type"], serde_json::json!("scan"));
     assert!(request["config"].get("id").is_none());
     assert!(request["config"].get("enabled").is_none());
+    assert!(request["config"].get("design_system_registry").is_none());
     assert_eq!(
-        request["config"]["design_system_registry"],
+        request["config"]["registry"],
         serde_json::json!("design-system.json")
     );
     assert_eq!(
         request["config"]["roots"],
         serde_json::json!(["app/src", "design-system/src"])
     );
+}
+
+#[test]
+fn scan_repo_rewrites_default_registry_to_pack_config() {
+    let _guard = env_lock();
+    let root = temp_dir("scan-rewrite-default-registry");
+    let repo = root.join("repo");
+    let wax_home = root.join("wax-home");
+    fs::create_dir_all(repo.join(".wax")).unwrap();
+    fs::create_dir_all(&wax_home).unwrap();
+
+    write_default_registry(&repo);
+    fs::write(
+        repo.join(".wax/wax.config.json"),
+        r#"{"schema_version":1,"languages":[{"id":"compose","enabled":true,"roots":["src"]}]}"#,
+    )
+    .unwrap();
+    write_lockfile_with_source(&repo, "https://example.invalid/compose-index.json");
+    let (_, captured_request) = install_capturing_pack(&wax_home, &root, "default-request.json");
+
+    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
+    Engine::scan_repo(&repo).expect("scan should pass");
+
+    let request: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(captured_request).unwrap()).unwrap();
+    assert_eq!(
+        request["config"]["registry"],
+        serde_json::json!(".wax/wax.registry.json")
+    );
+    assert!(request["config"].get("design_system_registry").is_none());
+}
+
+#[test]
+fn scan_repo_materializes_file_registry_before_pack_spawn() {
+    let _guard = env_lock();
+    let root = temp_dir("scan-materialize-file-registry");
+    let repo = root.join("repo");
+    let wax_home = root.join("wax-home");
+    fs::create_dir_all(repo.join(".wax")).unwrap();
+    fs::create_dir_all(&wax_home).unwrap();
+
+    let outside = repo.with_extension("external-registry.json");
+    fs::write(
+        &outside,
+        r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
+    )
+    .unwrap();
+    let source = format!("file://{}", outside.display());
+    let config = serde_json::json!({
+        "schema_version": 1,
+        "languages": [
+            {
+                "id": "compose",
+                "enabled": true,
+                "registry": {
+                    "source": source
+                },
+                "roots": ["src"]
+            }
+        ]
+    });
+    fs::write(
+        repo.join(".wax/wax.config.json"),
+        format!("{}\n", serde_json::to_string(&config).unwrap()),
+    )
+    .unwrap();
+    write_lockfile_with_sources(&repo, "https://example.invalid/compose-index.json", &source);
+    let (_, captured_request) = install_capturing_pack(&wax_home, &root, "file-request.json");
+
+    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
+    Engine::scan_repo(&repo).expect("scan should pass");
+
+    let request: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(captured_request).unwrap()).unwrap();
+    let registry = request["config"]["registry"].as_str().unwrap();
+    assert!(registry.starts_with(".wax/cache/registries/compose-"));
+    assert!(repo.join(registry).is_file());
+    assert!(request["config"].get("design_system_registry").is_none());
 }
 
 #[test]
@@ -452,6 +640,8 @@ fn scan_resolve_fetches_registry_only_for_missing_languages() {
 }"#,
     )
     .unwrap();
+    write_default_registry(&repo);
+    let registry_sha256 = file_sha256(&repo.join(".wax/wax.registry.json"));
 
     let react_registry = root.join("react-registry.json");
     fs::write(
@@ -474,9 +664,19 @@ fn scan_resolve_fetches_registry_only_for_missing_languages() {
 
     let lock = format!(
         r#"{{
-  "schema_version": 1,
+  "schema_version": 2,
   "engine_api_version": 1,
   "wax_version": "0.0.0",
+  "registries": {{
+    "compose": {{
+      "source": ".wax/wax.registry.json",
+      "sha256": "{0}"
+    }},
+    "react": {{
+      "source": ".wax/wax.registry.json",
+      "sha256": "{0}"
+    }}
+  }},
   "languages": {{
     "compose": {{
       "version": "0.1.0",
@@ -492,7 +692,7 @@ fn scan_resolve_fetches_registry_only_for_missing_languages() {
     "react": {{
       "version": "1.0.0",
       "api_version": 1,
-      "source": "file://{}",
+      "source": "file://{1}",
       "resolved": {{
         "target": "x86_64-unknown-linux-gnu",
         "url": "https://example.invalid/react-1.0.0.tgz",
@@ -502,6 +702,7 @@ fn scan_resolve_fetches_registry_only_for_missing_languages() {
     }}
   }}
 }}"#,
+        registry_sha256,
         react_registry.display()
     );
     fs::write(repo.join("wax.lock.json"), lock).unwrap();
