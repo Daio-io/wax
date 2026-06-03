@@ -138,6 +138,7 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
         engine_api_version: ENGINE_API_VERSION,
         wax_version: build_version().to_owned(),
         locked_at: None,
+        registries: BTreeMap::new(),
         languages: BTreeMap::new(),
     };
     for resolved in &resolved_languages {

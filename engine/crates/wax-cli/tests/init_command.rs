@@ -106,8 +106,19 @@ fn init_loads_file_copy_of_alpha_pack_index() {
 
     let lockfile: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(repo.join("wax.lock.json")).unwrap()).unwrap();
+    assert_eq!(lockfile["schema_version"], 2);
     let expected_version = option_env!("WAX_BUILD_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
     assert_eq!(lockfile["wax_version"], expected_version);
+    assert!(
+        lockfile["registries"].as_object().is_some(),
+        "init should write an explicit registries object for schema v2"
+    );
+    assert!(
+        lockfile["registries"]
+            .as_object()
+            .is_some_and(|registries| registries.is_empty()),
+        "task 4 should not invent registry locks during init"
+    );
     let compose = &lockfile["languages"]["compose"];
     assert_eq!(compose["version"], "0.1.0-alpha.0");
     assert_eq!(compose["api_version"], 1);
