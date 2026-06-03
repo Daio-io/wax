@@ -1605,7 +1605,7 @@ git commit -m "feat: apply registry sources during scan"
 - Modify: `engine/crates/wax-lang-compose/src/tree_sitter_scan.rs`
 - Modify: `engine/crates/wax-lang-compose/tests/config_validation.rs`
 
-- [ ] **Step 1: Add failing tests for canonical `registry` key**
+- [x] **Step 1: Add failing tests for canonical `registry` key**
 
 In both config validation test files, add:
 
@@ -1622,7 +1622,7 @@ fn registry_key_is_accepted_as_canonical_registry_path() {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -1634,7 +1634,7 @@ cargo test -p wax-lang-compose --test config_validation registry_key_is_accepted
 
 Expected: fail because parsers require `design_system_registry`.
 
-- [ ] **Step 3: Update basic parser**
+- [x] **Step 3: Update basic parser**
 
 Modify `parse_basic_scan_config` in `engine/crates/wax-lang-basic/src/line_scan.rs`:
 
@@ -1664,7 +1664,7 @@ if registry.is_empty() {
 validate_repo_relative_path(registry, "registry")?;
 ```
 
-- [ ] **Step 4: Update compose parser**
+- [x] **Step 4: Update compose parser**
 
 Modify `parse_compose_scan_config` in `engine/crates/wax-lang-compose/src/tree_sitter_scan.rs` the same way:
 
@@ -1698,7 +1698,7 @@ this task if that keeps the change small. The user-facing config key and error
 messages should say `registry`; internal renaming can happen in a later cleanup
 if it becomes confusing.
 
-- [ ] **Step 5: Run focused tests**
+- [x] **Step 5: Run focused tests**
 
 Run:
 
@@ -1710,7 +1710,7 @@ cargo test -p wax-lang-compose --test config_validation
 
 Expected: pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add engine/crates/wax-lang-basic/src/line_scan.rs engine/crates/wax-lang-basic/tests/config_validation.rs engine/crates/wax-lang-compose/src/tree_sitter_scan.rs engine/crates/wax-lang-compose/tests/config_validation.rs

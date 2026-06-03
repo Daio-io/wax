@@ -1,6 +1,17 @@
-use wax_contract::LanguageId;
+use wax_contract::{LanguageId, ScanFacts};
 use wax_lang_api::{ScanRequest, ScanRequestType, WIRE_API_VERSION};
 use wax_lang_basic::{BasicLanguage, BasicScanError};
+
+#[test]
+fn registry_key_is_accepted_as_canonical_registry_path() {
+    let mut config = valid_config();
+    let registry = config.remove("design_system_registry").unwrap();
+    config.insert("registry".to_owned(), registry);
+
+    let facts = scan_with_config(config).expect("registry key should scan");
+
+    assert_eq!(facts.counts.design_system_component_count, 2);
+}
 
 #[test]
 fn empty_roots_array_is_config_error_not_scaffold() {
@@ -145,16 +156,18 @@ fn invalid_include_glob_entry_is_config_error() {
 
 fn scan_with_config(
     config: serde_json::Map<String, serde_json::Value>,
-) -> Result<(), BasicScanError> {
+) -> Result<ScanFacts, BasicScanError> {
+    let fixture_root =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/small");
     let request = ScanRequest {
         request_type: ScanRequestType::Scan,
         api_version: WIRE_API_VERSION,
         language_id: LanguageId::try_from("basic").expect("basic id must be valid"),
-        repo_root: "/tmp/unused".to_owned(),
+        repo_root: fixture_root.display().to_string(),
         snapshot_id: "snap-config".to_owned(),
         config,
     };
-    BasicLanguage::new().scan(&request).map(|_| ())
+    BasicLanguage::new().scan(&request)
 }
 
 fn assert_config_error(err: BasicScanError) {
@@ -171,4 +184,15 @@ fn assert_config_error(err: BasicScanError) {
         }
         other => panic!("expected InvalidConfig, got {other:?}"),
     }
+}
+
+fn valid_config() -> serde_json::Map<String, serde_json::Value> {
+    let mut config = serde_json::Map::new();
+    config.insert(
+        "design_system_registry".to_owned(),
+        serde_json::Value::String("design-system/registry.json".to_owned()),
+    );
+    config.insert("roots".to_owned(), serde_json::json!(["app/src"]));
+    config.insert("file_extensions".to_owned(), serde_json::json!(["src"]));
+    config
 }

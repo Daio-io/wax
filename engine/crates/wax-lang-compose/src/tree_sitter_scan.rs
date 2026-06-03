@@ -38,27 +38,27 @@ pub enum ComposeConfigMode {
 pub fn parse_compose_scan_config(
     config: &ScanConfig,
 ) -> Result<ComposeConfigMode, TreeSitterScanError> {
-    let has_registry = config.contains_key("design_system_registry");
+    let has_registry =
+        config.contains_key("registry") || config.contains_key("design_system_registry");
     let has_roots = config.contains_key("roots");
     if !has_registry && !has_roots {
         return Ok(ComposeConfigMode::Scaffold);
     }
 
-    let registry =
-        config
-            .get("design_system_registry")
-            .ok_or_else(|| TreeSitterScanError::ConfigInvalid {
-                reason: "design_system_registry is required when compose scan config is present"
-                    .to_owned(),
-            })?;
+    let registry = config
+        .get("registry")
+        .or_else(|| config.get("design_system_registry"))
+        .ok_or_else(|| TreeSitterScanError::ConfigInvalid {
+            reason: "registry is required when compose scan config is present".to_owned(),
+        })?;
     let registry = registry
         .as_str()
         .ok_or_else(|| TreeSitterScanError::ConfigInvalid {
-            reason: "design_system_registry must be a non-empty string".to_owned(),
+            reason: "registry must be a non-empty string".to_owned(),
         })?;
     if registry.is_empty() {
         return Err(TreeSitterScanError::ConfigInvalid {
-            reason: "design_system_registry must be a non-empty string".to_owned(),
+            reason: "registry must be a non-empty string".to_owned(),
         });
     }
 
