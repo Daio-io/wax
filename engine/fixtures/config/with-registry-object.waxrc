@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "languages": [
+    {
+      "id": "compose",
+      "enabled": true,
+      "registry": {
+        "source": "https://example.com/acme-ds/registry/v2.4.1/compose.json"
+      },
+      "roots": ["app/src/main/kotlin"]
+    }
+  ]
+}
