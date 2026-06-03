@@ -1,7 +1,9 @@
 //! `wax scan` command implementation.
 
+use crate::progress::{CliProgress, scan_progress_sink};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use thiserror::Error;
 use wax_contract::{Diagnostic, DiagnosticSeverity, MergedScan, ScanStatus};
 use wax_core::{Engine, EngineError, ScanOptions};
@@ -40,13 +42,16 @@ pub fn run_scan(
     options: ScanCommandOptions,
     writer: &mut impl Write,
 ) -> Result<(), ScanCommandError> {
+    let progress = Arc::new(CliProgress::new());
     let merged = Engine::scan_repo_with_options(
         &options.repo_root,
         ScanOptions {
             scan_concurrency: options.scan_concurrency,
             allow_auto_install: options.allow_auto_install,
+            progress: scan_progress_sink(Arc::clone(&progress)),
         },
     )?;
+    progress.finish();
 
     let output_path = options.repo_root.join(SCAN_OUTPUT_RELATIVE_PATH);
     write_scan_summary(writer, &merged, &output_path)

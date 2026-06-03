@@ -8,6 +8,7 @@ pub mod defaults;
 pub mod global_state;
 pub mod install;
 pub mod paths;
+pub mod progress;
 pub mod registry;
 pub mod registry_lock;
 pub mod registry_source;
@@ -20,6 +21,7 @@ use config::waxrc::{WaxRcError, load_waxrc};
 use global_state::{GlobalStateError, InstalledLanguagePack, load_global_state, save_global_state};
 use install::{InstallError, LanguagePackManifestSpec, install_language};
 use paths::{PathsError, state_file};
+use progress::{ScanProgress, ScanProgressEvent};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
@@ -93,7 +95,7 @@ enum ScanWorkerMessage {
 pub struct Engine;
 
 /// Runtime options for repository scans.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct ScanOptions {
     /// Overrides `.waxrc` `engine.scan_concurrency` when set.
     ///
@@ -101,6 +103,8 @@ pub struct ScanOptions {
     pub scan_concurrency: Option<u32>,
     /// Allows scan to install missing locked language packs before execution.
     pub allow_auto_install: bool,
+    /// Optional progress callbacks for CLI or tooling.
+    pub progress: ScanProgress,
 }
 
 impl Default for ScanOptions {
@@ -108,6 +112,7 @@ impl Default for ScanOptions {
         Self {
             scan_concurrency: None,
             allow_auto_install: true,
+            progress: ScanProgress::default(),
         }
     }
 }
@@ -224,6 +229,8 @@ impl Engine {
         options: ScanOptions,
     ) -> Result<MergedScan, EngineError> {
         let repo_root = repo_root.as_ref();
+        let progress = options.progress.clone();
+        progress.emit(ScanProgressEvent::Preparing);
         let repo_files = config::repo_files::discover_repo_files(repo_root);
         let waxrc = load_waxrc(&repo_files.config_path)?;
         let scan_concurrency = effective_scan_concurrency(&waxrc.engine, &options);
@@ -329,6 +336,7 @@ impl Engine {
                     &lockfile,
                     &pack_index_artifacts,
                     &state_path,
+                    &progress,
                 )?;
                 state = load_global_state(&state_path)?;
             }
@@ -346,12 +354,13 @@ impl Engine {
                 config,
             });
         }
-        let languages = run_scan_jobs(repo_root, jobs, scan_concurrency)?;
+        let languages = run_scan_jobs(repo_root, jobs, scan_concurrency, &progress)?;
         let merged = MergedScan {
             schema_version: SCHEMA_VERSION,
             recorded_at: time::OffsetDateTime::now_utc(),
             languages,
         };
+        progress.emit(ScanProgressEvent::WritingOutputs);
         write_scan_outputs(repo_root, &merged)?;
 
         Ok(merged)
@@ -399,6 +408,7 @@ fn run_scan_jobs(
     repo_root: &Path,
     jobs: Vec<ScanJob>,
     scan_concurrency: usize,
+    progress: &ScanProgress,
 ) -> Result<BTreeMap<LanguageId, ScanFacts>, EngineError> {
     if jobs.is_empty() {
         return Ok(BTreeMap::new());
@@ -419,6 +429,7 @@ fn run_scan_jobs(
             let cancellation = cancellation.clone();
             let repo_root = repo_root.clone();
             let tx = tx.clone();
+            let progress = progress.clone();
             thread::spawn(move || {
                 while !stop.load(Ordering::SeqCst) {
                     let job = queue.lock().expect("scan job queue poisoned").pop_front();
@@ -426,6 +437,9 @@ fn run_scan_jobs(
                         break;
                     };
 
+                    progress.emit(ScanProgressEvent::Scanning {
+                        language_id: job.language_id.clone(),
+                    });
                     let result = run_scan_job(repo_root.clone(), job, &cancellation);
                     if result.is_err() {
                         stop.store(true, Ordering::SeqCst);
@@ -447,6 +461,9 @@ fn run_scan_jobs(
             Ok(ScanWorkerMessage::Job(result)) => match *result {
                 Ok((language_id, facts)) => {
                     if first_error.is_none() {
+                        progress.emit(ScanProgressEvent::ScanComplete {
+                            language_id: language_id.clone(),
+                        });
                         languages.insert(language_id, facts);
                     }
                 }
@@ -821,8 +838,13 @@ fn execute_install_plans(
     lockfile: &config::lockfile::WaxLock,
     pack_index_artifacts: &BTreeMap<LanguageId, BTreeMap<String, Vec<PackIndexArtifact>>>,
     state_path: &Path,
+    progress: &ScanProgress,
 ) -> Result<(), EngineError> {
     for plan in plans {
+        progress.emit(ScanProgressEvent::Installing {
+            language_id: plan.language_id.clone(),
+            version: plan.version.clone(),
+        });
         let locked = &lockfile.languages[&plan.language_id];
         let artifact = pack_index_artifacts
             .get(&plan.language_id)

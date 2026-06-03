@@ -231,6 +231,7 @@ fn scan_auto_install_disabled_returns_required_error_without_installing() {
         ScanOptions {
             scan_concurrency: None,
             allow_auto_install: false,
+            ..ScanOptions::default()
         },
     )
     .expect_err("disabled auto-install should fail fast");
@@ -261,6 +262,7 @@ fn scan_auto_install_disabled_does_not_fetch_registry_index() {
         ScanOptions {
             scan_concurrency: None,
             allow_auto_install: false,
+            ..ScanOptions::default()
         },
     )
     .expect_err("disabled auto-install should fail without registry fetch");

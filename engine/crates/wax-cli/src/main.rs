@@ -6,6 +6,8 @@ mod commands {
     pub mod validate;
 }
 
+mod progress;
+
 #[cfg(test)]
 mod testing;
 

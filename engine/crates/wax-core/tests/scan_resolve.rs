@@ -544,6 +544,7 @@ fn scan_resolve_surfaces_missing_install_as_auto_install_required() {
         ScanOptions {
             scan_concurrency: None,
             allow_auto_install: false,
+            ..ScanOptions::default()
         },
     )
     .expect_err("missing pack should be policy-blocked");
@@ -876,6 +877,7 @@ fn scan_resolve_no_auto_install_validates_missing_pack_index_before_required_err
         ScanOptions {
             scan_concurrency: None,
             allow_auto_install: false,
+            ..ScanOptions::default()
         },
     )
     .expect_err("missing pack should require install after index validation");
