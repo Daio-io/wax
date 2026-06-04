@@ -515,7 +515,7 @@ Expected: `npx @waxhq/wax@alpha --help` works.
 
 - [x] **Step 4: Document npm publish preflight**
 
-Before CI publish can work, perform one manual package publish, add npm trusted publishing for GitHub repo `Daio-io/wax` + workflow file `release.yml`, keep `packages/cli/package.json` aligned with the release tag, and avoid legacy `NPM_TOKEN` publish auth that could override OIDC.
+Before CI publish can work, perform one manual package publish, add npm trusted publishing for GitHub repo `Daio-io/wax` + workflow file `release.yml`, let the release workflow rewrite `packages/cli/package.json` from the Git tag during publish, and avoid legacy `NPM_TOKEN` publish auth that could override OIDC.
 
 ---
 

@@ -24,7 +24,9 @@ The curl installer remains the primary alpha install path while the npm wrapper 
 curl -fsSL https://raw.githubusercontent.com/Daio-io/wax/main/scripts/install.sh | bash
 ```
 
-Release maintainers must publish prereleases under the `alpha` dist-tag and configure npm trusted publishing for `Daio-io/wax` + `release.yml` before relying on CI publish.
+Release maintainers must publish prereleases under the `alpha` dist-tag and configure npm trusted publishing for `Daio-io/wax` + `release.yml` before relying on CI publish. The checked-in package version stays on a snapshot placeholder; release CI rewrites it from the Git tag before publishing.
+
+For local smoke tests, set `WAX_CLI_VERSION` to the release you want to install; otherwise the wrapper resolves the checked-in snapshot placeholder.
 
 Local/test environment variables:
 
