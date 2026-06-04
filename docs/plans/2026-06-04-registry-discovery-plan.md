@@ -322,14 +322,14 @@ git commit -m "feat: add registry discover command"
 
 ## Phase 2 - Root Resolution and Validation
 
-### - [ ] Task 4: Resolve roots from Wax config when `--root` is omitted
+### - [x] Task 4: Resolve roots from Wax config when `--root` is omitted
 
 **Files:**
 - Modify: `engine/crates/wax-core/src/registry_discovery.rs`
 - Modify: `engine/crates/wax-core/tests/registry_discovery.rs`
 - Modify: `engine/crates/wax-cli/tests/registry_discover_command.rs`
 
-- [ ] **Step 1: Add failing tests for config roots**
+- [x] **Step 1: Add failing tests for config roots**
 
 Test that a repo with `.wax/wax.config.json` and enabled `compose` roots can run:
 
@@ -339,7 +339,7 @@ wax registry discover --language compose --dry-run
 
 without passing `--root`.
 
-- [ ] **Step 2: Add failing test for missing roots**
+- [x] **Step 2: Add failing test for missing roots**
 
 Test that missing config roots fail with an error containing:
 
@@ -347,11 +347,11 @@ Test that missing config roots fail with an error containing:
 pass --root path/to/design-system
 ```
 
-- [ ] **Step 3: Implement root resolution**
+- [x] **Step 3: Implement root resolution**
 
 When `roots` is empty, load repo files with existing config discovery helpers, find the enabled language matching `language_id`, and use its `roots` array. Validate each resolved root stays within the repo and exists. Because config roots are scan targets, emit a warning that `--root path/to/design-system` is preferred when the configured roots point at app code.
 
-- [ ] **Step 4: Run focused tests**
+- [x] **Step 4: Run focused tests**
 
 Run:
 
@@ -363,7 +363,7 @@ cargo test -p wax-cli --test registry_discover_command
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit Task 4**
+- [x] **Step 5: Commit Task 4**
 
 ```bash
 git add engine/crates/wax-core/src/registry_discovery.rs \

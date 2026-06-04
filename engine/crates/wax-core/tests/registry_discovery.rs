@@ -1,6 +1,8 @@
 use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+#[cfg(unix)]
+use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -71,25 +73,49 @@ fn copy_dir_all(source: &Path, destination: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-fn write_compose_config_with_roots(repo: &Path, roots: &[&str]) {
-    let wax_dir = repo.join(".wax");
-    fs::create_dir_all(&wax_dir).expect("create .wax directory");
+fn compose_config_json(enabled: bool, roots: &[&str]) -> String {
     let roots_json: Vec<String> = roots.iter().map(|root| format!("\"{root}\"")).collect();
-    let config = format!(
+    format!(
         r#"{{
   "schema_version": 1,
   "languages": [
     {{
       "id": "compose",
-      "enabled": true,
+      "enabled": {enabled},
       "roots": [{roots}]
     }}
   ]
 }}
 "#,
+        enabled = enabled,
         roots = roots_json.join(", ")
-    );
-    fs::write(wax_dir.join("wax.config.json"), config).expect("write wax config");
+    )
+}
+
+fn write_compose_config_with_roots(repo: &Path, roots: &[&str]) {
+    let wax_dir = repo.join(".wax");
+    fs::create_dir_all(&wax_dir).expect("create .wax directory");
+    fs::write(
+        wax_dir.join("wax.config.json"),
+        compose_config_json(true, roots),
+    )
+    .expect("write wax config");
+}
+
+fn write_legacy_waxrc_with_roots(repo: &Path, roots: &[&str]) {
+    fs::write(repo.join(".waxrc"), compose_config_json(true, roots)).expect("write legacy waxrc");
+}
+
+fn discover_with_config_roots(
+    repo: &Path,
+) -> Result<wax_core::registry_discovery::RegistryDiscoverResult, RegistryDiscoverError> {
+    discover_registry(RegistryDiscoverOptions {
+        repo_root: repo,
+        language_id: "compose",
+        roots: vec![],
+        dry_run: true,
+        force: false,
+    })
 }
 
 #[test]
@@ -288,6 +314,116 @@ fn missing_configured_roots_fails_with_guidance() {
 
     let message = err.to_string();
     assert!(message.contains("pass --root path/to/design-system"));
+}
+
+#[test]
+fn resolves_roots_from_legacy_waxrc_when_preferred_config_missing() {
+    let repo = TestRepo::new("registry-discovery-legacy-waxrc");
+    link_compose_fixture_into_repo(repo.path());
+    write_legacy_waxrc_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
+
+    let result =
+        discover_with_config_roots(repo.path()).expect("legacy waxrc roots should resolve");
+
+    assert!(result.used_config_roots);
+    assert_eq!(
+        result.registry["components"]
+            .as_array()
+            .expect("components array")
+            .len(),
+        3
+    );
+}
+
+#[test]
+fn disabled_language_fails_with_guidance() {
+    let repo = TestRepo::new("registry-discovery-disabled-language");
+    link_compose_fixture_into_repo(repo.path());
+    let wax_dir = repo.path().join(".wax");
+    fs::create_dir_all(&wax_dir).expect("create .wax directory");
+    fs::write(
+        wax_dir.join("wax.config.json"),
+        compose_config_json(false, &["design-system/src/main/kotlin"]),
+    )
+    .expect("write wax config");
+
+    let err = discover_with_config_roots(repo.path())
+        .expect_err("disabled language should not resolve roots");
+
+    assert!(matches!(
+        err,
+        RegistryDiscoverError::LanguageNotConfigured { .. }
+    ));
+    assert!(
+        err.to_string()
+            .contains("pass --root path/to/design-system")
+    );
+}
+
+#[test]
+fn absolute_configured_root_is_rejected() {
+    let repo = TestRepo::new("registry-discovery-absolute-root");
+    link_compose_fixture_into_repo(repo.path());
+    let absolute_root = repo.path().join("design-system/src/main/kotlin");
+    write_compose_config_with_roots(repo.path(), &[absolute_root.to_str().unwrap()]);
+
+    let err =
+        discover_with_config_roots(repo.path()).expect_err("absolute configured root should fail");
+
+    assert!(matches!(err, RegistryDiscoverError::InvalidRootPath { .. }));
+}
+
+#[test]
+fn parent_dir_configured_root_is_rejected() {
+    let repo = TestRepo::new("registry-discovery-parent-dir-root");
+    link_compose_fixture_into_repo(repo.path());
+    write_compose_config_with_roots(repo.path(), &["../design-system/src/main/kotlin"]);
+
+    let err = discover_with_config_roots(repo.path())
+        .expect_err("parent-dir configured root should fail");
+
+    assert!(matches!(err, RegistryDiscoverError::InvalidRootPath { .. }));
+}
+
+#[test]
+fn missing_configured_root_path_is_rejected() {
+    let repo = TestRepo::new("registry-discovery-missing-root-path");
+    write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin/missing"]);
+
+    let err = discover_with_config_roots(repo.path())
+        .expect_err("missing configured root path should fail");
+
+    assert!(matches!(err, RegistryDiscoverError::RootNotFound { .. }));
+}
+
+#[cfg(unix)]
+#[test]
+fn configured_root_symlink_outside_repo_is_rejected() {
+    let repo = TestRepo::new("registry-discovery-symlink-escape");
+    let outside = repo.path().parent().expect("temp parent").join(format!(
+        "wax-outside-{}",
+        repo.path()
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("repo")
+    ));
+    let _ = fs::remove_dir_all(&outside);
+    copy_dir_all(
+        &compose_fixture_design_system_dir(),
+        &outside.join("design-system"),
+    )
+    .expect("copy compose fixture outside repo");
+    symlink(
+        &outside.join("design-system"),
+        &repo.path().join("design-system"),
+    )
+    .expect("symlink design-system outside repo");
+    write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
+
+    let err = discover_with_config_roots(repo.path()).expect_err("symlink escape should fail");
+
+    assert!(matches!(err, RegistryDiscoverError::RootEscapesRepo { .. }));
+    let _ = fs::remove_dir_all(&outside);
 }
 
 #[test]
