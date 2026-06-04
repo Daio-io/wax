@@ -4,6 +4,11 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
+use crate::kotlin_ast::{
+    ParseKotlinFileError, call_simple_callee, collect_kotlin_files, function_name_from_decl,
+    has_composable_annotation, new_parser, parse_kotlin_file,
+};
+
 /// Grammar version bundled via the `tree-sitter-kotlin` crate dependency.
 /// Update this constant when bumping the crate in `Cargo.toml`.
 pub const TREE_SITTER_KOTLIN_GRAMMAR_VERSION: &str = "0.3.8";
@@ -268,95 +273,6 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, TreeSitterScanError> {
     })
 }
 
-// ── File collection ───────────────────────────────────────────────────────────
-
-fn collect_kotlin_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), TreeSitterScanError> {
-    let entries = fs::read_dir(dir).map_err(|source| TreeSitterScanError::Io {
-        context: format!("read Kotlin root {}", dir.display()),
-        source,
-    })?;
-    for entry in entries {
-        let entry = entry.map_err(|source| TreeSitterScanError::Io {
-            context: format!("read Kotlin root entry {}", dir.display()),
-            source,
-        })?;
-        let path = entry.path();
-        if path.is_dir() {
-            collect_kotlin_files(&path, files)?;
-        } else if path.extension().is_some_and(|ext| ext == "kt") {
-            files.push(path);
-        }
-    }
-    Ok(())
-}
-
-// ── AST helpers ───────────────────────────────────────────────────────────────
-
-/// Returns the annotation type name (e.g. "Composable") from an `annotation` node.
-fn annotation_type_name(annotation: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let mut cursor = annotation.walk();
-    for child in annotation.named_children(&mut cursor) {
-        if child.kind() == "user_type" {
-            let mut ut_cursor = child.walk();
-            for ut_child in child.named_children(&mut ut_cursor) {
-                if ut_child.kind() == "type_identifier" {
-                    return ut_child.utf8_text(source).ok().map(|s| s.to_owned());
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Returns true if `function_declaration` node has a `@Composable` annotation in its modifiers.
-fn has_composable_annotation(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
-    let mut cursor = node.walk();
-    for child in node.named_children(&mut cursor) {
-        if child.kind() == "modifiers" {
-            let mut mod_cursor = child.walk();
-            for modifier in child.named_children(&mut mod_cursor) {
-                if modifier.kind() == "annotation"
-                    && annotation_type_name(modifier, source).as_deref() == Some("Composable")
-                {
-                    return true;
-                }
-            }
-        }
-    }
-    false
-}
-
-/// Returns the (name, start_position) of the function name from a `function_declaration` node.
-fn function_name_from_decl(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-) -> Option<(String, tree_sitter::Point)> {
-    let mut cursor = node.walk();
-    for child in node.named_children(&mut cursor) {
-        if child.kind() == "simple_identifier" {
-            let name = child.utf8_text(source).ok()?.to_owned();
-            return Some((name, child.start_position()));
-        }
-    }
-    None
-}
-
-/// If the first named child of a `call_expression` is a `simple_identifier`, returns
-/// (callee_name, start_position). Returns `None` for navigation/qualified calls.
-fn call_simple_callee(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-) -> Option<(String, tree_sitter::Point)> {
-    let mut cursor = node.walk();
-    let first = node.named_children(&mut cursor).next()?;
-    if first.kind() == "simple_identifier" {
-        let name = first.utf8_text(source).ok()?.to_owned();
-        Some((name, first.start_position()))
-    } else {
-        None
-    }
-}
-
 // ── Extraction ────────────────────────────────────────────────────────────────
 
 fn extract_from_source(
@@ -424,12 +340,8 @@ pub fn scan_repository(
     repo_root: &Path,
     config: &ComposeScanConfig,
 ) -> Result<TreeSitterScanResult, TreeSitterScanError> {
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&tree_sitter_kotlin::language())
-        .map_err(|e| TreeSitterScanError::ParserInitFailed {
-            reason: format!("{e}"),
-        })?;
+    let mut parser =
+        new_parser().map_err(|reason| TreeSitterScanError::ParserInitFailed { reason })?;
 
     let registry_path = repo_root.join(&config.design_system_registry);
     let registry = load_registry(&registry_path)?;
@@ -447,7 +359,12 @@ pub fn scan_repository(
             });
         } else {
             for abs_root in resolved.roots {
-                collect_kotlin_files(&abs_root, &mut kotlin_files)?;
+                collect_kotlin_files(&abs_root, &mut kotlin_files).map_err(|source| {
+                    TreeSitterScanError::Io {
+                        context: format!("read Kotlin root {}", abs_root.display()),
+                        source,
+                    }
+                })?;
             }
         }
     }
@@ -470,28 +387,24 @@ pub fn scan_repository(
 
     for file_path in &kotlin_files {
         files_scanned += 1;
-        let source = fs::read_to_string(file_path).map_err(|source| TreeSitterScanError::Io {
-            context: format!("read Kotlin source {}", file_path.display()),
-            source,
-        })?;
         let relative_file = file_path
             .strip_prefix(repo_root)
             .unwrap_or(file_path)
             .display()
             .to_string();
 
-        match parser.parse(source.as_bytes(), None) {
-            Some(tree) => {
+        match parse_kotlin_file(&mut parser, file_path) {
+            Ok(parsed) => {
                 extract_from_source(
-                    tree.root_node(),
-                    source.as_bytes(),
+                    parsed.tree.root_node(),
+                    parsed.source.as_bytes(),
                     &relative_file,
                     &registry.resolve_targets,
                     &mut local_components,
                     &mut usage_sites,
                 );
             }
-            None => {
+            Err(ParseKotlinFileError::ParseFailed(_)) => {
                 parse_failures += 1;
                 diagnostics.push(Diagnostic {
                     severity: DiagnosticSeverity::Warning,
@@ -499,6 +412,9 @@ pub fn scan_repository(
                     message: format!("tree-sitter failed to parse {relative_file}; file skipped"),
                     location: None,
                 });
+            }
+            Err(ParseKotlinFileError::Io { context, source }) => {
+                return Err(TreeSitterScanError::Io { context, source });
             }
         }
     }
@@ -696,6 +612,17 @@ mod tests {
         let (locals, _) = parse_and_extract("@Composable\nfun CardComponent() {}", &resolve);
         assert_eq!(locals.len(), 1);
         assert_eq!(locals[0].symbol, "CardComponent");
+    }
+
+    #[test]
+    fn qualified_annotation_is_recognised() {
+        let resolve = BTreeMap::new();
+        let (locals, _) = parse_and_extract(
+            "@androidx.compose.runtime.Composable\nfun QualifiedCard() {}",
+            &resolve,
+        );
+        assert_eq!(locals.len(), 1);
+        assert_eq!(locals[0].symbol, "QualifiedCard");
     }
 
     #[test]

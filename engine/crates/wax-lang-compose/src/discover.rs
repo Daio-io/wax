@@ -1,14 +1,20 @@
 //! Compose registry symbol discovery.
 
 use std::collections::BTreeSet;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+use crate::kotlin_ast::{
+    ParseKotlinFileError, collect_kotlin_files, function_name_from_decl, has_composable_annotation,
+    new_parser, parse_kotlin_file,
+};
 
 /// Errors produced while discovering Compose registry symbols.
 #[derive(Debug)]
 pub enum ComposeDiscoverError {
     /// A configured discovery root does not exist.
     MissingRoot(PathBuf),
+    /// A Kotlin file could not be parsed successfully.
+    ParseFailed(PathBuf),
     /// Tree-sitter parser failed to initialize.
     ParserInitFailed(String),
     /// A filesystem operation failed.
@@ -26,6 +32,9 @@ impl std::fmt::Display for ComposeDiscoverError {
             Self::MissingRoot(path) => {
                 write!(f, "discovery root does not exist: {}", path.display())
             }
+            Self::ParseFailed(path) => {
+                write!(f, "failed to parse Kotlin source {}", path.display())
+            }
             Self::ParserInitFailed(reason) => write!(f, "parser init failed: {reason}"),
             Self::Io { context, source } => write!(f, "{context}: {source}"),
         }
@@ -35,7 +44,7 @@ impl std::fmt::Display for ComposeDiscoverError {
 impl std::error::Error for ComposeDiscoverError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::MissingRoot(_) | Self::ParserInitFailed(_) => None,
+            Self::MissingRoot(_) | Self::ParseFailed(_) | Self::ParserInitFailed(_) => None,
             Self::Io { source, .. } => Some(source),
         }
     }
@@ -43,55 +52,33 @@ impl std::error::Error for ComposeDiscoverError {
 
 /// Discovers likely public top-level Compose component symbols from Kotlin source roots.
 pub fn discover_registry_symbols(roots: &[PathBuf]) -> Result<Vec<String>, ComposeDiscoverError> {
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&tree_sitter_kotlin::language())
-        .map_err(|err| ComposeDiscoverError::ParserInitFailed(err.to_string()))?;
+    let mut parser = new_parser().map_err(ComposeDiscoverError::ParserInitFailed)?;
 
     let mut kotlin_files = Vec::new();
     for root in roots {
         if !root.exists() {
             return Err(ComposeDiscoverError::MissingRoot(root.clone()));
         }
-        collect_kotlin_files(root, &mut kotlin_files)?;
+        collect_kotlin_files(root, &mut kotlin_files).map_err(|source| {
+            ComposeDiscoverError::Io {
+                context: format!("read Kotlin root {}", root.display()),
+                source,
+            }
+        })?;
     }
     kotlin_files.sort();
 
     let mut symbols = BTreeSet::new();
     for file_path in kotlin_files {
-        let source = fs::read_to_string(&file_path).map_err(|source| ComposeDiscoverError::Io {
-            context: format!("read Kotlin source {}", file_path.display()),
-            source,
-        })?;
-
-        if let Some(tree) = parser.parse(source.as_bytes(), None) {
-            collect_symbols(tree.root_node(), source.as_bytes(), &mut symbols);
-        }
+        let parsed = parse_kotlin_file(&mut parser, &file_path).map_err(map_parse_error)?;
+        collect_symbols(
+            parsed.tree.root_node(),
+            parsed.source.as_bytes(),
+            &mut symbols,
+        );
     }
 
     Ok(symbols.into_iter().collect())
-}
-
-fn collect_kotlin_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), ComposeDiscoverError> {
-    let entries = fs::read_dir(dir).map_err(|source| ComposeDiscoverError::Io {
-        context: format!("read Kotlin root {}", dir.display()),
-        source,
-    })?;
-
-    for entry in entries {
-        let entry = entry.map_err(|source| ComposeDiscoverError::Io {
-            context: format!("read Kotlin root entry {}", dir.display()),
-            source,
-        })?;
-        let path = entry.path();
-        if path.is_dir() {
-            collect_kotlin_files(&path, files)?;
-        } else if path.extension().is_some_and(|ext| ext == "kt") {
-            files.push(path);
-        }
-    }
-
-    Ok(())
 }
 
 fn collect_symbols(root: tree_sitter::Node<'_>, source: &[u8], symbols: &mut BTreeSet<String>) {
@@ -101,7 +88,7 @@ fn collect_symbols(root: tree_sitter::Node<'_>, source: &[u8], symbols: &mut BTr
             && is_top_level_declaration(node)
             && has_composable_annotation(node, source)
             && is_public(node, source)
-            && let Some(name) = function_name(node, source)
+            && let Some((name, _)) = function_name_from_decl(node, source)
             && name.starts_with(|c: char| c.is_ascii_uppercase())
         {
             symbols.insert(name);
@@ -115,6 +102,15 @@ fn collect_symbols(root: tree_sitter::Node<'_>, source: &[u8], symbols: &mut BTr
     }
 }
 
+fn map_parse_error(err: ParseKotlinFileError) -> ComposeDiscoverError {
+    match err {
+        ParseKotlinFileError::Io { context, source } => {
+            ComposeDiscoverError::Io { context, source }
+        }
+        ParseKotlinFileError::ParseFailed(path) => ComposeDiscoverError::ParseFailed(path),
+    }
+}
+
 fn is_top_level_declaration(node: tree_sitter::Node<'_>) -> bool {
     let mut parent = node.parent();
     while let Some(current) = parent {
@@ -125,40 +121,6 @@ fn is_top_level_declaration(node: tree_sitter::Node<'_>) -> bool {
         }
     }
     false
-}
-
-fn has_composable_annotation(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
-    let mut cursor = node.walk();
-    for child in node.named_children(&mut cursor) {
-        if child.kind() == "modifiers" {
-            let mut modifiers_cursor = child.walk();
-            for modifier in child.named_children(&mut modifiers_cursor) {
-                if modifier.kind() == "annotation"
-                    && annotation_type_name(modifier, source).as_deref() == Some("Composable")
-                {
-                    return true;
-                }
-            }
-        }
-    }
-    false
-}
-
-fn annotation_type_name(annotation: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let mut cursor = annotation.walk();
-    for child in annotation.named_children(&mut cursor) {
-        if child.kind() == "user_type" {
-            let mut type_cursor = child.walk();
-            let mut last_type_identifier = None;
-            for type_child in child.named_children(&mut type_cursor) {
-                if type_child.kind() == "type_identifier" {
-                    last_type_identifier = type_child.utf8_text(source).ok().map(str::to_owned);
-                }
-            }
-            return last_type_identifier;
-        }
-    }
-    None
 }
 
 fn is_public(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
@@ -177,14 +139,4 @@ fn is_public(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
         }
     }
     true
-}
-
-fn function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let mut cursor = node.walk();
-    for child in node.named_children(&mut cursor) {
-        if child.kind() == "simple_identifier" {
-            return child.utf8_text(source).ok().map(str::to_owned);
-        }
-    }
-    None
 }

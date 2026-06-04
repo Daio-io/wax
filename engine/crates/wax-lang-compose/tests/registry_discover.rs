@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::{fs, io};
 
 use wax_lang_compose::discover::discover_registry_symbols;
 
@@ -24,4 +25,18 @@ fn missing_root_fails() {
     let err = discover_registry_symbols(&[missing]).expect_err("missing root should fail");
 
     assert!(err.to_string().contains("discovery root does not exist"));
+}
+
+#[test]
+fn parse_failures_are_reported() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let broken_file = tempdir.path().join("Broken.kt");
+    fs::write(&broken_file, "@Composable\nfun Broken(")?;
+
+    let err =
+        discover_registry_symbols(&[tempdir.path().to_path_buf()]).expect_err("parse should fail");
+
+    assert!(err.to_string().contains("failed to parse"));
+    assert!(err.to_string().contains("Broken.kt"));
+    Ok(())
 }
