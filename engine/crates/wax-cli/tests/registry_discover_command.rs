@@ -39,6 +39,58 @@ fn compose_fixture_root() -> PathBuf {
         .join("../wax-lang-compose/tests/fixtures/discover/design-system/src/main/kotlin")
 }
 
+fn compose_fixture_design_system_dir() -> PathBuf {
+    compose_fixture_root()
+        .parent()
+        .and_then(|path| path.parent())
+        .and_then(|path| path.parent())
+        .expect("compose design-system fixture directory")
+        .to_path_buf()
+}
+
+fn link_compose_fixture_into_repo(repo: &Path) {
+    fn copy_dir_all(source: &Path, destination: &Path) -> std::io::Result<()> {
+        fs::create_dir_all(destination)?;
+        for entry in fs::read_dir(source)? {
+            let entry = entry?;
+            let target = destination.join(entry.file_name());
+            if entry.file_type()?.is_dir() {
+                copy_dir_all(&entry.path(), &target)?;
+            } else {
+                fs::copy(entry.path(), target)?;
+            }
+        }
+        Ok(())
+    }
+
+    copy_dir_all(
+        &compose_fixture_design_system_dir(),
+        &repo.join("design-system"),
+    )
+    .expect("copy compose fixture");
+}
+
+fn write_compose_config_with_roots(repo: &Path, roots: &[&str]) {
+    let wax_dir = repo.join(".wax");
+    fs::create_dir_all(&wax_dir).expect("create .wax directory");
+    let roots_json: Vec<String> = roots.iter().map(|root| format!("\"{root}\"")).collect();
+    let config = format!(
+        r#"{{
+  "schema_version": 1,
+  "languages": [
+    {{
+      "id": "compose",
+      "enabled": true,
+      "roots": [{roots}]
+    }}
+  ]
+}}
+"#,
+        roots = roots_json.join(", ")
+    );
+    fs::write(wax_dir.join("wax.config.json"), config).expect("write wax config");
+}
+
 fn run_discover(repo: &Path, extra_args: &[&str]) -> std::process::Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_wax"));
     command.args([
@@ -225,6 +277,45 @@ fun PrimaryButton() {}
     let stdout = String::from_utf8(output.stdout).unwrap();
     let registry: Value = serde_json::from_str(stdout.trim()).expect("stdout should be valid json");
     assert_eq!(registry["components"][0]["symbol"], "PrimaryButton");
+}
+
+#[test]
+fn dry_run_uses_config_roots_when_root_omitted() {
+    let _guard = env_lock();
+    let root = TestDir::new("registry-discover-config-roots");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    link_compose_fixture_into_repo(&repo);
+    write_compose_config_with_roots(&repo, &["design-system/src/main/kotlin"]);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .args([
+            "registry",
+            "discover",
+            "--language",
+            "compose",
+            "--repo-root",
+        ])
+        .arg(&repo)
+        .arg("--dry-run")
+        .output()
+        .expect("spawn wax registry discover");
+
+    assert!(
+        output.status.success(),
+        "expected success, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let registry: Value = serde_json::from_str(stdout.trim()).expect("stdout should be valid json");
+
+    assert_eq!(registry["schema_version"], 1);
+    assert!(registry["components"].as_array().unwrap().len() >= 2);
+    assert!(stderr.contains("warning:"));
+    assert!(stderr.contains("--root path/to/design-system"));
+    assert!(!repo.join(".wax/wax.registry.json").exists());
 }
 
 #[test]

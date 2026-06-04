@@ -40,6 +40,58 @@ fn compose_fixture_root() -> PathBuf {
         .join("../wax-lang-compose/tests/fixtures/discover/design-system/src/main/kotlin")
 }
 
+fn compose_fixture_design_system_dir() -> PathBuf {
+    compose_fixture_root()
+        .parent()
+        .and_then(|path| path.parent())
+        .and_then(|path| path.parent())
+        .expect("compose design-system fixture directory")
+        .to_path_buf()
+}
+
+fn link_compose_fixture_into_repo(repo: &Path) {
+    copy_dir_all(
+        &compose_fixture_design_system_dir(),
+        &repo.join("design-system"),
+    )
+    .expect("copy compose fixture");
+}
+
+fn copy_dir_all(source: &Path, destination: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(destination)?;
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let target = destination.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir_all(&entry.path(), &target)?;
+        } else {
+            fs::copy(entry.path(), target)?;
+        }
+    }
+    Ok(())
+}
+
+fn write_compose_config_with_roots(repo: &Path, roots: &[&str]) {
+    let wax_dir = repo.join(".wax");
+    fs::create_dir_all(&wax_dir).expect("create .wax directory");
+    let roots_json: Vec<String> = roots.iter().map(|root| format!("\"{root}\"")).collect();
+    let config = format!(
+        r#"{{
+  "schema_version": 1,
+  "languages": [
+    {{
+      "id": "compose",
+      "enabled": true,
+      "roots": [{roots}]
+    }}
+  ]
+}}
+"#,
+        roots = roots_json.join(", ")
+    );
+    fs::write(wax_dir.join("wax.config.json"), config).expect("write wax config");
+}
+
 #[test]
 fn generated_registry_json_contains_schema_version_1() {
     let registry = dry_run_registry();
@@ -179,6 +231,63 @@ fn duplicate_symbols_collapse_to_one_component() {
 
     assert_eq!(primary_count, 1);
     assert_eq!(components.len(), 3);
+}
+
+#[test]
+fn resolves_roots_from_wax_config_when_roots_omitted() {
+    let repo = TestRepo::new("registry-discovery-config-roots");
+    link_compose_fixture_into_repo(repo.path());
+    write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
+
+    let result = discover_registry(RegistryDiscoverOptions {
+        repo_root: repo.path(),
+        language_id: "compose",
+        roots: vec![],
+        dry_run: true,
+        force: false,
+    })
+    .expect("config roots should resolve");
+
+    assert!(result.used_config_roots);
+    assert_eq!(
+        result.registry["components"]
+            .as_array()
+            .expect("components array")
+            .len(),
+        3
+    );
+}
+
+#[test]
+fn missing_configured_roots_fails_with_guidance() {
+    let repo = TestRepo::new("registry-discovery-missing-config-roots");
+    fs::create_dir_all(repo.path().join(".wax")).expect("create .wax directory");
+    fs::write(
+        repo.path().join(".wax/wax.config.json"),
+        r#"{
+  "schema_version": 1,
+  "languages": [
+    {
+      "id": "compose",
+      "enabled": true
+    }
+  ]
+}
+"#,
+    )
+    .expect("write wax config without roots");
+
+    let err = discover_registry(RegistryDiscoverOptions {
+        repo_root: repo.path(),
+        language_id: "compose",
+        roots: vec![],
+        dry_run: true,
+        force: false,
+    })
+    .expect_err("missing configured roots should fail");
+
+    let message = err.to_string();
+    assert!(message.contains("pass --root path/to/design-system"));
 }
 
 #[test]

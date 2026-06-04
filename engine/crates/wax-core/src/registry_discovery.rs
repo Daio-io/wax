@@ -5,14 +5,15 @@ use std::fs;
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use serde::Serialize;
 use serde_json::Value;
 use thiserror::Error;
 use wax_lang_compose::discover::{ComposeDiscoverError, discover_registry_symbols};
 
-use crate::config::repo_files::DEFAULT_REGISTRY_RELATIVE_PATH;
+use crate::config::repo_files::{DEFAULT_REGISTRY_RELATIVE_PATH, discover_repo_files};
+use crate::config::waxrc::{WaxRcError, load_waxrc};
 
 const REGISTRY_SCHEMA_VERSION: u32 = 1;
 const MAX_REGISTRY_TEMP_ATTEMPTS: u32 = 1000;
@@ -51,11 +52,83 @@ pub struct RegistryDiscoverResult {
     pub output_path: PathBuf,
     /// Generated registry JSON value.
     pub registry: Value,
+    /// Whether discovery roots were resolved from wax config instead of CLI `--root`.
+    pub used_config_roots: bool,
+    /// Number of source roots scanned during discovery.
+    pub root_count: usize,
 }
 
 /// Errors returned while discovering and optionally writing a registry file.
 #[derive(Debug, Error)]
 pub enum RegistryDiscoverError {
+    /// No discovery roots were provided and wax config did not supply usable roots.
+    #[error("no discovery roots configured; pass --root path/to/design-system")]
+    MissingRoots,
+    /// Wax config could not be loaded while resolving discovery roots.
+    #[error(transparent)]
+    Config(#[from] WaxRcError),
+    /// The requested language is not enabled in wax config.
+    #[error(
+        "language `{language_id}` is not enabled in wax config at {config_path}; pass --root path/to/design-system"
+    )]
+    LanguageNotConfigured {
+        /// Language id requested by the caller.
+        language_id: String,
+        /// Config path used for resolution.
+        config_path: String,
+    },
+    /// The enabled language entry has no configured roots.
+    #[error(
+        "language `{language_id}` in {config_path} has no configured roots; pass --root path/to/design-system"
+    )]
+    NoConfiguredRoots {
+        /// Language id requested by the caller.
+        language_id: String,
+        /// Config path used for resolution.
+        config_path: String,
+    },
+    /// Configured roots are not a JSON array of repo-relative path strings.
+    #[error(
+        "language `{language_id}` roots in {config_path} must be a JSON array of repo-relative path strings"
+    )]
+    InvalidRootsShape {
+        /// Language id requested by the caller.
+        language_id: String,
+        /// Config path used for resolution.
+        config_path: String,
+    },
+    /// A configured root is not repo-relative.
+    #[error("language `{language_id}` root `{root}` in {config_path} must be a repo-relative path")]
+    InvalidRootPath {
+        /// Language id requested by the caller.
+        language_id: String,
+        /// Config path used for resolution.
+        config_path: String,
+        /// Invalid configured root path.
+        root: String,
+    },
+    /// A configured root resolves outside the repository.
+    #[error(
+        "language `{language_id}` root `{root}` in {config_path} must stay within the repository"
+    )]
+    RootEscapesRepo {
+        /// Language id requested by the caller.
+        language_id: String,
+        /// Config path used for resolution.
+        config_path: String,
+        /// Configured root path that escaped the repository.
+        root: String,
+    },
+    /// A configured root does not exist on disk.
+    #[error("language `{language_id}` root `{root}` in {config_path} does not exist")]
+    RootNotFound {
+        /// Language id requested by the caller.
+        language_id: String,
+        /// Config path used for resolution.
+        config_path: String,
+        /// Missing configured root path.
+        root: String,
+    },
     /// The requested language does not support in-process registry discovery.
     #[error("registry discovery is not supported for language `{language_id}`")]
     UnsupportedLanguage {
@@ -183,7 +256,10 @@ pub fn discover_registry(
     let output_path = options.repo_root.join(DEFAULT_REGISTRY_RELATIVE_PATH);
     let path_display = output_path.display().to_string();
 
-    let registry = build_registry(options.language_id, &options.roots)?;
+    let (roots, used_config_roots) =
+        resolve_discovery_roots(options.repo_root, options.language_id, &options.roots)?;
+
+    let registry = build_registry(options.language_id, &roots)?;
     let registry = serde_json::to_value(&registry)
         .map_err(|source| RegistryDiscoverError::Serialize { source })?;
 
@@ -215,7 +291,133 @@ pub fn discover_registry(
     Ok(RegistryDiscoverResult {
         output_path,
         registry,
+        used_config_roots,
+        root_count: roots.len(),
     })
+}
+
+fn resolve_discovery_roots(
+    repo_root: &Path,
+    language_id: &str,
+    roots: &[PathBuf],
+) -> Result<(Vec<PathBuf>, bool), RegistryDiscoverError> {
+    if !roots.is_empty() {
+        return Ok((roots.to_vec(), false));
+    }
+
+    let repo_files = discover_repo_files(repo_root);
+    let config_path = repo_files.config_path.display().to_string();
+    let waxrc = match load_waxrc(&repo_files.config_path) {
+        Ok(waxrc) => waxrc,
+        Err(WaxRcError::Read { source, .. }) if source.kind() == io::ErrorKind::NotFound => {
+            return Err(RegistryDiscoverError::MissingRoots);
+        }
+        Err(err) => return Err(RegistryDiscoverError::Config(err)),
+    };
+
+    let language = waxrc
+        .languages
+        .iter()
+        .find(|language| language.enabled && language.id.as_ref() == language_id)
+        .ok_or_else(|| RegistryDiscoverError::LanguageNotConfigured {
+            language_id: language_id.to_owned(),
+            config_path: config_path.clone(),
+        })?;
+
+    let roots_value =
+        language
+            .extra
+            .get("roots")
+            .ok_or_else(|| RegistryDiscoverError::NoConfiguredRoots {
+                language_id: language_id.to_owned(),
+                config_path: config_path.clone(),
+            })?;
+    let roots_array =
+        roots_value
+            .as_array()
+            .ok_or_else(|| RegistryDiscoverError::InvalidRootsShape {
+                language_id: language_id.to_owned(),
+                config_path: config_path.clone(),
+            })?;
+    if roots_array.is_empty() {
+        return Err(RegistryDiscoverError::NoConfiguredRoots {
+            language_id: language_id.to_owned(),
+            config_path,
+        });
+    }
+
+    let mut resolved = Vec::with_capacity(roots_array.len());
+    for entry in roots_array {
+        let root = entry
+            .as_str()
+            .ok_or_else(|| RegistryDiscoverError::InvalidRootsShape {
+                language_id: language_id.to_owned(),
+                config_path: config_path.clone(),
+            })?;
+        resolved.push(resolve_configured_root(
+            repo_root,
+            language_id,
+            &config_path,
+            root,
+        )?);
+    }
+
+    Ok((resolved, true))
+}
+
+fn resolve_configured_root(
+    repo_root: &Path,
+    language_id: &str,
+    config_path: &str,
+    root: &str,
+) -> Result<PathBuf, RegistryDiscoverError> {
+    let relative_path = Path::new(root);
+    if relative_path.is_absolute()
+        || relative_path.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        })
+    {
+        return Err(RegistryDiscoverError::InvalidRootPath {
+            language_id: language_id.to_owned(),
+            config_path: config_path.to_owned(),
+            root: root.to_owned(),
+        });
+    }
+
+    let candidate = repo_root.join(relative_path);
+    if !candidate.exists() {
+        return Err(RegistryDiscoverError::RootNotFound {
+            language_id: language_id.to_owned(),
+            config_path: config_path.to_owned(),
+            root: root.to_owned(),
+        });
+    }
+
+    let canonical_repo_root = fs::canonicalize(repo_root).map_err(|source| {
+        RegistryDiscoverError::Config(WaxRcError::Read {
+            path: config_path.to_owned(),
+            source,
+        })
+    })?;
+    let canonical_candidate = fs::canonicalize(&candidate).map_err(|source| {
+        RegistryDiscoverError::Config(WaxRcError::Read {
+            path: config_path.to_owned(),
+            source,
+        })
+    })?;
+
+    if !canonical_candidate.starts_with(&canonical_repo_root) {
+        return Err(RegistryDiscoverError::RootEscapesRepo {
+            language_id: language_id.to_owned(),
+            config_path: config_path.to_owned(),
+            root: root.to_owned(),
+        });
+    }
+
+    Ok(canonical_candidate)
 }
 
 fn build_registry(
