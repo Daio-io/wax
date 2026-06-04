@@ -256,14 +256,14 @@ git add engine/crates/wax-core/src/registry_discovery.rs \
 git commit -m "feat: add registry discovery orchestration"
 ```
 
-### - [ ] Task 3: Wire `wax registry discover`
+### - [x] Task 3: Wire `wax registry discover`
 
 **Files:**
 - Modify: `engine/crates/wax-cli/src/main.rs`
 - Create: `engine/crates/wax-cli/src/commands/registry.rs`
 - Create: `engine/crates/wax-cli/tests/registry_discover_command.rs`
 
-- [ ] **Step 1: Write failing CLI tests**
+- [x] **Step 1: Write failing CLI tests**
 
 Add tests for:
 
@@ -273,7 +273,7 @@ Add tests for:
 - a second write fails without `--force`.
 - `--force` replaces the registry.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -284,7 +284,7 @@ cargo test -p wax-cli --test registry_discover_command
 
 Expected: FAIL because the `registry` command does not exist.
 
-- [ ] **Step 3: Add clap command wiring**
+- [x] **Step 3: Add clap command wiring**
 
 Add a `registry` command group with a `discover` subcommand:
 
@@ -294,13 +294,13 @@ wax registry discover --language <id> [--root <path>...] [--dry-run] [--force]
 
 `--root` should be repeatable so users can target multiple DS source roots explicitly.
 
-- [ ] **Step 4: Preserve stdout and stderr contracts**
+- [x] **Step 4: Preserve stdout and stderr contracts**
 
 For `--dry-run`, print only registry JSON to stdout. Print summary, warnings, and skipped counts to stderr. For write mode, print human summary to stdout or stderr following existing CLI conventions.
 
 Write mode should not print JSON to stdout. It should print a concise human summary, including the output path, false-positive warning, and next-step commands. If existing CLI conventions are ambiguous, use stdout for successful summaries and stderr for warnings/errors.
 
-- [ ] **Step 5: Run focused CLI tests**
+- [x] **Step 5: Run focused CLI tests**
 
 Run:
 
@@ -311,7 +311,7 @@ cargo test -p wax-cli --test registry_discover_command
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit Task 3**
+- [x] **Step 6: Commit Task 3**
 
 ```bash
 git add engine/crates/wax-cli/src/main.rs \
