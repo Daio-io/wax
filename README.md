@@ -182,6 +182,51 @@ wax scan
 
 6. Inspect outputs in `.wax/out/` (including `.wax/out/scan-merged.json`).
 
+### AI skills
+
+Wax ships agent skills under `plugins/wax/skills/<skill-name>/`. Each skill is a self-contained `SKILL.md` workflow around deterministic Wax CLI commands. AI is an authoring aid only; `wax scan` and `wax validate` stay deterministic.
+
+| Skill | Purpose |
+| --- | --- |
+| `wax-registry-sync` | Registry discovery dry-run, human review, write `.wax/wax.registry.json`, validate, refresh locks |
+
+Repo-local discovery: `.agents/skills/<skill-name>` symlinks into `plugins/wax/skills/`. Add new skills under `plugins/wax/skills/` and register them in `.claude-plugin/marketplace.json` only when splitting into a separate plugin (unusual).
+
+#### Install via [skills.sh](https://skills.sh)
+
+Requires Node.js. Install one skill or list everything in the repo:
+
+```bash
+# List available skills
+npx skills add Daio-io/wax --list
+
+# Project-local (installs into .agents/skills/ for Cursor and other agents)
+npx skills add Daio-io/wax --skill wax-registry-sync -a cursor -y
+
+# Global (available across projects)
+npx skills add Daio-io/wax --skill wax-registry-sync -g -a cursor -y
+```
+
+Other agents: replace `-a cursor` with your agent (`claude-code`, `codex`, `opencode`, etc.).
+
+Browse or search the catalog at [skills.sh](https://skills.sh) after the listing is indexed.
+
+#### Install via Claude Code marketplace
+
+In Claude Code, add the Wax marketplace and install the grouped `wax` plugin (includes all Wax skills):
+
+```text
+/plugin marketplace add Daio-io/wax
+/plugin install wax@wax-skills
+/reload-plugins
+```
+
+Skills are namespaced by the plugin. Invoke manually, for example `/wax:wax-registry-sync`, or let Claude load a skill from its description when you ask to sync a Wax registry.
+
+#### Manual install
+
+Copy or symlink a skill directory from `plugins/wax/skills/<skill-name>/` into your agent's skills directory (for example `.agents/skills/` for Cursor, `.claude/skills/` for Claude Code, or `~/.cursor/skills/` for a global Cursor install).
+
 For editor validation/autocomplete on `.wax/wax.config.json` (or legacy `.waxrc`), use:
 
 ```json

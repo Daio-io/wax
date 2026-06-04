@@ -1,0 +1,5 @@
+{
+  "name": "wax",
+  "description": "Agent skills for Wax design-system analysis, registry authoring, and CLI workflows",
+  "version": "1.0.0"
+}

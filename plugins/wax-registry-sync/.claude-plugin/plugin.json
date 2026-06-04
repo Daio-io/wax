@@ -1,0 +1,5 @@
+{
+  "name": "wax-registry-sync",
+  "description": "AI-assisted Wax design-system registry discovery, review, sync, validation, and lock refresh",
+  "version": "1.0.0"
+}
