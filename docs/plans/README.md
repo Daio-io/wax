@@ -18,7 +18,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 | 1 | Rust engine and language packs | [2026-05-16-rust-engine-language-packs-plan.md](./2026-05-16-rust-engine-language-packs-plan.md) | `merged` | `complete` | — |
 | 2 | Release and rollout (alpha) | [2026-05-24-release-and-rollout-plan.md](./2026-05-24-release-and-rollout-plan.md) | `merged` | `complete` | Order 1 implementation `complete` |
 | 3 | Registry sources and centralized wax layout | [2026-06-02-registry-sources-and-wax-layout.md](./2026-06-02-registry-sources-and-wax-layout.md) | `merged` | `complete` | Order 2 implementation `complete`; may run before registry discover/draft |
-| 4 | Registry discovery and skill-assisted sync | [2026-06-04-registry-discovery-plan.md](./2026-06-04-registry-discovery-plan.md) | `pending` | `in-progress` | Order 3 implementation `complete`; implementation starts after this plan doc lands |
+| 4 | Registry discovery and skill-assisted sync | [2026-06-04-registry-discovery-plan.md](./2026-06-04-registry-discovery-plan.md) | `merged` | `in-progress` | Order 3 implementation `complete`; implementation starts after this plan doc lands |
 | 5 | Post-alpha UX | [2026-05-24-post-alpha-ux-plan.md](./2026-05-24-post-alpha-ux-plan.md) | `merged` | `not-started` | Order 4 implementation `complete`; order 2 public alpha shipped (`v0.1.0-alpha.1` or agreed tag) |
 
 **Doc status:** `pending` → plan PR open; `merged` → plan doc on `main`; `planned` → not yet drafted.
@@ -77,10 +77,10 @@ Merge these **documentation PRs** in sequence (separate from implementation task
 | 1 | `docs/plans-roadmap` | #33 (merged) | This `README.md` + spec roadmap section |
 | 2 | `docs/release-and-rollout-plan` | #32 (merged) | Release plan on `main` |
 | 3 | `dai/registry-sources-plans` | #66 (merged) | Registry sources and centralized wax layout design + implementation plan |
-| 4 | `docs/registry-discovery-plan` | pending | Registry discovery design + implementation plan |
+| 4 | `docs/registry-discovery-plan` | #87 (merged) | Registry discovery design + implementation plan |
 | 5 | `docs/post-alpha-ux-plan` | #34 (merged) | Post-alpha UX plan + links |
 
-Plan document PRs #32, #33, #34, and #66 are merged on `main`.
+Plan document PRs #32, #33, #34, #66, and #87 are merged on `main`.
 
 ---
 
