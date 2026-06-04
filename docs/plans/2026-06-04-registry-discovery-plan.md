@@ -481,12 +481,12 @@ git commit -m "docs: add wax registry sync skill"
 
 ## Phase 4 - Full Verification
 
-### - [ ] Task 7: Run full engine verification and update plan checkboxes
+### - [x] Task 7: Run full engine verification and update plan checkboxes
 
 **Files:**
 - Modify: `docs/plans/2026-06-04-registry-discovery-plan.md`
 
-- [ ] **Step 1: Run formatting**
+- [x] **Step 1: Run formatting**
 
 Run:
 
@@ -497,7 +497,7 @@ cargo fmt --all --check
 
 Expected: PASS.
 
-- [ ] **Step 2: Run workspace tests**
+- [x] **Step 2: Run workspace tests**
 
 Run:
 
@@ -508,7 +508,7 @@ cargo test --workspace
 
 Expected: PASS.
 
-- [ ] **Step 3: Run clippy**
+- [x] **Step 3: Run clippy**
 
 Run:
 
@@ -519,11 +519,11 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 Expected: PASS.
 
-- [ ] **Step 4: Tick completed plan checkboxes**
+- [x] **Step 4: Tick completed plan checkboxes**
 
 Update this plan so every completed task and step is checked in the same PR that implements it.
 
-- [ ] **Step 5: Commit verification updates**
+- [x] **Step 5: Commit verification updates**
 
 ```bash
 git add docs/plans/2026-06-04-registry-discovery-plan.md
