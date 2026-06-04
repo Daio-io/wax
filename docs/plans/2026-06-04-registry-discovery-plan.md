@@ -426,14 +426,14 @@ git commit -m "docs: document registry discovery workflow"
 
 ## Phase 3 - Agent Skill
 
-### - [ ] Task 6: Add `wax-registry-sync` project skill
+### - [x] Task 6: Add `wax-registry-sync` project skill
 
 **Files:**
 - Create: `.agents/skills/wax-registry-sync/SKILL.md`
 - Create: `.agents/skills/wax-registry-sync/fixtures/README.md` if fixture notes are useful
 - Modify: `README.md`
 
-- [ ] **Step 1: Create the skill file**
+- [x] **Step 1: Create the skill file**
 
 Create `.agents/skills/wax-registry-sync/SKILL.md` with YAML frontmatter:
 
@@ -453,7 +453,7 @@ The skill body must instruct agents to:
 - run `wax validate`
 - run `wax language update` when registry locks are stale
 
-- [ ] **Step 2: Add a skill workflow smoke review**
+- [x] **Step 2: Add a skill workflow smoke review**
 
 Manually inspect the skill for these exact guardrails:
 
@@ -465,11 +465,11 @@ validate after write
 refresh locks
 ```
 
-- [ ] **Step 3: Document installation and use**
+- [x] **Step 3: Document installation and use**
 
 Update `README.md` with a short AI-assisted section and a skills ecosystem install example. If the skill is project-local only at first, say so clearly and avoid implying it is already published on skills.sh.
 
-- [ ] **Step 4: Commit Task 6**
+- [x] **Step 4: Commit Task 6**
 
 ```bash
 git add .agents/skills/wax-registry-sync/SKILL.md README.md

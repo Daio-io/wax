@@ -182,6 +182,18 @@ wax scan
 
 6. Inspect outputs in `.wax/out/` (including `.wax/out/scan-merged.json`).
 
+### AI-assisted registry sync
+
+The distributable `wax-registry-sync` skill package lives at `.agents/skills/wax-registry-sync/`. It helps an AI agent run deterministic registry discovery, review the dry-run output with a human, write `.wax/wax.registry.json`, validate, and refresh stale language locks without making AI part of `wax scan` or `wax validate` runtime.
+
+Until a marketplace listing exists, install it from the repository path in agents or skill managers that support repo-path skills:
+
+```bash
+<your-skill-manager> install github:Daio-io/wax/.agents/skills/wax-registry-sync
+```
+
+You can also copy `.agents/skills/wax-registry-sync/` into your agent's local skills directory. The same self-contained package is intended for publication through skills.h/skills.sh or a Claude plugin marketplace, but do not assume a marketplace listing exists until it is published.
+
 For editor validation/autocomplete on `.wax/wax.config.json` (or legacy `.waxrc`), use:
 
 ```json
