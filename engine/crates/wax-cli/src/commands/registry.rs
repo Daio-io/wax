@@ -109,7 +109,6 @@ pub fn run_registry_discover(
     )
     .map_err(|source| RegistryDiscoverCommandError::Io { source })?;
     write_config_roots_warning(result.used_config_roots);
-    eprintln!("warning: deterministic discovery may include false positives.");
 
     Ok(())
 }

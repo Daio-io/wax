@@ -179,8 +179,7 @@ fn default_write_creates_centralized_registry_path() {
     assert!(stdout.contains("Review before committing"));
     assert!(stdout.contains("wax validate"));
     assert!(stdout.contains("wax language update"));
-    assert!(stderr.contains("warning:"));
-    assert!(stderr.contains("false positives"));
+    assert!(!stderr.contains("false positives"));
     assert!(stdout.contains("false positives"));
 
     let written: Value =
