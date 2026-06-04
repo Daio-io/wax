@@ -1,6 +1,6 @@
 {
   "name": "@waxhq/wax",
-  "version": "0.1.0-alpha.1",
+  "version": "0.0.0-snapshot",
   "description": "npm wrapper for the wax design-system analysis CLI",
   "license": "MIT",
   "repository": {

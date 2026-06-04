@@ -72,7 +72,7 @@ Before the first CI publish, configure npm trusted publishing for `@waxhq/wax`:
 
 1. Publish the package once manually so the npm package page exists.
 2. In npm package settings, add trusted publishing for GitHub Actions repo `Daio-io/wax` and workflow file `release.yml`.
-3. Keep the package version in `packages/cli/package.json` aligned with the release tag (for example `0.1.0-alpha.1` for `v0.1.0-alpha.1`).
+3. The release workflow stamps `packages/cli/package.json` from the Git tag before `npm publish`, so keep the checked-in file on its snapshot placeholder and let CI derive the published version.
 4. Remove or avoid legacy `NPM_TOKEN` publish secrets so OIDC remains the active auth path.
 
 ## Uninstall

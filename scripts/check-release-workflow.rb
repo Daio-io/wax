@@ -64,14 +64,26 @@ require_includes!(
 
 require_includes!(
   workflow,
-  "package_version=\"$(node -p 'require(\"./packages/cli/package.json\").version')\"",
-  "npm package version guard"
+  "tmp_package_json=\"$(mktemp)\"",
+  "temporary package.json rewrite file"
 )
 
 require_includes!(
   workflow,
-  'echo "packages/cli/package.json version ${package_version} does not match release tag ${release_version}" >&2',
-  "explicit npm version mismatch failure"
+  "package_file=\"packages/cli/package.json\"",
+  "npm package file path for release-time rewrite"
+)
+
+require_includes!(
+  workflow,
+  "pkg.version = process.env.WAX_RELEASE_TAG.replace(/^v/, \"\")",
+  "npm package version derived from release tag"
+)
+
+require_includes!(
+  workflow,
+  "mv \"$tmp_package_json\" \"$package_file\"",
+  "atomic package.json rewrite before npm publish"
 )
 
 require_includes!(

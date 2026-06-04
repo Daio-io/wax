@@ -337,15 +337,20 @@ jobs:
           registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
 
-      - name: Verify package version matches release tag
+      - name: Stamp npm package version from release tag
         run: |
           set -euo pipefail
-          package_version="$(node -p 'require("./packages/cli/package.json").version')"
-          release_version="${WAX_RELEASE_TAG#v}"
-          if [[ "$package_version" != "$release_version" ]]; then
-            echo "packages/cli/package.json version ${package_version} does not match release tag ${release_version}" >&2
-            exit 1
-          fi
+          package_file="packages/cli/package.json"
+          tmp_package_json="$(mktemp)"
+          WAX_RELEASE_TAG="${WAX_RELEASE_TAG}" node -e '
+            const fs = require("node:fs");
+            const packageFile = process.argv[1];
+            const tempFile = process.argv[2];
+            const pkg = JSON.parse(fs.readFileSync(packageFile, "utf8"));
+            pkg.version = process.env.WAX_RELEASE_TAG.replace(/^v/, "");
+            fs.writeFileSync(tempFile, `${JSON.stringify(pkg, null, 2)}\n`);
+          ' "$package_file" "$tmp_package_json"
+          mv "$tmp_package_json" "$package_file"
 
       - name: Publish package to npm
         working-directory: packages/cli
