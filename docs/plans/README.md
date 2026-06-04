@@ -88,4 +88,4 @@ Plan document PRs #32, #33, #34, and #66 are merged on `main`.
 
 - [Language packs and distribution](../specs/2026-05-16-language-packs-and-distribution.md) — contracts, CLI names, distribution
 - [Component tracker design](../specs/2026-05-13-component-tracker-design.md) — product scope and future surfaces
-- [Registry discovery and skill-assisted sync](../specs/2026-06-04-registry-discovery-design.md) — next registry authoring phase
+- [Registry discovery and skill-assisted sync](./2026-06-04-registry-discovery-design.md) — next registry authoring phase

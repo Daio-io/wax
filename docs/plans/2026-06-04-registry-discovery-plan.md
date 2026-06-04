@@ -12,7 +12,7 @@
 
 ## Reference Spec
 
-- Design spec: `docs/specs/2026-06-04-registry-discovery-design.md`
+- Design spec: `docs/plans/2026-06-04-registry-discovery-design.md`
 - Roadmap source: `docs/plans/README.md`
 - Existing registry layout spec: `docs/specs/2026-06-02-registry-sources-and-wax-layout-design.md`
 - Product scope spec: `docs/specs/2026-05-13-component-tracker-design.md`
