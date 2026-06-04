@@ -175,7 +175,7 @@ git add engine/crates/wax-lang-compose/src/discover.rs \
 git commit -m "feat: discover compose registry symbols"
 ```
 
-### - [ ] Task 2: Add core registry discovery orchestration
+### - [x] Task 2: Add core registry discovery orchestration
 
 **Architecture note:** Normal scan execution still uses installed language packs through the subprocess protocol in `engine/crates/wax-core/src/subprocess_lang.rs`. Registry discovery is authoring-time source inspection, so v1 may call `wax-lang-compose` discovery code in process to avoid inventing a new wire protocol before multiple language packs need it. If future language packs need out-of-process registry discovery, add an explicit discovery request to the language-pack protocol in a later plan rather than overloading scan requests.
 
@@ -185,7 +185,7 @@ git commit -m "feat: discover compose registry symbols"
 - Modify: `engine/crates/wax-core/Cargo.toml` if a dependency is needed for atomic temp writes
 - Create: `engine/crates/wax-core/tests/registry_discovery.rs`
 
-- [ ] **Step 1: Write failing core tests for dry-run generation and writes**
+- [x] **Step 1: Write failing core tests for dry-run generation and writes**
 
 Create `engine/crates/wax-core/tests/registry_discovery.rs` with tests for:
 
@@ -197,7 +197,7 @@ Create `engine/crates/wax-core/tests/registry_discovery.rs` with tests for:
 - existing registry refuses overwrite
 - `force` replaces an existing registry
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -208,7 +208,7 @@ cargo test -p wax-core --test registry_discovery
 
 Expected: FAIL with unresolved registry discovery types.
 
-- [ ] **Step 3: Implement core types and registry JSON generation**
+- [x] **Step 3: Implement core types and registry JSON generation**
 
 Create `RegistryDiscoverOptions`, `RegistryDiscoverResult`, and a function such as `discover_registry(options)`. Keep the public API small:
 
@@ -231,11 +231,11 @@ The implementation should generate a serde JSON value or typed struct for:
 }
 ```
 
-- [ ] **Step 4: Implement safe write behavior**
+- [x] **Step 4: Implement safe write behavior**
 
 Write `.wax/wax.registry.json` only when `dry_run` is false. If the file exists and `force` is false, return an error that includes `--force` and `--dry-run`. Ensure the parent `.wax/` directory is created before writing.
 
-- [ ] **Step 5: Run focused core tests**
+- [x] **Step 5: Run focused core tests**
 
 Run:
 
@@ -246,7 +246,7 @@ cargo test -p wax-core --test registry_discovery
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit Task 2**
+- [x] **Step 6: Commit Task 2**
 
 ```bash
 git add engine/crates/wax-core/src/registry_discovery.rs \

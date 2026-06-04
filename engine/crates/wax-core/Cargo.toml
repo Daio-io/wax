@@ -16,6 +16,7 @@ thiserror = "2"
 time = { version = "0.3", features = ["parsing", "serde", "serde-well-known"] }
 wax-contract = { path = "../wax-contract" }
 wax-lang-api = { path = "../wax-lang-api" }
+wax-lang-compose = { path = "../wax-lang-compose" }
 
 [dev-dependencies]
 flate2 = "1"
