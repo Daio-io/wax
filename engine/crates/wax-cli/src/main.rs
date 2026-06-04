@@ -1,6 +1,7 @@
 mod commands {
     pub mod init;
     pub mod language;
+    pub mod registry;
     pub mod scan;
     pub mod uninstall;
     pub mod validate;
@@ -17,6 +18,7 @@ use commands::language::{
     DoctorOptions, InstallOptions, LanguageInstallSpec, ListOptions, UninstallOptions,
     UpdateOptions, run_doctor, run_install, run_list, run_uninstall, run_update,
 };
+use commands::registry::{RegistryDiscoverCommandOptions, run_registry_discover};
 use commands::scan::{ScanCommandOptions, run_scan};
 use commands::uninstall::{UninstallCliOptions, run_uninstall_cli};
 use commands::validate::{ValidateCommandOptions, run_validate};
@@ -38,6 +40,8 @@ enum Commands {
     Language(LanguageCli),
     /// Initialize wax repository configuration.
     Init(InitArgs),
+    /// Discover and manage design-system registries.
+    Registry(RegistryCli),
     /// Scan repository source with enabled language packs.
     Scan(ScanArgs),
     /// Validate repository wax inputs for CI usage.
@@ -69,6 +73,37 @@ struct InitArgs {
     /// Skip copying example design-system registry files.
     #[arg(long)]
     no_scaffold_registries: bool,
+}
+
+#[derive(Debug, Args)]
+struct RegistryCli {
+    #[command(subcommand)]
+    command: RegistrySubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum RegistrySubcommand {
+    /// Discover design-system registry components from source roots.
+    Discover(DiscoverArgs),
+}
+
+#[derive(Debug, Args)]
+struct DiscoverArgs {
+    /// Language pack id to discover registry components for.
+    #[arg(long = "language", value_name = "ID")]
+    language: LanguageId,
+    /// Source root to inspect. Repeat for multiple roots.
+    #[arg(long = "root", value_name = "PATH")]
+    roots: Vec<PathBuf>,
+    /// Print generated registry JSON to stdout without writing a file.
+    #[arg(long)]
+    dry_run: bool,
+    /// Replace an existing registry file.
+    #[arg(long)]
+    force: bool,
+    /// Repository root where the registry should be written.
+    #[arg(long, default_value = ".")]
+    repo_root: PathBuf,
 }
 
 #[derive(Debug, Args)]
@@ -236,6 +271,19 @@ fn main() {
             &mut stdout,
         )
         .map_err(Into::into),
+        Commands::Registry(registry) => match registry.command {
+            RegistrySubcommand::Discover(args) => run_registry_discover(
+                RegistryDiscoverCommandOptions {
+                    repo_root: args.repo_root,
+                    language_id: args.language.as_str().to_owned(),
+                    roots: args.roots,
+                    dry_run: args.dry_run,
+                    force: args.force,
+                },
+                &mut stdout,
+            )
+            .map_err(Into::into),
+        },
         Commands::Scan(args) => run_scan(
             ScanCommandOptions {
                 repo_root: args.repo_root,
