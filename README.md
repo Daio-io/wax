@@ -11,8 +11,8 @@ Open-source, self-hostable design system component tracker. See [component track
 - [Rust engine implementation plan](docs/plans/2026-05-16-rust-engine-language-packs-plan.md) — engine foundation (order 1)
 - [Release and rollout plan](docs/plans/2026-05-24-release-and-rollout-plan.md) — alpha release, install channels (order 2)
 - [Registry sources and layout plan](docs/plans/2026-06-02-registry-sources-and-wax-layout.md) — `.wax/` layout and registry source locking (order 3)
-- [Registry discovery design](docs/plans/2026-06-04-registry-discovery-design.md) and [implementation plan](docs/plans/2026-06-04-registry-discovery-plan.md) — next phase for `wax registry discover` and skill-assisted registry sync (order 4)
-- [Post-alpha UX plan](docs/plans/2026-05-24-post-alpha-ux-plan.md) — guided init, scan exports, CI summaries, local reports (order 5)
+- [Registry discovery design](docs/plans/2026-06-04-registry-discovery-design.md) and [implementation plan](docs/plans/2026-06-04-registry-discovery-plan.md) — `wax registry discover` and skill-assisted registry sync (order 4, complete)
+- [Post-alpha UX plan](docs/plans/2026-05-24-post-alpha-ux-plan.md) — guided init, scan exports, CI summaries, local reports (order 5, next active plan)
 - [`engine/`](engine/) — production Rust workspace (`wax` CLI, language packs, contract crates)
 
 ## Install (alpha)

@@ -18,7 +18,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 | 1 | Rust engine and language packs | [2026-05-16-rust-engine-language-packs-plan.md](./2026-05-16-rust-engine-language-packs-plan.md) | `merged` | `complete` | — |
 | 2 | Release and rollout (alpha) | [2026-05-24-release-and-rollout-plan.md](./2026-05-24-release-and-rollout-plan.md) | `merged` | `complete` | Order 1 implementation `complete` |
 | 3 | Registry sources and centralized wax layout | [2026-06-02-registry-sources-and-wax-layout.md](./2026-06-02-registry-sources-and-wax-layout.md) | `merged` | `complete` | Order 2 implementation `complete`; may run before registry discover/draft |
-| 4 | Registry discovery and skill-assisted sync | [2026-06-04-registry-discovery-plan.md](./2026-06-04-registry-discovery-plan.md) | `merged` | `not-started` | Order 3 implementation `complete`; plan doc merged |
+| 4 | Registry discovery and skill-assisted sync | [2026-06-04-registry-discovery-plan.md](./2026-06-04-registry-discovery-plan.md) | `merged` | `complete` | Order 3 implementation `complete`; plan doc merged |
 | 5 | Post-alpha UX | [2026-05-24-post-alpha-ux-plan.md](./2026-05-24-post-alpha-ux-plan.md) | `merged` | `not-started` | Order 4 implementation `complete`; order 2 public alpha shipped (`v0.1.0-alpha.1` or agreed tag) |
 
 **Doc status:** `pending` → plan PR open; `merged` → plan doc on `main`; `planned` → not yet drafted.
@@ -88,4 +88,4 @@ Plan document PRs #32, #33, #34, #66, and #87 are merged on `main`.
 
 - [Language packs and distribution](../specs/2026-05-16-language-packs-and-distribution.md) — contracts, CLI names, distribution
 - [Component tracker design](../specs/2026-05-13-component-tracker-design.md) — product scope and future surfaces
-- [Registry discovery and skill-assisted sync](./2026-06-04-registry-discovery-design.md) — next registry authoring phase
+- [Registry discovery and skill-assisted sync](./2026-06-04-registry-discovery-design.md) — registry authoring phase (order 4, complete)
