@@ -1,0 +1,20 @@
+{
+  "name": "wax-skills",
+  "owner": {
+    "name": "Daio-io"
+  },
+  "description": "Agent skills for Wax design-system analysis and registry authoring",
+  "homepage": "https://github.com/Daio-io/wax",
+  "repository": "https://github.com/Daio-io/wax",
+  "plugins": [
+    {
+      "name": "wax-registry-sync",
+      "source": "./plugins/wax-registry-sync",
+      "description": "Run deterministic registry discovery, review dry-run output, write .wax/wax.registry.json, validate, and refresh locks",
+      "version": "1.0.0",
+      "keywords": ["wax", "design-system", "registry", "compose"],
+      "category": "development",
+      "skills": ["./skills/wax-registry-sync"]
+    }
+  ]
+}

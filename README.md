@@ -184,15 +184,41 @@ wax scan
 
 ### AI-assisted registry sync
 
-The distributable `wax-registry-sync` skill package lives at `.agents/skills/wax-registry-sync/`. It helps an AI agent run deterministic registry discovery, review the dry-run output with a human, write `.wax/wax.registry.json`, validate, and refresh stale language locks without making AI part of `wax scan` or `wax validate` runtime.
+The `wax-registry-sync` skill helps an AI agent run deterministic registry discovery, review dry-run output with a human, write `.wax/wax.registry.json`, validate, and refresh stale language locks. AI is an authoring aid only; `wax scan` and `wax validate` stay deterministic.
 
-Until a marketplace listing exists, install it from the repository path in agents or skill managers that support repo-path skills:
+Source package: `plugins/wax-registry-sync/skills/wax-registry-sync/` (also linked from `.agents/skills/wax-registry-sync/` for repo-local discovery).
+
+#### Install via [skills.sh](https://skills.sh)
+
+Requires Node.js. Install the skill from this repository with the open skills CLI:
 
 ```bash
-<your-skill-manager> install github:Daio-io/wax/.agents/skills/wax-registry-sync
+# Project-local (installs into .agents/skills/ for Cursor and other agents)
+npx skills add Daio-io/wax --skill wax-registry-sync -a cursor -y
+
+# Global (available across projects)
+npx skills add Daio-io/wax --skill wax-registry-sync -g -a cursor -y
 ```
 
-You can also copy `.agents/skills/wax-registry-sync/` into your agent's local skills directory. The same self-contained package is intended for publication through skills.h/skills.sh or a Claude plugin marketplace, but do not assume a marketplace listing exists until it is published.
+Other agents: replace `-a cursor` with your agent (`claude-code`, `codex`, `opencode`, etc.). List install targets with `npx skills add Daio-io/wax --list`.
+
+Browse or search the catalog at [skills.sh](https://skills.sh) after the listing is indexed.
+
+#### Install via Claude Code marketplace
+
+In Claude Code, add the Wax marketplace and install the plugin:
+
+```text
+/plugin marketplace add Daio-io/wax
+/plugin install wax-registry-sync@wax-skills
+/reload-plugins
+```
+
+The skill is namespaced by the plugin. Invoke it manually with `/wax-registry-sync:wax-registry-sync`, or let Claude load it from the skill description when you ask to sync a Wax registry.
+
+#### Manual install
+
+Copy or symlink `plugins/wax-registry-sync/skills/wax-registry-sync/` into your agent's skills directory (for example `.agents/skills/` for Cursor, `.claude/skills/` for Claude Code, or `~/.cursor/skills/` for a global Cursor install).
 
 For editor validation/autocomplete on `.wax/wax.config.json` (or legacy `.waxrc`), use:
 
