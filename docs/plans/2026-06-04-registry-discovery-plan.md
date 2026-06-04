@@ -4,7 +4,7 @@
 
 **Goal:** Add deterministic design-system registry discovery plus a proper Agent Skill workflow for AI-assisted registry review and sync.
 
-**Architecture:** `wax-cli` exposes `wax registry discover`; `wax-core` owns command orchestration, root resolution, registry JSON generation, and safe writes; language-specific discovery starts with Compose and emits deterministic component symbols. A separate `wax-registry-sync` skill wraps the CLI with review, diffing, validation, and lock refresh guidance without making AI part of scan or validate runtime.
+**Architecture:** `wax-cli` exposes `wax registry discover`; `wax-core` owns command orchestration, root resolution, registry JSON generation, and safe writes; language-specific discovery starts with Compose and emits deterministic component symbols. Registry discovery is an authoring-time exception to the current subprocess language-pack scan path: implementation may call in-process discovery code from `wax-lang-compose` for v1, but scan and validate continue using the distributed subprocess protocol. A separate `wax-registry-sync` skill wraps the CLI with review, diffing, validation, and lock refresh guidance without making AI part of scan or validate runtime.
 
 **Tech Stack:** Rust 2024, clap, serde JSON, existing `wax-core`, `wax-cli`, and `wax-lang-compose` crates, tree-sitter-backed Compose source inspection, Agent Skill `SKILL.md`.
 
@@ -44,12 +44,14 @@
   - Test Compose symbol extraction from fixtures.
 - Create `engine/crates/wax-lang-compose/tests/fixtures/discover/design-system/src/main/kotlin/Components.kt`
   - Fixture with public, private, internal, duplicate, and helper composables.
+- Create `engine/crates/wax-lang-compose/tests/fixtures/discover/design-system/src/main/kotlin/DuplicateComponents.kt`
+  - Fixture with a duplicate public symbol under another source file.
 - Create `.agents/skills/wax-registry-sync/SKILL.md`
   - Project-scoped Agent Skill for AI-assisted registry review and sync.
 - Modify `README.md`
-  - Add registry discovery quick-start and skill-assisted sync mention.
+  - Add registry discovery quick-start and skill-assisted sync mention when implementation tasks land.
 - Modify `docs/plans/README.md`
-  - Add this plan as the next planned product plan.
+  - Keep registry discovery marked as the order 4 active plan.
 
 ## Phase 1 - Deterministic Compose Discovery
 
@@ -60,6 +62,7 @@
 - Modify: `engine/crates/wax-lang-compose/src/lib.rs`
 - Create: `engine/crates/wax-lang-compose/tests/registry_discover.rs`
 - Create: `engine/crates/wax-lang-compose/tests/fixtures/discover/design-system/src/main/kotlin/Components.kt`
+- Create: `engine/crates/wax-lang-compose/tests/fixtures/discover/design-system/src/main/kotlin/DuplicateComponents.kt`
 
 - [ ] **Step 1: Add fixture source for likely DS components**
 
@@ -86,6 +89,17 @@ private fun PrivateButton() {}
 fun helperText() {}
 
 fun NotComposable() {}
+```
+
+Create `engine/crates/wax-lang-compose/tests/fixtures/discover/design-system/src/main/kotlin/DuplicateComponents.kt` with a duplicate symbol to verify stable de-duplication:
+
+```kotlin
+package com.example.ds.duplicates
+
+import androidx.compose.runtime.Composable
+
+@Composable
+fun PrimaryButton() {}
 ```
 
 - [ ] **Step 2: Write failing discovery tests**
@@ -156,11 +170,14 @@ Expected: PASS.
 git add engine/crates/wax-lang-compose/src/discover.rs \
   engine/crates/wax-lang-compose/src/lib.rs \
   engine/crates/wax-lang-compose/tests/registry_discover.rs \
-  engine/crates/wax-lang-compose/tests/fixtures/discover/design-system/src/main/kotlin/Components.kt
+  engine/crates/wax-lang-compose/tests/fixtures/discover/design-system/src/main/kotlin/Components.kt \
+  engine/crates/wax-lang-compose/tests/fixtures/discover/design-system/src/main/kotlin/DuplicateComponents.kt
 git commit -m "feat: discover compose registry symbols"
 ```
 
 ### - [ ] Task 2: Add core registry discovery orchestration
+
+**Architecture note:** Normal scan execution still uses installed language packs through the subprocess protocol in `engine/crates/wax-core/src/subprocess_lang.rs`. Registry discovery is authoring-time source inspection, so v1 may call `wax-lang-compose` discovery code in process to avoid inventing a new wire protocol before multiple language packs need it. If future language packs need out-of-process registry discovery, add an explicit discovery request to the language-pack protocol in a later plan rather than overloading scan requests.
 
 **Files:**
 - Create: `engine/crates/wax-core/src/registry_discovery.rs`
@@ -175,6 +192,7 @@ Create `engine/crates/wax-core/tests/registry_discovery.rs` with tests for:
 - generated registry JSON contains `schema_version: 1`
 - generated ids use `ds.<kebab-case-symbol>`
 - output components are sorted
+- duplicate symbols collapse to one component
 - default writes target `.wax/wax.registry.json`
 - existing registry refuses overwrite
 - `force` replaces an existing registry
@@ -250,6 +268,7 @@ git commit -m "feat: add registry discovery orchestration"
 Add tests for:
 
 - `wax registry discover --language compose --root <fixture> --dry-run` prints valid JSON to stdout.
+- `--dry-run` writes summaries and warnings to stderr, not stdout.
 - default write creates `.wax/wax.registry.json`.
 - a second write fails without `--force`.
 - `--force` replaces the registry.
@@ -278,6 +297,8 @@ wax registry discover --language <id> [--root <path>...] [--dry-run] [--force]
 - [ ] **Step 4: Preserve stdout and stderr contracts**
 
 For `--dry-run`, print only registry JSON to stdout. Print summary, warnings, and skipped counts to stderr. For write mode, print human summary to stdout or stderr following existing CLI conventions.
+
+Write mode should not print JSON to stdout. It should print a concise human summary, including the output path, false-positive warning, and next-step commands. If existing CLI conventions are ambiguous, use stdout for successful summaries and stderr for warnings/errors.
 
 - [ ] **Step 5: Run focused CLI tests**
 
@@ -328,7 +349,7 @@ pass --root path/to/design-system
 
 - [ ] **Step 3: Implement root resolution**
 
-When `roots` is empty, load repo files with existing config discovery helpers, find the enabled language matching `language_id`, and use its `roots` array. Validate each resolved root stays within the repo and exists.
+When `roots` is empty, load repo files with existing config discovery helpers, find the enabled language matching `language_id`, and use its `roots` array. Validate each resolved root stays within the repo and exists. Because config roots are scan targets, emit a warning that `--root path/to/design-system` is preferred when the configured roots point at app code.
 
 - [ ] **Step 4: Run focused tests**
 

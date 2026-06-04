@@ -20,13 +20,13 @@
 - [Rust engine and language packs](./2026-05-16-rust-engine-language-packs-plan.md)
 - [Release and rollout](./2026-05-24-release-and-rollout-plan.md) — alpha tag + public install path
 
-**Roadmap:** [Plan execution order](./README.md) — this is **order 3**; plan doc and implementation start only after order 2 public alpha ships.
+**Roadmap:** [Plan execution order](./README.md) — this is **order 5**; plan doc is merged, but implementation starts only after registry discovery is complete and order 2 public alpha has shipped.
 
 ---
 
 ## When to start
 
-**Gate:** Do not begin until the release plan has shipped **public alpha** (curl + Homebrew + getting-started docs, at minimum `v0.1.0-alpha.1` or agreed tag).
+**Gate:** Do not begin until registry discovery implementation is complete and the release plan has shipped **public alpha** (curl + Homebrew + getting-started docs, at minimum `v0.1.0-alpha.1` or agreed tag).
 
 **Owner / timeline:** Assign when tagging alpha.1 (e.g. “post-alpha UX squad” or single maintainer). Target: first milestone within one sprint after alpha.1 if capacity allows.
 

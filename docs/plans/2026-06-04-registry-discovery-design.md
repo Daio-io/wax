@@ -72,15 +72,15 @@ wax registry discover --language compose --force
 
 ## Root Selection
 
-Root selection should be simple and predictable:
+Root selection should be simple and predictable. `--root` is the primary path for this command because registry discovery targets a design-system package, not a consuming app:
 
 - If `--root` is supplied, Wax scans that repo-relative path.
-- If `--root` is omitted, Wax reads the enabled language entry from `.wax/wax.config.json` or legacy `.waxrc` and uses that language's configured roots.
+- If `--root` is omitted, Wax reads the enabled language entry from `.wax/wax.config.json` or legacy `.waxrc` and uses that language's configured roots as a convenience fallback.
 - If no config exists or the selected language has no usable roots, Wax fails with an example command using `--root`.
 - If multiple configured roots exist, Wax scans all of them.
 - Non-interactive runs never prompt.
 
-This keeps v1 scriptable. A later interactive registry wizard can help choose roots, but it is not needed for the first implementation.
+Config roots are usually scan targets and may point at app code rather than a design-system source package. When discovery falls back to config roots, Wax should warn users to prefer `--root path/to/design-system` if the configured roots are not the design-system package. This keeps v1 scriptable. A later interactive registry wizard can help choose roots, but it is not needed for the first implementation.
 
 ## Registry Output Contract
 
@@ -128,6 +128,8 @@ The first language implementation is Compose. The Compose discovery pass should 
 This is intentionally not a full Kotlin semantic analyzer. It is a deterministic bootstrap tool that can produce false positives. The command output and docs must say that plainly.
 
 Future improvements can add language-specific candidate diagnostics, source locations, package filters, exported API analysis, and richer registry metadata.
+
+`wax registry draft` remains deferred. This phase ships one deterministic authoring command, `wax registry discover`, plus the AI-assisted skill workflow around it.
 
 ## AI-Assisted Skill
 
@@ -220,7 +222,7 @@ Skill tests can be documentation and fixture based:
 Docs should update:
 
 - `README.md` with a registry discovery quick-start.
-- `docs/plans/README.md` to mark this as the next planned product plan after post-alpha UX.
+- `docs/plans/README.md` to mark this as the order 4 registry authoring phase before post-alpha UX.
 - The implementation plan with one task per focused PR.
 
 User-facing docs must keep the false-positive warning visible. This is a feature, not a footnote: deterministic discovery is a bootstrap aid, and the committed registry remains the source of truth.
