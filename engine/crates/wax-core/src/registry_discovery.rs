@@ -409,22 +409,20 @@ fn resolve_configured_root(
         });
     }
 
-    let canonical_repo_root = fs::canonicalize(repo_root).map_err(|source| {
-        RegistryDiscoverError::ResolveRoot {
+    let canonical_repo_root =
+        fs::canonicalize(repo_root).map_err(|source| RegistryDiscoverError::ResolveRoot {
             language_id: language_id.to_owned(),
             config_path: config_path.to_owned(),
             root: root.to_owned(),
             source,
-        }
-    })?;
-    let canonical_candidate = fs::canonicalize(&candidate).map_err(|source| {
-        RegistryDiscoverError::ResolveRoot {
+        })?;
+    let canonical_candidate =
+        fs::canonicalize(&candidate).map_err(|source| RegistryDiscoverError::ResolveRoot {
             language_id: language_id.to_owned(),
             config_path: config_path.to_owned(),
             root: root.to_owned(),
             source,
-        }
-    })?;
+        })?;
 
     if !canonical_candidate.starts_with(&canonical_repo_root) {
         return Err(RegistryDiscoverError::RootEscapesRepo {

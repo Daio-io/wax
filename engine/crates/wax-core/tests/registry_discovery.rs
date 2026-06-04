@@ -414,8 +414,8 @@ fn configured_root_symlink_outside_repo_is_rejected() {
     )
     .expect("copy compose fixture outside repo");
     symlink(
-        &outside.join("design-system"),
-        &repo.path().join("design-system"),
+        outside.join("design-system"),
+        repo.path().join("design-system"),
     )
     .expect("symlink design-system outside repo");
     write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
