@@ -78,8 +78,12 @@ pub fn run_registry_discover(
         "Discovered {component_count} {language_id} registry components from {root_count} {root_label}."
     )
     .map_err(|source| RegistryDiscoverCommandError::Io { source })?;
-    writeln!(writer, "Wrote {}.", display_output_path(&options.repo_root, &result.output_path))
-        .map_err(|source| RegistryDiscoverCommandError::Io { source })?;
+    writeln!(
+        writer,
+        "Wrote {}.",
+        display_output_path(&options.repo_root, &result.output_path)
+    )
+    .map_err(|source| RegistryDiscoverCommandError::Io { source })?;
     writeln!(
         writer,
         "Review before committing: deterministic discovery may include false positives."
