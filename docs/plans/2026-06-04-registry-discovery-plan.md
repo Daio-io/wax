@@ -55,7 +55,7 @@
 
 ## Phase 1 - Deterministic Compose Discovery
 
-### - [ ] Task 1: Add Compose symbol discovery
+### - [x] Task 1: Add Compose symbol discovery
 
 **Files:**
 - Create: `engine/crates/wax-lang-compose/src/discover.rs`
@@ -64,7 +64,7 @@
 - Create: `engine/crates/wax-lang-compose/tests/fixtures/discover/design-system/src/main/kotlin/Components.kt`
 - Create: `engine/crates/wax-lang-compose/tests/fixtures/discover/design-system/src/main/kotlin/DuplicateComponents.kt`
 
-- [ ] **Step 1: Add fixture source for likely DS components**
+- [x] **Step 1: Add fixture source for likely DS components**
 
 Create `engine/crates/wax-lang-compose/tests/fixtures/discover/design-system/src/main/kotlin/Components.kt` with public composables, skipped helpers, and non-public composables:
 
@@ -102,7 +102,7 @@ import androidx.compose.runtime.Composable
 fun PrimaryButton() {}
 ```
 
-- [ ] **Step 2: Write failing discovery tests**
+- [x] **Step 2: Write failing discovery tests**
 
 Create `engine/crates/wax-lang-compose/tests/registry_discover.rs`:
 
@@ -132,7 +132,7 @@ fn missing_root_fails() {
 }
 ```
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
 
 Run:
 
@@ -143,7 +143,7 @@ cargo test -p wax-lang-compose --test registry_discover
 
 Expected: FAIL with unresolved module or function `wax_lang_compose::discover`.
 
-- [ ] **Step 4: Implement minimal Compose discovery**
+- [x] **Step 4: Implement minimal Compose discovery**
 
 Create `engine/crates/wax-lang-compose/src/discover.rs` with deterministic tree-sitter-backed scanning for `.kt` files. It must return sorted unique symbols and skip `private`, `internal`, and lowercase helper names.
 
@@ -153,7 +153,7 @@ Modify `engine/crates/wax-lang-compose/src/lib.rs`:
 pub mod discover;
 ```
 
-- [ ] **Step 5: Run focused Compose tests**
+- [x] **Step 5: Run focused Compose tests**
 
 Run:
 
@@ -164,7 +164,7 @@ cargo test -p wax-lang-compose --test registry_discover
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit Task 1**
+- [x] **Step 6: Commit Task 1**
 
 ```bash
 git add engine/crates/wax-lang-compose/src/discover.rs \
