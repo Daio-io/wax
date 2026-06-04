@@ -129,6 +129,19 @@ pub enum RegistryDiscoverError {
         /// Missing configured root path.
         root: String,
     },
+    /// A configured root path could not be canonicalized on disk.
+    #[error("failed to resolve language `{language_id}` root `{root}` in {config_path}: {source}")]
+    ResolveRoot {
+        /// Language id requested by the caller.
+        language_id: String,
+        /// Config path used for resolution.
+        config_path: String,
+        /// Configured root path that failed to resolve.
+        root: String,
+        /// Underlying I/O failure.
+        #[source]
+        source: io::Error,
+    },
     /// The requested language does not support in-process registry discovery.
     #[error("registry discovery is not supported for language `{language_id}`")]
     UnsupportedLanguage {
@@ -397,16 +410,20 @@ fn resolve_configured_root(
     }
 
     let canonical_repo_root = fs::canonicalize(repo_root).map_err(|source| {
-        RegistryDiscoverError::Config(WaxRcError::Read {
-            path: config_path.to_owned(),
+        RegistryDiscoverError::ResolveRoot {
+            language_id: language_id.to_owned(),
+            config_path: config_path.to_owned(),
+            root: root.to_owned(),
             source,
-        })
+        }
     })?;
     let canonical_candidate = fs::canonicalize(&candidate).map_err(|source| {
-        RegistryDiscoverError::Config(WaxRcError::Read {
-            path: config_path.to_owned(),
+        RegistryDiscoverError::ResolveRoot {
+            language_id: language_id.to_owned(),
+            config_path: config_path.to_owned(),
+            root: root.to_owned(),
             source,
-        })
+        }
     })?;
 
     if !canonical_candidate.starts_with(&canonical_repo_root) {
