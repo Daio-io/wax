@@ -1,14 +1,14 @@
-# @wax/cli
+# @waxhq/wax
 
 Optional alpha npm wrapper for the wax design-system analysis CLI.
 
 ```bash
-npm install -g @wax/cli
+npm install -g @waxhq/wax
 wax --help
 ```
 
 ```bash
-npx @wax/cli --help
+npx @waxhq/wax --help
 ```
 
 During `postinstall`, this package downloads the host `wax` binary from the matching GitHub Release, verifies its `sha256`, validates the archive shape, and exposes `wax` through npm.

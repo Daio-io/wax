@@ -407,7 +407,7 @@ Pack index entries and `wax.lock.json` `resolved.target` use the **Rust triple**
 
 **Optional Phase 5b — npm wrapper (not blocking v1):**
 
-A future `@wax/cli` (or similar) npm package may download the correct prebuilt `wax` binary for the host triple via `postinstall`. That improves Node-centric onboarding but is **not required** for v1: users can install `wax` from GitHub Releases, Homebrew, or a curl installer script. Defer npm packaging until the release matrix and pack index are stable.
+A future `@waxhq/wax` (or similar) npm package may download the correct prebuilt `wax` binary for the host triple via `postinstall`. That improves Node-centric onboarding but is **not required** for v1: users can install `wax` from GitHub Releases, Homebrew, or a curl installer script. Defer npm packaging until the release matrix and pack index are stable.
 
 ### First-party language packs (v1 targets)
 

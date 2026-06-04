@@ -317,6 +317,47 @@ jobs:
             git -C gh-pages-worktree push origin HEAD:gh-pages
           fi
 
+  publish-npm:
+    name: Publish npm package
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    needs: publish
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+
+      - name: Verify package version matches release tag
+        run: |
+          set -euo pipefail
+          package_version="$(node -p 'require("./packages/cli/package.json").version')"
+          release_version="${WAX_RELEASE_TAG#v}"
+          if [[ "$package_version" != "$release_version" ]]; then
+            echo "packages/cli/package.json version ${package_version} does not match release tag ${release_version}" >&2
+            exit 1
+          fi
+
+      - name: Publish package to npm
+        working-directory: packages/cli
+        run: |
+          set -euo pipefail
+          release_version="${WAX_RELEASE_TAG#v}"
+          npm_tag=latest
+          if [[ "$release_version" == *-* ]]; then
+            npm_tag=alpha
+          fi
+          npm publish --access public --tag "$npm_tag"
+
   verify-published-pack-index:
     name: Verify published pack index
     runs-on: ubuntu-latest

@@ -8,7 +8,7 @@
 
 **Architecture:** Builds on the [Rust engine and language packs](./2026-05-16-rust-engine-language-packs-plan.md) foundation: expose `wax scan` and `wax validate` in the CLI, forward repo language config into pack subprocess requests, execute auto-install during scan when allowed, fetch the pack index over HTTPS with a baked-in default URL, then publish prebuilt `wax` and `wax-lang-*` artifacts plus a generated pack index. Install channels distribute **only the engine binary**; language packs remain on-demand downloads into `~/.wax/langs/`.
 
-**Tech Stack:** Rust edition 2024, `wax-cli` / `wax-core`, clap, reqwest (blocking), cargo-dist or GitHub Actions release matrix, GitHub Releases, static JSON pack index, Homebrew tap formula, optional `@wax/cli` npm postinstall wrapper
+**Tech Stack:** Rust edition 2024, `wax-cli` / `wax-core`, clap, reqwest (blocking), cargo-dist or GitHub Actions release matrix, GitHub Releases, static JSON pack index, Homebrew tap formula, optional `@waxhq/wax` npm postinstall wrapper
 
 **Specs (review first):**
 
@@ -109,7 +109,7 @@ scripts/
 homebrew/
   Formula/wax.rb               # tap formula (Task 13)
 packages/
-  cli/                         # @wax/cli npm wrapper (Task 14, optional)
+  cli/                         # @waxhq/wax npm wrapper (Task 14, optional)
 CHANGELOG.md                   # alpha release notes (Task 15)
 ```
 
@@ -489,7 +489,7 @@ Optional: automate formula bump in release workflow (post-alpha).
 
 Expected: `brew install` succeeds on macOS for at least one arch.
 
-### - [x] Task 14: npm `@wax/cli` wrapper (optional for alpha)
+### - [x] Task 14: npm `@waxhq/wax` wrapper (optional for alpha)
 
 **Files:**
 
@@ -505,13 +505,13 @@ Mirror patterns from esbuild/turbo; verify sha256.
 
 - [x] **Step 2: Expose `wax` bin in npm**
 
-- [x] **Step 3: Document `npm install -g @wax/cli` in README**
+- [x] **Step 3: Document `npm install -g @waxhq/wax` in README**
 
 Mark optional in alpha if schedule tight; move to post-alpha if needed.
 
 Run: `npm pack` dry run; manual install test.
 
-Expected: `npx @wax/cli --help` works.
+Expected: `npx @waxhq/wax --help` works.
 
 ---
 
@@ -616,7 +616,7 @@ Each item includes a **target** so follow-up work can be scheduled without reope
 | homebrew-core submission | After tap usage justifies core PR |
 | In-process language packs / daemon NDJSON mode | Performance plan |
 | `react` in public pack index + getting started | When `wax-lang-react` production extraction lands |
-| npm `@wax/cli` if skipped in alpha | alpha+1 install channel (Task 14) |
+| npm `@waxhq/wax` if skipped in alpha | alpha+1 install channel (Task 14) |
 | Align engine default scan timeout with spec (`WAX_SCAN_TIMEOUT_SECS` / 10 minutes) | Small engine fix when CI timeouts bite |
 
 ---
@@ -661,7 +661,7 @@ Before starting implementation, confirm:
 1. Alpha tag naming: `v0.1.0-alpha.1` vs `v0.1.0`.
 2. Default index hosting: GitHub Release asset vs `gh-pages` vs custom domain.
 3. **npm for alpha vs alpha+1:** Is Task 14 required before public alpha? If deferred, README leads with curl/Homebrew and states npm timeline.
-4. Org/name for Homebrew tap and npm scope (`@wax/cli` availability).
+4. Org/name for Homebrew tap and npm scope (`@waxhq/wax` availability).
 5. Auto-install executes in **engine** (Task 2) vs CLI-only orchestration—Task 2 recommendation keeps `wax scan` behavior consistent for library callers.
 6. `wax validate` alpha scope is intentionally minimal; rich usage analysis waits for discover/draft or scan-facts-based validate.
 7. **Getting started uses Compose only** until `wax-lang-react` is production-ready; alpha index lists `compose` + `basic` only.

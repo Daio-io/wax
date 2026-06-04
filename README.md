@@ -54,14 +54,14 @@ The Homebrew formula currently targets macOS archives only. Language packs are n
 The npm wrapper is available as an optional alpha install path. It downloads the same host `wax` binary from GitHub Releases during `postinstall`, verifies the `sha256`, and exposes the `wax` executable through npm:
 
 ```bash
-npm install -g @wax/cli
+npm install -g @waxhq/wax
 wax --help
 ```
 
 You can also run it without a separate global install:
 
 ```bash
-npx @wax/cli --help
+npx @waxhq/wax --help
 ```
 
 The curl installer remains the primary alpha path while the npm package is validated across supported hosts.
@@ -88,7 +88,7 @@ rm -f "$HOME/.wax/bin/wax"
 If you installed via npm:
 
 ```bash
-npm uninstall -g @wax/cli
+npm uninstall -g @waxhq/wax
 ```
 
 If you installed via Homebrew (once the tap is published):
