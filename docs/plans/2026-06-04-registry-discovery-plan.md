@@ -46,8 +46,8 @@
   - Fixture with public, private, internal, duplicate, and helper composables.
 - Create `engine/crates/wax-lang-compose/tests/fixtures/discover/design-system/src/main/kotlin/DuplicateComponents.kt`
   - Fixture with a duplicate public symbol under another source file.
-- Create `plugins/wax-registry-sync/skills/wax-registry-sync/SKILL.md`
-- Create `.claude-plugin/marketplace.json` and `plugins/wax-registry-sync/.claude-plugin/plugin.json`
+- Create `plugins/wax/skills/wax-registry-sync/SKILL.md`
+- Create `.claude-plugin/marketplace.json` and `plugins/wax/.claude-plugin/plugin.json`
   - Project-scoped Agent Skill for AI-assisted registry review and sync.
 - Modify `README.md`
   - Add registry discovery quick-start and skill-assisted sync mention when implementation tasks land.
@@ -430,15 +430,15 @@ git commit -m "docs: document registry discovery workflow"
 ### - [x] Task 6: Add `wax-registry-sync` project skill
 
 **Files:**
-- Create: `plugins/wax-registry-sync/skills/wax-registry-sync/SKILL.md`
+- Create: `plugins/wax/skills/wax-registry-sync/SKILL.md`
 - Create: `.claude-plugin/marketplace.json`
-- Create: `plugins/wax-registry-sync/.claude-plugin/plugin.json`
-- Create: `plugins/wax-registry-sync/skills/wax-registry-sync/fixtures/README.md` if fixture notes are useful
+- Create: `plugins/wax/.claude-plugin/plugin.json`
+- Create: `plugins/wax/skills/wax-registry-sync/fixtures/README.md` if fixture notes are useful
 - Modify: `README.md`
 
 - [x] **Step 1: Create the skill file**
 
-Create `plugins/wax-registry-sync/skills/wax-registry-sync/SKILL.md` with YAML frontmatter:
+Create `plugins/wax/skills/wax-registry-sync/SKILL.md` with YAML frontmatter:
 
 ```markdown
 ---
@@ -470,12 +470,12 @@ refresh locks
 
 - [x] **Step 3: Document installation and use**
 
-Update `README.md` with a short AI-assisted section and concrete install steps for [skills.sh](https://skills.sh) (`npx skills add Daio-io/wax --skill wax-registry-sync`) and Claude Code (`/plugin marketplace add Daio-io/wax`, `/plugin install wax-registry-sync@wax-skills`).
+Update `README.md` with a short AI skills section and concrete install steps for [skills.sh](https://skills.sh) (`npx skills add Daio-io/wax --skill wax-registry-sync`) and Claude Code (`/plugin marketplace add Daio-io/wax`, `/plugin install wax@wax-skills`). New skills go under `plugins/wax/skills/<name>/` inside the grouped `wax` plugin.
 
 - [x] **Step 4: Commit Task 6**
 
 ```bash
-git add plugins/wax-registry-sync/ .claude-plugin/marketplace.json README.md
+git add plugins/wax/ .claude-plugin/marketplace.json README.md
 git commit -m "docs: add wax registry sync skill"
 ```
 

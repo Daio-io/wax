@@ -133,7 +133,7 @@ Future improvements can add language-specific candidate diagnostics, source loca
 
 ## AI-Assisted Skill
 
-Wax should publish a proper Agent Skill named `wax-registry-sync`. Skills in the open skills ecosystem are reusable agent capabilities defined by `SKILL.md` files with YAML frontmatter containing `name` and `description`. Install via [skills.sh](https://skills.sh) (`npx skills add Daio-io/wax --skill wax-registry-sync`) into project `.agents/skills/` or global agent paths, or via Claude Code (`/plugin marketplace add Daio-io/wax`, `/plugin install wax-registry-sync@wax-skills`).
+Wax should publish Agent Skills under `plugins/wax/skills/<skill-name>/`. The first skill is `wax-registry-sync`. Skills in the open skills ecosystem are reusable agent capabilities defined by `SKILL.md` files with YAML frontmatter containing `name` and `description`. Install individual skills via [skills.sh](https://skills.sh) (`npx skills add Daio-io/wax --skill wax-registry-sync`) into project `.agents/skills/` or global agent paths, or install the grouped Claude plugin (`/plugin marketplace add Daio-io/wax`, `/plugin install wax@wax-skills`).
 
 The skill is not part of the Wax runtime. It is an authoring assistant around source-controlled registry files.
 
