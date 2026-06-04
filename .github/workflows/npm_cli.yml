@@ -5,12 +5,16 @@ on:
     paths:
       - "packages/cli/**"
       - ".github/workflows/npm_cli.yml"
+      - ".github/workflows/release.yml"
+      - "scripts/check-release-workflow.rb"
   push:
     branches:
       - main
     paths:
       - "packages/cli/**"
       - ".github/workflows/npm_cli.yml"
+      - ".github/workflows/release.yml"
+      - "scripts/check-release-workflow.rb"
 
 jobs:
   verify:

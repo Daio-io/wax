@@ -351,6 +351,12 @@ jobs:
             fs.writeFileSync(tempFile, `${JSON.stringify(pkg, null, 2)}\n`);
           ' "$package_file" "$tmp_package_json"
           mv "$tmp_package_json" "$package_file"
+          stamped_version="$(node -p 'require("./packages/cli/package.json").version')"
+          expected_version="${WAX_RELEASE_TAG#v}"
+          if [[ "$stamped_version" != "$expected_version" ]]; then
+            echo "packages/cli/package.json version ${stamped_version} does not match stamped release tag ${expected_version}" >&2
+            exit 1
+          fi
 
       - name: Publish package to npm
         working-directory: packages/cli

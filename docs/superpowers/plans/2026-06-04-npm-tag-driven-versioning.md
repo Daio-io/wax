@@ -15,7 +15,6 @@
 **Files:**
 - Modify: `.github/workflows/release.yml`
 - Modify: `scripts/check-release-workflow.rb`
-- Modify: `.github/workflows/npm_cli.yml`
 
 - [x] **Step 1: Make workflow invariant checks require a release-time package version rewrite**
 - [x] **Step 2: Update the release workflow to write `${WAX_RELEASE_TAG#v}` into `packages/cli/package.json` before `npm publish`**

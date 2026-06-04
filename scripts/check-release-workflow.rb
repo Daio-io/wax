@@ -88,6 +88,18 @@ require_includes!(
 
 require_includes!(
   workflow,
+  "stamped_version=\"$(node -p 'require(\"./packages/cli/package.json\").version')\"",
+  "read-back stamped package version"
+)
+
+require_includes!(
+  workflow,
+  'echo "packages/cli/package.json version ${stamped_version} does not match stamped release tag ${expected_version}" >&2',
+  "explicit stamped npm version mismatch failure"
+)
+
+require_includes!(
+  workflow,
   'npm publish --access public --tag "$npm_tag"',
   "npm publish command"
 )

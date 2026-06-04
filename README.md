@@ -75,6 +75,8 @@ Before the first CI publish, configure npm trusted publishing for `@waxhq/wax`:
 3. The release workflow stamps `packages/cli/package.json` from the Git tag before `npm publish`, so keep the checked-in file on its snapshot placeholder and let CI derive the published version.
 4. Remove or avoid legacy `NPM_TOKEN` publish secrets so OIDC remains the active auth path.
 
+For local smoke tests from the package folder, set `WAX_CLI_VERSION` to the release you want to download; otherwise the wrapper uses the checked-in snapshot placeholder.
+
 ## Uninstall
 
 To remove the installed binary and global wax state in one command:
