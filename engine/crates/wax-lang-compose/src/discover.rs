@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use crate::kotlin_ast::{
     ParseKotlinFileError, collect_kotlin_files, function_name_from_decl, has_composable_annotation,
-    new_parser, parse_kotlin_file,
+    new_parser, parse_kotlin_file_strict,
 };
 
 /// Errors produced while discovering Compose registry symbols.
@@ -70,7 +70,7 @@ pub fn discover_registry_symbols(roots: &[PathBuf]) -> Result<Vec<String>, Compo
 
     let mut symbols = BTreeSet::new();
     for file_path in kotlin_files {
-        let parsed = parse_kotlin_file(&mut parser, &file_path).map_err(map_parse_error)?;
+        let parsed = parse_kotlin_file_strict(&mut parser, &file_path).map_err(map_parse_error)?;
         collect_symbols(
             parsed.tree.root_node(),
             parsed.source.as_bytes(),

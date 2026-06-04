@@ -6,7 +6,7 @@ use std::path::{Component, Path, PathBuf};
 
 use crate::kotlin_ast::{
     ParseKotlinFileError, call_simple_callee, collect_kotlin_files, function_name_from_decl,
-    has_composable_annotation, new_parser, parse_kotlin_file,
+    has_composable_annotation, new_parser, parse_kotlin_file_permissive,
 };
 
 /// Grammar version bundled via the `tree-sitter-kotlin` crate dependency.
@@ -393,7 +393,7 @@ pub fn scan_repository(
             .display()
             .to_string();
 
-        match parse_kotlin_file(&mut parser, file_path) {
+        match parse_kotlin_file_permissive(&mut parser, file_path) {
             Ok(parsed) => {
                 extract_from_source(
                     parsed.tree.root_node(),
@@ -672,6 +672,46 @@ mod tests {
             "missing root must yield Partial, not Complete"
         );
         assert_eq!(result.files_scanned, 0);
+    }
+
+    #[test]
+    fn partial_parse_still_extracts_symbols_during_scan() {
+        let config = ComposeScanConfig {
+            design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
+            roots: vec![std::path::PathBuf::from("app/src/main/kotlin")],
+        };
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let registry_dir = tmp.path().join("design-system");
+        std::fs::create_dir_all(&registry_dir).unwrap();
+        std::fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"PrimaryButton"}]}"#,
+        )
+        .unwrap();
+
+        let source_dir = tmp.path().join("app/src/main/kotlin");
+        std::fs::create_dir_all(&source_dir).unwrap();
+        std::fs::write(
+            source_dir.join("Screen.kt"),
+            "@Composable\nfun Screen() {\n    PrimaryButton(onClick = {})\n}\nfun Broken(\n",
+        )
+        .unwrap();
+
+        let result = scan_repository(tmp.path(), &config)
+            .expect("scan should keep extracting from partial trees");
+
+        assert_eq!(result.files_scanned, 1);
+        assert_eq!(result.usage_sites.len(), 1);
+        assert_eq!(result.local_components.len(), 1);
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.code != "parse_failed"),
+            "permissive scan should not mark parser recovery as parse_failed"
+        );
+        assert_eq!(result.status, ScanStatus::Complete);
     }
 
     #[test]

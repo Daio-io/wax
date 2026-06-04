@@ -20,4 +20,9 @@ private fun PrivateButton() {}
 @Composable
 fun helperText() {}
 
+object Cards {
+    @Composable
+    fun NestedCard() {}
+}
+
 fun NotComposable() {}

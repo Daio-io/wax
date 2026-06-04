@@ -62,7 +62,7 @@ pub(crate) fn collect_kotlin_files(dir: &Path, files: &mut Vec<PathBuf>) -> std:
     Ok(())
 }
 
-pub(crate) fn parse_kotlin_file(
+pub(crate) fn parse_kotlin_file_permissive(
     parser: &mut tree_sitter::Parser,
     path: &Path,
 ) -> Result<ParsedKotlinFile, ParseKotlinFileError> {
@@ -73,11 +73,20 @@ pub(crate) fn parse_kotlin_file(
     let tree = parser
         .parse(source.as_bytes(), None)
         .ok_or_else(|| ParseKotlinFileError::ParseFailed(path.to_path_buf()))?;
-    if tree.root_node().has_error() {
+
+    Ok(ParsedKotlinFile { source, tree })
+}
+
+pub(crate) fn parse_kotlin_file_strict(
+    parser: &mut tree_sitter::Parser,
+    path: &Path,
+) -> Result<ParsedKotlinFile, ParseKotlinFileError> {
+    let parsed = parse_kotlin_file_permissive(parser, path)?;
+    if parsed.tree.root_node().has_error() {
         return Err(ParseKotlinFileError::ParseFailed(path.to_path_buf()));
     }
 
-    Ok(ParsedKotlinFile { source, tree })
+    Ok(parsed)
 }
 
 pub(crate) fn annotation_type_name(
@@ -175,14 +184,32 @@ mod tests {
     }
 
     #[test]
-    fn parse_kotlin_file_reports_syntax_errors() {
+    fn strict_parse_reports_syntax_errors() {
         let tempdir = tempfile::tempdir().expect("tempdir");
         let broken_file = tempdir.path().join("Broken.kt");
         fs::write(&broken_file, "@Composable\nfun Broken(").expect("write broken source");
 
         let mut parser = new_parser().expect("parser");
-        let err = parse_kotlin_file(&mut parser, &broken_file).expect_err("parse should fail");
+        let err = parse_kotlin_file_strict(&mut parser, &broken_file)
+            .expect_err("strict parse should fail");
 
         assert!(matches!(err, ParseKotlinFileError::ParseFailed(path) if path == broken_file));
+    }
+
+    #[test]
+    fn permissive_parse_keeps_partial_trees() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let broken_file = tempdir.path().join("Broken.kt");
+        fs::write(
+            &broken_file,
+            "@Composable\nfun PrimaryButton() {}\nfun Broken(\n@Composable\nfun SecondaryButton() {}",
+        )
+        .expect("write broken source");
+
+        let mut parser = new_parser().expect("parser");
+        let parsed = parse_kotlin_file_permissive(&mut parser, &broken_file)
+            .expect("permissive parse should keep partial trees");
+
+        assert!(parsed.tree.root_node().has_error());
     }
 }

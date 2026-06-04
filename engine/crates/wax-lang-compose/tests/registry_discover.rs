@@ -12,6 +12,7 @@ fn fixture_root() -> PathBuf {
 fn discovers_public_top_level_composables() {
     let symbols = discover_registry_symbols(&[fixture_root()]).expect("discover symbols");
 
+    assert!(!symbols.iter().any(|symbol| symbol == "NestedCard"));
     assert_eq!(
         symbols,
         vec!["PrimaryButton", "QualifiedButton", "SecondaryButton"]
