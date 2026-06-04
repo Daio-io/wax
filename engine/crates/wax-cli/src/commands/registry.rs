@@ -100,12 +100,12 @@ pub fn run_registry_discover(
     .map_err(|source| RegistryDiscoverCommandError::Io { source })?;
     writeln!(
         writer,
-        "Run `wax validate` to verify repository configuration."
+        "Run `wax language update` to refresh registry locks."
     )
     .map_err(|source| RegistryDiscoverCommandError::Io { source })?;
     writeln!(
         writer,
-        "Run `wax language update` to refresh registry locks."
+        "Run `wax validate` to verify repository configuration."
     )
     .map_err(|source| RegistryDiscoverCommandError::Io { source })?;
     write_config_roots_warning(result.used_config_roots);

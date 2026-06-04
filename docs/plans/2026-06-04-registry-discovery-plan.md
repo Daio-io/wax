@@ -372,14 +372,14 @@ git add engine/crates/wax-core/src/registry_discovery.rs \
 git commit -m "feat: resolve registry discovery roots from config"
 ```
 
-### - [ ] Task 5: Add validation and lock refresh guidance
+### - [x] Task 5: Add validation and lock refresh guidance
 
 **Files:**
 - Modify: `engine/crates/wax-cli/src/commands/registry.rs`
 - Modify: `engine/crates/wax-cli/tests/registry_discover_command.rs`
 - Modify: `README.md`
 
-- [ ] **Step 1: Add failing test for post-write guidance**
+- [x] **Step 1: Add failing test for post-write guidance**
 
 Test that successful write output includes:
 
@@ -389,11 +389,11 @@ wax validate
 wax language update
 ```
 
-- [ ] **Step 2: Implement guidance text**
+- [x] **Step 2: Implement guidance text**
 
 After writing the registry, print concise next steps. Do not automatically run `wax validate` in v1 unless the implementation plan is revised to support it safely; keep generation fast and predictable.
 
-- [ ] **Step 3: Document command usage**
+- [x] **Step 3: Document command usage**
 
 Update `README.md` with:
 
@@ -404,7 +404,7 @@ wax language update
 wax validate
 ```
 
-- [ ] **Step 4: Run focused CLI tests**
+- [x] **Step 4: Run focused CLI tests**
 
 Run:
 
@@ -415,7 +415,7 @@ cargo test -p wax-cli --test registry_discover_command
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit Task 5**
+- [x] **Step 5: Commit Task 5**
 
 ```bash
 git add engine/crates/wax-cli/src/commands/registry.rs \
