@@ -505,13 +505,17 @@ Mirror patterns from esbuild/turbo; verify sha256.
 
 - [x] **Step 2: Expose `wax` bin in npm**
 
-- [x] **Step 3: Document `npm install -g @waxhq/wax` in README**
+- [x] **Step 3: Document `npm install -g @waxhq/wax@alpha` in README**
 
 Mark optional in alpha if schedule tight; move to post-alpha if needed.
 
 Run: `npm pack` dry run; manual install test.
 
-Expected: `npx @waxhq/wax --help` works.
+Expected: `npx @waxhq/wax@alpha --help` works.
+
+- [x] **Step 4: Document npm publish preflight**
+
+Before CI publish can work, perform one manual package publish, add npm trusted publishing for GitHub repo `Daio-io/wax` + workflow file `release.yml`, keep `packages/cli/package.json` aligned with the release tag, and avoid legacy `NPM_TOKEN` publish auth that could override OIDC.
 
 ---
 

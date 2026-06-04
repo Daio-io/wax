@@ -54,17 +54,24 @@ The Homebrew formula currently targets macOS archives only. Language packs are n
 The npm wrapper is available as an optional alpha install path. It downloads the same host `wax` binary from GitHub Releases during `postinstall`, verifies the `sha256`, and exposes the `wax` executable through npm:
 
 ```bash
-npm install -g @waxhq/wax
+npm install -g @waxhq/wax@alpha
 wax --help
 ```
 
 You can also run it without a separate global install:
 
 ```bash
-npx @waxhq/wax --help
+npx @waxhq/wax@alpha --help
 ```
 
 The curl installer remains the primary alpha path while the npm package is validated across supported hosts.
+
+Before the first CI publish, configure npm trusted publishing for `@waxhq/wax`:
+
+1. Publish the package once manually so the npm package page exists.
+2. In npm package settings, add trusted publishing for GitHub Actions repo `Daio-io/wax` and workflow file `release.yml`.
+3. Keep the package version in `packages/cli/package.json` aligned with the release tag (for example `0.1.0-alpha.1` for `v0.1.0-alpha.1`).
+4. Remove or avoid legacy `NPM_TOKEN` publish secrets so OIDC remains the active auth path.
 
 ## Uninstall
 
