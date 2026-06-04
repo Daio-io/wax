@@ -122,9 +122,12 @@ fn default_write_creates_centralized_registry_path() {
     assert!(registry_path.is_file());
 
     let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stdout.contains("Wrote .wax/wax.registry.json"));
-    assert!(stdout.contains("false positives"));
     assert!(stdout.contains("wax validate"));
+    assert!(stderr.contains("warning:"));
+    assert!(stderr.contains("false positives"));
+    assert!(!stdout.contains("false positives"));
 
     let written: Value =
         serde_json::from_str(&fs::read_to_string(&registry_path).unwrap()).unwrap();
@@ -177,4 +180,76 @@ fn force_replaces_existing_registry() {
     let written: Value =
         serde_json::from_str(&fs::read_to_string(&registry_path).unwrap()).unwrap();
     assert!(written["components"].as_array().unwrap().len() >= 2);
+}
+
+#[test]
+fn relative_root_is_resolved_against_repo_root_when_cwd_differs() {
+    let _guard = env_lock();
+    let root = TestDir::new("registry-discover-relative-root");
+    let repo = root.path.join("repo");
+    let kotlin_root = repo.join("src/main/kotlin");
+    fs::create_dir_all(&kotlin_root).unwrap();
+    fs::write(
+        kotlin_root.join("Components.kt"),
+        r#"import androidx.compose.runtime.Composable
+
+@Composable
+fun PrimaryButton() {}
+"#,
+    )
+    .unwrap();
+
+    let outside_cwd = root.path.join("outside");
+    fs::create_dir_all(&outside_cwd).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .current_dir(&outside_cwd)
+        .args([
+            "registry",
+            "discover",
+            "--language",
+            "compose",
+            "--repo-root",
+        ])
+        .arg(&repo)
+        .args(["--root", "src/main/kotlin", "--dry-run"])
+        .output()
+        .expect("spawn wax registry discover");
+
+    assert!(
+        output.status.success(),
+        "expected success, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let registry: Value = serde_json::from_str(stdout.trim()).expect("stdout should be valid json");
+    assert_eq!(registry["components"][0]["symbol"], "PrimaryButton");
+}
+
+#[test]
+fn missing_root_fails_with_guidance() {
+    let _guard = env_lock();
+    let root = TestDir::new("registry-discover-missing-root");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .args([
+            "registry",
+            "discover",
+            "--language",
+            "compose",
+            "--repo-root",
+        ])
+        .arg(&repo)
+        .arg("--dry-run")
+        .output()
+        .expect("spawn wax registry discover");
+
+    assert!(!output.status.success(), "expected missing root to fail");
+
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("pass --root path/to/design-system"));
+    assert!(!repo.join(".wax/wax.registry.json").exists());
 }

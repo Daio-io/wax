@@ -1,7 +1,7 @@
 //! `wax registry` command implementations.
 
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 use wax_core::registry_discovery::{
     RegistryDiscoverError, RegistryDiscoverOptions, discover_registry,
@@ -25,6 +25,9 @@ pub struct RegistryDiscoverCommandOptions {
 /// Errors returned by `wax registry discover`.
 #[derive(Debug, Error)]
 pub enum RegistryDiscoverCommandError {
+    /// No discovery roots were supplied.
+    #[error("no discovery roots configured; pass --root path/to/design-system")]
+    MissingRoots,
     /// Registry discovery orchestration failed.
     #[error(transparent)]
     Discover(#[from] RegistryDiscoverError),
@@ -42,14 +45,20 @@ pub fn run_registry_discover(
     options: RegistryDiscoverCommandOptions,
     writer: &mut impl Write,
 ) -> Result<(), RegistryDiscoverCommandError> {
+    if options.roots.is_empty() {
+        return Err(RegistryDiscoverCommandError::MissingRoots);
+    }
+
     let root_count = options.roots.len();
     let language_id = options.language_id.clone();
     let dry_run = options.dry_run;
+    let repo_root = options.repo_root.clone();
+    let roots = resolve_discovery_roots(&repo_root, options.roots);
 
     let result = discover_registry(RegistryDiscoverOptions {
-        repo_root: &options.repo_root,
-        language_id: &options.language_id,
-        roots: options.roots,
+        repo_root: &repo_root,
+        language_id: &language_id,
+        roots,
         dry_run: options.dry_run,
         force: options.force,
     })?;
@@ -81,12 +90,7 @@ pub fn run_registry_discover(
     writeln!(
         writer,
         "Wrote {}.",
-        display_output_path(&options.repo_root, &result.output_path)
-    )
-    .map_err(|source| RegistryDiscoverCommandError::Io { source })?;
-    writeln!(
-        writer,
-        "Review before committing: deterministic discovery may include false positives."
+        display_output_path(&repo_root, &result.output_path)
     )
     .map_err(|source| RegistryDiscoverCommandError::Io { source })?;
     writeln!(
@@ -94,8 +98,22 @@ pub fn run_registry_discover(
         "Run `wax validate` to verify repository configuration."
     )
     .map_err(|source| RegistryDiscoverCommandError::Io { source })?;
+    eprintln!("warning: deterministic discovery may include false positives.");
 
     Ok(())
+}
+
+fn resolve_discovery_roots(repo_root: &Path, roots: Vec<PathBuf>) -> Vec<PathBuf> {
+    roots
+        .into_iter()
+        .map(|root| {
+            if root.is_absolute() {
+                root
+            } else {
+                repo_root.join(root)
+            }
+        })
+        .collect()
 }
 
 fn write_diagnostics(component_count: usize, language_id: &str, root_count: usize, dry_run: bool) {
@@ -109,9 +127,31 @@ fn write_diagnostics(component_count: usize, language_id: &str, root_count: usiz
     eprintln!("warning: deterministic discovery may include false positives.");
 }
 
-fn display_output_path(repo_root: &std::path::Path, output_path: &std::path::Path) -> String {
+fn display_output_path(repo_root: &Path, output_path: &Path) -> String {
     output_path
         .strip_prefix(repo_root)
         .map(|relative| relative.display().to_string())
         .unwrap_or_else(|_| output_path.display().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn relative_roots_are_resolved_against_repo_root() {
+        let repo_root = PathBuf::from("/tmp/repo");
+        let roots = resolve_discovery_roots(&repo_root, vec![PathBuf::from("src/main/kotlin")]);
+
+        assert_eq!(roots, vec![PathBuf::from("/tmp/repo/src/main/kotlin")]);
+    }
+
+    #[test]
+    fn absolute_roots_are_left_unchanged() {
+        let repo_root = PathBuf::from("/tmp/repo");
+        let absolute = PathBuf::from("/abs/design-system/src/main/kotlin");
+        let roots = resolve_discovery_roots(&repo_root, vec![absolute.clone()]);
+
+        assert_eq!(roots, vec![absolute]);
+    }
 }
