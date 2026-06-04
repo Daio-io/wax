@@ -1,6 +1,6 @@
 //! Registry discovery orchestration and safe writes.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::fs::{File, OpenOptions};
 use std::io;
@@ -85,6 +85,18 @@ pub enum RegistryDiscoverError {
     OutputExists {
         /// Existing output path.
         path: String,
+    },
+    /// Two discovered symbols generated the same stable registry id.
+    #[error(
+        "discovered symbols `{first_symbol}` and `{second_symbol}` both map to registry id `{id}`"
+    )]
+    IdCollision {
+        /// Colliding stable registry id.
+        id: String,
+        /// First symbol seen for the id.
+        first_symbol: String,
+        /// Second symbol that collided with the same id.
+        second_symbol: String,
     },
     /// The output directory could not be created.
     #[error("failed to create registry output directory for {path}: {source}")]
@@ -176,6 +188,10 @@ pub fn discover_registry(
         .map_err(|source| RegistryDiscoverError::Serialize { source })?;
 
     if !options.dry_run {
+        if !options.force && output_path.try_exists().unwrap_or(false) {
+            return Err(RegistryDiscoverError::OutputExists { path: path_display });
+        }
+
         if let Some(parent) = output_path
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
@@ -220,13 +236,19 @@ fn build_registry(
         }
     };
 
-    let components = normalized_symbols(symbols)
-        .into_iter()
-        .map(|symbol| DiscoveredComponent {
-            id: format!("ds.{}", kebab_case_symbol(&symbol)),
-            symbol,
-        })
-        .collect();
+    let mut seen_ids = BTreeMap::new();
+    let mut components = Vec::new();
+    for symbol in normalized_symbols(symbols) {
+        let id = format!("ds.{}", kebab_case_symbol(&symbol));
+        if let Some(first_symbol) = seen_ids.insert(id.clone(), symbol.clone()) {
+            return Err(RegistryDiscoverError::IdCollision {
+                id,
+                first_symbol,
+                second_symbol: symbol,
+            });
+        }
+        components.push(DiscoveredComponent { id, symbol });
+    }
 
     Ok(DiscoveredRegistry {
         schema_version: REGISTRY_SCHEMA_VERSION,

@@ -1,4 +1,6 @@
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -105,6 +107,47 @@ fun XMLButton() {}
 }
 
 #[test]
+fn conflicting_symbols_with_same_generated_id_are_rejected() {
+    let repo = TestRepo::new("registry-discovery-id-collision");
+    let source_root = repo.path().join("src/main/kotlin");
+    fs::create_dir_all(&source_root).expect("create source root");
+    fs::write(
+        source_root.join("Components.kt"),
+        r#"import androidx.compose.runtime.Composable
+
+@Composable
+fun XMLButton() {}
+
+@Composable
+fun XmlButton() {}
+"#,
+    )
+    .expect("write kotlin fixture");
+
+    let err = discover_registry(RegistryDiscoverOptions {
+        repo_root: repo.path(),
+        language_id: "compose",
+        roots: vec![source_root],
+        dry_run: true,
+        force: false,
+    })
+    .expect_err("colliding generated ids should fail");
+
+    match err {
+        RegistryDiscoverError::IdCollision {
+            id,
+            first_symbol,
+            second_symbol,
+        } => {
+            assert_eq!(id, "ds.xml-button");
+            assert_eq!(first_symbol, "XMLButton");
+            assert_eq!(second_symbol, "XmlButton");
+        }
+        other => panic!("expected id collision error, got {other}"),
+    }
+}
+
+#[test]
 fn output_components_are_sorted() {
     let registry = dry_run_registry();
     let components = registry["components"].as_array().expect("components array");
@@ -201,6 +244,39 @@ fn existing_registry_refuses_overwrite_without_force() {
         fs::read_to_string(&output_path).expect("read existing registry"),
         original_contents
     );
+}
+
+#[test]
+#[cfg(unix)]
+fn existing_registry_refuses_overwrite_before_temp_creation_failures() {
+    let repo = TestRepo::new("registry-discovery-refuse-overwrite-preflight");
+    let wax_dir = repo.path().join(".wax");
+    let output_path = wax_dir.join("wax.registry.json");
+    fs::create_dir_all(&wax_dir).expect("create registry dir");
+    fs::write(&output_path, "{\"schema_version\":1,\"components\":[]}\n").expect("seed registry");
+
+    let original_permissions = fs::metadata(&wax_dir)
+        .expect("read dir metadata")
+        .permissions();
+    let mut read_only_permissions = original_permissions.clone();
+    read_only_permissions.set_mode(0o555);
+    fs::set_permissions(&wax_dir, read_only_permissions).expect("make registry dir read-only");
+
+    let err = discover_registry(RegistryDiscoverOptions {
+        repo_root: repo.path(),
+        language_id: "compose",
+        roots: vec![compose_fixture_root()],
+        dry_run: false,
+        force: false,
+    })
+    .expect_err("existing registry should be refused before temp writes");
+
+    fs::set_permissions(&wax_dir, original_permissions).expect("restore registry dir permissions");
+
+    assert!(matches!(err, RegistryDiscoverError::OutputExists { .. }));
+    let message = err.to_string();
+    assert!(message.contains("--force"));
+    assert!(message.contains("--dry-run"));
 }
 
 #[test]
