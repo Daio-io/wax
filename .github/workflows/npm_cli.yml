@@ -45,6 +45,10 @@ jobs:
         run: npm pack --dry-run --json
         working-directory: packages/cli
 
+      - name: Check release workflow invariants
+        id: release_workflow
+        run: ruby scripts/check-release-workflow.rb
+
       - name: Smoke local release mirror install
         id: smoke
         run: |
@@ -75,6 +79,7 @@ jobs:
           SYNTAX_OUTCOME: ${{ steps.syntax.outcome }}
           TESTS_OUTCOME: ${{ steps.tests.outcome }}
           PACK_OUTCOME: ${{ steps.pack.outcome }}
+          RELEASE_WORKFLOW_OUTCOME: ${{ steps.release_workflow.outcome }}
           SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
         run: |
           set -euo pipefail
@@ -89,6 +94,7 @@ jobs:
           | JavaScript syntax | ${SYNTAX_OUTCOME} |
           | Package tests | ${TESTS_OUTCOME} |
           | npm pack contents | ${PACK_OUTCOME} |
+          | release workflow invariants | ${RELEASE_WORKFLOW_OUTCOME} |
           | Local release mirror smoke | ${SMOKE_OUTCOME} |
 
           [View workflow run](${RUN_URL})

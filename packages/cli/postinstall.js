@@ -18,7 +18,7 @@ function fail(message) {
   console.error(`wax postinstall error: ${message}`);
   console.error("");
   console.error("Try reinstalling with:");
-  console.error("  npm install -g @wax/cli");
+  console.error("  npm install -g @waxhq/wax");
   console.error("");
   console.error("Or install via curl:");
   console.error("  curl -fsSL https://raw.githubusercontent.com/Daio-io/wax/main/scripts/install.sh | bash");
@@ -81,7 +81,7 @@ function download(url, destination, redirectsLeft = MAX_REDIRECTS) {
       url,
       {
         headers: {
-          "user-agent": `@wax/cli/${PACKAGE_JSON.version}`,
+          "user-agent": `@waxhq/wax/${PACKAGE_JSON.version}`,
         },
       },
       (response) => {

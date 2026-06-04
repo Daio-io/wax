@@ -7,10 +7,10 @@ const { spawnSync } = require("node:child_process");
 const binaryPath = path.join(__dirname, "bin", process.platform === "win32" ? "wax.exe" : "wax");
 
 if (!fs.existsSync(binaryPath)) {
-  console.error("wax binary is missing from this @wax/cli installation.");
+  console.error("wax binary is missing from this @waxhq/wax installation.");
   console.error("");
   console.error("Reinstall the package to download the host binary:");
-  console.error("  npm install -g @wax/cli");
+  console.error("  npm install -g @waxhq/wax");
   console.error("");
   console.error("If npm lifecycle scripts were disabled, reinstall without --ignore-scripts.");
   console.error("If WAX_CLI_SKIP_DOWNLOAD=1 was intentional, provide packages/cli/bin/wax before running.");

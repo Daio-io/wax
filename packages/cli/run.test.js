@@ -22,7 +22,7 @@ test("run.js reports reinstall guidance when wax binary is missing", () => {
 
   assert.equal(result.status, 1);
   assert.match(result.stderr, /wax binary is missing/);
-  assert.match(result.stderr, /npm install -g @wax\/cli/);
+  assert.match(result.stderr, /npm install -g @waxhq\/wax/);
   assert.match(result.stderr, /WAX_CLI_SKIP_DOWNLOAD=1/);
 });
 

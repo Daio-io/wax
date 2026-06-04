@@ -45,8 +45,39 @@ require_includes!(
 
 require_includes!(
   workflow,
+  'publish-npm:
+    name: Publish npm package',
+  "trusted-publishing npm job"
+)
+
+require_includes!(
+  workflow,
   "if: github.event_name == 'push'",
   "push-only publish guard"
+)
+
+require_includes!(
+  workflow,
+  "id-token: write",
+  "OIDC permission for npm trusted publishing"
+)
+
+require_includes!(
+  workflow,
+  "package_version=\"$(node -p 'require(\"./packages/cli/package.json\").version')\"",
+  "npm package version guard"
+)
+
+require_includes!(
+  workflow,
+  'echo "packages/cli/package.json version ${package_version} does not match release tag ${release_version}" >&2',
+  "explicit npm version mismatch failure"
+)
+
+require_includes!(
+  workflow,
+  'npm publish --access public --tag "$npm_tag"',
+  "npm publish command"
 )
 
 require_includes!(

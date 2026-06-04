@@ -16,7 +16,7 @@ Release and install surfaces live outside `engine/` and are still part of the pr
 - `.github/workflows/` for CI and release automation.
 - `scripts/` for release artifact generation, pack indexes, and curl installation.
 - `homebrew/` for the draft Homebrew formula.
-- `packages/cli/` for the optional `@wax/cli` npm wrapper.
+- `packages/cli/` for the optional `@waxhq/wax` npm wrapper.
 
 Keep generated scan output out of git, especially `.wax/` and global `~/.wax/` state.
 

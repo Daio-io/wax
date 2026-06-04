@@ -1,14 +1,14 @@
-# @wax/cli
+# @waxhq/wax
 
 Optional alpha npm wrapper for the wax design-system analysis CLI.
 
 ```bash
-npm install -g @wax/cli
+npm install -g @waxhq/wax@alpha
 wax --help
 ```
 
 ```bash
-npx @wax/cli --help
+npx @waxhq/wax@alpha --help
 ```
 
 During `postinstall`, this package downloads the host `wax` binary from the matching GitHub Release, verifies its `sha256`, validates the archive shape, and exposes `wax` through npm.
@@ -23,6 +23,8 @@ The curl installer remains the primary alpha install path while the npm wrapper 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Daio-io/wax/main/scripts/install.sh | bash
 ```
+
+Release maintainers must publish prereleases under the `alpha` dist-tag and configure npm trusted publishing for `Daio-io/wax` + `release.yml` before relying on CI publish.
 
 Local/test environment variables:
 
