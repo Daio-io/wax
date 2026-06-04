@@ -2283,6 +2283,7 @@ dependencies = [
  "time",
  "wax-contract",
  "wax-lang-api",
+ "wax-lang-compose",
 ]
 
 [[package]]
