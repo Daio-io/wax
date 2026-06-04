@@ -95,11 +95,20 @@ pub fn run_registry_discover(
     .map_err(|source| RegistryDiscoverCommandError::Io { source })?;
     writeln!(
         writer,
+        "Review before committing: deterministic discovery may include false positives."
+    )
+    .map_err(|source| RegistryDiscoverCommandError::Io { source })?;
+    writeln!(
+        writer,
+        "Run `wax language update` to refresh registry locks."
+    )
+    .map_err(|source| RegistryDiscoverCommandError::Io { source })?;
+    writeln!(
+        writer,
         "Run `wax validate` to verify repository configuration."
     )
     .map_err(|source| RegistryDiscoverCommandError::Io { source })?;
     write_config_roots_warning(result.used_config_roots);
-    eprintln!("warning: deterministic discovery may include false positives.");
 
     Ok(())
 }

@@ -159,6 +159,15 @@ wax init --non-interactive --language compose
 
 `wax scan` requires at least one component symbol in `components[]`.
 
+To discover components from Compose sources instead of hand-editing the registry:
+
+```bash
+wax registry discover --language compose --dry-run
+wax registry discover --language compose
+wax language update
+wax validate
+```
+
 4. Validate repository configuration:
 
 ```bash
