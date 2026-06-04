@@ -2,6 +2,7 @@
 
 #![deny(missing_docs)]
 
+pub mod discover;
 mod tree_sitter_scan;
 
 use std::path::Path;
