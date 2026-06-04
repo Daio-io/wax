@@ -25,9 +25,6 @@ pub struct RegistryDiscoverCommandOptions {
 /// Errors returned by `wax registry discover`.
 #[derive(Debug, Error)]
 pub enum RegistryDiscoverCommandError {
-    /// No discovery roots were supplied.
-    #[error("no discovery roots configured; pass --root path/to/design-system")]
-    MissingRoots,
     /// Registry discovery orchestration failed.
     #[error(transparent)]
     Discover(#[from] RegistryDiscoverError),
@@ -45,15 +42,10 @@ pub fn run_registry_discover(
     options: RegistryDiscoverCommandOptions,
     writer: &mut impl Write,
 ) -> Result<(), RegistryDiscoverCommandError> {
-    if options.roots.is_empty() {
-        return Err(RegistryDiscoverCommandError::MissingRoots);
-    }
-
-    let root_count = options.roots.len();
     let language_id = options.language_id.clone();
     let dry_run = options.dry_run;
     let repo_root = options.repo_root.clone();
-    let roots = resolve_discovery_roots(&repo_root, options.roots);
+    let roots = resolve_cli_roots(&repo_root, options.roots);
 
     let result = discover_registry(RegistryDiscoverOptions {
         repo_root: &repo_root,
@@ -62,6 +54,8 @@ pub fn run_registry_discover(
         dry_run: options.dry_run,
         force: options.force,
     })?;
+
+    let root_count = result.root_count;
 
     let component_count = result
         .registry
@@ -77,7 +71,13 @@ pub fn run_registry_discover(
             }
         })?;
         writeln!(writer, "{json}").map_err(|source| RegistryDiscoverCommandError::Io { source })?;
-        write_diagnostics(component_count, &language_id, root_count, true);
+        write_diagnostics(
+            component_count,
+            &language_id,
+            root_count,
+            true,
+            result.used_config_roots,
+        );
         return Ok(());
     }
 
@@ -98,12 +98,13 @@ pub fn run_registry_discover(
         "Run `wax validate` to verify repository configuration."
     )
     .map_err(|source| RegistryDiscoverCommandError::Io { source })?;
+    write_config_roots_warning(result.used_config_roots);
     eprintln!("warning: deterministic discovery may include false positives.");
 
     Ok(())
 }
 
-fn resolve_discovery_roots(repo_root: &Path, roots: Vec<PathBuf>) -> Vec<PathBuf> {
+fn resolve_cli_roots(repo_root: &Path, roots: Vec<PathBuf>) -> Vec<PathBuf> {
     roots
         .into_iter()
         .map(|root| {
@@ -116,7 +117,13 @@ fn resolve_discovery_roots(repo_root: &Path, roots: Vec<PathBuf>) -> Vec<PathBuf
         .collect()
 }
 
-fn write_diagnostics(component_count: usize, language_id: &str, root_count: usize, dry_run: bool) {
+fn write_diagnostics(
+    component_count: usize,
+    language_id: &str,
+    root_count: usize,
+    dry_run: bool,
+    used_config_roots: bool,
+) {
     let root_label = if root_count == 1 { "root" } else { "roots" };
     eprintln!(
         "Discovered {component_count} {language_id} registry components from {root_count} {root_label}."
@@ -124,7 +131,16 @@ fn write_diagnostics(component_count: usize, language_id: &str, root_count: usiz
     if dry_run {
         eprintln!("Dry run: no registry file was written.");
     }
+    write_config_roots_warning(used_config_roots);
     eprintln!("warning: deterministic discovery may include false positives.");
+}
+
+fn write_config_roots_warning(used_config_roots: bool) {
+    if used_config_roots {
+        eprintln!(
+            "warning: using configured language roots; prefer --root path/to/design-system when scanning a design-system package."
+        );
+    }
 }
 
 fn display_output_path(repo_root: &Path, output_path: &Path) -> String {
@@ -141,7 +157,7 @@ mod tests {
     #[test]
     fn relative_roots_are_resolved_against_repo_root() {
         let repo_root = PathBuf::from("/tmp/repo");
-        let roots = resolve_discovery_roots(&repo_root, vec![PathBuf::from("src/main/kotlin")]);
+        let roots = resolve_cli_roots(&repo_root, vec![PathBuf::from("src/main/kotlin")]);
 
         assert_eq!(roots, vec![PathBuf::from("/tmp/repo/src/main/kotlin")]);
     }
@@ -150,7 +166,7 @@ mod tests {
     fn absolute_roots_are_left_unchanged() {
         let repo_root = PathBuf::from("/tmp/repo");
         let absolute = PathBuf::from("/abs/design-system/src/main/kotlin");
-        let roots = resolve_discovery_roots(&repo_root, vec![absolute.clone()]);
+        let roots = resolve_cli_roots(&repo_root, vec![absolute.clone()]);
 
         assert_eq!(roots, vec![absolute]);
     }
