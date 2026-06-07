@@ -36,7 +36,7 @@ This plan is a draft. Do not implement it until maintainers add it to `docs/plan
 - Create `engine/crates/wax-lang-react/src/swc_parse.rs`
   - Parse JS/TS/JSX/TSX files and map SWC spans to repo-relative locations.
 - Create `engine/crates/wax-lang-react/src/module_graph.rs`
-  - Resolve imports, exports, re-exports, aliases, and configured package entrypoints.
+  - Resolve imports, exports, one-hop direct re-exports, aliases, and configured package entrypoints.
 - Create `engine/crates/wax-lang-react/src/extract.rs`
   - Discover local components and collect JSX usage sites.
 - Create `engine/crates/wax-lang-react/src/facts.rs`
@@ -77,7 +77,7 @@ Use the Compose pattern:
 
 - [ ] **Step 3: Validate paths**
 
-Reject absolute paths and parent-directory segments for registry, roots, `tsconfig`, aliases, package export targets, and ignore patterns that are path-like escapes.
+Reject absolute paths and parent-directory segments for registry, roots, `tsconfig`, aliases, package export targets, and ignore patterns that are path-like escapes. These are fatal config errors and should map to a wire error, not partial facts.
 
 - [ ] **Step 4: Add focused config tests**
 
@@ -188,7 +188,7 @@ Support named imports, default imports, namespace imports, and local aliases.
 
 - [ ] **Step 2: Index exports**
 
-Support named exports, default exports, and direct re-exports.
+Support named exports, default exports, and one-hop direct re-exports such as `export { Button } from "./Button"`. Deeper barrel chains and multi-hop re-export graphs are deferred to React v1.1.
 
 - [ ] **Step 3: Resolve relative imports**
 
@@ -200,7 +200,7 @@ Use `tsconfig`, explicit `aliases`, and `packages` config to map import specifie
 
 - [ ] **Step 5: Emit resolver diagnostics**
 
-Unresolved imports and exports should not fail the whole scan unless config is invalid.
+Unresolved design-system-relevant imports and exports should not fail the whole scan unless config is invalid. Emit diagnostics only when a configured design-system package import, configured package entrypoint, or registry-name candidate cannot resolve.
 
 - [ ] **Step 6: Add graph tests**
 
@@ -257,9 +257,9 @@ Resolve local aliases to imported/exported symbols.
 
 Emit `UsageSite` only when the resolved symbol or alias maps to a registry component.
 
-- [ ] **Step 4: Add unresolved usage diagnostics**
+- [ ] **Step 4: Add scoped unresolved usage diagnostics**
 
-Unresolved JSX names should produce diagnostics without affecting resolved counts.
+Unresolved JSX names should produce diagnostics only when they are design-system-relevant candidates: imported from configured design-system packages, matched by configured package entrypoints, or matching registry symbols or aliases. Ordinary local and third-party JSX names should not produce diagnostics. Unresolved candidates must not affect resolved counts.
 
 - [ ] **Step 5: Add usage extraction tests**
 
@@ -287,7 +287,7 @@ Use existing contract helpers before returning facts.
 
 - [ ] **Step 3: Map errors to wire responses**
 
-Config errors, parser initialization errors, registry errors, and scan failures should map to stable wire error codes.
+Fatal config errors, parser initialization errors, registry errors, and scan failures should map to stable wire error codes. Recoverable resolver gaps should return partial facts with diagnostics.
 
 - [ ] **Step 4: Add golden fixture test**
 

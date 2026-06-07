@@ -39,7 +39,7 @@ The pack should:
 - discover local React component declarations;
 - find JSX usage sites;
 - count a JSX usage as design-system usage only when it resolves to a registry symbol;
-- emit unresolved or unsupported cases as diagnostics instead of silently treating them as accurate facts.
+- emit design-system-relevant unresolved or unsupported cases as diagnostics instead of silently treating them as accurate facts.
 
 Bare JSX names should not be enough to produce resolved design-system usage in v1. For example, `<Button />` should count as registry usage only when the local module graph shows that `Button` was imported or re-exported from a configured design-system source. This avoids false positives when local app components share design-system-like names.
 
@@ -159,7 +159,7 @@ Suggested internal modules:
 - `registry`: load registry symbols and aliases into a resolver-friendly index.
 - `files`: collect supported source files under resolved roots.
 - `swc_parse`: parse source files and return module ASTs with source locations.
-- `module_graph`: index imports, exports, re-exports, aliases, and configured package entrypoints.
+- `module_graph`: index imports, exports, one-hop direct re-exports, aliases, and configured package entrypoints.
 - `extract`: discover local components and JSX usage sites.
 - `facts`: convert internal results into `ScanFacts`.
 
@@ -195,12 +195,34 @@ React v1 should collect JSX opening elements:
 The extractor should resolve the JSX tag through the module graph:
 
 1. Find the binding in the current module.
-2. Resolve imports and re-exports to a source module and exported symbol.
+2. Resolve imports and one-hop direct re-exports to a source module and exported symbol.
 3. Apply configured aliases and package entrypoints.
 4. Match the resolved symbol or alias against the registry index.
 5. Emit a `UsageSite` only for resolved registry usage.
 
-When resolution fails, the pack should emit a diagnostic with the file and location when available. It should not inflate adoption counts with unresolved JSX names.
+When resolution fails, the pack should emit a diagnostic only for design-system-relevant candidates: imports from configured design-system packages, package entrypoints listed in React config, or JSX names that match registry symbols or aliases but cannot be resolved. Ordinary local or third-party JSX components should not produce unresolved diagnostics. Unresolved JSX names must not inflate adoption counts.
+
+React v1 supports direct one-hop re-exports such as `export { Button } from "./Button"` when resolving a configured design-system package entrypoint. Deeper barrel chains and workspace-wide re-export graphs belong to React v1.1.
+
+## Error Semantics
+
+React should separate fatal config errors from recoverable resolver gaps.
+
+Fatal config errors return a wire error and no `ScanFacts`:
+
+- malformed config value types;
+- missing required `registry` or `roots` when scan config is present;
+- absolute paths or parent-directory escapes;
+- invalid `targets`, `aliases`, `packages`, or package export shapes;
+- unreadable or malformed registry JSON.
+
+Recoverable resolver gaps return `ScanFacts` with `Partial` status and diagnostics:
+
+- configured roots missing or wildcard roots matching nothing;
+- source file parse failures;
+- configured package entrypoints that do not resolve to source files;
+- design-system package imports that cannot be resolved with the available config;
+- unsupported module syntax that skips an import/export edge while leaving the file otherwise usable.
 
 ## Diagnostics and Status
 
@@ -211,7 +233,7 @@ The scan should return `Partial` when any of these occur:
 - configured root missing;
 - wildcard root matched nothing;
 - source file parse failure;
-- invalid or missing resolver config that prevents configured package imports from resolving;
+- missing resolver coverage that prevents configured design-system package imports from resolving;
 - unsupported module syntax causes a file or import edge to be skipped.
 
 Stable diagnostic codes should include:
@@ -219,9 +241,8 @@ Stable diagnostic codes should include:
 - `root_not_found`
 - `root_glob_not_found`
 - `parse_failed`
-- `config_invalid`
-- `import_unresolved`
-- `export_unresolved`
+- `ds_import_unresolved`
+- `ds_export_unresolved`
 - `package_entrypoint_unresolved`
 - `unsupported_dynamic_import`
 - `unsupported_jsx_member`
@@ -257,8 +278,8 @@ React v1 should have focused tests at each boundary:
 - file collection finds `.js`, `.jsx`, `.ts`, and `.tsx` and skips unsupported files;
 - SWC parsing handles TypeScript and JSX;
 - local component discovery covers function declarations, arrow components, exports, default exports, and simple wrappers;
-- usage extraction resolves named imports, default imports, aliased imports, relative imports, re-exports, and configured package entrypoints;
-- unresolved imports produce diagnostics and do not count as resolved usage;
+- usage extraction resolves named imports, default imports, aliased imports, relative imports, one-hop direct re-exports, and configured package entrypoints;
+- unresolved design-system-relevant imports produce diagnostics and do not count as resolved usage;
 - golden fixture scan emits stable `ScanFacts`.
 
 ## Documentation
