@@ -109,16 +109,30 @@ React v1 should accept the same simple registry component fields Compose already
     {
       "id": "ds.button",
       "symbol": "Button",
-      "aliases": ["PrimaryButton"]
+      "aliases": ["PrimaryButton"],
+      "targets": ["react", "compose"]
     }
   ]
 }
 ```
 
+`targets` is an optional additive field for platform-specific registry availability. When omitted or null, the component is available to every language pack that can resolve the symbol. When present, it is an allow-list of language ids. A React-only component can therefore be modeled as:
+
+```json
+{
+  "id": "ds.data-grid",
+  "symbol": "DataGrid",
+  "targets": ["react"]
+}
+```
+
+Language packs must exclude registry components whose `targets` array is present and does not contain their language id. Excluded components do not appear in that language's `design_system_components` facts and do not contribute to that language's coverage denominator. This prevents a web-only component from being reported as unused by Compose, while keeping existing registries compatible because missing `targets` preserves the current all-languages behavior.
+
 Matching rules:
 
 - `symbol` is the canonical registry symbol.
 - `aliases` are alternate imported or exported names that resolve to the canonical symbol.
+- `targets` limits which language packs should consider the component available. Missing `targets` means all languages.
 - A JSX usage resolved through an alias emits `symbol` as the observed source symbol and `registry_symbol` as the canonical registry symbol.
 - Candidate and unresolved matches are diagnostics in v1 unless the current `ScanFacts` contract already has a clear usage status for that case.
 

@@ -96,17 +96,23 @@ cargo test -p wax-lang-react config
 
 - [ ] **Step 1: Read schema v1 registry JSON**
 
-Load `components[].symbol` and optional `components[].aliases`.
+Load `components[].symbol`, optional `components[].aliases`, and optional `components[].targets`.
 
 - [ ] **Step 2: Build canonical and alias maps**
 
-Map every observed registry name to its canonical registry symbol.
+Map every observed registry name to its canonical registry symbol for components available to React. If `targets` is missing or null, include the component. If `targets` is present, include the component only when it contains `"react"`.
 
-- [ ] **Step 3: Add invalid registry diagnostics/errors**
+- [ ] **Step 3: Exclude non-React targets from React facts**
+
+Do not emit non-React-targeted registry entries in `design_system_components`, and do not let them contribute to React coverage counts.
+
+- [ ] **Step 4: Add invalid registry diagnostics/errors**
 
 Malformed JSON, missing components array, non-string symbols, and empty registries must fail with typed errors.
 
-- [ ] **Step 4: Add registry unit tests**
+- [ ] **Step 5: Add registry unit tests**
+
+Cover omitted `targets`, null `targets`, `targets: ["react"]`, and `targets` arrays that exclude React.
 
 Run:
 
