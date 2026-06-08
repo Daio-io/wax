@@ -19,7 +19,7 @@
 
 ## Scheduling Gate
 
-This plan is a draft. Do not implement it until maintainers add it to `docs/plans/README.md` with an explicit gate and active implementation status.
+This plan is the current active implementation plan. Task 1 is complete in this PR; after it lands, Task 2 is the next task to execute.
 
 ## File Structure
 
@@ -51,13 +51,13 @@ This plan is a draft. Do not implement it until maintainers add it to `docs/plan
 
 ## Phase 1 - Config, Registry, and File Collection
 
-### - [ ] Task 1: Add React scan config parsing
+### - [x] Task 1: Add React scan config parsing
 
 **Files:**
 - Create: `engine/crates/wax-lang-react/src/config.rs`
 - Modify: `engine/crates/wax-lang-react/src/lib.rs`
 
-- [ ] **Step 1: Define `ReactScanConfig`**
+- [x] **Step 1: Define `ReactScanConfig`**
 
 Include:
 
@@ -68,18 +68,18 @@ Include:
 - `aliases: BTreeMap<String, Vec<String>>`
 - `packages: BTreeMap<String, PackageConfig>`
 
-- [ ] **Step 2: Define config modes**
+- [x] **Step 2: Define config modes**
 
 Use the Compose pattern:
 
 - `Scaffold` for empty config to preserve the current contributor-only stdio smoke path.
 - `Configured(ReactScanConfig)` when registry and roots are present.
 
-- [ ] **Step 3: Validate paths**
+- [x] **Step 3: Validate paths**
 
 Reject absolute paths and parent-directory segments for registry, roots, `tsconfig`, aliases, package export targets, and ignore patterns that are path-like escapes. These are fatal config errors and should map to a wire error, not partial facts.
 
-- [ ] **Step 4: Add focused config tests**
+- [x] **Step 4: Add focused config tests**
 
 Run:
 

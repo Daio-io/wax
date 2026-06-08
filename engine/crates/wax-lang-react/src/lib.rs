@@ -2,12 +2,16 @@
 
 #![deny(missing_docs)]
 
+mod config;
+
 use time::OffsetDateTime;
 use wax_contract::{
     CountSummary, Diagnostic, DiagnosticSeverity, LanguageId, LanguageMetadata, Metrics,
     SCHEMA_VERSION, ScanFacts, ScanFactsError, ScanStatus,
 };
 use wax_lang_api::{ScanRequest, build_version};
+
+pub use config::{PackageConfig, ReactConfigMode, ReactScanConfig, parse_react_scan_config};
 
 /// Errors returned by [`ReactLanguage::scan`].
 #[derive(Debug)]
@@ -16,6 +20,8 @@ pub enum ReactScanError {
     InvalidLanguageId(String),
     /// Failed to produce contract-valid facts.
     InvalidFacts(ScanFactsError),
+    /// React scan config was present but invalid.
+    InvalidConfig(String),
 }
 
 impl std::fmt::Display for ReactScanError {
@@ -23,11 +29,19 @@ impl std::fmt::Display for ReactScanError {
         match self {
             Self::InvalidLanguageId(id) => write!(f, "invalid react language id: {id}"),
             Self::InvalidFacts(err) => write!(f, "react facts validation failed: {err}"),
+            Self::InvalidConfig(reason) => write!(f, "invalid react scan config: {reason}"),
         }
     }
 }
 
-impl std::error::Error for ReactScanError {}
+impl std::error::Error for ReactScanError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::InvalidLanguageId(_) | Self::InvalidConfig(_) => None,
+            Self::InvalidFacts(err) => Some(err),
+        }
+    }
+}
 
 /// React language extractor.
 #[derive(Debug, Default)]
@@ -50,6 +64,9 @@ impl ReactLanguage {
                 request.language_id.to_string(),
             ));
         }
+
+        let _config_mode = parse_react_scan_config(&request.config)
+            .map_err(|err| ReactScanError::InvalidConfig(err.reason().to_owned()))?;
 
         let mut facts = ScanFacts {
             schema_version: SCHEMA_VERSION,
