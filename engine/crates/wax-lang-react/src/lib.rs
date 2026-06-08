@@ -3,6 +3,7 @@
 #![deny(missing_docs)]
 
 mod config;
+mod extract;
 mod files;
 mod module_graph;
 mod registry;
@@ -18,6 +19,7 @@ use wax_contract::{
 use wax_lang_api::{ScanRequest, build_version};
 
 pub use config::{PackageConfig, ReactConfigMode, ReactScanConfig, parse_react_scan_config};
+pub use extract::discover_local_components;
 pub use files::{ReactFileCollectionError, ReactSourceFileCollection, collect_react_source_files};
 pub use module_graph::{
     ExportBinding, ImportBinding, ImportedSymbol, ReactModuleGraph, ReactModuleGraphBuild,

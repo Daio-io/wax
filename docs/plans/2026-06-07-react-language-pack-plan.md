@@ -19,7 +19,7 @@
 
 ## Scheduling Gate
 
-This plan is the current active implementation plan. Task 4 is complete; Task 5 is active in this PR.
+This plan is the current active implementation plan. Task 5 is complete; Task 6 is active in this PR.
 
 ## File Structure
 
@@ -213,24 +213,24 @@ cargo test -p wax-lang-react module_graph
 
 ## Phase 3 - Extraction and Facts
 
-### - [ ] Task 6: Discover local React components
+### - [x] Task 6: Discover local React components
 
 **Files:**
 - Create: `engine/crates/wax-lang-react/src/extract.rs`
 
-- [ ] **Step 1: Detect JSX-returning declarations**
+- [x] **Step 1: Detect JSX-returning declarations**
 
 Support PascalCase function declarations and PascalCase arrow/function expressions.
 
-- [ ] **Step 2: Detect simple exported components**
+- [x] **Step 2: Detect simple exported components**
 
 Support named exports and default exports when a stable component name can be derived.
 
-- [ ] **Step 3: Detect simple wrapper calls**
+- [x] **Step 3: Detect simple wrapper calls**
 
 Support direct `memo(Component)` and `forwardRef(function Component(...))` cases.
 
-- [ ] **Step 4: Add local component tests**
+- [x] **Step 4: Add local component tests**
 
 Run:
 
