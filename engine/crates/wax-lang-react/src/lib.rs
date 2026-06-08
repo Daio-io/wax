@@ -3,6 +3,7 @@
 #![deny(missing_docs)]
 
 mod config;
+mod files;
 mod registry;
 
 use std::path::Path;
@@ -15,6 +16,7 @@ use wax_contract::{
 use wax_lang_api::{ScanRequest, build_version};
 
 pub use config::{PackageConfig, ReactConfigMode, ReactScanConfig, parse_react_scan_config};
+pub use files::{ReactFileCollectionError, ReactSourceFileCollection, collect_react_source_files};
 pub use registry::{ReactRegistryIndex, RegistryError, load_react_registry};
 
 /// Errors returned by [`ReactLanguage::scan`].
@@ -28,6 +30,13 @@ pub enum ReactScanError {
     InvalidConfig(String),
     /// Design-system registry could not be loaded.
     RegistryInvalid(String),
+    /// A filesystem operation failed during source collection.
+    Io {
+        /// Human-readable context for the failed operation.
+        context: String,
+        /// Underlying I/O error.
+        source: std::io::Error,
+    },
 }
 
 impl std::fmt::Display for ReactScanError {
@@ -37,6 +46,7 @@ impl std::fmt::Display for ReactScanError {
             Self::InvalidFacts(err) => write!(f, "react facts validation failed: {err}"),
             Self::InvalidConfig(reason) => write!(f, "invalid react scan config: {reason}"),
             Self::RegistryInvalid(reason) => write!(f, "invalid react registry: {reason}"),
+            Self::Io { context, source } => write!(f, "{context}: {source}"),
         }
     }
 }
@@ -46,6 +56,15 @@ impl std::error::Error for ReactScanError {
         match self {
             Self::InvalidLanguageId(_) | Self::InvalidConfig(_) | Self::RegistryInvalid(_) => None,
             Self::InvalidFacts(err) => Some(err),
+            Self::Io { source, .. } => Some(source),
+        }
+    }
+}
+
+impl From<ReactFileCollectionError> for ReactScanError {
+    fn from(err: ReactFileCollectionError) -> Self {
+        match err {
+            ReactFileCollectionError::Io { context, source } => Self::Io { context, source },
         }
     }
 }
@@ -78,11 +97,13 @@ impl ReactLanguage {
         let mut facts = match config_mode {
             ReactConfigMode::Scaffold => scaffold_facts(request, react_language_id),
             ReactConfigMode::Configured(config) => {
-                let registry_path =
-                    Path::new(&request.repo_root).join(&config.design_system_registry);
+                let repo_root = Path::new(&request.repo_root);
+                let registry_path = repo_root.join(&config.design_system_registry);
                 let registry = load_react_registry(&registry_path)
                     .map_err(|err| ReactScanError::RegistryInvalid(err.reason().to_owned()))?;
-                configured_scaffold_facts(request, react_language_id, registry)
+                let collection =
+                    collect_react_source_files(repo_root, &config.roots, &config.ignore)?;
+                configured_scaffold_facts(request, react_language_id, registry, collection)
             }
         };
 
@@ -136,7 +157,17 @@ fn configured_scaffold_facts(
     request: &ScanRequest,
     react_language_id: LanguageId,
     registry: ReactRegistryIndex,
+    collection: ReactSourceFileCollection,
 ) -> ScanFacts {
+    let mut diagnostics = collection.root_diagnostics;
+    diagnostics.push(Diagnostic {
+        severity: DiagnosticSeverity::Info,
+        code: "react_scaffold".to_owned(),
+        message: "React extraction is scaffolded but not implemented.".to_owned(),
+        location: None,
+    });
+    let files_scanned = u32::try_from(collection.files.len()).unwrap_or(u32::MAX);
+
     ScanFacts {
         schema_version: SCHEMA_VERSION,
         language: LanguageMetadata {
@@ -152,16 +183,11 @@ fn configured_scaffold_facts(
         design_system_components: registry.design_system_components,
         local_components: Vec::new(),
         usage_sites: Vec::new(),
-        diagnostics: vec![Diagnostic {
-            severity: DiagnosticSeverity::Info,
-            code: "react_scaffold".to_owned(),
-            message: "React extraction is scaffolded but not implemented.".to_owned(),
-            location: None,
-        }],
+        diagnostics,
         metrics: Metrics {
             adoption_coverage_ratio: None,
             parse_extract_ms: 0,
-            files_scanned: 0,
+            files_scanned,
         },
         counts: CountSummary {
             design_system_component_count: 0,
