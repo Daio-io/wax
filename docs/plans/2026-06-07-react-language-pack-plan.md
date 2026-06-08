@@ -19,7 +19,7 @@
 
 ## Scheduling Gate
 
-This plan is the current active implementation plan. Task 4 is complete in this PR; after it lands, Task 5 is the next task to execute.
+This plan is the current active implementation plan. Task 4 is complete; Task 5 is active in this PR.
 
 ## File Structure
 
@@ -177,32 +177,32 @@ cd engine
 cargo test -p wax-lang-react swc_parse
 ```
 
-### - [ ] Task 5: Build import/export module graph
+### - [x] Task 5: Build import/export module graph
 
 **Files:**
 - Create: `engine/crates/wax-lang-react/src/module_graph.rs`
 
-- [ ] **Step 1: Index imports**
+- [x] **Step 1: Index imports**
 
 Support named imports, default imports, namespace imports, and local aliases.
 
-- [ ] **Step 2: Index exports**
+- [x] **Step 2: Index exports**
 
 Support named exports, default exports, and one-hop direct re-exports such as `export { Button } from "./Button"`. Deeper barrel chains and multi-hop re-export graphs are deferred to React v1.1.
 
-- [ ] **Step 3: Resolve relative imports**
+- [x] **Step 3: Resolve relative imports**
 
 Resolve extensionless paths and `index` modules for supported source extensions.
 
-- [ ] **Step 4: Resolve configured aliases and package entrypoints**
+- [x] **Step 4: Resolve configured aliases and package entrypoints**
 
 Use `tsconfig`, explicit `aliases`, and `packages` config to map import specifiers to repo-relative source modules.
 
-- [ ] **Step 5: Emit resolver diagnostics**
+- [x] **Step 5: Emit resolver diagnostics**
 
 Unresolved design-system-relevant imports and exports should not fail the whole scan unless config is invalid. Emit diagnostics only when a configured design-system package import, configured package entrypoint, or registry-name candidate cannot resolve.
 
-- [ ] **Step 6: Add graph tests**
+- [x] **Step 6: Add graph tests**
 
 Run:
 
