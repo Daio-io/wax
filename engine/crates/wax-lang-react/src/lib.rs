@@ -4,6 +4,7 @@
 
 mod config;
 mod files;
+mod module_graph;
 mod registry;
 mod swc_parse;
 
@@ -18,6 +19,10 @@ use wax_lang_api::{ScanRequest, build_version};
 
 pub use config::{PackageConfig, ReactConfigMode, ReactScanConfig, parse_react_scan_config};
 pub use files::{ReactFileCollectionError, ReactSourceFileCollection, collect_react_source_files};
+pub use module_graph::{
+    ExportBinding, ImportBinding, ImportedSymbol, ReactModuleGraph, ReactModuleGraphBuild,
+    ReactModuleRecord, ResolvedSymbol, build_react_module_graph,
+};
 pub use registry::{ReactRegistryIndex, RegistryError, load_react_registry};
 pub use swc_parse::{
     ParsedReactModule, ReactParseError, ReactParseOutcome, parse_react_source_file,
