@@ -10,6 +10,8 @@ use wax_lang_api::{RootPatternKind, RootResolutionError, resolve_source_roots};
 /// Default ignore glob patterns applied before configured `ignore` entries.
 pub const DEFAULT_IGNORE_PATTERNS: &[&str] = &[
     "**/node_modules/**",
+    "**/generated/**",
+    "**/__generated__/**",
     "**/*.d.ts",
     "**/*.stories.{js,jsx,ts,tsx}",
     "**/*.{spec,test}.{js,jsx,ts,tsx}",
@@ -128,6 +130,11 @@ fn walk_source_root(
             continue;
         }
         if file_type.is_dir() {
+            let relative = path.strip_prefix(repo_root).unwrap_or(&path).to_path_buf();
+            let relative_text = normalize_repo_relative_path(&relative);
+            if path_matches_any(&relative_text, ignore_patterns) {
+                continue;
+            }
             walk_source_root(&path, repo_root, ignore_patterns, files)?;
         } else if is_supported_react_source(&path) {
             let relative = path.strip_prefix(repo_root).unwrap_or(&path).to_path_buf();
@@ -343,6 +350,10 @@ mod tests {
             "export {}",
         )
         .unwrap();
+        fs::create_dir_all(tmp.path().join("src/generated/deep")).unwrap();
+        fs::write(tmp.path().join("src/generated/deep/App.tsx"), "export {}").unwrap();
+        fs::create_dir_all(tmp.path().join("src/__generated__")).unwrap();
+        fs::write(tmp.path().join("src/__generated__/Card.tsx"), "export {}").unwrap();
 
         let collection = collect_react_source_files(tmp.path(), &[PathBuf::from("src")], &[])
             .expect("collection should succeed");
@@ -437,6 +448,7 @@ mod tests {
         assert!(collection.root_diagnostics.is_empty());
     }
 
+    #[cfg(unix)]
     #[test]
     fn files_skips_symlinked_directories() {
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -444,18 +456,33 @@ mod tests {
         fs::create_dir_all(&real_dir).unwrap();
         fs::write(real_dir.join("App.tsx"), "export {}").unwrap();
         fs::create_dir_all(tmp.path().join("src")).unwrap();
-        #[cfg(unix)]
-        {
-            std::os::unix::fs::symlink(&real_dir, tmp.path().join("src/link")).unwrap();
-        }
+        std::os::unix::fs::symlink(&real_dir, tmp.path().join("src/link")).unwrap();
 
         let collection = collect_react_source_files(tmp.path(), &[PathBuf::from("src")], &[])
             .expect("collection should succeed");
 
-        #[cfg(unix)]
         assert!(collection.files.is_empty());
-        #[cfg(not(unix))]
-        assert_eq!(collection.files, vec![PathBuf::from("src/link/App.tsx")]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn files_skips_ignored_directories_before_recursion() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        fs::create_dir_all(tmp.path().join("src")).unwrap();
+        fs::write(tmp.path().join("src/App.tsx"), "export {}").unwrap();
+        let node_modules = tmp.path().join("src/node_modules");
+        fs::create_dir_all(node_modules.join("pkg")).unwrap();
+        fs::write(node_modules.join("pkg/Ignored.tsx"), "export {}").unwrap();
+        let mut permissions = fs::metadata(&node_modules).unwrap().permissions();
+        permissions.set_mode(0o000);
+        fs::set_permissions(&node_modules, permissions).unwrap();
+
+        let collection = collect_react_source_files(tmp.path(), &[PathBuf::from("src")], &[])
+            .expect("collection should succeed without descending into node_modules");
+
+        assert_eq!(collection.files, vec![PathBuf::from("src/App.tsx")]);
     }
 
     #[test]
@@ -480,6 +507,14 @@ mod tests {
         assert!(path_matches_glob(
             "apps/web/src/App.spec.ts",
             "**/*.{spec,test}.{js,jsx,ts,tsx}"
+        ));
+        assert!(path_matches_glob(
+            "src/generated/deep/App.tsx",
+            "**/generated/**"
+        ));
+        assert!(path_matches_glob(
+            "src/__generated__/Card.tsx",
+            "**/__generated__/**"
         ));
         assert!(path_matches_glob(
             "src/generated/deep/App.tsx",
