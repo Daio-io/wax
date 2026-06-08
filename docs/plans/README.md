@@ -4,7 +4,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 
 **Rules:**
 
-1. **Plan document PRs** land in the order below (roadmap → release plan → registry sources/layout plan → registry discovery plan → post-alpha UX plan). Do not open implementation PRs from a plan until that plan’s doc row is `merged`.
+1. **Plan document PRs** land in the order below (roadmap → release plan → registry sources/layout plan → registry discovery plan → post-alpha UX plan → React language pack draft plan). Do not open implementation PRs from a plan until that plan’s doc row is `merged`.
 2. **Implementation** follows one plan at a time: complete (or explicitly defer) all tasks in the active plan before starting the next plan’s Task 1.
 3. Each implementation task remains **one PR per task** inside the active plan, per that plan’s execution model.
 4. Update the **Doc status** and **Implementation status** columns when a plan doc PR merges or when implementation of a plan finishes.
@@ -20,6 +20,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 | 3 | Registry sources and centralized wax layout | [2026-06-02-registry-sources-and-wax-layout.md](./2026-06-02-registry-sources-and-wax-layout.md) | `merged` | `complete` | Order 2 implementation `complete`; may run before registry discover/draft |
 | 4 | Registry discovery and skill-assisted sync | [2026-06-04-registry-discovery-plan.md](./2026-06-04-registry-discovery-plan.md) | `merged` | `complete` | Order 3 implementation `complete`; plan doc merged |
 | 5 | Post-alpha UX | [2026-05-24-post-alpha-ux-plan.md](./2026-05-24-post-alpha-ux-plan.md) | `merged` | `not-started` | Order 4 implementation `complete`; order 2 public alpha shipped (`v0.1.0-alpha.1` or agreed tag) |
+| 6 | React language pack | [2026-06-07-react-language-pack-plan.md](./2026-06-07-react-language-pack-plan.md) | `pending` | `not-started` | Future/draft only; maintainers must explicitly promote this row to an active implementation gate after reviewing the React design and roadmap |
 
 **Doc status:** `pending` → plan PR open; `merged` → plan doc on `main`; `planned` → not yet drafted.
 
@@ -62,6 +63,12 @@ ELSE IF order 5 gate not satisfied (public alpha not shipped)
 ELSE IF order 5 implementation is not complete
   → execute 2026-05-24-post-alpha-ux-plan.md from Task 1
 
+ELSE IF order 6 gate not satisfied (maintainers have not explicitly promoted React implementation)
+  → do not implement React language pack tasks; review 2026-06-07-react-language-pack-design.md and roadmap only
+
+ELSE IF order 6 implementation is not complete
+  → execute 2026-06-07-react-language-pack-plan.md from Task 1
+
 ELSE
   → pick next `planned` product plan (export, richer registry metadata, etc.)
 ```
@@ -79,6 +86,7 @@ This table records the plan-document PR associated with each execution-order row
 | 3 | `dai/registry-sources-plans` | #66 (merged) | Registry sources and centralized wax layout design + implementation plan |
 | 4 | `docs/registry-discovery-plan` | #87 (merged) | Registry discovery design + implementation plan |
 | 5 | `docs/post-alpha-ux-plan` | #34 (merged) | Post-alpha UX plan + links |
+| 6 | `codex/react-language-pack-plan` | #95 (pending) | React language pack design, implementation plan, and capability roadmap |
 
 Plan document PRs #32, #33, #34, #66, and #87 are merged on `main`.
 
@@ -89,3 +97,4 @@ Plan document PRs #32, #33, #34, #66, and #87 are merged on `main`.
 - [Language packs and distribution](../specs/2026-05-16-language-packs-and-distribution.md) — contracts, CLI names, distribution
 - [Component tracker design](../specs/2026-05-13-component-tracker-design.md) — product scope and future surfaces
 - [Registry discovery and skill-assisted sync](./2026-06-04-registry-discovery-design.md) — registry authoring phase (order 4, complete)
+- [React language pack design](./2026-06-07-react-language-pack-design.md) — future/draft React parser-backed language pack scope
