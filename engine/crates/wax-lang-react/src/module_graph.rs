@@ -76,12 +76,6 @@ pub struct ReactModuleRecord {
     pub exports: BTreeMap<String, ExportBinding>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum LocalBinding {
-    Import(ImportBinding),
-    Declaration,
-}
-
 /// React import/export graph used by later extraction steps.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ReactModuleGraph {
@@ -204,7 +198,6 @@ pub fn build_react_module_graph(
     let mut graph = ReactModuleGraph::default();
     for parsed in parsed_modules {
         let mut record = ReactModuleRecord::default();
-        let mut local_bindings = BTreeMap::<String, LocalBinding>::new();
 
         for item in &parsed.module.body {
             let ModuleItem::ModuleDecl(decl) = item else {
@@ -242,7 +235,6 @@ pub fn build_react_module_graph(
                         if source_module.is_none()
                             && import_is_design_system_relevant(
                                 &source,
-                                &local_name,
                                 &imported_symbol,
                                 registry,
                                 config,
@@ -258,26 +250,25 @@ pub fn build_react_module_graph(
                             });
                         }
 
-                        let binding = ImportBinding {
-                            local_name: local_name.clone(),
-                            source_specifier: source.clone(),
-                            imported_symbol,
-                            source_module,
-                        };
-                        local_bindings
-                            .insert(local_name.clone(), LocalBinding::Import(binding.clone()));
-                        record.imports.insert(local_name, binding);
+                        record.imports.insert(
+                            local_name.clone(),
+                            ImportBinding {
+                                local_name,
+                                source_specifier: source.clone(),
+                                imported_symbol,
+                                source_module,
+                            },
+                        );
                     }
                 }
                 ModuleDecl::ExportDecl(export_decl) => {
-                    record_export_decl(export_decl, &mut record, &mut local_bindings);
+                    record_export_decl(export_decl, &mut record);
                 }
                 ModuleDecl::ExportDefaultDecl(_) | ModuleDecl::ExportDefaultExpr(_) => {
                     record.exports.insert(
                         "default".to_owned(),
                         ExportBinding::Local("default".to_owned()),
                     );
-                    local_bindings.insert("default".to_owned(), LocalBinding::Declaration);
                 }
                 ModuleDecl::ExportNamed(named_export) => {
                     let source = named_export
@@ -332,9 +323,6 @@ pub fn build_react_module_graph(
                                     exported_name,
                                     ExportBinding::Local(source_name.clone()),
                                 );
-                                local_bindings
-                                    .entry(source_name)
-                                    .or_insert(LocalBinding::Declaration);
                             }
                         }
                     }
@@ -349,16 +337,11 @@ pub fn build_react_module_graph(
     ReactModuleGraphBuild { graph, diagnostics }
 }
 
-fn record_export_decl(
-    export_decl: &ExportDecl,
-    record: &mut ReactModuleRecord,
-    local_bindings: &mut BTreeMap<String, LocalBinding>,
-) {
+fn record_export_decl(export_decl: &ExportDecl, record: &mut ReactModuleRecord) {
     for name in declared_names(&export_decl.decl) {
         record
             .exports
             .insert(name.clone(), ExportBinding::Local(name.clone()));
-        local_bindings.insert(name, LocalBinding::Declaration);
     }
 }
 
@@ -408,13 +391,11 @@ fn collect_pattern_names(pat: &Pat, names: &mut Vec<String>) {
 
 fn import_is_design_system_relevant(
     source: &str,
-    local_name: &str,
     imported_symbol: &ImportedSymbol,
     registry: &ReactRegistryIndex,
     config: &ReactScanConfig,
 ) -> bool {
     configured_package_for_specifier(source, &config.packages).is_some()
-        || registry.resolve_targets.contains_key(local_name)
         || match imported_symbol {
             ImportedSymbol::Named(name) => registry.resolve_targets.contains_key(name),
             ImportedSymbol::Default | ImportedSymbol::Namespace => false,
@@ -540,7 +521,7 @@ impl<'a> ModuleResolver<'a> {
         source_specifier: &str,
         imported_symbol: &ImportedSymbol,
     ) -> Option<PathBuf> {
-        let (package_name, package_config, remainder) =
+        let (package_config, remainder) =
             configured_package_for_specifier(source_specifier, &self.config.packages)?;
 
         let mut key_candidates = Vec::new();
@@ -573,7 +554,6 @@ impl<'a> ModuleResolver<'a> {
             }
         }
 
-        let _ = package_name;
         None
     }
 }
@@ -581,18 +561,23 @@ impl<'a> ModuleResolver<'a> {
 fn configured_package_for_specifier<'a, 'b>(
     specifier: &'a str,
     packages: &'b BTreeMap<String, PackageConfig>,
-) -> Option<(&'b str, &'b PackageConfig, &'a str)> {
+) -> Option<(&'b PackageConfig, &'a str)> {
+    let mut best_match: Option<(&'b PackageConfig, &'a str, usize)> = None;
     for (package_name, package) in packages {
-        if specifier == package_name {
-            return Some((package_name.as_str(), package, ""));
-        }
-        if let Some(remainder) = specifier.strip_prefix(package_name.as_str())
+        let (remainder, matched_len) = if specifier == package_name {
+            ("", package_name.len())
+        } else if let Some(remainder) = specifier.strip_prefix(package_name.as_str())
             && let Some(remainder) = remainder.strip_prefix('/')
         {
-            return Some((package_name.as_str(), package, remainder));
+            (remainder, package_name.len())
+        } else {
+            continue;
+        };
+        if best_match.is_none_or(|(_, _, len)| matched_len > len) {
+            best_match = Some((package, remainder, matched_len));
         }
     }
-    None
+    best_match.map(|(package, remainder, _)| (package, remainder))
 }
 
 fn resolve_repo_relative_target(target: &str, known_files: &BTreeSet<PathBuf>) -> Option<PathBuf> {
