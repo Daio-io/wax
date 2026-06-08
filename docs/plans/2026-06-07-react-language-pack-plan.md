@@ -19,7 +19,7 @@
 
 ## Scheduling Gate
 
-This plan is the current active implementation plan. Task 1 is complete in this PR; after it lands, Task 2 is the next task to execute.
+This plan is the current active implementation plan. Task 2 is complete in this PR; after it lands, Task 3 is the next task to execute.
 
 ## File Structure
 
@@ -88,29 +88,29 @@ cd engine
 cargo test -p wax-lang-react config
 ```
 
-### - [ ] Task 2: Load React registry symbols
+### - [x] Task 2: Load React registry symbols
 
 **Files:**
 - Create: `engine/crates/wax-lang-react/src/registry.rs`
 - Modify: `engine/crates/wax-lang-react/src/lib.rs`
 
-- [ ] **Step 1: Read schema v1 registry JSON**
+- [x] **Step 1: Read schema v1 registry JSON**
 
 Load `components[].symbol`, optional `components[].aliases`, and optional `components[].targets`.
 
-- [ ] **Step 2: Build canonical and alias maps**
+- [x] **Step 2: Build canonical and alias maps**
 
 Map every observed registry name to its canonical registry symbol for components available to React. If `targets` is missing or null, include the component. If `targets` is present, include the component only when it contains `"react"`.
 
-- [ ] **Step 3: Exclude non-React targets from React facts**
+- [x] **Step 3: Exclude non-React targets from React facts**
 
 Do not emit non-React-targeted registry entries in `design_system_components`, and do not let them contribute to React coverage counts.
 
-- [ ] **Step 4: Add invalid registry diagnostics/errors**
+- [x] **Step 4: Add invalid registry diagnostics/errors**
 
 Malformed JSON, missing components array, non-string symbols, and empty registries must fail with typed errors.
 
-- [ ] **Step 5: Add registry unit tests**
+- [x] **Step 5: Add registry unit tests**
 
 Cover omitted `targets`, null `targets`, `targets: ["react"]`, and `targets` arrays that exclude React.
 

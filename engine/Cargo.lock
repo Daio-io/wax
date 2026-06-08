@@ -2329,6 +2329,7 @@ version = "0.0.0-snapshot"
 dependencies = [
  "clap",
  "serde_json",
+ "tempfile",
  "time",
  "wax-contract",
  "wax-lang-api",

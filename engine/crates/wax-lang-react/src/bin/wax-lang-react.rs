@@ -99,6 +99,7 @@ fn run_stdio_with_reader<R: BufRead, W: Write>(
             Err(err) => {
                 let code = match &err {
                     ReactScanError::InvalidConfig(_) => WireErrorCode::ConfigInvalid,
+                    ReactScanError::RegistryInvalid(_) => WireErrorCode::ScanFailed,
                     _ => WireErrorCode::ScanFailed,
                 };
                 WireScanResponse::Error {
