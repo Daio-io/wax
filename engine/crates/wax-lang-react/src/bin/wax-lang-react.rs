@@ -2,7 +2,7 @@ use clap::Parser;
 use std::io::{self, BufRead, Write};
 use wax_contract::LanguageId;
 use wax_lang_api::{WIRE_API_VERSION, WireErrorCode, WireScanRequest, WireScanResponse};
-use wax_lang_react::ReactLanguage;
+use wax_lang_react::{ReactLanguage, ReactScanError};
 
 #[derive(Debug, Parser)]
 #[command(name = "wax-lang-react")]
@@ -96,13 +96,19 @@ fn run_stdio_with_reader<R: BufRead, W: Write>(
                 language_id,
                 facts: Box::new(facts),
             },
-            Err(err) => WireScanResponse::Error {
-                api_version,
-                language_id,
-                code: WireErrorCode::ScanFailed,
-                message: err.to_string(),
-                diagnostics: Vec::new(),
-            },
+            Err(err) => {
+                let code = match &err {
+                    ReactScanError::InvalidConfig(_) => WireErrorCode::ConfigInvalid,
+                    _ => WireErrorCode::ScanFailed,
+                };
+                WireScanResponse::Error {
+                    api_version,
+                    language_id,
+                    code,
+                    message: err.to_string(),
+                    diagnostics: Vec::new(),
+                }
+            }
         };
 
         serde_json::to_writer(&mut *writer, &response)?;
@@ -191,6 +197,25 @@ mod tests {
             } => {
                 assert_eq!(language_id.as_str(), "compose");
                 assert_eq!(code, WireErrorCode::ScanFailed);
+            }
+            other => panic!("expected error response, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn invalid_scan_config_maps_to_config_invalid_wire_error() {
+        let input = Cursor::new(
+            "{\"type\":\"scan\",\"api_version\":1,\"language_id\":\"react\",\"repo_root\":\"/tmp/repo\",\"snapshot_id\":\"snap-invalid-config\",\"config\":{\"roots\":[\"src\"]}}\n",
+        );
+        let mut output = Vec::new();
+
+        run_stdio_with_reader(input, &mut output).unwrap();
+
+        let line = std::str::from_utf8(&output).unwrap().trim();
+        let response: WireScanResponse = serde_json::from_str(line).unwrap();
+        match response {
+            WireScanResponse::Error { code, .. } => {
+                assert_eq!(code, WireErrorCode::ConfigInvalid);
             }
             other => panic!("expected error response, got {other:?}"),
         }
