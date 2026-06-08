@@ -5,6 +5,7 @@
 mod config;
 mod files;
 mod registry;
+mod swc_parse;
 
 use std::path::Path;
 
@@ -18,6 +19,9 @@ use wax_lang_api::{ScanRequest, build_version};
 pub use config::{PackageConfig, ReactConfigMode, ReactScanConfig, parse_react_scan_config};
 pub use files::{ReactFileCollectionError, ReactSourceFileCollection, collect_react_source_files};
 pub use registry::{ReactRegistryIndex, RegistryError, load_react_registry};
+pub use swc_parse::{
+    ParsedReactModule, ReactParseError, ReactParseOutcome, parse_react_source_file,
+};
 
 /// Errors returned by [`ReactLanguage::scan`].
 #[derive(Debug)]
