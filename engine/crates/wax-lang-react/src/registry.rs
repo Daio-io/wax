@@ -6,6 +6,8 @@ use std::path::Path;
 
 use wax_contract::DesignSystemComponent;
 
+const REGISTRY_SCHEMA_VERSION: u64 = 1;
+
 /// React registry resolver index.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReactRegistryIndex {
@@ -57,6 +59,7 @@ pub fn load_react_registry(path: &Path) -> Result<ReactRegistryIndex, RegistryEr
             path.display()
         ))
     })?;
+    validate_schema_version(&value, path)?;
     let components = value
         .get("components")
         .and_then(serde_json::Value::as_array)
@@ -70,7 +73,7 @@ pub fn load_react_registry(path: &Path) -> Result<ReactRegistryIndex, RegistryEr
     let mut design_system_components = Vec::new();
     let mut resolve_targets = BTreeMap::new();
     for (index, component) in components.iter().enumerate() {
-        if !component_available_to_react(component) {
+        if !component_available_to_react(component, index)? {
             continue;
         }
 
@@ -113,15 +116,53 @@ pub fn load_react_registry(path: &Path) -> Result<ReactRegistryIndex, RegistryEr
     })
 }
 
-fn component_available_to_react(component: &serde_json::Value) -> bool {
-    match component.get("targets") {
-        None | Some(serde_json::Value::Null) => true,
-        Some(serde_json::Value::Array(targets)) => targets
-            .iter()
-            .filter_map(serde_json::Value::as_str)
-            .any(|target| target == "react"),
-        Some(_) => false,
+fn validate_schema_version(value: &serde_json::Value, path: &Path) -> Result<(), RegistryError> {
+    let Some(schema_version) = value
+        .get("schema_version")
+        .and_then(serde_json::Value::as_u64)
+    else {
+        return Err(RegistryError::new(format!(
+            "registry JSON at {} must contain schema_version {}",
+            path.display(),
+            REGISTRY_SCHEMA_VERSION
+        )));
+    };
+    if schema_version != REGISTRY_SCHEMA_VERSION {
+        return Err(RegistryError::new(format!(
+            "registry JSON at {} has unsupported schema_version {schema_version}; expected {}",
+            path.display(),
+            REGISTRY_SCHEMA_VERSION
+        )));
     }
+    Ok(())
+}
+
+fn component_available_to_react(
+    component: &serde_json::Value,
+    index: usize,
+) -> Result<bool, RegistryError> {
+    let Some(targets_value) = component.get("targets") else {
+        return Ok(true);
+    };
+    if targets_value.is_null() {
+        return Ok(true);
+    }
+    let Some(targets) = targets_value.as_array() else {
+        return Err(RegistryError::new(format!(
+            "components[{index}].targets must be an array of strings"
+        )));
+    };
+    for (target_index, target) in targets.iter().enumerate() {
+        let Some(target) = target.as_str() else {
+            return Err(RegistryError::new(format!(
+                "components[{index}].targets[{target_index}] must be a string"
+            )));
+        };
+        if target == "react" {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 #[cfg(test)]
@@ -236,5 +277,48 @@ mod tests {
 
         let err = load_react_registry(fixture.path()).expect_err("malformed JSON should fail");
         assert!(err.reason().contains("registry JSON is invalid"));
+    }
+
+    #[test]
+    fn registry_rejects_missing_schema_version() {
+        let fixture = RegistryFixture::write(
+            r#"{"components":[{"id":"ds.btn","symbol":"Button","targets":["react"]}]}"#,
+        );
+
+        let err =
+            load_react_registry(fixture.path()).expect_err("missing schema_version should fail");
+        assert!(err.reason().contains("schema_version"));
+    }
+
+    #[test]
+    fn registry_rejects_unsupported_schema_version() {
+        let fixture = RegistryFixture::write(
+            r#"{"schema_version":2,"components":[{"id":"ds.btn","symbol":"Button","targets":["react"]}]}"#,
+        );
+
+        let err = load_react_registry(fixture.path())
+            .expect_err("unsupported schema_version should fail");
+        assert!(err.reason().contains("unsupported schema_version 2"));
+    }
+
+    #[test]
+    fn registry_rejects_string_targets() {
+        let fixture = RegistryFixture::write(
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"Button","targets":"react"}]}"#,
+        );
+
+        let err = load_react_registry(fixture.path()).expect_err("string targets should fail");
+        assert!(err.reason().contains("targets must be an array of strings"));
+    }
+
+    #[test]
+    fn registry_rejects_non_string_target_entries() {
+        let fixture = RegistryFixture::write(
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"Button","targets":[42,"react"]}]}"#,
+        );
+
+        let err =
+            load_react_registry(fixture.path()).expect_err("non-string target entry should fail");
+        assert!(err.reason().contains("targets[0] must be a string"));
     }
 }

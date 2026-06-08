@@ -59,6 +59,7 @@ fn valid_configured_config_loads_registry_symbols() {
 
     assert_eq!(facts.status, ScanStatus::Partial);
     assert_eq!(facts.design_system_components.len(), 1);
+    assert_eq!(facts.counts.design_system_component_count, 1);
     assert_eq!(facts.design_system_components[0].symbol, "Button");
     assert!(facts.local_components.is_empty());
     assert!(facts.usage_sites.is_empty());
