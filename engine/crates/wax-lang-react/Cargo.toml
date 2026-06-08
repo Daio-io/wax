@@ -11,6 +11,9 @@ path = "src/bin/wax-lang-react.rs"
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
 serde_json = "1"
+swc_common = "23.0.1"
+swc_ecma_ast = "25.0.0"
+swc_ecma_parser = "41.0.0"
 time = { version = "0.3", features = ["serde", "serde-well-known"] }
 wax-contract = { path = "../wax-contract" }
 wax-lang-api = { path = "../wax-lang-api" }

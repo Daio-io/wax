@@ -41,6 +41,43 @@ fn configured_react_scan_config_parses_all_fields() {
 }
 
 #[test]
+fn configured_scan_reports_parse_failed_for_invalid_source() {
+    let temp = tempfile::tempdir().expect("temp dir should be created");
+    let registry_dir = temp.path().join("design-system");
+    std::fs::create_dir_all(&registry_dir).expect("registry dir should be created");
+    std::fs::write(
+        registry_dir.join("registry.json"),
+        r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"Button","targets":["react"]}]}"#,
+    )
+    .expect("registry fixture should be written");
+    let src_dir = temp.path().join("src");
+    std::fs::create_dir_all(&src_dir).expect("src dir should be created");
+    std::fs::write(src_dir.join("App.tsx"), "export {}").expect("valid source fixture");
+    std::fs::write(
+        src_dir.join("Broken.tsx"),
+        "export function Broken() { return <button><span></button>; }",
+    )
+    .expect("invalid source fixture");
+
+    let facts = scan_with_repo_root(
+        temp.path().to_string_lossy().as_ref(),
+        serde_json::Value::Object(valid_config()),
+    )
+    .expect("configured scan should return partial facts");
+
+    assert_eq!(facts.status, ScanStatus::Partial);
+    assert_eq!(facts.metrics.files_scanned, 2);
+    assert!(
+        facts
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "parse_failed"),
+        "expected parse_failed diagnostic, got: {:?}",
+        facts.diagnostics
+    );
+}
+
+#[test]
 fn valid_configured_config_loads_registry_symbols() {
     let temp = tempfile::tempdir().expect("temp dir should be created");
     let registry_dir = temp.path().join("design-system");

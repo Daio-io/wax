@@ -19,7 +19,7 @@
 
 ## Scheduling Gate
 
-This plan is the current active implementation plan. Task 3 is complete in this PR; after it lands, Task 4 is the next task to execute.
+This plan is the current active implementation plan. Task 4 is complete in this PR; after it lands, Task 5 is the next task to execute.
 
 ## File Structure
 
@@ -150,25 +150,25 @@ cargo test -p wax-lang-react files
 
 ## Phase 2 - SWC Parse and Module Graph
 
-### - [ ] Task 4: Add SWC parser wrapper
+### - [x] Task 4: Add SWC parser wrapper
 
 **Files:**
 - Modify: `engine/crates/wax-lang-react/Cargo.toml`
 - Create: `engine/crates/wax-lang-react/src/swc_parse.rs`
 
-- [ ] **Step 1: Add SWC dependencies**
+- [x] **Step 1: Add SWC dependencies**
 
 Use crate versions compatible with the workspace and Rust edition.
 
-- [ ] **Step 2: Parse TypeScript with JSX enabled**
+- [x] **Step 2: Parse TypeScript with JSX enabled**
 
 Support `.js`, `.jsx`, `.ts`, and `.tsx` through one parser path.
 
-- [ ] **Step 3: Convert parser errors into diagnostics**
+- [x] **Step 3: Convert parser errors into diagnostics**
 
 Parse failures should mark the scan `Partial` and skip only the failed file.
 
-- [ ] **Step 4: Add parser tests**
+- [x] **Step 4: Add parser tests**
 
 Run:
 

@@ -13,7 +13,7 @@ Open-source, self-hostable design system component tracker. See [component track
 - [Registry sources and layout plan](docs/plans/2026-06-02-registry-sources-and-wax-layout.md) — `.wax/` layout and registry source locking (order 3)
 - [Registry discovery design](docs/plans/2026-06-04-registry-discovery-design.md) and [implementation plan](docs/plans/2026-06-04-registry-discovery-plan.md) — `wax registry discover` and skill-assisted registry sync (order 4, complete)
 - [Post-alpha UX plan](docs/plans/2026-05-24-post-alpha-ux-plan.md) — guided init, scan exports, CI summaries, local reports (order 5, deferred)
-- [React language pack design](docs/plans/2026-06-07-react-language-pack-design.md) and [implementation plan](docs/plans/2026-06-07-react-language-pack-plan.md) — SWC parser-backed React extraction with registry and module resolution (order 6, active plan)
+- [React language pack design](docs/plans/2026-06-07-react-language-pack-design.md) and [implementation plan](docs/plans/2026-06-07-react-language-pack-plan.md) — SWC parser-backed React extraction with registry and module resolution (order 6, in progress)
 - [`engine/`](engine/) — production Rust workspace (`wax` CLI, language packs, contract crates)
 
 ## Install (alpha)
