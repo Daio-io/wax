@@ -235,6 +235,7 @@ pub fn build_react_module_graph(
                         if source_module.is_none()
                             && import_is_design_system_relevant(
                                 &source,
+                                &local_name,
                                 &imported_symbol,
                                 registry,
                                 config,
@@ -391,6 +392,7 @@ fn collect_pattern_names(pat: &Pat, names: &mut Vec<String>) {
 
 fn import_is_design_system_relevant(
     source: &str,
+    local_name: &str,
     imported_symbol: &ImportedSymbol,
     registry: &ReactRegistryIndex,
     config: &ReactScanConfig,
@@ -398,7 +400,8 @@ fn import_is_design_system_relevant(
     configured_package_for_specifier(source, &config.packages).is_some()
         || match imported_symbol {
             ImportedSymbol::Named(name) => registry.resolve_targets.contains_key(name),
-            ImportedSymbol::Default | ImportedSymbol::Namespace => false,
+            ImportedSymbol::Default => registry.resolve_targets.contains_key(local_name),
+            ImportedSymbol::Namespace => false,
         }
 }
 
@@ -421,6 +424,9 @@ fn package_entrypoint_diagnostics(
     let mut diagnostics = Vec::new();
     for (package_name, package) in &config.packages {
         for (entrypoint, target) in &package.exports {
+            if entrypoint.contains('*') || target.contains('*') {
+                continue;
+            }
             if resolve_repo_relative_target(target, known_files).is_none() {
                 diagnostics.push(Diagnostic {
                     severity: DiagnosticSeverity::Warning,
@@ -498,22 +504,27 @@ impl<'a> ModuleResolver<'a> {
             Path::new("")
         };
 
+        let mut best_match: Option<(usize, PathBuf)> = None;
         for (pattern, targets) in alias_map {
             let Some(wildcard) = match_wildcard_pattern(pattern, source_specifier) else {
                 continue;
             };
+            let specificity = alias_pattern_specificity(pattern);
             for target_pattern in targets {
                 let substituted = apply_wildcard_target(target_pattern, wildcard);
                 let candidate = base_url.join(substituted);
                 if let Some(normalized) = normalize_relative_path(&candidate)
                     && let Some(resolved) =
                         resolve_path_with_extensions_and_index(&normalized, self.known_files)
+                    && best_match
+                        .as_ref()
+                        .is_none_or(|(current, _)| specificity > *current)
                 {
-                    return Some(resolved);
+                    best_match = Some((specificity, resolved));
                 }
             }
         }
-        None
+        best_match.map(|(_, resolved)| resolved)
     }
 
     fn resolve_package(
@@ -658,6 +669,10 @@ fn match_wildcard_pattern<'a>(pattern: &'a str, value: &'a str) -> Option<&'a st
     None
 }
 
+fn alias_pattern_specificity(pattern: &str) -> usize {
+    pattern.find('*').unwrap_or(pattern.len())
+}
+
 fn apply_wildcard_target(pattern: &str, wildcard: &str) -> String {
     if let Some(index) = pattern.find('*') {
         format!("{}{}{}", &pattern[..index], wildcard, &pattern[index + 1..])
@@ -677,16 +692,21 @@ fn load_tsconfig_options(
     tsconfig_path: Option<&Path>,
 ) -> Option<TsConfigOptions> {
     let tsconfig_path = tsconfig_path?;
-    let path = repo_root.join(tsconfig_path);
-    let raw = fs::read_to_string(path).ok()?;
+    let tsconfig_file = repo_root.join(tsconfig_path);
+    let raw = fs::read_to_string(tsconfig_file).ok()?;
     let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
     let compiler_options = value.get("compilerOptions")?;
+    let tsconfig_dir = tsconfig_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(PathBuf::new);
 
     let base_url = compiler_options
         .get("baseUrl")
         .and_then(serde_json::Value::as_str)
-        .and_then(|base_url| normalize_relative_path(Path::new(base_url)))
-        .unwrap_or_default();
+        .and_then(|base_url| normalize_relative_path(&tsconfig_dir.join(base_url)))
+        .unwrap_or(tsconfig_dir);
 
     let mut paths = BTreeMap::new();
     if let Some(path_map) = compiler_options
@@ -902,6 +922,158 @@ mod tests {
                 .iter()
                 .any(|diagnostic| diagnostic.code == "package_entrypoint_unresolved")
         );
+    }
+
+    #[test]
+    fn module_graph_emits_registry_diagnostic_for_unresolved_default_import() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "src/App.tsx",
+            r#"import Button from "@/missing/Button"; export const App = () => <Button />;"#,
+        );
+
+        let build = fixture.build_graph(
+            vec!["src/App.tsx"],
+            ReactScanConfig {
+                design_system_registry: PathBuf::from("design-system/registry.json"),
+                roots: vec![PathBuf::from("src")],
+                ignore: Vec::new(),
+                tsconfig: None,
+                aliases: BTreeMap::from([("@/*".to_owned(), vec!["src/*".to_owned()])]),
+                packages: BTreeMap::new(),
+            },
+            registry_with_symbols(&["Button"]),
+        );
+
+        assert!(
+            build
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "ds_import_unresolved")
+        );
+    }
+
+    #[test]
+    fn module_graph_skips_wildcard_package_entrypoint_validation() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "src/App.tsx",
+            r#"import { Button } from "@acme/design-system/Button"; export const App = () => <Button />;"#,
+        );
+        fixture.write("src/ds/Button.tsx", "export const Button = () => null;");
+
+        let build = fixture.build_graph(
+            vec!["src/App.tsx", "src/ds/Button.tsx"],
+            ReactScanConfig {
+                design_system_registry: PathBuf::from("design-system/registry.json"),
+                roots: vec![PathBuf::from("src")],
+                ignore: Vec::new(),
+                tsconfig: None,
+                aliases: BTreeMap::new(),
+                packages: BTreeMap::from([(
+                    "@acme/design-system".to_owned(),
+                    PackageConfig {
+                        exports: BTreeMap::from([("./*".to_owned(), "src/ds/*".to_owned())]),
+                    },
+                )]),
+            },
+            registry_with_symbols(&["Button"]),
+        );
+
+        assert!(
+            build
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.code != "package_entrypoint_unresolved")
+        );
+        let resolved = build
+            .graph
+            .resolve_import(Path::new("src/App.tsx"), "Button")
+            .expect("wildcard package entrypoint should resolve");
+        assert_eq!(resolved.module, PathBuf::from("src/ds/Button.tsx"));
+    }
+
+    #[test]
+    fn module_graph_resolves_nested_tsconfig_base_url() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "apps/web/src/App.tsx",
+            r#"import { Card } from "@web/components/Card"; export const App = () => <Card />;"#,
+        );
+        fixture.write(
+            "apps/web/src/components/Card.tsx",
+            "export const Card = () => null;",
+        );
+        fixture.write(
+            "apps/web/tsconfig.json",
+            r#"{
+              "compilerOptions": {
+                "baseUrl": ".",
+                "paths": {
+                  "@web/*": ["src/*"]
+                }
+              }
+            }"#,
+        );
+
+        let build = fixture.build_graph(
+            vec!["apps/web/src/App.tsx", "apps/web/src/components/Card.tsx"],
+            ReactScanConfig {
+                design_system_registry: PathBuf::from("design-system/registry.json"),
+                roots: vec![PathBuf::from("apps/web/src")],
+                ignore: Vec::new(),
+                tsconfig: Some(PathBuf::from("apps/web/tsconfig.json")),
+                aliases: BTreeMap::new(),
+                packages: BTreeMap::new(),
+            },
+            registry_with_symbols(&["Card"]),
+        );
+
+        let resolved = build
+            .graph
+            .resolve_import(Path::new("apps/web/src/App.tsx"), "Card")
+            .expect("nested tsconfig baseUrl should resolve");
+        assert_eq!(
+            resolved.module,
+            PathBuf::from("apps/web/src/components/Card.tsx")
+        );
+        assert!(build.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn module_graph_prefers_more_specific_alias_patterns() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "src/App.tsx",
+            r#"import { Button } from "@acme/ui/Button"; export const App = () => <Button />;"#,
+        );
+        fixture.write(
+            "src/acme/ui/Button.tsx",
+            "export const Button = () => null;",
+        );
+        fixture.write("src/ui/Button.tsx", "export const Button = () => null;");
+
+        let build = fixture.build_graph(
+            vec!["src/App.tsx", "src/acme/ui/Button.tsx", "src/ui/Button.tsx"],
+            ReactScanConfig {
+                design_system_registry: PathBuf::from("design-system/registry.json"),
+                roots: vec![PathBuf::from("src")],
+                ignore: Vec::new(),
+                tsconfig: None,
+                aliases: BTreeMap::from([
+                    ("@/*".to_owned(), vec!["src/*".to_owned()]),
+                    ("@acme/*".to_owned(), vec!["src/acme/*".to_owned()]),
+                ]),
+                packages: BTreeMap::new(),
+            },
+            registry_with_symbols(&["Button"]),
+        );
+
+        let resolved = build
+            .graph
+            .resolve_import(Path::new("src/App.tsx"), "Button")
+            .expect("specific alias should win");
+        assert_eq!(resolved.module, PathBuf::from("src/acme/ui/Button.tsx"));
     }
 
     #[test]

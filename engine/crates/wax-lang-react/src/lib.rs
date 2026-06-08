@@ -120,7 +120,14 @@ impl ReactLanguage {
                     .map_err(|err| ReactScanError::RegistryInvalid(err.reason().to_owned()))?;
                 let collection =
                     collect_react_source_files(repo_root, &config.roots, &config.ignore)?;
-                configured_scan_facts(request, react_language_id, registry, collection, repo_root)?
+                configured_scan_facts(
+                    request,
+                    react_language_id,
+                    registry,
+                    collection,
+                    repo_root,
+                    &config,
+                )?
             }
         };
 
@@ -176,17 +183,36 @@ fn configured_scan_facts(
     registry: ReactRegistryIndex,
     collection: ReactSourceFileCollection,
     repo_root: &Path,
+    config: &ReactScanConfig,
 ) -> Result<ScanFacts, ReactScanError> {
-    let mut diagnostics = collection.root_diagnostics;
+    let ReactSourceFileCollection {
+        files,
+        root_diagnostics,
+    } = collection;
+    let mut diagnostics = root_diagnostics;
     let mut files_scanned = 0_u32;
+    let mut parsed_modules = Vec::new();
 
-    for relative_path in &collection.files {
+    for relative_path in &files {
         files_scanned = files_scanned.saturating_add(1);
         match parse_react_source_file(repo_root, relative_path)? {
-            ReactParseOutcome::Parsed(_parsed) => {}
+            ReactParseOutcome::Parsed(parsed) => parsed_modules.push(parsed),
             ReactParseOutcome::Failed(diagnostic) => diagnostics.push(diagnostic),
         }
     }
+
+    let file_collection = ReactSourceFileCollection {
+        files,
+        root_diagnostics: Vec::new(),
+    };
+    let graph_build = build_react_module_graph(
+        repo_root,
+        &parsed_modules,
+        &file_collection,
+        config,
+        &registry,
+    );
+    diagnostics.extend(graph_build.diagnostics);
 
     diagnostics.push(Diagnostic {
         severity: DiagnosticSeverity::Info,
@@ -229,8 +255,66 @@ fn configured_scan_facts(
 #[cfg(test)]
 mod tests {
     use super::ReactLanguage;
+    use std::fs;
     use wax_contract::{DiagnosticSeverity, ScanStatus};
     use wax_lang_api::{ScanConfig, ScanRequest, ScanRequestType};
+
+    #[test]
+    fn configured_scan_emits_module_graph_diagnostics() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let repo_root = tempdir.path();
+        fs::create_dir_all(repo_root.join("src")).unwrap();
+        fs::create_dir_all(repo_root.join(".wax")).unwrap();
+        fs::write(
+            repo_root.join("src/App.tsx"),
+            r#"import { Button } from "@acme/design-system"; export const App = () => <Button />;"#,
+        )
+        .unwrap();
+        fs::write(
+            repo_root.join(".wax/wax.registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"Button","targets":["react"]}]}"#,
+        )
+        .unwrap();
+
+        let mut config = ScanConfig::new();
+        config.insert(
+            "registry".to_owned(),
+            serde_json::Value::String(".wax/wax.registry.json".to_owned()),
+        );
+        config.insert(
+            "roots".to_owned(),
+            serde_json::Value::Array(vec![serde_json::Value::String("src".to_owned())]),
+        );
+        config.insert(
+            "packages".to_owned(),
+            serde_json::json!({
+                "@acme/design-system": {
+                    "exports": {
+                        ".": "src/ds/index.ts"
+                    }
+                }
+            }),
+        );
+
+        let request = ScanRequest {
+            request_type: ScanRequestType::Scan,
+            api_version: 1,
+            language_id: "react".try_into().unwrap(),
+            repo_root: repo_root.to_string_lossy().to_string(),
+            snapshot_id: "snap-react-configured".to_owned(),
+            config,
+        };
+
+        let facts = ReactLanguage::new().scan(&request).unwrap();
+
+        assert_eq!(facts.status, ScanStatus::Partial);
+        assert!(
+            facts
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "ds_import_unresolved")
+        );
+    }
 
     #[test]
     fn scan_returns_stub_partial_facts_for_react() {
