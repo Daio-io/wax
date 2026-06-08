@@ -99,6 +99,7 @@ fn run_stdio_with_reader<R: BufRead, W: Write>(
             Err(err) => {
                 let code = match &err {
                     ReactScanError::InvalidConfig(_) => WireErrorCode::ConfigInvalid,
+                    ReactScanError::RegistryInvalid(_) => WireErrorCode::ScanFailed,
                     _ => WireErrorCode::ScanFailed,
                 };
                 WireScanResponse::Error {
@@ -216,6 +217,44 @@ mod tests {
         match response {
             WireScanResponse::Error { code, .. } => {
                 assert_eq!(code, WireErrorCode::ConfigInvalid);
+            }
+            other => panic!("expected error response, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn invalid_registry_maps_to_scan_failed_wire_error() {
+        let temp = tempfile::tempdir().expect("temp dir should be created");
+        let registry_dir = temp.path().join("design-system");
+        std::fs::create_dir_all(&registry_dir).expect("registry dir should be created");
+        std::fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"Button","targets":["compose"]}]}"#,
+        )
+        .expect("registry fixture should be written");
+
+        let request = serde_json::json!({
+            "type": "scan",
+            "api_version": 1,
+            "language_id": "react",
+            "repo_root": temp.path().to_string_lossy(),
+            "snapshot_id": "snap-invalid-registry",
+            "config": {
+                "design_system_registry": "design-system/registry.json",
+                "roots": ["src"]
+            }
+        });
+        let input = Cursor::new(format!("{request}\n"));
+        let mut output = Vec::new();
+
+        run_stdio_with_reader(input, &mut output).unwrap();
+
+        let line = std::str::from_utf8(&output).unwrap().trim();
+        let response: WireScanResponse = serde_json::from_str(line).unwrap();
+        match response {
+            WireScanResponse::Error { code, message, .. } => {
+                assert_eq!(code, WireErrorCode::ScanFailed);
+                assert!(message.contains("invalid react registry"));
             }
             other => panic!("expected error response, got {other:?}"),
         }

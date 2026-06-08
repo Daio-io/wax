@@ -3,6 +3,9 @@
 #![deny(missing_docs)]
 
 mod config;
+mod registry;
+
+use std::path::Path;
 
 use time::OffsetDateTime;
 use wax_contract::{
@@ -12,6 +15,7 @@ use wax_contract::{
 use wax_lang_api::{ScanRequest, build_version};
 
 pub use config::{PackageConfig, ReactConfigMode, ReactScanConfig, parse_react_scan_config};
+pub use registry::{ReactRegistryIndex, RegistryError, load_react_registry};
 
 /// Errors returned by [`ReactLanguage::scan`].
 #[derive(Debug)]
@@ -22,6 +26,8 @@ pub enum ReactScanError {
     InvalidFacts(ScanFactsError),
     /// React scan config was present but invalid.
     InvalidConfig(String),
+    /// Design-system registry could not be loaded.
+    RegistryInvalid(String),
 }
 
 impl std::fmt::Display for ReactScanError {
@@ -30,6 +36,7 @@ impl std::fmt::Display for ReactScanError {
             Self::InvalidLanguageId(id) => write!(f, "invalid react language id: {id}"),
             Self::InvalidFacts(err) => write!(f, "react facts validation failed: {err}"),
             Self::InvalidConfig(reason) => write!(f, "invalid react scan config: {reason}"),
+            Self::RegistryInvalid(reason) => write!(f, "invalid react registry: {reason}"),
         }
     }
 }
@@ -37,7 +44,7 @@ impl std::fmt::Display for ReactScanError {
 impl std::error::Error for ReactScanError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::InvalidLanguageId(_) | Self::InvalidConfig(_) => None,
+            Self::InvalidLanguageId(_) | Self::InvalidConfig(_) | Self::RegistryInvalid(_) => None,
             Self::InvalidFacts(err) => Some(err),
         }
     }
@@ -65,42 +72,18 @@ impl ReactLanguage {
             ));
         }
 
-        let _config_mode = parse_react_scan_config(&request.config)
+        let config_mode = parse_react_scan_config(&request.config)
             .map_err(|err| ReactScanError::InvalidConfig(err.reason().to_owned()))?;
 
-        let mut facts = ScanFacts {
-            schema_version: SCHEMA_VERSION,
-            language: LanguageMetadata {
-                id: react_language_id,
-                version: build_version().to_owned(),
-                ecosystem: "react".to_owned(),
-                parser_name: "react-parser".to_owned(),
-                parser_version: "0.1.0".to_owned(),
-            },
-            snapshot_id: request.snapshot_id.clone(),
-            scanned_at: OffsetDateTime::now_utc(),
-            status: ScanStatus::Partial,
-            design_system_components: Vec::new(),
-            local_components: Vec::new(),
-            usage_sites: Vec::new(),
-            diagnostics: vec![Diagnostic {
-                severity: DiagnosticSeverity::Info,
-                code: "react_scaffold".to_owned(),
-                message: "React extraction is scaffolded but not implemented.".to_owned(),
-                location: None,
-            }],
-            metrics: Metrics {
-                adoption_coverage_ratio: None,
-                parse_extract_ms: 0,
-                files_scanned: 0,
-            },
-            counts: CountSummary {
-                design_system_component_count: 0,
-                local_component_count: 0,
-                usage_site_count: 0,
-                resolved_count: 0,
-                candidate_count: 0,
-            },
+        let mut facts = match config_mode {
+            ReactConfigMode::Scaffold => scaffold_facts(request, react_language_id),
+            ReactConfigMode::Configured(config) => {
+                let registry_path =
+                    Path::new(&request.repo_root).join(&config.design_system_registry);
+                let registry = load_react_registry(&registry_path)
+                    .map_err(|err| ReactScanError::RegistryInvalid(err.reason().to_owned()))?;
+                configured_scaffold_facts(request, react_language_id, registry)
+            }
         };
 
         facts
@@ -109,6 +92,84 @@ impl ReactLanguage {
         facts.validate().map_err(ReactScanError::InvalidFacts)?;
 
         Ok(facts)
+    }
+}
+
+fn scaffold_facts(request: &ScanRequest, react_language_id: LanguageId) -> ScanFacts {
+    ScanFacts {
+        schema_version: SCHEMA_VERSION,
+        language: LanguageMetadata {
+            id: react_language_id,
+            version: build_version().to_owned(),
+            ecosystem: "react".to_owned(),
+            parser_name: "react-parser".to_owned(),
+            parser_version: "0.1.0".to_owned(),
+        },
+        snapshot_id: request.snapshot_id.clone(),
+        scanned_at: OffsetDateTime::now_utc(),
+        status: ScanStatus::Partial,
+        design_system_components: Vec::new(),
+        local_components: Vec::new(),
+        usage_sites: Vec::new(),
+        diagnostics: vec![Diagnostic {
+            severity: DiagnosticSeverity::Info,
+            code: "react_scaffold".to_owned(),
+            message: "React extraction is scaffolded but not implemented.".to_owned(),
+            location: None,
+        }],
+        metrics: Metrics {
+            adoption_coverage_ratio: None,
+            parse_extract_ms: 0,
+            files_scanned: 0,
+        },
+        counts: CountSummary {
+            design_system_component_count: 0,
+            local_component_count: 0,
+            usage_site_count: 0,
+            resolved_count: 0,
+            candidate_count: 0,
+        },
+    }
+}
+
+fn configured_scaffold_facts(
+    request: &ScanRequest,
+    react_language_id: LanguageId,
+    registry: ReactRegistryIndex,
+) -> ScanFacts {
+    ScanFacts {
+        schema_version: SCHEMA_VERSION,
+        language: LanguageMetadata {
+            id: react_language_id,
+            version: build_version().to_owned(),
+            ecosystem: "react".to_owned(),
+            parser_name: "react-parser".to_owned(),
+            parser_version: "0.1.0".to_owned(),
+        },
+        snapshot_id: request.snapshot_id.clone(),
+        scanned_at: OffsetDateTime::now_utc(),
+        status: ScanStatus::Partial,
+        design_system_components: registry.design_system_components,
+        local_components: Vec::new(),
+        usage_sites: Vec::new(),
+        diagnostics: vec![Diagnostic {
+            severity: DiagnosticSeverity::Info,
+            code: "react_scaffold".to_owned(),
+            message: "React extraction is scaffolded but not implemented.".to_owned(),
+            location: None,
+        }],
+        metrics: Metrics {
+            adoption_coverage_ratio: None,
+            parse_extract_ms: 0,
+            files_scanned: 0,
+        },
+        counts: CountSummary {
+            design_system_component_count: 0,
+            local_component_count: 0,
+            usage_site_count: 0,
+            resolved_count: 0,
+            candidate_count: 0,
+        },
     }
 }
 

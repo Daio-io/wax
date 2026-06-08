@@ -41,12 +41,26 @@ fn configured_react_scan_config_parses_all_fields() {
 }
 
 #[test]
-fn valid_configured_config_still_returns_scaffold_facts() {
-    let facts = scan_with_config(serde_json::Value::Object(valid_config()))
-        .expect("valid configured config should still use scaffold facts in Task 1");
+fn valid_configured_config_loads_registry_symbols() {
+    let temp = tempfile::tempdir().expect("temp dir should be created");
+    let registry_dir = temp.path().join("design-system");
+    std::fs::create_dir_all(&registry_dir).expect("registry dir should be created");
+    std::fs::write(
+        registry_dir.join("registry.json"),
+        r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"Button","targets":["react"]}]}"#,
+    )
+    .expect("registry fixture should be written");
+
+    let facts = scan_with_repo_root(
+        temp.path().to_string_lossy().as_ref(),
+        serde_json::Value::Object(valid_config()),
+    )
+    .expect("valid configured config should load registry symbols");
 
     assert_eq!(facts.status, ScanStatus::Partial);
-    assert!(facts.design_system_components.is_empty());
+    assert_eq!(facts.design_system_components.len(), 1);
+    assert_eq!(facts.counts.design_system_component_count, 1);
+    assert_eq!(facts.design_system_components[0].symbol, "Button");
     assert!(facts.local_components.is_empty());
     assert!(facts.usage_sites.is_empty());
     assert_eq!(facts.diagnostics.len(), 1);
@@ -197,6 +211,13 @@ fn path_like_ignore_escapes_are_config_errors() {
 }
 
 fn scan_with_config(config: serde_json::Value) -> Result<wax_contract::ScanFacts, ReactScanError> {
+    scan_with_repo_root("/tmp/repo", config)
+}
+
+fn scan_with_repo_root(
+    repo_root: &str,
+    config: serde_json::Value,
+) -> Result<wax_contract::ScanFacts, ReactScanError> {
     let serde_json::Value::Object(config) = config else {
         panic!("test config must be a JSON object");
     };
@@ -204,7 +225,7 @@ fn scan_with_config(config: serde_json::Value) -> Result<wax_contract::ScanFacts
         request_type: ScanRequestType::Scan,
         api_version: WIRE_API_VERSION,
         language_id: LanguageId::try_from("react").expect("react id must be valid"),
-        repo_root: "/tmp/repo".to_owned(),
+        repo_root: repo_root.to_owned(),
         snapshot_id: "snap-config".to_owned(),
         config,
     };
