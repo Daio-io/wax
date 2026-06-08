@@ -50,6 +50,9 @@ fn valid_configured_config_loads_registry_symbols() {
         r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"Button","targets":["react"]}]}"#,
     )
     .expect("registry fixture should be written");
+    let src_dir = temp.path().join("src");
+    std::fs::create_dir_all(&src_dir).expect("src dir should be created");
+    std::fs::write(src_dir.join("App.tsx"), "export {}").expect("source fixture should be written");
 
     let facts = scan_with_repo_root(
         temp.path().to_string_lossy().as_ref(),
@@ -63,6 +66,7 @@ fn valid_configured_config_loads_registry_symbols() {
     assert_eq!(facts.design_system_components[0].symbol, "Button");
     assert!(facts.local_components.is_empty());
     assert!(facts.usage_sites.is_empty());
+    assert_eq!(facts.metrics.files_scanned, 1);
     assert_eq!(facts.diagnostics.len(), 1);
     assert_eq!(facts.diagnostics[0].severity, DiagnosticSeverity::Info);
     assert_eq!(facts.diagnostics[0].code, "react_scaffold");

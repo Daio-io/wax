@@ -19,7 +19,7 @@
 
 ## Scheduling Gate
 
-This plan is the current active implementation plan. Task 2 is complete in this PR; after it lands, Task 3 is the next task to execute.
+This plan is the current active implementation plan. Task 3 is complete in this PR; after it lands, Task 4 is the next task to execute.
 
 ## File Structure
 
@@ -121,25 +121,25 @@ cd engine
 cargo test -p wax-lang-react registry
 ```
 
-### - [ ] Task 3: Collect React source files
+### - [x] Task 3: Collect React source files
 
 **Files:**
 - Create: `engine/crates/wax-lang-react/src/files.rs`
 - Modify: `engine/crates/wax-lang-react/src/lib.rs`
 
-- [ ] **Step 1: Resolve source roots**
+- [x] **Step 1: Resolve source roots**
 
 Use existing `wax-lang-api` root helpers so wildcard behavior matches Compose.
 
-- [ ] **Step 2: Collect supported files**
+- [x] **Step 2: Collect supported files**
 
 Include `.js`, `.jsx`, `.ts`, and `.tsx`. Exclude `.d.ts`.
 
-- [ ] **Step 3: Add default and configured skip patterns**
+- [x] **Step 3: Add default and configured skip patterns**
 
 Skip common generated, declaration, story, and test files through documented defaults. Apply configured `ignore` patterns after defaults.
 
-- [ ] **Step 4: Add file collection tests**
+- [x] **Step 4: Add file collection tests**
 
 Run:
 
