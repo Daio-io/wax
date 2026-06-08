@@ -73,6 +73,14 @@ impl From<ReactFileCollectionError> for ReactScanError {
     }
 }
 
+impl From<ReactParseError> for ReactScanError {
+    fn from(err: ReactParseError) -> Self {
+        match err {
+            ReactParseError::Io { context, source } => Self::Io { context, source },
+        }
+    }
+}
+
 /// React language extractor.
 #[derive(Debug, Default)]
 pub struct ReactLanguage;
@@ -107,7 +115,7 @@ impl ReactLanguage {
                     .map_err(|err| ReactScanError::RegistryInvalid(err.reason().to_owned()))?;
                 let collection =
                     collect_react_source_files(repo_root, &config.roots, &config.ignore)?;
-                configured_scaffold_facts(request, react_language_id, registry, collection)
+                configured_scan_facts(request, react_language_id, registry, collection, repo_root)?
             }
         };
 
@@ -157,22 +165,32 @@ fn scaffold_facts(request: &ScanRequest, react_language_id: LanguageId) -> ScanF
     }
 }
 
-fn configured_scaffold_facts(
+fn configured_scan_facts(
     request: &ScanRequest,
     react_language_id: LanguageId,
     registry: ReactRegistryIndex,
     collection: ReactSourceFileCollection,
-) -> ScanFacts {
+    repo_root: &Path,
+) -> Result<ScanFacts, ReactScanError> {
     let mut diagnostics = collection.root_diagnostics;
+    let mut files_scanned = 0_u32;
+
+    for relative_path in &collection.files {
+        files_scanned = files_scanned.saturating_add(1);
+        match parse_react_source_file(repo_root, relative_path)? {
+            ReactParseOutcome::Parsed(_parsed) => {}
+            ReactParseOutcome::Failed(diagnostic) => diagnostics.push(diagnostic),
+        }
+    }
+
     diagnostics.push(Diagnostic {
         severity: DiagnosticSeverity::Info,
         code: "react_scaffold".to_owned(),
         message: "React extraction is scaffolded but not implemented.".to_owned(),
         location: None,
     });
-    let files_scanned = u32::try_from(collection.files.len()).unwrap_or(u32::MAX);
 
-    ScanFacts {
+    Ok(ScanFacts {
         schema_version: SCHEMA_VERSION,
         language: LanguageMetadata {
             id: react_language_id,
@@ -200,7 +218,7 @@ fn configured_scaffold_facts(
             resolved_count: 0,
             candidate_count: 0,
         },
-    }
+    })
 }
 
 #[cfg(test)]

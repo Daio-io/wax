@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 
 use swc_common::{FileName, SourceMap, Span, Spanned, sync::Lrc};
 use swc_ecma_ast::{EsVersion, Module};
-use swc_ecma_parser::{EsSyntax, Parser, StringInput, Syntax, TsSyntax, lexer::Lexer};
+use swc_ecma_parser::{
+    EsSyntax, Parser, StringInput, Syntax, TsSyntax, error::SyntaxError, lexer::Lexer,
+};
 use wax_contract::{Diagnostic, DiagnosticSeverity, SourceLocation};
 
 /// Parse output for one React source file.
@@ -17,12 +19,29 @@ pub enum ReactParseOutcome {
 }
 
 /// Parsed module and metadata for one source file.
-#[derive(Debug)]
 pub struct ParsedReactModule {
     /// Repo-relative file path for the parsed module.
     pub file: PathBuf,
     /// SWC module AST for the source file.
     pub module: Module,
+    source_map: Lrc<SourceMap>,
+}
+
+impl ParsedReactModule {
+    /// Maps an SWC span in this module to a repo-relative [`SourceLocation`].
+    #[must_use]
+    pub fn source_location_from_span(&self, span: Span) -> Option<SourceLocation> {
+        source_location_from_span(&self.source_map, span, &self.file)
+    }
+}
+
+impl std::fmt::Debug for ParsedReactModule {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ParsedReactModule")
+            .field("file", &self.file)
+            .field("module", &self.module)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Fatal errors returned while preparing source input for SWC parsing.
@@ -97,8 +116,7 @@ pub fn parse_react_source_file(
         Ok(module) => {
             if let Some(error) = parser.take_errors().into_iter().next() {
                 return Ok(ReactParseOutcome::Failed(parse_failed_diagnostic(
-                    relative_path,
-                    format!("failed to parse '{}': {error:?}", relative_path.display()),
+                    syntax_error_message(error.kind()),
                     source_location_from_span(&source_map, error.span(), relative_path),
                 )));
             }
@@ -106,27 +124,27 @@ pub fn parse_react_source_file(
             Ok(ReactParseOutcome::Parsed(ParsedReactModule {
                 file: relative_path.to_path_buf(),
                 module,
+                source_map,
             }))
         }
         Err(error) => Ok(ReactParseOutcome::Failed(parse_failed_diagnostic(
-            relative_path,
-            format!("failed to parse '{}': {error:?}", relative_path.display()),
+            syntax_error_message(error.kind()),
             source_location_from_span(&source_map, error.span(), relative_path),
         ))),
     }
 }
 
-fn parse_failed_diagnostic(
-    file: &Path,
-    message: String,
-    location: Option<SourceLocation>,
-) -> Diagnostic {
+fn parse_failed_diagnostic(message: String, location: Option<SourceLocation>) -> Diagnostic {
     Diagnostic {
         severity: DiagnosticSeverity::Error,
         code: "parse_failed".to_owned(),
-        message: format!("{message} (file: {})", file.display()),
+        message,
         location,
     }
+}
+
+fn syntax_error_message(kind: &SyntaxError) -> String {
+    format!("failed to parse source file ({}); file skipped", kind.msg())
 }
 
 fn syntax_for_path(path: &Path) -> Syntax {
@@ -145,6 +163,7 @@ fn syntax_for_path(path: &Path) -> Syntax {
             jsx: true,
             ..Default::default()
         }),
+        // Unknown extension: attempt ES+JSX parsing.
         _ => Syntax::Es(EsSyntax {
             jsx: true,
             ..Default::default()
@@ -187,6 +206,7 @@ mod tests {
     use super::{ReactParseOutcome, parse_react_source_file};
     use std::fs;
     use std::path::Path;
+    use swc_common::Spanned;
     use wax_contract::DiagnosticSeverity;
 
     #[test]
@@ -216,6 +236,12 @@ mod tests {
                 ReactParseOutcome::Parsed(parsed) => {
                     assert_eq!(parsed.file, Path::new(file));
                     assert!(!parsed.module.body.is_empty());
+                    let first_span = parsed.module.body[0].span();
+                    let location = parsed
+                        .source_location_from_span(first_span)
+                        .expect("span should map to location");
+                    assert_eq!(location.file, file);
+                    assert!(location.line > 0);
                 }
                 ReactParseOutcome::Failed(diagnostic) => panic!(
                     "expected parse success for {file}, got {}: {}",
@@ -242,7 +268,18 @@ mod tests {
             ReactParseOutcome::Failed(diagnostic) => {
                 assert_eq!(diagnostic.severity, DiagnosticSeverity::Error);
                 assert_eq!(diagnostic.code, "parse_failed");
-                assert!(diagnostic.message.contains("Broken.tsx"));
+                assert!(
+                    diagnostic
+                        .message
+                        .starts_with("failed to parse source file ("),
+                    "unexpected message: {}",
+                    diagnostic.message
+                );
+                assert!(
+                    diagnostic.message.ends_with("); file skipped"),
+                    "unexpected message: {}",
+                    diagnostic.message
+                );
                 let location = diagnostic.location.expect("location should be present");
                 assert_eq!(location.file, "src/Broken.tsx");
                 assert_eq!(location.line, 1);
