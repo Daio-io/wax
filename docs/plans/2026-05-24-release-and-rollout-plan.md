@@ -415,7 +415,7 @@ Include SHA256 checksums file per asset.
 
 Run: merge workflow; maintainers tag `v0.1.0-alpha.1` to validate.
 
-Expected: Release page shows **12** archives (3 alpha-index binaries × 4 triples) + checksums. Every id listed in `index.json` must have a corresponding uploaded archive.
+Expected: Release page shows **16** archives (4 alpha-index binaries × 4 triples) + checksums. Every id listed in `index.json` must have a corresponding uploaded archive.
 
 ### - [x] Task 11: Pack index generation and publication
 
@@ -672,7 +672,7 @@ Before starting implementation, confirm:
 8. **Minimum scan stdout summary** is defined in Task 3 (path, languages, adoption %, capped diagnostics)—not JSON path alone.
 9. **Empty registry:** documented in Task 15; Task 4 warns on `components: []` without failing validate.
 10. **Post-alpha UX** is order 3 in `docs/plans/README.md`; plan doc is PR #34 (no markdown link to that file in this plan until #34 merges).
-11. **`wax-lang-basic` is required** in the release matrix whenever it appears in the alpha index (`compose` + `basic` + `wax`).
+11. **`wax-lang-basic` and `wax-lang-react` are required** in the release matrix whenever they appear in the alpha index (`compose` + `basic` + `react` + `wax`).
 
 ---
 

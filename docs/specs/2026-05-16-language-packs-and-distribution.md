@@ -518,7 +518,7 @@ React v1 discovers local components conservatively: PascalCase function declarat
 
 **Release status:**
 
-`wax-lang-react` is a public alpha pack alongside `compose` and `basic`. Generated pack indexes and README getting started document `wax init --language react` and `wax language install react`. Interactive init language prompts remain deferred to the post-alpha UX plan.
+`wax-lang-react` is a public alpha pack alongside `compose` and `basic`. Release builds and generated pack indexes include `react`; the default `gh-pages/index.json` lists it after the next tagged alpha publish. README getting started documents `wax init --language react` and `wax language install react` with that index timing. Interactive init language prompts remain deferred to the post-alpha UX plan.
 
 ### Monolithic vs modular CLI
 

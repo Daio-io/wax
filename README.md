@@ -135,23 +135,23 @@ rm -rf "$HOME/.wax"
 
 ## Language packs (public alpha)
 
-The hosted pack index publishes three first-party language packs:
+Wax ships three first-party language packs. Release builds package all of them; the default pack index (`WAX_LANG_INDEX`, currently [`gh-pages/index.json`](https://raw.githubusercontent.com/Daio-io/wax/gh-pages/index.json)) lists `compose` and `basic` until the next tagged alpha release publishes an updated `index.json` that includes `react`.
 
-| id | Use for |
-| --- | --- |
-| `compose` | Jetpack Compose / Kotlin design-system usage |
-| `basic` | Text-scanner fallback for unsupported languages and smoke tests |
-| `react` | React / TypeScript JSX usage with import-aware registry resolution |
+| id | Use for | Default index today |
+| --- | --- | --- |
+| `compose` | Jetpack Compose / Kotlin design-system usage | listed |
+| `basic` | Text-scanner fallback for unsupported languages and smoke tests | listed |
+| `react` | React / TypeScript JSX usage with import-aware registry resolution | after next alpha tag |
 
-Install a pack explicitly:
+Install a pack explicitly once it appears in your pack index:
 
 ```bash
 wax language install compose
 wax language install basic
-wax language install react
+wax language install react   # available after the next alpha release updates gh-pages/index.json
 ```
 
-Or pass `--language <id>` to `wax init` and let init auto-install the pinned version from your lockfile.
+Or pass `--language <id>` to `wax init` and let init auto-install the pinned version from your lockfile. For `react` before the default index updates, set `WAX_LANG_INDEX` to a matching release `index.json` URL or a local `file://` copy from `scripts/generate-pack-index.sh`.
 
 ## Getting started (compose alpha path)
 
@@ -204,6 +204,8 @@ wax scan
 6. Inspect outputs in `.wax/out/` (including `.wax/out/scan-merged.json`).
 
 ## Getting started (react alpha path)
+
+Requires a pack index that lists `react`. After the next alpha tag, the default `gh-pages/index.json` will include it; until then point `WAX_LANG_INDEX` at a generated index from that release or wait for the tag to publish.
 
 1. Install `wax` (curl path above).
 2. Initialize repo config with the React language entry:

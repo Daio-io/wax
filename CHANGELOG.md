@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Release
+
+- Promote `wax-lang-react` into alpha release artifacts and generated pack indexes alongside `compose` and `basic` (16 archives + checksums per tag). The default `gh-pages/index.json` updates when the next alpha tag publishes.
+
 ### wax-cli
 
 - Show TTY progress spinners on stderr for `wax scan`, `wax validate`, and `wax language install`; suppressed when stderr is piped (CI and scripts).
