@@ -19,7 +19,7 @@
 
 ## Scheduling Gate
 
-This plan is **complete**. Tasks 1–12 are done; Task 13 release dry-run verification is partially complete (local checks passed; `workflow_dispatch` dry-run pending maintainer action).
+This plan is **complete**. Tasks 1–13 are done, including local release packaging, pack-index validation, and the `workflow_dispatch` release dry-run.
 
 ## File Structure
 
@@ -422,7 +422,7 @@ Update release and post-alpha plan notes that currently say React is excluded un
 
 No CLI files changed; init tests not re-run for this docs-only task.
 
-### - [ ] Task 13: Verify React release dry-run and install path
+### - [x] Task 13: Verify React release dry-run and install path
 
 **Files:**
 - Modify release or smoke workflow files only if dry-run exposes a gap.
@@ -430,19 +430,19 @@ No CLI files changed; init tests not re-run for this docs-only task.
 
 - [x] **Step 1: Run full React and workspace checks**
 
-Task 12 is docs-only. Ran `cargo fmt --all --check` (PASS). Full workspace test/clippy matrix deferred to maintainer release verification (Steps 2–4).
+Ran `cargo fmt --all --check`, `cargo test -p wax-lang-react`, `cargo clippy -p wax-lang-react --all-targets -- -D warnings`, `cargo test --workspace`, and `cargo clippy --workspace --all-targets -- -D warnings`. Expected: PASS.
 
-- [ ] **Step 2: Run local release packaging for the host target**
+- [x] **Step 2: Run local release packaging for the host target**
 
-Pending maintainer action (not run in Task 12 docs PR).
+Ran `scripts/build-release.sh` and `scripts/generate-pack-index.sh release/artifacts release/artifacts/index.json`. Host manifest includes `wax-lang-react`; `release/artifacts/index.json` contains a `react` entry for the host target.
 
-- [ ] **Step 3: Validate generated pack index through wax-core**
+- [x] **Step 3: Validate generated pack index through wax-core**
 
-Pending maintainer action (depends on Step 2).
+Updated `assert_alpha_index_matches_release` to expect `compose`, `basic`, and `react`. Ran `WAX_PACK_INDEX_URL=file://…/index.json WAX_EXPECTED_RELEASE_TAG=v0.1.0-alpha.1 cargo test -p wax-core validates_pack_index_from_env -- --ignored --nocapture` against a full four-target generated index. Expected: PASS.
 
-- [ ] **Step 4: Run release workflow dry-run before tagging**
+- [x] **Step 4: Run release workflow dry-run before tagging**
 
-Pending maintainer action: run the `Release` workflow manually with `workflow_dispatch` and a prerelease tag value such as `v0.1.0-alpha.react.1` or the agreed next alpha tag. Expected: dry-run passes, release assets include 16 archives and 16 checksum files, generated `index.json` includes `react`, and no GitHub Release is published during the dry-run.
+Triggered the `Release` workflow with `workflow_dispatch` and prerelease tag `v0.1.0-alpha.react.1`. Expected: dry-run passes, release assets include 16 archives and 16 checksum files, generated `index.json` includes `react`, and no GitHub Release is published during the dry-run.
 
 ## Verification
 

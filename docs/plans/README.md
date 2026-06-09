@@ -20,7 +20,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 | 3 | Registry sources and centralized wax layout | [2026-06-02-registry-sources-and-wax-layout.md](./2026-06-02-registry-sources-and-wax-layout.md) | `merged` | `complete` | Order 2 implementation `complete`; may run before registry discover/draft |
 | 4 | Registry discovery and skill-assisted sync | [2026-06-04-registry-discovery-plan.md](./2026-06-04-registry-discovery-plan.md) | `merged` | `complete` | Order 3 implementation `complete`; plan doc merged |
 | 5 | Post-alpha UX | [2026-05-24-post-alpha-ux-plan.md](./2026-05-24-post-alpha-ux-plan.md) | `merged` | `deferred` | Order 4 implementation `complete`; public alpha shipped; maintainers explicitly deferred this plan |
-| 6 | React language pack | [2026-06-07-react-language-pack-plan.md](./2026-06-07-react-language-pack-plan.md) | `merged` | `complete` | Order 4 implementation `complete`; public alpha shipped; Post-alpha UX explicitly deferred; React plan Tasks 1–12 complete |
+| 6 | React language pack | [2026-06-07-react-language-pack-plan.md](./2026-06-07-react-language-pack-plan.md) | `merged` | `complete` | Order 4 implementation `complete`; public alpha shipped; Post-alpha UX explicitly deferred; React plan Tasks 1–13 complete |
 
 **Doc status:** `pending` → plan PR open; `merged` → plan doc on `main`; `planned` → not yet drafted.
 

@@ -337,9 +337,9 @@ Each entry: `id`, `version`, `api_version`, `targets` map with release URLs and 
 
 - [x] **Step 2: Document index schema in spec or plan comment block**
 
-Match [language packs spec § Distribution](../specs/2026-05-16-language-packs-and-distribution.md). The committed `alpha-index.json` fixture still lists `compose` and `basic` for integration tests; generated release indexes include `react` after React plan Task 11.
+Match [language packs spec § Distribution](../specs/2026-05-16-language-packs-and-distribution.md). The committed `alpha-index.json` fixture lists `compose`, `basic`, and `react` after React plan Task 13.
 
-Plan note: `engine/fixtures/registry/alpha-index.json` follows the v1 Distribution shape from the language packs spec: a top-level array of pack entries, each with `id`, `version`, `api_version`, and a `targets` object keyed by Rust target triple. Each target contains a release asset `url` and artifact `sha256`; the fixture uses placeholder zero digests until Task 11 generates the first release index. Release promotion added `react` to generated indexes; the fixture remains compose+basic for focused install tests.
+Plan note: `engine/fixtures/registry/alpha-index.json` follows the v1 Distribution shape from the language packs spec: a top-level array of pack entries, each with `id`, `version`, `api_version`, and a `targets` object keyed by Rust target triple. Each target contains a release asset `url` and artifact `sha256`; the fixture uses placeholder zero digests until Task 11 generates the first release index.
 
 - [x] **Step 3: Wire one CLI integration test to load `file://` copy of alpha index**
 

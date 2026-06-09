@@ -138,7 +138,7 @@ fn init_loads_file_copy_of_alpha_pack_index() {
     );
     assert!(
         lockfile["languages"].get("react").is_none(),
-        "alpha index should not publish react"
+        "init with compose should not write react lockfile entry"
     );
 }
 
@@ -156,7 +156,7 @@ fn assert_alpha_index_ids(index_path: &Path) {
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(ids, ["compose", "basic"]);
+    assert_eq!(ids, ["compose", "basic", "react"]);
 }
 
 #[test]
