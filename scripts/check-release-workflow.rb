@@ -112,8 +112,14 @@ require_includes!(
 
 require_includes!(
   workflow,
-  'npm publish --access public --tag "$npm_tag"',
-  "npm publish command"
+  "unset NODE_AUTH_TOKEN NPM_TOKEN npm_config__authToken",
+  "legacy npm auth token clearing before trusted publish"
+)
+
+require_includes!(
+  workflow,
+  'npm publish --provenance --access public --tag "$npm_tag"',
+  "npm provenance publish command"
 )
 
 require_includes!(
