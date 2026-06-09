@@ -19,7 +19,7 @@
 
 ## Scheduling Gate
 
-This plan is the current active implementation plan. Tasks 1–10 are complete; Task 11 is active next. React is not complete until the release promotion phase publishes it through the pack index and install surfaces.
+This plan is the current active implementation plan. Tasks 1–11 are complete; Task 12 is active next. React is not complete until the public install and onboarding docs reflect the promoted pack index entry.
 
 ## File Structure
 
@@ -341,7 +341,7 @@ Do not add React to getting-started or public pack indexes until the production 
 
 **Execution checkpoint:** Start this phase only after Tasks 9 and 10 pass and maintainers agree `wax-lang-react` is production-ready for public alpha users. This phase is part of the React plan series, not a separate roadmap item; completing the React plan means React is installable through the same release/index pipeline as `compose` and `basic`.
 
-### - [ ] Task 11: Promote React into release artifacts and pack index
+### - [x] Task 11: Promote React into release artifacts and pack index
 
 **Files:**
 - Modify: `engine/Cargo.toml`
@@ -350,7 +350,7 @@ Do not add React to getting-started or public pack indexes until the production 
 - Modify: `.github/workflows/release.yml`
 - Modify: `scripts/check-release-workflow.rb`
 
-- [ ] **Step 1: Move React into publishable release metadata**
+- [x] **Step 1: Move React into publishable release metadata**
 
 Move `wax-lang-react` from `contributor_only_binaries` to `alpha_index_binaries` in `engine/Cargo.toml` so release builds package it by default:
 
@@ -359,7 +359,7 @@ alpha_index_binaries = ["wax", "wax-lang-compose", "wax-lang-basic", "wax-lang-r
 contributor_only_binaries = []
 ```
 
-- [ ] **Step 2: Publish React from generated pack indexes**
+- [x] **Step 2: Publish React from generated pack indexes**
 
 Update `scripts/generate-pack-index.sh` so the `pack_binaries` map includes React:
 
@@ -371,7 +371,7 @@ pack_binaries = {
 }
 ```
 
-- [ ] **Step 3: Update pack-index generator regression tests**
+- [x] **Step 3: Update pack-index generator regression tests**
 
 Change `scripts/test-generate-pack-index.sh` so the fixture manifests include `wax-lang-react` on every supported target and the generated index assertion expects a `react` entry instead of rejecting it.
 
@@ -383,11 +383,11 @@ scripts/test-generate-pack-index.sh
 
 Expected: PASS, and generated `index.json` contains `compose`, `basic`, and `react`.
 
-- [ ] **Step 4: Update release workflow asset assertions**
+- [x] **Step 4: Update release workflow asset assertions**
 
 Update `.github/workflows/release.yml` so `verify-release-assets` checks `wax`, `wax-lang-compose`, `wax-lang-basic`, and `wax-lang-react` across all supported targets. The expected archive and checksum counts must become `16` for the current 4-binary x 4-target matrix.
 
-- [ ] **Step 5: Update release workflow invariant checks**
+- [x] **Step 5: Update release workflow invariant checks**
 
 Update `scripts/check-release-workflow.rb` so it asserts the React-inclusive binary loop, the 16 archive/checksum expectation, and the pack-index generation path.
 

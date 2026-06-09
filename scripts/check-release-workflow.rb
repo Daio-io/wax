@@ -18,8 +18,20 @@ require_includes!(
 
 require_includes!(
   workflow,
-  'for binary in wax wax-lang-compose wax-lang-basic; do',
+  'for binary in wax wax-lang-compose wax-lang-basic wax-lang-react; do',
   "expected binary asset matrix validation"
+)
+
+require_includes!(
+  workflow,
+  'if [[ "$archive_count" != "16" || "$checksum_count" != "16" ]]; then',
+  "expected 16 archive and checksum count validation"
+)
+
+require_includes!(
+  workflow,
+  'echo "expected 16 archives and 16 checksums; found ${archive_count} archives and ${checksum_count} checksums" >&2',
+  "expected 16 archive and checksum count failure message"
 )
 
 require_includes!(

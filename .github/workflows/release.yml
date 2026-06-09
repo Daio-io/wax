@@ -204,7 +204,7 @@ jobs:
         run: |
           set -euo pipefail
           version="${WAX_RELEASE_TAG#v}"
-          for binary in wax wax-lang-compose wax-lang-basic; do
+          for binary in wax wax-lang-compose wax-lang-basic wax-lang-react; do
             for target in aarch64-apple-darwin x86_64-apple-darwin x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
               archive="release-assets/${binary}-${version}-${target}.tar.gz"
               checksum="${archive}.sha256"
@@ -220,8 +220,8 @@ jobs:
           done
           archive_count="$(find release-assets -maxdepth 1 -type f -name '*.tar.gz' | wc -l | tr -d ' ')"
           checksum_count="$(find release-assets -maxdepth 1 -type f -name '*.tar.gz.sha256' | wc -l | tr -d ' ')"
-          if [[ "$archive_count" != "12" || "$checksum_count" != "12" ]]; then
-            echo "expected 12 archives and 12 checksums; found ${archive_count} archives and ${checksum_count} checksums" >&2
+          if [[ "$archive_count" != "16" || "$checksum_count" != "16" ]]; then
+            echo "expected 16 archives and 16 checksums; found ${archive_count} archives and ${checksum_count} checksums" >&2
             find release-assets -maxdepth 1 -type f -print | sort >&2
             exit 1
           fi

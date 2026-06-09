@@ -45,6 +45,10 @@ cat > "$artifacts_dir/aarch64-apple-darwin/manifest.json" <<'JSON'
     "wax-lang-basic": {
       "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.1/wax-lang-basic-0.1.0-alpha.1-aarch64-apple-darwin.tar.gz",
       "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    "wax-lang-react": {
+      "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.1/wax-lang-react-0.1.0-alpha.1-aarch64-apple-darwin.tar.gz",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
     }
   }
 }
@@ -54,7 +58,7 @@ JSON
 
 ruby -rjson -e '
   index = JSON.parse(File.read(ARGV.fetch(0)))
-  abort("expected compose/basic only") unless index.map { |entry| entry.fetch("id") } == %w[compose basic]
+  abort("expected compose/basic/react") unless index.map { |entry| entry.fetch("id") } == %w[compose basic react]
   index.each do |entry|
     abort("wrong version") unless entry.fetch("version") == "0.1.0-alpha.1"
     abort("wrong api version") unless entry.fetch("api_version") == 1
@@ -63,6 +67,7 @@ ruby -rjson -e '
   compose_linux = index.fetch(0).fetch("targets").fetch("x86_64-unknown-linux-gnu")
   abort("compose linux url missing") unless compose_linux.fetch("url").include?("wax-lang-compose-0.1.0-alpha.1-x86_64-unknown-linux-gnu.tar.gz")
   abort("compose linux sha missing") unless compose_linux.fetch("sha256") == "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-  serialized = JSON.pretty_generate(index)
-  abort("react must not be published in alpha index") if serialized.include?("react")
+  react_linux = index.fetch(2).fetch("targets").fetch("x86_64-unknown-linux-gnu")
+  abort("react linux url missing") unless react_linux.fetch("url").include?("wax-lang-react-0.1.0-alpha.1-x86_64-unknown-linux-gnu.tar.gz")
+  abort("react linux sha missing") unless react_linux.fetch("sha256") == "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 ' "$tmp_dir/index.json"
