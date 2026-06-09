@@ -20,7 +20,7 @@ wax-contract = { path = "../wax-contract" }
 wax-lang-api = { path = "../wax-lang-api" }
 
 [build-dependencies]
-toml = "0.8"
+toml = "0.9"
 
 [dev-dependencies]
 tempfile = "3"
