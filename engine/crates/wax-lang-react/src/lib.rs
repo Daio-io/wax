@@ -3,6 +3,7 @@
 #![deny(missing_docs)]
 
 mod config;
+mod diagnostics;
 mod extract;
 mod facts;
 mod files;

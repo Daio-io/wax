@@ -12,6 +12,8 @@ use swc_ecma_parser::{
 };
 use wax_contract::{Diagnostic, DiagnosticSeverity, SourceLocation};
 
+use crate::diagnostics::PARSE_FAILED;
+
 /// Parse output for one React source file.
 #[derive(Debug)]
 pub enum ReactParseOutcome {
@@ -140,7 +142,7 @@ pub fn parse_react_source_file(
 fn parse_failed_diagnostic(message: String, location: Option<SourceLocation>) -> Diagnostic {
     Diagnostic {
         severity: DiagnosticSeverity::Error,
-        code: "parse_failed".to_owned(),
+        code: PARSE_FAILED.to_owned(),
         message,
         location,
     }

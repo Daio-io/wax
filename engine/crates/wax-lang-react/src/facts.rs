@@ -10,6 +10,7 @@ use wax_contract::{
 use wax_lang_api::{ScanRequest, build_version};
 
 use crate::config::ReactScanConfig;
+use crate::diagnostics::is_gap_diagnostic;
 use crate::extract::{collect_usage_sites, discover_local_components};
 use crate::files::ReactSourceFileCollection;
 use crate::module_graph::build_react_module_graph;
@@ -134,18 +135,9 @@ fn react_language_metadata(react_language_id: LanguageId) -> LanguageMetadata {
 }
 
 fn scan_status(diagnostics: &[Diagnostic]) -> ScanStatus {
-    let has_gaps = diagnostics.iter().any(|diagnostic| {
-        matches!(
-            diagnostic.code.as_str(),
-            "parse_failed"
-                | "root_not_found"
-                | "root_glob_not_found"
-                | "ds_import_unresolved"
-                | "ds_export_unresolved"
-                | "package_entrypoint_unresolved"
-                | "ds_usage_unresolved"
-        )
-    });
+    let has_gaps = diagnostics
+        .iter()
+        .any(|diagnostic| is_gap_diagnostic(&diagnostic.code));
 
     if has_gaps {
         ScanStatus::Partial
@@ -157,13 +149,14 @@ fn scan_status(diagnostics: &[Diagnostic]) -> ScanStatus {
 #[cfg(test)]
 mod tests {
     use super::scan_status;
+    use crate::diagnostics::DS_USAGE_UNRESOLVED;
     use wax_contract::{Diagnostic, DiagnosticSeverity, ScanStatus};
 
     #[test]
     fn scan_status_is_partial_for_resolver_gaps() {
         let diagnostics = vec![Diagnostic {
             severity: DiagnosticSeverity::Warning,
-            code: "ds_usage_unresolved".to_owned(),
+            code: DS_USAGE_UNRESOLVED.to_owned(),
             message: "unresolved".to_owned(),
             location: None,
         }];

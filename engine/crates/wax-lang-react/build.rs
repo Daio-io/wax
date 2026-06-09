@@ -7,7 +7,10 @@ fn main() {
     let workspace_manifest = manifest_dir.join("../../Cargo.toml");
 
     println!("cargo:rerun-if-changed={}", workspace_manifest.display());
-    println!("cargo:rerun-if-changed={}", manifest_dir.join("Cargo.toml").display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        manifest_dir.join("Cargo.toml").display()
+    );
 
     let content = fs::read_to_string(&workspace_manifest)
         .unwrap_or_else(|err| panic!("failed to read {}: {err}", workspace_manifest.display()));

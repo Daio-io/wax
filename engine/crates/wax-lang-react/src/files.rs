@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 use wax_contract::{Diagnostic, DiagnosticSeverity};
 use wax_lang_api::{RootPatternKind, RootResolutionError, resolve_source_roots};
 
+use crate::diagnostics::{ROOT_GLOB_NOT_FOUND, ROOT_NOT_FOUND};
+
 /// Default ignore glob patterns applied before configured `ignore` entries.
 pub const DEFAULT_IGNORE_PATTERNS: &[&str] = &[
     "**/node_modules/**",
@@ -73,7 +75,7 @@ pub fn collect_react_source_files(
         if resolved.roots.is_empty() {
             root_diagnostics.push(Diagnostic {
                 severity: DiagnosticSeverity::Warning,
-                code: root_not_found_code(resolved.kind),
+                code: root_not_found_code(resolved.kind).to_owned(),
                 message: root_not_found_message(root, resolved.kind),
                 location: None,
             });
@@ -273,10 +275,10 @@ fn map_root_resolution_error(err: RootResolutionError) -> ReactFileCollectionErr
     }
 }
 
-fn root_not_found_code(kind: RootPatternKind) -> String {
+fn root_not_found_code(kind: RootPatternKind) -> &'static str {
     match kind {
-        RootPatternKind::Literal => "root_not_found".to_owned(),
-        RootPatternKind::Wildcard => "root_glob_not_found".to_owned(),
+        RootPatternKind::Literal => ROOT_NOT_FOUND,
+        RootPatternKind::Wildcard => ROOT_GLOB_NOT_FOUND,
     }
 }
 

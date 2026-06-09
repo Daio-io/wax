@@ -19,7 +19,7 @@
 
 ## Scheduling Gate
 
-This plan is the current active implementation plan. Tasks 1–7 are complete; Task 8 is active in this PR.
+This plan is the current active implementation plan. Tasks 1–8 are complete; Task 9 is active next.
 
 ## File Structure
 
