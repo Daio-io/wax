@@ -385,7 +385,8 @@ jobs:
           if [[ "$release_version" == *-* ]]; then
             npm_tag=alpha
           fi
-          npm publish --access public --tag "$npm_tag"
+          unset NODE_AUTH_TOKEN NPM_TOKEN npm_config__authToken
+          npm publish --provenance --access public --tag "$npm_tag"
 
   verify-published-pack-index:
     name: Verify published pack index
