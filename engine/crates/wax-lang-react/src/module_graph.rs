@@ -84,6 +84,45 @@ pub struct ReactModuleGraph {
 }
 
 impl ReactModuleGraph {
+    /// Returns one local import binding for a module.
+    #[must_use]
+    pub fn import_binding(&self, module: &Path, local_name: &str) -> Option<&ImportBinding> {
+        self.modules.get(module)?.imports.get(local_name)
+    }
+
+    /// Returns whether an unresolved import binding is design-system relevant.
+    #[must_use]
+    pub fn unresolved_import_is_design_system_relevant(
+        &self,
+        module: &Path,
+        local_name: &str,
+        registry: &ReactRegistryIndex,
+        config: &ReactScanConfig,
+    ) -> bool {
+        let Some(import) = self.import_binding(module, local_name) else {
+            return false;
+        };
+        import.source_module.is_none()
+            && import_is_design_system_relevant(
+                &import.source_specifier,
+                &import.local_name,
+                &import.imported_symbol,
+                registry,
+                config,
+            )
+    }
+
+    /// Returns whether a resolved import binding comes through a configured design-system package.
+    #[must_use]
+    pub fn import_resolves_through_configured_package(
+        &self,
+        module: &Path,
+        local_name: &str,
+        config: &ReactScanConfig,
+    ) -> bool {
+        self.import_resolves_through_configured_package_internal(module, local_name, config, 0)
+    }
+
     /// Resolves one local import binding to the final symbol location.
     #[must_use]
     pub fn resolve_import(&self, module: &Path, local_name: &str) -> Option<ResolvedSymbol> {
@@ -166,6 +205,85 @@ impl ReactModuleGraph {
                             symbol: source_export.clone(),
                         })
                     })
+            }
+        }
+    }
+
+    fn import_resolves_through_configured_package_internal(
+        &self,
+        module: &Path,
+        local_name: &str,
+        config: &ReactScanConfig,
+        depth: usize,
+    ) -> bool {
+        if depth > 2 {
+            return false;
+        }
+        let Some(import) = self.import_binding(module, local_name) else {
+            return false;
+        };
+        let Some(source_module) = import.source_module.as_deref() else {
+            return false;
+        };
+        if configured_package_for_specifier(&import.source_specifier, &config.packages).is_some() {
+            return true;
+        }
+
+        let source_export = match &import.imported_symbol {
+            ImportedSymbol::Default => "default".to_owned(),
+            ImportedSymbol::Namespace => "*".to_owned(),
+            ImportedSymbol::Named(name) => name.clone(),
+        };
+        self.export_resolves_through_configured_package_internal(
+            source_module,
+            &source_export,
+            config,
+            depth + 1,
+        )
+    }
+
+    fn export_resolves_through_configured_package_internal(
+        &self,
+        module: &Path,
+        export_name: &str,
+        config: &ReactScanConfig,
+        depth: usize,
+    ) -> bool {
+        if depth > 2 {
+            return false;
+        }
+        let Some(record) = self.modules.get(module) else {
+            return false;
+        };
+        let Some(binding) = record.exports.get(export_name) else {
+            return false;
+        };
+
+        match binding {
+            ExportBinding::Local(local_name) => {
+                record.imports.contains_key(local_name)
+                    && self.import_resolves_through_configured_package_internal(
+                        module,
+                        local_name,
+                        config,
+                        depth + 1,
+                    )
+            }
+            ExportBinding::ReExport {
+                source_specifier,
+                source_export,
+                source_module,
+            } => {
+                let Some(source_module) = source_module.as_deref() else {
+                    return false;
+                };
+                configured_package_for_specifier(source_specifier, &config.packages).is_some()
+                    || self.export_resolves_through_configured_package_internal(
+                        source_module,
+                        source_export,
+                        config,
+                        depth + 1,
+                    )
             }
         }
     }
@@ -397,12 +515,17 @@ fn import_is_design_system_relevant(
     registry: &ReactRegistryIndex,
     config: &ReactScanConfig,
 ) -> bool {
-    configured_package_for_specifier(source, &config.packages).is_some()
-        || match imported_symbol {
-            ImportedSymbol::Named(name) => registry.resolve_targets.contains_key(name),
-            ImportedSymbol::Default => registry.resolve_targets.contains_key(local_name),
-            ImportedSymbol::Namespace => false,
-        }
+    if configured_package_for_specifier(source, &config.packages).is_some() {
+        return true;
+    }
+    if is_unconfigured_bare_package_specifier(source, config) {
+        return false;
+    }
+    match imported_symbol {
+        ImportedSymbol::Named(name) => registry.resolve_targets.contains_key(name),
+        ImportedSymbol::Default => registry.resolve_targets.contains_key(local_name),
+        ImportedSymbol::Namespace => false,
+    }
 }
 
 fn export_is_design_system_relevant(
@@ -412,9 +535,23 @@ fn export_is_design_system_relevant(
     registry: &ReactRegistryIndex,
     config: &ReactScanConfig,
 ) -> bool {
-    configured_package_for_specifier(source, &config.packages).is_some()
-        || registry.resolve_targets.contains_key(exported_name)
+    if configured_package_for_specifier(source, &config.packages).is_some() {
+        return true;
+    }
+    if is_unconfigured_bare_package_specifier(source, config) {
+        return false;
+    }
+    registry.resolve_targets.contains_key(exported_name)
         || registry.resolve_targets.contains_key(source_name)
+}
+
+fn is_unconfigured_bare_package_specifier(source: &str, config: &ReactScanConfig) -> bool {
+    !source.starts_with('.')
+        && configured_package_for_specifier(source, &config.packages).is_none()
+        && !config
+            .aliases
+            .keys()
+            .any(|pattern| match_wildcard_pattern(pattern, source).is_some())
 }
 
 fn package_entrypoint_diagnostics(
