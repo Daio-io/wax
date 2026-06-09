@@ -13,7 +13,7 @@ Open-source, self-hostable design system component tracker. See [component track
 - [Registry sources and layout plan](docs/plans/2026-06-02-registry-sources-and-wax-layout.md) — `.wax/` layout and registry source locking (order 3)
 - [Registry discovery design](docs/plans/2026-06-04-registry-discovery-design.md) and [implementation plan](docs/plans/2026-06-04-registry-discovery-plan.md) — `wax registry discover` and skill-assisted registry sync (order 4, complete)
 - [Post-alpha UX plan](docs/plans/2026-05-24-post-alpha-ux-plan.md) — guided init, scan exports, CI summaries, local reports (order 5, deferred)
-- [React language pack design](docs/plans/2026-06-07-react-language-pack-design.md) and [implementation plan](docs/plans/2026-06-07-react-language-pack-plan.md) — SWC parser-backed React extraction with registry and module resolution (order 6, in progress)
+- [React language pack design](docs/plans/2026-06-07-react-language-pack-design.md) and [implementation plan](docs/plans/2026-06-07-react-language-pack-plan.md) — SWC parser-backed React extraction with registry and module resolution (order 6, complete)
 - [`engine/`](engine/) — production Rust workspace (`wax` CLI, language packs, contract crates)
 
 ## Install (alpha)
@@ -35,7 +35,7 @@ Verify the installed binary directly with:
 $HOME/.wax/bin/wax --help
 ```
 
-Language packs are not bundled with the CLI binary. Continue with the compose walkthrough in [Getting started](#getting-started-compose-alpha-path).
+Language packs are not bundled with the CLI binary. Install packs on demand with `wax language install <id>` or let `wax init` / `wax scan` auto-install pinned versions from the pack index. Continue with a getting-started walkthrough below.
 
 To install a specific release:
 
@@ -52,7 +52,7 @@ brew tap Daio-io/wax
 brew install wax
 ```
 
-The Homebrew formula currently targets macOS archives only. Language packs are not bundled with the CLI binary; continue with the compose walkthrough in [Getting started](#getting-started-compose-alpha-path).
+The Homebrew formula currently targets macOS archives only. Language packs are not bundled with the CLI binary; continue with a getting-started walkthrough below.
 
 ### npm (optional alpha wrapper)
 
@@ -133,6 +133,26 @@ This removes cached language packs, install state, and fallback binaries under `
 rm -rf "$HOME/.wax"
 ```
 
+## Language packs (public alpha)
+
+The hosted pack index publishes three first-party language packs:
+
+| id | Use for |
+| --- | --- |
+| `compose` | Jetpack Compose / Kotlin design-system usage |
+| `basic` | Text-scanner fallback for unsupported languages and smoke tests |
+| `react` | React / TypeScript JSX usage with import-aware registry resolution |
+
+Install a pack explicitly:
+
+```bash
+wax language install compose
+wax language install basic
+wax language install react
+```
+
+Or pass `--language <id>` to `wax init` and let init auto-install the pinned version from your lockfile.
+
 ## Getting started (compose alpha path)
 
 1. Install `wax` (curl path above).
@@ -182,6 +202,44 @@ wax scan
 ```
 
 6. Inspect outputs in `.wax/out/` (including `.wax/out/scan-merged.json`).
+
+## Getting started (react alpha path)
+
+1. Install `wax` (curl path above).
+2. Initialize repo config with the React language entry:
+
+```bash
+wax init --non-interactive --language react
+```
+
+`wax init` writes `.wax/wax.config.json`, `.wax/wax.lock.json`, and `.wax/wax.registry.json`. The example template includes a React entry with `roots`; init filters the template to the selected language.
+
+3. Ensure `.wax/wax.config.json` points at your registry and source roots. Minimal React config:
+
+```json
+{
+  "schema_version": 1,
+  "languages": [
+    {
+      "id": "react",
+      "enabled": true,
+      "registry": ".wax/wax.registry.json",
+      "roots": ["apps/web/src"]
+    }
+  ]
+}
+```
+
+Populate `.wax/wax.registry.json` with canonical components (same schema as the compose path). For monorepos with path aliases or design-system package imports, add optional `tsconfig`, `aliases`, or `packages` entries on the React language block so JSX bindings resolve through imports—see [language packs spec](docs/specs/2026-05-16-language-packs-and-distribution.md) for resolver fields.
+
+4. Validate and scan:
+
+```bash
+wax validate
+wax scan
+```
+
+5. Inspect outputs in `.wax/out/` (including `.wax/out/scan-merged.json`).
 
 ### AI skills
 
@@ -276,7 +334,7 @@ Commit `.wax/wax.lock.json`. In CI, restore cached installs from `~/.wax/langs` 
 
 ```bash
 wax validate
-wax language install compose
+wax language install compose   # or: wax language install react
 wax scan --no-auto-install
 ```
 

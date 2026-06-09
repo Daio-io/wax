@@ -158,7 +158,7 @@ CI and scripts must continue to use `--non-interactive`. Interactive mode only w
 
 - [ ] **Step 2: Prompt for language (Compose-first), roots, optional first scan**
 
-Reuse existing init install/lockfile logic after selections. Default language list matches alpha index (`compose`; offer `basic` for smoke; do not offer `react` until production-ready).
+Reuse existing init install/lockfile logic after selections. Default language list matches the public pack index (`compose`, `basic`, `react`). Interactive init remains deferred to this plan; non-interactive `wax init --language react` already works via the example template.
 
 - [ ] **Step 3: Fall back to current behavior when not a TTY**
 
@@ -306,7 +306,7 @@ Expected: Users upgrading from alpha.1 see new UX without reading implementation
 2. Prompt library choice is acceptable for license and binary size.
 3. `json-summary` and `graph-data` schema versioning strategy is acceptable for external CI and dashboards.
 4. HTML report stays static/local and does not accidentally become a hosted web UI scope increase.
-5. React remains excluded from interactive init language list until release plan promotes it in the pack index.
+5. React is in the public pack index (React plan Task 11); interactive init language prompts remain deferred to this plan.
 
 ---
 

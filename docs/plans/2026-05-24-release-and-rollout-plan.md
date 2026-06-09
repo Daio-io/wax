@@ -32,7 +32,7 @@ This plan is the **release and rollout** phase after the engine foundation. It d
 | Pack index | HTTPS fetch + default `WAX_LANG_INDEX` |
 | Scan orchestration | Per-language `.waxrc` config on the wire; auto-install when allowed |
 | Releases | Tagged prebuilt matrix on GitHub Releases |
-| Pack index hosting | Generated `index.json` (`compose` + `basic` for alpha) |
+| Pack index hosting | Generated `index.json` (`compose` + `basic` + `react` for alpha) |
 | Install channels | curl script, Homebrew tap, optional npm wrapper |
 | Versioning | Aligned semver (`0.1.0-alpha.N` until stable) |
 
@@ -329,7 +329,7 @@ Expected: PASS.
 - Modify: `engine/fixtures/registry/official-manifest.json` (align ids with `compose` and `basic`)
 - Modify: `engine/crates/wax-core/tests/install_language.rs` (optional cross-reference)
 
-**Alpha index scope:** List **`compose`** and **`basic`** only. Do **not** publish `react` in the alpha index until `wax-lang-react` has production extraction (stub today). Task 11 generator must match this list; README getting started must not feature `wax init --language react`.
+**Alpha index scope (historical):** Task 7 originally listed **`compose`** and **`basic`** only. React promotion (React plan Task 11) added **`react`** to release artifacts and generated pack indexes; README getting started now documents `wax init --language react`.
 
 - [x] **Step 1: Author index listing `compose` and `basic`**
 
@@ -337,9 +337,9 @@ Each entry: `id`, `version`, `api_version`, `targets` map with release URLs and 
 
 - [x] **Step 2: Document index schema in spec or plan comment block**
 
-Match [language packs spec § Distribution](../specs/2026-05-16-language-packs-and-distribution.md). Note `react` deferred from alpha index.
+Match [language packs spec § Distribution](../specs/2026-05-16-language-packs-and-distribution.md). The committed `alpha-index.json` fixture still lists `compose` and `basic` for integration tests; generated release indexes include `react` after React plan Task 11.
 
-Plan note: `engine/fixtures/registry/alpha-index.json` follows the v1 Distribution shape from the language packs spec: a top-level array of pack entries, each with `id`, `version`, `api_version`, and a `targets` object keyed by Rust target triple. Each target contains a release asset `url` and artifact `sha256`; the fixture uses placeholder zero digests until Task 11 generates the first release index. Alpha publishes only `compose` and `basic`; `react` is deferred until production extraction is ready.
+Plan note: `engine/fixtures/registry/alpha-index.json` follows the v1 Distribution shape from the language packs spec: a top-level array of pack entries, each with `id`, `version`, `api_version`, and a `targets` object keyed by Rust target triple. Each target contains a release asset `url` and artifact `sha256`; the fixture uses placeholder zero digests until Task 11 generates the first release index. Release promotion added `react` to generated indexes; the fixture remains compose+basic for focused install tests.
 
 - [x] **Step 3: Wire one CLI integration test to load `file://` copy of alpha index**
 
@@ -386,9 +386,9 @@ Used the documented hand-rolled matrix fallback (`scripts/build-release.sh`) bec
 
 - [x] **Step 2: Configure artifacts for v1 triple matrix**
 
-**Required** for alpha (must match Task 7 / 11 index entries): `wax`, `wax-lang-compose`, `wax-lang-basic`.
+**Required** for alpha (must match Task 7 / 11 index entries): `wax`, `wax-lang-compose`, `wax-lang-basic`, `wax-lang-react`.
 
-**Not in alpha index:** `wax-lang-react` may still build in the matrix for contributors, but do **not** list `react` in `index.json` until production extraction is ready.
+**Pack index:** Generated `index.json` lists `compose`, `basic`, and `react` after React plan Task 11 promotion.
 
 Targets: `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`.
 
@@ -426,7 +426,7 @@ Expected: Release page shows **12** archives (3 alpha-index binaries × 4 triple
 
 - [x] **Step 1: Script reads release manifest (URLs + sha256 per triple) and emits `index.json`**
 
-Emit entries for **`compose` and `basic` only** in alpha (see Task 7). Exclude `react` until a follow-up release plan task promotes it.
+Emit entries for **`compose`, `basic`, and `react`** in alpha (see Task 7 historical note and React plan Task 11).
 
 - [x] **Step 2: Attach `index.json` to GitHub Release and/or commit to `gh-pages`**
 
@@ -540,7 +540,7 @@ Primary: curl now. Homebrew remains pending until Task 13 publishes the tap and 
 
 `install → wax init --non-interactive --language compose → populate design-system/registry.json → wax validate → wax scan → inspect .wax/out/`
 
-State clearly: **`wax init` scaffolds an empty registry**; users must add canonical components manually for meaningful adoption metrics until registry discover/draft ships (post-alpha). Do not document `wax init --language react` in getting started until the react pack is production-ready.
+State clearly: **`wax init` scaffolds an empty registry**; users must add canonical components manually for meaningful adoption metrics until registry discover/draft ships (post-alpha). README getting started documents compose and react paths; react promotion landed in React plan Task 11–12.
 
 - [x] **Step 3: Commit JSON Schema for `.waxrc`**
 
@@ -619,7 +619,7 @@ Each item includes a **target** so follow-up work can be scheduled without reope
 | Windows prebuilt matrix | Platform expansion after macOS/Linux alpha stable |
 | homebrew-core submission | After tap usage justifies core PR |
 | In-process language packs / daemon NDJSON mode | Performance plan |
-| `react` in public pack index + getting started | When `wax-lang-react` production extraction lands |
+| `react` in public pack index + getting started | Complete — React plan Tasks 11–12 |
 | npm `@waxhq/wax` if skipped in alpha | alpha+1 install channel (Task 14) |
 | Align engine default scan timeout with spec (`WAX_SCAN_TIMEOUT_SECS` / 10 minutes) | Small engine fix when CI timeouts bite |
 
@@ -653,7 +653,7 @@ Each item includes a **target** so follow-up work can be scheduled without reope
 | Scan stdout summary (adoption %, diagnostics) | Task 3 |
 | Empty registry warning on validate | Task 4 |
 | `.waxrc` JSON Schema + monorepo docs | Task 15 |
-| Alpha index: `compose` + `basic` only | Tasks 7, 11 |
+| Alpha index: `compose` + `basic` + `react` | Tasks 7, 11; React plan Task 11 |
 | Public alpha install (curl + Homebrew) | Tasks 12, 13, 15 |
 
 ---
@@ -668,7 +668,7 @@ Before starting implementation, confirm:
 4. Org/name for Homebrew tap and npm scope (`@waxhq/wax` availability).
 5. Auto-install executes in **engine** (Task 2) vs CLI-only orchestration—Task 2 recommendation keeps `wax scan` behavior consistent for library callers.
 6. `wax validate` alpha scope is intentionally minimal; rich usage analysis waits for discover/draft or scan-facts-based validate.
-7. **Getting started uses Compose only** until `wax-lang-react` is production-ready; alpha index lists `compose` + `basic` only.
+7. **Getting started** documents compose and react paths; generated pack index lists `compose` + `basic` + `react` after React plan Task 11.
 8. **Minimum scan stdout summary** is defined in Task 3 (path, languages, adoption %, capped diagnostics)—not JSON path alone.
 9. **Empty registry:** documented in Task 15; Task 4 warns on `components: []` without failing validate.
 10. **Post-alpha UX** is order 3 in `docs/plans/README.md`; plan doc is PR #34 (no markdown link to that file in this plan until #34 merges).
