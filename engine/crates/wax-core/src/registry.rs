@@ -515,6 +515,29 @@ mod tests {
         "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
       }}
     }}
+  }},
+  {{
+    "id": "react",
+    "version": "{version}",
+    "api_version": 1,
+    "targets": {{
+      "x86_64-unknown-linux-gnu": {{
+        "url": "https://github.com/Daio-io/wax/releases/download/{release_tag}/wax-lang-react-{version}-x86_64-unknown-linux-gnu.tar.gz",
+        "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+      }},
+      "aarch64-apple-darwin": {{
+        "url": "https://github.com/Daio-io/wax/releases/download/{release_tag}/wax-lang-react-{version}-aarch64-apple-darwin.tar.gz",
+        "sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+      }},
+      "x86_64-apple-darwin": {{
+        "url": "https://github.com/Daio-io/wax/releases/download/{release_tag}/wax-lang-react-{version}-x86_64-apple-darwin.tar.gz",
+        "sha256": "5555555555555555555555555555555555555555555555555555555555555555"
+      }},
+      "aarch64-unknown-linux-gnu": {{
+        "url": "https://github.com/Daio-io/wax/releases/download/{release_tag}/wax-lang-react-{version}-aarch64-unknown-linux-gnu.tar.gz",
+        "sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+      }}
+    }}
   }}
 ]
 "#
@@ -530,8 +553,8 @@ mod tests {
             .iter()
             .map(|manifest| manifest.id.as_str())
             .collect();
-        if ids != ["compose", "basic"] {
-            return Err(format!("expected compose/basic only, got {ids:?}"));
+        if ids != ["compose", "basic", "react"] {
+            return Err(format!("expected compose/basic/react only, got {ids:?}"));
         }
 
         let Some(expected_release_tag) = expected_release_tag else {

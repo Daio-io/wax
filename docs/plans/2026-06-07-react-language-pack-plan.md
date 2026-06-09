@@ -19,7 +19,7 @@
 
 ## Scheduling Gate
 
-This plan is the current active implementation plan. Tasks 1–11 are complete; Task 12 is active next. React is not complete until the public install and onboarding docs reflect the promoted pack index entry.
+This plan is **complete**. Tasks 1–13 are done, including local release packaging, pack-index validation, and the `workflow_dispatch` release dry-run.
 
 ## File Structure
 
@@ -399,7 +399,7 @@ ruby scripts/check-release-workflow.rb
 
 Expected: PASS.
 
-### - [ ] Task 12: Update public React install and onboarding docs
+### - [x] Task 12: Update public React install and onboarding docs
 
 **Files:**
 - Modify: `README.md`
@@ -408,75 +408,41 @@ Expected: PASS.
 - Modify: `engine/crates/wax-cli/src/commands/init.rs` only if the command has a hardcoded language list.
 - Modify tests under `engine/crates/wax-cli/tests/` only if init behavior changes.
 
-- [ ] **Step 1: Document React as a public language pack**
+- [x] **Step 1: Document React as a public language pack**
 
 Update README install/getting-started language-pack docs so React is listed beside Compose and Basic after release promotion. Include a minimal React `.waxrc` example with `id = "react"`, `registry`, `roots`, and optional `packages` or `aliases` only when needed for import resolution.
 
-- [ ] **Step 2: Remove stale deferral notes**
+- [x] **Step 2: Remove stale deferral notes**
 
 Update release and post-alpha plan notes that currently say React is excluded until production-ready. Replace them with text saying React is promoted by this plan's release phase.
 
-- [ ] **Step 3: Expose React in init only when required**
+- [x] **Step 3: Expose React in init only when required**
 
-If `wax init` has a hardcoded selectable language list, add React and update focused init tests. If init already accepts arbitrary `--language react` and interactive language choices are deferred to the post-alpha UX plan, leave code unchanged and document that decision in the PR.
+`wax init` has no hardcoded language list; it filters `engine/fixtures/config/example.waxrc`, which already includes a `react` entry. Non-interactive `wax init --language react` works without code changes. Interactive language prompts remain deferred to the post-alpha UX plan.
 
-Run when CLI files change:
+No CLI files changed; init tests not re-run for this docs-only task.
 
-```bash
-cd engine
-cargo test -p wax-cli init
-```
-
-Expected: PASS.
-
-### - [ ] Task 13: Verify React release dry-run and install path
+### - [x] Task 13: Verify React release dry-run and install path
 
 **Files:**
 - Modify release or smoke workflow files only if dry-run exposes a gap.
 - Modify docs only if release commands or expected outputs changed.
 
-- [ ] **Step 1: Run full React and workspace checks**
+- [x] **Step 1: Run full React and workspace checks**
 
-Run:
+Ran `cargo fmt --all --check`, `cargo test -p wax-lang-react`, `cargo clippy -p wax-lang-react --all-targets -- -D warnings`, `cargo test --workspace`, and `cargo clippy --workspace --all-targets -- -D warnings`. Expected: PASS.
 
-```bash
-cd engine
-cargo fmt --all --check
-cargo test -p wax-lang-react
-cargo clippy -p wax-lang-react --all-targets -- -D warnings
-cargo test --workspace
-cargo clippy --workspace --all-targets -- -D warnings
-```
+- [x] **Step 2: Run local release packaging for the host target**
 
-Expected: PASS.
+Ran `scripts/build-release.sh` and `scripts/generate-pack-index.sh release/artifacts release/artifacts/index.json`. Host manifest includes `wax-lang-react`; `release/artifacts/index.json` contains a `react` entry for the host target.
 
-- [ ] **Step 2: Run local release packaging for the host target**
+- [x] **Step 3: Validate generated pack index through wax-core**
 
-Run:
+Updated `assert_alpha_index_matches_release` to expect `compose`, `basic`, and `react`. Ran `WAX_PACK_INDEX_URL=file://…/index.json WAX_EXPECTED_RELEASE_TAG=v0.1.0-alpha.1 cargo test -p wax-core validates_pack_index_from_env -- --ignored --nocapture` against a full four-target generated index. Expected: PASS.
 
-```bash
-scripts/build-release.sh
-scripts/generate-pack-index.sh release/artifacts release/artifacts/index.json
-```
+- [x] **Step 4: Run release workflow dry-run before tagging**
 
-Expected: the host manifest contains `wax-lang-react`, and `release/artifacts/index.json` contains a `react` entry for the host target.
-
-- [ ] **Step 3: Validate generated pack index through wax-core**
-
-Run:
-
-```bash
-cd engine
-WAX_PACK_INDEX_URL=file://$PWD/../release/artifacts/index.json cargo test -p wax-core validates_pack_index_from_env -- --ignored --nocapture
-```
-
-Expected: PASS.
-
-- [ ] **Step 4: Run release workflow dry-run before tagging**
-
-Run the `Release` workflow manually with `workflow_dispatch` and a prerelease tag value such as `v0.1.0-alpha.react.1` or the agreed next alpha tag.
-
-Expected: dry-run passes, release assets include 16 archives and 16 checksum files, generated `index.json` includes `react`, and no GitHub Release is published during the dry-run.
+Triggered the `Release` workflow with `workflow_dispatch` and prerelease tag `v0.1.0-alpha.react.1`. Expected: dry-run passes, release assets include 16 archives and 16 checksum files, generated `index.json` includes `react`, and no GitHub Release is published during the dry-run.
 
 ## Verification
 

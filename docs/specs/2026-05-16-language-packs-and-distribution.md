@@ -431,7 +431,7 @@ First-party pack binaries use `wax-lang-<id>` names, for example `wax-lang-compo
 |----|--------|-------|
 | `basic` | Text line scanner | Generic fallback for unsupported languages and smoke tests |
 | `compose` | tree-sitter-kotlin | First production parser-backed language |
-| `react` | SWC | Import-aware JSX extraction via SWC; production parser in repo but **contributor-only** until release promotion adds it to the public pack index |
+| `react` | SWC | Import-aware JSX extraction via SWC; public alpha pack (release promotion complete) |
 | `swift` | Deferred | Later-phase language pack after a dedicated parser decision |
 
 ### Basic fallback scanner
@@ -465,7 +465,7 @@ Use `basic` for unsupported languages, smoke tests, and early adoption estimates
 
 - `wax-lang-react` uses **SWC** for AST-based JavaScript and TypeScript parsing with JSX enabled. `language.parser_name` is `"swc"`.
 - The scanner discovers source files under configured `roots`, expands path components that are exactly `*` or `**` for multi-module repositories, and parses `.js`, `.jsx`, `.ts`, and `.tsx` through one parser path. Declaration files (`.d.ts`) are excluded.
-- Requests without React scan keys (`registry` and `roots`) return scaffold facts with the `react_scaffold` diagnostic. This preserves contributor stdio smoke compatibility while React remains outside the public pack index.
+- Requests without React scan keys (`registry` and `roots`) return scaffold facts with the `react_scaffold` diagnostic. This preserves stdio smoke compatibility for empty-config requests.
 - `wax-lang-basic` is the explicit text-scanner fallback for unsupported languages; React does not use line scanning.
 
 **Resolver configuration (`tsconfig`, `aliases`, `packages`):**
@@ -518,7 +518,7 @@ React v1 discovers local components conservatively: PascalCase function declarat
 
 **Release status:**
 
-`wax-lang-react` is implemented and gated by golden fixtures in this repository, but it is **not** listed in public getting-started docs or generated pack indexes until release promotion (React plan Task 11). Contributors build and test the pack from the workspace; end users install `compose` and `basic` from the pack index today.
+`wax-lang-react` is a public alpha pack alongside `compose` and `basic`. Release builds and generated pack indexes include `react`; the default `gh-pages/index.json` lists it after the next tagged alpha publish. README getting started documents `wax init --language react` and `wax language install react` with that index timing. Interactive init language prompts remain deferred to the post-alpha UX plan.
 
 ### Monolithic vs modular CLI
 
