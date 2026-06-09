@@ -6,8 +6,8 @@ use std::path::{Component, Path, PathBuf};
 
 use swc_common::Spanned;
 use swc_ecma_ast::{
-    Decl, ExportDecl, ExportSpecifier, ImportSpecifier, ModuleDecl, ModuleExportName, ModuleItem,
-    Pat,
+    Decl, DefaultDecl, ExportDecl, ExportDefaultDecl, ExportDefaultExpr, ExportSpecifier, Expr,
+    ImportSpecifier, ModuleDecl, ModuleExportName, ModuleItem, Pat,
 };
 use wax_contract::{Diagnostic, DiagnosticSeverity};
 
@@ -383,11 +383,11 @@ pub fn build_react_module_graph(
                 ModuleDecl::ExportDecl(export_decl) => {
                     record_export_decl(export_decl, &mut record);
                 }
-                ModuleDecl::ExportDefaultDecl(_) | ModuleDecl::ExportDefaultExpr(_) => {
-                    record.exports.insert(
-                        "default".to_owned(),
-                        ExportBinding::Local("default".to_owned()),
-                    );
+                ModuleDecl::ExportDefaultDecl(default_decl) => {
+                    record_default_export(default_decl, &mut record);
+                }
+                ModuleDecl::ExportDefaultExpr(default_expr) => {
+                    record_default_export_expr(default_expr, &mut record);
                 }
                 ModuleDecl::ExportNamed(named_export) => {
                     let source = named_export
@@ -462,6 +462,30 @@ fn record_export_decl(export_decl: &ExportDecl, record: &mut ReactModuleRecord) 
             .exports
             .insert(name.clone(), ExportBinding::Local(name.clone()));
     }
+}
+
+fn record_default_export(default_decl: &ExportDefaultDecl, record: &mut ReactModuleRecord) {
+    let local_name = match &default_decl.decl {
+        DefaultDecl::Fn(fn_expr) => fn_expr.ident.as_ref().map(|ident| ident.sym.to_string()),
+        DefaultDecl::Class(class_expr) => {
+            class_expr.ident.as_ref().map(|ident| ident.sym.to_string())
+        }
+        DefaultDecl::TsInterfaceDecl(_) => None,
+    };
+    record.exports.insert(
+        "default".to_owned(),
+        ExportBinding::Local(local_name.unwrap_or_else(|| "default".to_owned())),
+    );
+}
+
+fn record_default_export_expr(default_expr: &ExportDefaultExpr, record: &mut ReactModuleRecord) {
+    let local_name = match &*default_expr.expr {
+        Expr::Ident(ident) => ident.sym.to_string(),
+        _ => "default".to_owned(),
+    };
+    record
+        .exports
+        .insert("default".to_owned(), ExportBinding::Local(local_name));
 }
 
 fn declared_names(decl: &Decl) -> Vec<String> {
@@ -1211,6 +1235,33 @@ mod tests {
             .resolve_import(Path::new("src/App.tsx"), "Button")
             .expect("specific alias should win");
         assert_eq!(resolved.module, PathBuf::from("src/acme/ui/Button.tsx"));
+    }
+
+    #[test]
+    fn module_graph_resolves_default_export_to_declared_symbol_name() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "src/App.tsx",
+            r#"import DsButton from "./Button"; export const App = () => <DsButton />;"#,
+        );
+        fixture.write(
+            "src/Button.tsx",
+            "export default function Button() { return null; }",
+        );
+
+        let build = fixture.build_graph(
+            vec!["src/App.tsx", "src/Button.tsx"],
+            base_config(),
+            registry_with_symbols(&["Button"]),
+        );
+
+        let resolved = build
+            .graph
+            .resolve_import(Path::new("src/App.tsx"), "DsButton")
+            .expect("default import should resolve to declared export name");
+        assert_eq!(resolved.module, PathBuf::from("src/Button.tsx"));
+        assert_eq!(resolved.symbol, "Button");
+        assert!(build.diagnostics.is_empty());
     }
 
     #[test]

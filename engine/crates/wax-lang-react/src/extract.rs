@@ -933,12 +933,33 @@ fn resolve_usage_registry_symbol(
     }
 
     let resolved = module_graph.resolve_import(&parsed.file, &candidate.binding_name)?;
+
+    if resolved.symbol == "*" {
+        if let Some(member_symbol) = namespace_member_symbol(candidate) {
+            if let Some(member_resolved) =
+                module_graph.resolve_export(&resolved.module, &member_symbol)
+                && let Some(registry_symbol) = registry.resolve_targets.get(&member_resolved.symbol)
+            {
+                return Some(registry_symbol.clone());
+            }
+            if let Some(registry_symbol) = registry.resolve_targets.get(&member_symbol) {
+                return Some(registry_symbol.clone());
+            }
+        }
+        return None;
+    }
+
     registry
         .resolve_targets
         .get(&resolved.symbol)
         .or_else(|| registry.resolve_targets.get(&candidate.symbol))
         .or_else(|| registry.resolve_targets.get(&candidate.binding_name))
         .cloned()
+}
+
+fn namespace_member_symbol(candidate: &JsxUsageCandidate) -> Option<String> {
+    let prefix = format!("{}.", candidate.binding_name);
+    candidate.symbol.strip_prefix(&prefix).map(str::to_owned)
 }
 
 fn unresolved_usage_is_design_system_relevant(
@@ -1024,10 +1045,18 @@ fn local_declared_bindings(parsed: &ParsedReactModule) -> BTreeSet<String> {
                 collect_declared_bindings(&export_decl.decl, &mut bindings);
             }
             ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultDecl(default_decl)) => {
-                if let DefaultDecl::Fn(fn_expr) = &default_decl.decl
-                    && let Some(ident) = &fn_expr.ident
-                {
-                    bindings.insert(ident.sym.to_string());
+                match &default_decl.decl {
+                    DefaultDecl::Fn(fn_expr) => {
+                        if let Some(ident) = &fn_expr.ident {
+                            bindings.insert(ident.sym.to_string());
+                        }
+                    }
+                    DefaultDecl::Class(class_expr) => {
+                        if let Some(ident) = &class_expr.ident {
+                            bindings.insert(ident.sym.to_string());
+                        }
+                    }
+                    DefaultDecl::TsInterfaceDecl(_) => {}
                 }
             }
             _ => {}
@@ -1968,6 +1997,94 @@ mod tests {
                 ("Button".to_owned(), Some("Button".to_owned())),
                 ("Button".to_owned(), Some("Button".to_owned())),
             ]
+        );
+        assert!(extraction.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn extract_usage_resolves_default_import_with_aliased_local_name() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "src/App.tsx",
+            r#"
+            import DsButton from "@acme/design-system";
+
+            export const App = () => <DsButton />;
+            "#,
+        );
+        fixture.write(
+            "src/ds/Button.tsx",
+            "export default function Button() { return null; }",
+        );
+
+        let extraction = fixture.extract_usage(
+            vec!["src/App.tsx", "src/ds/Button.tsx"],
+            config_with_package(BTreeMap::from([(
+                ".".to_owned(),
+                "src/ds/Button".to_owned(),
+            )])),
+            registry_with_aliases(&[("Button", &[])]),
+        );
+
+        assert_eq!(
+            usage_symbols(&extraction.usage_sites),
+            vec![("DsButton".to_owned(), Some("Button".to_owned()))]
+        );
+        assert!(extraction.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn extract_usage_suppresses_self_reference_in_default_export_class() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "src/App.tsx",
+            r#"
+            import React from "react";
+
+            export default class Button extends React.Component {
+                render() {
+                    return <Button />;
+                }
+            }
+            "#,
+        );
+
+        let extraction = fixture.extract_usage(
+            vec!["src/App.tsx"],
+            base_config(),
+            registry_with_aliases(&[("Button", &[])]),
+        );
+
+        assert!(extraction.usage_sites.is_empty());
+        assert!(extraction.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn extract_usage_resolves_namespace_import_member_jsx() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "src/App.tsx",
+            r#"
+            import * as DS from "@acme/design-system";
+
+            export const App = () => <DS.Button />;
+            "#,
+        );
+        fixture.write("src/ds/index.ts", r#"export { Button } from "./Button";"#);
+        fixture.write("src/ds/Button.tsx", "export const Button = () => null;");
+
+        let extraction = fixture.extract_usage(
+            vec!["src/App.tsx", "src/ds/index.ts", "src/ds/Button.tsx"],
+            config_with_package(BTreeMap::from([(
+                ".".to_owned(),
+                "src/ds/index".to_owned(),
+            )])),
+            registry_with_aliases(&[("Button", &[])]),
+        );
+
+        assert_eq!(
+            usage_symbols(&extraction.usage_sites),
+            vec![("DS.Button".to_owned(), Some("Button".to_owned()))]
         );
         assert!(extraction.diagnostics.is_empty());
     }
