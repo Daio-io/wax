@@ -15,6 +15,7 @@ use wax_contract::{
 };
 
 use crate::config::ReactScanConfig;
+use crate::diagnostics::DS_USAGE_UNRESOLVED;
 use crate::module_graph::ReactModuleGraph;
 use crate::registry::ReactRegistryIndex;
 use crate::swc_parse::ParsedReactModule;
@@ -108,7 +109,7 @@ pub fn collect_usage_sites(
             ) {
                 extraction.diagnostics.push(Diagnostic {
                     severity: DiagnosticSeverity::Warning,
-                    code: "ds_usage_unresolved".to_owned(),
+                    code: DS_USAGE_UNRESOLVED.to_owned(),
                     message: format!(
                         "design-system-relevant JSX usage '{}' could not be resolved",
                         candidate.symbol

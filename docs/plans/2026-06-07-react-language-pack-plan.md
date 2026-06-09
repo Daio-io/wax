@@ -19,7 +19,7 @@
 
 ## Scheduling Gate
 
-This plan is the current active implementation plan. Task 5 is complete; Task 6 is active in this PR.
+This plan is the current active implementation plan. Tasks 1–8 are complete; Task 9 is active next.
 
 ## File Structure
 
@@ -270,26 +270,26 @@ cd engine
 cargo test -p wax-lang-react extract usage
 ```
 
-### - [ ] Task 8: Emit validated `ScanFacts`
+### - [x] Task 8: Emit validated `ScanFacts`
 
 **Files:**
 - Create: `engine/crates/wax-lang-react/src/facts.rs`
 - Modify: `engine/crates/wax-lang-react/src/lib.rs`
 - Modify: `engine/crates/wax-lang-react/src/bin/wax-lang-react.rs`
 
-- [ ] **Step 1: Assemble facts**
+- [x] **Step 1: Assemble facts**
 
 Populate metadata with `language.id = "react"`, `ecosystem = "react"`, `parser_name = "swc"`, and a maintained parser-version constant that is updated with SWC dependency bumps.
 
-- [ ] **Step 2: Recompute and validate counts**
+- [x] **Step 2: Recompute and validate counts**
 
 Use existing contract helpers before returning facts.
 
-- [ ] **Step 3: Map errors to wire responses**
+- [x] **Step 3: Map errors to wire responses**
 
 Fatal config errors, parser initialization errors, registry errors, and scan failures should map to stable wire error codes. Recoverable resolver gaps should return partial facts with diagnostics.
 
-- [ ] **Step 4: Add golden fixture test**
+- [x] **Step 4: Add golden fixture test**
 
 Run:
 

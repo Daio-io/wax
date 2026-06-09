@@ -2,7 +2,7 @@ use clap::Parser;
 use std::io::{self, BufRead, Write};
 use wax_contract::LanguageId;
 use wax_lang_api::{WIRE_API_VERSION, WireErrorCode, WireScanRequest, WireScanResponse};
-use wax_lang_react::{ReactLanguage, ReactScanError};
+use wax_lang_react::{ReactLanguage, ReactScanError, RegistryErrorKind};
 
 #[derive(Debug, Parser)]
 #[command(name = "wax-lang-react")]
@@ -99,8 +99,14 @@ fn run_stdio_with_reader<R: BufRead, W: Write>(
             Err(err) => {
                 let code = match &err {
                     ReactScanError::InvalidConfig(_) => WireErrorCode::ConfigInvalid,
-                    ReactScanError::RegistryInvalid(_) => WireErrorCode::ScanFailed,
-                    _ => WireErrorCode::ScanFailed,
+                    ReactScanError::Registry(err) => match err.kind() {
+                        RegistryErrorKind::NotFound => WireErrorCode::RegistryNotFound,
+                        RegistryErrorKind::Invalid => WireErrorCode::ScanFailed,
+                    },
+                    ReactScanError::Parse(_) => WireErrorCode::ScanFailed,
+                    ReactScanError::Io { .. } => WireErrorCode::ScanFailed,
+                    ReactScanError::InvalidLanguageId(_) => WireErrorCode::ScanFailed,
+                    ReactScanError::InvalidFacts(_) => WireErrorCode::ScanFailed,
                 };
                 WireScanResponse::Error {
                     api_version,
@@ -255,6 +261,40 @@ mod tests {
             WireScanResponse::Error { code, message, .. } => {
                 assert_eq!(code, WireErrorCode::ScanFailed);
                 assert!(message.contains("invalid react registry"));
+            }
+            other => panic!("expected error response, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn missing_registry_maps_to_registry_not_found_wire_error() {
+        let temp = tempfile::tempdir().expect("temp dir should be created");
+        let src_dir = temp.path().join("src");
+        std::fs::create_dir_all(&src_dir).expect("src dir should be created");
+        std::fs::write(src_dir.join("App.tsx"), "export {}").expect("source fixture");
+
+        let request = serde_json::json!({
+            "type": "scan",
+            "api_version": 1,
+            "language_id": "react",
+            "repo_root": temp.path().to_string_lossy(),
+            "snapshot_id": "snap-missing-registry",
+            "config": {
+                "design_system_registry": "design-system/registry.json",
+                "roots": ["src"]
+            }
+        });
+        let input = Cursor::new(format!("{request}\n"));
+        let mut output = Vec::new();
+
+        run_stdio_with_reader(input, &mut output).unwrap();
+
+        let line = std::str::from_utf8(&output).unwrap().trim();
+        let response: WireScanResponse = serde_json::from_str(line).unwrap();
+        match response {
+            WireScanResponse::Error { code, message, .. } => {
+                assert_eq!(code, WireErrorCode::RegistryNotFound);
+                assert!(message.contains("react registry not found"));
             }
             other => panic!("expected error response, got {other:?}"),
         }

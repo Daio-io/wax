@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "status": "complete",
+  "language": {
+    "id": "react",
+    "ecosystem": "react",
+    "parser_name": "swc",
+    "parser_version": "41.0.0"
+  },
+  "counts": {
+    "design_system_component_count": 2,
+    "local_component_count": 4,
+    "usage_site_count": 5,
+    "resolved_count": 5,
+    "candidate_count": 0
+  },
+  "metrics": {
+    "files_scanned": 6,
+    "adoption_coverage_ratio": 1.0
+  },
+  "design_system_components": [
+    {
+      "id": "ds.PrimaryButton",
+      "symbol": "PrimaryButton",
+      "registry_symbol": "PrimaryButton"
+    },
+    {
+      "id": "ds.TextField",
+      "symbol": "TextField",
+      "registry_symbol": "TextField"
+    }
+  ],
+  "local_components": [
+    {
+      "id": "local.src/Extended.tsx:12:CustomCard",
+      "symbol": "CustomCard",
+      "location": {
+        "file": "src/Extended.tsx",
+        "line": 12,
+        "column": 14
+      }
+    },
+    {
+      "id": "local.src/Sample.tsx:3:LocalCard",
+      "symbol": "LocalCard",
+      "location": {
+        "file": "src/Sample.tsx",
+        "line": 3,
+        "column": 14
+      }
+    },
+    {
+      "id": "local.src/Extended.tsx:3:MultilineUsageScreen",
+      "symbol": "MultilineUsageScreen",
+      "location": {
+        "file": "src/Extended.tsx",
+        "line": 3,
+        "column": 14
+      }
+    },
+    {
+      "id": "local.src/Sample.tsx:10:SampleScreen",
+      "symbol": "SampleScreen",
+      "location": {
+        "file": "src/Sample.tsx",
+        "line": 10,
+        "column": 14
+      }
+    }
+  ],
+  "usage_sites": [
+    {
+      "id": "usage.src/Extended.tsx:5:5:PrimaryButton",
+      "location": {
+        "file": "src/Extended.tsx",
+        "line": 5,
+        "column": 5
+      },
+      "symbol": "PrimaryButton",
+      "match_status": "resolved",
+      "registry_symbol": "PrimaryButton"
+    },
+    {
+      "id": "usage.src/Extended.tsx:8:5:PrimaryBtn",
+      "location": {
+        "file": "src/Extended.tsx",
+        "line": 8,
+        "column": 5
+      },
+      "symbol": "PrimaryBtn",
+      "match_status": "resolved",
+      "registry_symbol": "PrimaryButton"
+    },
+    {
+      "id": "usage.src/Sample.tsx:5:5:PrimaryButton",
+      "location": {
+        "file": "src/Sample.tsx",
+        "line": 5,
+        "column": 5
+      },
+      "symbol": "PrimaryButton",
+      "match_status": "resolved",
+      "registry_symbol": "PrimaryButton"
+    },
+    {
+      "id": "usage.src/Sample.tsx:12:5:PrimaryButton",
+      "location": {
+        "file": "src/Sample.tsx",
+        "line": 12,
+        "column": 5
+      },
+      "symbol": "PrimaryButton",
+      "match_status": "resolved",
+      "registry_symbol": "PrimaryButton"
+    },
+    {
+      "id": "usage.src/Sample.tsx:13:5:TextField",
+      "location": {
+        "file": "src/Sample.tsx",
+        "line": 13,
+        "column": 5
+      },
+      "symbol": "TextField",
+      "match_status": "resolved",
+      "registry_symbol": "TextField"
+    }
+  ],
+  "diagnostics": []
+}

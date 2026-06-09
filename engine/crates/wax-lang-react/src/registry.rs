@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::io;
 use std::path::Path;
 
 use wax_contract::DesignSystemComponent;
@@ -17,17 +18,41 @@ pub struct ReactRegistryIndex {
     pub resolve_targets: BTreeMap<String, String>,
 }
 
+/// Kind of registry load failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegistryErrorKind {
+    /// Configured registry file does not exist.
+    NotFound,
+    /// Registry exists but is malformed or incompatible with React scanning.
+    Invalid,
+}
+
 /// Errors while loading the React registry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegistryError {
+    kind: RegistryErrorKind,
     reason: String,
 }
 
 impl RegistryError {
-    fn new(reason: impl Into<String>) -> Self {
+    fn not_found(reason: impl Into<String>) -> Self {
         Self {
+            kind: RegistryErrorKind::NotFound,
             reason: reason.into(),
         }
+    }
+
+    fn invalid(reason: impl Into<String>) -> Self {
+        Self {
+            kind: RegistryErrorKind::Invalid,
+            reason: reason.into(),
+        }
+    }
+
+    /// Returns the registry failure category.
+    #[must_use]
+    pub fn kind(&self) -> RegistryErrorKind {
+        self.kind
     }
 
     /// Returns the human-readable registry load failure.
@@ -47,14 +72,9 @@ impl std::error::Error for RegistryError {}
 
 /// Loads registry symbols and aliases into a React resolver index.
 pub fn load_react_registry(path: &Path) -> Result<ReactRegistryIndex, RegistryError> {
-    let raw = fs::read_to_string(path).map_err(|err| {
-        RegistryError::new(format!(
-            "failed to read design-system registry {}: {err}",
-            path.display()
-        ))
-    })?;
+    let raw = fs::read_to_string(path).map_err(|err| registry_read_error(path, err))?;
     let value: serde_json::Value = serde_json::from_str(&raw).map_err(|err| {
-        RegistryError::new(format!(
+        RegistryError::invalid(format!(
             "registry JSON is invalid at {}: {err}",
             path.display()
         ))
@@ -64,7 +84,7 @@ pub fn load_react_registry(path: &Path) -> Result<ReactRegistryIndex, RegistryEr
         .get("components")
         .and_then(serde_json::Value::as_array)
         .ok_or_else(|| {
-            RegistryError::new(format!(
+            RegistryError::invalid(format!(
                 "registry JSON at {} must contain a components array",
                 path.display()
             ))
@@ -80,7 +100,9 @@ pub fn load_react_registry(path: &Path) -> Result<ReactRegistryIndex, RegistryEr
         let symbol = component
             .get("symbol")
             .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| RegistryError::new(format!("components[{index}] is missing symbol")))?;
+            .ok_or_else(|| {
+                RegistryError::invalid(format!("components[{index}] is missing symbol"))
+            })?;
         design_system_components.push(DesignSystemComponent {
             id: format!("ds.{symbol}"),
             symbol: symbol.to_owned(),
@@ -93,7 +115,7 @@ pub fn load_react_registry(path: &Path) -> Result<ReactRegistryIndex, RegistryEr
         {
             for (alias_index, alias) in aliases.iter().enumerate() {
                 let alias_symbol = alias.as_str().ok_or_else(|| {
-                    RegistryError::new(format!(
+                    RegistryError::invalid(format!(
                         "components[{index}].aliases[{alias_index}] must be a string"
                     ))
                 })?;
@@ -103,7 +125,7 @@ pub fn load_react_registry(path: &Path) -> Result<ReactRegistryIndex, RegistryEr
     }
 
     if design_system_components.is_empty() {
-        return Err(RegistryError::new(format!(
+        return Err(RegistryError::invalid(format!(
             "registry at {} must declare at least one React component symbol",
             path.display()
         )));
@@ -116,19 +138,33 @@ pub fn load_react_registry(path: &Path) -> Result<ReactRegistryIndex, RegistryEr
     })
 }
 
+fn registry_read_error(path: &Path, err: io::Error) -> RegistryError {
+    if err.kind() == io::ErrorKind::NotFound {
+        RegistryError::not_found(format!(
+            "design-system registry not found at {}: {err}",
+            path.display()
+        ))
+    } else {
+        RegistryError::invalid(format!(
+            "failed to read design-system registry {}: {err}",
+            path.display()
+        ))
+    }
+}
+
 fn validate_schema_version(value: &serde_json::Value, path: &Path) -> Result<(), RegistryError> {
     let Some(schema_version) = value
         .get("schema_version")
         .and_then(serde_json::Value::as_u64)
     else {
-        return Err(RegistryError::new(format!(
+        return Err(RegistryError::invalid(format!(
             "registry JSON at {} must contain schema_version {}",
             path.display(),
             REGISTRY_SCHEMA_VERSION
         )));
     };
     if schema_version != REGISTRY_SCHEMA_VERSION {
-        return Err(RegistryError::new(format!(
+        return Err(RegistryError::invalid(format!(
             "registry JSON at {} has unsupported schema_version {schema_version}; expected {}",
             path.display(),
             REGISTRY_SCHEMA_VERSION
@@ -148,13 +184,13 @@ fn component_available_to_react(
         return Ok(true);
     }
     let Some(targets) = targets_value.as_array() else {
-        return Err(RegistryError::new(format!(
+        return Err(RegistryError::invalid(format!(
             "components[{index}].targets must be an array of strings"
         )));
     };
     for (target_index, target) in targets.iter().enumerate() {
         let Some(target) = target.as_str() else {
-            return Err(RegistryError::new(format!(
+            return Err(RegistryError::invalid(format!(
                 "components[{index}].targets[{target_index}] must be a string"
             )));
         };
@@ -233,6 +269,7 @@ mod tests {
 
         let err =
             load_react_registry(fixture.path()).expect_err("compose-only registry should fail");
+        assert_eq!(err.kind(), RegistryErrorKind::Invalid);
         assert!(
             err.reason().contains("at least one React component symbol"),
             "unexpected error: {}",
@@ -258,6 +295,7 @@ mod tests {
         let fixture = RegistryFixture::write(r#"{"schema_version":1}"#);
 
         let err = load_react_registry(fixture.path()).expect_err("missing components should fail");
+        assert_eq!(err.kind(), RegistryErrorKind::Invalid);
         assert!(err.reason().contains("components array"));
     }
 
@@ -268,6 +306,7 @@ mod tests {
         );
 
         let err = load_react_registry(fixture.path()).expect_err("non-string symbol should fail");
+        assert_eq!(err.kind(), RegistryErrorKind::Invalid);
         assert!(err.reason().contains("missing symbol"));
     }
 
@@ -276,7 +315,17 @@ mod tests {
         let fixture = RegistryFixture::write("{not-json");
 
         let err = load_react_registry(fixture.path()).expect_err("malformed JSON should fail");
+        assert_eq!(err.kind(), RegistryErrorKind::Invalid);
         assert!(err.reason().contains("registry JSON is invalid"));
+    }
+
+    #[test]
+    fn registry_rejects_missing_file() {
+        let path = std::path::Path::new("/tmp/wax-react-missing-registry.json");
+
+        let err = load_react_registry(path).expect_err("missing registry file should fail");
+        assert_eq!(err.kind(), RegistryErrorKind::NotFound);
+        assert!(err.reason().contains("design-system registry not found"));
     }
 
     #[test]
@@ -287,6 +336,7 @@ mod tests {
 
         let err =
             load_react_registry(fixture.path()).expect_err("missing schema_version should fail");
+        assert_eq!(err.kind(), RegistryErrorKind::Invalid);
         assert!(err.reason().contains("schema_version"));
     }
 
@@ -298,6 +348,7 @@ mod tests {
 
         let err = load_react_registry(fixture.path())
             .expect_err("unsupported schema_version should fail");
+        assert_eq!(err.kind(), RegistryErrorKind::Invalid);
         assert!(err.reason().contains("unsupported schema_version 2"));
     }
 
@@ -308,6 +359,7 @@ mod tests {
         );
 
         let err = load_react_registry(fixture.path()).expect_err("string targets should fail");
+        assert_eq!(err.kind(), RegistryErrorKind::Invalid);
         assert!(err.reason().contains("targets must be an array of strings"));
     }
 
@@ -319,6 +371,7 @@ mod tests {
 
         let err =
             load_react_registry(fixture.path()).expect_err("non-string target entry should fail");
+        assert_eq!(err.kind(), RegistryErrorKind::Invalid);
         assert!(err.reason().contains("targets[0] must be a string"));
     }
 }

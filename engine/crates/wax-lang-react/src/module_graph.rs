@@ -12,6 +12,9 @@ use swc_ecma_ast::{
 use wax_contract::{Diagnostic, DiagnosticSeverity};
 
 use crate::config::{PackageConfig, ReactScanConfig};
+use crate::diagnostics::{
+    DS_EXPORT_UNRESOLVED, DS_IMPORT_UNRESOLVED, PACKAGE_ENTRYPOINT_UNRESOLVED,
+};
 use crate::files::ReactSourceFileCollection;
 use crate::registry::ReactRegistryIndex;
 use crate::swc_parse::ParsedReactModule;
@@ -361,7 +364,7 @@ pub fn build_react_module_graph(
                         {
                             diagnostics.push(Diagnostic {
                                 severity: DiagnosticSeverity::Warning,
-                                code: "ds_import_unresolved".to_owned(),
+                                code: DS_IMPORT_UNRESOLVED.to_owned(),
                                 message: format!(
                                     "design-system-relevant import '{local_name}' from '{source}' could not be resolved"
                                 ),
@@ -421,7 +424,7 @@ pub fn build_react_module_graph(
                                 {
                                     diagnostics.push(Diagnostic {
                                         severity: DiagnosticSeverity::Warning,
-                                        code: "ds_export_unresolved".to_owned(),
+                                        code: DS_EXPORT_UNRESOLVED.to_owned(),
                                         message: format!(
                                             "design-system-relevant re-export '{exported_name}' from '{source}' could not be resolved"
                                         ),
@@ -591,7 +594,7 @@ fn package_entrypoint_diagnostics(
             if resolve_repo_relative_target(target, known_files).is_none() {
                 diagnostics.push(Diagnostic {
                     severity: DiagnosticSeverity::Warning,
-                    code: "package_entrypoint_unresolved".to_owned(),
+                    code: PACKAGE_ENTRYPOINT_UNRESOLVED.to_owned(),
                     message: format!(
                         "configured package entrypoint '{package_name}:{entrypoint}' target '{target}' could not be resolved to a source module"
                     ),
