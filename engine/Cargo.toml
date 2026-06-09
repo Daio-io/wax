@@ -14,6 +14,11 @@ members = [
 edition = "2024"
 version = "0.0.0-snapshot"
 
+[workspace.dependencies]
+swc_common = "23.0.1"
+swc_ecma_ast = "25.0.0"
+swc_ecma_parser = "41.0.0"
+
 [workspace.metadata.release]
 artifact_targets = [
     "aarch64-apple-darwin",
