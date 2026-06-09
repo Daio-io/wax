@@ -2,6 +2,11 @@
 
 use std::path::{Path, PathBuf};
 
+/// SWC parser crate version pinned in [`crate`] `Cargo.toml`.
+///
+/// Update this constant whenever `swc_ecma_parser` is bumped.
+pub const SWC_PARSER_VERSION: &str = "41.0.0";
+
 use swc_common::{FileName, SourceMap, Span, Spanned, sync::Lrc};
 use swc_ecma_ast::{EsVersion, Module};
 use swc_ecma_parser::{

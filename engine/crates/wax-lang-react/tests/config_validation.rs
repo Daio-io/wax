@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use wax_contract::{DiagnosticSeverity, LanguageId, ScanStatus};
+use wax_contract::{LanguageId, ScanStatus};
 use wax_lang_api::{ScanRequest, ScanRequestType, WIRE_API_VERSION};
 use wax_lang_react::{ReactConfigMode, ReactLanguage, ReactScanError, parse_react_scan_config};
 
@@ -101,16 +101,15 @@ fn valid_configured_config_loads_registry_symbols() {
     )
     .expect("valid configured config should load registry symbols");
 
-    assert_eq!(facts.status, ScanStatus::Partial);
+    assert_eq!(facts.status, ScanStatus::Complete);
     assert_eq!(facts.design_system_components.len(), 1);
     assert_eq!(facts.counts.design_system_component_count, 1);
     assert_eq!(facts.design_system_components[0].symbol, "Button");
     assert!(facts.local_components.is_empty());
     assert!(facts.usage_sites.is_empty());
     assert_eq!(facts.metrics.files_scanned, 2);
-    assert_eq!(facts.diagnostics.len(), 1);
-    assert_eq!(facts.diagnostics[0].severity, DiagnosticSeverity::Info);
-    assert_eq!(facts.diagnostics[0].code, "react_scaffold");
+    assert!(facts.diagnostics.is_empty());
+    assert_eq!(facts.language.parser_name, "swc");
 }
 
 #[test]

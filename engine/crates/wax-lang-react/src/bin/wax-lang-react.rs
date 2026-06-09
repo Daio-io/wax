@@ -100,7 +100,10 @@ fn run_stdio_with_reader<R: BufRead, W: Write>(
                 let code = match &err {
                     ReactScanError::InvalidConfig(_) => WireErrorCode::ConfigInvalid,
                     ReactScanError::RegistryInvalid(_) => WireErrorCode::ScanFailed,
-                    _ => WireErrorCode::ScanFailed,
+                    ReactScanError::Parse(_) => WireErrorCode::ScanFailed,
+                    ReactScanError::Io { .. } => WireErrorCode::ScanFailed,
+                    ReactScanError::InvalidLanguageId(_) => WireErrorCode::ScanFailed,
+                    ReactScanError::InvalidFacts(_) => WireErrorCode::ScanFailed,
                 };
                 WireScanResponse::Error {
                     api_version,
