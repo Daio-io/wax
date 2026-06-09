@@ -67,6 +67,11 @@ fn stdio_cli_emits_complete_scan_facts_for_small_fixture() {
             assert_eq!(facts.status, ScanStatus::Complete);
             assert_eq!(facts.language.id.as_str(), "react");
             assert_eq!(facts.language.parser_name, "swc");
+            assert_eq!(
+                facts.language.parser_version,
+                wax_lang_react::SWC_PARSER_VERSION,
+                "parser_version must track the pinned SWC crate version"
+            );
             assert_eq!(facts.counts.usage_site_count, 5);
             assert_eq!(facts.counts.resolved_count, 5);
             assert_eq!(facts.counts.design_system_component_count, 2);
