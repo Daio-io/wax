@@ -24,7 +24,7 @@ pub use module_graph::{
     ExportBinding, ImportBinding, ImportedSymbol, ReactModuleGraph, ReactModuleGraphBuild,
     ReactModuleRecord, ResolvedSymbol, build_react_module_graph,
 };
-pub use registry::{ReactRegistryIndex, RegistryError, load_react_registry};
+pub use registry::{ReactRegistryIndex, RegistryError, RegistryErrorKind, load_react_registry};
 pub use swc_parse::{
     ParsedReactModule, ReactParseError, ReactParseOutcome, SWC_PARSER_VERSION,
     parse_react_source_file,
@@ -40,7 +40,7 @@ pub enum ReactScanError {
     /// React scan config was present but invalid.
     InvalidConfig(String),
     /// Design-system registry could not be loaded.
-    RegistryInvalid(String),
+    Registry(RegistryError),
     /// A filesystem operation failed during source collection.
     Io {
         /// Human-readable context for the failed operation.
@@ -58,7 +58,14 @@ impl std::fmt::Display for ReactScanError {
             Self::InvalidLanguageId(id) => write!(f, "invalid react language id: {id}"),
             Self::InvalidFacts(err) => write!(f, "react facts validation failed: {err}"),
             Self::InvalidConfig(reason) => write!(f, "invalid react scan config: {reason}"),
-            Self::RegistryInvalid(reason) => write!(f, "invalid react registry: {reason}"),
+            Self::Registry(err) => match err.kind() {
+                RegistryErrorKind::NotFound => {
+                    write!(f, "react registry not found: {}", err.reason())
+                }
+                RegistryErrorKind::Invalid => {
+                    write!(f, "invalid react registry: {}", err.reason())
+                }
+            },
             Self::Io { context, source } => write!(f, "{context}: {source}"),
             Self::Parse(err) => write!(f, "react parse failed: {err}"),
         }
@@ -68,7 +75,8 @@ impl std::fmt::Display for ReactScanError {
 impl std::error::Error for ReactScanError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::InvalidLanguageId(_) | Self::InvalidConfig(_) | Self::RegistryInvalid(_) => None,
+            Self::InvalidLanguageId(_) | Self::InvalidConfig(_) => None,
+            Self::Registry(err) => Some(err),
             Self::InvalidFacts(err) => Some(err),
             Self::Io { source, .. } => Some(source),
             Self::Parse(err) => Some(err),
@@ -120,8 +128,8 @@ impl ReactLanguage {
             ReactConfigMode::Configured(config) => {
                 let repo_root = Path::new(&request.repo_root);
                 let registry_path = repo_root.join(&config.design_system_registry);
-                let registry = load_react_registry(&registry_path)
-                    .map_err(|err| ReactScanError::RegistryInvalid(err.reason().to_owned()))?;
+                let registry =
+                    load_react_registry(&registry_path).map_err(ReactScanError::Registry)?;
                 let collection =
                     collect_react_source_files(repo_root, &config.roots, &config.ignore)?;
                 configured_scan_facts(

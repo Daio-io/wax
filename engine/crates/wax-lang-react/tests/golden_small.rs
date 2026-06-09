@@ -1,19 +1,11 @@
 use std::path::{Path, PathBuf};
 
-use wax_contract::LanguageId;
+use wax_contract::{LanguageId, ScanFacts};
 use wax_lang_api::{ScanRequest, ScanRequestType, WIRE_API_VERSION};
 use wax_lang_react::ReactLanguage;
 
-#[derive(Debug)]
-struct GoldenCounts {
-    usage_site_count: u32,
-    resolved_count: u32,
-    local_component_count: u32,
-    design_system_component_count: u32,
-}
-
 #[test]
-fn small_fixture_matches_golden_counts() {
+fn small_fixture_matches_golden_facts_projection() {
     let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/small");
     let golden = load_golden(&fixture_root.join("golden.json"));
 
@@ -24,20 +16,9 @@ fn small_fixture_matches_golden_counts() {
         .expect("react scan should succeed for the small fixture");
 
     assert_eq!(
-        facts.counts.usage_site_count, golden.usage_site_count,
-        "usage_site_count drifted from golden"
-    );
-    assert_eq!(
-        facts.counts.resolved_count, golden.resolved_count,
-        "resolved_count drifted from golden"
-    );
-    assert_eq!(
-        facts.counts.local_component_count, golden.local_component_count,
-        "local_component_count drifted from golden"
-    );
-    assert_eq!(
-        facts.counts.design_system_component_count, golden.design_system_component_count,
-        "design_system_component_count drifted from golden"
+        facts_golden_projection(&facts),
+        golden,
+        "scan facts drifted from golden projection"
     );
 }
 
@@ -61,6 +42,10 @@ fn scan_status_is_complete_when_configured() {
         facts.language.parser_version,
         wax_lang_react::SWC_PARSER_VERSION,
         "parser_version must track the pinned SWC crate version"
+    );
+    assert!(
+        facts.metrics.parse_extract_ms > 0,
+        "configured scan should record parse/extract timing"
     );
 }
 
@@ -115,24 +100,23 @@ fn scan_request(fixture_root: &Path, snapshot_id: &str) -> ScanRequest {
     }
 }
 
-fn load_golden(path: &PathBuf) -> GoldenCounts {
+fn load_golden(path: &Path) -> serde_json::Value {
     let raw = std::fs::read_to_string(path).expect("golden.json must exist");
-    let value: serde_json::Value =
-        serde_json::from_str(&raw).expect("golden.json must be valid JSON");
-    GoldenCounts {
-        usage_site_count: value["usage_site_count"]
-            .as_u64()
-            .expect("golden.usage_site_count must be a number") as u32,
-        resolved_count: value["resolved_count"]
-            .as_u64()
-            .expect("golden.resolved_count must be a number") as u32,
-        local_component_count: value["local_component_count"]
-            .as_u64()
-            .expect("golden.local_component_count must be a number")
-            as u32,
-        design_system_component_count: value["design_system_component_count"]
-            .as_u64()
-            .expect("golden.design_system_component_count must be a number")
-            as u32,
+    serde_json::from_str(&raw).expect("golden.json must be valid JSON")
+}
+
+fn facts_golden_projection(facts: &ScanFacts) -> serde_json::Value {
+    let mut value = serde_json::to_value(facts).expect("facts must serialize");
+    let object = value
+        .as_object_mut()
+        .expect("serialized facts must be an object");
+    object.remove("scanned_at");
+    object.remove("snapshot_id");
+    if let Some(language) = object.get_mut("language").and_then(|v| v.as_object_mut()) {
+        language.remove("version");
     }
+    if let Some(metrics) = object.get_mut("metrics").and_then(|v| v.as_object_mut()) {
+        metrics.remove("parse_extract_ms");
+    }
+    value
 }

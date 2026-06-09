@@ -1,6 +1,7 @@
 //! ScanFacts assembly for React scans.
 
 use std::path::Path;
+use std::time::Instant;
 
 use time::OffsetDateTime;
 use wax_contract::{
@@ -67,6 +68,7 @@ pub fn configured_scan_facts(
         files,
         root_diagnostics,
     } = collection;
+    let started = Instant::now();
     let mut diagnostics = root_diagnostics;
     let mut files_scanned = 0_u32;
     let mut parsed_modules = Vec::<ParsedReactModule>::new();
@@ -98,6 +100,15 @@ pub fn configured_scan_facts(
     diagnostics.extend(usage_extraction.diagnostics);
 
     let status = scan_status(&diagnostics);
+    let parse_extract_ms = if files_scanned > 0 {
+        started
+            .elapsed()
+            .as_millis()
+            .max(1)
+            .min(u64::MAX as u128) as u64
+    } else {
+        0
+    };
 
     Ok(ScanFacts {
         schema_version: SCHEMA_VERSION,
@@ -111,7 +122,7 @@ pub fn configured_scan_facts(
         diagnostics,
         metrics: Metrics {
             adoption_coverage_ratio: None,
-            parse_extract_ms: 0,
+            parse_extract_ms,
             files_scanned,
         },
         counts: CountSummary {
