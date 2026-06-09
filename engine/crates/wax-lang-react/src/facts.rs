@@ -101,11 +101,7 @@ pub fn configured_scan_facts(
 
     let status = scan_status(&diagnostics);
     let parse_extract_ms = if files_scanned > 0 {
-        started
-            .elapsed()
-            .as_millis()
-            .max(1)
-            .min(u64::MAX as u128) as u64
+        started.elapsed().as_millis().max(1).min(u64::MAX as u128) as u64
     } else {
         0
     };
