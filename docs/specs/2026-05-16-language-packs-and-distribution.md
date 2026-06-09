@@ -431,7 +431,7 @@ First-party pack binaries use `wax-lang-<id>` names, for example `wax-lang-compo
 |----|--------|-------|
 | `basic` | Text line scanner | Generic fallback for unsupported languages and smoke tests |
 | `compose` | tree-sitter-kotlin | First production parser-backed language |
-| `react` | SWC | TSX/JSX extraction |
+| `react` | SWC | Import-aware JSX extraction via SWC; production parser in repo but **contributor-only** until release promotion adds it to the public pack index |
 | `swift` | Deferred | Later-phase language pack after a dedicated parser decision |
 
 ### Basic fallback scanner
@@ -456,6 +456,69 @@ Use `basic` for unsupported languages, smoke tests, and early adoption estimates
 - Parser initialisation failures map to the `parser_init_failed` wire error code rather than panicking.
 - Requests without compose scan keys return scaffold facts with the `compose_scaffold` diagnostic.
 - `wax-lang-basic` is the explicit text-scanner fallback for unsupported languages; Compose does not use line scanning.
+
+### React correctness gate and parser path
+
+`wax-lang-react` commits a small React fixture set and golden count summary under `engine/crates/wax-lang-react/tests/fixtures/small/`. `cargo test -p wax-lang-react --test golden_small` asserts `usage_site_count`, `resolved_count`, `local_component_count`, and `design_system_component_count` against `golden.json`.
+
+**Production parser path (SWC):**
+
+- `wax-lang-react` uses **SWC** for AST-based JavaScript and TypeScript parsing with JSX enabled. `language.parser_name` is `"swc"`.
+- The scanner discovers source files under configured `roots`, expands path components that are exactly `*` or `**` for multi-module repositories, and parses `.js`, `.jsx`, `.ts`, and `.tsx` through one parser path. Declaration files (`.d.ts`) are excluded.
+- Requests without React scan keys (`registry` and `roots`) return scaffold facts with the `react_scaffold` diagnostic. This preserves contributor stdio smoke compatibility while React remains outside the public pack index.
+- `wax-lang-basic` is the explicit text-scanner fallback for unsupported languages; React does not use line scanning.
+
+**Resolver configuration (`tsconfig`, `aliases`, `packages`):**
+
+When `registry` and `roots` are present, React v1 accepts optional resolver hints so JSX bindings can be traced through imports, aliases, and design-system package entrypoints:
+
+```json
+{
+  "id": "react",
+  "enabled": true,
+  "registry": ".wax/wax.registry.json",
+  "roots": ["apps/web/src"],
+  "tsconfig": "apps/web/tsconfig.json",
+  "aliases": {
+    "@/*": ["apps/web/src/*"]
+  },
+  "packages": {
+    "@acme/design-system": {
+      "exports": {
+        ".": "packages/design-system/src/index.ts",
+        "./*": "packages/design-system/src/*.ts"
+      }
+    }
+  }
+}
+```
+
+- `tsconfig` — optional repo-relative path. Supplies `compilerOptions.paths` and `baseUrl` for import resolution when projects rely on TypeScript path mapping.
+- `aliases` — optional explicit alias prefix → repo-relative target patterns (for example `"@/*": ["apps/web/src/*"]`) when bundler aliases are not visible through `tsconfig`.
+- `packages` — optional design-system package entrypoint hints. Maps package names to `exports` entries (export specifier → repo-relative source module) so imports from configured design-system packages resolve to registry-backed symbols.
+
+All resolver paths must be repo-relative; absolute paths and parent-directory escapes are fatal config errors.
+
+**Accuracy model (import-aware, registry-backed):**
+
+- Resolved design-system usage is **import-aware** and **registry-backed**. A JSX tag counts as resolved registry usage only when the module graph shows the binding was imported or one-hop re-exported from a source that exports a registry symbol or alias.
+- Bare PascalCase JSX names do **not** produce resolved usage. For example, `<Button />` counts only when `Button` resolves through the import graph to a registry component—not when a local app component shares the same name.
+- Registry components whose `targets` array is present and does not include `"react"` are excluded from React facts and do not contribute to React coverage counts. Omitted or null `targets` keeps the component available to React (same rule as Compose).
+- Diagnostics for unresolved imports or JSX names are scoped to **design-system-relevant candidates**: imports from configured `packages`, configured package entrypoints, or JSX names matching registry symbols or aliases that cannot be resolved. Ordinary local and third-party JSX components do not produce unresolved diagnostics and do not affect resolved counts.
+
+**Local component discovery:**
+
+React v1 discovers local components conservatively: PascalCase function declarations and arrow/function expressions that return JSX; named and default exports when a stable component name can be derived; and simple `memo(...)` and `forwardRef(...)` wrappers when the wrapped name is direct and static. Lowercase declarations, fragments, and intrinsic HTML elements are not counted as design-system usage.
+
+**Partial vs Complete status:**
+
+- `Complete` when configured roots were processed and parsed files had no known gaps.
+- `Partial` when any recoverable gap occurred: missing roots, wildcard roots matching nothing, per-file parse failures, unresolved configured design-system package imports or entrypoints, or unsupported module syntax that skips an import/export edge.
+- Fatal config errors, registry load failures, and parser initialization failures return wire errors with no `ScanFacts`.
+
+**Release status:**
+
+`wax-lang-react` is implemented and gated by golden fixtures in this repository, but it is **not** listed in public getting-started docs or generated pack indexes until release promotion (React plan Task 11). Contributors build and test the pack from the workspace; end users install `compose` and `basic` from the pack index today.
 
 ### Monolithic vs modular CLI
 
