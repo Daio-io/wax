@@ -239,29 +239,29 @@ cd engine
 cargo test -p wax-lang-react extract local_component
 ```
 
-### - [ ] Task 7: Resolve JSX usage to registry symbols
+### - [x] Task 7: Resolve JSX usage to registry symbols
 
 **Files:**
 - Modify: `engine/crates/wax-lang-react/src/extract.rs`
 - Modify: `engine/crates/wax-lang-react/src/module_graph.rs`
 
-- [ ] **Step 1: Collect JSX opening elements**
+- [x] **Step 1: Collect JSX opening elements**
 
 Ignore fragments and lowercase intrinsic HTML elements.
 
-- [ ] **Step 2: Resolve JSX bindings through the module graph**
+- [x] **Step 2: Resolve JSX bindings through the module graph**
 
 Resolve local aliases to imported/exported symbols.
 
-- [ ] **Step 3: Match against registry index**
+- [x] **Step 3: Match against registry index**
 
 Emit `UsageSite` only when the resolved symbol or alias maps to a registry component.
 
-- [ ] **Step 4: Add scoped unresolved usage diagnostics**
+- [x] **Step 4: Add scoped unresolved usage diagnostics**
 
 Unresolved JSX names should produce diagnostics only when they are design-system-relevant candidates: imported from configured design-system packages, matched by configured package entrypoints, or matching registry symbols or aliases. Ordinary local and third-party JSX names should not produce diagnostics. Unresolved candidates must not affect resolved counts.
 
-- [ ] **Step 5: Add usage extraction tests**
+- [x] **Step 5: Add usage extraction tests**
 
 Run:
 
