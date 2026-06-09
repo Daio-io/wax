@@ -19,7 +19,7 @@
 
 ## Scheduling Gate
 
-This plan is the current active implementation plan. Tasks 1–9 are complete; Task 10 is active next. React is not complete until the release promotion phase publishes it through the pack index and install surfaces.
+This plan is the current active implementation plan. Tasks 1–10 are complete; Task 11 is active next. React is not complete until the release promotion phase publishes it through the pack index and install surfaces.
 
 ## File Structure
 
@@ -318,22 +318,22 @@ cargo test -p wax-lang-react --test stdio_cli
 
 Run focused `wax-core` or `wax-cli` tests if fixture behavior changes.
 
-### - [ ] Task 10: Document React v1 behavior
+### - [x] Task 10: Document React v1 behavior
 
 **Files:**
 - Modify: `docs/specs/2026-05-16-language-packs-and-distribution.md`
 - Modify: `README.md` only when React is ready for public install docs.
 - Modify release/index docs only when React is added to a public pack index.
 
-- [ ] **Step 1: Document config fields**
+- [x] **Step 1: Document config fields**
 
 Explain `tsconfig`, `aliases`, and `packages`.
 
-- [ ] **Step 2: Document accuracy model**
+- [x] **Step 2: Document accuracy model**
 
 State that resolved design-system usage is import-aware and registry-backed.
 
-- [ ] **Step 3: Keep release docs honest**
+- [x] **Step 3: Keep release docs honest**
 
 Do not add React to getting-started or public pack indexes until the production pack is releasable.
 
