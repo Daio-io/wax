@@ -19,7 +19,7 @@
 
 ## Scheduling Gate
 
-This plan is the current active implementation plan. Tasks 1–8 are complete; Task 9 is active next. React is not complete until the release promotion phase publishes it through the pack index and install surfaces.
+This plan is the current active implementation plan. Tasks 1–9 are complete; Task 10 is active next. React is not complete until the release promotion phase publishes it through the pack index and install surfaces.
 
 ## File Structure
 
@@ -300,12 +300,12 @@ cargo test -p wax-lang-react --test golden_small
 
 ## Phase 4 - Integration and Docs
 
-### - [ ] Task 9: Preserve engine integration contracts
+### - [x] Task 9: Preserve engine integration contracts
 
 **Files:**
 - Existing engine integration tests as needed.
 
-- [ ] **Step 1: Verify subprocess protocol**
+- [x] **Step 1: Verify subprocess protocol**
 
 Run:
 
@@ -314,7 +314,7 @@ cd engine
 cargo test -p wax-lang-react --test stdio_cli
 ```
 
-- [ ] **Step 2: Verify workspace tests affected by React facts**
+- [x] **Step 2: Verify workspace tests affected by React facts**
 
 Run focused `wax-core` or `wax-cli` tests if fixture behavior changes.
 
