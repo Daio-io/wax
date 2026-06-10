@@ -174,6 +174,33 @@ Check repo and install state together:
 wax language doctor
 ```
 
+## Updating language packs
+
+Use `wax language update` to pull the latest available version of an installed pack and replace older local versions.
+
+Update one language pack:
+
+```bash
+wax language update compose
+```
+
+Update every installed language pack:
+
+```bash
+wax language update --all
+```
+
+If you changed repo registry content, registry sources, or lockfile-related config, refresh and then validate:
+
+```bash
+wax language update
+wax validate
+```
+
+Use `wax language doctor` to check installed packs, repo lock state, and the effective pack index URL.
+
+If you need to update from a non-default pack index, pass `--registry` or set `WAX_LANG_INDEX`.
+
 ## Registry workflow
 
 The registry is the source of truth for the design-system components you want `wax` to track.
