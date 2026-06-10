@@ -21,6 +21,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 | 4 | Registry discovery and skill-assisted sync | [archive/2026-06-04-registry-discovery-plan.md](./archive/2026-06-04-registry-discovery-plan.md) | `merged` | `complete` | [ADR](../adr/2026-06-04-registry-discovery.md) |
 | 5 | Post-alpha UX | [2026-05-24-post-alpha-ux-plan.md](./2026-05-24-post-alpha-ux-plan.md) | `merged` | `deferred` | — |
 | 6 | React language pack | [archive/2026-06-07-react-language-pack-plan.md](./archive/2026-06-07-react-language-pack-plan.md) | `merged` | `complete` | [ADR](../adr/2026-06-07-react-language-pack.md) |
+| 7 | Generic registry discovery protocol | [2026-06-10-generic-registry-discovery-protocol.md](./2026-06-10-generic-registry-discovery-protocol.md) | `pending` | `not-started` | — |
 
 **Doc status:** `pending` → plan PR open; `merged` → plan doc on `main`; `planned` → not yet drafted.
 
@@ -31,7 +32,11 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 ## Which plan should I run?
 
 ```text
-IF Post-alpha UX (order 5) is not explicitly deferred AND not complete
+IF Generic registry discovery protocol (order 7) doc status is `merged`
+  AND implementation status is not `complete`
+  → execute 2026-06-10-generic-registry-discovery-protocol.md from Task 1
+
+ELSE IF Post-alpha UX (order 5) is not explicitly deferred AND not complete
   → execute 2026-05-24-post-alpha-ux-plan.md from Task 1
 
 ELSE
@@ -39,7 +44,7 @@ ELSE
   → consult archived plans and ADRs for prior implementation context
 ```
 
-Orders 1–4 and 6 are **complete**. See [`archive/README.md`](./archive/README.md) and [`docs/adr/`](../adr/README.md) for implementation records.
+Orders 1–4 and 6 are **complete**. Order 7 is the active implementation plan once its doc PR merges. See [`archive/README.md`](./archive/README.md) and [`docs/adr/`](../adr/README.md) for implementation records.
 
 ---
 
