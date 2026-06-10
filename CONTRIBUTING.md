@@ -68,22 +68,6 @@ scripts/install.sh --help
 
 For documentation-only changes, inspect the rendered Markdown when practical and verify links and examples stay current.
 
-## Planning discipline
-
-Use [docs/plans/README.md](docs/plans/README.md) as the source of truth for:
-
-- plan order
-- active implementation phase
-- implementation gates
-
-Expectations:
-
-- Read the active plan before editing.
-- Follow task boundaries and verification commands in that plan.
-- Treat one checked task as one focused PR unless explicitly directed otherwise.
-- Update completed plan checkboxes in the same PR when a task is finished.
-- Do not start the next plan or phase until its roadmap gate is open.
-
 ## Code and product conventions
 
 - Prefer existing crate patterns over new abstractions.
