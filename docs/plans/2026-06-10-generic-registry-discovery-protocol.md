@@ -34,22 +34,35 @@ registry discovery requires language pack `compose` to be installed; run `wax la
 | Before | After |
 |--------|-------|
 | All languages write `.wax/wax.registry.json` | Each `--language` writes **its own** registry file |
-| Second language discover conflicts with first | Compose and react discover independently — no merge |
+| Second language discover conflicts with first | Each language writes its own registry file — no cross-language overwrite |
 | `--force` replaces entire shared registry | `--force` replaces **only that language's** registry file |
 
-**Output path resolution (in order):**
+**Output path resolution:**
 
-1. If the language entry in `.wax/wax.config.json` (or legacy `.waxrc`) has a string `registry`, write there.
-2. Otherwise default to `.wax/<language-id>.registry.json`, then patch config so the language entry's `registry` points at that path.
+Discover writes **local repo-relative registry files only**. It does not fetch or overwrite hosted `registry.source` URLs or `file://` sources.
+
+| Config shape | Write target | Patch config on write? | Patch lock on write? |
+|--------------|--------------|------------------------|----------------------|
+| No `registry` / `design_system_registry` | `.wax/<language-id>.registry.json` | Yes — add string `"registry": ".wax/<id>.registry.json"` to the language entry | Yes — `registries[<id>]` |
+| String `"registry": ".wax/compose.registry.json"` | That repo-relative path | No | Yes |
+| Legacy string `"design_system_registry": "design-system/registry.json"` | That repo-relative path | No (keep legacy key; do not rewrite to `registry` in this plan) | Yes |
+| Object `"registry": { "source": ".wax/compose.registry.json" }` | `registry.source` when repo-relative | No — preserve object shape | Yes |
+| Object `"registry": { "source": "https://…" }` or `file://…` | — | — | Fail with `RegistryExternalSource` — discover cannot write non-repo-relative sources |
+| Config loaded from legacy `.waxrc` only | Same rules via `discover_repo_files()` | Yes — patch the file that was loaded (`.waxrc` or `.wax/wax.config.json`) | Yes |
+
+Validation rules (same as scan registry resolution):
+
+- Repo-relative paths only for writable targets; reject `..` segments and absolute paths.
+- Language entry must exist and be enabled when falling back to config roots without `--root`.
 
 Examples:
 
 ```text
-discover --language compose  →  .wax/compose.registry.json  (+ config + lock update)
-discover --language react    →  .wax/react.registry.json      (+ config + lock update)
+discover --language compose  →  .wax/compose.registry.json  (+ config + lock update when unconfigured)
+discover --language react    →  .wax/react.registry.json      (+ config + lock update when unconfigured)
 ```
 
-Duplicate symbols across language files (`Button` in both) are fine. Scan loads only the registry path configured for the language being scanned.
+Duplicate symbols across language files (`Button` in both) are fine. Scan loads only the registry path resolved for the language being scanned.
 
 **Dry-run:** prints registry JSON to stdout; does not write files or patch config/lock.
 
@@ -158,7 +171,24 @@ fn discover_request_rejects_unknown_fields() {
 }
 
 #[test]
-fn scan_request_still_deserializes_through_wire_pack_request() {
+fn scan_request_still_deserializes_as_wire_scan_request() {
+    let fixture = json!({
+        "type": "scan",
+        "api_version": WIRE_API_VERSION,
+        "language_id": "compose",
+        "repo_root": "/repo/root",
+        "snapshot_id": "snap-123",
+        "config": {}
+    });
+
+    let request: WireScanRequest = serde_json::from_value(fixture.clone()).unwrap();
+    let back = serde_json::to_value(&request).unwrap();
+
+    assert_eq!(back, fixture);
+}
+
+#[test]
+fn wire_pack_request_scan_variant_roundtrips() {
     let fixture = json!({
         "type": "scan",
         "api_version": WIRE_API_VERSION,
@@ -303,14 +333,29 @@ Add `DiscoverUnsupported` to `WireErrorCode`:
 DiscoverUnsupported,
 ```
 
-Keep existing `WireScanRequest` / `WireScanResponse` as type aliases or `From` impls so scan-only call sites compile with minimal churn:
+Keep **`WireScanRequest` / `WireScanResponse` as scan-only enums** (unchanged shape used by `subprocess_lang.rs` and existing pack destructuring). Add **`WirePackRequest` / `WirePackResponse`** as the superset envelopes used by pack stdio loops. Do **not** type-alias scan enums to the pack enums — that would make `let WireScanRequest::Scan { .. } = request` fail because the discover variant is refutable.
 
 ```rust
-pub type WireScanRequest = WirePackRequest;
-pub type WireScanResponse = WirePackResponse;
+// protocol.rs — scan-only types stay for engine ↔ subprocess scan path
+pub enum WireScanRequest { Scan { .. } }
+pub enum WireScanResponse { ScanFacts { .. }, Error { .. } }
+
+// pack stdio superset adds discover
+pub enum WirePackRequest { Scan { .. }, Discover { .. } }
+pub enum WirePackResponse { ScanFacts { .. }, DiscoverSymbols { .. }, Error { .. } }
 ```
 
-Add `From<ScanRequest> for WirePackRequest`, `From<DiscoverRequest> for WirePackRequest`, and `TryFrom<WirePackRequest> for DiscoverRequest`.
+Add conversions:
+
+```rust
+impl From<ScanRequest> for WireScanRequest { .. }          // existing
+impl From<ScanRequest> for WirePackRequest { .. }          // Scan variant
+impl From<WireScanRequest> for WirePackRequest { .. }      // for pack routing
+impl From<DiscoverRequest> for WirePackRequest { .. }
+impl TryFrom<WirePackRequest> for DiscoverRequest { .. }
+```
+
+Task 5–6 updates every pack stdio binary to deserialize `WirePackRequest` and `match` on `Scan` vs `Discover`. Leave `engine/crates/wax-core/src/subprocess_lang.rs` on `WireScanRequest` until a later cleanup unifies serialization.
 
 Export new types from `engine/crates/wax-lang-api/src/lib.rs`.
 
@@ -523,6 +568,7 @@ fn discover_compose_then_react_writes_both_without_force() {
     link_compose_fixture_into_repo(repo.path());
     write_multi_language_lockfile(repo.path());
     install_compose_pack_fixture();
+    install_react_discover_fixture_pack(); // shell script returning discover_symbols JSON
 
     discover_registry(RegistryDiscoverOptions {
         repo_root: repo.path(),
@@ -533,19 +579,82 @@ fn discover_compose_then_react_writes_both_without_force() {
     })
     .expect("compose discover");
 
-    // React discover unsupported today — stub with fixture subprocess returning symbols
-    // once react handler lands, or skip until Task 6; for now test two compose re-runs
-    // must not collide across language ids using react file path resolution only:
+    discover_registry(RegistryDiscoverOptions {
+        repo_root: repo.path(),
+        language_id: "react",
+        roots: vec![repo.path().join("design-system/src")],
+        dry_run: false,
+        force: false,
+    })
+    .expect("react discover via fixture pack");
 
     let compose_path = repo.path().join(".wax/compose.registry.json");
     let react_path = repo.path().join(".wax/react.registry.json");
     assert!(compose_path.is_file());
-    assert!(!react_path.exists());
+    assert!(react_path.is_file());
 
-    // Simulate react path: resolving output for react must not touch compose file
-    let react_output = resolve_discover_output_path_for_test(repo.path(), "react").unwrap();
-    assert_eq!(react_output, react_path);
-    assert_ne!(react_output, compose_path);
+    let compose_registry: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(compose_path).unwrap()).unwrap();
+    let react_registry: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(react_path).unwrap()).unwrap();
+    assert!(compose_registry["components"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|c| c["symbol"] == "PrimaryButton"));
+    assert!(react_registry["components"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|c| c["symbol"] == "Button"));
+}
+
+#[test]
+fn discover_rejects_external_registry_source() {
+    let repo = TestRepo::new("discover-external-registry-source");
+    write_config_with_registry_object(
+        repo.path(),
+        "compose",
+        r#"{ "source": "https://example.com/registry.json" }"#,
+    );
+    write_compose_lockfile(repo.path());
+    install_compose_pack_fixture();
+
+    let err = discover_with_config_roots(repo.path())
+        .expect_err("hosted registry source should not be writable by discover");
+
+    assert!(matches!(
+        err,
+        RegistryDiscoverError::RegistryExternalSource { .. }
+    ));
+}
+
+#[test]
+fn discover_writes_configured_legacy_design_system_registry_path() {
+    let repo = TestRepo::new("discover-legacy-registry-key");
+    fs::write(
+        repo.path().join(".waxrc"),
+        r#"{
+  "schema_version": 1,
+  "languages": [{
+    "id": "compose",
+    "enabled": true,
+    "design_system_registry": "design-system/registry.json",
+    "roots": ["design-system/src/main/kotlin"]
+  }]
+}"#,
+    )
+    .unwrap();
+    link_compose_fixture_into_repo(repo.path());
+    write_compose_lockfile(repo.path());
+    install_compose_pack_fixture();
+
+    let result = discover_with_config_roots(repo.path()).expect("legacy key discover");
+
+    assert_eq!(
+        result.output_path,
+        repo.path().join("design-system/registry.json")
+    );
 }
 
 #[test]
@@ -588,28 +697,40 @@ Expected: FAIL — still writes shared default path / in-process compose
 
 In `engine/crates/wax-core/src/registry_discovery.rs`:
 
-**Resolve output path:**
+**Resolve output path** — use `LanguageEntry::registry_source()` from `wax-core/src/config/waxrc.rs` and apply the table in **Behavior change**:
 
 ```rust
 fn resolve_discover_output_path(
     repo_root: &Path,
     language_id: &LanguageId,
-    waxrc: &WaxRc,
+    entry: &LanguageEntry,
 ) -> Result<PathBuf, RegistryDiscoverError> {
-    let configured = waxrc
-        .languages
-        .iter()
-        .find(|entry| entry.id == *language_id)
-        .and_then(|entry| entry.registry_source_string()); // add small helper on language entry
-
-    let repo_relative = configured
-        .map(str::to_owned)
-        .unwrap_or_else(|| default_registry_path_for_language(language_id));
+    let repo_relative = match entry.registry_source() {
+        Some(source) if is_external_registry_source(&source.source) => {
+            return Err(RegistryDiscoverError::RegistryExternalSource {
+                language_id: language_id.clone(),
+                source: source.source,
+            });
+        }
+        Some(source) => source.source,
+        None => default_registry_path_for_language(language_id),
+    };
 
     validate_repo_relative_registry_path(language_id, &repo_relative)?;
     Ok(repo_root.join(repo_relative))
 }
+
+fn should_patch_config_registry(entry: &LanguageEntry) -> bool {
+    entry.registry_source().is_none()
+}
 ```
+
+Config patch rules:
+
+- Patch only when `should_patch_config_registry` is true.
+- Write `"registry": "<repo-relative path>"` (string form) into the language entry; do not remove other keys.
+- When the loaded config file is legacy `.waxrc`, patch `.waxrc` in place (do not migrate to `.wax/wax.config.json` in this task).
+- When the language already has `registry: { "source": "…" }` and discover writes that local path, preserve the object form.
 
 **Replace `discover_registry` body:**
 
@@ -644,6 +765,7 @@ Replace `RegistryDiscoverError::Discover { source: ComposeDiscoverError }` with:
 PackNotInstalled { language_id: LanguageId },
 DiscoverSubprocess(#[from] DiscoverError),
 DiscoverUnsupported { language_id: LanguageId },
+RegistryExternalSource { language_id: LanguageId, source: String },
 ConfigPatch { .. },
 LockfilePatch { .. },
 ```
@@ -880,7 +1002,7 @@ Update stdout expectations:
 assert!(stdout.contains("Wrote .wax/compose.registry.json"));
 ```
 
-Add test: second discover for a **different** language id does not require `--force` on compose file (react path resolution / unsupported wire error is acceptable until react discover lands).
+Add test: second discover for a **different** language id does not require `--force` on the first language's file. Use the Task 4 `discover_compose_then_react_writes_both_without_force` fixture-pack approach (react returns symbols from a test subprocess, not production `wax-lang-react` heuristics).
 
 - [ ] **Step 3: Update CLI success messages**
 
@@ -1102,17 +1224,19 @@ Expected: all tests PASS
 
 ```bash
 cd engine && cargo build -p wax-cli -p wax-lang-compose
-wax language install compose   # if not already installed
-wax registry discover --language compose --root path/to/kotlin --dry-run
-wax registry discover --language compose --root path/to/kotlin   # writes .wax/compose.registry.json
+./target/debug/wax language install compose   # if not already installed
+./target/debug/wax registry discover --language compose --root path/to/kotlin --dry-run
+./target/debug/wax registry discover --language compose --root path/to/kotlin   # writes .wax/compose.registry.json
 ```
+
+Alternatively: `cargo run -p wax-cli -- registry discover ...` (same flags).
 
 Expected: valid registry JSON on stdout; write creates `.wax/compose.registry.json` (not shared default); config and lock updated; no core dependency on compose crate
 
 - [ ] **Step 4: Commit any fmt fixes**
 
 ```bash
-git add -A
+git add engine/
 git commit -m "chore: verify subprocess registry discovery workspace checks"
 ```
 
@@ -1133,7 +1257,8 @@ git commit -m "chore: verify subprocess registry discovery workspace checks"
 | Subprocess discover protocol | Task 1, 2 |
 | Per-language registry output path | Task 3, 4 |
 | Config + lockfile patch on write | Task 4 |
-| Multi-language no collision | Task 4, 7 |
+| Registry source shape matrix (string/object/legacy/external) | Task 4 |
+| Multi-language no collision (fixture react pack) | Task 4, 7 |
 | Remove core → compose dep | Task 4 |
 | Compose discover implementation | Task 5 |
 | Unsupported discover for other packs | Task 6 |
@@ -1142,14 +1267,4 @@ git commit -m "chore: verify subprocess registry discovery workspace checks"
 | Document behavior change | Task 9 |
 | Workspace verification | Task 10 |
 
-No placeholders remain. Type names consistent: `DiscoverRequest`, `WirePackRequest`, `WirePackResponse`, `DiscoverSymbols`, `DiscoverUnsupported`, `default_registry_path_for_language`.
-
----
-
-**Plan complete and saved to `docs/plans/2026-06-10-generic-registry-discovery-protocol.md`. Two execution options:**
-
-**1. Subagent-Driven (recommended)** — dispatch a fresh subagent per task, review between tasks, fast iteration
-
-**2. Inline Execution** — execute tasks in this session using executing-plans, batch execution with checkpoints
-
-**Which approach?**
+No placeholders remain. Type names consistent: `DiscoverRequest`, `WirePackRequest`, `WirePackResponse`, `WireScanRequest`, `WireScanResponse`, `DiscoverSymbols`, `DiscoverUnsupported`, `RegistryExternalSource`, `default_registry_path_for_language`.

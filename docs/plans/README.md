@@ -9,7 +9,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 3. Each implementation task remains **one PR per task** inside the active plan, per that plan's execution model.
 4. Update the **Doc status** and **Implementation status** columns when a plan doc PR merges or when implementation of a plan finishes.
 
-**Active plan:** [Generic registry discovery protocol](./2026-06-10-generic-registry-discovery-protocol.md) (order 7, `in-progress`).
+**Active plan:** [Generic registry discovery protocol](./2026-06-10-generic-registry-discovery-protocol.md) (order 7) — **implementation blocked until plan doc PR #115 merges** (`doc status: pending`).
 
 ---
 
@@ -34,10 +34,17 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 ## Which plan should I run?
 
 ```text
-→ execute 2026-06-10-generic-registry-discovery-protocol.md from Task 1
+IF Generic registry discovery protocol (order 7) doc status is `merged`
+  AND implementation status is not `complete`
+  → execute 2026-06-10-generic-registry-discovery-protocol.md from Task 1
+
+ELSE
+  → do not start order 7 implementation until plan doc PR #115 merges
 ```
 
-Orders 1–4 and 6 are **complete**. Order 7 is the **current active plan** (`in-progress`). Post-alpha UX (order 5) remains deferred. See [`archive/README.md`](./archive/README.md) and [`docs/adr/`](../adr/README.md) for prior implementation records.
+Orders 1–4 and 6 are **complete**. Order 7 is the **next active plan** once its doc PR merges (`implementation status: in-progress`). Post-alpha UX (order 5) remains deferred. See [`archive/README.md`](./archive/README.md) and [`docs/adr/`](../adr/README.md) for prior implementation records.
+
+**After PR #115 merges:** update order 7 `doc status` to `merged`, PR table row to `#115 (merged)`, and remove the execution gate above.
 
 ---
 
