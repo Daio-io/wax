@@ -6,7 +6,7 @@
 
 **Goal:** Decouple `wax registry discover` from the in-process `wax-lang-compose` dependency via a subprocess wire-protocol discover request, and write **per-language registry files** so multi-stack repos can discover compose and react independently with no merge or cross-language collisions.
 
-**Architecture:** Extend `wax-lang-api` with `discover` request/response variants on the existing stdio JSON protocol (one line in, one line out). `wax-core` resolves the installed pack command (lockfile + global state, same as scan), spawns the pack subprocess, receives symbol names + diagnostics, builds flat registry JSON, and writes it to **that language's registry path only**. When the language entry has no `registry` configured, discover defaults to `.wax/<language-id>.registry.json`, patches `.wax/wax.config.json` to point the language at that path, and updates `wax.lock.json` `registries[<language-id>]` with the new source + digest. Scan already resolves registry per language — no pack loader changes. Compose implements discover via existing `discover_registry_symbols`; basic and react return `DiscoverUnsupported` until they add heuristics.
+**Architecture:** Extend `wax-lang-api` with `discover` request/response variants on the existing stdio JSON protocol (one line in, one line out). `wax-core` resolves the installed pack command (lockfile + global state, same as scan), spawns the pack subprocess, receives symbol names + diagnostics, builds flat registry JSON, and writes it to **that language's registry path only**. When the language entry has no `registry` configured, discover defaults to `.wax/<language-id>.registry.json`, patches `.wax/wax.config.json` to point the language at that path, and updates `wax.lock.json` `registries[<language-id>]` with the new source + digest. **`wax init` must scaffold the same model** — per enabled language, not one shared empty `.wax/wax.registry.json`. Scan already resolves registry per language — pack loaders unchanged. Compose implements discover via existing `discover_registry_symbols`; basic and react return `DiscoverUnsupported` until they add heuristics.
 
 **Tech Stack:** Rust 2024, serde JSON, existing `wax-contract`, `wax-lang-api`, `wax-core`, `wax-cli`, language pack stdio binaries.
 
@@ -55,6 +55,8 @@ Duplicate symbols across language files (`Button` in both) are fine. Scan loads 
 
 **Overwrite:** `OutputExists` applies only to the resolved output path for the requested language. Discovering react does not require `--force` because compose already wrote a different file.
 
+**Init alignment:** `wax init` currently scaffolds one shared `.wax/wax.registry.json` and points every enabled language's lock entry at it. That contradicts per-language discover. This plan updates init to scaffold `.wax/<language-id>.registry.json` per enabled language, set each language's `registry` in config, and lock each file independently. Without this, discover would write files init never prepared users for.
+
 ## File structure
 
 | File | Responsibility |
@@ -68,16 +70,18 @@ Duplicate symbols across language files (`Button` in both) are fine. Scan loads 
 | `engine/crates/wax-core/Cargo.toml` | Remove `wax-lang-compose` dependency |
 | `engine/crates/wax-core/tests/subprocess_discover.rs` | Subprocess discover protocol tests with fixture script |
 | `engine/crates/wax-core/tests/registry_discovery.rs` | Per-language output, multi-language no-collision, config/lock updates |
-| `engine/crates/wax-cli/src/commands/registry.rs` | Update success messages to show language-specific output path |
+| `engine/crates/wax-cli/src/commands/init.rs` | Scaffold per-language registry files + config `registry` fields on init |
+| `engine/crates/wax-cli/tests/init_command.rs` | Assert per-language registry paths, not shared default |
 | `engine/crates/wax-lang-compose/src/discover.rs` | Unchanged logic; add `discover()` wrapper returning symbols + diagnostics |
 | `engine/crates/wax-lang-compose/src/lib.rs` | Export `ComposeLanguage::discover` |
 | `engine/crates/wax-lang-compose/src/bin/wax-lang-compose.rs` | Parse `WirePackRequest`, route scan vs discover |
 | `engine/crates/wax-lang-basic/src/bin/wax-lang-basic.rs` | Same routing; discover returns `DiscoverUnsupported` |
 | `engine/crates/wax-lang-react/src/bin/wax-lang-react.rs` | Same routing; discover returns `DiscoverUnsupported` |
+| `engine/crates/wax-cli/src/commands/registry.rs` | Update success messages to show language-specific output path |
 | `engine/crates/wax-cli/tests/registry_discover_command.rs` | Set up lockfile + installed compose pack in test harness |
-| `docs/adr/2026-06-10-generic-registry-discovery-protocol.md` | ADR addendum recording subprocess discover decision |
-| `docs/specs/2026-05-16-language-packs-and-distribution.md` | Document discover wire messages |
-| `docs/plans/README.md` | Add this plan to roadmap |
+| `docs/adr/2026-06-10-generic-registry-discovery-protocol.md` | ADR addendum recording subprocess discover + per-language output |
+| `docs/specs/2026-05-16-language-packs-and-distribution.md` | Document discover wire messages and per-language output |
+| `docs/plans/README.md` | Roadmap entry (order 7) |
 
 ---
 
@@ -896,7 +900,124 @@ git commit -m "test: align registry discover CLI with per-language output paths"
 
 ---
 
-### Task 8: Documentation and roadmap
+---
+
+### Task 8: Align `wax init` with per-language registries
+
+**Files:**
+- Modify: `engine/crates/wax-cli/src/commands/init.rs`
+- Modify: `engine/crates/wax-cli/tests/init_command.rs`
+
+- [ ] **Step 1: Write the failing test**
+
+Add to `engine/crates/wax-cli/tests/init_command.rs`:
+
+```rust
+#[test]
+fn init_scaffolds_per_language_registry_files_for_multi_language_repo() {
+    let _guard = env_lock();
+    let root = TestDir::new("init-per-language-registries");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+
+    run_init(&repo, &["--language", "compose", "--language", "react", "--no-install"]);
+
+    assert!(repo.join(".wax/compose.registry.json").is_file());
+    assert!(repo.join(".wax/react.registry.json").is_file());
+    assert!(!repo.join(".wax/wax.registry.json").exists());
+
+    let waxrc = load_waxrc(&repo.join(".wax/wax.config.json")).unwrap();
+    let compose = waxrc.languages.iter().find(|l| l.id.as_str() == "compose").unwrap();
+    let react = waxrc.languages.iter().find(|l| l.id.as_str() == "react").unwrap();
+    assert_eq!(
+        compose.registry_source_string(),
+        Some(".wax/compose.registry.json")
+    );
+    assert_eq!(react.registry_source_string(), Some(".wax/react.registry.json"));
+
+    let lock = load_lockfile(&repo.join(".wax/wax.lock.json")).unwrap();
+    assert_eq!(
+        lock.registries.get(&lang("compose")).unwrap().source,
+        ".wax/compose.registry.json"
+    );
+    assert_eq!(
+        lock.registries.get(&lang("react")).unwrap().source,
+        ".wax/react.registry.json"
+    );
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `cd engine && cargo test -p wax-cli init_scaffolds_per_language_registry_files_for_multi_language_repo`
+Expected: FAIL — init still writes shared `.wax/wax.registry.json`
+
+- [ ] **Step 3: Implement per-language init scaffold**
+
+Replace `pending_default_registry_scaffold` (single shared file) with `pending_registry_scaffolds(languages)` returning one entry per enabled language:
+
+```rust
+struct PendingRegistryScaffold {
+    language_id: LanguageId,
+    path: PathBuf,
+    sha256: String,
+    contents: String,
+}
+
+fn pending_registry_scaffolds(
+    repo_root: &Path,
+    languages: &[LanguageId],
+    scaffold_registries: bool,
+) -> Vec<PendingRegistryScaffold> {
+    if !scaffold_registries {
+        return Vec::new();
+    }
+
+    languages
+        .iter()
+        .filter_map(|language_id| {
+            let repo_relative = default_registry_path_for_language(language_id);
+            let path = repo_root.join(&repo_relative);
+            if path.exists() {
+                return None;
+            }
+            let contents = rendered_file_contents(EXAMPLE_DESIGN_SYSTEM_REGISTRY);
+            Some(PendingRegistryScaffold {
+                language_id: language_id.clone(),
+                path,
+                sha256: sha256_hex(contents.as_bytes()),
+                contents,
+            })
+        })
+        .collect()
+}
+```
+
+Update `build_waxrc_contents` to emit `"registry": ".wax/<id>.registry.json"` for each language when scaffolding.
+
+Update init lockfile loop: each language gets its own `LockedRegistry { source, sha256 }` from its scaffold file (not one shared digest for all).
+
+Write each scaffold file in the init loop.
+
+- [ ] **Step 4: Update existing init tests**
+
+Replace assertions on `.wax/wax.registry.json` with `.wax/compose.registry.json` (single-language init) and add multi-language coverage.
+
+- [ ] **Step 5: Run init tests**
+
+Run: `cd engine && cargo test -p wax-cli init_`
+Expected: PASS
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add engine/crates/wax-cli/src/commands/init.rs engine/crates/wax-cli/tests/init_command.rs
+git commit -m "feat: scaffold per-language registry files in wax init"
+```
+
+---
+
+### Task 9: Documentation and roadmap
 
 **Files:**
 - Create: `docs/adr/2026-06-10-generic-registry-discovery-protocol.md`
@@ -949,7 +1070,7 @@ git commit -m "docs: add ADR and spec for subprocess registry discovery"
 
 ---
 
-### Task 9: Full verification
+### Task 10: Full verification
 
 **Files:** (none — verification only)
 
@@ -1000,7 +1121,6 @@ git commit -m "chore: verify subprocess registry discovery workspace checks"
 ## Out of scope (follow-up plans)
 
 - React symbol discovery heuristics (`wax-lang-react/src/discover.rs`) — wire routing returns `discover_unsupported` in this plan
-- Changing `wax init` scaffold (still writes empty `.wax/wax.registry.json`; discover uses per-language default instead)
 - Shared stdio loop helper in `wax-lang-api` (only extract if Task 6 duplication hurts review)
 - Auto-install policy for discover (could mirror scan later)
 - Wire API version bump to 2 (not needed if discover is additive within v1)
@@ -1017,9 +1137,10 @@ git commit -m "chore: verify subprocess registry discovery workspace checks"
 | Remove core → compose dep | Task 4 |
 | Compose discover implementation | Task 5 |
 | Unsupported discover for other packs | Task 6 |
-| CLI messages + tests | Task 7 |
-| Document behavior change | Task 8 |
-| Workspace verification | Task 9 |
+| CLI discover messages + tests | Task 7 |
+| Init scaffolds per-language registries | Task 8 |
+| Document behavior change | Task 9 |
+| Workspace verification | Task 10 |
 
 No placeholders remain. Type names consistent: `DiscoverRequest`, `WirePackRequest`, `WirePackResponse`, `DiscoverSymbols`, `DiscoverUnsupported`, `default_registry_path_for_language`.
 
