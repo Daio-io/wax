@@ -2,9 +2,10 @@
 
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
+use thiserror::Error;
 use wax_contract::{Diagnostic, LanguageId, ScanFacts, scan_facts_from_json};
 
-/// Current wire API version for scan requests.
+/// Current wire API version for all language pack wire requests.
 pub const WIRE_API_VERSION: u32 = 1;
 
 /// Opaque per-language config payload forwarded by the engine.
@@ -132,7 +133,11 @@ pub enum WirePackResponse {
     },
 }
 
-/// Wire protocol request envelope.
+/// Scan-only wire protocol request envelope.
+///
+/// Used by the engine scan subprocess path (`subprocess_lang.rs`). Language pack
+/// stdio loops should deserialize [`WirePackRequest`] instead, which adds the
+/// discover variant while keeping the scan shape identical.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WireScanRequest {
@@ -151,7 +156,11 @@ pub enum WireScanRequest {
     },
 }
 
-/// Wire protocol response envelope.
+/// Scan-only wire protocol response envelope.
+///
+/// Used by the engine scan subprocess path (`subprocess_lang.rs`). Language pack
+/// stdio loops should emit [`WirePackResponse`] instead, which adds the
+/// `discover_symbols` variant while keeping scan and error shapes identical.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WireScanResponse {
@@ -203,7 +212,8 @@ pub enum WireErrorCode {
 }
 
 /// Error returned when a wire pack request is not a discover request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[error("wire request is not a discover request")]
 pub struct NotDiscoverRequest;
 
 impl From<ScanRequest> for WireScanRequest {

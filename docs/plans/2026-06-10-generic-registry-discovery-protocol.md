@@ -107,7 +107,7 @@ Duplicate symbols across language files (`Button` in both) are fine. Scan loads 
 - Modify: `engine/crates/wax-lang-api/src/lib.rs`
 - Create: `engine/crates/wax-lang-api/tests/discover_protocol.rs`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `engine/crates/wax-lang-api/tests/discover_protocol.rs`:
 
@@ -241,12 +241,12 @@ fn in_process_discover_request_converts_to_wire_request() {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd engine && cargo test -p wax-lang-api discover_protocol`
 Expected: FAIL — `DiscoverRequest`, `WirePackRequest`, `WirePackResponse`, `DiscoverUnsupported` not defined
 
-- [ ] **Step 3: Implement protocol types**
+- [x] **Step 3: Implement protocol types**
 
 Add to `engine/crates/wax-lang-api/src/protocol.rs`:
 
@@ -359,12 +359,12 @@ Task 5–6 updates every pack stdio binary to deserialize `WirePackRequest` and 
 
 Export new types from `engine/crates/wax-lang-api/src/lib.rs`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd engine && cargo test -p wax-lang-api discover_protocol`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add engine/crates/wax-lang-api/

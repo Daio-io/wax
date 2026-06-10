@@ -7,7 +7,7 @@ use wax_lang_api::{
 };
 
 #[test]
-fn discover_request_fixture_roundtrips_required_fields() {
+fn discover_wire_request_fixture_roundtrips() {
     let fixture = json!({
         "type": "discover",
         "api_version": WIRE_API_VERSION,
@@ -126,4 +126,19 @@ fn in_process_discover_request_converts_to_wire_request() {
         .expect("discover wire request converts back");
 
     assert_eq!(in_process, back);
+}
+
+#[test]
+fn scan_wire_request_cannot_convert_to_discover_request() {
+    let scan = WirePackRequest::Scan {
+        api_version: WIRE_API_VERSION,
+        language_id: LanguageId::from_str("compose").unwrap(),
+        repo_root: "/repo/root".to_owned(),
+        snapshot_id: "snap-123".to_owned(),
+        config: Default::default(),
+    };
+
+    let result = DiscoverRequest::try_from(scan);
+
+    assert!(result.is_err());
 }
