@@ -52,7 +52,7 @@ For documentation-only changes, inspect the rendered Markdown when practical and
 
 ## Planning Discipline
 
-- Use `docs/plans/README.md` as the source of truth for plan order, active implementation phase, and gates.
+- Use `docs/plans/README.md` as the source of truth for plan order, active implementation phase, and gates. Completed plans live in `docs/plans/archive/` with ADR records in `docs/adr/`.
 - Read the active plan before editing. Follow its task boundaries and verification commands.
 - Treat one checked task as one focused PR unless explicitly directed otherwise.
 - Tick off every completed plan checkbox in the same PR, including the task heading and each completed step under it.

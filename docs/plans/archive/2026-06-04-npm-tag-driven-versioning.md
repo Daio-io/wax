@@ -1,6 +1,6 @@
 # npm Tag-Driven Versioning Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the npm wrapper publish version derive from the release tag in CI, matching the existing Rust release flow.
 
@@ -29,7 +29,7 @@ Expected: PASS
 - Modify: `packages/cli/package.json`
 - Modify: `README.md`
 - Modify: `packages/cli/README.md`
-- Modify: `docs/plans/2026-05-24-release-and-rollout-plan.md`
+- Modify: `docs/plans/archive/2026-05-24-release-and-rollout-plan.md`
 
 - [x] **Step 1: Set the checked-in npm wrapper version to a snapshot placeholder**
 - [x] **Step 2: Update docs to say release tags, not checked-in package metadata, control published npm versions**

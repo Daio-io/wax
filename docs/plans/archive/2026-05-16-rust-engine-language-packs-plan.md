@@ -1,6 +1,6 @@
 # Rust Engine and Language Packs Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 >
 > **PR boundary:** Treat each checked **Task** as one implementation PR. Complete all steps inside a task, run its verification commands, commit the task, and open a PR before starting the next task. Phase checkpoints gate batches of task PRs; do not combine multiple tasks into one PR unless the human explicitly approves it.
 
@@ -10,7 +10,7 @@
 
 **Tech Stack:** Rust edition 2024, `wax-contract` / `wax-lang-api`, tree-sitter (Compose), SWC (React), serde JSON config, clap CLI, GitHub Releases + static registry manifest
 
-**Spec (review first):** [Language packs and distribution](../specs/2026-05-16-language-packs-and-distribution.md)
+**Spec (review first):** [Language packs and distribution](../../specs/2026-05-16-language-packs-and-distribution.md)
 
 ---
 
@@ -22,7 +22,7 @@ This plan chooses a Rust engine with downloadable native language packs because 
 
 ## Prerequisites
 
-- [ ] Spec [2026-05-16-language-packs-and-distribution.md](../specs/2026-05-16-language-packs-and-distribution.md) reviewed and decisions recorded in the ADR addendum.
+- [ ] Spec [2026-05-16-language-packs-and-distribution.md](../../specs/2026-05-16-language-packs-and-distribution.md) reviewed and decisions recorded in the ADR addendum.
 - [x] `rust-prototype/` removed after production crates replaced reference material (Task 18).
 - [ ] Phase 0 spike artifacts (if used for compose goldens) live on a separate branch or PR—not required for the fresh production workspace.
 
@@ -94,7 +94,7 @@ When extending `engine/`, do not blindly copy early spike patterns:
 
 - [x] **Step 1: Document field meanings in spec**
 
-Ensure [language packs spec](../specs/2026-05-16-language-packs-and-distribution.md) matches `LanguageMetadata` + `ScanFacts.language` (not `plugin`).
+Ensure [language packs spec](../../specs/2026-05-16-language-packs-and-distribution.md) matches `LanguageMetadata` + `ScanFacts.language` (not `plugin`).
 
 - [x] **Step 2: Define production contract guardrails**
 
@@ -586,7 +586,7 @@ Expected: PASS
 
 - [x] **Step 1: Replace “ecosystem plugin” (extractor sense) with **language pack****
 - [x] **Step 2: Add glossary note: **plugin** = future kernel hook**
-- [x] **Step 3: Point to [2026-05-16-language-packs-and-distribution.md](../specs/2026-05-16-language-packs-and-distribution.md)**
+- [x] **Step 3: Point to [2026-05-16-language-packs-and-distribution.md](../../specs/2026-05-16-language-packs-and-distribution.md)**
 
 ### - [x] Task 16: Release sketch (document only)
 
@@ -656,8 +656,8 @@ Expected: no stale production docs references to `rust-prototype`; tests PASS.
 
 ## Next phase
 
-- Release and rollout: [Release and rollout plan](./2026-05-24-release-and-rollout-plan.md) — v1 CLI surface (`wax scan`, `wax validate`), HTTPS pack index, prebuilt releases, install channels (curl, Homebrew, npm), and alpha getting-started docs (Task 15). See [plan roadmap](./README.md) order 2.
-- Post-alpha UX: [Post-alpha UX plan](./2026-05-24-post-alpha-ux-plan.md) — order 3; after public alpha tag.
+- Release and rollout: [Release and rollout plan](./2026-05-24-release-and-rollout-plan.md) — v1 CLI surface (`wax scan`, `wax validate`), HTTPS pack index, prebuilt releases, install channels (curl, Homebrew, npm), and alpha getting-started docs (Task 15). See [plan roadmap](../README.md) order 2.
+- Post-alpha UX: [Post-alpha UX plan](../2026-05-24-post-alpha-ux-plan.md) — order 3; after public alpha tag.
 
 ---
 
@@ -685,7 +685,7 @@ Expected: no stale production docs references to `rust-prototype`; tests PASS.
 
 Before implementation starts, confirm:
 
-1. Decisions in [language packs spec](../specs/2026-05-16-language-packs-and-distribution.md) are recorded: JSON-only `.waxrc`, required lockfile, Swift deferred, no fixed response cap, Sigstore/cosign v1.1 signing direction.
+1. Decisions in [language packs spec](../../specs/2026-05-16-language-packs-and-distribution.md) are recorded: JSON-only `.waxrc`, required lockfile, Swift deferred, no fixed response cap, Sigstore/cosign v1.1 signing direction.
 2. ADR process: addendum vs superseding foundation ADR.
 3. Monorepo layout: production crates live under `engine/crates/`; the read-only `rust-prototype/` workspace has been removed (Task 18).
 4. CI policy: `wax scan --no-auto-install` + committed `wax.lock.json`.
@@ -699,7 +699,7 @@ Before implementation starts, confirm:
 **Plan saved to:**
 
 - Spec: `docs/specs/2026-05-16-language-packs-and-distribution.md`
-- Plan: `docs/plans/2026-05-16-rust-engine-language-packs-plan.md`
+- Plan: `docs/plans/archive/2026-05-16-rust-engine-language-packs-plan.md`
 
 **Two execution options:**
 

@@ -380,4 +380,7 @@ Contributor workflow, verification commands, repo layout, and release/process no
 
 - [Language packs and distribution](docs/specs/2026-05-16-language-packs-and-distribution.md)
 - [Component tracker design](docs/specs/2026-05-13-component-tracker-design.md)
-- [Implementation plans](docs/plans/README.md)
+- [Implementation plans](docs/plans/README.md) — active plan order and status for agents
+- [Architecture decision records](docs/adr/README.md) — what each completed phase shipped
+- [Archived implementation plans](docs/plans/archive/README.md) — completed plan documents
+- [Post-alpha UX plan](docs/plans/2026-05-24-post-alpha-ux-plan.md) — deferred follow-on work

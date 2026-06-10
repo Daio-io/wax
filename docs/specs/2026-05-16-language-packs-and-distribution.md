@@ -1,8 +1,8 @@
 # Language Packs, Configuration, and Distribution
 
-**Status:** Active spec; partially implemented in alpha rollout (see release plan Task 15 for getting-started/docs)  
+**Status:** Active spec; foundation and alpha rollout implemented (see [ADR index](../adr/README.md))  
 **Date:** 2026-05-16  
-**Related:** [Component tracker design](./2026-05-13-component-tracker-design.md), [Rust engine workspace](../../engine/)
+**Related:** [Component tracker design](./2026-05-13-component-tracker-design.md), [Rust engine workspace](../../engine/), [ADR index](../adr/README.md)
 
 ## Summary
 
@@ -14,7 +14,7 @@ End users install a **`wax` binary** and download language packs globally. Each 
 
 ## Implementation plan roadmap
 
-Plan order, doc/implementation status, gates, and agent rules live in **[`docs/plans/README.md`](../plans/README.md)** only. Do not duplicate that table here.
+Plan order, doc/implementation status, gates, and agent rules live in **[`docs/plans/README.md`](../plans/README.md)** only. Completed phases are recorded in **[`docs/adr/`](../adr/README.md)** with archived plans in **[`docs/plans/archive/`](../plans/archive/README.md)**.
 
 ## Terminology
 

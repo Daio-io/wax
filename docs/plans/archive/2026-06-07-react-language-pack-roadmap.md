@@ -4,7 +4,7 @@
 
 This roadmap records the longer React ambition separately from the first production implementation plan. The immediate plan should stay shippable. The roadmap should keep the architecture pointed at best-in-class design-system analysis instead of a shallow JSX tag counter.
 
-This document is a draft and does not schedule implementation until it is added to `docs/plans/README.md`.
+v1 capabilities from this roadmap are **implemented**. See [React language pack ADR](../../adr/2026-06-07-react-language-pack.md). Remaining items are future work.
 
 ## Version Roadmap
 
