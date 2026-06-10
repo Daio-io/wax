@@ -243,7 +243,7 @@ fn in_process_discover_request_converts_to_wire_request() {
 
 - [x] **Step 2: Run test to verify it fails**
 
-Run: `cd engine && cargo test -p wax-lang-api discover_protocol`
+Run: `cd engine && cargo test -p wax-lang-api --test discover_protocol`
 Expected: FAIL — `DiscoverRequest`, `WirePackRequest`, `WirePackResponse`, `DiscoverUnsupported` not defined
 
 - [x] **Step 3: Implement protocol types**
@@ -361,7 +361,7 @@ Export new types from `engine/crates/wax-lang-api/src/lib.rs`.
 
 - [x] **Step 4: Run test to verify it passes**
 
-Run: `cd engine && cargo test -p wax-lang-api discover_protocol`
+Run: `cd engine && cargo test -p wax-lang-api --test discover_protocol`
 Expected: PASS
 
 - [x] **Step 5: Commit**

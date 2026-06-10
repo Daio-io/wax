@@ -43,6 +43,35 @@ fn discover_success_response_fixture_roundtrips() {
 }
 
 #[test]
+fn discover_symbols_response_rejects_unknown_fields() {
+    let response = json!({
+        "type": "discover_symbols",
+        "api_version": WIRE_API_VERSION,
+        "language_id": "compose",
+        "symbols": ["PrimaryButton"],
+        "diagnostics": [],
+        "extra": true
+    });
+
+    assert!(serde_json::from_value::<WirePackResponse>(response).is_err());
+}
+
+#[test]
+fn pack_error_response_rejects_unknown_fields() {
+    let response = json!({
+        "type": "error",
+        "api_version": WIRE_API_VERSION,
+        "language_id": "react",
+        "code": "discover_unsupported",
+        "message": "react does not support registry discovery yet",
+        "diagnostics": [],
+        "extra": true
+    });
+
+    assert!(serde_json::from_value::<WirePackResponse>(response).is_err());
+}
+
+#[test]
 fn discover_request_rejects_unknown_fields() {
     let request = json!({
         "type": "discover",
