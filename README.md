@@ -1,170 +1,115 @@
 # wax
 
 [![Nice](https://api.nice.sbs/badge/n_c1qWdL8brn1s.svg)](https://nice.sbs/button?id=n_c1qWdL8brn1s)
+[![Release](https://img.shields.io/github/v/release/Daio-io/wax?include_prereleases&label=release)](https://github.com/Daio-io/wax/releases)
+[![CI](https://github.com/Daio-io/wax/actions/workflows/build_engine.yml/badge.svg?branch=main)](https://github.com/Daio-io/wax/actions/workflows/build_engine.yml)
 
-Open-source, self-hostable design system component tracker. See [component tracker design](docs/specs/2026-05-13-component-tracker-design.md).
+`wax` is an open-source CLI for analyzing design-system usage in codebases.
 
-## Rust engine + language packs direction
+It helps teams define a canonical component registry, scan repositories with language-aware extractors, and produce deterministic outputs that work locally and in CI. Optional AI skills can help author and maintain registry files, but the core `wax` runtime stays deterministic.
 
-- [Implementation plan roadmap](docs/plans/README.md) — plan order and status for agents
-- [Language packs and distribution](docs/specs/2026-05-16-language-packs-and-distribution.md) — `.wax/wax.config.json`, global install, IPC, terminology
-- [Rust engine implementation plan](docs/plans/2026-05-16-rust-engine-language-packs-plan.md) — engine foundation (order 1)
-- [Release and rollout plan](docs/plans/2026-05-24-release-and-rollout-plan.md) — alpha release, install channels (order 2)
-- [Registry sources and layout plan](docs/plans/2026-06-02-registry-sources-and-wax-layout.md) — `.wax/` layout and registry source locking (order 3)
-- [Registry discovery design](docs/plans/2026-06-04-registry-discovery-design.md) and [implementation plan](docs/plans/2026-06-04-registry-discovery-plan.md) — `wax registry discover` and skill-assisted registry sync (order 4, complete)
-- [Post-alpha UX plan](docs/plans/2026-05-24-post-alpha-ux-plan.md) — guided init, scan exports, CI summaries, local reports (order 5, deferred)
-- [React language pack design](docs/plans/2026-06-07-react-language-pack-design.md) and [implementation plan](docs/plans/2026-06-07-react-language-pack-plan.md) — SWC parser-backed React extraction with registry and module resolution (order 6, complete)
-- [`engine/`](engine/) — production Rust workspace (`wax` CLI, language packs, contract crates)
+## What wax does
 
-## Install (alpha)
+- Tracks usage of canonical design-system components from a registry file.
+- Scans source code with installable language packs such as `compose`, `react`, and `basic`.
+- Writes repo-local config, lock, and output files under `.wax/`.
+- Supports deterministic validation and CI-safe scanning.
+- Can bootstrap and refresh registries with `wax registry discover`.
+- Can be paired with optional agent skills for AI-assisted registry authoring and review.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/Daio-io/wax/main/scripts/install.sh | bash
-```
+## How it fits together
 
-The installer detects your OS/arch, downloads the matching release archive from GitHub Releases, verifies the `sha256`, and installs `wax` to `/usr/local/bin` (or `~/.wax/bin` when `/usr/local/bin` is not writable).
-If the installer falls back to `~/.wax/bin`, add it to your shell PATH:
+- `wax` binary: the engine and CLI you install and run.
+- Language packs: stack-specific analyzers installed globally under `~/.wax/langs/`.
+- Registry: your canonical design-system component list, usually `.wax/wax.registry.json`.
+- Repo config: `.wax/wax.config.json` enables languages and points at roots and registry sources.
+- Lockfile: `.wax/wax.lock.json` pins language-pack artifacts and registry digests for reproducible scans.
+- AI skills: optional authoring workflows that call `wax` commands for tasks like registry sync.
 
-```bash
-export PATH="$HOME/.wax/bin:$PATH"
-```
+## Install
 
-Verify the installed binary directly with:
-
-```bash
-$HOME/.wax/bin/wax --help
-```
-
-Language packs are not bundled with the CLI binary. Install packs on demand with `wax language install <id>` or let `wax init` / `wax scan` auto-install pinned versions from the pack index. Continue with a getting-started walkthrough below.
-
-To install a specific release:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Daio-io/wax/main/scripts/install.sh | bash -s -- --version 0.1.0-alpha.1
-```
-
-Note: `--dry-run` without `--version` still queries the GitHub API to resolve the latest release tag.
-
-### Homebrew (tap)
+### Homebrew (macOS)
 
 ```bash
 brew tap Daio-io/wax
 brew install wax
 ```
 
-The Homebrew formula currently targets macOS archives only. Language packs are not bundled with the CLI binary; continue with a getting-started walkthrough below.
-
-### npm (optional alpha wrapper)
-
-The npm wrapper is available as an optional alpha install path. It downloads the same host `wax` binary from GitHub Releases during `postinstall`, verifies the `sha256`, and exposes the `wax` executable through npm:
+### npm wrapper
 
 ```bash
 npm install -g @waxhq/wax@alpha
 wax --help
 ```
 
-You can also run it without a separate global install:
+Or run it without a global install:
 
 ```bash
 npx @waxhq/wax@alpha --help
 ```
 
-The curl installer remains the primary alpha path while the npm package is validated across supported hosts.
-
-Before the first CI publish, configure npm trusted publishing for `@waxhq/wax`:
-
-1. Publish the package once manually so the npm package page exists.
-2. In npm package settings, add trusted publishing for GitHub Actions repo `Daio-io/wax` and workflow file `release.yml`.
-3. The release workflow stamps `packages/cli/package.json` from the Git tag before `npm publish`, so keep the checked-in file on its snapshot placeholder and let CI derive the published version.
-4. Remove or avoid legacy `NPM_TOKEN` publish secrets so OIDC remains the active auth path.
-
-For local smoke tests from the package folder, set `WAX_CLI_VERSION` to the release you want to download; otherwise the wrapper uses the checked-in snapshot placeholder.
-
-## Uninstall
-
-To remove the installed binary and global wax state in one command:
+### Curl installer
 
 ```bash
-wax uninstall --full
+curl -fsSL https://raw.githubusercontent.com/Daio-io/wax/main/scripts/install.sh | bash
 ```
 
-This removes `~/.wax` and attempts to remove common binary locations such as `/usr/local/bin/wax` and `~/.wax/bin/wax`.
+The installer downloads the matching GitHub Release archive for your OS and architecture, verifies `sha256`, and installs `wax` to `/usr/local/bin` or `~/.wax/bin` if the system location is not writable.
 
-### Remove the `wax` binary
-
-If you prefer manual cleanup, remove whichever binary install location exists:
+If it installs to `~/.wax/bin`, add that to your shell:
 
 ```bash
-rm -f /usr/local/bin/wax
-rm -f "$HOME/.wax/bin/wax"
+export PATH="$HOME/.wax/bin:$PATH"
 ```
 
-If you installed via npm:
+Verify the install:
 
 ```bash
-npm uninstall -g @waxhq/wax
+wax --help
 ```
 
-If you installed via Homebrew (once the tap is published):
+Install a specific release:
 
 ```bash
-brew uninstall wax
+curl -fsSL https://raw.githubusercontent.com/Daio-io/wax/main/scripts/install.sh | bash -s -- --version 0.1.0-alpha.1
 ```
 
-### Remove installed language packs
+## Quick start
 
-Uninstall a specific language (all installed versions):
+1. Install the `wax` binary.
+2. Initialize a repository and choose one or more language packs:
 
 ```bash
-wax language uninstall compose
+wax init --non-interactive --language <language-id>
 ```
 
-Uninstall one version only:
-
-```bash
-wax language uninstall compose --version 0.1.0
-```
-
-### Remove all global `wax` state (optional)
-
-This removes cached language packs, install state, and fallback binaries under `~/.wax`:
-
-```bash
-rm -rf "$HOME/.wax"
-```
-
-## Language packs (public alpha)
-
-Wax ships three first-party language packs. Release builds package all of them; the default pack index (`WAX_LANG_INDEX`, currently [`gh-pages/index.json`](https://raw.githubusercontent.com/Daio-io/wax/gh-pages/index.json)) lists `compose` and `basic` until the next tagged alpha release publishes an updated `index.json` that includes `react`.
-
-| id | Use for | Default index today |
-| --- | --- | --- |
-| `compose` | Jetpack Compose / Kotlin design-system usage | listed |
-| `basic` | Text-scanner fallback for unsupported languages and smoke tests | listed |
-| `react` | React / TypeScript JSX usage with import-aware registry resolution | after next alpha tag |
-
-Install a pack explicitly once it appears in your pack index:
-
-```bash
-wax language install compose
-wax language install basic
-wax language install react   # available after the next alpha release updates gh-pages/index.json
-```
-
-Or pass `--language <id>` to `wax init` and let init auto-install the pinned version from your lockfile. For `react` before the default index updates, set `WAX_LANG_INDEX` to a matching release `index.json` URL or a local `file://` copy from `scripts/generate-pack-index.sh`.
-
-## Getting started (compose alpha path)
-
-1. Install `wax` (curl path above).
-2. Initialize repo config (one-time per repository):
+For example:
 
 ```bash
 wax init --non-interactive --language compose
 ```
 
-`wax init` writes `.wax/wax.config.json`, `.wax/wax.lock.json`, and `.wax/wax.registry.json`. Generated scan output lands in `.wax/out/`, which init adds to `.gitignore`.
+You can repeat `--language` for multiple stacks:
 
-3. Populate `.wax/wax.registry.json` with canonical components. Minimal valid example:
+```bash
+wax init --non-interactive --language compose --language react
+```
+
+`wax init` writes:
+
+- `.wax/wax.config.json`
+- `.wax/wax.lock.json`
+- `.wax/wax.registry.json`
+
+3. Validate the repo setup:
+
+```bash
+wax validate
+```
+
+4. Populate or generate the registry.
+
+Minimal manual registry example:
 
 ```json
 {
@@ -178,127 +123,103 @@ wax init --non-interactive --language compose
 }
 ```
 
-`wax scan` requires at least one component symbol in `components[]`.
-
-To discover components from Compose sources instead of hand-editing the registry:
+Or discover components from source:
 
 ```bash
-wax registry discover --language compose --dry-run
-wax registry discover --language compose
-wax language update
+wax registry discover --language <language-id> --dry-run
+wax registry discover --language <language-id> --force
+wax language update --all
 wax validate
 ```
 
-4. Validate repository configuration:
-
-```bash
-wax validate
-```
-
-5. Run scan:
+5. Run a scan:
 
 ```bash
 wax scan
 ```
 
-6. Inspect outputs in `.wax/out/` (including `.wax/out/scan-merged.json`).
+6. Inspect outputs under `.wax/out/`, including `.wax/out/scan-merged.json`.
 
-## Getting started (react alpha path)
+## Languages
 
-Requires a pack index that lists `react`. After the next alpha tag, the default `gh-pages/index.json` will include it; until then point `WAX_LANG_INDEX` at a generated index from that release or wait for the tag to publish.
+Wax uses installable language packs instead of baking every analyzer into the core binary.
 
-1. Install `wax` (curl path above).
-2. Initialize repo config with the React language entry:
+Current first-party packs in this repository:
 
-```bash
-wax init --non-interactive --language react
-```
-
-`wax init` writes `.wax/wax.config.json`, `.wax/wax.lock.json`, and `.wax/wax.registry.json`. The example template includes a React entry with `roots`; init filters the template to the selected language.
-
-3. Ensure `.wax/wax.config.json` points at your registry and source roots. Minimal React config:
-
-```json
-{
-  "schema_version": 1,
-  "languages": [
-    {
-      "id": "react",
-      "enabled": true,
-      "registry": ".wax/wax.registry.json",
-      "roots": ["apps/web/src"]
-    }
-  ]
-}
-```
-
-Populate `.wax/wax.registry.json` with canonical components (same schema as the compose path). For monorepos with path aliases or design-system package imports, add optional `tsconfig`, `aliases`, or `packages` entries on the React language block so JSX bindings resolve through imports—see [language packs spec](docs/specs/2026-05-16-language-packs-and-distribution.md) for resolver fields.
-
-4. Validate and scan:
-
-```bash
-wax validate
-wax scan
-```
-
-5. Inspect outputs in `.wax/out/` (including `.wax/out/scan-merged.json`).
-
-### AI skills
-
-Wax ships agent skills under `plugins/wax/skills/<skill-name>/`. Each skill is a self-contained `SKILL.md` workflow around deterministic Wax CLI commands. AI is an authoring aid only; `wax scan` and `wax validate` stay deterministic.
-
-| Skill | Purpose |
+| Language pack | Use for |
 | --- | --- |
-| `wax-registry-sync` | Registry discovery dry-run, human review, write `.wax/wax.registry.json`, validate, refresh locks |
+| `compose` | Jetpack Compose and Kotlin UI code |
+| `react` | React and JSX/TSX projects |
+| `basic` | Text-based fallback for unsupported ecosystems and smoke tests |
 
-Repo-local discovery: `.agents/skills/<skill-name>` symlinks into `plugins/wax/skills/`. Add new skills under `plugins/wax/skills/` and register them in `.claude-plugin/marketplace.json` only when splitting into a separate plugin (unusual).
-
-#### Install via [skills.sh](https://skills.sh)
-
-Requires Node.js. Install one skill or list everything in the repo:
+Install a pack explicitly:
 
 ```bash
-# List available skills
-npx skills add Daio-io/wax --list
-
-# Project-local (installs into .agents/skills/ for Cursor and other agents)
-npx skills add Daio-io/wax --skill wax-registry-sync -a cursor -y
-
-# Global (available across projects)
-npx skills add Daio-io/wax --skill wax-registry-sync -g -a cursor -y
+wax language install compose
+wax language install react
+wax language install basic
 ```
 
-Other agents: replace `-a cursor` with your agent (`claude-code`, `codex`, `opencode`, etc.).
+Or let `wax init` and `wax scan` install pinned packs automatically from your configured pack index.
 
-Browse or search the catalog at [skills.sh](https://skills.sh) after the listing is indexed.
+List installed packs:
 
-#### Install via Claude Code marketplace
+```bash
+wax language list
+```
 
-In Claude Code, add the Wax marketplace and install the grouped `wax` plugin (includes all Wax skills):
+Check repo and install state together:
+
+```bash
+wax language doctor
+```
+
+## Updating language packs
+
+Use `wax language update` to pull the latest available version of an installed pack and replace older local versions.
+
+Update one language pack:
+
+```bash
+wax language update compose
+```
+
+Update every installed language pack:
+
+```bash
+wax language update --all
+```
+
+If you changed repo registry content, registry sources, or lockfile-related config, refresh and then validate:
+
+```bash
+wax language update --all
+wax validate
+```
+
+Use `wax language doctor` to check installed packs, repo lock state, and the effective pack index URL.
+
+If you need to update from a non-default pack index, pass `--registry` or set `WAX_LANG_INDEX`.
+
+## Registry workflow
+
+The registry is the source of truth for the design-system components you want `wax` to track.
+
+Default location:
 
 ```text
-/plugin marketplace add Daio-io/wax
-/plugin install wax@wax-skills
-/reload-plugins
+.wax/wax.registry.json
 ```
 
-Skills are namespaced by the plugin. Invoke manually, for example `/wax:wax-registry-sync`, or let Claude load a skill from its description when you ask to sync a Wax registry.
+Typical workflow:
 
-#### Manual install
+1. Initialize repo config with one or more languages.
+2. Add or discover canonical components into `.wax/wax.registry.json`.
+3. Run `wax validate`.
+4. Run `wax scan`.
+5. After changing the registry, refresh lock state with `wax language update --all`.
 
-Copy or symlink a skill directory from `plugins/wax/skills/<skill-name>/` into your agent's skills directory (for example `.agents/skills/` for Cursor, `.claude/skills/` for Claude Code, or `~/.cursor/skills/` for a global Cursor install).
-
-For editor validation/autocomplete on `.wax/wax.config.json` (or legacy `.waxrc`), use:
-
-```json
-{
-  "$schema": "https://raw.githubusercontent.com/Daio-io/wax/main/engine/crates/wax-contract/schemas/waxrc.schema.json"
-}
-```
-
-If your environment cannot fetch remote schemas, copy that schema file into your repository and point `$schema` at the vendored path instead.
-
-Optional hosted registry source on a language entry in `.wax/wax.config.json`:
+You can also point a language at a hosted or alternate registry source:
 
 ```json
 {
@@ -316,37 +237,147 @@ Optional hosted registry source on a language entry in `.wax/wax.config.json`:
 }
 ```
 
-## Monorepo and multi-repo notes
+## AI skills
 
-- Use one `.wax/wax.config.json` and one `.wax/wax.lock.json` per repository (legacy `.waxrc` and top-level `wax.lock.json` are still read when preferred files are absent).
-- The default pack index is shared (`WAX_LANG_INDEX` can still override per shell/CI job).
-- Language packs install once globally under `~/.wax/langs/` and are reused across repos.
+Wax also ships optional agent skills under [plugins/wax/skills](plugins/wax/skills). These are for authoring help, not runtime analysis.
 
-## Migrating layout and registry locks
+Today the repo includes:
 
-- New repos: `wax init` writes `.wax/wax.config.json`, `.wax/wax.lock.json`, and `.wax/wax.registry.json` only.
-- Existing repos can keep legacy `.waxrc` and top-level `wax.lock.json` until you copy or move them under `.wax/`. `wax validate` warns when both old and new files exist.
-- If you migrate config to `.wax/wax.config.json` but still use a top-level `wax.lock.json`, `wax validate` warns to move the lockfile to `.wax/wax.lock.json`.
-- Lockfiles upgraded from schema v1 may lack per-language `registries` entries. After adopting centralized config or changing a registry source/path, run `wax language update` to refresh registry locks before CI scan.
-- After editing a repo-local registry (for example `.wax/wax.registry.json`), run `wax language update` so `registries` digests and sources stay aligned with config.
+| Skill | Purpose |
+| --- | --- |
+| `wax-registry-sync` | Preview discovered registry entries, review changes, write `.wax/wax.registry.json`, validate, and refresh locks |
 
-## CI recipe
+The key distinction:
 
-Commit `.wax/wax.lock.json`. In CI, restore cached installs from `~/.wax/langs` (and `~/.wax/state.json`) or install pinned languages before scanning. If the lockfile predates registry locks or you change registry sources, refresh locks locally with `wax language update` before committing.
+- `wax` CLI: deterministic runtime used in local development and CI
+- AI skills: optional guided workflows that call `wax` commands to help you create or update registry files
+
+In practice, a skill like `wax-registry-sync` fits around the registry workflow like this:
+
+1. Run `wax registry discover --language <id> --dry-run`
+2. Review additions and removals
+3. Write `.wax/wax.registry.json` with `wax registry discover --language <id> --force`
+4. Run `wax validate`
+5. Run `wax language update --all` when registry locks need refreshing
+
+### Install skills with `skills.sh`
+
+Requires Node.js.
+
+List available skills from this repo:
+
+```bash
+npx skills add Daio-io/wax --list
+```
+
+Install `wax-registry-sync` into a project-local skills directory:
+
+```bash
+npx skills add Daio-io/wax --skill wax-registry-sync -a cursor -y
+```
+
+Install it globally instead:
+
+```bash
+npx skills add Daio-io/wax --skill wax-registry-sync -g -a cursor -y
+```
+
+Swap `cursor` for your agent, such as `claude-code`, `codex`, or `opencode`.
+
+### Install skills in Claude Code
+
+```text
+/plugin marketplace add Daio-io/wax
+/plugin install wax@wax-skills
+/reload-plugins
+```
+
+Then invoke the skill directly, for example:
+
+```text
+/wax:wax-registry-sync
+```
+
+### Manual skill install
+
+Copy or symlink a skill directory from `plugins/wax/skills/<skill-name>/` into your agent's skills folder, such as:
+
+- `.agents/skills/`
+- `.claude/skills/`
+- `~/.cursor/skills/`
+
+## CI usage
+
+Commit `.wax/wax.lock.json`. In CI, install or restore the pinned language packs before running scans without auto-install.
+
+Typical flow:
 
 ```bash
 wax validate
-wax language install compose   # or: wax language install react
+wax language install compose
 wax scan --no-auto-install
 ```
 
-`--no-auto-install` expects required language packs to already be present on disk.
+If you change registry content or registry sources, refresh locks locally before committing:
 
-## Contributor/local install path
+```bash
+wax language update --all
+wax validate
+```
+
+## Schema and config notes
+
+For editor validation and autocomplete on `.wax/wax.config.json`:
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/Daio-io/wax/main/engine/crates/wax-contract/schemas/waxrc.schema.json"
+}
+```
+
+Notes:
+
+- Preferred config path is `.wax/wax.config.json`.
+- Legacy `.waxrc` is still supported when the preferred file is absent.
+- Preferred lockfile path is `.wax/wax.lock.json`.
+- One repo should usually have one Wax config and one Wax lockfile.
+
+## Uninstall
+
+Remove the binary and Wax global state:
+
+```bash
+wax uninstall --full
+```
+
+Remove one language pack:
+
+```bash
+wax language uninstall compose
+```
+
+Remove a specific installed version:
+
+```bash
+wax language uninstall compose --version 0.1.0
+```
+
+## Build locally
+
+If you want to run Wax from a local build instead of installing a release:
 
 ```bash
 cd engine
-cargo test -p wax-cli
-cargo build --release -p wax-cli   # optimized binary at target/release/wax
-cargo install --path crates/wax-cli --locked   # install wax into $PATH
+cargo build --release -p wax-cli
+./target/release/wax --help
 ```
+
+## Contributing
+
+Contributor workflow, verification commands, repo layout, and release/process notes live in [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## More docs
+
+- [Language packs and distribution](docs/specs/2026-05-16-language-packs-and-distribution.md)
+- [Component tracker design](docs/specs/2026-05-13-component-tracker-design.md)
+- [Implementation plans](docs/plans/README.md)
