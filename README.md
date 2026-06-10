@@ -1,5 +1,9 @@
 # wax
 
+[![Nice](https://api.nice.sbs/badge/n_c1qWdL8brn1s.svg)](https://nice.sbs/button?id=n_c1qWdL8brn1s)
+[![Release](https://img.shields.io/github/v/release/Daio-io/wax?include_prereleases&label=release)](https://github.com/Daio-io/wax/releases)
+[![CI](https://github.com/Daio-io/wax/actions/workflows/build_engine.yml/badge.svg?branch=main)](https://github.com/Daio-io/wax/actions/workflows/build_engine.yml)
+
 `wax` is an open-source CLI for analyzing design-system usage in codebases.
 
 It helps teams define a canonical component registry, scan repositories with language-aware extractors, and produce deterministic outputs that work locally and in CI. Optional AI skills can help author and maintain registry files, but the core `wax` runtime stays deterministic.
@@ -23,6 +27,26 @@ It helps teams define a canonical component registry, scan repositories with lan
 - AI skills: optional authoring workflows that call `wax` commands for tasks like registry sync.
 
 ## Install
+
+### Homebrew
+
+```bash
+brew tap Daio-io/wax
+brew install wax
+```
+
+### npm wrapper
+
+```bash
+npm install -g @waxhq/wax@alpha
+wax --help
+```
+
+Or run it without a global install:
+
+```bash
+npx @waxhq/wax@alpha --help
+```
 
 ### Curl installer
 
@@ -48,26 +72,6 @@ Install a specific release:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Daio-io/wax/main/scripts/install.sh | bash -s -- --version 0.1.0-alpha.1
-```
-
-### Homebrew
-
-```bash
-brew tap Daio-io/wax
-brew install wax
-```
-
-### npm wrapper
-
-```bash
-npm install -g @waxhq/wax@alpha
-wax --help
-```
-
-Or run it without a global install:
-
-```bash
-npx @waxhq/wax@alpha --help
 ```
 
 ## Quick start
