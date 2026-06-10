@@ -382,7 +382,7 @@ git commit -m "feat: add discover wire protocol types to wax-lang-api"
 - Modify: `engine/crates/wax-core/src/lib.rs`
 - Create: `engine/crates/wax-core/tests/subprocess_discover.rs`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `engine/crates/wax-core/tests/subprocess_discover.rs` with a fixture shell script (same pattern as `engine/crates/wax-core/tests/subprocess_protocol.rs`):
 
@@ -416,12 +416,12 @@ The fixture script reads stdin, writes:
 {"type":"discover_symbols","api_version":1,"language_id":"compose","symbols":["PrimaryButton"],"diagnostics":[]}
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd engine && cargo test -p wax-core subprocess_discover_parses_discover_symbols_response`
 Expected: FAIL — module/type not found
 
-- [ ] **Step 3: Implement subprocess discover**
+- [x] **Step 3: Implement subprocess discover**
 
 Create `engine/crates/wax-core/src/subprocess_discover.rs` mirroring `subprocess_lang.rs`:
 
@@ -447,12 +447,12 @@ Reuse `SubprocessLanguageManifest`, stream spooling, timeout, and cancellation p
 
 Export from `engine/crates/wax-core/src/lib.rs`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd engine && cargo test -p wax-core subprocess_discover`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add engine/crates/wax-core/src/subprocess_discover.rs engine/crates/wax-core/src/lib.rs engine/crates/wax-core/tests/subprocess_discover.rs

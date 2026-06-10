@@ -147,6 +147,12 @@ pub enum DiscoverError {
     /// The language pack does not implement registry discovery.
     #[error("language pack does not implement registry discovery")]
     Unsupported,
+    /// The subprocess returned a wire response of the wrong type.
+    #[error("language subprocess returned unexpected response type: {found}")]
+    UnexpectedResponseType {
+        /// Response type tag found in the wire message.
+        found: &'static str,
+    },
     /// The language pack returned a typed wire error.
     #[error("language subprocess returned {code:?}: {message}")]
     Wire {
@@ -423,6 +429,9 @@ fn configure_command(_command: &mut Command) {}
 #[cfg(unix)]
 fn cleanup_child(child: &mut std::process::Child, child_id: u32) {
     if let Ok(process_group_id) = i32::try_from(child_id) {
+        // NOTE: We apply the spec's SIGTERM grace window uniformly for every
+        // cleanup path, including timeouts and pipe errors, so packs get one
+        // consistent shutdown contract.
         unsafe {
             libc::kill(-process_group_id, libc::SIGTERM);
         }
@@ -497,8 +506,8 @@ fn parse_wire_response(stdout: &Path) -> Result<DiscoverSymbolsResult, DiscoverE
                 }),
             }
         }
-        WirePackResponse::ScanFacts { .. } => Err(DiscoverError::InvalidResponse {
-            source: serde_json::from_str::<VersionProbe>("not-json").unwrap_err(),
+        WirePackResponse::ScanFacts { .. } => Err(DiscoverError::UnexpectedResponseType {
+            found: "scan_facts",
         }),
     }
 }
