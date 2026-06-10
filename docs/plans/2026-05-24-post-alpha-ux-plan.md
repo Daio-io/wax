@@ -1,12 +1,12 @@
 # Post-Alpha UX Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 >
 > **PR boundary:** Treat each checked **Task** as one implementation PR. Complete all steps inside a task, run its verification commands, commit the task, tick the task checkbox in this plan in the same PR, and open a PR before starting the next task.
 
 **Goal:** Improve day-one ergonomics after the initial alpha ships—guided onboarding, richer scan feedback, durable data exports, graph-ready report artifacts, and CI-friendly output—without building registry discover/draft.
 
-**Architecture:** Builds on [Release and rollout](./2026-05-24-release-and-rollout-plan.md) once public alpha is live (`wax scan` summary, `wax validate`, install channels). CLI-first UX and reporting layers; no changes to the `ScanFacts` contract unless a task explicitly requires new optional fields. Language packs continue to emit facts only; `wax-cli` / `wax-core` own derived summaries, graph data, and report artifacts.
+**Architecture:** Builds on [Release and rollout ADR](../adr/2026-05-24-alpha-release-and-distribution.md) once public alpha is live (`wax scan` summary, `wax validate`, install channels). CLI-first UX and reporting layers; no changes to the `ScanFacts` contract unless a task explicitly requires new optional fields. Language packs continue to emit facts only; `wax-cli` / `wax-core` own derived summaries, graph data, and report artifacts.
 
 **Tech Stack:** Rust `wax-cli`, `wax-core`, clap, terminal prompts (e.g. `dialoguer` or `inquire`—pick one crate in Task 1), JSON schema, markdown/text formatters for CI summaries, lightweight static HTML report generation
 
@@ -264,7 +264,7 @@ Expected: Copy-paste CI recipe works on `ubuntu-latest`; markdown includes delta
 **Files:**
 
 - Modify: `README.md`
-- Modify: `docs/plans/2026-05-24-release-and-rollout-plan.md` (follow-on link only)
+- Modify: `docs/plans/archive/2026-05-24-release-and-rollout-plan.md` (follow-on link only)
 
 - [ ] **Step 1: README section “Interactive init” after Task 1 ships**
 

@@ -1,9 +1,9 @@
 # ADR: Rust engine with downloadable language packs
 
-**Status:** Proposed (pending [language packs spec](../specs/2026-05-16-language-packs-and-distribution.md) approval)  
+**Status:** Accepted (implemented)  
 **Date:** 2026-05-16  
 **Type:** Addendum (foundation direction; does not supersede [component tracker design](../specs/2026-05-13-component-tracker-design.md))  
-**Related:** [Language packs and distribution spec](../specs/2026-05-16-language-packs-and-distribution.md) · [Implementation plan](../plans/2026-05-16-rust-engine-language-packs-plan.md)
+**Related:** [Language packs and distribution spec](../specs/2026-05-16-language-packs-and-distribution.md) · [Archived implementation plan](../plans/archive/2026-05-16-rust-engine-language-packs-plan.md)
 
 ## Context
 
@@ -35,7 +35,7 @@ This ADR records the foundation choice. Operational details (registry format, si
 
 ### Spec decisions incorporated here
 
-The following decisions from spec review are part of this foundation and are implemented or tracked in the [implementation plan](../plans/2026-05-16-rust-engine-language-packs-plan.md):
+The following decisions from spec review are part of this foundation and were implemented in the [archived implementation plan](../plans/archive/2026-05-16-rust-engine-language-packs-plan.md):
 
 | Decision | Choice |
 |----------|--------|
@@ -68,14 +68,25 @@ A separate ADR will be written when kernel plugin loading, trust boundaries, and
 - Pack trust in v1 relies on transport and digest checks, not code signing (planned for v1.1).
 - Rust toolchain is required for engine/pack development; end users consume prebuilt releases.
 
-### Follow-up work (not in this ADR)
+## Implementation summary
 
-- Terminology cleanup in [component tracker design](../specs/2026-05-13-component-tracker-design.md) (plan Task 15).
-- Release and distribution sketch in the spec (plan Task 16).
-- Pack distribution threat model: [spec § Pack distribution trust model](../specs/2026-05-16-language-packs-and-distribution.md#pack-distribution-trust-model-v1) (plan Task 17).
+All 18 tasks in the foundation plan shipped on `main`:
+
+| Area | What shipped |
+|------|----------------|
+| Contracts | `wax-contract` (`ScanFacts`, schema versioning), `wax-lang-api` wire protocol v1 |
+| Config | `.waxrc` parser, `wax.lock.json` with language pins |
+| Language packs | `wax-lang-compose` (tree-sitter Kotlin), `wax-lang-basic` (line scanner), `wax-lang-react` stdio skeleton |
+| Engine | `Engine::scan_repo`, bounded concurrency, atomic `.wax/out/` writes |
+| Global install | `~/.wax/langs/`, pack index client, sha256-verified install, auto-install policy |
+| CLI | `wax init`, `wax scan` orchestration hooks, `wax language {list,install,uninstall,update,doctor}` |
+| Docs | ADR addendum, component-tracker terminology cleanup, release sketch, pack trust model in spec |
+| Cleanup | `rust-prototype/` removed |
+
+Follow-on work moved to later ADRs: [alpha release](./2026-05-24-alpha-release-and-distribution.md), [registry layout](./2026-06-02-registry-sources-and-wax-layout.md), [registry discovery](./2026-06-04-registry-discovery.md), [React pack](./2026-06-07-react-language-pack.md).
 
 ## References
 
 - [Language packs, configuration, and distribution](../specs/2026-05-16-language-packs-and-distribution.md) — authoritative v1 spec
-- [Rust engine and language packs implementation plan](../plans/2026-05-16-rust-engine-language-packs-plan.md) — phased delivery
+- [Archived Rust engine implementation plan](../plans/archive/2026-05-16-rust-engine-language-packs-plan.md) — phased delivery record
 - Phase 0 evaluation summary: spec § Background: architecture evaluation (spike artifacts not committed to this repository)

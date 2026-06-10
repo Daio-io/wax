@@ -6,7 +6,7 @@ Wax should promote `wax-lang-react` from a scaffold to a production parser-backe
 
 React support must be more than uppercase JSX tag matching. The pack should parse JavaScript, TypeScript, JSX, and TSX with SWC, build enough module-resolution context to understand imports and aliases, and resolve JSX usage back to registry symbols before counting it as design-system adoption.
 
-This design is not an active implementation gate until the roadmap owner schedules it in `docs/plans/README.md`.
+This design is **implemented**. See [React language pack ADR](../../adr/2026-06-07-react-language-pack.md) and the [archived implementation plan](./2026-06-07-react-language-pack-plan.md).
 
 ## Goals
 

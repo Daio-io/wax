@@ -1,5 +1,7 @@
 # Registry Discovery and Skill-Assisted Sync Design
 
+**Status:** Implemented. See [registry discovery ADR](../../adr/2026-06-04-registry-discovery.md) and the [archived implementation plan](./2026-06-04-registry-discovery-plan.md).
+
 ## Summary
 
 Wax should help design-system maintainers create `.wax/wax.registry.json` from a design-system package without making AI a runtime dependency. The first version adds a deterministic `wax registry discover` command that scans a design-system root, writes the default registry file, and refuses to overwrite an existing registry unless `--force` is supplied. A companion Agent Skill, `wax-registry-sync`, can wrap that deterministic command with source inspection, human confirmation, and validation.

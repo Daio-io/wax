@@ -1,6 +1,6 @@
 # Registry Discovery and Skill-Assisted Sync Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add deterministic design-system registry discovery plus a proper Agent Skill workflow for AI-assisted registry review and sync.
 
@@ -12,7 +12,7 @@
 
 ## Reference Spec
 
-- Design spec: `docs/plans/2026-06-04-registry-discovery-design.md`
+- Design spec: `docs/plans/archive/2026-06-04-registry-discovery-design.md`
 - Roadmap source: `docs/plans/README.md`
 - Existing registry layout spec: `docs/specs/2026-06-02-registry-sources-and-wax-layout-design.md`
 - Product scope spec: `docs/specs/2026-05-13-component-tracker-design.md`
@@ -484,7 +484,7 @@ git commit -m "docs: add wax registry sync skill"
 ### - [x] Task 7: Run full engine verification and update plan checkboxes
 
 **Files:**
-- Modify: `docs/plans/2026-06-04-registry-discovery-plan.md`
+- Modify: `docs/plans/archive/2026-06-04-registry-discovery-plan.md`
 
 - [x] **Step 1: Run formatting**
 
@@ -526,6 +526,6 @@ Update this plan so every completed task and step is checked in the same PR that
 - [x] **Step 5: Commit verification updates**
 
 ```bash
-git add docs/plans/2026-06-04-registry-discovery-plan.md
+git add docs/plans/archive/2026-06-04-registry-discovery-plan.md
 git commit -m "chore: complete registry discovery plan"
 ```

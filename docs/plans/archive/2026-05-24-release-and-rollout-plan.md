@@ -1,6 +1,6 @@
 # Release and Rollout Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 >
 > **PR boundary:** Treat each checked **Task** as one implementation PR. Complete all steps inside a task, run its verification commands, commit the task, tick the task checkbox in this plan in the same PR, and open a PR before starting the next task. Phase checkpoints gate batches of task PRs; do not combine multiple tasks into one PR unless the human explicitly approves it.
 
@@ -12,8 +12,8 @@
 
 **Specs (review first):**
 
-- [Language packs and distribution](../specs/2026-05-16-language-packs-and-distribution.md) — CLI surface, distribution, trust model
-- [Component tracker design](../specs/2026-05-13-component-tracker-design.md) — product context (registry validation scope for alpha)
+- [Language packs and distribution](../../specs/2026-05-16-language-packs-and-distribution.md) — CLI surface, distribution, trust model
+- [Component tracker design](../../specs/2026-05-13-component-tracker-design.md) — product context (registry validation scope for alpha)
 
 **Previous phase:** [Rust engine and language packs plan](./2026-05-16-rust-engine-language-packs-plan.md) Phases 1–5.
 
@@ -46,7 +46,7 @@ Plan document PRs: merge #33 (roadmap) before or with this PR so `docs/plans/REA
 
 **Order 1 gate (verify in repo; do not rely on stale plan checkboxes alone):**
 
-- [ ] [`docs/plans/README.md`](./README.md) on `main` shows order 1 implementation status `complete` (update the roadmap when foundation work is actually done).
+- [ ] [`docs/plans/README.md`](../README.md) on `main` shows order 1 implementation status `complete` (update the roadmap when foundation work is actually done).
 - [ ] Foundation **code** is present and tests pass on `main`:
 
 ```bash
@@ -337,7 +337,7 @@ Each entry: `id`, `version`, `api_version`, `targets` map with release URLs and 
 
 - [x] **Step 2: Document index schema in spec or plan comment block**
 
-Match [language packs spec § Distribution](../specs/2026-05-16-language-packs-and-distribution.md). The committed `alpha-index.json` fixture lists `compose`, `basic`, and `react` after React plan Task 13.
+Match [language packs spec § Distribution](../../specs/2026-05-16-language-packs-and-distribution.md). The committed `alpha-index.json` fixture lists `compose`, `basic`, and `react` after React plan Task 13.
 
 Plan note: `engine/fixtures/registry/alpha-index.json` follows the v1 Distribution shape from the language packs spec: a top-level array of pack entries, each with `id`, `version`, `api_version`, and a `targets` object keyed by Rust target triple. Each target contains a release asset `url` and artifact `sha256`; the fixture uses placeholder zero digests until Task 11 generates the first release index.
 
@@ -530,7 +530,7 @@ Task 15 covers documentation readiness only. Homebrew install availability remai
 - Modify: `README.md`
 - Create: `engine/schemas/waxrc.schema.json` (or `engine/crates/wax-contract/schemas/waxrc.schema.json`)
 - Modify: `docs/specs/2026-05-16-language-packs-and-distribution.md` (mark distribution § implementation status if accurate)
-- Modify: `docs/plans/2026-05-16-rust-engine-language-packs-plan.md` (link to this plan)
+- Modify: `docs/plans/archive/2026-05-16-rust-engine-language-packs-plan.md` (link to this plan)
 
 - [x] **Step 1: Replace cargo-only install section with alpha paths**
 
@@ -581,7 +581,7 @@ Expected: PASS on ubuntu-latest and macos-latest.
 
 **Files:**
 
-- Modify: `docs/plans/2026-05-16-rust-engine-language-packs-plan.md`
+- Modify: `docs/plans/archive/2026-05-16-rust-engine-language-packs-plan.md`
 
 - [x] **Step 1: Add "Next phase" section linking to this plan**
 
@@ -680,7 +680,7 @@ Before starting implementation, confirm:
 
 **Plan saved to:**
 
-- `docs/plans/2026-05-24-release-and-rollout-plan.md`
+- `docs/plans/archive/2026-05-24-release-and-rollout-plan.md`
 
 **Two execution options:**
 

@@ -1,6 +1,6 @@
 # React Language Pack Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` or `superpowers:executing-plans` to implement this plan task-by-task after this plan is approved and scheduled in `docs/plans/README.md`.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `subagent-driven-development` or `executing-plans` to implement this plan task-by-task after this plan is approved and scheduled in `docs/plans/README.md`.
 
 **Goal:** Promote `wax-lang-react` from a scaffold to a production SWC-backed language pack that emits registry components, local components, and resolved design-system JSX usage sites through the existing `ScanFacts` contract.
 
@@ -12,8 +12,8 @@
 
 ## Reference Spec
 
-- Design spec: `docs/plans/2026-06-07-react-language-pack-design.md`
-- Capability roadmap: `docs/plans/2026-06-07-react-language-pack-roadmap.md`
+- Design spec: `docs/plans/archive/2026-06-07-react-language-pack-design.md`
+- Capability roadmap: `docs/plans/archive/2026-06-07-react-language-pack-roadmap.md`
 - Language-pack contract: `docs/specs/2026-05-16-language-packs-and-distribution.md`
 - Roadmap source: `docs/plans/README.md`
 
@@ -403,7 +403,7 @@ Expected: PASS.
 
 **Files:**
 - Modify: `README.md`
-- Modify: `docs/plans/2026-05-24-release-and-rollout-plan.md`
+- Modify: `docs/plans/archive/2026-05-24-release-and-rollout-plan.md`
 - Modify: `docs/plans/2026-05-24-post-alpha-ux-plan.md`
 - Modify: `engine/crates/wax-cli/src/commands/init.rs` only if the command has a hardcoded language list.
 - Modify tests under `engine/crates/wax-cli/tests/` only if init behavior changes.

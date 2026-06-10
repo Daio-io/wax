@@ -1,6 +1,6 @@
 # Registry Sources and Wax Layout Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Move repo-local wax files into `.wax/wax.*.json`, support optional local/hosted registry sources, and lock registry content by digest for deterministic validation and scans.
 
@@ -2276,7 +2276,7 @@ git commit -m "docs: document centralized registry configuration"
 
 **Files:**
 - Modify active plan docs if this work is inserted as a task in `docs/plans/README.md` or a new product plan.
-- Modify `docs/plans/2026-06-02-registry-sources-and-wax-layout.md` task checkboxes as work completes.
+- Modify `docs/plans/archive/2026-06-02-registry-sources-and-wax-layout.md` task checkboxes as work completes.
 
 - [x] **Step 1: Run formatting**
 
@@ -2326,7 +2326,7 @@ If this feature is added to an official plan under `docs/plans/`, update that pl
 - [x] **Step 5: Commit verification/doc checkbox updates**
 
 ```bash
-git add docs/plans/2026-06-02-registry-sources-and-wax-layout.md docs/plans
+git add docs/plans/archive/2026-06-02-registry-sources-and-wax-layout.md docs/plans
 git commit -m "chore: mark registry source plan progress"
 ```
 
