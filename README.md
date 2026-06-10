@@ -28,7 +28,7 @@ It helps teams define a canonical component registry, scan repositories with lan
 
 ## Install
 
-### Homebrew
+### Homebrew (macOS)
 
 ```bash
 brew tap Daio-io/wax
@@ -127,8 +127,8 @@ Or discover components from source:
 
 ```bash
 wax registry discover --language <language-id> --dry-run
-wax registry discover --language <language-id>
-wax language update
+wax registry discover --language <language-id> --force
+wax language update --all
 wax validate
 ```
 
@@ -193,7 +193,7 @@ wax language update --all
 If you changed repo registry content, registry sources, or lockfile-related config, refresh and then validate:
 
 ```bash
-wax language update
+wax language update --all
 wax validate
 ```
 
@@ -217,7 +217,7 @@ Typical workflow:
 2. Add or discover canonical components into `.wax/wax.registry.json`.
 3. Run `wax validate`.
 4. Run `wax scan`.
-5. After changing the registry, refresh lock state with `wax language update`.
+5. After changing the registry, refresh lock state with `wax language update --all`.
 
 You can also point a language at a hosted or alternate registry source:
 
@@ -256,9 +256,9 @@ In practice, a skill like `wax-registry-sync` fits around the registry workflow 
 
 1. Run `wax registry discover --language <id> --dry-run`
 2. Review additions and removals
-3. Write `.wax/wax.registry.json`
+3. Write `.wax/wax.registry.json` with `wax registry discover --language <id> --force`
 4. Run `wax validate`
-5. Run `wax language update` when registry locks need refreshing
+5. Run `wax language update --all` when registry locks need refreshing
 
 ### Install skills with `skills.sh`
 
@@ -321,7 +321,7 @@ wax scan --no-auto-install
 If you change registry content or registry sources, refresh locks locally before committing:
 
 ```bash
-wax language update
+wax language update --all
 wax validate
 ```
 
