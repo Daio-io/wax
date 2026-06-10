@@ -10,8 +10,9 @@ pub use build_info::build_version;
 pub use wax_contract::Diagnostic;
 
 pub use protocol::{
-    ScanConfig, ScanRequest, ScanRequestType, WIRE_API_VERSION, WireErrorCode, WireScanRequest,
-    WireScanResponse,
+    DiscoverRequest, DiscoverRequestType, NotDiscoverRequest, ScanConfig, ScanRequest,
+    ScanRequestType, WIRE_API_VERSION, WireErrorCode, WirePackRequest, WirePackResponse,
+    WireScanRequest, WireScanResponse,
 };
 pub use root_patterns::{
     RootPatternKind, RootResolution, RootResolutionError, has_wildcard_segment,
