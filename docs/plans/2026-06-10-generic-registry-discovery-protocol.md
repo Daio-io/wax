@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status:** `in-progress` (active plan, order 7)
+
 **Goal:** Decouple `wax registry discover` from the in-process `wax-lang-compose` dependency by adding a subprocess wire-protocol discover request, so core orchestrates discovery generically and each language pack owns symbol extraction.
 
 **Architecture:** Extend `wax-lang-api` with `discover` request/response variants on the existing stdio JSON protocol (one line in, one line out). `wax-core` resolves the installed pack command (lockfile + global state, same as scan), spawns the pack subprocess, receives symbol names + diagnostics, then converts symbols to registry JSON and writes atomically — unchanged orchestration from today's `registry_discovery.rs`. Compose implements discover by calling existing `discover_registry_symbols`; basic and react return `DiscoverUnsupported` until they add heuristics.
