@@ -1,5 +1,6 @@
 #![cfg(unix)]
 
+use serde_json::{Value, json};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -10,9 +11,16 @@ use wax_lang_api::{DiscoverRequest, DiscoverRequestType, WIRE_API_VERSION};
 
 #[test]
 fn subprocess_discover_parses_discover_symbols_response() {
-    let fixture = fixture_discover_script();
+    let temp_dir = TestDir::new("discover-success");
+    let request_path = temp_dir.path().join("request.json");
+    let script_path = temp_dir.path().join("mock-discover-pack.sh");
+    write_discover_script(&script_path);
+
     let extractor = SubprocessLanguageDiscoverer::new(SubprocessLanguageManifest {
-        command: vec![fixture.path().display().to_string()],
+        command: vec![
+            script_path.to_string_lossy().into_owned(),
+            request_path.to_string_lossy().into_owned(),
+        ],
         timeout: Duration::from_secs(5),
     });
 
@@ -28,21 +36,32 @@ fn subprocess_discover_parses_discover_symbols_response() {
 
     assert_eq!(result.symbols, vec!["PrimaryButton".to_owned()]);
     assert!(result.diagnostics.is_empty());
+
+    let request_json: Value =
+        serde_json::from_str(&fs::read_to_string(&request_path).unwrap()).unwrap();
+    assert_eq!(
+        request_json,
+        json!({
+            "type": "discover",
+            "api_version": WIRE_API_VERSION,
+            "language_id": "compose",
+            "repo_root": "/tmp/repo",
+            "roots": ["design-system/src/main/kotlin"],
+        })
+    );
 }
 
-fn fixture_discover_script() -> DiscoverScriptFixture {
-    let temp_dir = TestDir::new("discover-success");
-    let script_path = temp_dir.path().join("mock-discover-pack.sh");
+fn write_discover_script(script_path: &Path) {
     write_script(
-        &script_path,
+        script_path,
         &format!(
             r#"#!/bin/sh
-cat >/dev/null
+cat > "$1"
 cat <<'JSON'
 {}
 JSON
 "#,
-            serde_json::to_string(&serde_json::json!({
+            serde_json::to_string(&json!({
                 "type": "discover_symbols",
                 "api_version": WIRE_API_VERSION,
                 "language_id": "compose",
@@ -52,21 +71,6 @@ JSON
             .unwrap()
         ),
     );
-    DiscoverScriptFixture {
-        _dir: temp_dir,
-        script_path,
-    }
-}
-
-struct DiscoverScriptFixture {
-    _dir: TestDir,
-    script_path: PathBuf,
-}
-
-impl DiscoverScriptFixture {
-    fn path(&self) -> &Path {
-        &self.script_path
-    }
 }
 
 fn write_script(path: &Path, contents: &str) {

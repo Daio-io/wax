@@ -1,4 +1,8 @@
 //! Subprocess-backed language pack registry discovery.
+//!
+//! The stdio exchange, spooling, and cleanup logic intentionally mirrors
+//! [`crate::subprocess_lang`] for this task. Extract shared helpers once the
+//! discover path stabilizes.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, Read, Write};
@@ -145,8 +149,13 @@ pub enum DiscoverError {
         supported: u32,
     },
     /// The language pack does not implement registry discovery.
-    #[error("language pack does not implement registry discovery")]
-    Unsupported,
+    #[error("language pack does not implement registry discovery: {message}")]
+    Unsupported {
+        /// Human-readable message returned by the language pack.
+        message: String,
+        /// Structured diagnostics returned by the language pack.
+        diagnostics: Vec<Diagnostic>,
+    },
     /// The subprocess returned a wire response of the wrong type.
     #[error("language subprocess returned unexpected response type: {found}")]
     UnexpectedResponseType {
@@ -498,7 +507,10 @@ fn parse_wire_response(stdout: &Path) -> Result<DiscoverSymbolsResult, DiscoverE
                     message,
                     diagnostics,
                 }),
-                WireErrorCode::DiscoverUnsupported => Err(DiscoverError::Unsupported),
+                WireErrorCode::DiscoverUnsupported => Err(DiscoverError::Unsupported {
+                    message,
+                    diagnostics,
+                }),
                 _ => Err(DiscoverError::Wire {
                     code,
                     message,
