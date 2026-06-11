@@ -907,7 +907,7 @@ git commit -m "feat: add registry discover handler to wax-lang-compose stdio"
 - Modify: `engine/crates/wax-lang-basic/src/bin/wax-lang-basic.rs` tests section
 - Modify: `engine/crates/wax-lang-react/tests/stdio_cli.rs`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 For basic:
 
@@ -932,12 +932,12 @@ fn discover_request_returns_discover_unsupported() {
 
 Mirror for react in `engine/crates/wax-lang-react/tests/stdio_cli.rs`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd engine && cargo test -p wax-lang-basic discover_request_returns_discover_unsupported && cargo test -p wax-lang-react discover_request_returns_discover_unsupported`
 Expected: FAIL
 
-- [ ] **Step 3: Update stdio handlers**
+- [x] **Step 3: Update stdio handlers**
 
 Change both pack binaries to deserialize `WirePackRequest` instead of `WireScanRequest`. On `Discover` variant, return:
 
@@ -953,12 +953,12 @@ WirePackResponse::Error {
 
 Ensure existing scan tests still pass unchanged.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `cd engine && cargo test -p wax-lang-basic && cargo test -p wax-lang-react stdio_cli`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add engine/crates/wax-lang-basic/ engine/crates/wax-lang-react/
