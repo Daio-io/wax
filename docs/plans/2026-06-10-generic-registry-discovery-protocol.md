@@ -532,7 +532,7 @@ git commit -m "feat: add per-language default registry path helper"
 - Modify: `engine/crates/wax-core/Cargo.toml`
 - Modify: `engine/crates/wax-core/tests/registry_discovery.rs`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `engine/crates/wax-core/tests/registry_discovery.rs`:
 
@@ -688,12 +688,12 @@ Add helpers: `write_compose_lockfile`, `install_compose_pack_fixture`, `write_mu
 
 Update existing tests that assert `.wax/wax.registry.json` to assert `.wax/compose.registry.json` instead.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd engine && cargo test -p wax-core registry_discovery`
 Expected: FAIL — still writes shared default path / in-process compose
 
-- [ ] **Step 3: Implement subprocess dispatch and per-language orchestration**
+- [x] **Step 3: Implement subprocess dispatch and per-language orchestration**
 
 In `engine/crates/wax-core/src/registry_discovery.rs`:
 
@@ -778,12 +778,12 @@ wax-lang-compose = { path = "../wax-lang-compose" }
 
 Reuse `refresh_registry_locks_in_lockfile` logic from `engine/crates/wax-cli/src/commands/language.rs` — **move or duplicate the minimal lock digest helper into `wax-core`** so discover does not depend on `wax-cli`. Prefer extracting a small `registry_lock_refresh.rs` helper in `wax-core` if the CLI function is not reusable.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `cd engine && cargo test -p wax-core registry_discovery subprocess_discover`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add engine/crates/wax-core/
