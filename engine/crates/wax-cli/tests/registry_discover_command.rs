@@ -258,10 +258,7 @@ fn install_discover_fixture_pack_files(
     install_dir
 }
 
-fn write_discover_fixture_state(
-    wax_home: &Path,
-    languages: &[(&str, &str, PathBuf)],
-) {
+fn write_discover_fixture_state(wax_home: &Path, languages: &[(&str, &str, PathBuf)]) {
     let state_entries: Vec<String> = languages
         .iter()
         .map(|(language_id, version, install_dir)| {
