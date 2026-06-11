@@ -1,6 +1,8 @@
 # Registry Discovery and Skill-Assisted Sync Design
 
-**Status:** Implemented. See [registry discovery ADR](../../adr/2026-06-04-registry-discovery.md) and the [archived implementation plan](./2026-06-04-registry-discovery-plan.md).
+**Status:** Implemented (historical). See [registry discovery ADR](../../adr/2026-06-04-registry-discovery.md) and the [archived implementation plan](./2026-06-04-registry-discovery-plan.md).
+
+**Note (2026-06-10):** Per-language registry output (default `.wax/<language-id>.registry.json`) supersedes the v1 shared `.wax/wax.registry.json` default described in this design. The [generic registry discovery protocol ADR](../../adr/2026-06-10-generic-registry-discovery-protocol.md) is authoritative for discover behavior.
 
 ## Summary
 

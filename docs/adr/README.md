@@ -10,5 +10,6 @@ ADRs record significant product and engineering decisions after implementation. 
 | 2026-06-04 | [Registry discovery and skill-assisted sync](./2026-06-04-registry-discovery.md) | Accepted | [Plan archive](../plans/archive/2026-06-04-registry-discovery-plan.md) |
 | 2026-06-04 | [npm trusted publishing and tag-driven versioning](./2026-06-04-npm-trusted-publishing.md) | Accepted | [Plan archive](../plans/archive/2026-06-04-npm-trusted-publishing.md), [tag-driven versioning](../plans/archive/2026-06-04-npm-tag-driven-versioning.md) |
 | 2026-06-07 | [React language pack](./2026-06-07-react-language-pack.md) | Accepted | [Plan archive](../plans/archive/2026-06-07-react-language-pack-plan.md) |
+| 2026-06-10 | [Generic registry discovery protocol](./2026-06-10-generic-registry-discovery-protocol.md) | Accepted | [Plan archive](../plans/archive/2026-06-10-generic-registry-discovery-protocol.md) |
 
 **Active plans** (not yet implemented or deferred) remain in [`docs/plans/`](../plans/README.md).

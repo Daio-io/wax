@@ -13,7 +13,7 @@ After centralized registry layout shipped, teams still needed a deterministic wa
 
 1. **`wax registry discover` CLI** — deterministic discovery command with `--dry-run`, `--force`, and optional `--root`; stdout stays JSON-clean in dry-run mode.
 2. **Core orchestration in `wax-core`** — root resolution from Wax config, schema v1 registry JSON generation, atomic writes, overwrite refusal unless forced.
-3. **Compose-first discovery** — `wax-lang-compose` discovers likely public top-level component symbols via tree-sitter inspection; v1 may call in-process discovery (authoring exception to subprocess scan protocol).
+3. **Compose-first discovery** — `wax-lang-compose` discovers likely public top-level component symbols via tree-sitter inspection. **Superseded (2026-06-10):** the in-process authoring exception is removed; discover now uses the subprocess wire protocol and requires an installed pack. See [generic registry discovery protocol ADR](./2026-06-10-generic-registry-discovery-protocol.md).
 4. **Skill-assisted sync** — `wax-registry-sync` Agent Skill wraps the CLI with review, diffing, validation, and lock-refresh guidance for AI-assisted workflows.
 5. **Post-write guidance** — CLI prints validate/lock-refresh next steps after successful writes.
 
@@ -42,7 +42,7 @@ All 7 tasks shipped:
 ### Negative / trade-offs
 
 - v1 discovery is Compose-only; React/Swift discovery is future work.
-- In-process discovery is an intentional exception to the subprocess pack protocol for authoring only.
+- In-process discovery was an intentional exception to the subprocess pack protocol for authoring only; superseded by subprocess discover in the [2026-06-10 ADR](./2026-06-10-generic-registry-discovery-protocol.md).
 
 ## References
 
