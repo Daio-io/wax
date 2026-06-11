@@ -975,7 +975,7 @@ git commit -m "feat: route discover requests in basic and react stdio handlers"
 - Modify: `engine/crates/wax-cli/tests/registry_discover_command.rs`
 - Modify: `engine/crates/wax-cli/src/commands/registry.rs`
 
-- [ ] **Step 1: Add test harness helper**
+- [x] **Step 1: Add test harness helper**
 
 Add `setup_compose_discover_repo(repo: &Path)` that:
 
@@ -986,7 +986,7 @@ Add `setup_compose_discover_repo(repo: &Path)` that:
 
 Pattern: reuse global-state isolation from `engine/crates/wax-cli/tests/scan_command.rs`.
 
-- [ ] **Step 2: Update CLI tests for per-language output paths**
+- [x] **Step 2: Update CLI tests for per-language output paths**
 
 Replace assertions on `.wax/wax.registry.json` with `.wax/compose.registry.json`:
 
@@ -1004,16 +1004,16 @@ assert!(stdout.contains("Wrote .wax/compose.registry.json"));
 
 Add test: second discover for a **different** language id does not require `--force` on the first language's file. Use the Task 4 `discover_compose_then_react_writes_both_without_force` fixture-pack approach (react returns symbols from a test subprocess, not production `wax-lang-react` heuristics).
 
-- [ ] **Step 3: Update CLI success messages**
+- [x] **Step 3: Update CLI success messages**
 
 In `engine/crates/wax-cli/src/commands/registry.rs`, use `result.output_path` repo-relative display (already via `display_output_path`) — verify messages say the language-specific path, not hardcoded `.wax/wax.registry.json`.
 
-- [ ] **Step 4: Run CLI tests**
+- [x] **Step 4: Run CLI tests**
 
 Run: `cd engine && cargo test -p wax-cli registry_discover`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add engine/crates/wax-cli/tests/registry_discover_command.rs engine/crates/wax-cli/src/commands/registry.rs
