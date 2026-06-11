@@ -1,11 +1,11 @@
 ---
 name: wax-registry-sync
-description: Use when updating Wax design-system registries from source packages; runs deterministic registry discovery, reviews candidates, asks about ambiguous exports, writes .wax/wax.registry.json, validates config, and refreshes locks.
+description: Use when updating Wax design-system registries from source packages; runs deterministic registry discovery, reviews candidates, asks about ambiguous exports, writes the language registry, validates config, and refreshes locks.
 ---
 
 # Wax Registry Sync
 
-Use this skill to help a project author update `.wax/wax.registry.json` from source packages while keeping all runtime scan and validate behavior deterministic. AI review is an authoring aid only; do not make `wax scan` or `wax validate` depend on agent decisions.
+Use this skill to help a project author update a Wax language registry, such as `.wax/react.registry.json` or a configured language-specific `registry` path, from source packages while keeping all runtime scan and validate behavior deterministic. AI review is an authoring aid only; do not make `wax scan` or `wax validate` depend on agent decisions.
 
 ## Workflow
 
@@ -20,29 +20,32 @@ Use this skill to help a project author update `.wax/wax.registry.json` from sou
    ```
 
    Add `--root <path>` only when the user explicitly wants to override configured roots.
-3. Compare the dry-run output with the existing `.wax/wax.registry.json` when it exists. Show the user a concise diff or summary of added, removed, and changed component ids/symbols.
-4. Review ambiguous candidates before writing:
+3. Identify the target registry path for the selected language:
+   - Use the language entry's configured `registry` path when present.
+   - Otherwise expect the default `.wax/<language-id>.registry.json`.
+4. Compare the dry-run output with the existing target registry when it exists. Show the user a concise diff or summary of added, removed, and changed component ids/symbols.
+5. Review ambiguous candidates before writing:
    - Ask about exports that look like helpers, demos, previews, aliases, or duplicate public components.
    - Ask before excluding discovered symbols from the registry.
    - Ask before using `--force`.
-5. Write the registry only after review:
+6. Write the registry only after review:
 
    ```bash
    wax registry discover --language <id>
    ```
 
-   If an existing registry blocks the write, do not blindly overwrite. Show the diff or summary before --force, then run the forced write only after explicit user approval:
+   If an existing target registry blocks the write, do not blindly overwrite. Show the diff or summary before --force, then run the forced write only after explicit user approval:
 
    ```bash
    wax registry discover --language <id> --force
    ```
-6. Validate after write:
+7. Validate after write:
 
    ```bash
    wax validate
    ```
 
-7. Refresh locks when registry locks are stale or validation indicates stale language/registry state:
+8. Refresh locks when registry locks are stale or validation indicates stale language/registry state:
 
    ```bash
    wax language update
