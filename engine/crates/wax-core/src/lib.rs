@@ -13,6 +13,7 @@ pub mod registry;
 pub mod registry_discovery;
 pub mod registry_lock;
 pub mod registry_source;
+pub mod subprocess_discover;
 pub mod subprocess_lang;
 pub mod validate;
 
