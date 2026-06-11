@@ -352,7 +352,6 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: "24"
-          registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
 
       - name: Stamp npm package version from release tag
@@ -386,6 +385,9 @@ jobs:
             npm_tag=alpha
           fi
           unset NODE_AUTH_TOKEN NPM_TOKEN npm_config__authToken
+          if [[ -n "${NPM_CONFIG_USERCONFIG:-}" && -f "$NPM_CONFIG_USERCONFIG" ]]; then
+            npm config delete //registry.npmjs.org/:_authToken --userconfig "$NPM_CONFIG_USERCONFIG" || true
+          fi
           npm publish --provenance --access public --tag "$npm_tag"
 
   verify-published-pack-index:
