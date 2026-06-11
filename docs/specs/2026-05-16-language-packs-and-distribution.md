@@ -23,7 +23,7 @@ Plan order, doc/implementation status, gates, and agent rules live in **[`docs/p
 | **Engine / kernel** | `wax` binary: orchestration, merge, graph, metrics, static site export |
 | **Language pack** | Installable unit for one stack (`compose`, `react`, `swift`): discover → parse → extract → `ScanFacts` |
 | **Language id** | Stable string key used in wax config, CLI, and global install paths |
-| **Design system registry** | Repo-local file listing canonical DS components (per-language default `.wax/<language-id>.registry.json`) |
+| **Design system registry** | Repo-local file listing canonical DS components; `wax scan` falls back to `.wax/wax.registry.json` when a language omits `registry`, while `wax init` and `wax registry discover` scaffold or write `.wax/<language-id>.registry.json` per language |
 | **Pack index** | Remote manifest listing downloadable language pack artifacts (`WAX_LANG_INDEX`) |
 | **`scan`** | CLI command that runs all **enabled** language packs and produces merged artifacts |
 | **Plugin** (future) | Optional kernel extension; not used for language extraction in v1 |
@@ -127,7 +127,7 @@ Primary project config. Canonical path: **`.wax/wax.config.json`**. Legacy **`.w
 }
 ```
 
-When a language omits `registry`, the engine defaults to `.wax/<language-id>.registry.json` (for example `.wax/compose.registry.json`). `wax init` scaffolds one registry file per enabled language. Hosted sources use `registry.source`:
+When a language omits `registry`, `wax scan` registry resolution defaults to `.wax/wax.registry.json`. `wax init` scaffolds one file per enabled language at `.wax/<language-id>.registry.json` and sets each language's `registry` key. `wax registry discover` uses the same per-language default when the language entry has no configured registry. Hosted sources use `registry.source`:
 
 ```json
 "registry": {
@@ -154,7 +154,7 @@ Lockfile schema version **2** adds top-level `registries` entries keyed by langu
   "locked_at": "2026-05-16T12:00:00Z",
   "registries": {
     "compose": {
-      "source": ".wax/wax.registry.json",
+      "source": ".wax/compose.registry.json",
       "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     }
   },
@@ -223,7 +223,7 @@ In-process and subprocess scan request types MUST share the same fields. The eng
   "repo_root": "/abs/path/to/repo",
   "snapshot_id": "scan-20260516-abc123",
   "config": {
-    "registry": ".wax/wax.registry.json",
+    "registry": ".wax/compose.registry.json",
     "roots": ["*/src/main/kotlin"]
   }
 }
@@ -522,7 +522,7 @@ When `registry` and `roots` are present, React v1 accepts optional resolver hint
 {
   "id": "react",
   "enabled": true,
-  "registry": ".wax/wax.registry.json",
+  "registry": ".wax/react.registry.json",
   "roots": ["apps/web/src"],
   "tsconfig": "apps/web/tsconfig.json",
   "aliases": {

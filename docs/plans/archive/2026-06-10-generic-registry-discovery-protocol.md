@@ -14,10 +14,10 @@
 
 ## Reference docs
 
-- [Registry discovery ADR](../adr/2026-06-04-registry-discovery.md) — current Compose-first in-process exception
-- [Registry discovery design](./archive/2026-06-04-registry-discovery-design.md) — UX, root selection, false-positive warnings
-- [Language packs spec](../specs/2026-05-16-language-packs-and-distribution.md) — wire protocol invariants
-- [Rust engine ADR](../adr/2026-05-16-rust-engine-language-packs.md) — pack subprocess model
+- [Registry discovery ADR](../../adr/2026-06-04-registry-discovery.md) — current Compose-first in-process exception
+- [Registry discovery design](./2026-06-04-registry-discovery-design.md) — UX, root selection, false-positive warnings
+- [Language packs spec](../../specs/2026-05-16-language-packs-and-distribution.md) — wire protocol invariants
+- [Rust engine ADR](../../adr/2026-05-16-rust-engine-language-packs.md) — pack subprocess model
 
 ## Behavior change (document in ADR addendum)
 
