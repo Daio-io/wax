@@ -1,8 +1,11 @@
 use clap::Parser;
 use std::io::{self, BufRead, Write};
 use wax_contract::LanguageId;
-use wax_lang_api::{WIRE_API_VERSION, WireErrorCode, WireScanRequest, WireScanResponse};
-use wax_lang_compose::{ComposeLanguage, ComposeScanError};
+use wax_lang_api::{
+    DiscoverRequest, DiscoverRequestType, ScanRequestType, WIRE_API_VERSION, WireErrorCode,
+    WirePackRequest, WirePackResponse,
+};
+use wax_lang_compose::{ComposeDiscoverError, ComposeLanguage, ComposeScanError};
 
 #[derive(Debug, Parser)]
 #[command(name = "wax-lang-compose")]
@@ -39,14 +42,14 @@ fn run_stdio_with_reader<R: BufRead, W: Write>(
             continue;
         }
 
-        let request: WireScanRequest = match serde_json::from_str(&line) {
+        let request: WirePackRequest = match serde_json::from_str(&line) {
             Ok(request) => request,
             Err(err) => {
-                let response = WireScanResponse::Error {
+                let response = WirePackResponse::Error {
                     api_version: WIRE_API_VERSION,
                     language_id: compose_language_id(),
                     code: WireErrorCode::ConfigInvalid,
-                    message: format!("invalid scan request JSON: {err}"),
+                    message: format!("invalid pack request JSON: {err}"),
                     diagnostics: Vec::new(),
                 };
                 serde_json::to_writer(&mut *writer, &response)?;
@@ -56,58 +59,80 @@ fn run_stdio_with_reader<R: BufRead, W: Write>(
             }
         };
 
-        let WireScanRequest::Scan {
-            api_version,
-            language_id,
-            repo_root,
-            snapshot_id,
-            config,
-        } = request;
-
-        if api_version != WIRE_API_VERSION {
-            let response = WireScanResponse::Error {
-                api_version: WIRE_API_VERSION,
-                language_id,
-                code: WireErrorCode::ApiVersionUnsupported,
-                message: format!(
-                    "wire api_version {api_version} is unsupported; expected {WIRE_API_VERSION}"
-                ),
-                diagnostics: Vec::new(),
-            };
-            serde_json::to_writer(&mut *writer, &response)?;
-            writer.write_all(b"\n")?;
-            writer.flush()?;
-            return Ok(());
-        }
-
-        let scan_request = wax_lang_api::ScanRequest {
-            request_type: wax_lang_api::ScanRequestType::Scan,
-            api_version,
-            language_id: language_id.clone(),
-            repo_root,
-            snapshot_id,
-            config,
-        };
-
-        let compose = ComposeLanguage::new();
-        let response = match compose.scan(&scan_request) {
-            Ok(facts) => WireScanResponse::ScanFacts {
+        let response = match request {
+            WirePackRequest::Scan {
                 api_version,
                 language_id,
-                facts: Box::new(facts),
-            },
-            Err(err) => {
-                let code = match &err {
-                    ComposeScanError::InvalidConfig(_) => WireErrorCode::ConfigInvalid,
-                    ComposeScanError::ParserInitFailed(_) => WireErrorCode::ParserInitFailed,
-                    _ => WireErrorCode::ScanFailed,
-                };
-                WireScanResponse::Error {
-                    api_version,
-                    language_id,
-                    code,
-                    message: err.to_string(),
-                    diagnostics: Vec::new(),
+                repo_root,
+                snapshot_id,
+                config,
+            } => {
+                if api_version != WIRE_API_VERSION {
+                    WirePackResponse::Error {
+                        api_version: WIRE_API_VERSION,
+                        language_id,
+                        code: WireErrorCode::ApiVersionUnsupported,
+                        message: format!(
+                            "wire api_version {api_version} is unsupported; expected {WIRE_API_VERSION}"
+                        ),
+                        diagnostics: Vec::new(),
+                    }
+                } else {
+                    let scan_request = wax_lang_api::ScanRequest {
+                        request_type: ScanRequestType::Scan,
+                        api_version,
+                        language_id: language_id.clone(),
+                        repo_root,
+                        snapshot_id,
+                        config,
+                    };
+
+                    let compose = ComposeLanguage::new();
+                    match compose.scan(&scan_request) {
+                        Ok(facts) => WirePackResponse::ScanFacts {
+                            api_version,
+                            language_id,
+                            facts: Box::new(facts),
+                        },
+                        Err(err) => scan_error_response(api_version, language_id, err),
+                    }
+                }
+            }
+            WirePackRequest::Discover {
+                api_version,
+                language_id,
+                repo_root,
+                roots,
+            } => {
+                if api_version != WIRE_API_VERSION {
+                    WirePackResponse::Error {
+                        api_version: WIRE_API_VERSION,
+                        language_id,
+                        code: WireErrorCode::ApiVersionUnsupported,
+                        message: format!(
+                            "wire api_version {api_version} is unsupported; expected {WIRE_API_VERSION}"
+                        ),
+                        diagnostics: Vec::new(),
+                    }
+                } else {
+                    let discover_request = DiscoverRequest {
+                        request_type: DiscoverRequestType::Discover,
+                        api_version,
+                        language_id: language_id.clone(),
+                        repo_root,
+                        roots,
+                    };
+
+                    let compose = ComposeLanguage::new();
+                    match compose.discover(&discover_request) {
+                        Ok(result) => WirePackResponse::DiscoverSymbols {
+                            api_version,
+                            language_id,
+                            symbols: result.symbols,
+                            diagnostics: result.diagnostics,
+                        },
+                        Err(err) => discover_error_response(api_version, language_id, err),
+                    }
                 }
             }
         };
@@ -121,6 +146,48 @@ fn run_stdio_with_reader<R: BufRead, W: Write>(
     Ok(())
 }
 
+fn scan_error_response(
+    api_version: u32,
+    language_id: LanguageId,
+    err: ComposeScanError,
+) -> WirePackResponse {
+    let code = match &err {
+        ComposeScanError::InvalidConfig(_) => WireErrorCode::ConfigInvalid,
+        ComposeScanError::ParserInitFailed(_) => WireErrorCode::ParserInitFailed,
+        _ => WireErrorCode::ScanFailed,
+    };
+    WirePackResponse::Error {
+        api_version,
+        language_id,
+        code,
+        message: err.to_string(),
+        diagnostics: Vec::new(),
+    }
+}
+
+fn discover_error_response(
+    api_version: u32,
+    language_id: LanguageId,
+    err: ComposeDiscoverError,
+) -> WirePackResponse {
+    let code = match &err {
+        ComposeDiscoverError::InvalidLanguageId(_) | ComposeDiscoverError::MissingRoot(_) => {
+            WireErrorCode::ConfigInvalid
+        }
+        ComposeDiscoverError::ParserInitFailed(_) => WireErrorCode::ParserInitFailed,
+        ComposeDiscoverError::ParseFailed(_) | ComposeDiscoverError::Io { .. } => {
+            WireErrorCode::ScanFailed
+        }
+    };
+    WirePackResponse::Error {
+        api_version,
+        language_id,
+        code,
+        message: err.to_string(),
+        diagnostics: Vec::new(),
+    }
+}
+
 fn compose_language_id() -> LanguageId {
     LanguageId::try_from("compose").expect("hardcoded compose id must be valid")
 }
@@ -129,7 +196,7 @@ fn compose_language_id() -> LanguageId {
 mod tests {
     use super::run_stdio_with_reader;
     use std::io::Cursor;
-    use wax_lang_api::{WireErrorCode, WireScanResponse};
+    use wax_lang_api::{WIRE_API_VERSION, WireErrorCode, WirePackResponse};
 
     #[test]
     fn invalid_json_returns_tagged_error_response() {
@@ -139,9 +206,9 @@ mod tests {
         run_stdio_with_reader(input, &mut output).unwrap();
 
         let line = std::str::from_utf8(&output).unwrap().trim();
-        let response: WireScanResponse = serde_json::from_str(line).unwrap();
+        let response: WirePackResponse = serde_json::from_str(line).unwrap();
         match response {
-            WireScanResponse::Error {
+            WirePackResponse::Error {
                 api_version,
                 language_id,
                 code,
@@ -165,9 +232,9 @@ mod tests {
         run_stdio_with_reader(input, &mut output).unwrap();
 
         let line = std::str::from_utf8(&output).unwrap().trim();
-        let response: WireScanResponse = serde_json::from_str(line).unwrap();
+        let response: WirePackResponse = serde_json::from_str(line).unwrap();
         match response {
-            WireScanResponse::Error {
+            WirePackResponse::Error {
                 language_id, code, ..
             } => {
                 assert_eq!(language_id.as_str(), "react");
@@ -179,17 +246,16 @@ mod tests {
 
     #[test]
     fn parser_init_failed_maps_to_correct_wire_error_code() {
-        // Verify the error code dispatch for ParserInitFailed without triggering
-        // a real grammar failure (grammar load errors are not reproducible in tests).
+        use super::{compose_language_id, scan_error_response};
+
         let err = wax_lang_compose::ComposeScanError::ParserInitFailed("test".to_owned());
-        let code = match &err {
-            wax_lang_compose::ComposeScanError::InvalidConfig(_) => WireErrorCode::ConfigInvalid,
-            wax_lang_compose::ComposeScanError::ParserInitFailed(_) => {
-                WireErrorCode::ParserInitFailed
+        let response = scan_error_response(WIRE_API_VERSION, compose_language_id(), err);
+        match response {
+            WirePackResponse::Error { code, .. } => {
+                assert_eq!(code, WireErrorCode::ParserInitFailed);
             }
-            _ => WireErrorCode::ScanFailed,
-        };
-        assert_eq!(code, WireErrorCode::ParserInitFailed);
+            other => panic!("expected error response, got {other:?}"),
+        }
     }
 
     #[test]
@@ -203,9 +269,9 @@ mod tests {
         run_stdio_with_reader(input, &mut output).unwrap();
 
         let line = std::str::from_utf8(&output).unwrap().trim();
-        let response: WireScanResponse = serde_json::from_str(line).unwrap();
+        let response: WirePackResponse = serde_json::from_str(line).unwrap();
         match response {
-            WireScanResponse::ScanFacts {
+            WirePackResponse::ScanFacts {
                 language_id, facts, ..
             } => {
                 assert_eq!(language_id.as_str(), "compose");
