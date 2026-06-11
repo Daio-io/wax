@@ -2,9 +2,10 @@ use clap::Parser;
 use std::io::{self, BufRead, Write};
 use wax_contract::LanguageId;
 use wax_lang_api::{
-    ScanRequestType, WIRE_API_VERSION, WireErrorCode, WirePackRequest, WirePackResponse,
+    DiscoverRequest, DiscoverRequestType, ScanRequestType, WIRE_API_VERSION, WireErrorCode,
+    WirePackRequest, WirePackResponse,
 };
-use wax_lang_react::{ReactLanguage, ReactScanError, RegistryErrorKind};
+use wax_lang_react::{ReactDiscoverError, ReactLanguage, ReactScanError, RegistryErrorKind};
 
 #[derive(Debug, Parser)]
 #[command(name = "wax-lang-react")]
@@ -119,8 +120,8 @@ fn run_stdio_with_reader<R: BufRead, W: Write>(
             WirePackRequest::Discover {
                 api_version,
                 language_id,
-                repo_root: _,
-                roots: _,
+                repo_root,
+                roots,
             } => {
                 if api_version != WIRE_API_VERSION {
                     WirePackResponse::Error {
@@ -133,13 +134,23 @@ fn run_stdio_with_reader<R: BufRead, W: Write>(
                         diagnostics: Vec::new(),
                     }
                 } else {
-                    let message = format!("{language_id} does not support registry discovery yet");
-                    WirePackResponse::Error {
-                        api_version: WIRE_API_VERSION,
-                        language_id,
-                        code: WireErrorCode::DiscoverUnsupported,
-                        message,
-                        diagnostics: Vec::new(),
+                    let discover_request = DiscoverRequest {
+                        request_type: DiscoverRequestType::Discover,
+                        api_version,
+                        language_id: language_id.clone(),
+                        repo_root,
+                        roots,
+                    };
+
+                    let react = ReactLanguage::new();
+                    match react.discover(&discover_request) {
+                        Ok(result) => WirePackResponse::DiscoverSymbols {
+                            api_version,
+                            language_id,
+                            symbols: result.symbols,
+                            diagnostics: result.diagnostics,
+                        },
+                        Err(err) => discover_error_response(api_version, language_id, err),
                     }
                 }
             }
@@ -152,6 +163,28 @@ fn run_stdio_with_reader<R: BufRead, W: Write>(
     }
 
     Ok(())
+}
+
+fn discover_error_response(
+    api_version: u32,
+    language_id: LanguageId,
+    err: ReactDiscoverError,
+) -> WirePackResponse {
+    let code = match &err {
+        ReactDiscoverError::InvalidLanguageId(_) | ReactDiscoverError::MissingRoot(_) => {
+            WireErrorCode::ConfigInvalid
+        }
+        ReactDiscoverError::ParseFailed(_) | ReactDiscoverError::Io { .. } => {
+            WireErrorCode::ScanFailed
+        }
+    };
+    WirePackResponse::Error {
+        api_version,
+        language_id,
+        code,
+        message: err.to_string(),
+        diagnostics: Vec::new(),
+    }
 }
 
 fn react_language_id() -> LanguageId {

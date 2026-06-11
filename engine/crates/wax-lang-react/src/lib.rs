@@ -4,6 +4,7 @@
 
 mod config;
 mod diagnostics;
+mod discover;
 mod extract;
 mod facts;
 mod files;
@@ -14,9 +15,10 @@ mod swc_parse;
 use std::path::Path;
 
 use wax_contract::{LanguageId, ScanFacts, ScanFactsError};
-use wax_lang_api::ScanRequest;
+use wax_lang_api::{DiscoverRequest, ScanRequest};
 
 pub use config::{PackageConfig, ReactConfigMode, ReactScanConfig, parse_react_scan_config};
+pub use discover::{ReactDiscoverError, discover_registry_symbols};
 pub use extract::{ReactUsageExtraction, collect_usage_sites, discover_local_components};
 pub use facts::{configured_scan_facts, scaffold_facts};
 pub use files::{ReactFileCollectionError, ReactSourceFileCollection, collect_react_source_files};
@@ -29,6 +31,15 @@ pub use swc_parse::{
     ParsedReactModule, ReactParseError, ReactParseOutcome, SWC_PARSER_VERSION,
     parse_react_source_file,
 };
+
+/// Result of a React registry symbol discovery request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscoverSymbolsResult {
+    /// Discovered design-system symbol names.
+    pub symbols: Vec<String>,
+    /// Structured diagnostics emitted with the result.
+    pub diagnostics: Vec<wax_contract::Diagnostic>,
+}
 
 /// Errors returned by [`ReactLanguage::scan`].
 #[derive(Debug)]
@@ -149,6 +160,35 @@ impl ReactLanguage {
         facts.validate().map_err(ReactScanError::InvalidFacts)?;
 
         Ok(facts)
+    }
+
+    /// Discovers likely public React component symbols for the provided request.
+    pub fn discover(
+        &self,
+        request: &DiscoverRequest,
+    ) -> Result<DiscoverSymbolsResult, ReactDiscoverError> {
+        let react_language_id =
+            LanguageId::try_from("react").expect("hardcoded react id must be valid");
+
+        if request.language_id != react_language_id {
+            return Err(ReactDiscoverError::InvalidLanguageId(
+                request.language_id.to_string(),
+            ));
+        }
+
+        let repo_root = Path::new(&request.repo_root);
+        let absolute_roots = request
+            .roots
+            .iter()
+            .map(|root| repo_root.join(root))
+            .collect::<Vec<_>>();
+
+        let symbols = discover_registry_symbols(&absolute_roots)?;
+
+        Ok(DiscoverSymbolsResult {
+            symbols,
+            diagnostics: Vec::new(),
+        })
     }
 }
 

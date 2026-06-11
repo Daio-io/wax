@@ -47,7 +47,7 @@ All 10 tasks shipped:
 ### Negative / trade-offs
 
 - Discover now requires a globally installed pack (behavior change from v1 in-process shortcut).
-- React discover is deferred; users must author React registries manually or via skill-assisted sync until heuristics land.
+- React discover initially shipped deferred, then gained conservative parser-backed symbol discovery in `wax-lang-react`; Basic remains intentionally unsupported.
 - `WireScanRequest` / `WireScanResponse` remain scan-only; pack stdio loops use the superset pack enums (minor duplication until a shared loop helper is extracted).
 
 ## References
