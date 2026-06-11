@@ -23,7 +23,7 @@ Plan order, doc/implementation status, gates, and agent rules live in **[`docs/p
 | **Engine / kernel** | `wax` binary: orchestration, merge, graph, metrics, static site export |
 | **Language pack** | Installable unit for one stack (`compose`, `react`, `swift`): discover → parse → extract → `ScanFacts` |
 | **Language id** | Stable string key used in wax config, CLI, and global install paths |
-| **Design system registry** | Repo-local file listing canonical DS components (default `.wax/wax.registry.json`) |
+| **Design system registry** | Repo-local file listing canonical DS components; `wax scan` falls back to `.wax/wax.registry.json` when a language omits `registry`, while `wax init` and `wax registry discover` scaffold or write `.wax/<language-id>.registry.json` per language |
 | **Pack index** | Remote manifest listing downloadable language pack artifacts (`WAX_LANG_INDEX`) |
 | **`scan`** | CLI command that runs all **enabled** language packs and produces merged artifacts |
 | **Plugin** (future) | Optional kernel extension; not used for language extraction in v1 |
@@ -127,7 +127,7 @@ Primary project config. Canonical path: **`.wax/wax.config.json`**. Legacy **`.w
 }
 ```
 
-When a language omits `registry`, the engine defaults to `.wax/wax.registry.json`. Hosted sources use `registry.source`:
+When a language omits `registry`, `wax scan` registry resolution defaults to `.wax/wax.registry.json`. `wax init` scaffolds one file per enabled language at `.wax/<language-id>.registry.json` and sets each language's `registry` key. `wax registry discover` uses the same per-language default when the language entry has no configured registry. Hosted sources use `registry.source`:
 
 ```json
 "registry": {
@@ -154,7 +154,7 @@ Lockfile schema version **2** adds top-level `registries` entries keyed by langu
   "locked_at": "2026-05-16T12:00:00Z",
   "registries": {
     "compose": {
-      "source": ".wax/wax.registry.json",
+      "source": ".wax/compose.registry.json",
       "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     }
   },
@@ -223,7 +223,7 @@ In-process and subprocess scan request types MUST share the same fields. The eng
   "repo_root": "/abs/path/to/repo",
   "snapshot_id": "scan-20260516-abc123",
   "config": {
-    "registry": ".wax/wax.registry.json",
+    "registry": ".wax/compose.registry.json",
     "roots": ["*/src/main/kotlin"]
   }
 }
@@ -282,6 +282,51 @@ Non-zero exit is a last resort. Prefer a structured line on stdout:
 | `timeout` | Pack exceeded the engine deadline |
 | `scan_failed` | Unrecoverable extraction failure |
 | `internal_error` | Unexpected pack failure; message should be safe to display |
+| `discover_unsupported` | Pack does not implement registry discovery yet |
+
+### Discover request (engine → pack)
+
+Registry discovery reuses the v1 stdio transport (one JSON line in, one JSON line out). Packs deserialize `WirePackRequest` and route `scan` vs `discover`.
+
+```json
+{
+  "type": "discover",
+  "api_version": 1,
+  "language_id": "compose",
+  "repo_root": "/abs/path/to/repo",
+  "roots": ["design-system/src/main/kotlin"]
+}
+```
+
+- **`repo_root`:** absolute path to the repository root.
+- **`roots`:** repo-relative source directories to inspect for registry symbols.
+
+### Discover success response (pack → engine)
+
+```json
+{
+  "type": "discover_symbols",
+  "api_version": 1,
+  "language_id": "compose",
+  "symbols": ["PrimaryButton"],
+  "diagnostics": []
+}
+```
+
+The engine builds flat schema v1 registry JSON (`schema_version`, `components[]`) from the symbol list and writes it to the resolved per-language output path.
+
+### Discover output paths
+
+`wax registry discover --language <id>` writes **repo-local registry files only** (no hosted or `file://` overwrites).
+
+| Config shape | Write target |
+|--------------|--------------|
+| No `registry` configured | `.wax/<language-id>.registry.json` (config and lockfile patched on write) |
+| String `"registry": ".wax/compose.registry.json"` | That repo-relative path |
+| Object `"registry": { "source": ".wax/compose.registry.json" }` | `registry.source` when repo-relative |
+| Hosted `https://…` or `file://…` source | Discover fails; external sources are not writable |
+
+Multi-language repositories discover independently: no merge step, no cross-language `--force` requirement, and duplicate symbols across language files are allowed.
 
 ### Engine responsibilities
 
@@ -342,7 +387,7 @@ Evaluation order for each **enabled** language id (engine policy; see `wax-core`
 
 Auto-install default: **on** for local `wax scan`. CI **MUST** use `wax scan --no-auto-install` with the committed `.wax/wax.lock.json`.
 
-`wax init` writes `.wax/wax.config.json`, `.wax/wax.lock.json`, and `.wax/wax.registry.json` after resolving concrete pack artifacts from the index (same digest rules apply).
+`wax init` writes `.wax/wax.config.json`, `.wax/wax.lock.json`, and per-language `.wax/<language-id>.registry.json` scaffold files after resolving concrete pack artifacts from the index (same digest rules apply).
 
 ### Planned v1.1 signing (Sigstore / cosign)
 
@@ -360,7 +405,8 @@ All language lifecycle commands use the **`wax language`** group (singular):
 
 | Command | Purpose |
 |---------|---------|
-| `wax init` | Onboard: write `.wax/wax.config.json`, resolve packs, write `.wax/wax.lock.json`, scaffold `.wax/wax.registry.json` |
+| `wax init` | Onboard: write `.wax/wax.config.json`, resolve packs, write `.wax/wax.lock.json`, scaffold per-language `.wax/<id>.registry.json` files |
+| `wax registry discover` | Deterministic registry authoring: spawn installed pack, write per-language registry JSON (`--dry-run`, `--force`, optional `--root`) |
 | `wax language list` | Installed language ids (all packs are downloaded; none ship inside `wax`) |
 | `wax language install <id>[@version]` | Download to `~/.wax/langs/` |
 | `wax language uninstall <id>` | Remove global install |
@@ -476,7 +522,7 @@ When `registry` and `roots` are present, React v1 accepts optional resolver hint
 {
   "id": "react",
   "enabled": true,
-  "registry": ".wax/wax.registry.json",
+  "registry": ".wax/react.registry.json",
   "roots": ["apps/web/src"],
   "tsconfig": "apps/web/tsconfig.json",
   "aliases": {

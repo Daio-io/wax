@@ -14,5 +14,6 @@ Completed implementation plans live here. Each plan has a corresponding **ADR** 
 | 6 | [React language pack](./2026-06-07-react-language-pack-plan.md) | [ADR](../../adr/2026-06-07-react-language-pack.md) | Complete |
 | 6 (design) | [React language pack design](./2026-06-07-react-language-pack-design.md) | — | Reference |
 | 6 (roadmap) | [React capability roadmap](./2026-06-07-react-language-pack-roadmap.md) | — | Reference |
+| 7 | [Generic registry discovery protocol](./2026-06-10-generic-registry-discovery-protocol.md) | [ADR](../../adr/2026-06-10-generic-registry-discovery-protocol.md) | Complete |
 
 **Active plans** remain in [`docs/plans/`](../README.md).

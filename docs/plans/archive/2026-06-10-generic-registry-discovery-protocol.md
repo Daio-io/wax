@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** `in-progress` (active plan, order 7)
+**Status:** `complete` (archived, order 7)
 
 **Goal:** Decouple `wax registry discover` from the in-process `wax-lang-compose` dependency via a subprocess wire-protocol discover request, and write **per-language registry files** so multi-stack repos can discover compose and react independently with no merge or cross-language collisions.
 
@@ -14,10 +14,10 @@
 
 ## Reference docs
 
-- [Registry discovery ADR](../adr/2026-06-04-registry-discovery.md) — current Compose-first in-process exception
-- [Registry discovery design](./archive/2026-06-04-registry-discovery-design.md) — UX, root selection, false-positive warnings
-- [Language packs spec](../specs/2026-05-16-language-packs-and-distribution.md) — wire protocol invariants
-- [Rust engine ADR](../adr/2026-05-16-rust-engine-language-packs.md) — pack subprocess model
+- [Registry discovery ADR](../../adr/2026-06-04-registry-discovery.md) — current Compose-first in-process exception
+- [Registry discovery design](./2026-06-04-registry-discovery-design.md) — UX, root selection, false-positive warnings
+- [Language packs spec](../../specs/2026-05-16-language-packs-and-distribution.md) — wire protocol invariants
+- [Rust engine ADR](../../adr/2026-05-16-rust-engine-language-packs.md) — pack subprocess model
 
 ## Behavior change (document in ADR addendum)
 
@@ -1147,7 +1147,7 @@ git commit -m "feat: scaffold per-language registry files in wax init"
 - Modify: `docs/plans/README.md`
 - Modify: `docs/adr/2026-06-04-registry-discovery.md` (add superseded note for in-process exception)
 
-- [ ] **Step 1: Write ADR addendum**
+- [x] **Step 1: Write ADR addendum**
 
 Record:
 
@@ -1157,7 +1157,7 @@ Record:
 - Patches config + lockfile for the discovered language on write
 - React discover deferred; returns `discover_unsupported`
 
-- [ ] **Step 2: Document wire messages and per-language discover output in language packs spec**
+- [x] **Step 2: Document wire messages and per-language discover output in language packs spec**
 
 Add wire protocol section:
 
@@ -1179,11 +1179,11 @@ Explicit language registry in config: write to configured path
 Multi-language: no merge; duplicate symbols across files are allowed
 ```
 
-- [ ] **Step 3: Update registry discovery design cross-reference**
+- [x] **Step 3: Update registry discovery design cross-reference**
 
 Add note to `docs/plans/archive/2026-06-04-registry-discovery-design.md` header that per-language output supersedes the v1 shared-file default (design archive stays historical; ADR addendum is authoritative).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs/
@@ -1196,7 +1196,7 @@ git commit -m "docs: add ADR and spec for subprocess registry discovery"
 
 **Files:** (none — verification only)
 
-- [ ] **Step 1: Format and lint**
+- [x] **Step 1: Format and lint**
 
 Run:
 
@@ -1209,7 +1209,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 Expected: clean
 
-- [ ] **Step 2: Full test suite**
+- [x] **Step 2: Full test suite**
 
 Run:
 
@@ -1220,7 +1220,7 @@ cargo test --workspace
 
 Expected: all tests PASS
 
-- [ ] **Step 3: Manual smoke test**
+- [x] **Step 3: Manual smoke test**
 
 ```bash
 cd engine && cargo build -p wax-cli -p wax-lang-compose
@@ -1233,7 +1233,7 @@ Alternatively: `cargo run -p wax-cli -- registry discover ...` (same flags).
 
 Expected: valid registry JSON on stdout; write creates `.wax/compose.registry.json` (not shared default); config and lock updated; no core dependency on compose crate
 
-- [ ] **Step 4: Commit any fmt fixes**
+- [x] **Step 4: Commit any fmt fixes**
 
 ```bash
 git add engine/
