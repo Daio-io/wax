@@ -14,7 +14,9 @@ fn discover_registry_symbols_emits_exported_public_components() {
         vec![
             "Button".to_owned(),
             "Card".to_owned(),
+            "DefaultMemo".to_owned(),
             "DefaultPanel".to_owned(),
+            "DefaultReactMemo".to_owned(),
             "Dialog".to_owned(),
             "InlineMemo".to_owned(),
             "InlineRef".to_owned(),
@@ -44,6 +46,8 @@ fn react_language_discover_resolves_repo_relative_roots() {
     assert!(!result.symbols.contains(&"PrivateBadge".to_owned()));
     assert!(!result.symbols.contains(&"lowerBadge".to_owned()));
     assert!(!result.symbols.contains(&"notComponent".to_owned()));
+    assert!(!result.symbols.contains(&"FactoryMemo".to_owned()));
+    assert!(!result.symbols.contains(&"FactoryRef".to_owned()));
 }
 
 fn fixture_root() -> PathBuf {

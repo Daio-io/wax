@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use swc_common::Span;
 use swc_ecma_ast::{
     BinaryOp, BlockStmt, BlockStmtOrExpr, Callee, Class, ClassMember, Decl, DefaultDecl,
-    ExportSpecifier, Expr, Function, MemberProp, ModuleDecl, ModuleExportName, ModuleItem, Pat,
-    Stmt, VarDeclarator,
+    ExportSpecifier, Expr, Function, ImportSpecifier, MemberProp, ModuleDecl, ModuleExportName,
+    ModuleItem, Pat, Stmt, VarDeclarator,
 };
 
 use crate::swc_parse::{ReactParseOutcome, parse_react_source_file};
@@ -154,7 +154,8 @@ fn is_supported_react_source(path: &Path) -> bool {
 }
 
 fn collect_exported_component_symbols(items: &[ModuleItem], symbols: &mut BTreeSet<String>) {
-    let local_components = local_component_bindings(items);
+    let wrapper_callees = react_wrapper_callees(items);
+    let local_components = local_component_bindings(items, &wrapper_callees);
 
     for item in items {
         match item {
@@ -173,7 +174,8 @@ fn collect_exported_component_symbols(items: &[ModuleItem], symbols: &mut BTreeS
                         symbols.insert(ident.sym.to_string());
                     }
                     expr => {
-                        if let Some((name, _)) = forward_ref_function_component(expr)
+                        if let Some((name, _)) =
+                            default_wrapper_component(expr, &local_components, &wrapper_callees)
                             && is_pascal_case(&name)
                         {
                             symbols.insert(name);
@@ -258,7 +260,65 @@ fn collect_default_decl_symbol(
     }
 }
 
-fn local_component_bindings(items: &[ModuleItem]) -> BTreeSet<String> {
+#[derive(Debug, Default)]
+struct ReactWrapperCallees {
+    direct_memo: BTreeSet<String>,
+    direct_forward_ref: BTreeSet<String>,
+    react_namespaces: BTreeSet<String>,
+}
+
+fn react_wrapper_callees(items: &[ModuleItem]) -> ReactWrapperCallees {
+    let mut callees = ReactWrapperCallees::default();
+
+    for item in items {
+        let ModuleItem::ModuleDecl(ModuleDecl::Import(import_decl)) = item else {
+            continue;
+        };
+        if import_decl.src.value.to_string_lossy() != "react" {
+            continue;
+        }
+
+        for specifier in &import_decl.specifiers {
+            match specifier {
+                ImportSpecifier::Named(named) => {
+                    let imported_name = named
+                        .imported
+                        .as_ref()
+                        .map(module_export_name)
+                        .unwrap_or_else(|| named.local.sym.to_string());
+                    match imported_name.as_str() {
+                        "memo" => {
+                            callees.direct_memo.insert(named.local.sym.to_string());
+                        }
+                        "forwardRef" => {
+                            callees
+                                .direct_forward_ref
+                                .insert(named.local.sym.to_string());
+                        }
+                        _ => {}
+                    }
+                }
+                ImportSpecifier::Default(default) => {
+                    callees
+                        .react_namespaces
+                        .insert(default.local.sym.to_string());
+                }
+                ImportSpecifier::Namespace(namespace) => {
+                    callees
+                        .react_namespaces
+                        .insert(namespace.local.sym.to_string());
+                }
+            }
+        }
+    }
+
+    callees
+}
+
+fn local_component_bindings(
+    items: &[ModuleItem],
+    wrapper_callees: &ReactWrapperCallees,
+) -> BTreeSet<String> {
     let mut detected = BTreeSet::new();
 
     for item in items {
@@ -269,7 +329,7 @@ fn local_component_bindings(items: &[ModuleItem]) -> BTreeSet<String> {
     while changed {
         changed = false;
         for item in items {
-            if collect_wrapper_declaration(item, &mut detected) {
+            if collect_wrapper_declaration(item, &mut detected, wrapper_callees) {
                 changed = true;
             }
         }
@@ -338,16 +398,19 @@ fn collect_decl_component(decl: &Decl, detected: &mut BTreeSet<String>) {
     }
 }
 
-fn collect_wrapper_declaration(item: &ModuleItem, detected: &mut BTreeSet<String>) -> bool {
+fn collect_wrapper_declaration(
+    item: &ModuleItem,
+    detected: &mut BTreeSet<String>,
+    wrapper_callees: &ReactWrapperCallees,
+) -> bool {
     match item {
         ModuleItem::Stmt(Stmt::Decl(Decl::Var(var_decl)))
         | ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(swc_ecma_ast::ExportDecl {
             decl: Decl::Var(var_decl),
             ..
-        })) => var_decl
-            .decls
-            .iter()
-            .any(|declarator| collect_wrapper_var_declarator(declarator, detected)),
+        })) => var_decl.decls.iter().any(|declarator| {
+            collect_wrapper_var_declarator(declarator, detected, wrapper_callees)
+        }),
         _ => false,
     }
 }
@@ -355,6 +418,7 @@ fn collect_wrapper_declaration(item: &ModuleItem, detected: &mut BTreeSet<String
 fn collect_wrapper_var_declarator(
     declarator: &VarDeclarator,
     detected: &mut BTreeSet<String>,
+    wrapper_callees: &ReactWrapperCallees,
 ) -> bool {
     let Some((binding_name, _)) = simple_binding_ident(declarator) else {
         return false;
@@ -367,9 +431,9 @@ fn collect_wrapper_var_declarator(
         return false;
     };
 
-    if is_memo_call_of_detected_component(init, detected)
-        || is_memo_call_of_inline_component(init)
-        || is_forward_ref_call_of_inline_component(init)
+    if is_memo_call_of_detected_component(init, detected, wrapper_callees)
+        || is_memo_call_of_inline_component(init, wrapper_callees)
+        || is_forward_ref_call_of_inline_component(init, wrapper_callees)
     {
         return detected.insert(binding_name);
     }
@@ -474,11 +538,15 @@ fn is_jsx_expression(expr: &Expr, jsx_bindings: &BTreeSet<String>) -> bool {
     }
 }
 
-fn is_memo_call_of_detected_component(expr: &Expr, detected: &BTreeSet<String>) -> bool {
+fn is_memo_call_of_detected_component(
+    expr: &Expr,
+    detected: &BTreeSet<String>,
+    wrapper_callees: &ReactWrapperCallees,
+) -> bool {
     let Expr::Call(call) = expr else {
         return false;
     };
-    if !callee_matches(&call.callee, "memo") || call.args.len() != 1 {
+    if !callee_matches(&call.callee, "memo", wrapper_callees) || call.args.len() != 1 {
         return false;
     }
     let Expr::Ident(component) = &*call.args[0].expr else {
@@ -487,54 +555,92 @@ fn is_memo_call_of_detected_component(expr: &Expr, detected: &BTreeSet<String>) 
     detected.contains(component.sym.as_ref())
 }
 
-fn is_memo_call_of_inline_component(expr: &Expr) -> bool {
+fn is_memo_call_of_inline_component(expr: &Expr, wrapper_callees: &ReactWrapperCallees) -> bool {
     let Expr::Call(call) = expr else {
         return false;
     };
-    if !callee_matches(&call.callee, "memo") || call.args.len() != 1 {
+    if !callee_matches(&call.callee, "memo", wrapper_callees) || call.args.len() != 1 {
         return false;
     }
     expression_returns_jsx(&call.args[0].expr)
 }
 
-fn is_forward_ref_call_of_inline_component(expr: &Expr) -> bool {
+fn is_forward_ref_call_of_inline_component(
+    expr: &Expr,
+    wrapper_callees: &ReactWrapperCallees,
+) -> bool {
     let Expr::Call(call) = expr else {
         return false;
     };
-    if !callee_matches(&call.callee, "forwardRef") || call.args.len() != 1 {
+    if !callee_matches(&call.callee, "forwardRef", wrapper_callees) || call.args.len() != 1 {
         return false;
     }
     expression_returns_jsx(&call.args[0].expr)
 }
 
-fn forward_ref_function_component(expr: &Expr) -> Option<(String, Span)> {
+fn default_wrapper_component(
+    expr: &Expr,
+    detected: &BTreeSet<String>,
+    wrapper_callees: &ReactWrapperCallees,
+) -> Option<(String, Span)> {
     let Expr::Call(call) = expr else {
         return None;
     };
-    if !callee_matches(&call.callee, "forwardRef") || call.args.len() != 1 {
+    if call.args.len() != 1 {
         return None;
     }
-    let Expr::Fn(fn_expr) = &*call.args[0].expr else {
-        return None;
-    };
-    let ident = fn_expr.ident.as_ref()?;
-    if !function_returns_jsx(&fn_expr.function) {
-        return None;
+
+    if callee_matches(&call.callee, "memo", wrapper_callees) {
+        match &*call.args[0].expr {
+            Expr::Ident(component) if detected.contains(component.sym.as_ref()) => {
+                return Some((component.sym.to_string(), component.span));
+            }
+            Expr::Fn(fn_expr) => {
+                let ident = fn_expr.ident.as_ref()?;
+                if function_returns_jsx(&fn_expr.function) {
+                    return Some((ident.sym.to_string(), ident.span));
+                }
+            }
+            _ => {}
+        }
     }
-    Some((ident.sym.to_string(), ident.span))
+
+    if callee_matches(&call.callee, "forwardRef", wrapper_callees)
+        && let Expr::Fn(fn_expr) = &*call.args[0].expr
+    {
+        let ident = fn_expr.ident.as_ref()?;
+        if function_returns_jsx(&fn_expr.function) {
+            return Some((ident.sym.to_string(), ident.span));
+        }
+    }
+
+    None
 }
 
-fn callee_matches(callee: &Callee, expected: &str) -> bool {
-    matches!(
-        callee,
-        Callee::Expr(expr)
-            if matches!(&**expr, Expr::Ident(ident) if ident.sym.as_ref() == expected)
-                || matches!(
-                    &**expr,
-                    Expr::Member(member)
-                        if matches!(&member.prop, MemberProp::Ident(prop) if prop.sym.as_ref() == expected)
-                )
-    )
+fn callee_matches(callee: &Callee, expected: &str, wrapper_callees: &ReactWrapperCallees) -> bool {
+    let Callee::Expr(expr) = callee else {
+        return false;
+    };
+
+    match &**expr {
+        Expr::Ident(ident) => match expected {
+            "memo" => wrapper_callees.direct_memo.contains(ident.sym.as_ref()),
+            "forwardRef" => wrapper_callees
+                .direct_forward_ref
+                .contains(ident.sym.as_ref()),
+            _ => false,
+        },
+        Expr::Member(member) => {
+            let Expr::Ident(object) = &*member.obj else {
+                return false;
+            };
+            wrapper_callees
+                .react_namespaces
+                .contains(object.sym.as_ref())
+                && matches!(&member.prop, MemberProp::Ident(prop) if prop.sym.as_ref() == expected)
+        }
+        _ => false,
+    }
 }
 
 fn simple_binding_ident(declarator: &VarDeclarator) -> Option<(String, Span)> {

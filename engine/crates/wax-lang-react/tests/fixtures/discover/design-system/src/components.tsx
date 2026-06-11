@@ -20,6 +20,19 @@ export const InlineMemo = React.memo(() => <span />);
 
 export const InlineRef = React.forwardRef((props, ref) => <input ref={ref} />);
 
+const wrapperFactory = {
+  memo(component) {
+    return component;
+  },
+  forwardRef(component) {
+    return component;
+  },
+};
+
+export const FactoryMemo = wrapperFactory.memo(() => <div />);
+
+export const FactoryRef = wrapperFactory.forwardRef(() => <div />);
+
 export class Dialog extends React.Component {
   render() {
     return <div role="dialog" />;
