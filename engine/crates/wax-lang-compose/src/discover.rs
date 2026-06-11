@@ -11,6 +11,8 @@ use crate::kotlin_ast::{
 /// Errors produced while discovering Compose registry symbols.
 #[derive(Debug)]
 pub enum ComposeDiscoverError {
+    /// The request contains an invalid language id.
+    InvalidLanguageId(String),
     /// A configured discovery root does not exist.
     MissingRoot(PathBuf),
     /// A Kotlin file could not be parsed successfully.
@@ -29,6 +31,7 @@ pub enum ComposeDiscoverError {
 impl std::fmt::Display for ComposeDiscoverError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::InvalidLanguageId(id) => write!(f, "invalid compose language id: {id}"),
             Self::MissingRoot(path) => {
                 write!(f, "discovery root does not exist: {}", path.display())
             }
@@ -44,7 +47,10 @@ impl std::fmt::Display for ComposeDiscoverError {
 impl std::error::Error for ComposeDiscoverError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::MissingRoot(_) | Self::ParseFailed(_) | Self::ParserInitFailed(_) => None,
+            Self::InvalidLanguageId(_)
+            | Self::MissingRoot(_)
+            | Self::ParseFailed(_)
+            | Self::ParserInitFailed(_) => None,
             Self::Io { source, .. } => Some(source),
         }
     }

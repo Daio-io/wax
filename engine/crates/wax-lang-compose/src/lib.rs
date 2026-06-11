@@ -13,10 +13,20 @@ use wax_contract::{
     CountSummary, Diagnostic, DiagnosticSeverity, LanguageId, LanguageMetadata, Metrics,
     SCHEMA_VERSION, ScanFacts, ScanFactsError, ScanStatus,
 };
-use wax_lang_api::{ScanRequest, build_version};
+use wax_lang_api::{DiscoverRequest, ScanRequest, build_version};
 
+pub use discover::{ComposeDiscoverError, discover_registry_symbols};
 use tree_sitter_scan::TreeSitterScanError;
 pub use tree_sitter_scan::{ComposeConfigMode, ComposeScanConfig};
+
+/// Result of a Compose registry symbol discovery request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscoverSymbolsResult {
+    /// Discovered design-system symbol names.
+    pub symbols: Vec<String>,
+    /// Structured diagnostics emitted with the result.
+    pub diagnostics: Vec<Diagnostic>,
+}
 
 /// Errors returned by [`ComposeLanguage::scan`].
 #[derive(Debug)]
@@ -95,6 +105,35 @@ impl ComposeLanguage {
         facts.validate().map_err(ComposeScanError::InvalidFacts)?;
 
         Ok(facts)
+    }
+
+    /// Discovers likely public top-level Compose component symbols for the provided request.
+    pub fn discover(
+        &self,
+        request: &DiscoverRequest,
+    ) -> Result<DiscoverSymbolsResult, ComposeDiscoverError> {
+        let compose_language_id =
+            LanguageId::try_from("compose").expect("hardcoded compose id must be valid");
+
+        if request.language_id != compose_language_id {
+            return Err(ComposeDiscoverError::InvalidLanguageId(
+                request.language_id.to_string(),
+            ));
+        }
+
+        let repo_root = Path::new(&request.repo_root);
+        let absolute_roots = request
+            .roots
+            .iter()
+            .map(|root| repo_root.join(root))
+            .collect::<Vec<_>>();
+
+        let symbols = discover_registry_symbols(&absolute_roots)?;
+
+        Ok(DiscoverSymbolsResult {
+            symbols,
+            diagnostics: Vec::new(),
+        })
     }
 }
 

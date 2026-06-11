@@ -1,6 +1,38 @@
 use std::io::Write;
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use wax_lang_api::WireScanResponse;
+
+use serde_json::{Value, json};
+use wax_lang_api::{WirePackResponse, WireScanResponse};
+
+fn run_stdio_request(request: &Value) -> String {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_wax-lang-compose"))
+        .arg("--stdio")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn wax-lang-compose");
+
+    {
+        let stdin = child.stdin.as_mut().expect("child stdin must be piped");
+        let input = format!("{}\n", request);
+        stdin
+            .write_all(input.as_bytes())
+            .expect("failed to write stdio request");
+    }
+
+    let output = child.wait_with_output().expect("failed to read output");
+
+    assert!(
+        output.status.success(),
+        "wax-lang-compose exited with {:?}; stderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    String::from_utf8(output.stdout).expect("stdout must be valid UTF-8")
+}
 
 #[test]
 fn stdio_cli_emits_one_scan_facts_response() {
@@ -51,4 +83,30 @@ fn stdio_cli_emits_one_scan_facts_response() {
         other => panic!("expected scan_facts response, got {other:?}"),
     }
     assert_eq!(lines.next(), None, "expected exactly one stdout line");
+}
+
+#[test]
+fn stdio_cli_emits_discover_symbols_for_fixture_roots() {
+    let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/discover/design-system/src/main/kotlin");
+    let repo_root = fixture_root.ancestors().nth(4).unwrap();
+
+    let request = json!({
+        "type": "discover",
+        "api_version": 1,
+        "language_id": "compose",
+        "repo_root": repo_root.display().to_string(),
+        "roots": ["design-system/src/main/kotlin"]
+    });
+
+    let output = run_stdio_request(&request);
+    let response: WirePackResponse = serde_json::from_str(output.trim()).unwrap();
+
+    match response {
+        WirePackResponse::DiscoverSymbols { symbols, .. } => {
+            assert!(symbols.contains(&"PrimaryButton".to_owned()));
+            assert!(!symbols.contains(&"PrivateButton".to_owned()));
+        }
+        other => panic!("expected discover_symbols response, got {other:?}"),
+    }
 }
