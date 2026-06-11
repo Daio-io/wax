@@ -663,3 +663,138 @@ fn module_export_name(name: &ModuleExportName) -> String {
         ModuleExportName::Str(value) => value.value.to_string_lossy().to_string(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::io;
+    use std::path::Path;
+
+    #[test]
+    fn is_supported_react_source_excludes_tests_stories_and_d_ts() {
+        assert!(is_supported_react_source(Path::new("Button.tsx")));
+        assert!(is_supported_react_source(Path::new("Button.jsx")));
+        assert!(is_supported_react_source(Path::new("Button.js")));
+        assert!(!is_supported_react_source(Path::new("Button.test.tsx")));
+        assert!(!is_supported_react_source(Path::new("Button.spec.ts")));
+        assert!(!is_supported_react_source(Path::new("Button.stories.tsx")));
+        assert!(!is_supported_react_source(Path::new("types.d.ts")));
+    }
+
+    #[test]
+    fn collect_react_files_skips_node_modules_and_generated_dirs() -> io::Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let root = tempdir.path();
+        fs::create_dir_all(root.join("src"))?;
+        fs::create_dir_all(root.join("node_modules/pkg"))?;
+        fs::create_dir_all(root.join("generated"))?;
+        fs::create_dir_all(root.join("__generated__"))?;
+        fs::write(
+            root.join("src/Button.tsx"),
+            "export function Button() { return <button />; }",
+        )?;
+        fs::write(
+            root.join("node_modules/pkg/Hidden.tsx"),
+            "export function Hidden() { return <div />; }",
+        )?;
+        fs::write(
+            root.join("generated/Gen.tsx"),
+            "export function Gen() { return <div />; }",
+        )?;
+        fs::write(
+            root.join("__generated__/Auto.tsx"),
+            "export function Auto() { return <div />; }",
+        )?;
+
+        let mut files = Vec::new();
+        collect_react_files(root, &mut files)?;
+        assert_eq!(files.len(), 1);
+        assert!(files[0].ends_with("src/Button.tsx"));
+        Ok(())
+    }
+
+    #[test]
+    fn react_wrapper_callees_tracks_import_bindings() {
+        let parsed = parse_module(
+            "src/wrappers.tsx",
+            r#"
+            import React, { memo, forwardRef as fr } from "react";
+            "#,
+        );
+
+        let callees = react_wrapper_callees(&parsed.module.body);
+
+        assert!(callees.direct_memo.contains("memo"));
+        assert!(callees.direct_forward_ref.contains("fr"));
+        assert!(callees.react_namespaces.contains("React"));
+    }
+
+    #[test]
+    fn exported_symbols_ignore_memo_without_react_import() {
+        let parsed = parse_module(
+            "src/untracked-memo.tsx",
+            r#"
+            function memo(_component) {
+                return _component;
+            }
+            function Base() {
+                return <button />;
+            }
+            export const FakeMemo = memo(Base);
+            "#,
+        );
+
+        let mut symbols = BTreeSet::new();
+        collect_exported_component_symbols(&parsed.module.body, &mut symbols);
+
+        assert!(symbols.is_empty());
+    }
+
+    #[test]
+    fn exported_symbols_include_memo_with_named_react_import() {
+        let parsed = parse_module(
+            "src/memo-button.tsx",
+            r#"
+            import { memo } from "react";
+            function ButtonBase() {
+                return <button />;
+            }
+            export const MemoButton = memo(ButtonBase);
+            "#,
+        );
+
+        let mut symbols = BTreeSet::new();
+        collect_exported_component_symbols(&parsed.module.body, &mut symbols);
+
+        assert_eq!(symbols.into_iter().collect::<Vec<_>>(), vec!["MemoButton"]);
+    }
+
+    #[test]
+    fn exported_symbols_skip_barrel_reexports_without_local_implementation() {
+        let parsed = parse_module("src/index.ts", r#"export { Button } from "./components";"#);
+
+        let mut symbols = BTreeSet::new();
+        collect_exported_component_symbols(&parsed.module.body, &mut symbols);
+
+        assert!(symbols.is_empty());
+    }
+
+    fn parse_module(file: &str, source: &str) -> crate::ParsedReactModule {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let path = tempdir.path().join(file);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(&path, source).unwrap();
+
+        match parse_react_source_file(tempdir.path(), Path::new(file))
+            .expect("parse should not fail fatally")
+        {
+            ReactParseOutcome::Parsed(parsed) => parsed,
+            ReactParseOutcome::Failed(diagnostic) => {
+                panic!("expected parse success, got {}", diagnostic.message)
+            }
+        }
+    }
+}

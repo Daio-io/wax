@@ -74,6 +74,85 @@ fn parse_failures_are_reported() -> io::Result<()> {
     Ok(())
 }
 
+#[test]
+fn invalid_language_id_fails() {
+    let request = DiscoverRequest {
+        request_type: DiscoverRequestType::Discover,
+        api_version: 1,
+        language_id: "compose".try_into().unwrap(),
+        repo_root: fixture_root().to_string_lossy().to_string(),
+        roots: vec!["design-system/src".to_owned()],
+    };
+
+    let err = ReactLanguage::new()
+        .discover(&request)
+        .expect_err("wrong language should fail");
+
+    assert!(err.to_string().contains("invalid react language id"));
+}
+
+#[test]
+fn discover_merges_symbols_from_multiple_roots() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let root_a = tempdir.path().join("pkg-a");
+    let root_b = tempdir.path().join("pkg-b");
+    fs::create_dir_all(&root_a)?;
+    fs::create_dir_all(&root_b)?;
+    fs::write(
+        root_a.join("Alpha.tsx"),
+        "export function Alpha() { return <a />; }",
+    )?;
+    fs::write(
+        root_b.join("Beta.tsx"),
+        "export function Beta() { return <b />; }",
+    )?;
+
+    let symbols = discover_registry_symbols(&[root_a, root_b]).expect("discover should succeed");
+
+    assert_eq!(symbols, vec!["Alpha".to_owned(), "Beta".to_owned()]);
+    Ok(())
+}
+
+#[test]
+fn discover_skips_excluded_source_files() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let root = tempdir.path().join("src");
+    fs::create_dir_all(&root)?;
+    fs::write(
+        root.join("Button.tsx"),
+        "export function Button() { return <button />; }",
+    )?;
+    fs::write(
+        root.join("Button.test.tsx"),
+        "export function ButtonTest() { return <button />; }",
+    )?;
+    fs::write(
+        root.join("Card.stories.tsx"),
+        "export function CardStory() { return <section />; }",
+    )?;
+
+    let symbols = discover_registry_symbols(&[root]).expect("discover should succeed");
+
+    assert_eq!(symbols, vec!["Button".to_owned()]);
+    Ok(())
+}
+
+#[test]
+fn discover_skips_barrel_only_roots_without_implementation_files() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let root = tempdir.path().join("src");
+    fs::create_dir_all(&root)?;
+    fs::write(
+        root.join("index.ts"),
+        r#"export { Button } from "./components";"#,
+    )?;
+
+    let symbols = discover_registry_symbols(&[root]).expect("discover should succeed");
+
+    assert!(symbols.is_empty());
+    Ok(())
+}
+
 fn fixture_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/discover")
 }

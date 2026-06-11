@@ -1,3 +1,4 @@
+use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -30,6 +31,58 @@ fn stdio_cli_emits_discover_symbols_for_fixture_roots() {
             assert!(!symbols.contains(&"lowerBadge".to_owned()));
         }
         other => panic!("expected discover_symbols response, got {other:?}"),
+    }
+}
+
+#[test]
+fn stdio_cli_returns_config_invalid_for_missing_discover_root() {
+    let temp = tempfile::tempdir().expect("temp dir should be created");
+    let request = json!({
+        "type": "discover",
+        "api_version": 1,
+        "language_id": "react",
+        "repo_root": temp.path().display().to_string(),
+        "roots": ["missing-subdir"]
+    });
+
+    let output = run_stdio_request(&request);
+    let response: WirePackResponse = serde_json::from_str(output.trim()).unwrap();
+
+    match response {
+        WirePackResponse::Error { code, message, .. } => {
+            assert_eq!(code, WireErrorCode::ConfigInvalid);
+            assert!(message.contains("discovery root does not exist"));
+        }
+        other => panic!("expected error response, got {other:?}"),
+    }
+}
+
+#[test]
+fn stdio_cli_returns_scan_failed_for_discover_parse_failure() {
+    let temp = tempfile::tempdir().expect("temp dir should be created");
+    let src = temp.path().join("src");
+    fs::create_dir_all(&src).expect("src dir should be created");
+    fs::write(src.join("Broken.tsx"), "export const Broken = (")
+        .expect("broken fixture should be written");
+
+    let request = json!({
+        "type": "discover",
+        "api_version": 1,
+        "language_id": "react",
+        "repo_root": temp.path().display().to_string(),
+        "roots": ["src"]
+    });
+
+    let output = run_stdio_request(&request);
+    let response: WirePackResponse = serde_json::from_str(output.trim()).unwrap();
+
+    match response {
+        WirePackResponse::Error { code, message, .. } => {
+            assert_eq!(code, WireErrorCode::ScanFailed);
+            assert!(message.contains("failed to parse"));
+            assert!(message.contains("Broken.tsx"));
+        }
+        other => panic!("expected error response, got {other:?}"),
     }
 }
 
