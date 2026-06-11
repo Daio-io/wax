@@ -148,17 +148,85 @@ fn write_compose_lockfile(repo: &Path) {
     .expect("write compose lockfile");
 }
 
-fn install_compose_discover_fixture_pack(wax_home: &Path) {
-    let install_dir = wax_home.join("langs/compose/0.1.0");
-    fs::create_dir_all(&install_dir).expect("create compose install dir");
+fn write_multi_language_config(repo: &Path) {
+    fs::create_dir_all(repo.join(".wax")).expect("create .wax directory");
+    fs::write(
+        repo.join(".wax/wax.config.json"),
+        r#"{
+  "schema_version": 1,
+  "languages": [
+    {
+      "id": "compose",
+      "enabled": true,
+      "roots": ["design-system/src/main/kotlin"]
+    },
+    {
+      "id": "react",
+      "enabled": true,
+      "roots": ["design-system/src"]
+    }
+  ]
+}
+"#,
+    )
+    .expect("write multi-language wax config");
+}
 
-    let response = r#"{"type":"discover_symbols","api_version":1,"language_id":"compose","symbols":["PrimaryButton","SecondaryButton","QualifiedButton"],"diagnostics":[]}"#;
-    let script = install_dir.join("wax-lang-compose");
+fn write_multi_language_lockfile(repo: &Path) {
+    fs::create_dir_all(repo.join(".wax")).expect("create .wax directory");
+    fs::write(
+        repo.join(".wax/wax.lock.json"),
+        r#"{
+  "schema_version": 2,
+  "engine_api_version": 1,
+  "wax_version": "0.0.0",
+  "registries": {},
+  "languages": {
+    "compose": {
+      "version": "0.1.0",
+      "api_version": 1,
+      "source": "https://example.invalid/compose-index.json",
+      "resolved": {
+        "target": "x86_64-unknown-linux-gnu",
+        "url": "https://example.invalid/compose-0.1.0.tgz",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null
+      }
+    },
+    "react": {
+      "version": "0.1.0",
+      "api_version": 1,
+      "source": "https://example.invalid/react-index.json",
+      "resolved": {
+        "target": "x86_64-unknown-linux-gnu",
+        "url": "https://example.invalid/react-0.1.0.tgz",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "signature": null
+      }
+    }
+  }
+}
+"#,
+    )
+    .expect("write multi-language lockfile");
+}
+
+fn install_discover_fixture_pack(
+    wax_home: &Path,
+    language_id: &str,
+    version: &str,
+    response_json: &str,
+    sha256: &str,
+) {
+    let install_dir = wax_home.join(format!("langs/{language_id}/{version}"));
+    fs::create_dir_all(&install_dir).expect("create language install dir");
+
+    let script = install_dir.join(format!("wax-lang-{language_id}"));
     fs::write(
         &script,
-        format!("#!/bin/sh\ncat >/dev/null\ncat <<'JSON'\n{response}\nJSON\n"),
+        format!("#!/bin/sh\ncat >/dev/null\ncat <<'JSON'\n{response_json}\nJSON\n"),
     )
-    .expect("write compose discover fixture script");
+    .expect("write discover fixture script");
     #[cfg(unix)]
     {
         let mut perms = fs::metadata(&script)
@@ -170,28 +238,30 @@ fn install_compose_discover_fixture_pack(wax_home: &Path) {
 
     fs::write(
         install_dir.join("manifest.json"),
-        r#"{
-  "id": "compose",
-  "version": "0.1.0",
+        format!(
+            r#"{{
+  "id": "{language_id}",
+  "version": "{version}",
   "api_version": 1,
-  "command": ["./wax-lang-compose"],
+  "command": ["./wax-lang-{language_id}"],
   "target": "x86_64-unknown-linux-gnu",
-  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "sha256": "{sha256}",
   "ecosystem": "test",
   "parser_name": "fixture",
   "parser_version": "1.0.0"
-}
-"#,
+}}
+"#
+        ),
     )
-    .expect("write compose manifest");
+    .expect("write fixture manifest");
 
     fs::write(
         wax_home.join("state.json"),
         format!(
             r#"{{
   "installed_languages": {{
-    "compose": {{
-      "0.1.0": {{ "install_dir": "{}" }}
+    "{language_id}": {{
+      "{version}": {{ "install_dir": "{}" }}
     }}
   }}
 }}"#,
@@ -199,6 +269,26 @@ fn install_compose_discover_fixture_pack(wax_home: &Path) {
         ),
     )
     .expect("write wax global state");
+}
+
+fn install_compose_discover_fixture_pack(wax_home: &Path) {
+    install_discover_fixture_pack(
+        wax_home,
+        "compose",
+        "0.1.0",
+        r#"{"type":"discover_symbols","api_version":1,"language_id":"compose","symbols":["PrimaryButton","SecondaryButton","QualifiedButton"],"diagnostics":[]}"#,
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    );
+}
+
+fn install_react_discover_fixture_pack(wax_home: &Path) {
+    install_discover_fixture_pack(
+        wax_home,
+        "react",
+        "0.1.0",
+        r#"{"type":"discover_symbols","api_version":1,"language_id":"react","symbols":["Button"],"diagnostics":[]}"#,
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    );
 }
 
 struct DiscoverHarness {
@@ -219,20 +309,29 @@ fn setup_compose_discover_repo(repo: &Path, with_fixture: bool) -> DiscoverHarne
     }
 }
 
-fn run_discover(repo: &Path, extra_args: &[&str]) -> std::process::Output {
+fn run_discover_for_language(
+    repo: &Path,
+    language_id: &str,
+    root: &Path,
+    extra_args: &[&str],
+) -> std::process::Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_wax"));
     command.args([
         "registry",
         "discover",
         "--language",
-        "compose",
+        language_id,
         "--repo-root",
     ]);
     command.arg(repo);
     command.arg("--root");
-    command.arg(compose_fixture_root());
+    command.arg(root);
     command.args(extra_args);
     command.output().expect("spawn wax registry discover")
+}
+
+fn run_discover(repo: &Path, extra_args: &[&str]) -> std::process::Output {
+    run_discover_for_language(repo, "compose", &compose_fixture_root(), extra_args)
 }
 
 #[test]
@@ -318,6 +417,72 @@ fn default_write_creates_language_specific_registry_path() {
         serde_json::from_str(&fs::read_to_string(&registry_path).unwrap()).unwrap();
     assert_eq!(written["schema_version"], 1);
     assert!(written["components"].as_array().unwrap().len() >= 2);
+}
+
+#[test]
+fn discover_compose_then_react_writes_both_without_force() {
+    let _guard = env_lock();
+    let root = TestDir::new("registry-discover-multi-language");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    write_multi_language_config(&repo);
+    link_compose_fixture_into_repo(&repo);
+    write_multi_language_lockfile(&repo);
+
+    let wax_home_compose = root.path.join("wax-home-compose");
+    fs::create_dir_all(&wax_home_compose).unwrap();
+    install_compose_discover_fixture_pack(&wax_home_compose);
+    let _wax_home_guard = EnvVarGuard::set("WAX_HOME", &wax_home_compose);
+
+    let compose_output = run_discover_for_language(
+        &repo,
+        "compose",
+        &repo.join("design-system/src/main/kotlin"),
+        &[],
+    );
+    assert!(
+        compose_output.status.success(),
+        "compose discover should succeed, stderr: {}",
+        String::from_utf8_lossy(&compose_output.stderr)
+    );
+
+    let wax_home_react = root.path.join("wax-home-react");
+    fs::create_dir_all(&wax_home_react).unwrap();
+    install_react_discover_fixture_pack(&wax_home_react);
+    let _wax_home_react_guard = EnvVarGuard::set("WAX_HOME", &wax_home_react);
+
+    let react_output =
+        run_discover_for_language(&repo, "react", &repo.join("design-system/src"), &[]);
+    assert!(
+        react_output.status.success(),
+        "react discover should succeed without --force, stderr: {}",
+        String::from_utf8_lossy(&react_output.stderr)
+    );
+
+    let compose_path = repo.join(".wax/compose.registry.json");
+    let react_path = repo.join(".wax/react.registry.json");
+    assert!(compose_path.is_file());
+    assert!(react_path.is_file());
+    assert!(!repo.join(".wax/wax.registry.json").exists());
+
+    let compose_registry: Value =
+        serde_json::from_str(&fs::read_to_string(&compose_path).unwrap()).unwrap();
+    let react_registry: Value =
+        serde_json::from_str(&fs::read_to_string(&react_path).unwrap()).unwrap();
+    assert!(
+        compose_registry["components"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|component| component["symbol"] == "PrimaryButton")
+    );
+    assert!(
+        react_registry["components"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|component| component["symbol"] == "Button")
+    );
 }
 
 #[test]
