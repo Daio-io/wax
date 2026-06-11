@@ -2,7 +2,7 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 
 use wax_contract::ScanStatus;
-use wax_lang_api::{WireErrorCode, WirePackResponse, WireScanResponse};
+use wax_lang_api::{WireErrorCode, WirePackResponse};
 
 #[test]
 fn discover_request_returns_discover_unsupported() {
@@ -95,12 +95,12 @@ fn stdio_cli_emits_complete_scan_facts_for_small_fixture() {
 
     let stdout = String::from_utf8(output.stdout).expect("stdout must be valid UTF-8");
     let mut lines = stdout.lines();
-    let response: WireScanResponse =
+    let response: WirePackResponse =
         serde_json::from_str(lines.next().expect("expected one stdout line"))
             .expect("stdout line must be a wire response");
 
     match response {
-        WireScanResponse::ScanFacts {
+        WirePackResponse::ScanFacts {
             api_version,
             language_id,
             facts,
@@ -166,12 +166,12 @@ fn stdio_cli_emits_one_scan_facts_response() {
 
     let stdout = String::from_utf8(output.stdout).expect("stdout must be valid UTF-8");
     let mut lines = stdout.lines();
-    let response: WireScanResponse =
+    let response: WirePackResponse =
         serde_json::from_str(lines.next().expect("expected one stdout line"))
             .expect("stdout line must be a wire response");
 
     match response {
-        WireScanResponse::ScanFacts {
+        WirePackResponse::ScanFacts {
             api_version,
             language_id,
             facts,
@@ -243,12 +243,12 @@ fn stdio_cli_returns_partial_scan_facts_for_parse_failures() {
 
     let stdout = String::from_utf8(output.stdout).expect("stdout must be valid UTF-8");
     let mut lines = stdout.lines();
-    let response: WireScanResponse =
+    let response: WirePackResponse =
         serde_json::from_str(lines.next().expect("expected one stdout line"))
             .expect("stdout line must be a wire response");
 
     match response {
-        WireScanResponse::ScanFacts {
+        WirePackResponse::ScanFacts {
             api_version,
             language_id,
             facts,
@@ -317,12 +317,12 @@ fn stdio_cli_returns_registry_not_found_for_missing_registry() {
 
     let stdout = String::from_utf8(output.stdout).expect("stdout must be valid UTF-8");
     let mut lines = stdout.lines();
-    let response: WireScanResponse =
+    let response: WirePackResponse =
         serde_json::from_str(lines.next().expect("expected one stdout line"))
             .expect("stdout line must be a wire response");
 
     match response {
-        WireScanResponse::Error { code, message, .. } => {
+        WirePackResponse::Error { code, message, .. } => {
             assert_eq!(code, WireErrorCode::RegistryNotFound);
             assert!(message.contains("react registry not found"));
         }
