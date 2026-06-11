@@ -118,6 +118,12 @@ require_includes!(
 
 require_includes!(
   workflow,
+  "npm config delete //registry.npmjs.org/:_authToken",
+  "setup-node .npmrc auth clearing before trusted publish"
+)
+
+require_includes!(
+  workflow,
   'npm publish --provenance --access public --tag "$npm_tag"',
   "npm provenance publish command"
 )
