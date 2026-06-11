@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::{fs, io};
 
 use wax_lang_api::{DiscoverRequest, DiscoverRequestType};
 use wax_lang_react::{ReactLanguage, discover_registry_symbols};
@@ -48,6 +49,29 @@ fn react_language_discover_resolves_repo_relative_roots() {
     assert!(!result.symbols.contains(&"notComponent".to_owned()));
     assert!(!result.symbols.contains(&"FactoryMemo".to_owned()));
     assert!(!result.symbols.contains(&"FactoryRef".to_owned()));
+}
+
+#[test]
+fn missing_root_fails() {
+    let missing = fixture_root().join("missing");
+
+    let err = discover_registry_symbols(&[missing]).expect_err("missing root should fail");
+
+    assert!(err.to_string().contains("discovery root does not exist"));
+}
+
+#[test]
+fn parse_failures_are_reported() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let broken_file = tempdir.path().join("Broken.tsx");
+    fs::write(&broken_file, "export const Broken = (")?;
+
+    let err =
+        discover_registry_symbols(&[tempdir.path().to_path_buf()]).expect_err("parse should fail");
+
+    assert!(err.to_string().contains("failed to parse"));
+    assert!(err.to_string().contains("Broken.tsx"));
+    Ok(())
 }
 
 fn fixture_root() -> PathBuf {
