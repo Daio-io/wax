@@ -2,6 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
+use wax_contract::LanguageId;
+
 /// Preferred repo-local wax config path.
 pub const PREFERRED_CONFIG_RELATIVE_PATH: &str = ".wax/wax.config.json";
 /// Legacy repo-local wax config path.
@@ -12,6 +14,11 @@ pub const PREFERRED_LOCKFILE_RELATIVE_PATH: &str = ".wax/wax.lock.json";
 pub const LEGACY_LOCKFILE_RELATIVE_PATH: &str = "wax.lock.json";
 /// Default local registry path used when language config omits `registry`.
 pub const DEFAULT_REGISTRY_RELATIVE_PATH: &str = ".wax/wax.registry.json";
+
+/// Default per-language registry path when a language entry omits `registry`.
+pub fn default_registry_path_for_language(language_id: &LanguageId) -> String {
+    format!(".wax/{}.registry.json", language_id.as_str())
+}
 /// Registry cache directory used for materialized external sources.
 pub const REGISTRY_CACHE_RELATIVE_DIR: &str = ".wax/cache/registries";
 /// Generated scan output directory.
