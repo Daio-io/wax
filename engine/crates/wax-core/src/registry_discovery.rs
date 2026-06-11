@@ -6,17 +6,27 @@ use std::fs::{File, OpenOptions};
 use std::io;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
+use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::Value;
 use thiserror::Error;
-use wax_lang_compose::discover::{ComposeDiscoverError, discover_registry_symbols};
+use wax_contract::LanguageId;
+use wax_lang_api::{DiscoverRequest, DiscoverRequestType, WIRE_API_VERSION};
 
-use crate::config::repo_files::{DEFAULT_REGISTRY_RELATIVE_PATH, discover_repo_files};
-use crate::config::waxrc::{WaxRcError, load_waxrc};
+use crate::config::lockfile::{
+    LockedRegistry, LockfileError, WAX_LOCK_SCHEMA_VERSION, load_lockfile,
+};
+use crate::config::repo_files::{default_registry_path_for_language, discover_repo_files};
+use crate::config::waxrc::{LanguageEntry, WaxRc, WaxRcError, load_waxrc};
+use crate::global_state::{GlobalStateError, load_global_state};
+use crate::paths::{PathsError, state_file};
+use crate::subprocess_discover::{DiscoverError, SubprocessLanguageDiscoverer};
+use crate::subprocess_lang::SubprocessLanguageManifest;
 
 const REGISTRY_SCHEMA_VERSION: u32 = 1;
 const MAX_REGISTRY_TEMP_ATTEMPTS: u32 = 1000;
+const DEFAULT_DISCOVER_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[cfg(windows)]
 use std::os::windows::ffi::OsStrExt;
@@ -67,6 +77,21 @@ pub enum RegistryDiscoverError {
     /// Wax config could not be loaded while resolving discovery roots.
     #[error(transparent)]
     Config(#[from] WaxRcError),
+    /// Lockfile could not be loaded.
+    #[error(transparent)]
+    Lockfile(#[from] LockfileError),
+    /// Global state could not be loaded.
+    #[error(transparent)]
+    GlobalState(#[from] GlobalStateError),
+    /// Global path resolution failed.
+    #[error(transparent)]
+    Paths(#[from] PathsError),
+    /// Caller passed an invalid language identifier.
+    #[error("invalid language id `{language_id}`")]
+    InvalidLanguageId {
+        /// Unparsed language id string.
+        language_id: String,
+    },
     /// The requested language is not enabled in wax config.
     #[error(
         "language `{language_id}` is not enabled in wax config at {config_path}; pass --root path/to/design-system"
@@ -142,20 +167,32 @@ pub enum RegistryDiscoverError {
         #[source]
         source: io::Error,
     },
-    /// The requested language does not support in-process registry discovery.
-    #[error("registry discovery is not supported for language `{language_id}`")]
-    UnsupportedLanguage {
-        /// Language id requested by the caller.
-        language_id: String,
+    /// Registry discovery requires an installed pack version from lockfile + global state.
+    #[error(
+        "registry discovery requires language pack `{language_id}` to be installed; run `wax language install {language_id}`"
+    )]
+    PackNotInstalled {
+        /// Language requested by the caller.
+        language_id: LanguageId,
     },
-    /// The language-specific discovery pass failed.
-    #[error("failed to discover registry symbols for language `{language_id}`: {source}")]
-    Discover {
+    /// Subprocess discover invocation failed.
+    #[error(transparent)]
+    DiscoverSubprocess(#[from] DiscoverError),
+    /// The language pack reported that discover is unsupported.
+    #[error("registry discovery is not supported for language `{language_id}`")]
+    DiscoverUnsupported {
         /// Language id requested by the caller.
-        language_id: String,
-        /// Underlying discovery failure.
-        #[source]
-        source: ComposeDiscoverError,
+        language_id: LanguageId,
+    },
+    /// Registry source points to an external location that discover cannot write.
+    #[error(
+        "language `{language_id}` registry source `{registry_source}` is external; discover can only write repo-relative registry paths"
+    )]
+    RegistryExternalSource {
+        /// Language id requested by the caller.
+        language_id: LanguageId,
+        /// Configured external source string.
+        registry_source: String,
     },
     /// Generated registry JSON could not be serialized.
     #[error("failed to serialize discovered registry JSON: {source}")]
@@ -248,6 +285,24 @@ pub enum RegistryDiscoverError {
         #[source]
         source: io::Error,
     },
+    /// Config could not be patched after writing discover output.
+    #[error("failed to patch wax config at {path}: {source}")]
+    ConfigPatch {
+        /// Config path that failed to update.
+        path: String,
+        /// Underlying I/O or parse failure.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+    /// Lockfile could not be patched after writing discover output.
+    #[error("failed to patch lockfile at {path}: {source}")]
+    LockfilePatch {
+        /// Lockfile path that failed to update.
+        path: String,
+        /// Underlying I/O or parse failure.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -266,40 +321,104 @@ struct DiscoveredComponent {
 pub fn discover_registry(
     options: RegistryDiscoverOptions<'_>,
 ) -> Result<RegistryDiscoverResult, RegistryDiscoverError> {
-    let output_path = options.repo_root.join(DEFAULT_REGISTRY_RELATIVE_PATH);
+    let language_id = LanguageId::try_from(options.language_id).map_err(|_| {
+        RegistryDiscoverError::InvalidLanguageId {
+            language_id: options.language_id.to_owned(),
+        }
+    })?;
+    let repo_files = discover_repo_files(options.repo_root);
+    let config_path_display = repo_files.config_path.display().to_string();
+    let waxrc = load_optional_waxrc(&repo_files.config_path)?;
+    let configured_entry = waxrc
+        .as_ref()
+        .and_then(|waxrc| find_enabled_language(waxrc, options.language_id));
+    if waxrc.is_some() && configured_entry.is_none() && options.roots.is_empty() {
+        return Err(RegistryDiscoverError::LanguageNotConfigured {
+            language_id: options.language_id.to_owned(),
+            config_path: config_path_display.clone(),
+        });
+    }
+    let fallback_entry = LanguageEntry {
+        id: language_id.clone(),
+        enabled: true,
+        extra: serde_json::Map::new(),
+    };
+    let language_entry = configured_entry.unwrap_or(&fallback_entry);
+
+    let output_path =
+        resolve_discover_output_path(options.repo_root, &language_id, language_entry)?;
     let path_display = output_path.display().to_string();
+    let output_source = repo_relative_output_source(options.repo_root, &output_path);
 
-    let (roots, used_config_roots) =
-        resolve_discovery_roots(options.repo_root, options.language_id, &options.roots)?;
+    let (roots, used_config_roots) = resolve_discovery_roots(
+        options.repo_root,
+        options.language_id,
+        &options.roots,
+        waxrc.as_ref(),
+        &config_path_display,
+    )?;
 
-    let registry = build_registry(options.language_id, &roots)?;
+    let lockfile = load_lockfile(&repo_files.lockfile_path)?;
+    let state = load_global_state(state_file()?)?;
+    let pack_command = resolve_installed_pack_command(&state, &lockfile, &language_id)?;
+    let symbols = discover_symbols(
+        options.repo_root,
+        &language_id,
+        &roots,
+        pack_command,
+        DEFAULT_DISCOVER_TIMEOUT,
+    )?;
+    let registry = build_registry(&symbols)?;
     let registry = serde_json::to_value(&registry)
         .map_err(|source| RegistryDiscoverError::Serialize { source })?;
 
-    if !options.dry_run {
-        if !options.force && output_path.try_exists().unwrap_or(false) {
-            return Err(RegistryDiscoverError::OutputExists { path: path_display });
-        }
+    if options.dry_run {
+        return Ok(RegistryDiscoverResult {
+            output_path,
+            registry,
+            used_config_roots,
+            root_count: roots.len(),
+        });
+    }
 
-        if let Some(parent) = output_path
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-        {
-            fs::create_dir_all(parent).map_err(|source| RegistryDiscoverError::CreateDir {
-                path: output_path.display().to_string(),
-                source,
-            })?;
-        }
+    if !options.force && output_path.try_exists().unwrap_or(false) {
+        return Err(RegistryDiscoverError::OutputExists { path: path_display });
+    }
 
-        let contents = serde_json::to_string_pretty(&registry)
-            .map_err(|source| RegistryDiscoverError::Serialize { source })?;
-        write_registry_atomically(
-            &output_path,
-            &path_display,
-            format!("{contents}\n").as_bytes(),
-            options.force,
+    if let Some(parent) = output_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent).map_err(|source| RegistryDiscoverError::CreateDir {
+            path: output_path.display().to_string(),
+            source,
+        })?;
+    }
+
+    let contents = serde_json::to_string_pretty(&registry)
+        .map_err(|source| RegistryDiscoverError::Serialize { source })?;
+    write_registry_atomically(
+        &output_path,
+        &path_display,
+        format!("{contents}\n").as_bytes(),
+        options.force,
+    )?;
+
+    if configured_entry.is_some() && should_patch_config_registry(language_entry) {
+        patch_config_registry(
+            &repo_files.config_path,
+            &language_id,
+            &output_source,
+            options.language_id,
         )?;
     }
+
+    patch_lockfile_registry(
+        &repo_files.lockfile_path,
+        language_id.clone(),
+        output_source,
+        sha256_hex(contents.as_bytes()),
+    )?;
 
     Ok(RegistryDiscoverResult {
         output_path,
@@ -313,20 +432,14 @@ fn resolve_discovery_roots(
     repo_root: &Path,
     language_id: &str,
     roots: &[PathBuf],
+    waxrc: Option<&WaxRc>,
+    config_path: &str,
 ) -> Result<(Vec<PathBuf>, bool), RegistryDiscoverError> {
     if !roots.is_empty() {
         return Ok((roots.to_vec(), false));
     }
 
-    let repo_files = discover_repo_files(repo_root);
-    let config_path = repo_files.config_path.display().to_string();
-    let waxrc = match load_waxrc(&repo_files.config_path) {
-        Ok(waxrc) => waxrc,
-        Err(WaxRcError::Read { source, .. }) if source.kind() == io::ErrorKind::NotFound => {
-            return Err(RegistryDiscoverError::MissingRoots);
-        }
-        Err(err) => return Err(RegistryDiscoverError::Config(err)),
-    };
+    let waxrc = waxrc.ok_or(RegistryDiscoverError::MissingRoots)?;
 
     let language = waxrc
         .languages
@@ -334,7 +447,7 @@ fn resolve_discovery_roots(
         .find(|language| language.enabled && language.id.as_ref() == language_id)
         .ok_or_else(|| RegistryDiscoverError::LanguageNotConfigured {
             language_id: language_id.to_owned(),
-            config_path: config_path.clone(),
+            config_path: config_path.to_owned(),
         })?;
 
     let roots_value =
@@ -343,19 +456,19 @@ fn resolve_discovery_roots(
             .get("roots")
             .ok_or_else(|| RegistryDiscoverError::NoConfiguredRoots {
                 language_id: language_id.to_owned(),
-                config_path: config_path.clone(),
+                config_path: config_path.to_owned(),
             })?;
     let roots_array =
         roots_value
             .as_array()
             .ok_or_else(|| RegistryDiscoverError::InvalidRootsShape {
                 language_id: language_id.to_owned(),
-                config_path: config_path.clone(),
+                config_path: config_path.to_owned(),
             })?;
     if roots_array.is_empty() {
         return Err(RegistryDiscoverError::NoConfiguredRoots {
             language_id: language_id.to_owned(),
-            config_path,
+            config_path: config_path.to_owned(),
         });
     }
 
@@ -365,12 +478,12 @@ fn resolve_discovery_roots(
             .as_str()
             .ok_or_else(|| RegistryDiscoverError::InvalidRootsShape {
                 language_id: language_id.to_owned(),
-                config_path: config_path.clone(),
+                config_path: config_path.to_owned(),
             })?;
         resolved.push(resolve_configured_root(
             repo_root,
             language_id,
-            &config_path,
+            config_path,
             root,
         )?);
     }
@@ -435,27 +548,285 @@ fn resolve_configured_root(
     Ok(canonical_candidate)
 }
 
-fn build_registry(
-    language_id: &str,
-    roots: &[PathBuf],
-) -> Result<DiscoveredRegistry, RegistryDiscoverError> {
-    let symbols = match language_id {
-        "compose" => {
-            discover_registry_symbols(roots).map_err(|source| RegistryDiscoverError::Discover {
-                language_id: language_id.to_owned(),
-                source,
-            })?
+fn load_optional_waxrc(path: &Path) -> Result<Option<WaxRc>, RegistryDiscoverError> {
+    match load_waxrc(path) {
+        Ok(waxrc) => Ok(Some(waxrc)),
+        Err(WaxRcError::Read { source, .. }) if source.kind() == io::ErrorKind::NotFound => {
+            Ok(None)
         }
-        _ => {
-            return Err(RegistryDiscoverError::UnsupportedLanguage {
-                language_id: language_id.to_owned(),
+        Err(err) => Err(RegistryDiscoverError::Config(err)),
+    }
+}
+
+fn find_enabled_language<'a>(waxrc: &'a WaxRc, language_id: &str) -> Option<&'a LanguageEntry> {
+    waxrc
+        .languages
+        .iter()
+        .find(|entry| entry.enabled && entry.id.as_ref() == language_id)
+}
+
+fn resolve_discover_output_path(
+    repo_root: &Path,
+    language_id: &LanguageId,
+    entry: &LanguageEntry,
+) -> Result<PathBuf, RegistryDiscoverError> {
+    let repo_relative = match entry.registry_source() {
+        Some(source) if is_external_registry_source(&source.source) => {
+            return Err(RegistryDiscoverError::RegistryExternalSource {
+                language_id: language_id.clone(),
+                registry_source: source.source,
             });
         }
+        Some(source) => source.source,
+        None => default_registry_path_for_language(language_id),
     };
+    validate_repo_relative_registry_path(language_id, &repo_relative)?;
+    Ok(repo_root.join(&repo_relative))
+}
 
+fn should_patch_config_registry(entry: &LanguageEntry) -> bool {
+    entry.registry_source().is_none()
+}
+
+fn is_external_registry_source(source: &str) -> bool {
+    source.starts_with("http://") || source.starts_with("https://") || source.starts_with("file://")
+}
+
+fn validate_repo_relative_registry_path(
+    language_id: &LanguageId,
+    repo_relative: &str,
+) -> Result<(), RegistryDiscoverError> {
+    let path = Path::new(repo_relative);
+    if path.is_absolute()
+        || path.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        })
+    {
+        return Err(RegistryDiscoverError::RegistryExternalSource {
+            language_id: language_id.clone(),
+            registry_source: repo_relative.to_owned(),
+        });
+    }
+    Ok(())
+}
+
+fn repo_relative_output_source(repo_root: &Path, output_path: &Path) -> String {
+    output_path
+        .strip_prefix(repo_root)
+        .unwrap_or(output_path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct InstalledManifestFile {
+    id: LanguageId,
+    version: String,
+    command: Vec<String>,
+}
+
+fn resolve_installed_pack_command(
+    state: &crate::global_state::GlobalState,
+    lockfile: &crate::config::lockfile::WaxLock,
+    language_id: &LanguageId,
+) -> Result<Vec<String>, RegistryDiscoverError> {
+    let Some(locked) = lockfile.languages.get(language_id) else {
+        return Err(RegistryDiscoverError::PackNotInstalled {
+            language_id: language_id.clone(),
+        });
+    };
+    let Some(pack) = state
+        .installed_languages
+        .get(language_id)
+        .and_then(|versions| versions.get(&locked.version))
+    else {
+        return Err(RegistryDiscoverError::PackNotInstalled {
+            language_id: language_id.clone(),
+        });
+    };
+    let manifest_path = pack.install_dir.join("manifest.json");
+    let raw = fs::read_to_string(&manifest_path).map_err(|source| {
+        RegistryDiscoverError::LockfilePatch {
+            path: manifest_path.display().to_string(),
+            source: Box::new(source),
+        }
+    })?;
+    let manifest: InstalledManifestFile =
+        serde_json::from_str(&raw).map_err(|source| RegistryDiscoverError::LockfilePatch {
+            path: manifest_path.display().to_string(),
+            source: Box::new(source),
+        })?;
+    if manifest.id != *language_id
+        || manifest.version != locked.version
+        || manifest.command.is_empty()
+    {
+        return Err(RegistryDiscoverError::PackNotInstalled {
+            language_id: language_id.clone(),
+        });
+    }
+
+    Ok(resolve_manifest_command(
+        pack.install_dir.as_path(),
+        manifest.command,
+    ))
+}
+
+fn resolve_manifest_command(install_dir: &Path, mut command: Vec<String>) -> Vec<String> {
+    if let Some(primary) = command.first_mut()
+        && let Some(relative) = primary.strip_prefix("./")
+    {
+        *primary = install_dir.join(relative).display().to_string();
+    }
+    command
+}
+
+fn discover_symbols(
+    repo_root: &Path,
+    language_id: &LanguageId,
+    roots: &[PathBuf],
+    pack_command: Vec<String>,
+    timeout: Duration,
+) -> Result<Vec<String>, RegistryDiscoverError> {
+    let request = DiscoverRequest {
+        request_type: DiscoverRequestType::Discover,
+        api_version: WIRE_API_VERSION,
+        language_id: language_id.clone(),
+        repo_root: repo_root.display().to_string(),
+        roots: roots
+            .iter()
+            .map(|root| {
+                root.strip_prefix(repo_root)
+                    .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+                    .unwrap_or_else(|_| root.display().to_string())
+            })
+            .collect(),
+    };
+    let discoverer = SubprocessLanguageDiscoverer::new(SubprocessLanguageManifest {
+        command: pack_command,
+        timeout,
+    });
+    match discoverer.discover(request) {
+        Ok(result) => Ok(result.symbols),
+        Err(DiscoverError::Unsupported { .. }) => Err(RegistryDiscoverError::DiscoverUnsupported {
+            language_id: language_id.clone(),
+        }),
+        Err(err) => Err(RegistryDiscoverError::DiscoverSubprocess(err)),
+    }
+}
+
+fn patch_config_registry(
+    config_path: &Path,
+    language_id: &LanguageId,
+    output_source: &str,
+    language_id_text: &str,
+) -> Result<(), RegistryDiscoverError> {
+    let path_display = config_path.display().to_string();
+    let raw =
+        fs::read_to_string(config_path).map_err(|source| RegistryDiscoverError::ConfigPatch {
+            path: path_display.clone(),
+            source: Box::new(source),
+        })?;
+    let mut config: Value =
+        serde_json::from_str(&raw).map_err(|source| RegistryDiscoverError::ConfigPatch {
+            path: path_display.clone(),
+            source: Box::new(source),
+        })?;
+    let Some(languages) = config.get_mut("languages").and_then(Value::as_array_mut) else {
+        return Err(RegistryDiscoverError::ConfigPatch {
+            path: path_display.clone(),
+            source: Box::new(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "wax config missing languages array",
+            )),
+        });
+    };
+    let Some(entry) = languages.iter_mut().find(|entry| {
+        entry.get("id").and_then(Value::as_str) == Some(language_id.as_str())
+            || entry.get("id").and_then(Value::as_str) == Some(language_id_text)
+    }) else {
+        return Err(RegistryDiscoverError::ConfigPatch {
+            path: path_display.clone(),
+            source: Box::new(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "language entry missing from wax config",
+            )),
+        });
+    };
+    let Some(entry_object) = entry.as_object_mut() else {
+        return Err(RegistryDiscoverError::ConfigPatch {
+            path: path_display.clone(),
+            source: Box::new(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "language entry is not an object",
+            )),
+        });
+    };
+    entry_object.insert(
+        "registry".to_owned(),
+        Value::String(output_source.to_owned()),
+    );
+    let serialized = serde_json::to_string_pretty(&config).map_err(|source| {
+        RegistryDiscoverError::ConfigPatch {
+            path: path_display.clone(),
+            source: Box::new(source),
+        }
+    })?;
+    fs::write(config_path, format!("{serialized}\n")).map_err(|source| {
+        RegistryDiscoverError::ConfigPatch {
+            path: path_display,
+            source: Box::new(source),
+        }
+    })?;
+    Ok(())
+}
+
+fn patch_lockfile_registry(
+    lockfile_path: &Path,
+    language_id: LanguageId,
+    source: String,
+    sha256: String,
+) -> Result<(), RegistryDiscoverError> {
+    let path_display = lockfile_path.display().to_string();
+    let mut lockfile = load_lockfile(lockfile_path)?;
+    lockfile
+        .registries
+        .insert(language_id, LockedRegistry { source, sha256 });
+    lockfile.schema_version = WAX_LOCK_SCHEMA_VERSION;
+    let serialized = serde_json::to_string_pretty(&lockfile).map_err(|source| {
+        RegistryDiscoverError::LockfilePatch {
+            path: path_display.clone(),
+            source: Box::new(source),
+        }
+    })?;
+    fs::write(lockfile_path, format!("{serialized}\n")).map_err(|source| {
+        RegistryDiscoverError::LockfilePatch {
+            path: path_display,
+            source: Box::new(source),
+        }
+    })?;
+    Ok(())
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+
+    let digest = Sha256::digest(bytes);
+    digest
+        .iter()
+        .fold(String::with_capacity(64), |mut hex, byte| {
+            use std::fmt::Write;
+            let _ = write!(hex, "{byte:02x}");
+            hex
+        })
+}
+
+fn build_registry(symbols: &[String]) -> Result<DiscoveredRegistry, RegistryDiscoverError> {
     let mut seen_ids = BTreeMap::new();
     let mut components = Vec::new();
-    for symbol in normalized_symbols(symbols) {
+    for symbol in normalized_symbols(symbols.to_vec()) {
         let id = format!("ds.{}", kebab_case_symbol(&symbol));
         if let Some(first_symbol) = seen_ids.insert(id.clone(), symbol.clone()) {
             return Err(RegistryDiscoverError::IdCollision {
