@@ -1030,7 +1030,7 @@ git commit -m "test: align registry discover CLI with per-language output paths"
 - Modify: `engine/crates/wax-cli/src/commands/init.rs`
 - Modify: `engine/crates/wax-cli/tests/init_command.rs`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `engine/crates/wax-cli/tests/init_command.rs`:
 
@@ -1069,12 +1069,12 @@ fn init_scaffolds_per_language_registry_files_for_multi_language_repo() {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd engine && cargo test -p wax-cli init_scaffolds_per_language_registry_files_for_multi_language_repo`
 Expected: FAIL — init still writes shared `.wax/wax.registry.json`
 
-- [ ] **Step 3: Implement per-language init scaffold**
+- [x] **Step 3: Implement per-language init scaffold**
 
 Replace `pending_default_registry_scaffold` (single shared file) with `pending_registry_scaffolds(languages)` returning one entry per enabled language:
 
@@ -1121,16 +1121,16 @@ Update init lockfile loop: each language gets its own `LockedRegistry { source, 
 
 Write each scaffold file in the init loop.
 
-- [ ] **Step 4: Update existing init tests**
+- [x] **Step 4: Update existing init tests**
 
 Replace assertions on `.wax/wax.registry.json` with `.wax/compose.registry.json` (single-language init) and add multi-language coverage.
 
-- [ ] **Step 5: Run init tests**
+- [x] **Step 5: Run init tests**
 
 Run: `cd engine && cargo test -p wax-cli init_`
 Expected: PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add engine/crates/wax-cli/src/commands/init.rs engine/crates/wax-cli/tests/init_command.rs

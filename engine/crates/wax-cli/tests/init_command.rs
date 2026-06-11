@@ -4,6 +4,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
+use wax_contract::LanguageId;
+use wax_core::config::lockfile::load_lockfile;
+use wax_core::config::waxrc::load_waxrc;
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -116,7 +119,7 @@ fn init_loads_file_copy_of_alpha_pack_index() {
     );
     assert_eq!(
         lockfile["registries"]["compose"]["source"],
-        ".wax/wax.registry.json"
+        ".wax/compose.registry.json"
     );
     assert!(
         lockfile["registries"]["compose"]["sha256"]
@@ -205,7 +208,8 @@ fn init_writes_centralized_wax_layout_and_gitignore() {
 
     assert!(repo.join(".wax/wax.config.json").is_file());
     assert!(repo.join(".wax/wax.lock.json").is_file());
-    assert!(repo.join(".wax/wax.registry.json").is_file());
+    assert!(repo.join(".wax/compose.registry.json").is_file());
+    assert!(!repo.join(".wax/wax.registry.json").exists());
     assert!(!repo.join(".waxrc").exists());
     assert!(!repo.join("wax.lock.json").exists());
     assert!(!repo.join("design-system/registry.json").exists());
@@ -267,9 +271,9 @@ fn init_does_not_duplicate_gitignore_entries() {
 }
 
 #[test]
-fn init_scaffolds_only_default_centralized_registry() {
+fn init_scaffolds_per_language_registry_for_single_language() {
     let _guard = env_lock();
-    let root = TestDir::new("init-centralized-registry");
+    let root = TestDir::new("init-per-language-registry");
     let repo = root.path.join("repo");
     let wax_home = root.path.join("wax-home");
     fs::create_dir_all(&repo).expect("create repo fixture");
@@ -310,6 +314,92 @@ fn init_scaffolds_only_default_centralized_registry() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    assert!(repo.join(".wax/wax.registry.json").is_file());
+    assert!(repo.join(".wax/compose.registry.json").is_file());
+    assert!(!repo.join(".wax/wax.registry.json").exists());
     assert!(!repo.join("design-system/registry.json").exists());
+}
+
+fn lang(id: &str) -> LanguageId {
+    LanguageId::try_from(id).expect("language id")
+}
+
+#[test]
+fn init_scaffolds_per_language_registry_files_for_multi_language_repo() {
+    let _guard = env_lock();
+    let root = TestDir::new("init-per-language-registries");
+    let repo = root.path.join("repo");
+    let wax_home = root.path.join("wax-home");
+    fs::create_dir_all(&repo).expect("create repo fixture");
+    fs::create_dir_all(&wax_home).expect("create wax home fixture");
+
+    let alpha_index = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("fixtures")
+        .join("registry")
+        .join("alpha-index.json");
+    let registry_copy = root.path.join("alpha-index.json");
+    fs::copy(&alpha_index, &registry_copy).expect("copy alpha index fixture");
+    let registry_url = format!("file://{}", registry_copy.display());
+
+    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
+    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .args([
+            "init",
+            "--non-interactive",
+            "--language",
+            "compose",
+            "--language",
+            "react",
+            "--no-install",
+            "--target",
+            "x86_64-unknown-linux-gnu",
+            "--registry",
+        ])
+        .arg(&registry_url)
+        .args(["--repo-root"])
+        .arg(&repo)
+        .output()
+        .expect("spawn wax init");
+
+    assert!(
+        output.status.success(),
+        "wax init exited with {:?}; stderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert!(repo.join(".wax/compose.registry.json").is_file());
+    assert!(repo.join(".wax/react.registry.json").is_file());
+    assert!(!repo.join(".wax/wax.registry.json").exists());
+
+    let waxrc = load_waxrc(repo.join(".wax/wax.config.json")).unwrap();
+    let compose = waxrc
+        .languages
+        .iter()
+        .find(|language| language.id.as_str() == "compose")
+        .unwrap();
+    let react = waxrc
+        .languages
+        .iter()
+        .find(|language| language.id.as_str() == "react")
+        .unwrap();
+    assert_eq!(
+        compose.registry_source().map(|source| source.source),
+        Some(".wax/compose.registry.json".to_owned())
+    );
+    assert_eq!(
+        react.registry_source().map(|source| source.source),
+        Some(".wax/react.registry.json".to_owned())
+    );
+
+    let lock = load_lockfile(repo.join(".wax/wax.lock.json")).unwrap();
+    assert_eq!(
+        lock.registries.get(&lang("compose")).unwrap().source,
+        ".wax/compose.registry.json"
+    );
+    assert_eq!(
+        lock.registries.get(&lang("react")).unwrap().source,
+        ".wax/react.registry.json"
+    );
 }
