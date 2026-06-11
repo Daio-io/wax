@@ -2,7 +2,51 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 
 use wax_contract::ScanStatus;
-use wax_lang_api::{WireErrorCode, WireScanResponse};
+use wax_lang_api::{WireErrorCode, WirePackResponse, WireScanResponse};
+
+#[test]
+fn discover_request_returns_discover_unsupported() {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_wax-lang-react"))
+        .arg("--stdio")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn wax-lang-react");
+
+    {
+        let stdin = child.stdin.as_mut().expect("child stdin must be piped");
+        stdin
+            .write_all(
+                br#"{"type":"discover","api_version":1,"language_id":"react","repo_root":"/tmp/repo","roots":["src"]}
+"#,
+            )
+            .expect("failed to write discover request");
+    }
+
+    let output = child.wait_with_output().expect("failed to read output");
+
+    assert!(
+        output.status.success(),
+        "wax-lang-react exited with {:?}; stderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout must be valid UTF-8");
+    let mut lines = stdout.lines();
+    let response: WirePackResponse =
+        serde_json::from_str(lines.next().expect("expected one stdout line"))
+            .expect("stdout line must be a wire response");
+
+    match response {
+        WirePackResponse::Error { code, .. } => {
+            assert_eq!(code, WireErrorCode::DiscoverUnsupported);
+        }
+        other => panic!("expected error response, got {other:?}"),
+    }
+    assert_eq!(lines.next(), None, "expected exactly one stdout line");
+}
 
 #[test]
 fn stdio_cli_emits_complete_scan_facts_for_small_fixture() {

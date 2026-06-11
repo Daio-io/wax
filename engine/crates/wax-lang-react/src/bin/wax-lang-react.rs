@@ -1,7 +1,9 @@
 use clap::Parser;
 use std::io::{self, BufRead, Write};
 use wax_contract::LanguageId;
-use wax_lang_api::{WIRE_API_VERSION, WireErrorCode, WireScanRequest, WireScanResponse};
+use wax_lang_api::{
+    ScanRequestType, WIRE_API_VERSION, WireErrorCode, WirePackRequest, WirePackResponse,
+};
 use wax_lang_react::{ReactLanguage, ReactScanError, RegistryErrorKind};
 
 #[derive(Debug, Parser)]
@@ -39,14 +41,14 @@ fn run_stdio_with_reader<R: BufRead, W: Write>(
             continue;
         }
 
-        let request: WireScanRequest = match serde_json::from_str(&line) {
+        let request: WirePackRequest = match serde_json::from_str(&line) {
             Ok(request) => request,
             Err(err) => {
-                let response = WireScanResponse::Error {
+                let response = WirePackResponse::Error {
                     api_version: WIRE_API_VERSION,
                     language_id: react_language_id(),
                     code: WireErrorCode::ConfigInvalid,
-                    message: format!("invalid scan request JSON: {err}"),
+                    message: format!("invalid pack request JSON: {err}"),
                     diagnostics: Vec::new(),
                 };
                 serde_json::to_writer(&mut *writer, &response)?;
@@ -56,63 +58,76 @@ fn run_stdio_with_reader<R: BufRead, W: Write>(
             }
         };
 
-        let WireScanRequest::Scan {
-            api_version,
-            language_id,
-            repo_root,
-            snapshot_id,
-            config,
-        } = request;
-
-        if api_version != WIRE_API_VERSION {
-            let response = WireScanResponse::Error {
-                api_version: WIRE_API_VERSION,
-                language_id,
-                code: WireErrorCode::ApiVersionUnsupported,
-                message: format!(
-                    "wire api_version {api_version} is unsupported; expected {WIRE_API_VERSION}"
-                ),
-                diagnostics: Vec::new(),
-            };
-            serde_json::to_writer(&mut *writer, &response)?;
-            writer.write_all(b"\n")?;
-            writer.flush()?;
-            return Ok(());
-        }
-
-        let scan_request = wax_lang_api::ScanRequest {
-            request_type: wax_lang_api::ScanRequestType::Scan,
-            api_version,
-            language_id: language_id.clone(),
-            repo_root,
-            snapshot_id,
-            config,
-        };
-
-        let react = ReactLanguage::new();
-        let response = match react.scan(&scan_request) {
-            Ok(facts) => WireScanResponse::ScanFacts {
+        let response = match request {
+            WirePackRequest::Scan {
                 api_version,
                 language_id,
-                facts: Box::new(facts),
-            },
-            Err(err) => {
-                let code = match &err {
-                    ReactScanError::InvalidConfig(_) => WireErrorCode::ConfigInvalid,
-                    ReactScanError::Registry(err) => match err.kind() {
-                        RegistryErrorKind::NotFound => WireErrorCode::RegistryNotFound,
-                        RegistryErrorKind::Invalid => WireErrorCode::ScanFailed,
-                    },
-                    ReactScanError::Parse(_) => WireErrorCode::ScanFailed,
-                    ReactScanError::Io { .. } => WireErrorCode::ScanFailed,
-                    ReactScanError::InvalidLanguageId(_) => WireErrorCode::ScanFailed,
-                    ReactScanError::InvalidFacts(_) => WireErrorCode::ScanFailed,
-                };
-                WireScanResponse::Error {
-                    api_version,
+                repo_root,
+                snapshot_id,
+                config,
+            } => {
+                if api_version != WIRE_API_VERSION {
+                    WirePackResponse::Error {
+                        api_version: WIRE_API_VERSION,
+                        language_id,
+                        code: WireErrorCode::ApiVersionUnsupported,
+                        message: format!(
+                            "wire api_version {api_version} is unsupported; expected {WIRE_API_VERSION}"
+                        ),
+                        diagnostics: Vec::new(),
+                    }
+                } else {
+                    let scan_request = wax_lang_api::ScanRequest {
+                        request_type: ScanRequestType::Scan,
+                        api_version,
+                        language_id: language_id.clone(),
+                        repo_root,
+                        snapshot_id,
+                        config,
+                    };
+
+                    let react = ReactLanguage::new();
+                    match react.scan(&scan_request) {
+                        Ok(facts) => WirePackResponse::ScanFacts {
+                            api_version,
+                            language_id,
+                            facts: Box::new(facts),
+                        },
+                        Err(err) => {
+                            let code = match &err {
+                                ReactScanError::InvalidConfig(_) => WireErrorCode::ConfigInvalid,
+                                ReactScanError::Registry(err) => match err.kind() {
+                                    RegistryErrorKind::NotFound => WireErrorCode::RegistryNotFound,
+                                    RegistryErrorKind::Invalid => WireErrorCode::ScanFailed,
+                                },
+                                ReactScanError::Parse(_) => WireErrorCode::ScanFailed,
+                                ReactScanError::Io { .. } => WireErrorCode::ScanFailed,
+                                ReactScanError::InvalidLanguageId(_) => WireErrorCode::ScanFailed,
+                                ReactScanError::InvalidFacts(_) => WireErrorCode::ScanFailed,
+                            };
+                            WirePackResponse::Error {
+                                api_version,
+                                language_id,
+                                code,
+                                message: err.to_string(),
+                                diagnostics: Vec::new(),
+                            }
+                        }
+                    }
+                }
+            }
+            WirePackRequest::Discover {
+                api_version: _,
+                language_id,
+                repo_root: _,
+                roots: _,
+            } => {
+                let message = format!("{language_id} does not support registry discovery yet");
+                WirePackResponse::Error {
+                    api_version: WIRE_API_VERSION,
                     language_id,
-                    code,
-                    message: err.to_string(),
+                    code: WireErrorCode::DiscoverUnsupported,
+                    message,
                     diagnostics: Vec::new(),
                 }
             }
@@ -135,7 +150,7 @@ fn react_language_id() -> LanguageId {
 mod tests {
     use super::run_stdio_with_reader;
     use std::io::Cursor;
-    use wax_lang_api::{WireErrorCode, WireScanResponse};
+    use wax_lang_api::{WireErrorCode, WirePackResponse};
 
     #[test]
     fn invalid_json_returns_tagged_error_response() {
@@ -145,9 +160,9 @@ mod tests {
         run_stdio_with_reader(input, &mut output).unwrap();
 
         let line = std::str::from_utf8(&output).unwrap().trim();
-        let response: WireScanResponse = serde_json::from_str(line).unwrap();
+        let response: WirePackResponse = serde_json::from_str(line).unwrap();
         match response {
-            WireScanResponse::Error {
+            WirePackResponse::Error {
                 api_version,
                 language_id,
                 code,
@@ -171,9 +186,9 @@ mod tests {
         run_stdio_with_reader(input, &mut output).unwrap();
 
         let line = std::str::from_utf8(&output).unwrap().trim();
-        let response: WireScanResponse = serde_json::from_str(line).unwrap();
+        let response: WirePackResponse = serde_json::from_str(line).unwrap();
         match response {
-            WireScanResponse::Error {
+            WirePackResponse::Error {
                 api_version,
                 language_id,
                 code,
@@ -197,9 +212,9 @@ mod tests {
         run_stdio_with_reader(input, &mut output).unwrap();
 
         let line = std::str::from_utf8(&output).unwrap().trim();
-        let response: WireScanResponse = serde_json::from_str(line).unwrap();
+        let response: WirePackResponse = serde_json::from_str(line).unwrap();
         match response {
-            WireScanResponse::Error {
+            WirePackResponse::Error {
                 language_id, code, ..
             } => {
                 assert_eq!(language_id.as_str(), "compose");
@@ -219,9 +234,9 @@ mod tests {
         run_stdio_with_reader(input, &mut output).unwrap();
 
         let line = std::str::from_utf8(&output).unwrap().trim();
-        let response: WireScanResponse = serde_json::from_str(line).unwrap();
+        let response: WirePackResponse = serde_json::from_str(line).unwrap();
         match response {
-            WireScanResponse::Error { code, .. } => {
+            WirePackResponse::Error { code, .. } => {
                 assert_eq!(code, WireErrorCode::ConfigInvalid);
             }
             other => panic!("expected error response, got {other:?}"),
@@ -256,9 +271,9 @@ mod tests {
         run_stdio_with_reader(input, &mut output).unwrap();
 
         let line = std::str::from_utf8(&output).unwrap().trim();
-        let response: WireScanResponse = serde_json::from_str(line).unwrap();
+        let response: WirePackResponse = serde_json::from_str(line).unwrap();
         match response {
-            WireScanResponse::Error { code, message, .. } => {
+            WirePackResponse::Error { code, message, .. } => {
                 assert_eq!(code, WireErrorCode::ScanFailed);
                 assert!(message.contains("invalid react registry"));
             }
@@ -290,9 +305,9 @@ mod tests {
         run_stdio_with_reader(input, &mut output).unwrap();
 
         let line = std::str::from_utf8(&output).unwrap().trim();
-        let response: WireScanResponse = serde_json::from_str(line).unwrap();
+        let response: WirePackResponse = serde_json::from_str(line).unwrap();
         match response {
-            WireScanResponse::Error { code, message, .. } => {
+            WirePackResponse::Error { code, message, .. } => {
                 assert_eq!(code, WireErrorCode::RegistryNotFound);
                 assert!(message.contains("react registry not found"));
             }
@@ -310,9 +325,9 @@ mod tests {
         run_stdio_with_reader(input, &mut output).unwrap();
 
         let line = std::str::from_utf8(&output).unwrap().trim();
-        let response: WireScanResponse = serde_json::from_str(line).unwrap();
+        let response: WirePackResponse = serde_json::from_str(line).unwrap();
         match response {
-            WireScanResponse::ScanFacts {
+            WirePackResponse::ScanFacts {
                 api_version,
                 language_id,
                 facts,
