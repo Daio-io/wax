@@ -87,9 +87,7 @@ fn stdio_cli_emits_one_scan_facts_response() {
 
 #[test]
 fn stdio_cli_emits_discover_symbols_for_fixture_roots() {
-    let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/discover/design-system/src/main/kotlin");
-    let repo_root = fixture_root.ancestors().nth(4).unwrap();
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/discover");
 
     let request = json!({
         "type": "discover",

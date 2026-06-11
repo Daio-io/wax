@@ -801,7 +801,7 @@ git commit -m "feat: per-language registry discover via language pack subprocess
 - Modify: `engine/crates/wax-lang-compose/src/bin/wax-lang-compose.rs`
 - Modify: `engine/crates/wax-lang-compose/tests/stdio_cli.rs`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `engine/crates/wax-lang-compose/tests/stdio_cli.rs`:
 
@@ -833,12 +833,12 @@ fn stdio_cli_emits_discover_symbols_for_fixture_roots() {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd engine && cargo test -p wax-lang-compose stdio_cli_emits_discover_symbols_for_fixture_roots`
 Expected: FAIL
 
-- [ ] **Step 3: Implement Compose discover handler**
+- [x] **Step 3: Implement Compose discover handler**
 
 Add to `engine/crates/wax-lang-compose/src/lib.rs`:
 
@@ -885,12 +885,12 @@ match request {
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `cd engine && cargo test -p wax-lang-compose stdio_cli`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add engine/crates/wax-lang-compose/

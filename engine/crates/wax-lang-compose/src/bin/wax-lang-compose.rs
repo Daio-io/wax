@@ -196,7 +196,7 @@ fn compose_language_id() -> LanguageId {
 mod tests {
     use super::run_stdio_with_reader;
     use std::io::Cursor;
-    use wax_lang_api::{WireErrorCode, WirePackResponse};
+    use wax_lang_api::{WIRE_API_VERSION, WireErrorCode, WirePackResponse};
 
     #[test]
     fn invalid_json_returns_tagged_error_response() {
@@ -246,17 +246,16 @@ mod tests {
 
     #[test]
     fn parser_init_failed_maps_to_correct_wire_error_code() {
-        // Verify the error code dispatch for ParserInitFailed without triggering
-        // a real grammar failure (grammar load errors are not reproducible in tests).
+        use super::{compose_language_id, scan_error_response};
+
         let err = wax_lang_compose::ComposeScanError::ParserInitFailed("test".to_owned());
-        let code = match &err {
-            wax_lang_compose::ComposeScanError::InvalidConfig(_) => WireErrorCode::ConfigInvalid,
-            wax_lang_compose::ComposeScanError::ParserInitFailed(_) => {
-                WireErrorCode::ParserInitFailed
+        let response = scan_error_response(WIRE_API_VERSION, compose_language_id(), err);
+        match response {
+            WirePackResponse::Error { code, .. } => {
+                assert_eq!(code, WireErrorCode::ParserInitFailed);
             }
-            _ => WireErrorCode::ScanFailed,
-        };
-        assert_eq!(code, WireErrorCode::ParserInitFailed);
+            other => panic!("expected error response, got {other:?}"),
+        }
     }
 
     #[test]
