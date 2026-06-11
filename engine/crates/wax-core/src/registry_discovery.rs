@@ -405,12 +405,7 @@ pub fn discover_registry(
     )?;
 
     if configured_entry.is_some() && should_patch_config_registry(language_entry) {
-        patch_config_registry(
-            &repo_files.config_path,
-            &language_id,
-            &output_source,
-            options.language_id,
-        )?;
+        patch_config_registry(&repo_files.config_path, &language_id, &output_source)?;
     }
 
     patch_lockfile_registry(
@@ -648,16 +643,14 @@ fn resolve_installed_pack_command(
         });
     };
     let manifest_path = pack.install_dir.join("manifest.json");
-    let raw = fs::read_to_string(&manifest_path).map_err(|source| {
-        RegistryDiscoverError::LockfilePatch {
-            path: manifest_path.display().to_string(),
-            source: Box::new(source),
+    let raw = fs::read_to_string(&manifest_path).map_err(|_| {
+        RegistryDiscoverError::PackNotInstalled {
+            language_id: language_id.clone(),
         }
     })?;
     let manifest: InstalledManifestFile =
-        serde_json::from_str(&raw).map_err(|source| RegistryDiscoverError::LockfilePatch {
-            path: manifest_path.display().to_string(),
-            source: Box::new(source),
+        serde_json::from_str(&raw).map_err(|_| RegistryDiscoverError::PackNotInstalled {
+            language_id: language_id.clone(),
         })?;
     if manifest.id != *language_id
         || manifest.version != locked.version
@@ -721,7 +714,6 @@ fn patch_config_registry(
     config_path: &Path,
     language_id: &LanguageId,
     output_source: &str,
-    language_id_text: &str,
 ) -> Result<(), RegistryDiscoverError> {
     let path_display = config_path.display().to_string();
     let raw =
@@ -743,10 +735,10 @@ fn patch_config_registry(
             )),
         });
     };
-    let Some(entry) = languages.iter_mut().find(|entry| {
-        entry.get("id").and_then(Value::as_str) == Some(language_id.as_str())
-            || entry.get("id").and_then(Value::as_str) == Some(language_id_text)
-    }) else {
+    let Some(entry) = languages
+        .iter_mut()
+        .find(|entry| entry.get("id").and_then(Value::as_str) == Some(language_id.as_str()))
+    else {
         return Err(RegistryDiscoverError::ConfigPatch {
             path: path_display.clone(),
             source: Box::new(io::Error::new(
