@@ -113,18 +113,30 @@ fn run_stdio_with_reader<R: BufRead, W: Write>(
                 }
             }
             WirePackRequest::Discover {
-                api_version: _,
+                api_version,
                 language_id,
                 repo_root: _,
                 roots: _,
             } => {
-                let message = format!("{language_id} does not support registry discovery yet");
-                WirePackResponse::Error {
-                    api_version: WIRE_API_VERSION,
-                    language_id,
-                    code: WireErrorCode::DiscoverUnsupported,
-                    message,
-                    diagnostics: Vec::new(),
+                if api_version != WIRE_API_VERSION {
+                    WirePackResponse::Error {
+                        api_version: WIRE_API_VERSION,
+                        language_id,
+                        code: WireErrorCode::ApiVersionUnsupported,
+                        message: format!(
+                            "wire api_version {api_version} is unsupported; expected {WIRE_API_VERSION}"
+                        ),
+                        diagnostics: Vec::new(),
+                    }
+                } else {
+                    let message = format!("{language_id} does not support registry discovery yet");
+                    WirePackResponse::Error {
+                        api_version: WIRE_API_VERSION,
+                        language_id,
+                        code: WireErrorCode::DiscoverUnsupported,
+                        message,
+                        diagnostics: Vec::new(),
+                    }
                 }
             }
         };
@@ -213,6 +225,32 @@ mod tests {
                 assert_eq!(facts.snapshot_id, "snap-42");
             }
             other => panic!("expected scan_facts response, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unsupported_api_version_on_discover_returns_tagged_error_response() {
+        let input = Cursor::new(
+            "{\"type\":\"discover\",\"api_version\":2,\"language_id\":\"basic\",\"repo_root\":\"/tmp/repo\",\"roots\":[\"src\"]}\n",
+        );
+        let mut output = Vec::new();
+
+        run_stdio_with_reader(input, &mut output).unwrap();
+
+        let response: WirePackResponse =
+            serde_json::from_str(std::str::from_utf8(&output).unwrap().trim()).unwrap();
+        match response {
+            WirePackResponse::Error {
+                api_version,
+                language_id,
+                code,
+                ..
+            } => {
+                assert_eq!(api_version, 1);
+                assert_eq!(language_id.as_str(), "basic");
+                assert_eq!(code, WireErrorCode::ApiVersionUnsupported);
+            }
+            other => panic!("expected error response, got {other:?}"),
         }
     }
 
