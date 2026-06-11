@@ -469,7 +469,7 @@ git commit -m "feat: add subprocess registry discover runner in wax-core"
 - Modify: `engine/crates/wax-core/src/config/repo_files.rs`
 - Create: `engine/crates/wax-core/tests/registry_discovery_paths.rs`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `engine/crates/wax-core/tests/registry_discovery_paths.rs`:
 
@@ -493,12 +493,12 @@ fn default_registry_path_uses_language_id_slug() {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd engine && cargo test -p wax-core default_registry_path_uses_language_id_slug`
 Expected: FAIL — helper not defined
 
-- [ ] **Step 3: Implement helper**
+- [x] **Step 3: Implement helper**
 
 Add to `engine/crates/wax-core/src/config/repo_files.rs`:
 
@@ -511,12 +511,12 @@ pub fn default_registry_path_for_language(language_id: &LanguageId) -> String {
 
 Export from `wax_core::config::repo_files` (already public module).
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd engine && cargo test -p wax-core registry_discovery_paths`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add engine/crates/wax-core/src/config/repo_files.rs engine/crates/wax-core/tests/registry_discovery_paths.rs
