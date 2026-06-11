@@ -513,7 +513,7 @@ Export from `wax_core::config::repo_files` (already public module).
 
 - [x] **Step 4: Run test to verify it passes**
 
-Run: `cd engine && cargo test -p wax-core registry_discovery_paths`
+Run: `cd engine && cargo test -p wax-core --test registry_discovery_paths`
 Expected: PASS
 
 - [x] **Step 5: Commit**
