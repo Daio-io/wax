@@ -9,11 +9,23 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use wax_core::registry_discovery::{
     RegistryDiscoverError, RegistryDiscoverOptions, discover_registry,
 };
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+fn bytes_sha256(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    digest
+        .iter()
+        .fold(String::with_capacity(64), |mut hex, byte| {
+            use std::fmt::Write;
+            let _ = write!(hex, "{byte:02x}");
+            hex
+        })
+}
 
 fn env_lock() -> MutexGuard<'static, ()> {
     ENV_LOCK
@@ -260,6 +272,7 @@ fn install_compose_pack_fixture() -> (PathBuf, EnvVarGuard) {
         "compose",
         "0.1.0",
         r#"{"type":"discover_symbols","api_version":1,"language_id":"compose","symbols":["PrimaryButton","SecondaryButton","QualifiedButton"],"diagnostics":[]}"#,
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     )
 }
 
@@ -268,6 +281,7 @@ fn install_react_discover_fixture_pack() -> (PathBuf, EnvVarGuard) {
         "react",
         "0.1.0",
         r#"{"type":"discover_symbols","api_version":1,"language_id":"react","symbols":["Button"],"diagnostics":[]}"#,
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     )
 }
 
@@ -275,6 +289,7 @@ fn install_discover_fixture_pack(
     language_id: &str,
     version: &str,
     response_json: &str,
+    sha256: &str,
 ) -> (PathBuf, EnvVarGuard) {
     let wax_home = std::env::temp_dir().join(format!(
         "wax-core-registry-discover-home-{language_id}-{version}-{}",
@@ -311,7 +326,7 @@ fn install_discover_fixture_pack(
   "api_version": 1,
   "command": ["./wax-lang-{language_id}"],
   "target": "x86_64-unknown-linux-gnu",
-  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "sha256": "{sha256}",
   "ecosystem": "test",
   "parser_name": "fixture",
   "parser_version": "1.0.0"
@@ -416,6 +431,7 @@ fun XMLButton() {}
         "compose",
         "0.1.0",
         r#"{"type":"discover_symbols","api_version":1,"language_id":"compose","symbols":["XMLButton"],"diagnostics":[]}"#,
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     );
 
     let result = discover_registry(RegistryDiscoverOptions {
@@ -461,6 +477,7 @@ fun XmlButton() {}
         "compose",
         "0.1.0",
         r#"{"type":"discover_symbols","api_version":1,"language_id":"compose","symbols":["XMLButton","XmlButton"],"diagnostics":[]}"#,
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     );
 
     let err = discover_registry(RegistryDiscoverOptions {
@@ -710,12 +727,30 @@ fn discover_writes_language_specific_default_registry_path() {
     );
     assert!(!repo.path().join(".wax/wax.registry.json").exists());
 
-    let config = fs::read_to_string(repo.path().join(".wax/wax.config.json")).unwrap();
-    assert!(config.contains(r#""registry": ".wax/compose.registry.json""#));
+    let config: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(repo.path().join(".wax/wax.config.json")).unwrap(),
+    )
+    .unwrap();
+    let compose = config["languages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["id"] == "compose")
+        .unwrap();
+    assert_eq!(compose["registry"], ".wax/compose.registry.json");
 
-    let lock = fs::read_to_string(repo.path().join(".wax/wax.lock.json")).unwrap();
-    assert!(lock.contains(r#""compose""#));
-    assert!(lock.contains(r#""source": ".wax/compose.registry.json""#));
+    let lock: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(repo.path().join(".wax/wax.lock.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        lock["registries"]["compose"]["source"],
+        ".wax/compose.registry.json"
+    );
+    let written_bytes = fs::read(repo.path().join(".wax/compose.registry.json")).unwrap();
+    assert_eq!(
+        lock["registries"]["compose"]["sha256"],
+        bytes_sha256(&written_bytes)
+    );
 }
 
 #[test]
@@ -791,6 +826,29 @@ fn discover_rejects_external_registry_source() {
         err,
         RegistryDiscoverError::RegistryExternalSource { .. }
     ));
+}
+
+#[test]
+fn discover_rejects_uppercase_https_and_other_external_schemes() {
+    let _guard = env_lock();
+    for source in [
+        "HTTPS://example.com/registry.json",
+        "ftp://example.com/registry.json",
+    ] {
+        let repo = TestRepo::new("discover-external-registry-scheme");
+        write_config_with_registry_object(repo.path(), "compose", &format!(r#""{source}""#));
+        link_compose_fixture_into_repo(repo.path());
+        write_compose_lockfile(repo.path());
+        let (_wax_home, _wax_home_guard) = install_compose_pack_fixture();
+
+        let err = discover_with_config_roots_write(repo.path())
+            .expect_err("external registry source should not be writable by discover");
+
+        assert!(
+            matches!(err, RegistryDiscoverError::RegistryExternalSource { .. }),
+            "expected external source rejection for {source}, got {err}"
+        );
+    }
 }
 
 #[test]

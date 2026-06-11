@@ -1,4 +1,7 @@
+use std::ffi::OsString;
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Mutex, MutexGuard};
@@ -10,6 +13,32 @@ static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 fn env_lock() -> MutexGuard<'static, ()> {
     ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
+}
+
+struct EnvVarGuard {
+    name: &'static str,
+    previous: Option<OsString>,
+}
+
+impl EnvVarGuard {
+    fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+        let previous = std::env::var_os(name);
+        unsafe {
+            std::env::set_var(name, value);
+        }
+        Self { name, previous }
+    }
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        unsafe {
+            match &self.previous {
+                Some(value) => std::env::set_var(self.name, value),
+                None => std::env::remove_var(self.name),
+            }
+        }
+    }
 }
 
 struct TestDir {
@@ -91,6 +120,105 @@ fn write_compose_config_with_roots(repo: &Path, roots: &[&str]) {
     fs::write(wax_dir.join("wax.config.json"), config).expect("write wax config");
 }
 
+fn write_compose_lockfile(repo: &Path) {
+    fs::create_dir_all(repo.join(".wax")).expect("create .wax directory");
+    fs::write(
+        repo.join(".wax/wax.lock.json"),
+        r#"{
+  "schema_version": 2,
+  "engine_api_version": 1,
+  "wax_version": "0.0.0",
+  "registries": {},
+  "languages": {
+    "compose": {
+      "version": "0.1.0",
+      "api_version": 1,
+      "source": "https://example.invalid/compose-index.json",
+      "resolved": {
+        "target": "x86_64-unknown-linux-gnu",
+        "url": "https://example.invalid/compose-0.1.0.tgz",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null
+      }
+    }
+  }
+}
+"#,
+    )
+    .expect("write compose lockfile");
+}
+
+fn install_compose_discover_fixture_pack(wax_home: &Path) {
+    let install_dir = wax_home.join("langs/compose/0.1.0");
+    fs::create_dir_all(&install_dir).expect("create compose install dir");
+
+    let response = r#"{"type":"discover_symbols","api_version":1,"language_id":"compose","symbols":["PrimaryButton","SecondaryButton","QualifiedButton"],"diagnostics":[]}"#;
+    let script = install_dir.join("wax-lang-compose");
+    fs::write(
+        &script,
+        format!("#!/bin/sh\ncat >/dev/null\ncat <<'JSON'\n{response}\nJSON\n"),
+    )
+    .expect("write compose discover fixture script");
+    #[cfg(unix)]
+    {
+        let mut perms = fs::metadata(&script)
+            .expect("read script metadata")
+            .permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&script, perms).expect("set script executable");
+    }
+
+    fs::write(
+        install_dir.join("manifest.json"),
+        r#"{
+  "id": "compose",
+  "version": "0.1.0",
+  "api_version": 1,
+  "command": ["./wax-lang-compose"],
+  "target": "x86_64-unknown-linux-gnu",
+  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "ecosystem": "test",
+  "parser_name": "fixture",
+  "parser_version": "1.0.0"
+}
+"#,
+    )
+    .expect("write compose manifest");
+
+    fs::write(
+        wax_home.join("state.json"),
+        format!(
+            r#"{{
+  "installed_languages": {{
+    "compose": {{
+      "0.1.0": {{ "install_dir": "{}" }}
+    }}
+  }}
+}}"#,
+            install_dir.display()
+        ),
+    )
+    .expect("write wax global state");
+}
+
+struct DiscoverHarness {
+    _wax_home_guard: EnvVarGuard,
+}
+
+fn setup_compose_discover_repo(repo: &Path, with_fixture: bool) -> DiscoverHarness {
+    if with_fixture {
+        link_compose_fixture_into_repo(repo);
+    }
+    write_compose_lockfile(repo);
+    let wax_home = repo.parent().expect("repo parent").join("wax-home");
+    fs::create_dir_all(&wax_home).expect("create wax-home");
+    install_compose_discover_fixture_pack(&wax_home);
+    let wax_home_guard = EnvVarGuard::set("WAX_HOME", &wax_home);
+    DiscoverHarness {
+        _wax_home_guard: wax_home_guard,
+    }
+}
+
 fn run_discover(repo: &Path, extra_args: &[&str]) -> std::process::Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_wax"));
     command.args([
@@ -113,6 +241,7 @@ fn dry_run_prints_valid_json_to_stdout() {
     let root = TestDir::new("registry-discover-dry-run-json");
     let repo = root.path.join("repo");
     fs::create_dir_all(&repo).unwrap();
+    let _harness = setup_compose_discover_repo(&repo, false);
 
     let output = run_discover(&repo, &["--dry-run"]);
 
@@ -132,7 +261,7 @@ fn dry_run_prints_valid_json_to_stdout() {
     assert!(stderr.contains("Discovered"));
     assert!(stderr.contains("false positives"));
     assert!(!stdout.contains("Discovered"));
-    assert!(!repo.join(".wax/wax.registry.json").exists());
+    assert!(!repo.join(".wax/compose.registry.json").exists());
 }
 
 #[test]
@@ -141,6 +270,7 @@ fn dry_run_writes_summaries_and_warnings_to_stderr_not_stdout() {
     let root = TestDir::new("registry-discover-dry-run-streams");
     let repo = root.path.join("repo");
     fs::create_dir_all(&repo).unwrap();
+    let _harness = setup_compose_discover_repo(&repo, false);
 
     let output = run_discover(&repo, &["--dry-run"]);
 
@@ -156,11 +286,12 @@ fn dry_run_writes_summaries_and_warnings_to_stderr_not_stdout() {
 }
 
 #[test]
-fn default_write_creates_centralized_registry_path() {
+fn default_write_creates_language_specific_registry_path() {
     let _guard = env_lock();
     let root = TestDir::new("registry-discover-write");
     let repo = root.path.join("repo");
     fs::create_dir_all(&repo).unwrap();
+    let _harness = setup_compose_discover_repo(&repo, false);
 
     let output = run_discover(&repo, &[]);
 
@@ -170,12 +301,13 @@ fn default_write_creates_centralized_registry_path() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let registry_path = repo.join(".wax/wax.registry.json");
+    let registry_path = repo.join(".wax/compose.registry.json");
     assert!(registry_path.is_file());
+    assert!(!repo.join(".wax/wax.registry.json").exists());
 
     let stdout = String::from_utf8(output.stdout).unwrap();
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stdout.contains("Wrote .wax/wax.registry.json"));
+    assert!(stdout.contains("Wrote .wax/compose.registry.json"));
     assert!(stdout.contains("Review before committing"));
     assert!(stdout.contains("wax validate"));
     assert!(stdout.contains("wax language update"));
@@ -194,11 +326,12 @@ fn second_write_fails_without_force() {
     let root = TestDir::new("registry-discover-refuse-overwrite");
     let repo = root.path.join("repo");
     fs::create_dir_all(&repo).unwrap();
+    let _harness = setup_compose_discover_repo(&repo, false);
 
     let first = run_discover(&repo, &[]);
     assert!(first.status.success(), "first write should succeed");
 
-    let registry_path = repo.join(".wax/wax.registry.json");
+    let registry_path = repo.join(".wax/compose.registry.json");
     let original = fs::read_to_string(&registry_path).unwrap();
 
     let second = run_discover(&repo, &[]);
@@ -216,11 +349,12 @@ fn force_replaces_existing_registry() {
     let root = TestDir::new("registry-discover-force");
     let repo = root.path.join("repo");
     fs::create_dir_all(&repo).unwrap();
+    let _harness = setup_compose_discover_repo(&repo, false);
 
     let first = run_discover(&repo, &[]);
     assert!(first.status.success());
 
-    let registry_path = repo.join(".wax/wax.registry.json");
+    let registry_path = repo.join(".wax/compose.registry.json");
     fs::write(&registry_path, "{\"schema_version\":1,\"components\":[]}\n").unwrap();
 
     let forced = run_discover(&repo, &["--force"]);
@@ -251,6 +385,7 @@ fun PrimaryButton() {}
 "#,
     )
     .unwrap();
+    let _harness = setup_compose_discover_repo(&repo, false);
 
     let outside_cwd = root.path.join("outside");
     fs::create_dir_all(&outside_cwd).unwrap();
@@ -288,6 +423,7 @@ fn dry_run_uses_config_roots_when_root_omitted() {
     fs::create_dir_all(&repo).unwrap();
     link_compose_fixture_into_repo(&repo);
     write_compose_config_with_roots(&repo, &["design-system/src/main/kotlin"]);
+    let _harness = setup_compose_discover_repo(&repo, false);
 
     let output = Command::new(env!("CARGO_BIN_EXE_wax"))
         .args([
@@ -316,7 +452,7 @@ fn dry_run_uses_config_roots_when_root_omitted() {
     assert!(registry["components"].as_array().unwrap().len() >= 2);
     assert!(stderr.contains("warning:"));
     assert!(stderr.contains("--root path/to/design-system"));
-    assert!(!repo.join(".wax/wax.registry.json").exists());
+    assert!(!repo.join(".wax/compose.registry.json").exists());
 }
 
 #[test]
@@ -343,5 +479,5 @@ fn missing_root_fails_with_guidance() {
 
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("pass --root path/to/design-system"));
-    assert!(!repo.join(".wax/wax.registry.json").exists());
+    assert!(!repo.join(".wax/compose.registry.json").exists());
 }

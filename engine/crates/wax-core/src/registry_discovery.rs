@@ -14,6 +14,7 @@ use thiserror::Error;
 use wax_contract::LanguageId;
 use wax_lang_api::{DiscoverRequest, DiscoverRequestType, WIRE_API_VERSION};
 
+use crate::auto_install::{InstalledManifest, installed_manifest_matches_locked};
 use crate::config::lockfile::{
     LockedRegistry, LockfileError, WAX_LOCK_SCHEMA_VERSION, load_lockfile,
 };
@@ -397,10 +398,11 @@ pub fn discover_registry(
 
     let contents = serde_json::to_string_pretty(&registry)
         .map_err(|source| RegistryDiscoverError::Serialize { source })?;
+    let written_bytes = format!("{contents}\n");
     write_registry_atomically(
         &output_path,
         &path_display,
-        format!("{contents}\n").as_bytes(),
+        written_bytes.as_bytes(),
         options.force,
     )?;
 
@@ -412,7 +414,7 @@ pub fn discover_registry(
         &repo_files.lockfile_path,
         language_id.clone(),
         output_source,
-        sha256_hex(contents.as_bytes()),
+        sha256_hex(written_bytes.as_bytes()),
     )?;
 
     Ok(RegistryDiscoverResult {
@@ -584,7 +586,12 @@ fn should_patch_config_registry(entry: &LanguageEntry) -> bool {
 }
 
 fn is_external_registry_source(source: &str) -> bool {
-    source.starts_with("http://") || source.starts_with("https://") || source.starts_with("file://")
+    if source.contains("://") {
+        return true;
+    }
+
+    let lower = source.to_ascii_lowercase();
+    lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("file://")
 }
 
 fn validate_repo_relative_registry_path(
@@ -620,7 +627,12 @@ fn repo_relative_output_source(repo_root: &Path, output_path: &Path) -> String {
 struct InstalledManifestFile {
     id: LanguageId,
     version: String,
+    api_version: u32,
     command: Vec<String>,
+    #[serde(default)]
+    target: String,
+    #[serde(default)]
+    sha256: String,
 }
 
 fn resolve_installed_pack_command(
@@ -655,6 +667,15 @@ fn resolve_installed_pack_command(
     if manifest.id != *language_id
         || manifest.version != locked.version
         || manifest.command.is_empty()
+        || !installed_manifest_matches_locked(
+            &InstalledManifest {
+                version: manifest.version.clone(),
+                api_version: manifest.api_version,
+                target: manifest.target.clone(),
+                sha256: manifest.sha256.clone(),
+            },
+            locked,
+        )
     {
         return Err(RegistryDiscoverError::PackNotInstalled {
             language_id: language_id.clone(),

@@ -184,6 +184,17 @@ pub fn evaluate_auto_install_policy(input: &AutoInstallPolicyInput) -> AutoInsta
     }
 }
 
+/// Returns whether one installed manifest matches the exact artifact pinned in the lockfile.
+pub(crate) fn installed_manifest_matches_locked(
+    manifest: &InstalledManifest,
+    locked: &LockedLanguage,
+) -> bool {
+    manifest.version == locked.version
+        && manifest.api_version == locked.api_version
+        && manifest.target == locked.resolved.target
+        && manifest.sha256 == locked.resolved.sha256
+}
+
 fn has_matching_installed_manifest(
     installed_manifests: &BTreeMap<LanguageId, Vec<InstalledManifest>>,
     language_id: &LanguageId,
@@ -192,12 +203,9 @@ fn has_matching_installed_manifest(
     installed_manifests
         .get(language_id)
         .is_some_and(|manifests| {
-            manifests.iter().any(|manifest| {
-                manifest.version == locked.version
-                    && manifest.api_version == locked.api_version
-                    && manifest.target == locked.resolved.target
-                    && manifest.sha256 == locked.resolved.sha256
-            })
+            manifests
+                .iter()
+                .any(|manifest| installed_manifest_matches_locked(manifest, locked))
         })
 }
 
