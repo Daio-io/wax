@@ -13,8 +13,8 @@ use thiserror::Error;
 use wax_contract::LanguageId;
 use wax_core::config::lockfile::{LockedRegistry, WAX_LOCK_SCHEMA_VERSION, WaxLock};
 use wax_core::config::repo_files::{
-    DEFAULT_REGISTRY_RELATIVE_PATH, PREFERRED_CONFIG_RELATIVE_PATH,
-    PREFERRED_LOCKFILE_RELATIVE_PATH,
+    PREFERRED_CONFIG_RELATIVE_PATH, PREFERRED_LOCKFILE_RELATIVE_PATH,
+    default_registry_path_for_language,
 };
 use wax_core::config::waxrc::WAXRC_SCHEMA_VERSION;
 use wax_core::registry::{
@@ -39,9 +39,10 @@ struct ResolvedInitLanguage {
 }
 
 struct PendingRegistryScaffold {
+    language_id: LanguageId,
     path: PathBuf,
-    contents: String,
     sha256: String,
+    contents: String,
 }
 
 /// Options for `wax init`.
@@ -136,11 +137,15 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
         return Err(InitCommandError::WaxConfigAlreadyExists { path: config_path });
     }
 
-    let waxrc_contents = build_waxrc_contents(&languages)?;
+    let waxrc_contents = build_waxrc_contents(&languages, options.scaffold_registries)?;
     let registry_url = resolve_registry_url(options.registry_url)?;
     let manifests = fetch_pack_index(&registry_url)?;
-    let pending_registry_scaffold =
-        pending_default_registry_scaffold(&options.repo_root, options.scaffold_registries);
+    let pending_registry_scaffolds =
+        pending_registry_scaffolds(&options.repo_root, &languages, options.scaffold_registries);
+    let scaffold_by_language = pending_registry_scaffolds
+        .iter()
+        .map(|scaffold| (scaffold.language_id.clone(), scaffold))
+        .collect::<BTreeMap<_, _>>();
     let target = options
         .target_triple
         .clone()
@@ -169,22 +174,24 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
             &target,
             &resolved.artifact,
         );
-        let registry_source = if let Some(scaffold) = &pending_registry_scaffold {
-            LockedRegistry {
-                source: DEFAULT_REGISTRY_RELATIVE_PATH.to_owned(),
-                sha256: scaffold.sha256.clone(),
-            }
-        } else {
-            let registry_source = resolve_registry_source(RegistrySourceInput {
-                repo_root: &options.repo_root,
-                language_id: resolved.manifest.id.as_str(),
-                source: None,
-            })?;
-            LockedRegistry {
-                source: registry_source.source,
-                sha256: registry_source.sha256,
-            }
-        };
+        let registry_source =
+            if let Some(scaffold) = scaffold_by_language.get(&resolved.manifest.id) {
+                LockedRegistry {
+                    source: default_registry_path_for_language(&resolved.manifest.id),
+                    sha256: scaffold.sha256.clone(),
+                }
+            } else {
+                let repo_relative = default_registry_path_for_language(&resolved.manifest.id);
+                let registry_source = resolve_registry_source(RegistrySourceInput {
+                    repo_root: &options.repo_root,
+                    language_id: resolved.manifest.id.as_str(),
+                    source: Some(&repo_relative),
+                })?;
+                LockedRegistry {
+                    source: registry_source.source,
+                    sha256: registry_source.sha256,
+                }
+            };
         lockfile
             .registries
             .insert(resolved.manifest.id.clone(), registry_source);
@@ -195,7 +202,7 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
         source,
     })?;
     write_file_atomically(&config_path, &waxrc_contents)?;
-    if let Some(scaffold) = &pending_registry_scaffold {
+    for scaffold in &pending_registry_scaffolds {
         write_file_atomically(&scaffold.path, &scaffold.contents)?;
     }
     save_lockfile(&lockfile_path, &lockfile)?;
@@ -232,7 +239,10 @@ fn dedupe_languages(languages: &[LanguageId]) -> Vec<LanguageId> {
     deduped
 }
 
-fn build_waxrc_contents(selected: &[LanguageId]) -> Result<String, InitCommandError> {
+fn build_waxrc_contents(
+    selected: &[LanguageId],
+    scaffold_registries: bool,
+) -> Result<String, InitCommandError> {
     let mut template: serde_json::Value = serde_json::from_str(EXAMPLE_WAXRC)
         .map_err(|source| InitCommandError::InvalidExampleWaxRc { source })?;
     let Some(languages) = template
@@ -271,7 +281,18 @@ fn build_waxrc_contents(selected: &[LanguageId]) -> Result<String, InitCommandEr
     for entry in &mut filtered {
         if let Some(object) = entry.as_object_mut() {
             object.remove("design_system_registry");
-            object.remove("registry");
+            if scaffold_registries {
+                if let Some(id) = object.get("id").and_then(serde_json::Value::as_str) {
+                    let language_id = LanguageId::try_from(id)
+                        .expect("example template language ids are validated");
+                    object.insert(
+                        "registry".to_owned(),
+                        serde_json::json!(default_registry_path_for_language(&language_id)),
+                    );
+                }
+            } else {
+                object.remove("registry");
+            }
         }
     }
 
@@ -313,25 +334,32 @@ fn update_gitignore(repo_root: &Path) -> Result<(), InitCommandError> {
     })
 }
 
-fn pending_default_registry_scaffold(
+fn pending_registry_scaffolds(
     repo_root: &Path,
+    languages: &[LanguageId],
     scaffold_registries: bool,
-) -> Option<PendingRegistryScaffold> {
+) -> Vec<PendingRegistryScaffold> {
     if !scaffold_registries {
-        return None;
+        return Vec::new();
     }
 
-    let path = repo_root.join(DEFAULT_REGISTRY_RELATIVE_PATH);
-    if path.exists() {
-        return None;
-    }
-
-    let contents = rendered_file_contents(EXAMPLE_DESIGN_SYSTEM_REGISTRY);
-    Some(PendingRegistryScaffold {
-        path,
-        sha256: sha256_hex(contents.as_bytes()),
-        contents,
-    })
+    languages
+        .iter()
+        .filter_map(|language_id| {
+            let repo_relative = default_registry_path_for_language(language_id);
+            let path = repo_root.join(&repo_relative);
+            if path.exists() {
+                return None;
+            }
+            let contents = rendered_file_contents(EXAMPLE_DESIGN_SYSTEM_REGISTRY);
+            Some(PendingRegistryScaffold {
+                language_id: language_id.clone(),
+                path,
+                sha256: sha256_hex(contents.as_bytes()),
+                contents,
+            })
+        })
+        .collect()
 }
 
 fn write_file_atomically(path: &Path, contents: &str) -> Result<(), InitCommandError> {
@@ -377,6 +405,10 @@ mod tests {
     use std::path::PathBuf;
     use wax_contract::LanguageId;
     use wax_core::config::lockfile::load_lockfile;
+    use wax_core::config::repo_files::{
+        PREFERRED_CONFIG_RELATIVE_PATH, PREFERRED_LOCKFILE_RELATIVE_PATH,
+        default_registry_path_for_language,
+    };
     use wax_core::config::waxrc::load_waxrc;
     use wax_core::global_state::{GlobalState, load_global_state};
 
@@ -432,8 +464,8 @@ mod tests {
         format!("file://{}", path.display())
     }
 
-    fn write_default_registry(repo_root: &Path) {
-        let registry_path = repo_root.join(DEFAULT_REGISTRY_RELATIVE_PATH);
+    fn write_default_registry(repo_root: &Path, language_id: &LanguageId) {
+        let registry_path = repo_root.join(default_registry_path_for_language(language_id));
         if let Some(parent) = registry_path.parent() {
             fs::create_dir_all(parent).unwrap();
         }
@@ -535,16 +567,28 @@ mod tests {
         assert_eq!(waxrc.languages.len(), 1);
         assert_eq!(waxrc.languages[0].id, lang("compose"));
         assert!(waxrc.languages[0].enabled);
-        assert!(waxrc.languages[0].registry_source().is_none());
+        assert_eq!(
+            waxrc.languages[0]
+                .registry_source()
+                .map(|source| source.source),
+            Some(default_registry_path_for_language(&lang("compose")))
+        );
 
         let lock = load_lockfile(repo_root.join(PREFERRED_LOCKFILE_RELATIVE_PATH)).unwrap();
         let compose = lock.languages.get(&lang("compose")).unwrap();
         assert_eq!(compose.version, "0.4.2");
         assert_eq!(compose.resolved.target, "test-target");
         let registry = lock.registries.get(&lang("compose")).unwrap();
-        assert_eq!(registry.source, DEFAULT_REGISTRY_RELATIVE_PATH);
+        assert_eq!(
+            registry.source,
+            default_registry_path_for_language(&lang("compose"))
+        );
 
-        assert!(repo_root.join(DEFAULT_REGISTRY_RELATIVE_PATH).is_file());
+        assert!(
+            repo_root
+                .join(default_registry_path_for_language(&lang("compose")))
+                .is_file()
+        );
 
         let state = load_global_state(temp.path.join("home/state.json")).unwrap();
         assert!(state.installed_languages[&lang("compose")].contains_key("0.4.2"));
@@ -575,7 +619,7 @@ mod tests {
 
         let repo_root = temp.path.join("repo");
         fs::create_dir_all(&repo_root).unwrap();
-        write_default_registry(&repo_root);
+        write_default_registry(&repo_root, &lang("compose"));
 
         run_init(
             InitOptions {
@@ -623,8 +667,8 @@ mod tests {
         let second_repo = temp.path.join("second-repo");
         fs::create_dir_all(&first_repo).unwrap();
         fs::create_dir_all(&second_repo).unwrap();
-        write_default_registry(&first_repo);
-        write_default_registry(&second_repo);
+        write_default_registry(&first_repo, &lang("compose"));
+        write_default_registry(&second_repo, &lang("compose"));
         let state_path = temp.path.join("home/state.json");
 
         run_init(
@@ -739,7 +783,11 @@ mod tests {
         ));
         assert!(!repo_root.join(PREFERRED_CONFIG_RELATIVE_PATH).exists());
         assert!(!repo_root.join(PREFERRED_LOCKFILE_RELATIVE_PATH).exists());
-        assert!(!repo_root.join(DEFAULT_REGISTRY_RELATIVE_PATH).exists());
+        assert!(
+            !repo_root
+                .join(default_registry_path_for_language(&lang("compose")))
+                .exists()
+        );
     }
 
     #[test]
@@ -779,11 +827,15 @@ mod tests {
         assert!(matches!(err, InitCommandError::RegistrySource(_)));
         assert!(!repo_root.join(PREFERRED_CONFIG_RELATIVE_PATH).exists());
         assert!(!repo_root.join(PREFERRED_LOCKFILE_RELATIVE_PATH).exists());
-        assert!(!repo_root.join(DEFAULT_REGISTRY_RELATIVE_PATH).exists());
+        assert!(
+            !repo_root
+                .join(default_registry_path_for_language(&lang("compose")))
+                .exists()
+        );
     }
 
     #[test]
-    fn init_does_not_overwrite_existing_centralized_registry_when_scaffolding() {
+    fn init_does_not_overwrite_existing_per_language_registry_when_scaffolding() {
         let _guard = env_lock();
         let temp = TestDir::new("preserve-existing-registry");
         let _wax_home = EnvVarGuard::set("WAX_HOME", temp.path.join("home"));
@@ -803,7 +855,8 @@ mod tests {
 
         let repo_root = temp.path.join("repo");
         fs::create_dir_all(&repo_root).unwrap();
-        let existing_registry = repo_root.join(DEFAULT_REGISTRY_RELATIVE_PATH);
+        let existing_registry =
+            repo_root.join(default_registry_path_for_language(&lang("compose")));
         fs::create_dir_all(existing_registry.parent().unwrap()).unwrap();
         fs::write(
             &existing_registry,
@@ -873,7 +926,8 @@ mod tests {
         .unwrap();
 
         let lock = load_lockfile(repo_root.join(PREFERRED_LOCKFILE_RELATIVE_PATH)).unwrap();
-        let registry_bytes = fs::read(repo_root.join(DEFAULT_REGISTRY_RELATIVE_PATH)).unwrap();
+        let registry_bytes =
+            fs::read(repo_root.join(default_registry_path_for_language(&lang("compose")))).unwrap();
         assert_eq!(
             lock.registries[&lang("compose")].sha256,
             sha256_hex(&registry_bytes)
@@ -901,7 +955,7 @@ mod tests {
 
         let repo_root = temp.path.join("repo");
         fs::create_dir_all(&repo_root).unwrap();
-        write_default_registry(&repo_root);
+        write_default_registry(&repo_root, &lang("compose"));
 
         run_init(
             InitOptions {
