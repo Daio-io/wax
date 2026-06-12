@@ -2,6 +2,7 @@
 
 #![deny(missing_docs)]
 
+mod component_detect;
 mod config;
 mod diagnostics;
 mod discover;

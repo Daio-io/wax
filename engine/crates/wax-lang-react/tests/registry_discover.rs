@@ -75,6 +75,107 @@ fn parse_failures_are_reported() -> io::Result<()> {
 }
 
 #[test]
+fn parse_failures_fail_entire_discover_even_with_valid_files() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    fs::write(
+        tempdir.path().join("Button.tsx"),
+        "export function Button() { return <button />; }",
+    )?;
+    fs::write(tempdir.path().join("Broken.tsx"), "export const Broken = (")?;
+
+    let err =
+        discover_registry_symbols(&[tempdir.path().to_path_buf()]).expect_err("parse should fail");
+
+    assert!(err.to_string().contains("failed to parse"));
+    assert!(err.to_string().contains("Broken.tsx"));
+    Ok(())
+}
+
+#[test]
+fn discover_detects_chained_memo_forward_ref_exports() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    fs::write(
+        tempdir.path().join("Wrapped.tsx"),
+        r#"
+        import { forwardRef, memo } from "react";
+
+        export const ChainedInput = memo(forwardRef(function ChainedInput() {
+            return <input />;
+        }));
+        "#,
+    )?;
+
+    let symbols = discover_registry_symbols(&[tempdir.path().to_path_buf()])
+        .expect("discover should succeed");
+
+    assert_eq!(symbols, vec!["ChainedInput".to_owned()]);
+    Ok(())
+}
+
+#[test]
+fn discover_detects_default_chained_memo_forward_ref_exports() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    fs::write(
+        tempdir.path().join("DefaultWrapped.tsx"),
+        r#"
+        import { forwardRef, memo } from "react";
+
+        export default memo(forwardRef(function DefaultChainedInput() {
+            return <input />;
+        }));
+        "#,
+    )?;
+
+    let symbols = discover_registry_symbols(&[tempdir.path().to_path_buf()])
+        .expect("discover should succeed");
+
+    assert_eq!(symbols, vec!["DefaultChainedInput".to_owned()]);
+    Ok(())
+}
+
+#[test]
+fn discover_detects_default_forward_ref_exports() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    fs::write(
+        tempdir.path().join("DefaultInput.tsx"),
+        r#"
+        import { forwardRef } from "react";
+
+        export default forwardRef(function DefaultInput() {
+            return <input />;
+        });
+        "#,
+    )?;
+
+    let symbols = discover_registry_symbols(&[tempdir.path().to_path_buf()])
+        .expect("discover should succeed");
+
+    assert_eq!(symbols, vec!["DefaultInput".to_owned()]);
+    Ok(())
+}
+
+#[test]
+fn discover_defers_aliased_named_exports() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    fs::write(
+        tempdir.path().join("Button.tsx"),
+        r#"
+        function Button() {
+            return <button />;
+        }
+
+        export { Button as Alias };
+        "#,
+    )?;
+
+    let symbols = discover_registry_symbols(&[tempdir.path().to_path_buf()])
+        .expect("discover should succeed");
+
+    assert!(symbols.is_empty());
+    Ok(())
+}
+
+#[test]
 fn invalid_language_id_fails() {
     let request = DiscoverRequest {
         request_type: DiscoverRequestType::Discover,
