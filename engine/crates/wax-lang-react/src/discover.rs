@@ -6,11 +6,14 @@ use std::path::{Path, PathBuf};
 
 use swc_common::Span;
 use swc_ecma_ast::{
-    BinaryOp, BlockStmt, BlockStmtOrExpr, Callee, Class, ClassMember, Decl, DefaultDecl,
-    ExportSpecifier, Expr, Function, ImportSpecifier, MemberProp, ModuleDecl, ModuleExportName,
-    ModuleItem, Pat, Stmt, VarDeclarator,
+    Callee, Decl, DefaultDecl, ExportSpecifier, Expr, ImportSpecifier, MemberProp, ModuleDecl,
+    ModuleItem, Stmt, VarDeclarator,
 };
 
+use crate::component_detect::{
+    class_returns_jsx, expression_returns_jsx, function_returns_jsx, is_pascal_case,
+    module_export_name, simple_binding_ident,
+};
 use crate::swc_parse::{ReactParseOutcome, parse_react_source_file};
 
 /// Errors produced while discovering React registry symbols.
@@ -441,103 +444,6 @@ fn collect_wrapper_var_declarator(
     false
 }
 
-fn function_returns_jsx(function: &Function) -> bool {
-    function.body.as_ref().is_some_and(block_returns_jsx)
-}
-
-fn class_returns_jsx(class: &Class) -> bool {
-    class.body.iter().any(|member| {
-        let ClassMember::Method(method) = member else {
-            return false;
-        };
-        if !matches!(&method.key, swc_ecma_ast::PropName::Ident(ident) if ident.sym.as_ref() == "render")
-        {
-            return false;
-        }
-        function_returns_jsx(&method.function)
-    })
-}
-
-fn expression_returns_jsx(expr: &Expr) -> bool {
-    match expr {
-        Expr::Arrow(arrow) => match &*arrow.body {
-            BlockStmtOrExpr::BlockStmt(block) => block_returns_jsx(block),
-            BlockStmtOrExpr::Expr(expr) => is_jsx_expression(expr, &BTreeSet::new()),
-        },
-        Expr::Fn(fn_expr) => function_returns_jsx(&fn_expr.function),
-        _ => false,
-    }
-}
-
-fn block_returns_jsx(block: &BlockStmt) -> bool {
-    let mut jsx_bindings = BTreeSet::new();
-    block
-        .stmts
-        .iter()
-        .any(|stmt| stmt_returns_jsx(stmt, &mut jsx_bindings))
-}
-
-fn stmt_returns_jsx(stmt: &Stmt, jsx_bindings: &mut BTreeSet<String>) -> bool {
-    match stmt {
-        Stmt::Decl(Decl::Var(var_decl)) => {
-            for declarator in &var_decl.decls {
-                if let Some((name, _)) = simple_binding_ident(declarator)
-                    && declarator
-                        .init
-                        .as_deref()
-                        .is_some_and(|expr| is_jsx_expression(expr, jsx_bindings))
-                {
-                    jsx_bindings.insert(name);
-                }
-            }
-            false
-        }
-        Stmt::Return(return_stmt) => return_stmt
-            .arg
-            .as_deref()
-            .is_some_and(|expr| is_jsx_expression(expr, jsx_bindings)),
-        Stmt::Block(block) => {
-            let mut nested_bindings = jsx_bindings.clone();
-            block
-                .stmts
-                .iter()
-                .any(|stmt| stmt_returns_jsx(stmt, &mut nested_bindings))
-        }
-        Stmt::If(if_stmt) => {
-            let mut consequent_bindings = jsx_bindings.clone();
-            let consequent_returns = stmt_returns_jsx(&if_stmt.cons, &mut consequent_bindings);
-            let alternate_returns = if_stmt.alt.as_deref().is_some_and(|stmt| {
-                let mut alternate_bindings = jsx_bindings.clone();
-                stmt_returns_jsx(stmt, &mut alternate_bindings)
-            });
-            consequent_returns || alternate_returns
-        }
-        _ => false,
-    }
-}
-
-fn is_jsx_expression(expr: &Expr, jsx_bindings: &BTreeSet<String>) -> bool {
-    match expr {
-        Expr::JSXElement(_) | Expr::JSXFragment(_) => true,
-        Expr::Ident(ident) => jsx_bindings.contains(ident.sym.as_ref()),
-        Expr::Paren(paren) => is_jsx_expression(&paren.expr, jsx_bindings),
-        Expr::Cond(cond) => {
-            is_jsx_expression(&cond.cons, jsx_bindings)
-                || is_jsx_expression(&cond.alt, jsx_bindings)
-        }
-        Expr::Bin(binary)
-            if matches!(
-                binary.op,
-                BinaryOp::LogicalAnd | BinaryOp::LogicalOr | BinaryOp::NullishCoalescing
-            ) =>
-        {
-            is_jsx_expression(&binary.left, jsx_bindings)
-                || is_jsx_expression(&binary.right, jsx_bindings)
-        }
-        _ => false,
-    }
-}
-
 fn is_memo_call_of_detected_component(
     expr: &Expr,
     detected: &BTreeSet<String>,
@@ -563,6 +469,7 @@ fn is_memo_call_of_inline_component(expr: &Expr, wrapper_callees: &ReactWrapperC
         return false;
     }
     expression_returns_jsx(&call.args[0].expr)
+        || is_forward_ref_call_of_inline_component(&call.args[0].expr, wrapper_callees)
 }
 
 fn is_forward_ref_call_of_inline_component(
@@ -601,20 +508,42 @@ fn default_wrapper_component(
                     return Some((ident.sym.to_string(), ident.span));
                 }
             }
+            Expr::Call(_) => {
+                if let Some(component) =
+                    forward_ref_function_component(&call.args[0].expr, wrapper_callees)
+                {
+                    return Some(component);
+                }
+            }
             _ => {}
         }
     }
 
-    if callee_matches(&call.callee, "forwardRef", wrapper_callees)
-        && let Expr::Fn(fn_expr) = &*call.args[0].expr
-    {
-        let ident = fn_expr.ident.as_ref()?;
-        if function_returns_jsx(&fn_expr.function) {
-            return Some((ident.sym.to_string(), ident.span));
-        }
+    if let Some(component) = forward_ref_function_component(expr, wrapper_callees) {
+        return Some(component);
     }
 
     None
+}
+
+fn forward_ref_function_component(
+    expr: &Expr,
+    wrapper_callees: &ReactWrapperCallees,
+) -> Option<(String, Span)> {
+    let Expr::Call(call) = expr else {
+        return None;
+    };
+    if !callee_matches(&call.callee, "forwardRef", wrapper_callees) || call.args.len() != 1 {
+        return None;
+    }
+    let Expr::Fn(fn_expr) = &*call.args[0].expr else {
+        return None;
+    };
+    let ident = fn_expr.ident.as_ref()?;
+    if !function_returns_jsx(&fn_expr.function) {
+        return None;
+    }
+    Some((ident.sym.to_string(), ident.span))
 }
 
 fn callee_matches(callee: &Callee, expected: &str, wrapper_callees: &ReactWrapperCallees) -> bool {
@@ -622,6 +551,9 @@ fn callee_matches(callee: &Callee, expected: &str, wrapper_callees: &ReactWrappe
         return false;
     };
 
+    // Discover is import-aware so registry authoring does not treat arbitrary
+    // local memo/forwardRef helpers as public React component wrappers. Scan
+    // remains permissive for compatibility with existing local-component facts.
     match &**expr {
         Expr::Ident(ident) => match expected {
             "memo" => wrapper_callees.direct_memo.contains(ident.sym.as_ref()),
@@ -640,27 +572,6 @@ fn callee_matches(callee: &Callee, expected: &str, wrapper_callees: &ReactWrappe
                 && matches!(&member.prop, MemberProp::Ident(prop) if prop.sym.as_ref() == expected)
         }
         _ => false,
-    }
-}
-
-fn simple_binding_ident(declarator: &VarDeclarator) -> Option<(String, Span)> {
-    match &declarator.name {
-        Pat::Ident(binding) => Some((binding.id.sym.to_string(), binding.id.span)),
-        _ => None,
-    }
-}
-
-fn is_pascal_case(symbol: &str) -> bool {
-    symbol
-        .chars()
-        .next()
-        .is_some_and(|ch| ch.is_ascii_uppercase())
-}
-
-fn module_export_name(name: &ModuleExportName) -> String {
-    match name {
-        ModuleExportName::Ident(ident) => ident.sym.to_string(),
-        ModuleExportName::Str(value) => value.value.to_string_lossy().to_string(),
     }
 }
 

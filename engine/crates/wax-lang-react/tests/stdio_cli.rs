@@ -58,6 +58,29 @@ fn stdio_cli_returns_config_invalid_for_missing_discover_root() {
 }
 
 #[test]
+fn stdio_cli_returns_config_invalid_for_bad_discover_language_id() {
+    let temp = tempfile::tempdir().expect("temp dir should be created");
+    let request = json!({
+        "type": "discover",
+        "api_version": 1,
+        "language_id": "compose",
+        "repo_root": temp.path().display().to_string(),
+        "roots": ["src"]
+    });
+
+    let output = run_stdio_request(&request);
+    let response: WirePackResponse = serde_json::from_str(output.trim()).unwrap();
+
+    match response {
+        WirePackResponse::Error { code, message, .. } => {
+            assert_eq!(code, WireErrorCode::ConfigInvalid);
+            assert!(message.contains("invalid react language id"));
+        }
+        other => panic!("expected error response, got {other:?}"),
+    }
+}
+
+#[test]
 fn stdio_cli_returns_scan_failed_for_discover_parse_failure() {
     let temp = tempfile::tempdir().expect("temp dir should be created");
     let src = temp.path().join("src");
