@@ -118,7 +118,7 @@ require_includes!(
 
 require_includes!(
   workflow,
-  "npm config delete //registry.npmjs.org/:_authToken",
+  "sed -i '/:_authToken/d' \"$npmrc\"",
   "setup-node .npmrc auth clearing before trusted publish"
 )
 

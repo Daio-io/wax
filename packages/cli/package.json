@@ -5,11 +5,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Daio-io/wax.git",
+    "url": "https://github.com/Daio-io/wax.git",
     "directory": "packages/cli"
   },
   "bin": {
-    "wax": "./run.js"
+    "wax": "run.js"
   },
   "scripts": {
     "postinstall": "node postinstall.js",
