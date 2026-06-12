@@ -16,7 +16,7 @@ The v1 registry discovery workflow shipped with an intentional exception: `wax-c
 3. **Installed pack required** — discover fails with a clear error when the locked pack is not installed locally (for example: `registry discovery requires language pack compose to be installed; run wax language install compose`). There is no in-process fallback.
 4. **Per-language registry files** — each `wax registry discover --language <id>` writes only that language's registry file. When the language entry has no configured `registry`, the default path is `.wax/<language-id>.registry.json`. Multi-language discover does not merge files or require `--force` across languages; duplicate symbols across files are allowed.
 5. **Config and lockfile patch on write** — when discover creates the default per-language path, it patches the loaded wax config to set `"registry": ".wax/<id>.registry.json"` on that language entry and updates `wax.lock.json` `registries[<id>]` with `{ source, sha256 }`. Dry-run prints JSON to stdout without writing or patching.
-6. **Unsupported discover for other packs** — `wax-lang-basic` and `wax-lang-react` route discover requests and return `discover_unsupported` until they add heuristics. React symbol discovery remains follow-up work.
+6. **Unsupported discover for other packs** — `wax-lang-basic` routes discover requests and returns `discover_unsupported`. `wax-lang-react` implements conservative parser-backed symbol discovery for exported public components and simple memo/forwardRef wrappers.
 
 ## Implementation summary
 
@@ -29,7 +29,8 @@ All 10 tasks shipped:
 | Per-language paths | `default_registry_path_for_language` helper |
 | Core orchestration | Subprocess discover, per-language writes, config/lock patch, external source rejection |
 | Compose pack | `discover()` handler and unified stdio loop |
-| Basic and React | Discover routing with `discover_unsupported` |
+| React pack | Parser-backed `discover()` handler and unified stdio loop |
+| Basic pack | Discover routing with `discover_unsupported` |
 | CLI | Per-language output messages and integration tests |
 | Init | Per-language registry scaffold on `wax init` |
 | Documentation | This ADR, language packs spec discover section, superseded notes |
@@ -47,7 +48,7 @@ All 10 tasks shipped:
 ### Negative / trade-offs
 
 - Discover now requires a globally installed pack (behavior change from v1 in-process shortcut).
-- React discover is deferred; users must author React registries manually or via skill-assisted sync until heuristics land.
+- React discover initially shipped deferred, then gained conservative parser-backed symbol discovery in `wax-lang-react`; Basic remains intentionally unsupported.
 - `WireScanRequest` / `WireScanResponse` remain scan-only; pack stdio loops use the superset pack enums (minor duplication until a shared loop helper is extracted).
 
 ## References
