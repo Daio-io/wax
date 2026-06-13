@@ -8,10 +8,10 @@ use wax_lang_react::{ReactLanguage, discover_registry_symbols};
 fn discover_registry_symbols_emits_exported_public_components() {
     let root = fixture_root().join("design-system/src");
 
-    let symbols = discover_registry_symbols(&[root]).expect("discover should succeed");
+    let result = discover_registry_symbols(&[root]).expect("discover should succeed");
 
     assert_eq!(
-        symbols,
+        result.symbols,
         vec![
             "Button".to_owned(),
             "Card".to_owned(),
@@ -61,21 +61,29 @@ fn missing_root_fails() {
 }
 
 #[test]
-fn parse_failures_are_reported() -> io::Result<()> {
+fn parse_failures_are_skipped_with_diagnostics() -> io::Result<()> {
     let tempdir = tempfile::tempdir()?;
     let broken_file = tempdir.path().join("Broken.tsx");
     fs::write(&broken_file, "export const Broken = (")?;
 
-    let err =
-        discover_registry_symbols(&[tempdir.path().to_path_buf()]).expect_err("parse should fail");
+    let result = discover_registry_symbols(&[tempdir.path().to_path_buf()])
+        .expect("discover should continue after parse failure");
 
-    assert!(err.to_string().contains("failed to parse"));
-    assert!(err.to_string().contains("Broken.tsx"));
+    assert!(result.symbols.is_empty());
+    assert_eq!(result.diagnostics.len(), 1);
+    assert_eq!(result.diagnostics[0].code, "parse_failed");
+    assert!(
+        result.diagnostics[0]
+            .location
+            .as_ref()
+            .is_some_and(|location| location.file.contains("Broken.tsx"))
+            || result.diagnostics[0].message.contains("Broken.tsx")
+    );
     Ok(())
 }
 
 #[test]
-fn parse_failures_fail_entire_discover_even_with_valid_files() -> io::Result<()> {
+fn parse_failures_do_not_block_symbols_from_other_files() -> io::Result<()> {
     let tempdir = tempfile::tempdir()?;
     fs::write(
         tempdir.path().join("Button.tsx"),
@@ -83,11 +91,12 @@ fn parse_failures_fail_entire_discover_even_with_valid_files() -> io::Result<()>
     )?;
     fs::write(tempdir.path().join("Broken.tsx"), "export const Broken = (")?;
 
-    let err =
-        discover_registry_symbols(&[tempdir.path().to_path_buf()]).expect_err("parse should fail");
+    let result = discover_registry_symbols(&[tempdir.path().to_path_buf()])
+        .expect("discover should continue after parse failure");
 
-    assert!(err.to_string().contains("failed to parse"));
-    assert!(err.to_string().contains("Broken.tsx"));
+    assert_eq!(result.symbols, vec!["Button".to_owned()]);
+    assert_eq!(result.diagnostics.len(), 1);
+    assert_eq!(result.diagnostics[0].code, "parse_failed");
     Ok(())
 }
 
@@ -105,10 +114,10 @@ fn discover_detects_chained_memo_forward_ref_exports() -> io::Result<()> {
         "#,
     )?;
 
-    let symbols = discover_registry_symbols(&[tempdir.path().to_path_buf()])
+    let result = discover_registry_symbols(&[tempdir.path().to_path_buf()])
         .expect("discover should succeed");
 
-    assert_eq!(symbols, vec!["ChainedInput".to_owned()]);
+    assert_eq!(result.symbols, vec!["ChainedInput".to_owned()]);
     Ok(())
 }
 
@@ -126,10 +135,10 @@ fn discover_detects_default_chained_memo_forward_ref_exports() -> io::Result<()>
         "#,
     )?;
 
-    let symbols = discover_registry_symbols(&[tempdir.path().to_path_buf()])
+    let result = discover_registry_symbols(&[tempdir.path().to_path_buf()])
         .expect("discover should succeed");
 
-    assert_eq!(symbols, vec!["DefaultChainedInput".to_owned()]);
+    assert_eq!(result.symbols, vec!["DefaultChainedInput".to_owned()]);
     Ok(())
 }
 
@@ -147,10 +156,10 @@ fn discover_detects_default_forward_ref_exports() -> io::Result<()> {
         "#,
     )?;
 
-    let symbols = discover_registry_symbols(&[tempdir.path().to_path_buf()])
+    let result = discover_registry_symbols(&[tempdir.path().to_path_buf()])
         .expect("discover should succeed");
 
-    assert_eq!(symbols, vec!["DefaultInput".to_owned()]);
+    assert_eq!(result.symbols, vec!["DefaultInput".to_owned()]);
     Ok(())
 }
 
@@ -168,10 +177,10 @@ fn discover_defers_aliased_named_exports() -> io::Result<()> {
         "#,
     )?;
 
-    let symbols = discover_registry_symbols(&[tempdir.path().to_path_buf()])
+    let result = discover_registry_symbols(&[tempdir.path().to_path_buf()])
         .expect("discover should succeed");
 
-    assert!(symbols.is_empty());
+    assert!(result.symbols.is_empty());
     Ok(())
 }
 
@@ -208,9 +217,9 @@ fn discover_merges_symbols_from_multiple_roots() -> io::Result<()> {
         "export function Beta() { return <b />; }",
     )?;
 
-    let symbols = discover_registry_symbols(&[root_a, root_b]).expect("discover should succeed");
+    let result = discover_registry_symbols(&[root_a, root_b]).expect("discover should succeed");
 
-    assert_eq!(symbols, vec!["Alpha".to_owned(), "Beta".to_owned()]);
+    assert_eq!(result.symbols, vec!["Alpha".to_owned(), "Beta".to_owned()]);
     Ok(())
 }
 
@@ -232,9 +241,9 @@ fn discover_skips_excluded_source_files() -> io::Result<()> {
         "export function CardStory() { return <section />; }",
     )?;
 
-    let symbols = discover_registry_symbols(&[root]).expect("discover should succeed");
+    let result = discover_registry_symbols(&[root]).expect("discover should succeed");
 
-    assert_eq!(symbols, vec!["Button".to_owned()]);
+    assert_eq!(result.symbols, vec!["Button".to_owned()]);
     Ok(())
 }
 
@@ -248,9 +257,9 @@ fn discover_skips_barrel_only_roots_without_implementation_files() -> io::Result
         r#"export { Button } from "./components";"#,
     )?;
 
-    let symbols = discover_registry_symbols(&[root]).expect("discover should succeed");
+    let result = discover_registry_symbols(&[root]).expect("discover should succeed");
 
-    assert!(symbols.is_empty());
+    assert!(result.symbols.is_empty());
     Ok(())
 }
 

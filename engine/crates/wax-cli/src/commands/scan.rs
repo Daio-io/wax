@@ -80,21 +80,26 @@ fn write_scan_summary(
         .languages
         .values()
         .flat_map(|facts| facts.diagnostics.iter())
-        .filter(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error)
+        .filter(|diagnostic| {
+            diagnostic.severity == DiagnosticSeverity::Error || diagnostic.code == "parse_failed"
+        })
         .take(MAX_ERROR_DIAGNOSTICS)
         .collect::<Vec<_>>();
-    write_error_diagnostics(writer, &diagnostics)
+    write_failure_diagnostics(writer, &diagnostics)
 }
 
-fn write_error_diagnostics(
+fn write_failure_diagnostics(
     writer: &mut impl Write,
     diagnostics: &[&Diagnostic],
 ) -> Result<(), ScanCommandError> {
     if diagnostics.is_empty() {
-        writeln!(writer, "error diagnostics: none").map_err(write_error)?;
+        writeln!(writer, "failure diagnostics: none").map_err(write_error)?;
     } else {
-        writeln!(writer, "error diagnostics (up to {MAX_ERROR_DIAGNOSTICS}):")
-            .map_err(write_error)?;
+        writeln!(
+            writer,
+            "failure diagnostics (up to {MAX_ERROR_DIAGNOSTICS}):"
+        )
+        .map_err(write_error)?;
         for diagnostic in diagnostics {
             writeln!(writer, "  {}: {}", diagnostic.code, diagnostic.message)
                 .map_err(write_error)?;
@@ -123,7 +128,7 @@ mod tests {
     };
 
     #[test]
-    fn summary_renders_status_adoption_and_error_diagnostics() {
+    fn summary_renders_status_adoption_and_failure_diagnostics() {
         let mut output = Vec::new();
         let merged = MergedScan {
             schema_version: SCHEMA_VERSION,

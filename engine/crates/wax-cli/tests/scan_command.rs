@@ -110,7 +110,7 @@ fn scan_command_prints_full_summary_and_writes_output() {
     assert!(stdout.contains("compose: complete (50.0%)"));
     assert!(stdout.contains("react: partial"));
     assert!(stdout.contains("swift: failed"));
-    assert!(stdout.contains("error diagnostics (up to 5):"));
+    assert!(stdout.contains("failure diagnostics (up to 5):"));
     assert!(stdout.contains("PACK_TIMEOUT: timed out"));
     assert!(stdout.contains("PACK_CRASH: process exited"));
 }

@@ -58,7 +58,7 @@ fn parse_failures_are_skipped_with_diagnostics() -> io::Result<()> {
 
     assert!(result.symbols.is_empty());
     assert_eq!(result.diagnostics.len(), 1);
-    assert_eq!(result.diagnostics[0].severity, DiagnosticSeverity::Warning);
+    assert_eq!(result.diagnostics[0].severity, DiagnosticSeverity::Error);
     assert_eq!(result.diagnostics[0].code, "parse_failed");
     assert!(result.diagnostics[0].message.contains("Broken.kt"));
     Ok(())

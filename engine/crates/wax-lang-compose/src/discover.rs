@@ -93,7 +93,7 @@ pub fn discover_registry_symbols(
             ),
             Err(ParseKotlinFileError::ParseFailed(_)) => {
                 diagnostics.push(Diagnostic {
-                    severity: DiagnosticSeverity::Warning,
+                    severity: DiagnosticSeverity::Error,
                     code: "parse_failed".to_owned(),
                     message: format!(
                         "tree-sitter failed to parse {}; file skipped",

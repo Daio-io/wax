@@ -174,9 +174,7 @@ fn discover_error_response(
         ReactDiscoverError::InvalidLanguageId(_) | ReactDiscoverError::MissingRoot(_) => {
             WireErrorCode::ConfigInvalid
         }
-        ReactDiscoverError::ParseFailed(_) | ReactDiscoverError::Io { .. } => {
-            WireErrorCode::ScanFailed
-        }
+        ReactDiscoverError::Io { .. } => WireErrorCode::ScanFailed,
     };
     WirePackResponse::Error {
         api_version,

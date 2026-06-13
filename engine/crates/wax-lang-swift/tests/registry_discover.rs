@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::{fs, io};
 
 use wax_lang_api::{DiscoverRequest, DiscoverRequestType};
 use wax_lang_swift::{SwiftLanguage, discover::discover_registry_symbols};
@@ -13,8 +14,12 @@ fn fixture_sources_root() -> PathBuf {
 
 #[test]
 fn discovers_public_and_package_swiftui_symbols() {
-    let symbols = discover_registry_symbols(&[fixture_sources_root()]).expect("discover symbols");
-    assert_eq!(symbols, vec!["Badge", "PackageCard", "PrimaryButton"]);
+    let result = discover_registry_symbols(&[fixture_sources_root()]).expect("discover symbols");
+    assert_eq!(
+        result.symbols,
+        vec!["Badge", "PackageCard", "PrimaryButton"]
+    );
+    assert!(result.diagnostics.is_empty());
 }
 
 #[test]
@@ -25,24 +30,27 @@ fn missing_discovery_root_fails() {
 }
 
 #[test]
-fn parse_failures_are_reported() {
+fn parse_failures_are_skipped_with_diagnostics() {
     let root = fixture_root().join("broken/Sources");
-    let err = discover_registry_symbols(&[root]).expect_err("parse should fail");
-    assert!(err.to_string().contains("failed to parse"));
-    assert!(err.to_string().contains("Broken.swift"));
+    let result = discover_registry_symbols(&[root]).expect("discover should continue");
+    assert!(result.symbols.is_empty());
+    assert_eq!(result.diagnostics.len(), 1);
+    assert_eq!(result.diagnostics[0].code, "parse_failed");
+    assert!(result.diagnostics[0].message.contains("Broken.swift"));
 }
 
 #[test]
 fn duplicate_symbols_are_deduped_and_nested_symbols_are_excluded() {
-    let symbols = discover_registry_symbols(&[fixture_sources_root()]).expect("discover symbols");
+    let result = discover_registry_symbols(&[fixture_sources_root()]).expect("discover symbols");
     assert_eq!(
-        symbols
+        result
+            .symbols
             .iter()
             .filter(|symbol| *symbol == "PrimaryButton")
             .count(),
         1
     );
-    assert!(!symbols.iter().any(|symbol| symbol == "NestedCard"));
+    assert!(!result.symbols.iter().any(|symbol| symbol == "NestedCard"));
 }
 
 #[test]
@@ -62,4 +70,24 @@ fn swift_language_discover_joins_repo_relative_roots() {
         result.symbols,
         vec!["Badge", "PackageCard", "PrimaryButton"]
     );
+}
+
+#[test]
+fn parse_failures_do_not_block_symbols_from_other_files() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let good_file = tempdir.path().join("Good.swift");
+    let broken_file = tempdir.path().join("Broken.swift");
+    fs::write(
+        &good_file,
+        "@MainActor\nstruct GoodButton: View { var body: some View { Text(\"ok\") } }\n",
+    )?;
+    fs::write(&broken_file, "struct Broken(")?;
+
+    let result = discover_registry_symbols(&[tempdir.path().to_path_buf()])
+        .expect("discover should continue after parse failure");
+
+    assert_eq!(result.symbols, vec!["GoodButton"]);
+    assert_eq!(result.diagnostics.len(), 1);
+    assert_eq!(result.diagnostics[0].code, "parse_failed");
+    Ok(())
 }

@@ -19,7 +19,7 @@ use wax_contract::{LanguageId, ScanFacts, ScanFactsError};
 use wax_lang_api::{DiscoverRequest, ScanRequest};
 
 pub use config::{PackageConfig, ReactConfigMode, ReactScanConfig, parse_react_scan_config};
-pub use discover::{ReactDiscoverError, discover_registry_symbols};
+pub use discover::{DiscoverRegistryResult, ReactDiscoverError, discover_registry_symbols};
 pub use extract::{ReactUsageExtraction, collect_usage_sites, discover_local_components};
 pub use facts::{configured_scan_facts, scaffold_facts};
 pub use files::{ReactFileCollectionError, ReactSourceFileCollection, collect_react_source_files};
@@ -184,11 +184,11 @@ impl ReactLanguage {
             .map(|root| repo_root.join(root))
             .collect::<Vec<_>>();
 
-        let symbols = discover_registry_symbols(&absolute_roots)?;
+        let result = discover_registry_symbols(&absolute_roots)?;
 
         Ok(DiscoverSymbolsResult {
-            symbols,
-            diagnostics: Vec::new(),
+            symbols: result.symbols,
+            diagnostics: result.diagnostics,
         })
     }
 }
