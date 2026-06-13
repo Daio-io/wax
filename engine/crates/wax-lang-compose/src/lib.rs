@@ -15,7 +15,7 @@ use wax_contract::{
 };
 use wax_lang_api::{DiscoverRequest, ScanRequest, build_version};
 
-pub use discover::{ComposeDiscoverError, discover_registry_symbols};
+pub use discover::{ComposeDiscoverError, DiscoverRegistryResult, discover_registry_symbols};
 use tree_sitter_scan::TreeSitterScanError;
 pub use tree_sitter_scan::{ComposeConfigMode, ComposeScanConfig};
 
@@ -128,11 +128,11 @@ impl ComposeLanguage {
             .map(|root| repo_root.join(root))
             .collect::<Vec<_>>();
 
-        let symbols = discover_registry_symbols(&absolute_roots)?;
+        let result = discover_registry_symbols(&absolute_roots)?;
 
         Ok(DiscoverSymbolsResult {
-            symbols,
-            diagnostics: Vec::new(),
+            symbols: result.symbols,
+            diagnostics: result.diagnostics,
         })
     }
 }
