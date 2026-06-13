@@ -22,6 +22,9 @@ pub(crate) fn collect_component_declarations(
     while let Some(node) = stack.pop() {
         match node.kind() {
             "class_declaration" => {
+                if discovery_visibility && !is_top_level_declaration(node) {
+                    continue;
+                }
                 if is_struct_declaration(node)
                     && let Some(component) =
                         component_from_type_declaration(node, source, discovery_visibility)
@@ -30,6 +33,9 @@ pub(crate) fn collect_component_declarations(
                 }
             }
             "function_declaration" => {
+                if discovery_visibility && !is_top_level_declaration(node) {
+                    continue;
+                }
                 if let Some(component) =
                     component_from_function_declaration(node, source, discovery_visibility)
                 {
@@ -120,6 +126,18 @@ fn is_private_for_discovery(node: tree_sitter::Node<'_>, source: &[u8]) -> bool 
             {
                 return true;
             }
+        }
+    }
+    false
+}
+
+fn is_top_level_declaration(node: tree_sitter::Node<'_>) -> bool {
+    let mut parent = node.parent();
+    while let Some(current) = parent {
+        match current.kind() {
+            "source_file" => return true,
+            "class_declaration" | "function_declaration" => return false,
+            _ => parent = current.parent(),
         }
     }
     false
@@ -370,6 +388,24 @@ mod tests {
 
         assert!(symbols.iter().any(|component| component.symbol == "Inner"));
         assert!(!symbols.iter().any(|component| component.symbol == "Outer"));
+    }
+
+    #[test]
+    fn discovery_excludes_nested_components() {
+        let source = r#"
+            enum Namespace {
+                struct NestedCard: View {
+                    var body: some View { Text("Nested") }
+                }
+            }
+        "#;
+        let symbols = symbols(source, true);
+
+        assert!(
+            !symbols
+                .iter()
+                .any(|component| component.symbol == "NestedCard")
+        );
     }
 
     #[test]

@@ -1882,7 +1882,7 @@ git commit -m "test: add SwiftUI golden scan fixture"
 - Create: `engine/crates/wax-lang-swift/tests/fixtures/discover/broken/Sources/Broken.swift`
 - Create: `engine/crates/wax-lang-swift/tests/registry_discover.rs`
 
-- [ ] **Step 1: Create discovery fixture**
+- [x] **Step 1: Create discovery fixture**
 
 Create `engine/crates/wax-lang-swift/tests/fixtures/discover/design-system/Sources/Components.swift`:
 
@@ -1940,7 +1940,7 @@ public struct BrokenCard: View {
         Text("Broken")
 ```
 
-- [ ] **Step 2: Write discovery tests**
+- [x] **Step 2: Write discovery tests**
 
 Create `engine/crates/wax-lang-swift/tests/registry_discover.rs`:
 
@@ -1992,7 +1992,7 @@ fn duplicate_symbols_are_deduped_and_nested_symbols_are_excluded() {
 
 Also add a `SwiftLanguage::discover` wrapper test that sends repo-relative roots through `DiscoverRequest` and asserts the same symbol list. This catches bugs in root joining separately from `discover_registry_symbols`.
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
 
 Run:
 
@@ -2003,7 +2003,7 @@ cargo test -p wax-lang-swift --test registry_discover
 
 Expected: FAIL because `discover` is not implemented.
 
-- [ ] **Step 4: Implement discover module**
+- [x] **Step 4: Implement discover module**
 
 Create `engine/crates/wax-lang-swift/src/discover.rs`:
 
@@ -2078,7 +2078,7 @@ fn map_parse_error(err: ParseSwiftFileError) -> SwiftDiscoverError {
 
 Also implement `Display` and `Error` for `SwiftDiscoverError`, matching Compose wording.
 
-- [ ] **Step 5: Wire `SwiftLanguage::discover` to the module**
+- [x] **Step 5: Wire `SwiftLanguage::discover` to the module**
 
 Modify `lib.rs`:
 
@@ -2105,7 +2105,7 @@ Ok(DiscoverSymbolsResult {
 
 Remove the scaffold-only `SwiftDiscoverError` from `lib.rs` so the discover module owns the type.
 
-- [ ] **Step 6: Run discovery tests**
+- [x] **Step 6: Run discovery tests**
 
 Run:
 
@@ -2118,7 +2118,7 @@ cargo clippy -p wax-lang-swift --all-targets -- -D warnings
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add engine/crates/wax-lang-swift/src engine/crates/wax-lang-swift/tests

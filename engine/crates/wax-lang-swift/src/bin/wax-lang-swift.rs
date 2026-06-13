@@ -169,7 +169,13 @@ fn discover_error_response(
     err: SwiftDiscoverError,
 ) -> WirePackResponse {
     let code = match &err {
-        SwiftDiscoverError::InvalidLanguageId(_) => WireErrorCode::ConfigInvalid,
+        SwiftDiscoverError::InvalidLanguageId(_) | SwiftDiscoverError::MissingRoot(_) => {
+            WireErrorCode::ConfigInvalid
+        }
+        SwiftDiscoverError::ParserInitFailed(_) => WireErrorCode::ParserInitFailed,
+        SwiftDiscoverError::ParseFailed(_) | SwiftDiscoverError::Io { .. } => {
+            WireErrorCode::ScanFailed
+        }
     };
     WirePackResponse::Error {
         api_version,
