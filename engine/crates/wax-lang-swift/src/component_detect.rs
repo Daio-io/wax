@@ -29,13 +29,6 @@ pub(crate) fn collect_component_declarations(
                     components.push(component);
                 }
             }
-            "struct_declaration" => {
-                if let Some(component) =
-                    component_from_type_declaration(node, source, discovery_visibility)
-                {
-                    components.push(component);
-                }
-            }
             "function_declaration" => {
                 if let Some(component) =
                     component_from_function_declaration(node, source, discovery_visibility)
@@ -70,11 +63,11 @@ fn component_from_type_declaration(
         return None;
     }
 
-    let declaration_text = node_text(node, source);
-    if !type_declaration_is_view(&declaration_text) {
+    let header = type_declaration_header(node, source);
+    if !type_declaration_is_view(&header) {
         return None;
     }
-    if !declaration_text.contains("body") || !declaration_text.contains("some View") {
+    if !type_has_view_body(node, source) {
         return None;
     }
 
@@ -155,10 +148,36 @@ fn identifier_from_type_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Opti
     }
 }
 
-fn type_declaration_is_view(declaration_text: &str) -> bool {
-    declaration_text.contains(": View")
-        || declaration_text.contains(": some View")
-        || declaration_text.contains(", View")
+fn type_declaration_header(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
+    let text = node_text(node, source);
+    text.split('{').next().unwrap_or(&text).trim().to_owned()
+}
+
+fn type_declaration_is_view(header: &str) -> bool {
+    header.contains(": View") || header.contains(": some View") || header.contains(", View")
+}
+
+fn type_has_view_body(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    let Some(class_body) = node.child_by_field_name("body") else {
+        return false;
+    };
+    for index in 0..class_body.child_count() {
+        let Some(member) = class_body.child(index) else {
+            continue;
+        };
+        if is_view_body_property(member, source) {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_view_body_property(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    if node.kind() != "property_declaration" {
+        return false;
+    }
+    let text = node_text(node, source);
+    text.contains("var body") && text.contains("some View")
 }
 
 fn is_pascal_case(symbol: &str) -> bool {
@@ -206,6 +225,22 @@ mod tests {
                 .iter()
                 .any(|component| component.symbol == "PrimaryButton")
         );
+    }
+
+    #[test]
+    fn nested_non_view_wrapper_is_not_a_component() {
+        let source = r#"
+            struct Outer {
+                struct Inner: View {
+                    var body: some View { EmptyView() }
+                }
+            }
+        "#;
+        let tree = parse(source);
+        let symbols = collect_component_declarations(tree.root_node(), source.as_bytes(), false);
+
+        assert!(symbols.iter().any(|component| component.symbol == "Inner"));
+        assert!(!symbols.iter().any(|component| component.symbol == "Outer"));
     }
 
     #[test]
