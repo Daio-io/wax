@@ -14,7 +14,7 @@ use wax_contract::{
 use wax_lang_api::{DiscoverRequest, ScanRequest, build_version};
 
 /// Parser version bundled through the `tree-sitter-swift` dependency.
-pub const TREE_SITTER_SWIFT_GRAMMAR_VERSION: &str = "0.7.3";
+pub const TREE_SITTER_SWIFT_GRAMMAR_VERSION: &str = "0.6.0";
 use tree_sitter_scan::TreeSitterScanError;
 pub use tree_sitter_scan::{SwiftConfigMode, SwiftScanConfig};
 

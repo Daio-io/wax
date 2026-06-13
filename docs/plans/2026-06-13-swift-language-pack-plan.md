@@ -602,7 +602,7 @@ git commit -m "feat: scaffold SwiftUI language pack"
 - Create: `engine/crates/wax-lang-swift/src/tree_sitter_scan.rs`
 - Create: `engine/crates/wax-lang-swift/tests/config_validation.rs`
 
-- [ ] **Step 1: Write failing config tests**
+- [x] **Step 1: Write failing config tests**
 
 Create `engine/crates/wax-lang-swift/tests/config_validation.rs` with Compose-parity coverage. Start with these tests:
 
@@ -695,7 +695,7 @@ Before this task is complete, expand the same file with these additional tests u
 
 Add `engine/crates/wax-lang-swift/tests/fixtures/small/alt-design-system/registry.json` for `registry_key_wins_when_both_registry_keys_are_present`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -706,7 +706,7 @@ cargo test -p wax-lang-swift --test config_validation
 
 Expected: FAIL because configured scan parsing is not implemented.
 
-- [ ] **Step 3: Define config and registry structures**
+- [x] **Step 3: Define config and registry structures**
 
 Create the top of `engine/crates/wax-lang-swift/src/tree_sitter_scan.rs`:
 
@@ -771,7 +771,7 @@ pub enum TreeSitterScanError {
 }
 ```
 
-- [ ] **Step 4: Implement scan error display traits**
+- [x] **Step 4: Implement scan error display traits**
 
 Add below `TreeSitterScanError` in `tree_sitter_scan.rs`:
 
@@ -807,7 +807,7 @@ impl std::error::Error for TreeSitterScanError {
 }
 ```
 
-- [ ] **Step 5: Implement config parsing**
+- [x] **Step 5: Implement config parsing**
 
 Add to `tree_sitter_scan.rs`:
 
@@ -891,7 +891,7 @@ fn validate_repo_relative_path(path: &str, field: &str) -> Result<(), TreeSitter
 }
 ```
 
-- [ ] **Step 6: Implement registry loading with aliases and targets**
+- [x] **Step 6: Implement registry loading with aliases and targets**
 
 Add to `tree_sitter_scan.rs`:
 
@@ -1006,7 +1006,7 @@ rg -n "targets|component_available_to" crates/wax-lang-compose/src crates/wax-la
 
 Then either add Compose target filtering in a prerequisite PR or document in the task PR why Swift intentionally leads on target filtering. Do not leave Swift, React, and Compose silently inconsistent.
 
-- [ ] **Step 7: Add a minimal configured scan result**
+- [x] **Step 7: Add a minimal configured scan result**
 
 Add to `tree_sitter_scan.rs`:
 
@@ -1081,7 +1081,7 @@ pub fn scan_repository(
 
 Also add `map_root_resolution_error`, `root_not_found_code`, and `root_not_found_message` copied in behavior from Compose but with Swift wording.
 
-- [ ] **Step 8: Route configured scans from `lib.rs`**
+- [x] **Step 8: Route configured scans from `lib.rs`**
 
 Modify `engine/crates/wax-lang-swift/src/lib.rs` to declare `mod tree_sitter_scan;`, export `SwiftConfigMode` and `SwiftScanConfig`, add `InvalidConfig`, `ParserInitFailed`, and `Scanner` variants to `SwiftScanError`, and branch in `SwiftLanguage::scan`:
 
@@ -1107,7 +1107,7 @@ parser_name: "tree-sitter-swift".to_owned(),
 parser_version: TREE_SITTER_SWIFT_GRAMMAR_VERSION.to_owned(),
 ```
 
-- [ ] **Step 9: Run focused tests**
+- [x] **Step 9: Run focused tests**
 
 Run:
 
@@ -1120,7 +1120,7 @@ cargo clippy -p wax-lang-swift --all-targets -- -D warnings
 
 Expected: PASS.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add engine/crates/wax-lang-swift
