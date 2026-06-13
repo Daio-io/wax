@@ -403,3 +403,69 @@ fn init_scaffolds_per_language_registry_files_for_multi_language_repo() {
         ".wax/react.registry.json"
     );
 }
+
+#[test]
+fn init_scaffolds_swift_per_language_registry_and_lock_entry() {
+    let _guard = env_lock();
+    let root = TestDir::new("init-swift-per-language-registry");
+    let repo = root.path.join("repo");
+    let wax_home = root.path.join("wax-home");
+    fs::create_dir_all(&repo).expect("create repo fixture");
+    fs::create_dir_all(&wax_home).expect("create wax home fixture");
+
+    let alpha_index = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("fixtures")
+        .join("registry")
+        .join("alpha-index.json");
+    let registry_copy = root.path.join("alpha-index.json");
+    fs::copy(&alpha_index, &registry_copy).expect("copy alpha index fixture");
+    let registry_url = format!("file://{}", registry_copy.display());
+
+    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
+    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .args([
+            "init",
+            "--non-interactive",
+            "--language",
+            "swift",
+            "--no-install",
+            "--target",
+            "x86_64-unknown-linux-gnu",
+            "--registry",
+        ])
+        .arg(&registry_url)
+        .args(["--repo-root"])
+        .arg(&repo)
+        .output()
+        .expect("spawn wax init");
+
+    assert!(
+        output.status.success(),
+        "wax init exited with {:?}; stderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert!(repo.join(".wax/swift.registry.json").is_file());
+    assert!(!repo.join(".wax/wax.registry.json").exists());
+
+    let waxrc = load_waxrc(repo.join(".wax/wax.config.json")).unwrap();
+    let swift = waxrc
+        .languages
+        .iter()
+        .find(|language| language.id.as_str() == "swift")
+        .expect("swift language entry");
+    assert_eq!(
+        swift.registry_source().map(|source| source.source),
+        Some(".wax/swift.registry.json".to_owned())
+    );
+    assert_eq!(swift.extra["roots"], serde_json::json!(["App/Sources"]));
+
+    let lock = load_lockfile(repo.join(".wax/wax.lock.json")).unwrap();
+    assert_eq!(
+        lock.registries.get(&lang("swift")).unwrap().source,
+        ".wax/swift.registry.json"
+    );
+}

@@ -11,7 +11,7 @@ It helps teams define a canonical component registry, scan repositories with lan
 ## What wax does
 
 - Tracks usage of canonical design-system components from a registry file.
-- Scans source code with installable language packs such as `compose`, `react`, and `basic`.
+- Scans source code with installable language packs such as `compose`, `react`, `swift`, and `basic`.
 - Writes repo-local config, lock, and output files under `.wax/`.
 - Supports deterministic validation and CI-safe scanning.
 - Can bootstrap and refresh registries with `wax registry discover`.
@@ -150,6 +150,7 @@ Current first-party packs in this repository:
 | --- | --- |
 | `compose` | Jetpack Compose and Kotlin UI code |
 | `react` | React and JSX/TSX projects |
+| `swift` | SwiftUI projects |
 | `basic` | Text-based fallback for unsupported ecosystems and smoke tests |
 
 Install a pack explicitly:
@@ -157,6 +158,7 @@ Install a pack explicitly:
 ```bash
 wax language install compose
 wax language install react
+wax language install swift
 wax language install basic
 ```
 
@@ -232,10 +234,20 @@ You can also point a language at a hosted or alternate registry source:
         "source": "https://example.com/acme-ds/registry/v2.4.1/compose.json"
       },
       "roots": ["app/src/main/kotlin"]
+    },
+    {
+      "id": "swift",
+      "enabled": true,
+      "registry": ".wax/swift.registry.json",
+      "roots": ["App/Sources"]
     }
   ]
 }
 ```
+
+SwiftUI v1 detects `struct Name: View` components, `func Name(...) -> some View`
+components, direct calls such as `PrimaryButton(...)`, and simple member-qualified
+calls such as `DesignSystem.PrimaryButton(...)`.
 
 ## AI skills
 

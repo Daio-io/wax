@@ -13,6 +13,12 @@
       "id": "react",
       "enabled": true,
       "roots": ["apps/web/src"]
+    },
+    {
+      "id": "swift",
+      "enabled": true,
+      "registry": ".wax/swift.registry.json",
+      "roots": ["App/Sources"]
     }
   ]
 }

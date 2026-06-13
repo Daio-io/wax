@@ -9,7 +9,7 @@ Production Rust code lives under [engine](engine):
 - `wax-cli`: end-user `wax` binary
 - `wax-core`: repo config, scan orchestration, installs, validation, output generation
 - `wax-contract` and `wax-lang-api`: stable contracts between the engine and language packs
-- `wax-lang-basic`, `wax-lang-compose`, `wax-lang-react`: language packs
+- `wax-lang-basic`, `wax-lang-compose`, `wax-lang-react`, `wax-lang-swift`: language packs
 
 Other important surfaces:
 
