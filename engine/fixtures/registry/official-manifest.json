@@ -24,5 +24,28 @@
         "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
       }
     }
+  },
+  {
+    "id": "swift",
+    "version": "0.1.0-alpha.0",
+    "api_version": 1,
+    "targets": {
+      "aarch64-apple-darwin": {
+        "url": "https://github.com/Daio-io/wax/releases/latest/download/wax-lang-swift-0.1.0-alpha.0-aarch64-apple-darwin.tar.gz",
+        "sha256": "5555555555555555555555555555555555555555555555555555555555555555"
+      },
+      "x86_64-apple-darwin": {
+        "url": "https://github.com/Daio-io/wax/releases/latest/download/wax-lang-swift-0.1.0-alpha.0-x86_64-apple-darwin.tar.gz",
+        "sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+      },
+      "x86_64-unknown-linux-gnu": {
+        "url": "https://github.com/Daio-io/wax/releases/latest/download/wax-lang-swift-0.1.0-alpha.0-x86_64-unknown-linux-gnu.tar.gz",
+        "sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+      },
+      "aarch64-unknown-linux-gnu": {
+        "url": "https://github.com/Daio-io/wax/releases/latest/download/wax-lang-swift-0.1.0-alpha.0-aarch64-unknown-linux-gnu.tar.gz",
+        "sha256": "7777777777777777777777777777777777777777777777777777777777777777"
+      }
+    }
   }
 ]

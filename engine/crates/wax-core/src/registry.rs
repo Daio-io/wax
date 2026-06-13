@@ -339,7 +339,7 @@ mod tests {
     #[test]
     fn parses_manifest_entry_from_fixture() {
         let manifests = fetch_pack_index(&fixture_file_url()).expect("fixture should parse");
-        assert_eq!(manifests.len(), 2);
+        assert_eq!(manifests.len(), 3);
 
         let entry = manifests
             .iter()
@@ -538,6 +538,29 @@ mod tests {
         "sha256": "6666666666666666666666666666666666666666666666666666666666666666"
       }}
     }}
+  }},
+  {{
+    "id": "swift",
+    "version": "{version}",
+    "api_version": 1,
+    "targets": {{
+      "x86_64-unknown-linux-gnu": {{
+        "url": "https://github.com/Daio-io/wax/releases/download/{release_tag}/wax-lang-swift-{version}-x86_64-unknown-linux-gnu.tar.gz",
+        "sha256": "7777777777777777777777777777777777777777777777777777777777777777"
+      }},
+      "aarch64-apple-darwin": {{
+        "url": "https://github.com/Daio-io/wax/releases/download/{release_tag}/wax-lang-swift-{version}-aarch64-apple-darwin.tar.gz",
+        "sha256": "8888888888888888888888888888888888888888888888888888888888888888"
+      }},
+      "x86_64-apple-darwin": {{
+        "url": "https://github.com/Daio-io/wax/releases/download/{release_tag}/wax-lang-swift-{version}-x86_64-apple-darwin.tar.gz",
+        "sha256": "9999999999999999999999999999999999999999999999999999999999999999"
+      }},
+      "aarch64-unknown-linux-gnu": {{
+        "url": "https://github.com/Daio-io/wax/releases/download/{release_tag}/wax-lang-swift-{version}-aarch64-unknown-linux-gnu.tar.gz",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }}
+    }}
   }}
 ]
 "#
@@ -553,8 +576,10 @@ mod tests {
             .iter()
             .map(|manifest| manifest.id.as_str())
             .collect();
-        if ids != ["compose", "basic", "react"] {
-            return Err(format!("expected compose/basic/react only, got {ids:?}"));
+        if ids != ["compose", "basic", "react", "swift"] {
+            return Err(format!(
+                "expected compose/basic/react/swift only, got {ids:?}"
+            ));
         }
 
         let Some(expected_release_tag) = expected_release_tag else {
@@ -622,7 +647,7 @@ mod tests {
         let url = serve_one_response("HTTP/1.1 200 OK", "application/json", &body);
 
         let manifests = fetch_pack_index(&url).expect("http manifest should parse");
-        assert_eq!(manifests.len(), 2);
+        assert_eq!(manifests.len(), 3);
     }
 
     #[test]
@@ -711,7 +736,7 @@ mod tests {
         let url = format!("file://localhost{}", fixture.display());
 
         let manifests = fetch_pack_index(&url).expect("localhost file URL should parse");
-        assert_eq!(manifests.len(), 2);
+        assert_eq!(manifests.len(), 3);
     }
 
     #[test]

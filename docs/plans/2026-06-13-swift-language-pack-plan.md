@@ -2246,7 +2246,7 @@ git commit -m "test: cover SwiftUI stdio protocol"
 - Modify: `engine/fixtures/registry/alpha-index.json`
 - Modify: `engine/fixtures/registry/official-manifest.json`
 
-- [ ] **Step 1: Add Swift to release metadata**
+- [x] **Step 1: Add Swift to release metadata**
 
 Modify `engine/Cargo.toml`:
 
@@ -2254,7 +2254,7 @@ Modify `engine/Cargo.toml`:
 alpha_index_binaries = ["wax", "wax-lang-compose", "wax-lang-basic", "wax-lang-react", "wax-lang-swift"]
 ```
 
-- [ ] **Step 2: Add Swift to release binary loops**
+- [x] **Step 2: Add Swift to release binary loops**
 
 Update `.github/workflows/release.yml`, `scripts/build-release.sh`, and `scripts/check-release-workflow.rb` wherever the binary set lists:
 
@@ -2268,7 +2268,7 @@ Change it to:
 wax wax-lang-compose wax-lang-basic wax-lang-react wax-lang-swift
 ```
 
-- [ ] **Step 3: Add Swift to pack index generation**
+- [x] **Step 3: Add Swift to pack index generation**
 
 Modify `scripts/generate-pack-index.sh` language mapping so `swift` maps to `wax-lang-swift`:
 
@@ -2283,7 +2283,7 @@ else
 end
 ```
 
-- [ ] **Step 4: Update pack-index regression expectations**
+- [x] **Step 4: Update pack-index regression expectations**
 
 Modify `scripts/test-generate-pack-index.sh` to include `wax-lang-swift` for every target. Add expected snippets parallel to React:
 
@@ -2296,7 +2296,7 @@ Modify `scripts/test-generate-pack-index.sh` to include `wax-lang-swift` for eve
 
 Use the deterministic fixture hashes produced by the script's existing test harness; do not invent production hashes.
 
-- [ ] **Step 5: Update registry fixtures**
+- [x] **Step 5: Update registry fixtures**
 
 Add a Swift language entry to `engine/fixtures/registry/alpha-index.json` and `engine/fixtures/registry/official-manifest.json` with the same version, API version, command shape, and target matrix used by React:
 
@@ -2320,11 +2320,11 @@ Add a Swift language entry to `engine/fixtures/registry/alpha-index.json` and `e
 
 Use the exact schema and target ordering from the existing fixture files.
 
-- [ ] **Step 6: Update release archive assertions**
+- [x] **Step 6: Update release archive assertions**
 
 Update hardcoded archive/checksum counts from 16 to 20 wherever release checks assume 4 binaries x 4 targets. This includes `.github/workflows/release.yml` and `scripts/check-release-workflow.rb`.
 
-- [ ] **Step 7: Update wax-core alpha index assertions**
+- [x] **Step 7: Update wax-core alpha index assertions**
 
 Update `engine/crates/wax-core/src/registry.rs` tests that assert alpha index language ids so they expect:
 
@@ -2339,19 +2339,20 @@ cd engine
 cargo test -p wax-core assert_alpha_index_matches_release
 ```
 
-- [ ] **Step 8: Run local release smoke checks**
+- [x] **Step 8: Run local release smoke checks**
 
 Run:
 
 ```bash
-scripts/build-release.sh --target "$(rustc -vV | awk '/host/ { print $2 }')" --out-dir /tmp/wax-swift-release-smoke
+WAX_RELEASE_OUT_DIR=/tmp/wax-swift-release-smoke scripts/build-release.sh "$(rustc -vV | awk '/host:/ { print $2 }')"
+test -f /tmp/wax-swift-release-smoke/*/wax-lang-swift-*.tar.gz
 cd engine
 cargo test -p wax-core validates_pack_index_from_env -- --ignored
 ```
 
 Expected: the local target artifacts include `wax-lang-swift`, and pack-index validation accepts the generated Swift entry.
 
-- [ ] **Step 9: Run release checks**
+- [x] **Step 9: Run release checks**
 
 Run:
 
@@ -2368,8 +2369,9 @@ Expected: PASS.
 - [ ] **Step 10: Record workflow dry-run requirement**
 
 Before tagging a release that includes Swift, run the release workflow with `workflow_dispatch` against this branch or the release candidate branch and record the run URL in the task PR. Do not mark the release-promotion task complete until the dry-run has either passed or maintainers have explicitly deferred it.
+Dry-run remains deferred to release tagging.
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
 git add engine/Cargo.toml .github/workflows/release.yml scripts/build-release.sh scripts/generate-pack-index.sh scripts/test-generate-pack-index.sh scripts/check-release-workflow.rb engine/fixtures/registry

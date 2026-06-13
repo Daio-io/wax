@@ -27,6 +27,6 @@ artifact_targets = [
     "x86_64-unknown-linux-gnu",
     "aarch64-unknown-linux-gnu",
 ]
-alpha_index_binaries = ["wax", "wax-lang-compose", "wax-lang-basic", "wax-lang-react"]
+alpha_index_binaries = ["wax", "wax-lang-compose", "wax-lang-basic", "wax-lang-react", "wax-lang-swift"]
 contributor_only_binaries = []
 build_script = "../scripts/build-release.sh"
