@@ -42,6 +42,8 @@ pub enum SwiftScanError {
     InvalidConfig(String),
     /// Tree-sitter parser failed to initialise.
     ParserInitFailed(String),
+    /// Configured design-system registry file does not exist.
+    RegistryNotFound(String),
     /// Tree-sitter scanner failed before facts could be assembled.
     Scanner(TreeSitterScanError),
 }
@@ -53,6 +55,7 @@ impl std::fmt::Display for SwiftScanError {
             Self::InvalidFacts(err) => write!(f, "swift facts validation failed: {err}"),
             Self::InvalidConfig(reason) => write!(f, "invalid swift scan config: {reason}"),
             Self::ParserInitFailed(reason) => write!(f, "parser init failed: {reason}"),
+            Self::RegistryNotFound(reason) => write!(f, "swift registry not found: {reason}"),
             Self::Scanner(err) => write!(f, "swift scan failed: {err}"),
         }
     }
@@ -61,7 +64,10 @@ impl std::fmt::Display for SwiftScanError {
 impl std::error::Error for SwiftScanError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::InvalidLanguageId(_) | Self::InvalidConfig(_) | Self::ParserInitFailed(_) => None,
+            Self::InvalidLanguageId(_)
+            | Self::InvalidConfig(_)
+            | Self::ParserInitFailed(_)
+            | Self::RegistryNotFound(_) => None,
             Self::InvalidFacts(err) => Some(err),
             Self::Scanner(err) => Some(err),
         }
@@ -142,6 +148,12 @@ fn map_scan_error(err: TreeSitterScanError) -> SwiftScanError {
         TreeSitterScanError::ConfigInvalid { reason } => SwiftScanError::InvalidConfig(reason),
         TreeSitterScanError::ParserInitFailed { reason } => {
             SwiftScanError::ParserInitFailed(reason)
+        }
+        TreeSitterScanError::RegistryNotFound { path, reason } => {
+            SwiftScanError::RegistryNotFound(format!(
+                "design-system registry not found at {}: {reason}",
+                path.display()
+            ))
         }
         other => SwiftScanError::Scanner(other),
     }

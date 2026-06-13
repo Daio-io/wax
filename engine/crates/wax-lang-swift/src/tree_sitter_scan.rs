@@ -41,6 +41,13 @@ pub enum TreeSitterScanError {
         /// Human-readable validation failure.
         reason: String,
     },
+    /// Configured registry file does not exist.
+    RegistryNotFound {
+        /// Registry path that was missing.
+        path: PathBuf,
+        /// Human-readable reason.
+        reason: String,
+    },
     /// Registry JSON could not be read or parsed.
     RegistryInvalid {
         /// Registry path that failed.
@@ -66,6 +73,13 @@ impl std::fmt::Display for TreeSitterScanError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ConfigInvalid { reason } => write!(f, "invalid swift scan config: {reason}"),
+            Self::RegistryNotFound { path, reason } => {
+                write!(
+                    f,
+                    "design-system registry not found at {}: {reason}",
+                    path.display()
+                )
+            }
             Self::RegistryInvalid { path, reason } => {
                 write!(
                     f,
@@ -85,6 +99,7 @@ impl std::error::Error for TreeSitterScanError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::ConfigInvalid { .. }
+            | Self::RegistryNotFound { .. }
             | Self::RegistryInvalid { .. }
             | Self::ParserInitFailed { .. } => None,
             Self::Io { source, .. } => Some(source),
@@ -192,9 +207,18 @@ struct RegistryIndex {
 }
 
 fn load_registry(path: &Path) -> Result<RegistryIndex, TreeSitterScanError> {
-    let raw = fs::read_to_string(path).map_err(|source| TreeSitterScanError::Io {
-        context: format!("read design-system registry {}", path.display()),
-        source,
+    let raw = fs::read_to_string(path).map_err(|source| {
+        if source.kind() == std::io::ErrorKind::NotFound {
+            TreeSitterScanError::RegistryNotFound {
+                path: path.to_path_buf(),
+                reason: source.to_string(),
+            }
+        } else {
+            TreeSitterScanError::Io {
+                context: format!("read design-system registry {}", path.display()),
+                source,
+            }
+        }
     })?;
     let value: serde_json::Value =
         serde_json::from_str(&raw).map_err(|err| TreeSitterScanError::RegistryInvalid {
