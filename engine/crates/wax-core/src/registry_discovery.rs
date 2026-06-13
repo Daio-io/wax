@@ -67,6 +67,10 @@ pub struct RegistryDiscoverResult {
     pub used_config_roots: bool,
     /// Number of source roots scanned during discovery.
     pub root_count: usize,
+    /// Whether `.wax/wax.config.json` or legacy `.waxrc` was loaded.
+    pub wax_config_present: bool,
+    /// Whether `.wax/wax.lock.json` or legacy lockfile was loaded.
+    pub lockfile_present: bool,
 }
 
 /// Errors returned while discovering and optionally writing a registry file.
@@ -330,6 +334,7 @@ pub fn discover_registry(
     let repo_files = discover_repo_files(options.repo_root);
     let config_path_display = repo_files.config_path.display().to_string();
     let waxrc = load_optional_waxrc(&repo_files.config_path)?;
+    let wax_config_present = waxrc.is_some();
     let configured_entry = waxrc
         .as_ref()
         .and_then(|waxrc| find_enabled_language(waxrc, options.language_id));
@@ -360,6 +365,7 @@ pub fn discover_registry(
     )?;
 
     let lockfile = load_optional_lockfile(&repo_files.lockfile_path)?;
+    let lockfile_present = lockfile.is_some();
     let state = load_global_state(state_file()?)?;
     let pack_command = resolve_discover_pack_command(&state, lockfile.as_ref(), &language_id)?;
     let symbols = discover_symbols(
@@ -379,6 +385,8 @@ pub fn discover_registry(
             registry,
             used_config_roots,
             root_count: roots.len(),
+            wax_config_present,
+            lockfile_present,
         });
     }
 
@@ -425,6 +433,8 @@ pub fn discover_registry(
         registry,
         used_config_roots,
         root_count: roots.len(),
+        wax_config_present,
+        lockfile_present,
     })
 }
 
@@ -653,13 +663,10 @@ fn resolve_discover_pack_command(
     lockfile: Option<&WaxLock>,
     language_id: &LanguageId,
 ) -> Result<Vec<String>, RegistryDiscoverError> {
-    if let Some(lockfile) = lockfile
-        && let Ok(command) = resolve_locked_pack_command(state, lockfile, language_id)
-    {
-        return Ok(command);
+    match lockfile {
+        Some(lockfile) => resolve_locked_pack_command(state, lockfile, language_id),
+        None => resolve_latest_global_pack_command(state, language_id),
     }
-
-    resolve_latest_global_pack_command(state, language_id)
 }
 
 fn resolve_locked_pack_command(

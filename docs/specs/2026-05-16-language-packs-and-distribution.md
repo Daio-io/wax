@@ -321,7 +321,8 @@ The engine builds flat schema v1 registry JSON (`schema_version`, `components[]`
 
 | Config shape | Write target |
 |--------------|--------------|
-| No `registry` configured | `.wax/<language-id>.registry.json` (config and lockfile patched on write) |
+| No Wax config or lockfile (configless discover with `--root`) | `.wax/<language-id>.registry.json`; uses globally installed pack; does not patch config or lockfile |
+| Wax config present, no `registry` configured | `.wax/<language-id>.registry.json` (config and lockfile patched on write when those files exist) |
 | String `"registry": ".wax/compose.registry.json"` | That repo-relative path |
 | Object `"registry": { "source": ".wax/compose.registry.json" }` | `registry.source` when repo-relative |
 | Hosted `https://…` or `file://…` source | Discover fails; external sources are not writable |

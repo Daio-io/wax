@@ -457,7 +457,7 @@ fn default_write_creates_language_specific_registry_path() {
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stdout.contains("Wrote .wax/compose.registry.json"));
     assert!(stdout.contains("Review before committing"));
-    assert!(stdout.contains("wax validate"));
+    assert!(!stdout.contains("wax validate"));
     assert!(stdout.contains("wax language update"));
     assert!(!stderr.contains("false positives"));
     assert!(stdout.contains("false positives"));
@@ -764,4 +764,8 @@ fn configless_discover_without_lockfile_writes_registry() {
         !repo.join(".wax/wax.lock.json").exists(),
         "configless discover should not create a lockfile"
     );
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(!stdout.contains("wax validate"));
+    assert!(!stdout.contains("wax language update"));
 }

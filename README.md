@@ -261,7 +261,7 @@ Today the repo includes:
 
 | Skill | Purpose |
 | --- | --- |
-| `wax-registry-sync` | Preview discovered registry entries, review changes, write `.wax/wax.registry.json`, validate, and refresh locks |
+| `wax-registry-sync` | Preview discovered registry entries, review changes, write per-language registry files (for example `.wax/react.registry.json`), validate, and refresh locks |
 
 The key distinction:
 
