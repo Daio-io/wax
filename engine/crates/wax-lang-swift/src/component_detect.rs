@@ -58,24 +58,24 @@ fn component_from_type_declaration(
         return None;
     }
 
-    let name = type_declaration_name(node, source)?;
+    let name_node = node.child_by_field_name("name")?;
+    let name = type_declaration_name(name_node, source)?;
     if !is_pascal_case(&name) {
         return None;
     }
 
-    let header = type_declaration_header(node, source);
-    if !type_declaration_is_view(&header) {
+    if !type_inherits_view(node, source) {
         return None;
     }
     if !type_has_view_body(node, source) {
         return None;
     }
 
-    let pos = node.start_position();
+    let (line, column) = component_position(name_node);
     Some(DetectedComponent {
         symbol: name,
-        line: pos.row as u32 + 1,
-        column: pos.column as u32 + 1,
+        line,
+        column,
     })
 }
 
@@ -88,30 +88,41 @@ fn component_from_function_declaration(
         return None;
     }
 
-    let name = function_declaration_name(node, source)?;
+    let name_node = node.child_by_field_name("name")?;
+    let name = function_declaration_name(name_node, source)?;
     if !is_pascal_case(&name) {
         return None;
     }
 
-    let declaration_text = node_text(node, source);
-    if !declaration_text.contains("-> some View") {
+    if !function_returns_some_view(node, source) {
         return None;
     }
 
-    let pos = node.start_position();
+    let (line, column) = component_position(name_node);
     Some(DetectedComponent {
         symbol: name,
-        line: pos.row as u32 + 1,
-        column: pos.column as u32 + 1,
+        line,
+        column,
     })
 }
 
 fn is_private_for_discovery(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
-    let declaration_text = node_text(node, source);
-    declaration_text.starts_with("private ")
-        || declaration_text.starts_with("fileprivate ")
-        || declaration_text.contains(" private ")
-        || declaration_text.contains(" fileprivate ")
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if child.kind() != "modifiers" {
+            continue;
+        }
+        let mut modifiers_cursor = child.walk();
+        for modifier in child.named_children(&mut modifiers_cursor) {
+            if modifier.kind() == "visibility_modifier"
+                && let Ok(visibility) = modifier.utf8_text(source)
+                && matches!(visibility, "private" | "fileprivate")
+            {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 fn is_struct_declaration(node: tree_sitter::Node<'_>) -> bool {
@@ -120,14 +131,12 @@ fn is_struct_declaration(node: tree_sitter::Node<'_>) -> bool {
 }
 
 fn type_declaration_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let name_node = node.child_by_field_name("name")?;
-    identifier_from_type_name(name_node, source)
+    identifier_from_type_name(node, source)
 }
 
 fn function_declaration_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let name_node = node.child_by_field_name("name")?;
-    if name_node.kind() == "simple_identifier" {
-        return Some(node_text(name_node, source));
+    if node.kind() == "simple_identifier" {
+        return Some(node_text(node, source));
     }
     None
 }
@@ -148,13 +157,41 @@ fn identifier_from_type_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Opti
     }
 }
 
-fn type_declaration_header(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
-    let text = node_text(node, source);
-    text.split('{').next().unwrap_or(&text).trim().to_owned()
+fn type_inherits_view(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    for index in 0..node.child_count() {
+        let Some(child) = node.child(index) else {
+            continue;
+        };
+        if child.kind() == "class_body" {
+            continue;
+        }
+        if child.kind() == "inheritance_specifier" && inheritance_specifier_is_view(child, source) {
+            return true;
+        }
+    }
+    false
 }
 
-fn type_declaration_is_view(header: &str) -> bool {
-    header.contains(": View") || header.contains(": some View") || header.contains(", View")
+fn inheritance_specifier_is_view(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if child.kind() == "user_type"
+            && type_identifier_from_user_type(child, source).as_deref() == Some("View")
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn type_identifier_from_user_type(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    for index in 0..node.child_count() {
+        let child = node.child(index)?;
+        if child.kind() == "type_identifier" {
+            return Some(node_text(child, source));
+        }
+    }
+    None
 }
 
 fn type_has_view_body(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
@@ -176,8 +213,97 @@ fn is_view_body_property(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
     if node.kind() != "property_declaration" {
         return false;
     }
-    let text = node_text(node, source);
-    text.contains("var body") && text.contains("some View")
+    let Some(name_pattern) = node.child_by_field_name("name") else {
+        return false;
+    };
+    if property_name(name_pattern, source).as_deref() != Some("body") {
+        return false;
+    }
+    property_returns_some_view(node, source)
+}
+
+fn property_name(pattern_node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    if pattern_node.kind() == "simple_identifier" {
+        return Some(node_text(pattern_node, source));
+    }
+    if let Some(name) = pattern_node.child_by_field_name("name")
+        && name.kind() == "simple_identifier"
+    {
+        return Some(node_text(name, source));
+    }
+    for index in 0..pattern_node.child_count() {
+        let child = pattern_node.child(index)?;
+        if child.kind() == "simple_identifier" {
+            return Some(node_text(child, source));
+        }
+    }
+    None
+}
+
+fn property_returns_some_view(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    if let Some(type_annotation) = node.child_by_field_name("type") {
+        return opaque_type_is_some_view(type_annotation, source);
+    }
+    for index in 0..node.child_count() {
+        let Some(child) = node.child(index) else {
+            continue;
+        };
+        if (child.kind() == "type_annotation" || child.kind() == "opaque_type")
+            && opaque_type_is_some_view(child, source)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn function_returns_some_view(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    node_has_opaque_view_type(node, source)
+}
+
+fn node_has_opaque_view_type(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    for index in 0..node.child_count() {
+        let Some(child) = node.child(index) else {
+            continue;
+        };
+        if child.kind() == "opaque_type" && opaque_type_is_some_view(child, source) {
+            return true;
+        }
+    }
+    false
+}
+
+fn opaque_type_is_some_view(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    if node.kind() == "type_annotation" {
+        for index in 0..node.child_count() {
+            let Some(child) = node.child(index) else {
+                continue;
+            };
+            if child.kind() == "opaque_type" && opaque_type_is_some_view(child, source) {
+                return true;
+            }
+        }
+        return false;
+    }
+    if node.kind() != "opaque_type" {
+        return false;
+    }
+    for index in 0..node.child_count() {
+        let Some(child) = node.child(index) else {
+            continue;
+        };
+        if child.kind() == "user_type"
+            && type_identifier_from_user_type(child, source).as_deref() == Some("View")
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn component_position(name_node: tree_sitter::Node<'_>) -> (u32, u32) {
+    let pos = name_node.start_position();
+    (pos.row as u32 + 1, pos.column as u32 + 1)
 }
 
 fn is_pascal_case(symbol: &str) -> bool {
@@ -201,6 +327,11 @@ mod tests {
         parser.parse(source.as_bytes(), None).expect("parse")
     }
 
+    fn symbols(source: &str, discovery_visibility: bool) -> Vec<DetectedComponent> {
+        let tree = parse(source);
+        collect_component_declarations(tree.root_node(), source.as_bytes(), discovery_visibility)
+    }
+
     #[test]
     fn detects_view_struct_and_some_view_function() {
         let source = r#"
@@ -212,8 +343,7 @@ mod tests {
                 Button(title) {}
             }
         "#;
-        let tree = parse(source);
-        let symbols = collect_component_declarations(tree.root_node(), source.as_bytes(), false);
+        let symbols = symbols(source, false);
 
         assert!(
             symbols
@@ -236,8 +366,7 @@ mod tests {
                 }
             }
         "#;
-        let tree = parse(source);
-        let symbols = collect_component_declarations(tree.root_node(), source.as_bytes(), false);
+        let symbols = symbols(source, false);
 
         assert!(symbols.iter().any(|component| component.symbol == "Inner"));
         assert!(!symbols.iter().any(|component| component.symbol == "Outer"));
@@ -256,8 +385,7 @@ mod tests {
                 var body: some View { Text("Card") }
             }
         "#;
-        let tree = parse(source);
-        let symbols = collect_component_declarations(tree.root_node(), source.as_bytes(), true);
+        let symbols = symbols(source, true);
 
         assert!(
             !symbols
@@ -273,6 +401,69 @@ mod tests {
             symbols
                 .iter()
                 .any(|component| component.symbol == "PublicEnoughCard")
+        );
+    }
+
+    #[test]
+    fn viewmodel_inheritance_does_not_match_view() {
+        let source = r#"
+            struct CardViewModel: ViewModel {
+                var bodyText: String = ""
+            }
+        "#;
+        let symbols = symbols(source, false);
+
+        assert!(
+            !symbols
+                .iter()
+                .any(|component| component.symbol == "CardViewModel")
+        );
+    }
+
+    #[test]
+    fn body_text_property_does_not_count_as_swiftui_body() {
+        let source = r#"
+            struct Card: View {
+                var bodyText: String = "label"
+            }
+        "#;
+        let symbols = symbols(source, false);
+
+        assert!(!symbols.iter().any(|component| component.symbol == "Card"));
+    }
+
+    #[test]
+    fn discovery_ignores_private_mentions_in_comments_and_strings() {
+        let source = r#"
+            struct PublicCard: View {
+                var body: some View {
+                    Text("fileprivate helper")
+                    // private implementation detail
+                }
+            }
+        "#;
+        let symbols = symbols(source, true);
+
+        assert!(
+            symbols
+                .iter()
+                .any(|component| component.symbol == "PublicCard")
+        );
+    }
+
+    #[test]
+    fn component_location_points_at_symbol_name() {
+        let source = "struct ProfileCard: View {\n    var body: some View { Text(\"\") }\n}";
+        let symbols = symbols(source, false);
+        let card = symbols
+            .iter()
+            .find(|component| component.symbol == "ProfileCard")
+            .expect("ProfileCard should be detected");
+
+        assert_eq!(card.line, 1);
+        assert!(
+            card.column > 7,
+            "column should start at symbol name, not struct keyword"
         );
     }
 }
