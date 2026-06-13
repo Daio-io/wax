@@ -15,5 +15,7 @@ Completed implementation plans live here. Each plan has a corresponding **ADR** 
 | 6 (design) | [React language pack design](./2026-06-07-react-language-pack-design.md) | — | Reference |
 | 6 (roadmap) | [React capability roadmap](./2026-06-07-react-language-pack-roadmap.md) | — | Reference |
 | 7 | [Generic registry discovery protocol](./2026-06-10-generic-registry-discovery-protocol.md) | [ADR](../../adr/2026-06-10-generic-registry-discovery-protocol.md) | Complete |
+| 8 | [SwiftUI language pack](./2026-06-13-swift-language-pack-plan.md) | [ADR](../../adr/2026-06-13-swift-language-pack.md) | Complete |
+| 8 (design) | [SwiftUI language pack design](./2026-06-12-swift-language-pack-design.md) | — | Reference |
 
 **Active plans** remain in [`docs/plans/`](../README.md).

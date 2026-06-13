@@ -45,7 +45,7 @@ Production Rust code MUST model language ids as a validated `LanguageId` newtype
            └──────┬──────┘
       ┌────────────┼────────────┐
       ▼            ▼            ▼
- wax-lang-compose  wax-lang-react  wax-lang-* later
+ wax-lang-compose  wax-lang-react  wax-lang-swift  wax-lang-* later
   (subprocess) (subprocess) (subprocess)
 ```
 
@@ -455,12 +455,13 @@ Each supported triple gets its own downloadable archive(s). Do not bundle langua
 | `wax` | `wax-cli` | `wax-<version>-<triple>.tar.gz` |
 | `wax-lang-compose` | `wax-lang-compose` | `wax-lang-compose-<version>-<triple>.tar.gz` |
 | `wax-lang-react` | `wax-lang-react` | `wax-lang-react-<version>-<triple>.tar.gz` |
+| `wax-lang-swift` | `wax-lang-swift` | `wax-lang-swift-<version>-<triple>.tar.gz` |
 
-Pack index entries and `.wax/wax.lock.json` `resolved.target` use the **Rust triple** strings above (same as `wax language install` host detection). First-party pack ids in manifests remain `compose` and `react`; only the on-disk binary names use the `wax-lang-<id>` prefix.
+Pack index entries and `.wax/wax.lock.json` `resolved.target` use the **Rust triple** strings above (same as `wax language install` host detection). First-party pack ids in manifests remain `compose`, `react`, and `swift`; only the on-disk binary names use the `wax-lang-<id>` prefix.
 
 **Release flow (sketch):**
 
-1. Tag `wax` + pack versions; CI builds the matrix for `wax`, `wax-lang-compose`, and `wax-lang-react`.
+1. Tag `wax` + pack versions; CI builds the matrix for `wax`, `wax-lang-compose`, `wax-lang-basic`, `wax-lang-react`, and `wax-lang-swift`.
 2. Upload per-triple archives to GitHub Releases (or object storage behind `releases.wax.dev`).
 3. Publish/update the pack index (`WAX_LANG_INDEX`) with `targets` maps keyed by triple, `url`, and `sha256` per language id + version.
 4. `wax language install` / `wax init` resolve the host triple and download the matching artifact; lockfiles pin the resolved digest.
@@ -471,14 +472,14 @@ A future `@waxhq/wax` (or similar) npm package may download the correct prebuilt
 
 ### First-party language packs (v1 targets)
 
-First-party pack binaries use `wax-lang-<id>` names, for example `wax-lang-compose` and `wax-lang-react`. Keep crate names, install manifests, release artifacts, and examples aligned with that convention.
+First-party pack binaries use `wax-lang-<id>` names, for example `wax-lang-compose`, `wax-lang-react`, and `wax-lang-swift`. Keep crate names, install manifests, release artifacts, and examples aligned with that convention.
 
 | id | Parser | Notes |
 |----|--------|-------|
 | `basic` | Text line scanner | Generic fallback for unsupported languages and smoke tests |
 | `compose` | tree-sitter-kotlin | First production parser-backed language |
 | `react` | SWC | Import-aware JSX extraction via SWC; public alpha pack (release promotion complete) |
-| `swift` | Deferred | Later-phase language pack after a dedicated parser decision |
+| `swift` | tree-sitter-swift | SwiftUI declaration and call extraction; public alpha pack |
 
 ### Basic fallback scanner
 
@@ -486,7 +487,7 @@ First-party pack binaries use `wax-lang-<id>` names, for example `wax-lang-compo
 
 `include_globs` supports only `*suffix` filename patterns (for example `*.src`); full glob syntax such as `src/**/*.kt` is not supported. The line scanner strips `//` comments before matching, so code after `//` inside strings or URLs may be missed.
 
-Use `basic` for unsupported languages, smoke tests, and early adoption estimates only. Parser-backed packs such as `compose` and `react` remain the production path for supported ecosystems.
+Use `basic` for unsupported languages, smoke tests, and early adoption estimates only. Parser-backed packs such as `compose`, `react`, and `swift` remain the production path for supported ecosystems.
 
 `engine/crates/wax-lang-basic/tests/fixtures/small/` commits a language-agnostic fixture and golden count summary. `cargo test -p wax-lang-basic` asserts usage counts, alias resolution, comment/string false-positive guards, and one-based source columns against `golden.json`.
 
@@ -566,6 +567,53 @@ React v1 discovers local components conservatively: PascalCase function declarat
 
 `wax-lang-react` is a public alpha pack alongside `compose` and `basic`. Release builds and generated pack indexes include `react`; the default `gh-pages/index.json` lists it after the next tagged alpha publish. README getting started documents `wax init --language react` and `wax language install react` with that index timing. Interactive init language prompts remain deferred to the post-alpha UX plan.
 
+### Swift correctness gate and parser path
+
+`wax-lang-swift` commits a small SwiftUI fixture set and golden count summary under `engine/crates/wax-lang-swift/tests/fixtures/small/`. `cargo test -p wax-lang-swift --test golden_small` asserts `usage_site_count`, `resolved_count`, `local_component_count`, and `design_system_component_count` against `golden.json`.
+
+**Production parser path (tree-sitter-swift):**
+
+Swift (`swift`) uses `tree-sitter-swift`, ecosystem `swiftui`, parser name
+`tree-sitter-swift`, and the same scan/discover subprocess contract as Compose
+and React.
+
+- `wax-lang-swift` uses **tree-sitter-swift** for AST-based Swift parsing. `language.parser_name` is `"tree-sitter-swift"`.
+- The scanner discovers Swift files under configured `roots`, expands path components that are exactly `*` or `**` for multi-module repositories, parses syntax trees, identifies `struct Name: View` and `func Name(...) -> some View` declarations (local components), and resolves direct and member-qualified call expressions matching registry symbols by final member name.
+- Direct calls and alias calls resolve to canonical registry symbols. Comments and string literal content are not counted.
+- Parser initialisation failures map to the `parser_init_failed` wire error code rather than panicking.
+- Requests without Swift scan keys return scaffold facts with the `swift_scaffold` diagnostic.
+- `wax-lang-basic` is the explicit text-scanner fallback for unsupported languages; Swift does not use line scanning.
+
+**Swift scan config:**
+
+```json
+{
+  "id": "swift",
+  "enabled": true,
+  "registry": ".wax/swift.registry.json",
+  "roots": ["App/Sources"]
+}
+```
+
+**Accuracy model (static, registry-backed):**
+
+- Resolved design-system usage is **registry-backed** by final call member name. Direct calls such as `PrimaryButton(...)` and simple member-qualified calls such as `DesignSystem.PrimaryButton(...)` resolve when the member name matches a registry symbol or alias.
+- Registry components whose `targets` array is present and does not include `"swift"` are excluded from Swift facts and do not contribute to Swift coverage counts. Omitted or null `targets` keeps the component available to Swift (same rule as Compose and React).
+
+**Local component discovery:**
+
+Swift v1 discovers local components conservatively: uppercase `struct` declarations conforming to `View`, and uppercase functions returning `some View`. Private and fileprivate symbols are excluded from registry discovery but included in scan local-component facts.
+
+**Partial vs Complete status:**
+
+- `Complete` when configured roots were processed and parsed files had no known gaps.
+- `Partial` when any recoverable gap occurred: missing roots, wildcard roots matching nothing, or per-file parse failures.
+- Fatal config errors, registry load failures, and parser initialization failures return wire errors with no `ScanFacts`.
+
+**Release status:**
+
+`wax-lang-swift` is a public alpha pack alongside `compose`, `react`, and `basic`. Release builds and generated pack indexes include `swift`. README getting started documents `wax init --language swift` and `wax language install swift`. Interactive init language prompts remain deferred to the post-alpha UX plan.
+
 ### Monolithic vs modular CLI
 
 Some tools ship one package with a single prebuilt native addon. Wax ships a **slim engine** plus **optional language packs** so monorepos enable only what they need.
@@ -605,6 +653,6 @@ Phase 0 compared TS-core and Go-core spikes (fixtures, goldens, benchmarks). Pro
 
 1. **Wax config format:** JSON-only for v1 (`.wax/wax.config.json`, legacy `.waxrc`).
 2. **Lockfile:** required for repositories using language packs.
-3. **Swift parser:** deferred to a later phase.
+3. **Swift parser:** `wax-lang-swift` uses tree-sitter-swift; public alpha pack (see Swift correctness gate above).
 4. **Response size:** no fixed cap; engine implementation must handle large responses safely.
 5. **Signing:** plan Sigstore/cosign for v1.1, while v1 relies on HTTPS + sha256 + lockfile pins.
