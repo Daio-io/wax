@@ -14,7 +14,7 @@ It helps teams define a canonical component registry, scan repositories with lan
 - Scans source code with installable language packs such as `compose`, `react`, `swift`, and `basic`.
 - Writes repo-local config, lock, and output files under `.wax/`.
 - Supports deterministic validation and CI-safe scanning.
-- Can bootstrap and refresh registries with `wax registry discover`.
+- Can bootstrap and refresh registries with `wax discover` (`wax registry discover` remains supported).
 - Can be paired with optional agent skills for AI-assisted registry authoring and review.
 
 ## How it fits together
@@ -128,8 +128,8 @@ Minimal manual registry example:
 Or discover components from source:
 
 ```bash
-wax registry discover --language <language-id> --dry-run
-wax registry discover --language <language-id> --force
+wax discover --language <language-id> --dry-run
+wax discover --language <language-id> --force
 wax language update --all
 wax validate
 ```
@@ -270,9 +270,9 @@ The key distinction:
 
 In practice, a skill like `wax-registry-sync` fits around the registry workflow like this:
 
-1. Run `wax registry discover --language <id> --dry-run`
+1. Run `wax discover --language <id> --dry-run`
 2. Review additions and removals
-3. Write `.wax/wax.registry.json` with `wax registry discover --language <id> --force`
+3. Write `.wax/<language-id>.registry.json` with `wax discover --language <id> --force`
 4. Run `wax validate`
 5. Run `wax language update --all` when registry locks need refreshing
 

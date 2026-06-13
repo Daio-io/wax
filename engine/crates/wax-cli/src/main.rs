@@ -44,6 +44,8 @@ enum Commands {
     Registry(RegistryCli),
     /// Scan repository source with enabled language packs.
     Scan(ScanArgs),
+    /// Discover design-system registry components from source roots.
+    Discover(DiscoverArgs),
     /// Validate repository wax inputs for CI usage.
     Validate(ValidateArgs),
     /// Uninstall wax global state and local binary paths.
@@ -271,19 +273,20 @@ fn main() {
             &mut stdout,
         )
         .map_err(Into::into),
-        Commands::Registry(registry) => match registry.command {
-            RegistrySubcommand::Discover(args) => run_registry_discover(
-                RegistryDiscoverCommandOptions {
-                    repo_root: args.repo_root,
-                    language_id: args.language.as_str().to_owned(),
-                    roots: args.roots,
-                    dry_run: args.dry_run,
-                    force: args.force,
-                },
-                &mut stdout,
-            )
-            .map_err(Into::into),
-        },
+        Commands::Discover(args)
+        | Commands::Registry(RegistryCli {
+            command: RegistrySubcommand::Discover(args),
+        }) => run_registry_discover(
+            RegistryDiscoverCommandOptions {
+                repo_root: args.repo_root,
+                language_id: args.language.as_str().to_owned(),
+                roots: args.roots,
+                dry_run: args.dry_run,
+                force: args.force,
+            },
+            &mut stdout,
+        )
+        .map_err(Into::into),
         Commands::Scan(args) => run_scan(
             ScanCommandOptions {
                 repo_root: args.repo_root,

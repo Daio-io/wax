@@ -344,19 +344,39 @@ fn run_discover_for_language(
     root: &Path,
     extra_args: &[&str],
 ) -> std::process::Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_wax"));
-    command.args([
-        "registry",
-        "discover",
-        "--language",
+    run_discover_command(
+        repo,
+        &["registry", "discover"],
         language_id,
-        "--repo-root",
-    ]);
+        root,
+        extra_args,
+    )
+}
+
+fn run_top_level_discover_for_language(
+    repo: &Path,
+    language_id: &str,
+    root: &Path,
+    extra_args: &[&str],
+) -> std::process::Output {
+    run_discover_command(repo, &["discover"], language_id, root, extra_args)
+}
+
+fn run_discover_command(
+    repo: &Path,
+    discover_prefix: &[&str],
+    language_id: &str,
+    root: &Path,
+    extra_args: &[&str],
+) -> std::process::Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_wax"));
+    command.args(discover_prefix);
+    command.args(["--language", language_id, "--repo-root"]);
     command.arg(repo);
     command.arg("--root");
     command.arg(root);
     command.args(extra_args);
-    command.output().expect("spawn wax registry discover")
+    command.output().expect("spawn wax discover")
 }
 
 fn run_discover(repo: &Path, extra_args: &[&str]) -> std::process::Output {
@@ -675,4 +695,73 @@ fn missing_root_fails_with_guidance() {
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("pass --root path/to/design-system"));
     assert!(!repo.join(".wax/compose.registry.json").exists());
+}
+
+#[test]
+fn top_level_discover_matches_registry_discover_dry_run() {
+    let _guard = env_lock();
+    let root = TestDir::new("top-level-discover-dry-run");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    link_compose_fixture_into_repo(&repo);
+    let _harness = setup_compose_discover_repo(&repo, false);
+
+    let legacy = run_discover(&repo, &["--dry-run"]);
+    let shorthand = run_top_level_discover_for_language(
+        &repo,
+        "compose",
+        &compose_fixture_root(),
+        &["--dry-run"],
+    );
+
+    assert!(
+        legacy.status.success(),
+        "legacy discover failed: {}",
+        String::from_utf8_lossy(&legacy.stderr)
+    );
+    assert!(
+        shorthand.status.success(),
+        "top-level discover failed: {}",
+        String::from_utf8_lossy(&shorthand.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(legacy.stdout).unwrap(),
+        String::from_utf8(shorthand.stdout).unwrap()
+    );
+}
+
+#[test]
+fn configless_discover_without_lockfile_writes_registry() {
+    let _guard = env_lock();
+    let root = TestDir::new("configless-discover-no-lockfile");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    link_compose_fixture_into_repo(&repo);
+    let wax_home = root.path.join("wax-home");
+    fs::create_dir_all(&wax_home).unwrap();
+    install_compose_discover_fixture_pack(&wax_home);
+    let _wax_home_guard = EnvVarGuard::set("WAX_HOME", &wax_home);
+
+    let output = run_top_level_discover_for_language(
+        &repo,
+        "compose",
+        &repo.join("design-system/src/main/kotlin"),
+        &[],
+    );
+
+    assert!(
+        output.status.success(),
+        "configless discover failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let registry_path = repo.join(".wax/compose.registry.json");
+    assert!(
+        registry_path.exists(),
+        "expected registry file to be written"
+    );
+    assert!(
+        !repo.join(".wax/wax.lock.json").exists(),
+        "configless discover should not create a lockfile"
+    );
 }
