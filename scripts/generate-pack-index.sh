@@ -6,7 +6,7 @@ usage() {
 Usage: ./scripts/generate-pack-index.sh [release-artifacts-dir] [output-index-json]
 
 Reads release manifest files produced by scripts/build-release.sh and emits the
-alpha language-pack index. The alpha index publishes compose, basic, and react.
+alpha language-pack index. The alpha index publishes compose, basic, react, and swift.
 
 Defaults:
   release-artifacts-dir: release/artifacts
@@ -29,7 +29,8 @@ ruby -rjson -rfileutils -e '
   pack_binaries = {
     "compose" => "wax-lang-compose",
     "basic" => "wax-lang-basic",
-    "react" => "wax-lang-react"
+    "react" => "wax-lang-react",
+    "swift" => "wax-lang-swift"
   }
 
   manifest_paths = Dir.glob(File.join(artifacts_dir, "*", "manifest.json")).sort

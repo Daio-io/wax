@@ -32,6 +32,10 @@ cat > "$artifacts_dir/x86_64-unknown-linux-gnu/manifest.json" <<'JSON'
     "wax-lang-react": {
       "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.1/wax-lang-react-0.1.0-alpha.1-x86_64-unknown-linux-gnu.tar.gz",
       "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    "wax-lang-swift": {
+      "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.1/wax-lang-swift-0.1.0-alpha.1-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
     }
   }
 }
@@ -53,6 +57,10 @@ cat > "$artifacts_dir/aarch64-apple-darwin/manifest.json" <<'JSON'
     "wax-lang-react": {
       "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.1/wax-lang-react-0.1.0-alpha.1-aarch64-apple-darwin.tar.gz",
       "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "wax-lang-swift": {
+      "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.1/wax-lang-swift-0.1.0-alpha.1-aarch64-apple-darwin.tar.gz",
+      "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
     }
   }
 }
@@ -74,6 +82,10 @@ cat > "$artifacts_dir/x86_64-apple-darwin/manifest.json" <<'JSON'
     "wax-lang-react": {
       "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.1/wax-lang-react-0.1.0-alpha.1-x86_64-apple-darwin.tar.gz",
       "sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+    },
+    "wax-lang-swift": {
+      "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.1/wax-lang-swift-0.1.0-alpha.1-x86_64-apple-darwin.tar.gz",
+      "sha256": "8888888888888888888888888888888888888888888888888888888888888888"
     }
   }
 }
@@ -95,6 +107,10 @@ cat > "$artifacts_dir/aarch64-unknown-linux-gnu/manifest.json" <<'JSON'
     "wax-lang-react": {
       "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.1/wax-lang-react-0.1.0-alpha.1-aarch64-unknown-linux-gnu.tar.gz",
       "sha256": "7777777777777777777777777777777777777777777777777777777777777777"
+    },
+    "wax-lang-swift": {
+      "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.1/wax-lang-swift-0.1.0-alpha.1-aarch64-unknown-linux-gnu.tar.gz",
+      "sha256": "9999999999999999999999999999999999999999999999999999999999999999"
     }
   }
 }
@@ -104,7 +120,7 @@ JSON
 
 ruby -rjson -e '
   index = JSON.parse(File.read(ARGV.fetch(0)))
-  abort("expected compose/basic/react") unless index.map { |entry| entry.fetch("id") } == %w[compose basic react]
+  abort("expected compose/basic/react/swift") unless index.map { |entry| entry.fetch("id") } == %w[compose basic react swift]
   index.each do |entry|
     abort("wrong version") unless entry.fetch("version") == "0.1.0-alpha.1"
     abort("wrong api version") unless entry.fetch("api_version") == 1
@@ -142,5 +158,29 @@ ruby -rjson -e '
     artifact = react_entry.fetch(target)
     abort("react #{target} url missing") unless artifact.fetch("url").include?(expected.fetch("url"))
     abort("react #{target} sha missing") unless artifact.fetch("sha256") == expected.fetch("sha256")
+  end
+  swift_entry = index.fetch(3).fetch("targets")
+  swift_expectations = {
+    "aarch64-apple-darwin" => {
+      "url" => "wax-lang-swift-0.1.0-alpha.1-aarch64-apple-darwin.tar.gz",
+      "sha256" => "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    "aarch64-unknown-linux-gnu" => {
+      "url" => "wax-lang-swift-0.1.0-alpha.1-aarch64-unknown-linux-gnu.tar.gz",
+      "sha256" => "9999999999999999999999999999999999999999999999999999999999999999"
+    },
+    "x86_64-apple-darwin" => {
+      "url" => "wax-lang-swift-0.1.0-alpha.1-x86_64-apple-darwin.tar.gz",
+      "sha256" => "8888888888888888888888888888888888888888888888888888888888888888"
+    },
+    "x86_64-unknown-linux-gnu" => {
+      "url" => "wax-lang-swift-0.1.0-alpha.1-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256" => "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    }
+  }
+  swift_expectations.each do |target, expected|
+    artifact = swift_entry.fetch(target)
+    abort("swift #{target} url missing") unless artifact.fetch("url").include?(expected.fetch("url"))
+    abort("swift #{target} sha missing") unless artifact.fetch("sha256") == expected.fetch("sha256")
   end
 ' "$tmp_dir/index.json"

@@ -8,7 +8,7 @@ Usage: ./scripts/build-release.sh [target] [--include-contributor]
 Build and package wax release binaries for one target triple.
 If no target is provided, uses the host triple.
 By default this builds alpha artifacts from engine/Cargo.toml alpha_index_binaries:
-  wax, wax-lang-compose, wax-lang-basic, wax-lang-react
+  wax, wax-lang-compose, wax-lang-basic, wax-lang-react, wax-lang-swift
 Pass --include-contributor to also build contributor_only_binaries (empty today).
 USAGE
 }
