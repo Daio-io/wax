@@ -14,7 +14,8 @@ fn fixture_sources_root() -> PathBuf {
 
 #[test]
 fn discovers_public_and_package_swiftui_symbols() {
-    let result = discover_registry_symbols(&[fixture_sources_root()]).expect("discover symbols");
+    let result = discover_registry_symbols(&fixture_root(), &[fixture_sources_root()])
+        .expect("discover symbols");
     assert_eq!(
         result.symbols,
         vec!["Badge", "PackageCard", "PrimaryButton"]
@@ -25,23 +26,32 @@ fn discovers_public_and_package_swiftui_symbols() {
 #[test]
 fn missing_discovery_root_fails() {
     let missing = fixture_sources_root().join("missing");
-    let err = discover_registry_symbols(&[missing]).expect_err("missing root should fail");
+    let err = discover_registry_symbols(&fixture_root(), &[missing])
+        .expect_err("missing root should fail");
     assert!(err.to_string().contains("discovery root does not exist"));
 }
 
 #[test]
 fn parse_failures_are_skipped_with_diagnostics() {
     let root = fixture_root().join("broken/Sources");
-    let result = discover_registry_symbols(&[root]).expect("discover should continue");
+    let result =
+        discover_registry_symbols(&fixture_root(), &[root]).expect("discover should continue");
     assert!(result.symbols.is_empty());
     assert_eq!(result.diagnostics.len(), 1);
     assert_eq!(result.diagnostics[0].code, "parse_failed");
-    assert!(result.diagnostics[0].message.contains("Broken.swift"));
+    assert_eq!(
+        result.diagnostics[0]
+            .location
+            .as_ref()
+            .map(|location| location.file.as_str()),
+        Some("broken/Sources/Broken.swift")
+    );
 }
 
 #[test]
 fn duplicate_symbols_are_deduped_and_nested_symbols_are_excluded() {
-    let result = discover_registry_symbols(&[fixture_sources_root()]).expect("discover symbols");
+    let result = discover_registry_symbols(&fixture_root(), &[fixture_sources_root()])
+        .expect("discover symbols");
     assert_eq!(
         result
             .symbols
@@ -83,7 +93,7 @@ fn parse_failures_do_not_block_symbols_from_other_files() -> io::Result<()> {
     )?;
     fs::write(&broken_file, "struct Broken(")?;
 
-    let result = discover_registry_symbols(&[tempdir.path().to_path_buf()])
+    let result = discover_registry_symbols(tempdir.path(), &[tempdir.path().to_path_buf()])
         .expect("discover should continue after parse failure");
 
     assert_eq!(result.symbols, vec!["GoodButton"]);

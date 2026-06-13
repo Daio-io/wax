@@ -1,9 +1,9 @@
 //! SwiftUI registry symbol discovery.
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use wax_contract::{Diagnostic, DiagnosticSeverity};
+use wax_contract::{Diagnostic, DiagnosticSeverity, SourceLocation};
 
 use crate::component_detect::collect_component_declarations;
 use crate::swift_ast::{
@@ -64,6 +64,7 @@ impl std::error::Error for SwiftDiscoverError {
 /// Files that fail to parse are skipped and reported as diagnostics so discovery can
 /// continue with the remaining Swift sources.
 pub fn discover_registry_symbols(
+    parse_root: &Path,
     roots: &[PathBuf],
 ) -> Result<DiscoverRegistryResult, SwiftDiscoverError> {
     let mut parser = new_parser().map_err(SwiftDiscoverError::ParserInitFailed)?;
@@ -93,14 +94,16 @@ pub fn discover_registry_symbols(
                 }
             }
             Err(ParseSwiftFileError::ParseFailed(_)) => {
+                let relative_file = repo_relative_path(parse_root, &file_path);
                 diagnostics.push(Diagnostic {
                     severity: DiagnosticSeverity::Error,
                     code: "parse_failed".to_owned(),
-                    message: format!(
-                        "tree-sitter failed to parse {}; file skipped",
-                        file_path.display()
-                    ),
-                    location: None,
+                    message: format!("tree-sitter failed to parse {relative_file}; file skipped"),
+                    location: Some(SourceLocation {
+                        file: relative_file,
+                        line: 1,
+                        column: None,
+                    }),
                 });
             }
             Err(ParseSwiftFileError::Io { context, source }) => {
@@ -113,4 +116,16 @@ pub fn discover_registry_symbols(
         symbols: symbols.into_iter().collect(),
         diagnostics,
     })
+}
+
+fn repo_relative_path(parse_root: &Path, file_path: &Path) -> String {
+    file_path
+        .strip_prefix(parse_root)
+        .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_else(|_| {
+            file_path
+                .file_name()
+                .map(|name| name.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_else(|| file_path.to_string_lossy().replace('\\', "/"))
+        })
 }

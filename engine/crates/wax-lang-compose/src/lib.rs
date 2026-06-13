@@ -128,7 +128,7 @@ impl ComposeLanguage {
             .map(|root| repo_root.join(root))
             .collect::<Vec<_>>();
 
-        let result = discover_registry_symbols(&absolute_roots)?;
+        let result = discover_registry_symbols(repo_root, &absolute_roots)?;
 
         Ok(DiscoverSymbolsResult {
             symbols: result.symbols,

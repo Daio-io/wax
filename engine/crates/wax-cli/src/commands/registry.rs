@@ -1,5 +1,6 @@
 //! Registry discovery command implementations for `wax discover` and `wax registry discover`.
 
+use super::diagnostic_output::format_diagnostic_line;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -160,7 +161,7 @@ fn write_pack_diagnostics(diagnostics: &[Diagnostic]) {
 
     eprintln!("discovery diagnostics ({}):", diagnostics.len());
     for diagnostic in diagnostics {
-        eprintln!("  {}: {}", diagnostic.code, diagnostic.message);
+        eprintln!("  {}", format_diagnostic_line(diagnostic));
     }
 }
 

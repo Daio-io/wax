@@ -134,7 +134,7 @@ impl SwiftLanguage {
             .iter()
             .map(|root| repo_root.join(root))
             .collect::<Vec<_>>();
-        let result = discover_registry_symbols(&roots)?;
+        let result = discover_registry_symbols(repo_root, &roots)?;
 
         Ok(DiscoverSymbolsResult {
             symbols: result.symbols,

@@ -550,7 +550,13 @@ fn stdio_discover_parse_failure_returns_symbols_with_diagnostic() {
             assert!(symbols.is_empty());
             assert_eq!(diagnostics.len(), 1);
             assert_eq!(diagnostics[0].code, "parse_failed");
-            assert!(diagnostics[0].message.contains("Broken.swift"));
+            assert_eq!(
+                diagnostics[0]
+                    .location
+                    .as_ref()
+                    .map(|location| location.file.as_str()),
+                Some("broken/Sources/Broken.swift")
+            );
         }
         other => panic!("expected discover_symbols response, got {other:?}"),
     }

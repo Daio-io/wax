@@ -108,11 +108,12 @@ fn stdio_cli_returns_discover_symbols_with_parse_failure_diagnostic() {
             assert!(symbols.is_empty());
             assert_eq!(diagnostics.len(), 1);
             assert_eq!(diagnostics[0].code, "parse_failed");
-            assert!(
+            assert_eq!(
                 diagnostics[0]
                     .location
                     .as_ref()
-                    .is_some_and(|location| location.file.contains("Broken.tsx"))
+                    .map(|location| location.file.as_str()),
+                Some("src/Broken.tsx")
             );
         }
         other => panic!("expected discover_symbols response, got {other:?}"),

@@ -68,6 +68,7 @@ impl std::error::Error for ReactDiscoverError {
 /// Files that fail to parse are skipped and reported as diagnostics so discovery can
 /// continue with the remaining React sources.
 pub fn discover_registry_symbols(
+    parse_root: &Path,
     roots: &[PathBuf],
 ) -> Result<DiscoverRegistryResult, ReactDiscoverError> {
     let mut source_files = Vec::new();
@@ -85,23 +86,21 @@ pub fn discover_registry_symbols(
     let mut symbols = BTreeSet::new();
     let mut diagnostics = Vec::new();
     for file_path in source_files {
-        let parse_root = parse_root_for_file(&file_path);
-        let relative_path = file_path.strip_prefix(&parse_root).unwrap_or(&file_path);
-        let parsed =
-            match parse_react_source_file(&parse_root, relative_path).map_err(|source| {
-                ReactDiscoverError::Io {
-                    context: format!("read React source {}", file_path.display()),
-                    source: match source {
-                        crate::ReactParseError::Io { source, .. } => source,
-                    },
-                }
-            })? {
-                ReactParseOutcome::Parsed(parsed) => parsed,
-                ReactParseOutcome::Failed(diagnostic) => {
-                    diagnostics.push(diagnostic);
-                    continue;
-                }
-            };
+        let relative_path = repo_relative_path(parse_root, &file_path);
+        let parsed = match parse_react_source_file(parse_root, Path::new(&relative_path)).map_err(
+            |source| ReactDiscoverError::Io {
+                context: format!("read React source {relative_path}"),
+                source: match source {
+                    crate::ReactParseError::Io { source, .. } => source,
+                },
+            },
+        )? {
+            ReactParseOutcome::Parsed(parsed) => parsed,
+            ReactParseOutcome::Failed(diagnostic) => {
+                diagnostics.push(diagnostic);
+                continue;
+            }
+        };
         collect_exported_component_symbols(&parsed.module.body, &mut symbols);
     }
 
@@ -111,10 +110,16 @@ pub fn discover_registry_symbols(
     })
 }
 
-fn parse_root_for_file(file_path: &Path) -> PathBuf {
+fn repo_relative_path(parse_root: &Path, file_path: &Path) -> String {
     file_path
-        .parent()
-        .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
+        .strip_prefix(parse_root)
+        .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_else(|_| {
+            file_path
+                .file_name()
+                .map(|name| name.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_else(|| file_path.to_string_lossy().replace('\\', "/"))
+        })
 }
 
 fn collect_react_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), std::io::Error> {

@@ -1,4 +1,5 @@
 mod commands {
+    pub mod diagnostic_output;
     pub mod init;
     pub mod language;
     pub mod registry;
