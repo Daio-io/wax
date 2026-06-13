@@ -69,9 +69,11 @@ git switch -c dai/swift-language-pack
   - `scripts/generate-pack-index.sh`
   - `scripts/test-generate-pack-index.sh`
   - `scripts/check-release-workflow.rb`
+  - `engine/crates/wax-core/src/registry.rs`
   - `engine/fixtures/registry/*.json`
+  - `engine/fixtures/config/example.waxrc`
   - `README.md`
-  - `packages/cli/package.json` if package metadata enumerates shipped binaries.
+  - `packages/cli/package.json`
 
 ## Phase 1 - Crate Scaffold and Stdio Shell
 
@@ -602,7 +604,7 @@ git commit -m "feat: scaffold SwiftUI language pack"
 
 - [ ] **Step 1: Write failing config tests**
 
-Create `engine/crates/wax-lang-swift/tests/config_validation.rs`:
+Create `engine/crates/wax-lang-swift/tests/config_validation.rs` with Compose-parity coverage. Start with these tests:
 
 ```rust
 use std::fs;
@@ -679,6 +681,19 @@ fn configured_scan_loads_registry_and_reports_missing_root_as_partial() {
     );
 }
 ```
+
+Before this task is complete, expand the same file with these additional tests using the Compose `config_validation.rs` structure as the behavioral template:
+
+- `registry_key_is_accepted_as_canonical_registry_path`: configure `registry`, scan the small fixture, and assert a complete scan with Swift design-system components.
+- `design_system_registry_key_still_scans`: configure legacy `design_system_registry`, scan the small fixture, and assert the same counts as the canonical key.
+- `registry_key_wins_when_both_registry_keys_are_present`: configure `registry` to the main fixture and `design_system_registry` to `alt-design-system/registry.json`; assert the main registry symbols are used.
+- `empty_roots_array_is_config_error_not_scaffold`: configure `roots: []` and assert the error text contains `roots must be a non-empty array of strings`.
+- `non_string_root_entry_is_config_error`: configure `roots: [42]` and assert the error text contains `roots[0] must be a non-empty string`.
+- `roots_without_registry_is_config_error`: configure only `roots` and assert the error text contains `registry is required`.
+- `absolute_registry_path_is_config_error`: configure an absolute `registry` path and assert the error text contains `repo-relative path`.
+- `configured_scan_reports_parse_failed_for_invalid_source`: scan one valid and one broken Swift file, assert `ScanStatus::Partial`, and assert a `parse_failed` diagnostic.
+
+Add `engine/crates/wax-lang-swift/tests/fixtures/small/alt-design-system/registry.json` for `registry_key_wins_when_both_registry_keys_are_present`.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -981,6 +996,15 @@ fn component_available_to_swift(
     Ok(false)
 }
 ```
+
+If Compose still lacks `targets` filtering when this task runs, add a focused pre-implementation check:
+
+```bash
+cd engine
+rg -n "targets|component_available_to" crates/wax-lang-compose/src crates/wax-lang-react/src
+```
+
+Then either add Compose target filtering in a prerequisite PR or document in the task PR why Swift intentionally leads on target filtering. Do not leave Swift, React, and Compose silently inconsistent.
 
 - [ ] **Step 7: Add a minimal configured scan result**
 
@@ -1587,7 +1611,20 @@ cargo test -p wax-lang-swift direct_member_and_alias_calls_resolve_to_registry_s
 
 If the grammar uses a different node kind than `call_expression`, update the helper and tests together. The invariant is source behavior, not the exact grammar node names.
 
-- [ ] **Step 6: Run focused detection tests**
+- [ ] **Step 6: Add Compose-parity scan edge-case tests**
+
+Add unit tests in `tree_sitter_scan.rs`:
+
+- `multiline_call_is_detected_at_first_line`: call `PrimaryButton(` across multiple lines and assert the `UsageSite` line/column points at the first call token.
+- `missing_root_emits_warning_diagnostic_and_partial_status`: configure a literal missing root and assert `root_not_found` plus `ScanStatus::Partial`.
+- `unmatched_wildcard_root_emits_glob_warning`: configure a wildcard root that matches no directories and assert `root_glob_not_found`.
+- `wildcard_root_scans_each_matching_module`: create two matching module directories and assert both contribute Swift files and usage sites.
+- `recursive_wildcard_root_scans_nested_modules`: create nested module directories and assert recursive wildcard roots scan nested Swift files.
+- `partial_parse_still_extracts_symbols_during_scan`: scan one valid file and one broken file, assert valid usage still appears, and assert `parse_failed` plus `ScanStatus::Partial`.
+
+The wildcard tests should mirror the root-resolution behavior in Compose and use `wax-lang-api::resolve_source_roots` indirectly through `scan_repository`.
+
+- [ ] **Step 7: Run focused detection tests**
 
 Run:
 
@@ -1600,7 +1637,7 @@ cargo clippy -p wax-lang-swift --all-targets -- -D warnings
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add engine/crates/wax-lang-swift/src/component_detect.rs engine/crates/wax-lang-swift/src/tree_sitter_scan.rs
@@ -1612,6 +1649,9 @@ git commit -m "feat: detect SwiftUI components and usage"
 **Files:**
 - Create: `engine/crates/wax-lang-swift/tests/fixtures/small/design-system/registry.json`
 - Create: `engine/crates/wax-lang-swift/tests/fixtures/small/app/Sources/App/Sample.swift`
+- Create: `engine/crates/wax-lang-swift/tests/fixtures/small/app/Sources/App/Extended.swift`
+- Create: `engine/crates/wax-lang-swift/tests/fixtures/small/app/Sources/App/FalsePositives.swift`
+- Create: `engine/crates/wax-lang-swift/tests/fixtures/small/alt-design-system/registry.json`
 - Create: `engine/crates/wax-lang-swift/tests/fixtures/small/golden.json`
 - Create: `engine/crates/wax-lang-swift/tests/golden_small.rs`
 
@@ -1673,6 +1713,40 @@ struct LocalCard: View {
 func LocalFactory() -> some View {
     Card {
         Text("Factory")
+    }
+}
+```
+
+Create `engine/crates/wax-lang-swift/tests/fixtures/small/app/Sources/App/Extended.swift`:
+
+```swift
+import SwiftUI
+import DesignSystem
+
+struct ExtendedScreen: View {
+    var body: some View {
+        VStack {
+            PrimaryCTA(
+                title: "Alias"
+            )
+            DesignSystem.Card {
+                Text("Qualified")
+            }
+        }
+    }
+}
+```
+
+Create `engine/crates/wax-lang-swift/tests/fixtures/small/app/Sources/App/FalsePositives.swift`:
+
+```swift
+import SwiftUI
+
+struct FalsePositives: View {
+    var body: some View {
+        Text("PrimaryButton(title:)")
+        // Card { Text("comment") }
+        LocalCard()
     }
 }
 ```
@@ -1752,7 +1826,29 @@ fn golden_small_swiftui_fixture_matches_counts() {
             .any(|component| component.symbol == "ComposeOnly")
     );
 }
+
+#[test]
+fn scan_status_is_complete_when_configured() {
+    let facts = scan_small_fixture();
+
+    assert_eq!(facts.status, ScanStatus::Complete);
+    assert_eq!(facts.language.parser_name, "tree-sitter-swift");
+}
+
+#[test]
+fn alias_usage_resolves_to_canonical_symbol() {
+    let facts = scan_small_fixture();
+    let alias_site = facts
+        .usage_sites
+        .iter()
+        .find(|site| site.symbol == "PrimaryCTA")
+        .expect("alias usage should be present");
+
+    assert_eq!(alias_site.registry_symbol.as_deref(), Some("PrimaryButton"));
+}
 ```
+
+Refactor the test helper to expose `scan_small_fixture() -> wax_contract::ScanFacts` so these tests are separate, matching the Compose golden pattern.
 
 - [ ] **Step 5: Run the golden test**
 
@@ -1782,6 +1878,8 @@ git commit -m "test: add SwiftUI golden scan fixture"
 - Modify: `engine/crates/wax-lang-swift/src/lib.rs`
 - Modify: `engine/crates/wax-lang-swift/src/bin/wax-lang-swift.rs`
 - Create: `engine/crates/wax-lang-swift/tests/fixtures/discover/design-system/Sources/Components.swift`
+- Create: `engine/crates/wax-lang-swift/tests/fixtures/discover/design-system/Sources/DuplicateComponents.swift`
+- Create: `engine/crates/wax-lang-swift/tests/fixtures/discover/broken/Sources/Broken.swift`
 - Create: `engine/crates/wax-lang-swift/tests/registry_discover.rs`
 
 - [ ] **Step 1: Create discovery fixture**
@@ -1816,6 +1914,32 @@ struct lowercase: View {
 }
 ```
 
+Create `engine/crates/wax-lang-swift/tests/fixtures/discover/design-system/Sources/DuplicateComponents.swift`:
+
+```swift
+import SwiftUI
+
+public struct PrimaryButton: View {
+    public var body: some View { Text("Duplicate") }
+}
+
+enum NestedNamespace {
+    struct NestedCard: View {
+        var body: some View { Text("Nested") }
+    }
+}
+```
+
+Create `engine/crates/wax-lang-swift/tests/fixtures/discover/broken/Sources/Broken.swift`:
+
+```swift
+import SwiftUI
+
+public struct BrokenCard: View {
+    var body: some View {
+        Text("Broken")
+```
+
 - [ ] **Step 2: Write discovery tests**
 
 Create `engine/crates/wax-lang-swift/tests/registry_discover.rs`:
@@ -1843,7 +1967,30 @@ fn missing_discovery_root_fails() {
 
     assert!(err.to_string().contains("discovery root does not exist"));
 }
+
+#[test]
+fn parse_failures_are_reported() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/discover/broken/Sources");
+    let err = discover_registry_symbols(&[root]).expect_err("parse should fail");
+
+    assert!(err.to_string().contains("failed to parse"));
+    assert!(err.to_string().contains("Broken.swift"));
+}
+
+#[test]
+fn duplicate_symbols_are_deduped_and_nested_symbols_are_excluded() {
+    let symbols = discover_registry_symbols(&[fixture_root()]).expect("discover symbols");
+
+    assert_eq!(
+        symbols.iter().filter(|symbol| *symbol == "PrimaryButton").count(),
+        1
+    );
+    assert!(!symbols.iter().any(|symbol| symbol == "NestedCard"));
+}
 ```
+
+Also add a `SwiftLanguage::discover` wrapper test that sends repo-relative roots through `DiscoverRequest` and asserts the same symbol list. This catches bugs in root joining separately from `discover_registry_symbols`.
 
 - [ ] **Step 3: Run tests to verify they fail**
 
@@ -2029,24 +2176,43 @@ fn stdio_discover_returns_symbols() {
 }
 ```
 
-- [ ] **Step 2: Add typed error tests**
+- [ ] **Step 2: Add configured stdio scan coverage**
+
+Add a Compose-style configured scan test named `stdio_cli_emits_one_scan_facts_response`. It should send a scan request for `tests/fixtures/small` with `registry` and `roots`, assert `snapshot_id`, `parser_name == "tree-sitter-swift"`, `ScanStatus::Complete`, and assert stdout contains exactly one JSON line.
+
+Add scan error-path stdio tests:
+
+- `stdio_scan_reports_partial_facts_for_parse_failure`: send a configured scan containing a broken Swift file and assert partial facts with `parse_failed`.
+- `stdio_scan_missing_registry_returns_registry_not_found`: send a configured scan with a missing registry path and assert `WireErrorCode::RegistryNotFound`.
+
+- [ ] **Step 3: Add typed error tests**
 
 Append tests for:
 
-```rust
-#[test]
-fn unsupported_api_version_on_scan_returns_tagged_error_response() { /* use api_version 2 */ }
-
-#[test]
-fn unsupported_api_version_on_discover_returns_tagged_error_response() { /* use api_version 2 */ }
-
-#[test]
-fn invalid_json_returns_tagged_error_response() { /* input: {not json}\n */ }
-```
+- `unsupported_api_version_on_scan_returns_tagged_error_response`: send a scan request with `api_version: 2` and assert `WireErrorCode::ApiVersionUnsupported`.
+- `unsupported_api_version_on_discover_returns_tagged_error_response`: send a discover request with `api_version: 2` and assert `WireErrorCode::ApiVersionUnsupported`.
+- `invalid_json_returns_tagged_error_response`: send `{not json}\n` and assert `WireErrorCode::ConfigInvalid`.
 
 Match React's assertions exactly, changing the language id to `swift` and command to `wax-lang-swift`.
 
-- [ ] **Step 3: Run stdio tests**
+- [ ] **Step 4: Add discover error-path stdio tests**
+
+Add React-parity discover tests:
+
+- `stdio_discover_missing_root_returns_config_invalid`: send a missing discover root and assert `WireErrorCode::ConfigInvalid`.
+- `stdio_discover_wrong_language_id_returns_config_invalid`: send `language_id: "compose"` to `wax-lang-swift` and assert `WireErrorCode::ConfigInvalid`.
+- `stdio_discover_parse_failure_returns_scan_failed`: send the broken discover fixture root and assert `WireErrorCode::ScanFailed`.
+
+- [ ] **Step 5: Add bin-level wire tests**
+
+Add a `#[cfg(test)] mod tests` block in `src/bin/wax-lang-swift.rs`, matching the Compose/React binary modules, with:
+
+- `invalid_json_returns_tagged_error_response`: assert malformed JSON returns `WireErrorCode::ConfigInvalid`.
+- `wrong_language_id_echoes_request_language_id`: send the wrong language id and assert the error response preserves the request language id.
+- `unsupported_api_version_returns_tagged_error_response`: assert `WireErrorCode::ApiVersionUnsupported`.
+- `scan_response_preserves_snapshot_id`: send a scaffold or configured scan and assert the returned facts keep the request snapshot id.
+
+- [ ] **Step 6: Run stdio tests**
 
 Run:
 
@@ -2058,7 +2224,7 @@ cargo clippy -p wax-lang-swift --all-targets -- -D warnings
 
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add engine/crates/wax-lang-swift/tests/stdio_cli.rs engine/crates/wax-lang-swift/src/bin/wax-lang-swift.rs
@@ -2076,6 +2242,7 @@ git commit -m "test: cover SwiftUI stdio protocol"
 - Modify: `scripts/generate-pack-index.sh`
 - Modify: `scripts/test-generate-pack-index.sh`
 - Modify: `scripts/check-release-workflow.rb`
+- Modify: `engine/crates/wax-core/src/registry.rs`
 - Modify: `engine/fixtures/registry/alpha-index.json`
 - Modify: `engine/fixtures/registry/official-manifest.json`
 
@@ -2153,7 +2320,38 @@ Add a Swift language entry to `engine/fixtures/registry/alpha-index.json` and `e
 
 Use the exact schema and target ordering from the existing fixture files.
 
-- [ ] **Step 6: Run release checks**
+- [ ] **Step 6: Update release archive assertions**
+
+Update hardcoded archive/checksum counts from 16 to 20 wherever release checks assume 4 binaries x 4 targets. This includes `.github/workflows/release.yml` and `scripts/check-release-workflow.rb`.
+
+- [ ] **Step 7: Update wax-core alpha index assertions**
+
+Update `engine/crates/wax-core/src/registry.rs` tests that assert alpha index language ids so they expect:
+
+```rust
+["compose", "basic", "react", "swift"]
+```
+
+Run the focused test that owns the assertion:
+
+```bash
+cd engine
+cargo test -p wax-core assert_alpha_index_matches_release
+```
+
+- [ ] **Step 8: Run local release smoke checks**
+
+Run:
+
+```bash
+scripts/build-release.sh --target "$(rustc -vV | awk '/host/ { print $2 }')" --out-dir /tmp/wax-swift-release-smoke
+cd engine
+cargo test -p wax-core validates_pack_index_from_env -- --ignored
+```
+
+Expected: the local target artifacts include `wax-lang-swift`, and pack-index validation accepts the generated Swift entry.
+
+- [ ] **Step 9: Run release checks**
 
 Run:
 
@@ -2167,7 +2365,11 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 10: Record workflow dry-run requirement**
+
+Before tagging a release that includes Swift, run the release workflow with `workflow_dispatch` against this branch or the release candidate branch and record the run URL in the task PR. Do not mark the release-promotion task complete until the dry-run has either passed or maintainers have explicitly deferred it.
+
+- [ ] **Step 11: Commit**
 
 ```bash
 git add engine/Cargo.toml .github/workflows/release.yml scripts/build-release.sh scripts/generate-pack-index.sh scripts/test-generate-pack-index.sh scripts/check-release-workflow.rb engine/fixtures/registry
@@ -2180,6 +2382,8 @@ git commit -m "feat: publish SwiftUI language pack artifacts"
 - Modify: `README.md`
 - Modify: `docs/specs/2026-05-16-language-packs-and-distribution.md`
 - Modify: `docs/plans/README.md`
+- Modify: `engine/fixtures/config/example.waxrc`
+- Modify: `packages/cli/package.json`
 - Create: `docs/adr/2026-06-13-swift-language-pack.md`
 
 - [ ] **Step 1: Update README language examples**
@@ -2269,7 +2473,24 @@ Modify `docs/plans/README.md` order 8 row:
 
 If this task is done before the implementation PR merges, set implementation status to `in-progress` instead of `complete`.
 
-- [ ] **Step 5: Run documentation checks**
+- [ ] **Step 5: Align init/config examples**
+
+Update `engine/fixtures/config/example.waxrc` to include an enabled Swift entry:
+
+```json
+{
+  "id": "swift",
+  "enabled": true,
+  "registry": ".wax/swift.registry.json",
+  "roots": ["App/Sources"]
+}
+```
+
+If `packages/cli/package.json` enumerates shipped language-pack binaries, add `wax-lang-swift` beside Compose and React. If it does not enumerate binaries, leave the file unchanged and mention that in the task PR summary.
+
+Add or update CLI init tests so `wax init --language swift` writes a Swift language entry, a per-language `.wax/swift.registry.json`, and a matching lockfile registry entry.
+
+- [ ] **Step 6: Run documentation checks**
 
 Run:
 
@@ -2282,7 +2503,7 @@ cargo test --workspace
 
 Expected: no stale supported-language lists remain except historical/archive references.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add README.md docs/specs/2026-05-16-language-packs-and-distribution.md docs/plans/README.md docs/adr/2026-06-13-swift-language-pack.md
