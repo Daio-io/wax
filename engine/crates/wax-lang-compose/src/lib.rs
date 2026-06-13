@@ -65,7 +65,7 @@ impl std::error::Error for ComposeScanError {
     }
 }
 
-/// Compose language extractor backed by `tree-sitter-kotlin`.
+/// Compose language extractor backed by `tree-sitter-kotlin-ng`.
 #[derive(Debug, Default)]
 pub struct ComposeLanguage;
 
@@ -157,7 +157,7 @@ fn facts_from_scan(
             id: LanguageId::try_from("compose").expect("hardcoded compose id must be valid"),
             version: build_version().to_owned(),
             ecosystem: "compose".to_owned(),
-            parser_name: "tree-sitter-kotlin".to_owned(),
+            parser_name: "tree-sitter-kotlin-ng".to_owned(),
             parser_version: tree_sitter_kotlin_version(),
         },
         snapshot_id: request.snapshot_id.clone(),
@@ -189,7 +189,7 @@ fn scaffold_facts(request: &ScanRequest) -> ScanFacts {
             id: LanguageId::try_from("compose").expect("hardcoded compose id must be valid"),
             version: build_version().to_owned(),
             ecosystem: "compose".to_owned(),
-            parser_name: "tree-sitter-kotlin".to_owned(),
+            parser_name: "tree-sitter-kotlin-ng".to_owned(),
             parser_version: tree_sitter_kotlin_version(),
         },
         snapshot_id: request.snapshot_id.clone(),
