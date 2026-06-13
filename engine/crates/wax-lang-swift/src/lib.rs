@@ -3,11 +3,13 @@
 #![deny(missing_docs)]
 
 mod component_detect;
+pub mod discover;
 mod swift_ast;
 mod tree_sitter_scan;
 
 use std::path::Path;
 
+pub use discover::{SwiftDiscoverError, discover_registry_symbols};
 use time::OffsetDateTime;
 use wax_contract::{
     CountSummary, Diagnostic, DiagnosticSeverity, LanguageId, LanguageMetadata, Metrics,
@@ -66,23 +68,6 @@ impl std::error::Error for SwiftScanError {
     }
 }
 
-/// Errors returned by [`SwiftLanguage::discover`].
-#[derive(Debug)]
-pub enum SwiftDiscoverError {
-    /// The request contains an invalid language id.
-    InvalidLanguageId(String),
-}
-
-impl std::fmt::Display for SwiftDiscoverError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::InvalidLanguageId(id) => write!(f, "invalid swift language id: {id}"),
-        }
-    }
-}
-
-impl std::error::Error for SwiftDiscoverError {}
-
 /// SwiftUI language extractor.
 #[derive(Debug, Default)]
 pub struct SwiftLanguage;
@@ -137,8 +122,16 @@ impl SwiftLanguage {
             ));
         }
 
+        let repo_root = Path::new(&request.repo_root);
+        let roots = request
+            .roots
+            .iter()
+            .map(|root| repo_root.join(root))
+            .collect::<Vec<_>>();
+        let symbols = discover_registry_symbols(&roots)?;
+
         Ok(DiscoverSymbolsResult {
-            symbols: Vec::new(),
+            symbols,
             diagnostics: Vec::new(),
         })
     }
