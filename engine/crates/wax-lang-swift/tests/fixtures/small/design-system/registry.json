@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "components": [
+    {
+      "id": "ds.primary-button",
+      "symbol": "PrimaryButton",
+      "aliases": ["PrimaryCTA"],
+      "targets": ["swift"]
+    },
+    {
+      "id": "ds.card",
+      "symbol": "Card",
+      "targets": ["swift"]
+    },
+    {
+      "id": "ds.compose-only",
+      "symbol": "ComposeOnly",
+      "targets": ["compose"]
+    }
+  ]
+}

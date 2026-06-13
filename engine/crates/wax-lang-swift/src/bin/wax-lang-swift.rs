@@ -150,9 +150,9 @@ fn scan_error_response(
     err: SwiftScanError,
 ) -> WirePackResponse {
     let code = match &err {
-        SwiftScanError::InvalidLanguageId(_) | SwiftScanError::InvalidFacts(_) => {
-            WireErrorCode::ScanFailed
-        }
+        SwiftScanError::InvalidConfig(_) => WireErrorCode::ConfigInvalid,
+        SwiftScanError::ParserInitFailed(_) => WireErrorCode::ParserInitFailed,
+        _ => WireErrorCode::ScanFailed,
     };
     WirePackResponse::Error {
         api_version,

@@ -2,6 +2,10 @@
 
 #![deny(missing_docs)]
 
+mod tree_sitter_scan;
+
+use std::path::Path;
+
 use time::OffsetDateTime;
 use wax_contract::{
     CountSummary, Diagnostic, DiagnosticSeverity, LanguageId, LanguageMetadata, Metrics,
@@ -11,6 +15,8 @@ use wax_lang_api::{DiscoverRequest, ScanRequest, build_version};
 
 /// Parser version bundled through the `tree-sitter-swift` dependency.
 pub const TREE_SITTER_SWIFT_GRAMMAR_VERSION: &str = "0.7.3";
+use tree_sitter_scan::TreeSitterScanError;
+pub use tree_sitter_scan::{SwiftConfigMode, SwiftScanConfig};
 
 /// Result of a Swift registry symbol discovery request.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,6 +34,12 @@ pub enum SwiftScanError {
     InvalidLanguageId(String),
     /// Failed to produce contract-valid facts.
     InvalidFacts(ScanFactsError),
+    /// Swift scan config was present but invalid.
+    InvalidConfig(String),
+    /// Tree-sitter parser failed to initialise.
+    ParserInitFailed(String),
+    /// Tree-sitter scanner failed before facts could be assembled.
+    Scanner(TreeSitterScanError),
 }
 
 impl std::fmt::Display for SwiftScanError {
@@ -35,6 +47,9 @@ impl std::fmt::Display for SwiftScanError {
         match self {
             Self::InvalidLanguageId(id) => write!(f, "invalid swift language id: {id}"),
             Self::InvalidFacts(err) => write!(f, "swift facts validation failed: {err}"),
+            Self::InvalidConfig(reason) => write!(f, "invalid swift scan config: {reason}"),
+            Self::ParserInitFailed(reason) => write!(f, "parser init failed: {reason}"),
+            Self::Scanner(err) => write!(f, "swift scan failed: {err}"),
         }
     }
 }
@@ -42,8 +57,9 @@ impl std::fmt::Display for SwiftScanError {
 impl std::error::Error for SwiftScanError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::InvalidLanguageId(_) => None,
+            Self::InvalidLanguageId(_) | Self::InvalidConfig(_) | Self::ParserInitFailed(_) => None,
             Self::InvalidFacts(err) => Some(err),
+            Self::Scanner(err) => Some(err),
         }
     }
 }
@@ -87,7 +103,17 @@ impl SwiftLanguage {
             ));
         }
 
-        let mut facts = scaffold_facts(request, swift_language_id);
+        let mut facts = match tree_sitter_scan::parse_swift_scan_config(&request.config)
+            .map_err(map_scan_error)?
+        {
+            SwiftConfigMode::Scaffold => scaffold_facts(request, swift_language_id),
+            SwiftConfigMode::Configured(scan_config) => {
+                let repo_root = Path::new(&request.repo_root);
+                let result = tree_sitter_scan::scan_repository(repo_root, &scan_config)
+                    .map_err(map_scan_error)?;
+                facts_from_scan(request, result, swift_language_id)
+            }
+        };
         facts
             .recompute_counts()
             .map_err(SwiftScanError::InvalidFacts)?;
@@ -113,6 +139,52 @@ impl SwiftLanguage {
             symbols: Vec::new(),
             diagnostics: Vec::new(),
         })
+    }
+}
+
+fn map_scan_error(err: TreeSitterScanError) -> SwiftScanError {
+    match err {
+        TreeSitterScanError::ConfigInvalid { reason } => SwiftScanError::InvalidConfig(reason),
+        TreeSitterScanError::ParserInitFailed { reason } => {
+            SwiftScanError::ParserInitFailed(reason)
+        }
+        other => SwiftScanError::Scanner(other),
+    }
+}
+
+fn facts_from_scan(
+    request: &ScanRequest,
+    result: tree_sitter_scan::TreeSitterScanResult,
+    language_id: LanguageId,
+) -> ScanFacts {
+    ScanFacts {
+        schema_version: SCHEMA_VERSION,
+        language: LanguageMetadata {
+            id: language_id,
+            version: build_version().to_owned(),
+            ecosystem: "swiftui".to_owned(),
+            parser_name: "tree-sitter-swift".to_owned(),
+            parser_version: TREE_SITTER_SWIFT_GRAMMAR_VERSION.to_owned(),
+        },
+        snapshot_id: request.snapshot_id.clone(),
+        scanned_at: OffsetDateTime::now_utc(),
+        status: result.status,
+        design_system_components: result.design_system_components,
+        local_components: result.local_components,
+        usage_sites: result.usage_sites,
+        diagnostics: result.diagnostics,
+        metrics: Metrics {
+            adoption_coverage_ratio: None,
+            parse_extract_ms: 0,
+            files_scanned: result.files_scanned,
+        },
+        counts: CountSummary {
+            design_system_component_count: 0,
+            local_component_count: 0,
+            usage_site_count: 0,
+            resolved_count: 0,
+            candidate_count: 0,
+        },
     }
 }
 
