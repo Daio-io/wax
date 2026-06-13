@@ -102,8 +102,8 @@ fn scan_status_is_complete_when_configured() {
         "tree-sitter scan should report Complete status"
     );
     assert_eq!(
-        facts.language.parser_name, "tree-sitter-kotlin",
-        "parser_name must be tree-sitter-kotlin"
+        facts.language.parser_name, "tree-sitter-kotlin-ng",
+        "parser_name must be tree-sitter-kotlin-ng"
     );
 }
 

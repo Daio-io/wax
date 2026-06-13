@@ -43,7 +43,7 @@ impl std::error::Error for ParseKotlinFileError {
 pub(crate) fn new_parser() -> Result<tree_sitter::Parser, String> {
     let mut parser = tree_sitter::Parser::new();
     parser
-        .set_language(&tree_sitter_kotlin::language())
+        .set_language(&tree_sitter_kotlin_ng::LANGUAGE.into())
         .map_err(|err| err.to_string())?;
     Ok(parser)
 }
@@ -95,18 +95,31 @@ pub(crate) fn annotation_type_name(
 ) -> Option<String> {
     let mut cursor = annotation.walk();
     for child in annotation.named_children(&mut cursor) {
-        if child.kind() == "user_type" {
-            let mut type_cursor = child.walk();
-            let mut last_type_identifier = None;
-            for type_child in child.named_children(&mut type_cursor) {
-                if type_child.kind() == "type_identifier" {
-                    last_type_identifier = type_child.utf8_text(source).ok().map(str::to_owned);
+        match child.kind() {
+            "user_type" => return last_type_name_segment(child, source),
+            "type" => {
+                let mut type_cursor = child.walk();
+                for type_child in child.named_children(&mut type_cursor) {
+                    if type_child.kind() == "user_type" {
+                        return last_type_name_segment(type_child, source);
+                    }
                 }
             }
-            return last_type_identifier;
+            _ => {}
         }
     }
     None
+}
+
+fn last_type_name_segment(user_type: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = user_type.walk();
+    let mut last_type_identifier = None;
+    for type_child in user_type.named_children(&mut cursor) {
+        if matches!(type_child.kind(), "identifier" | "type_identifier") {
+            last_type_identifier = type_child.utf8_text(source).ok().map(str::to_owned);
+        }
+    }
+    last_type_identifier
 }
 
 pub(crate) fn has_composable_annotation(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
@@ -130,9 +143,14 @@ pub(crate) fn function_name_from_decl(
     node: tree_sitter::Node<'_>,
     source: &[u8],
 ) -> Option<(String, tree_sitter::Point)> {
+    if let Some(name_node) = node.child_by_field_name("name") {
+        let name = name_node.utf8_text(source).ok()?.to_owned();
+        return Some((name, name_node.start_position()));
+    }
+
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
-        if child.kind() == "simple_identifier" {
+        if matches!(child.kind(), "simple_identifier" | "identifier") {
             let name = child.utf8_text(source).ok()?.to_owned();
             return Some((name, child.start_position()));
         }
@@ -145,13 +163,36 @@ pub(crate) fn call_simple_callee(
     source: &[u8],
 ) -> Option<(String, tree_sitter::Point)> {
     let mut cursor = node.walk();
-    let first = node.named_children(&mut cursor).next()?;
-    if first.kind() == "simple_identifier" {
-        let name = first.utf8_text(source).ok()?.to_owned();
-        Some((name, first.start_position()))
-    } else {
-        None
+    for child in node.named_children(&mut cursor) {
+        if matches!(child.kind(), "simple_identifier" | "identifier") {
+            let name = child.utf8_text(source).ok()?.to_owned();
+            return Some((name, child.start_position()));
+        }
+        if child.kind() == "expression"
+            && let Some(found) = simple_identifier_from_expression(child, source)
+        {
+            return Some(found);
+        }
     }
+    None
+}
+
+fn simple_identifier_from_expression(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Option<(String, tree_sitter::Point)> {
+    if matches!(node.kind(), "simple_identifier" | "identifier") {
+        let name = node.utf8_text(source).ok()?.to_owned();
+        return Some((name, node.start_position()));
+    }
+
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if let Some(found) = simple_identifier_from_expression(child, source) {
+            return Some(found);
+        }
+    }
+    None
 }
 
 #[cfg(test)]

@@ -9,9 +9,9 @@ use crate::kotlin_ast::{
     has_composable_annotation, new_parser, parse_kotlin_file_permissive,
 };
 
-/// Grammar version bundled via the `tree-sitter-kotlin` crate dependency.
+/// Grammar version bundled via the `tree-sitter-kotlin-ng` crate dependency.
 /// Update this constant when bumping the crate in `Cargo.toml`.
-pub const TREE_SITTER_KOTLIN_GRAMMAR_VERSION: &str = "0.3.8";
+pub const TREE_SITTER_KOTLIN_GRAMMAR_VERSION: &str = "1.1.0";
 
 use wax_contract::{
     DesignSystemComponent, Diagnostic, DiagnosticSeverity, LocalComponent, MatchStatus, ScanStatus,
@@ -485,7 +485,8 @@ mod tests {
 
     fn make_parser() -> tree_sitter::Parser {
         let mut p = tree_sitter::Parser::new();
-        p.set_language(&tree_sitter_kotlin::language()).unwrap();
+        p.set_language(&tree_sitter_kotlin_ng::LANGUAGE.into())
+            .unwrap();
         p
     }
 

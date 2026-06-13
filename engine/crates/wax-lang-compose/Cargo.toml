@@ -12,8 +12,8 @@ path = "src/bin/wax-lang-compose.rs"
 clap = { version = "4.5", features = ["derive"] }
 serde_json = "1"
 time = { version = "0.3", features = ["serde", "serde-well-known"] }
-tree-sitter = "0.22"
-tree-sitter-kotlin = "0.3.8"
+tree-sitter = "0.25"
+tree-sitter-kotlin-ng = "1.1.0"
 wax-contract = { path = "../wax-contract" }
 wax-lang-api = { path = "../wax-lang-api" }
 
