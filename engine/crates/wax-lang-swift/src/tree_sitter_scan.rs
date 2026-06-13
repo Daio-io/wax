@@ -5,10 +5,12 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use wax_contract::{
-    DesignSystemComponent, Diagnostic, DiagnosticSeverity, LocalComponent, ScanStatus, UsageSite,
+    DesignSystemComponent, Diagnostic, DiagnosticSeverity, LocalComponent, MatchStatus, ScanStatus,
+    SourceLocation, UsageSite,
 };
 use wax_lang_api::{RootPatternKind, RootResolutionError, ScanConfig, resolve_source_roots};
 
+use crate::component_detect::collect_component_declarations;
 use crate::swift_ast::{
     ParseSwiftFileError, collect_swift_files, new_parser, parse_swift_file_permissive,
 };
@@ -186,7 +188,6 @@ pub struct TreeSitterScanResult {
 
 struct RegistryIndex {
     canonical_symbols: Vec<String>,
-    #[allow(dead_code)] // populated for upcoming usage extraction work
     resolve_targets: BTreeMap<String, String>,
 }
 
@@ -289,6 +290,98 @@ fn component_available_to_swift(
     Ok(false)
 }
 
+fn extract_from_source(
+    root: tree_sitter::Node<'_>,
+    source: &[u8],
+    file: &str,
+    resolve_targets: &BTreeMap<String, String>,
+    local_components: &mut Vec<LocalComponent>,
+    usage_sites: &mut Vec<UsageSite>,
+) {
+    for component in collect_component_declarations(root, source, false) {
+        local_components.push(LocalComponent {
+            id: format!("local.{file}:{}:{}", component.line, component.symbol),
+            symbol: component.symbol,
+            location: SourceLocation {
+                file: file.to_owned(),
+                line: component.line,
+                column: Some(component.column),
+            },
+        });
+    }
+
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if is_call_expression_node(node)
+            && let Some((call_symbol, pos)) = call_final_member_name(node, source)
+            && let Some(registry_symbol) = resolve_targets.get(&call_symbol)
+        {
+            let line = pos.row as u32 + 1;
+            let column = pos.column as u32 + 1;
+            usage_sites.push(UsageSite {
+                id: format!("usage.{file}:{line}:{column}:{call_symbol}"),
+                location: SourceLocation {
+                    file: file.to_owned(),
+                    line,
+                    column: Some(column),
+                },
+                symbol: call_symbol.clone(),
+                match_status: MatchStatus::Resolved,
+                registry_symbol: Some(registry_symbol.clone()),
+            });
+        }
+
+        for index in (0..node.child_count()).rev() {
+            if let Some(child) = node.child(index) {
+                stack.push(child);
+            }
+        }
+    }
+}
+
+fn is_call_expression_node(node: tree_sitter::Node<'_>) -> bool {
+    node.kind() == "call_expression"
+}
+
+fn call_final_member_name(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Option<(String, tree_sitter::Point)> {
+    let mut cursor = node.walk();
+    let callee = node.named_children(&mut cursor).next()?;
+    final_member_from_callee(callee, source)
+}
+
+fn final_member_from_callee(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Option<(String, tree_sitter::Point)> {
+    match node.kind() {
+        "simple_identifier" => {
+            let name = node.utf8_text(source).ok()?.to_owned();
+            Some((name, node.start_position()))
+        }
+        "navigation_expression" => {
+            let suffix = node.child_by_field_name("suffix")?;
+            final_member_from_navigation_suffix(suffix, source)
+        }
+        _ => None,
+    }
+}
+
+fn final_member_from_navigation_suffix(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Option<(String, tree_sitter::Point)> {
+    let member = node.child_by_field_name("suffix")?;
+    if member.kind() == "simple_identifier" {
+        let name = member.utf8_text(source).ok()?.to_owned();
+        Some((name, member.start_position()))
+    } else {
+        None
+    }
+}
+
 /// Runs the tree-sitter Swift scanner for a configured repository layout.
 pub fn scan_repository(
     repo_root: &Path,
@@ -324,6 +417,18 @@ pub fn scan_repository(
     let mut parser =
         new_parser().map_err(|reason| TreeSitterScanError::ParserInitFailed { reason })?;
 
+    let mut design_system_components = registry
+        .canonical_symbols
+        .iter()
+        .map(|symbol| DesignSystemComponent {
+            id: format!("ds.{symbol}"),
+            symbol: symbol.clone(),
+            registry_symbol: symbol.clone(),
+        })
+        .collect::<Vec<_>>();
+
+    let mut local_components = Vec::new();
+    let mut usage_sites = Vec::new();
     let mut files_scanned = 0_u32;
     let mut parse_failures = 0_u32;
     for file_path in &swift_files {
@@ -335,7 +440,16 @@ pub fn scan_repository(
             .to_string();
 
         match parse_swift_file_permissive(&mut parser, file_path) {
-            Ok(_parsed) => {}
+            Ok(parsed) => {
+                extract_from_source(
+                    parsed.tree.root_node(),
+                    parsed.source.as_bytes(),
+                    &relative_file,
+                    &registry.resolve_targets,
+                    &mut local_components,
+                    &mut usage_sites,
+                );
+            }
             Err(ParseSwiftFileError::ParseFailed(_)) => {
                 parse_failures += 1;
                 diagnostics.push(Diagnostic {
@@ -351,16 +465,15 @@ pub fn scan_repository(
         }
     }
 
-    let mut design_system_components = registry
-        .canonical_symbols
-        .iter()
-        .map(|symbol| DesignSystemComponent {
-            id: format!("ds.{symbol}"),
-            symbol: symbol.clone(),
-            registry_symbol: symbol.clone(),
-        })
-        .collect::<Vec<_>>();
     design_system_components.sort_by(|left, right| left.symbol.cmp(&right.symbol));
+    local_components.sort_by(|left, right| left.symbol.cmp(&right.symbol));
+    usage_sites.sort_by(|left, right| {
+        left.location
+            .file
+            .cmp(&right.location.file)
+            .then(left.location.line.cmp(&right.location.line))
+            .then(left.symbol.cmp(&right.symbol))
+    });
 
     let has_gaps = parse_failures > 0
         || diagnostics.iter().any(|diagnostic| {
@@ -369,8 +482,8 @@ pub fn scan_repository(
 
     Ok(TreeSitterScanResult {
         design_system_components,
-        local_components: Vec::new(),
-        usage_sites: Vec::new(),
+        local_components,
+        usage_sites,
         files_scanned,
         diagnostics,
         status: if has_gaps {
@@ -411,6 +524,36 @@ fn root_not_found_message(root: &Path, kind: RootPatternKind) -> String {
 mod tests {
     use super::*;
 
+    fn make_parser() -> tree_sitter::Parser {
+        new_parser().expect("parser")
+    }
+
+    fn resolve_map(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect()
+    }
+
+    fn parse_and_extract(
+        source: &str,
+        resolve_targets: &BTreeMap<String, String>,
+    ) -> (Vec<LocalComponent>, Vec<UsageSite>) {
+        let mut parser = make_parser();
+        let tree = parser.parse(source.as_bytes(), None).expect("parse");
+        let mut locals = Vec::new();
+        let mut usages = Vec::new();
+        extract_from_source(
+            tree.root_node(),
+            source.as_bytes(),
+            "Test.swift",
+            resolve_targets,
+            &mut locals,
+            &mut usages,
+        );
+        (locals, usages)
+    }
+
     #[test]
     fn parse_config_rejects_parent_dir_roots() {
         let mut config = ScanConfig::new();
@@ -419,5 +562,261 @@ mod tests {
 
         let err = parse_swift_scan_config(&config).expect_err("parent-dir roots must fail");
         assert!(matches!(err, TreeSitterScanError::ConfigInvalid { .. }));
+    }
+
+    #[test]
+    fn direct_member_and_alias_calls_resolve_to_registry_symbols() {
+        let resolve = resolve_map(&[
+            ("PrimaryButton", "PrimaryButton"),
+            ("PrimaryCTA", "PrimaryButton"),
+            ("Card", "Card"),
+        ]);
+        let (_, usages) = parse_and_extract(
+            r#"
+        struct Screen: View {
+            var body: some View {
+                VStack {
+                    PrimaryButton(title: "Save")
+                    DesignSystem.PrimaryCTA(title: "Go")
+                    DS.Card { Text("Body") }
+                }
+            }
+        }
+        "#,
+            &resolve,
+        );
+
+        assert_eq!(usages.len(), 3);
+        assert_eq!(usages[0].registry_symbol.as_deref(), Some("PrimaryButton"));
+        assert_eq!(usages[1].registry_symbol.as_deref(), Some("PrimaryButton"));
+        assert_eq!(usages[2].registry_symbol.as_deref(), Some("Card"));
+    }
+
+    #[test]
+    fn comments_strings_and_non_registry_calls_are_ignored() {
+        let resolve = resolve_map(&[("PrimaryButton", "PrimaryButton")]);
+        let (_, usages) = parse_and_extract(
+            r#"
+        let label = "PrimaryButton(title:)"
+        // PrimaryButton(title: "No")
+        func Screen() -> some View {
+            LocalCard()
+        }
+        "#,
+            &resolve,
+        );
+
+        assert!(usages.is_empty());
+    }
+
+    #[test]
+    fn multiline_call_is_detected_at_first_line() {
+        let resolve = resolve_map(&[("PrimaryButton", "PrimaryButton")]);
+        let source = r#"
+        struct Screen: View {
+            var body: some View {
+                PrimaryButton(
+                    title: "Save"
+                )
+            }
+        }
+        "#;
+        let (_, usages) = parse_and_extract(source, &resolve);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].location.line, 4);
+        assert!(usages[0].location.column.unwrap() >= 16);
+    }
+
+    #[test]
+    fn missing_root_emits_warning_diagnostic_and_partial_status() {
+        let config = SwiftScanConfig {
+            design_system_registry: std::path::PathBuf::from("does-not-exist/registry.json"),
+            roots: vec![std::path::PathBuf::from("no-such-root")],
+        };
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let registry_dir = tmp.path().join("does-not-exist");
+        std::fs::create_dir_all(&registry_dir).unwrap();
+        std::fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"Btn","targets":["swift"]}]}"#,
+        )
+        .unwrap();
+
+        let result = scan_repository(tmp.path(), &config)
+            .expect("scan should succeed even with missing root");
+
+        let has_root_warning = result
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "root_not_found");
+        assert!(has_root_warning, "expected root_not_found diagnostic");
+        assert_eq!(
+            result.status,
+            ScanStatus::Partial,
+            "missing root must yield Partial, not Complete"
+        );
+        assert_eq!(result.files_scanned, 0);
+    }
+
+    #[test]
+    fn partial_parse_still_extracts_symbols_during_scan() {
+        let config = SwiftScanConfig {
+            design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
+            roots: vec![std::path::PathBuf::from("app/Sources")],
+        };
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let registry_dir = tmp.path().join("design-system");
+        std::fs::create_dir_all(&registry_dir).unwrap();
+        std::fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"PrimaryButton","targets":["swift"]}]}"#,
+        )
+        .unwrap();
+
+        let source_dir = tmp.path().join("app/Sources");
+        std::fs::create_dir_all(&source_dir).unwrap();
+        std::fs::write(
+            source_dir.join("Screen.swift"),
+            "struct Screen: View {\n    var body: some View {\n        PrimaryButton(title: \"Save\")\n    }\n}\n",
+        )
+        .unwrap();
+        std::fs::write(source_dir.join("Broken.swift"), "struct Broken(\n").unwrap();
+
+        let result = scan_repository(tmp.path(), &config)
+            .expect("scan should keep extracting from valid files");
+
+        assert_eq!(result.files_scanned, 2);
+        assert_eq!(result.usage_sites.len(), 1);
+        assert_eq!(result.local_components.len(), 1);
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "parse_failed"),
+            "broken Swift file must emit parse_failed diagnostic"
+        );
+        assert_eq!(result.status, ScanStatus::Partial);
+    }
+
+    #[test]
+    fn unmatched_wildcard_root_emits_glob_warning() {
+        let config = SwiftScanConfig {
+            design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
+            roots: vec![std::path::PathBuf::from("*/Sources")],
+        };
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let registry_dir = tmp.path().join("design-system");
+        std::fs::create_dir_all(&registry_dir).unwrap();
+        std::fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"Btn","targets":["swift"]}]}"#,
+        )
+        .unwrap();
+
+        let result = scan_repository(tmp.path(), &config)
+            .expect("scan should succeed even when wildcard roots match nothing");
+
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "root_glob_not_found"),
+            "expected root_glob_not_found diagnostic"
+        );
+        assert_eq!(result.status, ScanStatus::Partial);
+        assert_eq!(result.files_scanned, 0);
+    }
+
+    #[test]
+    fn wildcard_root_scans_each_matching_module() {
+        let config = SwiftScanConfig {
+            design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
+            roots: vec![std::path::PathBuf::from("*/Sources")],
+        };
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let registry_dir = tmp.path().join("design-system");
+        std::fs::create_dir_all(&registry_dir).unwrap();
+        std::fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"PrimaryButton","targets":["swift"]}]}"#,
+        )
+        .unwrap();
+
+        for module in ["app", "feature-profile"] {
+            let source_dir = tmp.path().join(module).join("Sources");
+            std::fs::create_dir_all(&source_dir).unwrap();
+            std::fs::write(
+                source_dir.join("Screen.swift"),
+                "struct Screen: View {\n    var body: some View {\n        PrimaryButton(title: \"Save\")\n    }\n}\n",
+            )
+            .unwrap();
+        }
+
+        let result = scan_repository(tmp.path(), &config)
+            .expect("wildcard roots should scan matching modules");
+
+        assert_eq!(result.files_scanned, 2);
+        assert_eq!(result.usage_sites.len(), 2);
+        assert_eq!(result.status, ScanStatus::Complete);
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.code != "root_not_found"),
+            "matching wildcard roots must not emit root_not_found diagnostics"
+        );
+    }
+
+    #[test]
+    fn recursive_wildcard_root_scans_nested_modules() {
+        let config = SwiftScanConfig {
+            design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
+            roots: vec![std::path::PathBuf::from("capsule/**/Sources")],
+        };
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let registry_dir = tmp.path().join("design-system");
+        std::fs::create_dir_all(&registry_dir).unwrap();
+        std::fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"PrimaryButton","targets":["swift"]}]}"#,
+        )
+        .unwrap();
+
+        for module in ["shared/feature", "design-system"] {
+            let source_dir = tmp.path().join("capsule").join(module).join("Sources");
+            std::fs::create_dir_all(&source_dir).unwrap();
+            std::fs::write(
+                source_dir.join("Screen.swift"),
+                "struct Screen: View {\n    var body: some View {\n        PrimaryButton(title: \"Save\")\n    }\n}\n",
+            )
+            .unwrap();
+        }
+
+        let excluded_dir = tmp.path().join("other/shared/feature/Sources");
+        std::fs::create_dir_all(&excluded_dir).unwrap();
+        std::fs::write(
+            excluded_dir.join("Screen.swift"),
+            "struct Screen: View {\n    var body: some View {\n        PrimaryButton(title: \"Save\")\n    }\n}\n",
+        )
+        .unwrap();
+
+        let result = scan_repository(tmp.path(), &config)
+            .expect("recursive wildcard roots should scan matching modules");
+
+        assert_eq!(result.files_scanned, 2);
+        assert_eq!(result.usage_sites.len(), 2);
+        assert_eq!(result.status, ScanStatus::Complete);
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.code != "root_not_found"),
+            "matching recursive wildcard roots must not emit root_not_found diagnostics"
+        );
     }
 }
