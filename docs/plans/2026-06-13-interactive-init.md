@@ -10,6 +10,18 @@
 
 ---
 
+## Reference Specs
+
+- [Interactive init design](../specs/2026-06-13-interactive-init-design.md)
+- [Post-alpha UX plan, Task 1](./2026-05-24-post-alpha-ux-plan.md#phase-1--guided-init)
+- [Language packs and distribution](../specs/2026-05-16-language-packs-and-distribution.md)
+
+## When to Start
+
+This plan is an extracted implementation plan for Post-alpha UX Task 1 only. Do not start implementation until the roadmap in `docs/plans/README.md` marks this extracted plan as active, or the maintainer explicitly asks to implement it.
+
+The implementation PR should still tick Post-alpha UX Task 1 in `docs/plans/2026-05-24-post-alpha-ux-plan.md` when all task steps are complete. This docs PR only records the plan.
+
 ## File Structure
 
 - Modify `engine/crates/wax-cli/Cargo.toml`
@@ -30,6 +42,8 @@
   - Fix the existing registry file list to mention per-language `.wax/<language-id>.registry.json`.
 - Modify `docs/plans/2026-05-24-post-alpha-ux-plan.md`
   - Tick Task 1 and its completed steps in the same implementation PR.
+- Modify `docs/plans/README.md`
+  - Mark this extracted plan complete or update the active-plan gate when implementation finishes.
 
 ## Task 1: Selection Model and Config Roots
 
@@ -44,7 +58,24 @@ Add these tests near the existing `init_writes_waxrc_lockfile_and_installs_selec
 #[test]
 fn init_writes_interactive_scan_roots() {
     let temp = TestDir::new("init-interactive-scan-roots");
-    let registry = temp.pack_index_with_languages(&["compose", "react"]);
+    let artifact_path = temp.path.join("compose.tgz");
+    let digest = write_pack_artifact(&artifact_path, "wax-lang-compose");
+    let react_artifact_path = temp.path.join("react.tgz");
+    let react_digest = write_pack_artifact(&react_artifact_path, "wax-lang-react");
+    let registry_path = temp.path.join("registry.json");
+    fs::write(
+        &registry_path,
+        format!(
+            r#"[{{"id":"compose","version":"0.4.2","api_version":1,"targets":{{"test-target":{{"url":"{}","sha256":"{}"}}}}}},{{"id":"react","version":"0.2.0","api_version":1,"targets":{{"test-target":{{"url":"{}","sha256":"{}"}}}}}}]"#,
+            file_url(&artifact_path),
+            digest,
+            file_url(&react_artifact_path),
+            react_digest
+        ),
+    )
+    .unwrap();
+    let repo_root = temp.path.join("repo");
+    fs::create_dir_all(&repo_root).unwrap();
     let mut output = Vec::new();
 
     run_init(
@@ -52,10 +83,10 @@ fn init_writes_interactive_scan_roots() {
             non_interactive: false,
             languages: Vec::new(),
             no_install: true,
-            registry_url: Some(registry),
-            repo_root: temp.path.clone(),
-            target_triple: Some(TEST_TARGET.to_owned()),
-            state_path: Some(temp.state_path()),
+            registry_url: Some(file_url(&registry_path)),
+            repo_root: repo_root.clone(),
+            target_triple: Some("test-target".to_owned()),
+            state_path: Some(temp.path.join("home/state.json")),
             scaffold_registries: true,
             interactive: Some(InitSelections {
                 languages: vec![
@@ -80,7 +111,7 @@ fn init_writes_interactive_scan_roots() {
     .expect("interactive init");
 
     let config: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(temp.path.join(".wax/wax.config.json")).unwrap())
+        serde_json::from_str(&fs::read_to_string(repo_root.join(".wax/wax.config.json")).unwrap())
             .unwrap();
     let languages = config["languages"].as_array().unwrap();
     assert_eq!(languages[0]["id"], "compose");
@@ -92,6 +123,64 @@ fn init_writes_interactive_scan_roots() {
     assert_eq!(
         languages[1]["roots"],
         serde_json::json!(["apps/web/src", "packages/ui/src"])
+    );
+}
+
+#[test]
+fn init_does_not_persist_registry_source_roots() {
+    let temp = TestDir::new("init-registry-roots-not-persisted");
+    let artifact_path = temp.path.join("compose.tgz");
+    let digest = write_pack_artifact(&artifact_path, "wax-lang-compose");
+    let registry_path = temp.path.join("registry.json");
+    fs::write(
+        &registry_path,
+        format!(
+            r#"[{{"id":"compose","version":"0.4.2","api_version":1,"targets":{{"test-target":{{"url":"{}","sha256":"{}"}}}}}}]"#,
+            file_url(&artifact_path),
+            digest
+        ),
+    )
+    .unwrap();
+    let repo_root = temp.path.join("repo");
+    fs::create_dir_all(&repo_root).unwrap();
+
+    run_init(
+        InitOptions {
+            non_interactive: false,
+            languages: Vec::new(),
+            no_install: true,
+            registry_url: Some(file_url(&registry_path)),
+            repo_root: repo_root.clone(),
+            target_triple: Some("test-target".to_owned()),
+            state_path: Some(temp.path.join("home/state.json")),
+            scaffold_registries: true,
+            interactive: Some(InitSelections {
+                languages: vec![LanguageId::try_from("compose").unwrap()],
+                scan_roots: BTreeMap::from([(
+                    LanguageId::try_from("compose").unwrap(),
+                    vec![PathBuf::from("app/src/main/kotlin")],
+                )]),
+                registry_setup: RegistrySetup::InRepository {
+                    roots: BTreeMap::from([(
+                        LanguageId::try_from("compose").unwrap(),
+                        vec![PathBuf::from("design-system/src/main/kotlin")],
+                    )]),
+                },
+            }),
+        },
+        &mut Vec::new(),
+    )
+    .expect("interactive init");
+
+    let config: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(repo_root.join(".wax/wax.config.json")).unwrap())
+            .unwrap();
+    let language = &config["languages"][0];
+    assert_eq!(language["roots"], serde_json::json!(["app/src/main/kotlin"]));
+    let serialized = serde_json::to_string(language).unwrap();
+    assert!(
+        !serialized.contains("design-system/src/main/kotlin"),
+        "registry source roots must only appear in next-step output"
     );
 }
 ```
@@ -212,6 +301,7 @@ Run:
 ```bash
 cd engine
 cargo test -p wax-cli init_writes_interactive_scan_roots
+cargo test -p wax-cli init_does_not_persist_registry_source_roots
 ```
 
 Expected: PASS after implementation.
@@ -294,6 +384,28 @@ fn external_registry_guidance_explains_registry_setup() {
     assert!(output.contains("wax scan"));
     assert!(!output.contains("wax registry discover"));
 }
+
+#[test]
+fn empty_registry_source_roots_print_guidance_without_root_args() {
+    let selections = InitSelections {
+        languages: vec![LanguageId::try_from("compose").unwrap()],
+        scan_roots: BTreeMap::from([(
+            LanguageId::try_from("compose").unwrap(),
+            vec![PathBuf::from("app/src/main/kotlin")],
+        )]),
+        registry_setup: RegistrySetup::InRepository {
+            roots: BTreeMap::from([(LanguageId::try_from("compose").unwrap(), Vec::new())]),
+        },
+    };
+
+    let mut output = Vec::new();
+    write_next_steps(Some(&selections), &mut output).unwrap();
+    let output = String::from_utf8(output).unwrap();
+
+    assert!(output.contains("No registry source roots were provided for compose"));
+    assert!(!output.contains("--root"));
+    assert!(output.contains("wax scan"));
+}
 ```
 
 Expected: FAIL because `write_next_steps` does not exist.
@@ -330,13 +442,22 @@ fn write_next_steps(
             writeln!(writer, "Next, populate registries from your design-system source:")?;
             for language_id in &selections.languages {
                 if let Some(language_roots) = roots.get(language_id) {
-                    for root in language_roots {
+                    if language_roots.is_empty() {
                         writeln!(
                             writer,
-                            "wax registry discover --language {} --root {}",
+                            "No registry source roots were provided for {}; populate .wax/{}.registry.json or rerun wax registry discover with --root.",
                             language_id.as_str(),
-                            root.display()
+                            language_id.as_str()
                         )?;
+                    } else {
+                        for root in language_roots {
+                            writeln!(
+                                writer,
+                                "wax registry discover --language {} --root {}",
+                                language_id.as_str(),
+                                root.display()
+                            )?;
+                        }
                     }
                 }
             }
@@ -395,6 +516,21 @@ fn parse_roots(input: &str) -> Vec<PathBuf> {
 
 Use `dialoguer::MultiSelect`, `dialoguer::Input`, and `dialoguer::Confirm` in `DialoguerInitPrompts`.
 
+Sort manifest choices so `compose` appears first when present, followed by the remaining ids alphabetically:
+
+```rust
+fn sorted_language_manifests(manifests: &[RegistryManifest]) -> Vec<&RegistryManifest> {
+    let mut sorted = manifests.iter().collect::<Vec<_>>();
+    sorted.sort_by(|left, right| match (left.id.as_str(), right.id.as_str()) {
+        ("compose", "compose") => std::cmp::Ordering::Equal,
+        ("compose", _) => std::cmp::Ordering::Less,
+        (_, "compose") => std::cmp::Ordering::Greater,
+        _ => left.id.as_str().cmp(right.id.as_str()),
+    });
+    sorted
+}
+```
+
 - [ ] **Step 5: Add selection collection function**
 
 Add:
@@ -432,19 +568,99 @@ fn collect_interactive_selections(
 }
 ```
 
-- [ ] **Step 6: Run focused tests**
+- [ ] **Step 6: Add mocked prompt tests**
+
+Add a test prompt implementation under `#[cfg(test)]`:
+
+```rust
+struct MockInitPrompts {
+    languages: Vec<LanguageId>,
+    scan_roots: BTreeMap<LanguageId, Vec<PathBuf>>,
+    registry_in_repo: bool,
+    registry_roots: BTreeMap<LanguageId, Vec<PathBuf>>,
+}
+
+impl InitPrompts for MockInitPrompts {
+    fn select_languages(
+        &mut self,
+        _manifests: &[RegistryManifest],
+    ) -> Result<Vec<LanguageId>, InitCommandError> {
+        Ok(self.languages.clone())
+    }
+
+    fn scan_roots(&mut self, language_id: &LanguageId) -> Result<Vec<PathBuf>, InitCommandError> {
+        Ok(self.scan_roots.get(language_id).cloned().unwrap_or_default())
+    }
+
+    fn registry_in_repo(&mut self) -> Result<bool, InitCommandError> {
+        Ok(self.registry_in_repo)
+    }
+
+    fn registry_roots(&mut self, language_id: &LanguageId) -> Result<Vec<PathBuf>, InitCommandError> {
+        Ok(self.registry_roots.get(language_id).cloned().unwrap_or_default())
+    }
+}
+```
+
+Add:
+
+```rust
+#[test]
+fn collect_interactive_selections_uses_mocked_prompt_answers() {
+    let manifests = vec![
+        RegistryManifest {
+            id: LanguageId::try_from("compose").unwrap(),
+            version: "0.4.2".to_owned(),
+            api_version: 1,
+            targets: BTreeMap::new(),
+        },
+        RegistryManifest {
+            id: LanguageId::try_from("react").unwrap(),
+            version: "0.2.0".to_owned(),
+            api_version: 1,
+            targets: BTreeMap::new(),
+        },
+    ];
+    let mut prompts = MockInitPrompts {
+        languages: vec![LanguageId::try_from("compose").unwrap()],
+        scan_roots: BTreeMap::from([(
+            LanguageId::try_from("compose").unwrap(),
+            vec![PathBuf::from("app/src/main/kotlin")],
+        )]),
+        registry_in_repo: true,
+        registry_roots: BTreeMap::from([(
+            LanguageId::try_from("compose").unwrap(),
+            vec![PathBuf::from("design-system/src/main/kotlin")],
+        )]),
+    };
+
+    let selections = collect_interactive_selections(&manifests, &mut prompts).unwrap();
+
+    assert_eq!(selections.languages, vec![LanguageId::try_from("compose").unwrap()]);
+    assert_eq!(
+        selections.scan_roots[&LanguageId::try_from("compose").unwrap()],
+        vec![PathBuf::from("app/src/main/kotlin")]
+    );
+    assert!(matches!(selections.registry_setup, RegistrySetup::InRepository { .. }));
+}
+```
+
+- [ ] **Step 7: Run focused tests**
 
 Run:
 
 ```bash
 cd engine
-cargo test -p wax-cli registry_discover_guidance_uses_interactive_roots external_registry_guidance_explains_registry_setup
+cargo test -p wax-cli registry_discover_guidance_uses_interactive_roots
+cargo test -p wax-cli external_registry_guidance_explains_registry_setup
+cargo test -p wax-cli empty_registry_source_roots_print_guidance_without_root_args
+cargo test -p wax-cli collect_interactive_selections_uses_mocked_prompt_answers
 cargo test -p wax-cli parse_roots
 ```
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit Task 2**
+- [ ] **Step 8: Commit Task 2**
 
 ```bash
 git add engine/Cargo.lock engine/crates/wax-cli/Cargo.toml engine/crates/wax-cli/src/commands/init.rs
@@ -463,13 +679,44 @@ git commit -m "feat: add interactive init prompts"
 Create `engine/crates/wax-cli/tests/init_interactive.rs`:
 
 ```rust
+use std::fs;
+use std::path::PathBuf;
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+struct TestDir {
+    path: PathBuf,
+}
+
+impl TestDir {
+    fn new(name: &str) -> Self {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("wax-cli-{name}-{nonce}"));
+        fs::create_dir_all(&path).expect("create temp dir");
+        Self { path }
+    }
+}
+
+impl Drop for TestDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
 
 #[test]
 fn init_without_non_interactive_requires_tty() {
+    let root = TestDir::new("init-non-tty");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(&repo).expect("create repo fixture");
+
     let output = Command::new(env!("CARGO_BIN_EXE_wax"))
         .arg("init")
         .arg("--no-install")
+        .arg("--repo-root")
+        .arg(&repo)
         .output()
         .expect("run wax init");
 
@@ -510,6 +757,11 @@ Add:
 pub fn run_init_cli(options: InitOptions, writer: &mut impl Write) -> Result<(), InitCommandError> {
     if options.non_interactive {
         return run_init(options, writer);
+    }
+
+    let config_path = options.repo_root.join(PREFERRED_CONFIG_RELATIVE_PATH);
+    if config_path.exists() {
+        return Err(InitCommandError::WaxConfigAlreadyExists { path: config_path });
     }
 
     if !io::stdin().is_terminal() {
@@ -603,6 +855,8 @@ git commit -m "feat: wire interactive init cli"
 **Files:**
 - Modify: `README.md`
 - Modify: `docs/plans/2026-05-24-post-alpha-ux-plan.md`
+- Modify: `docs/plans/README.md`
+- Modify: `docs/specs/2026-05-16-language-packs-and-distribution.md`
 
 - [ ] **Step 1: Update README init docs**
 
@@ -634,18 +888,32 @@ In `docs/plans/2026-05-24-post-alpha-ux-plan.md`, change Task 1 and all four ste
 ### - [x] Task 1: Interactive `wax init` TTY wizard
 ...
 - [x] **Step 1: Choose prompt library and document non-interactive invariant**
-- [x] **Step 2: Prompt for language (Compose-first), roots, optional first scan**
+- [x] **Step 2: Prompt for language (Compose-first), scan roots, and registry source roots**
 - [x] **Step 3: Fall back to current behavior when not a TTY**
 - [x] **Step 4: Manual smoke + unit tests with mocked stdin**
 ```
 
-Add a short note below Step 2:
+Replace the old optional-scan wording with a short note below Step 2:
 
 ```markdown
 Implementation keeps init setup-only: it asks for scan roots and registry source roots, then prints registry-discovery and scan next steps instead of running either command automatically.
 ```
 
-- [ ] **Step 3: Run focused verification**
+- [ ] **Step 3: Update roadmap and older spec references**
+
+In `docs/plans/README.md`, update order 9 after the implementation PR completes:
+
+```markdown
+| 9 | Interactive init wizard | [2026-06-13-interactive-init.md](./2026-06-13-interactive-init.md) | `merged` | `complete` | — |
+```
+
+In `docs/specs/2026-05-16-language-packs-and-distribution.md`, replace the sentence that says interactive init remains deferred with:
+
+```markdown
+Interactive init is implemented by the Post-alpha UX Task 1 extraction. It guides TTY users through language selection, scan roots, and registry next steps while preserving `--non-interactive` for scripts.
+```
+
+- [ ] **Step 4: Run focused verification**
 
 Run:
 
@@ -659,7 +927,7 @@ cargo test -p wax-cli --test init_interactive
 
 Expected: PASS.
 
-- [ ] **Step 4: Run broad verification if shared behavior changed**
+- [ ] **Step 5: Run broad verification if shared behavior changed**
 
 If the implementation touched `wax-core`, config parsing, lockfile serialization, or language install behavior, also run:
 
@@ -671,10 +939,10 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 Expected: PASS. If this is not run because the implementation stayed inside `wax-cli`, note that in the PR.
 
-- [ ] **Step 5: Commit Task 4**
+- [ ] **Step 6: Commit Task 4**
 
 ```bash
-git add README.md docs/plans/2026-05-24-post-alpha-ux-plan.md
+git add README.md docs/plans/2026-05-24-post-alpha-ux-plan.md docs/plans/README.md docs/specs/2026-05-16-language-packs-and-distribution.md
 git commit -m "docs: document interactive init"
 ```
 

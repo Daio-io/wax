@@ -116,7 +116,7 @@ Narrow verification for the implementation task:
 
 ```bash
 cd engine
-cargo test -p wax-cli init_interactive
+cargo test -p wax-cli --test init_interactive
 cargo test -p wax-cli --test init_command
 ```
 
