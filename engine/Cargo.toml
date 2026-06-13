@@ -8,6 +8,7 @@ members = [
     "crates/wax-lang-basic",
     "crates/wax-lang-compose",
     "crates/wax-lang-react",
+    "crates/wax-lang-swift",
 ]
 
 [workspace.package]

@@ -87,7 +87,7 @@ git switch -c dai/swift-language-pack
 - Create: `engine/crates/wax-lang-swift/src/bin/wax-lang-swift.rs`
 - Create: `engine/crates/wax-lang-swift/tests/stdio_cli.rs`
 
-- [ ] **Step 1: Write the failing stdio scaffold test**
+- [x] **Step 1: Write the failing stdio scaffold test**
 
 Create `engine/crates/wax-lang-swift/tests/stdio_cli.rs`:
 
@@ -150,7 +150,7 @@ fn stdio_scan_with_empty_config_returns_swift_scaffold_facts() {
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run:
 
@@ -161,7 +161,7 @@ cargo test -p wax-lang-swift --test stdio_cli stdio_scan_with_empty_config_retur
 
 Expected: FAIL because `wax-lang-swift` is not a workspace package.
 
-- [ ] **Step 3: Add the crate to the workspace**
+- [x] **Step 3: Add the crate to the workspace**
 
 Modify `engine/Cargo.toml`:
 
@@ -178,7 +178,7 @@ members = [
 ]
 ```
 
-- [ ] **Step 4: Create the package manifest**
+- [x] **Step 4: Create the package manifest**
 
 Create `engine/crates/wax-lang-swift/Cargo.toml`:
 
@@ -212,7 +212,7 @@ tempfile = "3"
 
 This version is the current crates.io release verified during plan authoring with `cargo search tree-sitter-swift --limit 5`.
 
-- [ ] **Step 5: Create parser version build metadata**
+- [x] **Step 5: Create parser version build metadata**
 
 Create `engine/crates/wax-lang-swift/build.rs`:
 
@@ -222,7 +222,7 @@ fn main() {
 }
 ```
 
-- [ ] **Step 6: Create scaffold facts in the library**
+- [x] **Step 6: Create scaffold facts in the library**
 
 Create `engine/crates/wax-lang-swift/src/lib.rs`:
 
@@ -382,7 +382,7 @@ fn scaffold_facts(request: &ScanRequest, language_id: LanguageId) -> ScanFacts {
 }
 ```
 
-- [ ] **Step 7: Create the stdio binary**
+- [x] **Step 7: Create the stdio binary**
 
 Create `engine/crates/wax-lang-swift/src/bin/wax-lang-swift.rs`:
 
@@ -574,7 +574,7 @@ fn swift_language_id() -> LanguageId {
 }
 ```
 
-- [ ] **Step 8: Run scaffold tests**
+- [x] **Step 8: Run scaffold tests**
 
 Run:
 
@@ -586,7 +586,7 @@ cargo clippy -p wax-lang-swift --all-targets -- -D warnings
 
 Expected: PASS.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add engine/Cargo.toml engine/crates/wax-lang-swift
