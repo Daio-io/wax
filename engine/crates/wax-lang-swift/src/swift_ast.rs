@@ -77,7 +77,9 @@ pub(crate) fn collect_swift_files(
         }
         if file_type.is_dir() {
             collect_swift_files(&path, files)?;
-        } else if path.extension().and_then(|ext| ext.to_str()) == Some("swift") {
+        } else if file_type.is_file()
+            && path.extension().and_then(|ext| ext.to_str()) == Some("swift")
+        {
             files.push(path);
         }
     }
@@ -126,6 +128,30 @@ mod tests {
         )
         .unwrap();
         fs::write(tempdir.path().join("Sources/App/View.txt"), "not swift").unwrap();
+
+        let mut files = Vec::new();
+        collect_swift_files(&tempdir.path().join("Sources"), &mut files).unwrap();
+        files.sort();
+
+        assert_eq!(files.len(), 1);
+        assert!(files[0].ends_with("View.swift"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn collect_swift_files_skips_non_regular_swift_paths() {
+        use std::os::unix::net::UnixListener;
+
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        fs::create_dir_all(tempdir.path().join("Sources/App")).unwrap();
+        fs::write(
+            tempdir.path().join("Sources/App/View.swift"),
+            "struct View {}",
+        )
+        .unwrap();
+
+        let socket_path = tempdir.path().join("Sources/App/Fake.swift");
+        let _listener = UnixListener::bind(&socket_path).expect("bind unix socket");
 
         let mut files = Vec::new();
         collect_swift_files(&tempdir.path().join("Sources"), &mut files).unwrap();
