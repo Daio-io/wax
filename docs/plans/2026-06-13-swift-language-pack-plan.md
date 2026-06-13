@@ -2131,7 +2131,7 @@ git commit -m "feat: discover SwiftUI registry symbols"
 - Modify: `engine/crates/wax-lang-swift/tests/stdio_cli.rs`
 - Modify: `engine/crates/wax-lang-swift/src/bin/wax-lang-swift.rs`
 
-- [ ] **Step 1: Add stdio discover success test**
+- [x] **Step 1: Add stdio discover success test**
 
 Append to `stdio_cli.rs`:
 
@@ -2176,7 +2176,7 @@ fn stdio_discover_returns_symbols() {
 }
 ```
 
-- [ ] **Step 2: Add configured stdio scan coverage**
+- [x] **Step 2: Add configured stdio scan coverage**
 
 Add a Compose-style configured scan test named `stdio_cli_emits_one_scan_facts_response`. It should send a scan request for `tests/fixtures/small` with `registry` and `roots`, assert `snapshot_id`, `parser_name == "tree-sitter-swift"`, `ScanStatus::Complete`, and assert stdout contains exactly one JSON line.
 
@@ -2185,7 +2185,7 @@ Add scan error-path stdio tests:
 - `stdio_scan_reports_partial_facts_for_parse_failure`: send a configured scan containing a broken Swift file and assert partial facts with `parse_failed`.
 - `stdio_scan_missing_registry_returns_registry_not_found`: send a configured scan with a missing registry path and assert `WireErrorCode::RegistryNotFound`.
 
-- [ ] **Step 3: Add typed error tests**
+- [x] **Step 3: Add typed error tests**
 
 Append tests for:
 
@@ -2195,7 +2195,7 @@ Append tests for:
 
 Match React's assertions exactly, changing the language id to `swift` and command to `wax-lang-swift`.
 
-- [ ] **Step 4: Add discover error-path stdio tests**
+- [x] **Step 4: Add discover error-path stdio tests**
 
 Add React-parity discover tests:
 
@@ -2203,7 +2203,7 @@ Add React-parity discover tests:
 - `stdio_discover_wrong_language_id_returns_config_invalid`: send `language_id: "compose"` to `wax-lang-swift` and assert `WireErrorCode::ConfigInvalid`.
 - `stdio_discover_parse_failure_returns_scan_failed`: send the broken discover fixture root and assert `WireErrorCode::ScanFailed`.
 
-- [ ] **Step 5: Add bin-level wire tests**
+- [x] **Step 5: Add bin-level wire tests**
 
 Add a `#[cfg(test)] mod tests` block in `src/bin/wax-lang-swift.rs`, matching the Compose/React binary modules, with:
 
@@ -2212,7 +2212,7 @@ Add a `#[cfg(test)] mod tests` block in `src/bin/wax-lang-swift.rs`, matching th
 - `unsupported_api_version_returns_tagged_error_response`: assert `WireErrorCode::ApiVersionUnsupported`.
 - `scan_response_preserves_snapshot_id`: send a scaffold or configured scan and assert the returned facts keep the request snapshot id.
 
-- [ ] **Step 6: Run stdio tests**
+- [x] **Step 6: Run stdio tests**
 
 Run:
 
@@ -2224,7 +2224,7 @@ cargo clippy -p wax-lang-swift --all-targets -- -D warnings
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add engine/crates/wax-lang-swift/tests/stdio_cli.rs engine/crates/wax-lang-swift/src/bin/wax-lang-swift.rs

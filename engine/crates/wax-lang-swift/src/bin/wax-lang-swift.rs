@@ -149,18 +149,37 @@ fn scan_error_response(
     language_id: LanguageId,
     err: SwiftScanError,
 ) -> WirePackResponse {
-    let code = match &err {
-        SwiftScanError::InvalidConfig(_) => WireErrorCode::ConfigInvalid,
-        SwiftScanError::ParserInitFailed(_) => WireErrorCode::ParserInitFailed,
-        _ => WireErrorCode::ScanFailed,
+    let (code, message) = match &err {
+        SwiftScanError::InvalidConfig(_) => (WireErrorCode::ConfigInvalid, err.to_string()),
+        SwiftScanError::ParserInitFailed(_) => (WireErrorCode::ParserInitFailed, err.to_string()),
+        SwiftScanError::Scanner(inner) if is_registry_not_found(inner) => {
+            let detail = inner.to_string();
+            (
+                WireErrorCode::RegistryNotFound,
+                format!("swift registry not found: {detail}"),
+            )
+        }
+        _ => (WireErrorCode::ScanFailed, err.to_string()),
     };
     WirePackResponse::Error {
         api_version,
         language_id,
         code,
-        message: err.to_string(),
+        message,
         diagnostics: Vec::new(),
     }
+}
+
+fn is_registry_not_found(err: &impl std::error::Error) -> bool {
+    let message = err.to_string();
+    if !message.contains("registry") {
+        return false;
+    }
+    err.source().is_some_and(|source| {
+        source
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|io_err| io_err.kind() == std::io::ErrorKind::NotFound)
+    })
 }
 
 fn discover_error_response(
@@ -188,4 +207,109 @@ fn discover_error_response(
 
 fn swift_language_id() -> LanguageId {
     LanguageId::try_from("swift").expect("hardcoded swift id must be valid")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::run_stdio_with_reader;
+    use std::io::Cursor;
+    use wax_lang_api::{WireErrorCode, WirePackResponse};
+
+    #[test]
+    fn invalid_json_returns_tagged_error_response() {
+        let input = Cursor::new("{not json}\n");
+        let mut output = Vec::new();
+
+        run_stdio_with_reader(input, &mut output).unwrap();
+
+        let line = std::str::from_utf8(&output).unwrap().trim();
+        let response: WirePackResponse = serde_json::from_str(line).unwrap();
+        match response {
+            WirePackResponse::Error {
+                api_version,
+                language_id,
+                code,
+                ..
+            } => {
+                assert_eq!(api_version, 1);
+                assert_eq!(language_id.as_str(), "swift");
+                assert_eq!(code, WireErrorCode::ConfigInvalid);
+            }
+            other => panic!("expected error response, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn wrong_language_id_echoes_request_language_id() {
+        let input = Cursor::new(
+            "{\"type\":\"scan\",\"api_version\":1,\"language_id\":\"compose\",\"repo_root\":\"/tmp/repo\",\"snapshot_id\":\"snap-1\",\"config\":{}}\n",
+        );
+        let mut output = Vec::new();
+
+        run_stdio_with_reader(input, &mut output).unwrap();
+
+        let line = std::str::from_utf8(&output).unwrap().trim();
+        let response: WirePackResponse = serde_json::from_str(line).unwrap();
+        match response {
+            WirePackResponse::Error {
+                language_id, code, ..
+            } => {
+                assert_eq!(language_id.as_str(), "compose");
+                assert_eq!(code, WireErrorCode::ScanFailed);
+            }
+            other => panic!("expected error response, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unsupported_api_version_returns_tagged_error_response() {
+        let input = Cursor::new(
+            "{\"type\":\"scan\",\"api_version\":2,\"language_id\":\"swift\",\"repo_root\":\"/tmp/repo\",\"snapshot_id\":\"snap-bad-version\",\"config\":{}}\n",
+        );
+        let mut output = Vec::new();
+
+        run_stdio_with_reader(input, &mut output).unwrap();
+
+        let line = std::str::from_utf8(&output).unwrap().trim();
+        let response: WirePackResponse = serde_json::from_str(line).unwrap();
+        match response {
+            WirePackResponse::Error {
+                api_version,
+                language_id,
+                code,
+                ..
+            } => {
+                assert_eq!(api_version, 1);
+                assert_eq!(language_id.as_str(), "swift");
+                assert_eq!(code, WireErrorCode::ApiVersionUnsupported);
+            }
+            other => panic!("expected error response, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn scan_response_preserves_snapshot_id() {
+        let input = Cursor::new(
+            "{\"type\":\"scan\",\"api_version\":1,\"language_id\":\"swift\",\"repo_root\":\"/tmp/repo\",\"snapshot_id\":\"snap-42\",\"config\":{}}\n",
+        );
+        let mut output = Vec::new();
+
+        run_stdio_with_reader(input, &mut output).unwrap();
+
+        let line = std::str::from_utf8(&output).unwrap().trim();
+        let response: WirePackResponse = serde_json::from_str(line).unwrap();
+        match response {
+            WirePackResponse::ScanFacts {
+                api_version,
+                language_id,
+                facts,
+            } => {
+                assert_eq!(api_version, 1);
+                assert_eq!(language_id.as_str(), "swift");
+                assert_eq!(facts.language.id.as_str(), "swift");
+                assert_eq!(facts.snapshot_id, "snap-42");
+            }
+            other => panic!("expected scan_facts response, got {other:?}"),
+        }
+    }
 }
