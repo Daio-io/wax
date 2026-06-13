@@ -2388,7 +2388,7 @@ git commit -m "feat: publish SwiftUI language pack artifacts"
 - Modify: `packages/cli/package.json`
 - Create: `docs/adr/2026-06-13-swift-language-pack.md`
 
-- [ ] **Step 1: Update README language examples**
+- [x] **Step 1: Update README language examples**
 
 Update README sections that list supported packs from:
 
@@ -2421,7 +2421,7 @@ components, direct calls such as `PrimaryButton(...)`, and simple member-qualifi
 calls such as `DesignSystem.PrimaryButton(...)`.
 ```
 
-- [ ] **Step 2: Update language-pack spec**
+- [x] **Step 2: Update language-pack spec**
 
 In `docs/specs/2026-05-16-language-packs-and-distribution.md`, add Swift to examples that currently mention future language packs, and document:
 
@@ -2431,7 +2431,7 @@ Swift (`swift`) uses `tree-sitter-swift`, ecosystem `swiftui`, parser name
 and React.
 ```
 
-- [ ] **Step 3: Add implementation ADR**
+- [x] **Step 3: Add implementation ADR**
 
 Create `docs/adr/2026-06-13-swift-language-pack.md`:
 
@@ -2465,7 +2465,7 @@ implements both `scan` and `discover` over the existing stdio wire protocol.
   changing the engine contract.
 ```
 
-- [ ] **Step 4: Update roadmap status after implementation completes**
+- [x] **Step 4: Update roadmap status after implementation completes**
 
 Modify `docs/plans/README.md` order 8 row:
 
@@ -2475,7 +2475,7 @@ Modify `docs/plans/README.md` order 8 row:
 
 If this task is done before the implementation PR merges, set implementation status to `in-progress` instead of `complete`.
 
-- [ ] **Step 5: Align init/config examples**
+- [x] **Step 5: Align init/config examples**
 
 Update `engine/fixtures/config/example.waxrc` to include an enabled Swift entry:
 
@@ -2492,7 +2492,7 @@ If `packages/cli/package.json` enumerates shipped language-pack binaries, add `w
 
 Add or update CLI init tests so `wax init --language swift` writes a Swift language entry, a per-language `.wax/swift.registry.json`, and a matching lockfile registry entry.
 
-- [ ] **Step 6: Run documentation checks**
+- [x] **Step 6: Run documentation checks**
 
 Run:
 
@@ -2505,7 +2505,7 @@ cargo test --workspace
 
 Expected: no stale supported-language lists remain except historical/archive references.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add README.md docs/specs/2026-05-16-language-packs-and-distribution.md docs/plans/README.md docs/adr/2026-06-13-swift-language-pack.md
@@ -2520,7 +2520,7 @@ git commit -m "docs: document SwiftUI language pack"
 - Modify: `docs/plans/2026-06-13-swift-language-pack-plan.md`
 - Modify: `docs/plans/README.md`
 
-- [ ] **Step 1: Run formatting**
+- [x] **Step 1: Run formatting**
 
 Run:
 
@@ -2531,7 +2531,7 @@ cargo fmt --all --check
 
 Expected: PASS.
 
-- [ ] **Step 2: Run full tests**
+- [x] **Step 2: Run full tests**
 
 Run:
 
@@ -2542,7 +2542,7 @@ cargo test --workspace
 
 Expected: PASS.
 
-- [ ] **Step 3: Run full clippy**
+- [x] **Step 3: Run full clippy**
 
 Run:
 
@@ -2553,7 +2553,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 Expected: PASS.
 
-- [ ] **Step 4: Run release script checks**
+- [x] **Step 4: Run release script checks**
 
 Run:
 
@@ -2564,11 +2564,11 @@ scripts/check-release-workflow.rb
 
 Expected: PASS.
 
-- [ ] **Step 5: Mark the plan complete**
+- [x] **Step 5: Mark the plan complete**
 
 In `docs/plans/2026-06-13-swift-language-pack-plan.md`, check every completed task and step. In `docs/plans/README.md`, set order 8 implementation status to `complete` after the implementation PR lands on `main`.
 
-- [ ] **Step 6: Commit final plan status**
+- [x] **Step 6: Commit final plan status**
 
 ```bash
 git add docs/plans/2026-06-13-swift-language-pack-plan.md docs/plans/README.md
