@@ -90,8 +90,8 @@ fn stdio_scan_with_empty_config_returns_swift_scaffold_facts() {
 
 #[test]
 fn stdio_discover_returns_symbols() {
-    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/discover");
+    let repo_root =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/discover");
     let mut child = Command::new(env!("CARGO_BIN_EXE_wax-lang-swift"))
         .arg("--stdio")
         .stdin(Stdio::piped())
@@ -209,8 +209,7 @@ fn stdio_scan_reports_partial_facts_for_parse_failure() {
         "import SwiftUI\nstruct ValidView: View { var body: some View { Text(\"ok\") } }\n",
     )
     .expect("valid source fixture");
-    fs::write(src_dir.join("Broken.swift"), "struct BrokenView {")
-        .expect("invalid source fixture");
+    fs::write(src_dir.join("Broken.swift"), "struct BrokenView {").expect("invalid source fixture");
 
     let request = json!({
         "type": "scan",
