@@ -1351,7 +1351,7 @@ git commit -m "feat: parse Swift source files"
 - Add tests inside: `engine/crates/wax-lang-swift/src/component_detect.rs`
 - Add tests inside: `engine/crates/wax-lang-swift/src/tree_sitter_scan.rs`
 
-- [ ] **Step 1: Write component detection unit tests**
+- [x] **Step 1: Write component detection unit tests**
 
 Create `engine/crates/wax-lang-swift/src/component_detect.rs` with tests first:
 
@@ -1418,7 +1418,7 @@ pub(crate) struct DetectedComponent {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -1429,7 +1429,7 @@ cargo test -p wax-lang-swift component_detect
 
 Expected: FAIL because detection helpers are not implemented.
 
-- [ ] **Step 3: Implement SwiftUI declaration predicates**
+- [x] **Step 3: Implement SwiftUI declaration predicates**
 
 Implement in `component_detect.rs`:
 
@@ -1495,7 +1495,7 @@ Use tree-sitter node text helpers to implement:
 
 Prefer named child traversal where the Swift grammar exposes stable node kinds; use bounded declaration text checks only where the grammar shape is too broad.
 
-- [ ] **Step 4: Write usage extraction tests**
+- [x] **Step 4: Write usage extraction tests**
 
 Add tests to `tree_sitter_scan.rs`:
 
@@ -1546,7 +1546,7 @@ fn comments_strings_and_non_registry_calls_are_ignored() {
 }
 ```
 
-- [ ] **Step 5: Implement scan extraction**
+- [x] **Step 5: Implement scan extraction**
 
 Add `extract_from_source` to `tree_sitter_scan.rs`:
 
@@ -1611,7 +1611,7 @@ cargo test -p wax-lang-swift direct_member_and_alias_calls_resolve_to_registry_s
 
 If the grammar uses a different node kind than `call_expression`, update the helper and tests together. The invariant is source behavior, not the exact grammar node names.
 
-- [ ] **Step 6: Add Compose-parity scan edge-case tests**
+- [x] **Step 6: Add Compose-parity scan edge-case tests**
 
 Add unit tests in `tree_sitter_scan.rs`:
 
@@ -1624,7 +1624,7 @@ Add unit tests in `tree_sitter_scan.rs`:
 
 The wildcard tests should mirror the root-resolution behavior in Compose and use `wax-lang-api::resolve_source_roots` indirectly through `scan_repository`.
 
-- [ ] **Step 7: Run focused detection tests**
+- [x] **Step 7: Run focused detection tests**
 
 Run:
 
@@ -1637,7 +1637,7 @@ cargo clippy -p wax-lang-swift --all-targets -- -D warnings
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add engine/crates/wax-lang-swift/src/component_detect.rs engine/crates/wax-lang-swift/src/tree_sitter_scan.rs

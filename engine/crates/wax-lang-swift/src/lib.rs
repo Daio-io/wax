@@ -2,6 +2,7 @@
 
 #![deny(missing_docs)]
 
+mod component_detect;
 mod swift_ast;
 mod tree_sitter_scan;
 
