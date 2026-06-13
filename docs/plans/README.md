@@ -9,7 +9,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 3. Each implementation task remains **one PR per task** inside the active plan, per that plan's execution model.
 4. Update the **Doc status** and **Implementation status** columns when a plan doc PR merges or when implementation of a plan finishes.
 
-**Active plan:** None — order 7 (generic registry discovery protocol) is **complete**. Post-alpha UX (order 5) remains deferred until the roadmap reopens.
+**Active plan:** None — order 7 (generic registry discovery protocol) is **complete**. Post-alpha UX (order 5) remains deferred until the roadmap reopens. Order 8 (SwiftUI language pack) is planned but not yet implemented.
 
 ---
 
@@ -24,6 +24,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 | 5 | Post-alpha UX | [2026-05-24-post-alpha-ux-plan.md](./2026-05-24-post-alpha-ux-plan.md) | `merged` | `deferred` | — |
 | 6 | React language pack | [archive/2026-06-07-react-language-pack-plan.md](./archive/2026-06-07-react-language-pack-plan.md) | `merged` | `complete` | [ADR](../adr/2026-06-07-react-language-pack.md) |
 | 7 | Generic registry discovery protocol | [archive/2026-06-10-generic-registry-discovery-protocol.md](./archive/2026-06-10-generic-registry-discovery-protocol.md) | `merged` | `complete` | [ADR](../adr/2026-06-10-generic-registry-discovery-protocol.md) |
+| 8 | SwiftUI language pack | [2026-06-13-swift-language-pack-plan.md](./2026-06-13-swift-language-pack-plan.md) | `pending` | `not-started` | — |
 
 **Doc status:** `pending` → plan PR open; `merged` → plan doc on `main`; `planned` → not yet drafted.
 
@@ -34,10 +35,17 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 ## Which plan should I run?
 
 ```text
-→ no active implementation plan; post-alpha UX (order 5) is deferred
+IF order 8 doc status is not merged
+  → do not implement SwiftUI language pack tasks; review 2026-06-12-swift-language-pack-design.md and 2026-06-13-swift-language-pack-plan.md only
+
+ELSE IF order 8 implementation is not complete
+  → execute the next unchecked task in 2026-06-13-swift-language-pack-plan.md
+
+ELSE
+  → no active implementation plan; post-alpha UX (order 5) is deferred
 ```
 
-Orders 1–4, 6, and 7 are **complete**. Post-alpha UX (order 5) remains deferred. See [`archive/README.md`](./archive/README.md) and [`docs/adr/`](../adr/README.md) for prior implementation records.
+Orders 1–4, 6, and 7 are **complete**. Post-alpha UX (order 5) remains deferred. SwiftUI (order 8) is planned but must not start implementation until the plan doc merges. See [`archive/README.md`](./archive/README.md) and [`docs/adr/`](../adr/README.md) for prior implementation records.
 
 ---
 
@@ -52,6 +60,7 @@ Orders 1–4, 6, and 7 are **complete**. Post-alpha UX (order 5) remains deferre
 | 5 | `docs/post-alpha-ux-plan` | #34 (merged) | Post-alpha UX plan + links |
 | 6 | `codex/react-language-pack-plan` | #95 (merged) | React language pack design, implementation plan, and capability roadmap |
 | 7 | `docs/generic-registry-discovery-plan` | #115 (merged) | Generic registry discovery protocol implementation plan |
+| 8 | `dai/swift-language-pack-plan` | pending | SwiftUI language pack design and implementation plan |
 
 ---
 
@@ -63,3 +72,4 @@ Orders 1–4, 6, and 7 are **complete**. Post-alpha UX (order 5) remains deferre
 - [Registry sources design](../specs/2026-06-02-registry-sources-and-wax-layout-design.md) — `.wax/` layout (order 3, complete)
 - [Registry discovery design](./archive/2026-06-04-registry-discovery-design.md) — registry authoring (order 4, complete)
 - [React language pack design](./archive/2026-06-07-react-language-pack-design.md) — React parser-backed pack (complete)
+- [SwiftUI language pack design](./2026-06-12-swift-language-pack-design.md) — planned SwiftUI parser-backed pack
