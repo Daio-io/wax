@@ -99,7 +99,9 @@ wax init --non-interactive --language compose --language react
 
 - `.wax/wax.config.json`
 - `.wax/wax.lock.json`
-- `.wax/wax.registry.json`
+- per-language registry scaffolds at `.wax/<language-id>.registry.json` (for example `.wax/compose.registry.json` or `.wax/swift.registry.json`)
+
+When a language omits `registry` in config, `wax scan` falls back to `.wax/wax.registry.json`.
 
 3. Validate the repo setup:
 
@@ -207,16 +209,18 @@ If you need to update from a non-default pack index, pass `--registry` or set `W
 
 The registry is the source of truth for the design-system components you want `wax` to track.
 
-Default location:
+Per-language default:
 
 ```text
-.wax/wax.registry.json
+.wax/<language-id>.registry.json
 ```
+
+For example, `wax init --language swift` scaffolds `.wax/swift.registry.json`. When a language entry omits `registry`, scan resolution falls back to `.wax/wax.registry.json`.
 
 Typical workflow:
 
 1. Initialize repo config with one or more languages.
-2. Add or discover canonical components into `.wax/wax.registry.json`.
+2. Add or discover canonical components into each language's registry file (for example `.wax/swift.registry.json`).
 3. Run `wax validate`.
 4. Run `wax scan`.
 5. After changing the registry, refresh lock state with `wax language update --all`.

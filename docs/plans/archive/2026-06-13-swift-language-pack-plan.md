@@ -12,7 +12,7 @@
 
 ## Reference Docs
 
-- Design spec: `docs/plans/2026-06-12-swift-language-pack-design.md`
+- Design spec: `docs/plans/archive/2026-06-12-swift-language-pack-design.md`
 - Roadmap source: `docs/plans/README.md`
 - Language-pack contract: `docs/specs/2026-05-16-language-packs-and-distribution.md`
 - Generic discover ADR: `docs/adr/2026-06-10-generic-registry-discovery-protocol.md`
@@ -2440,7 +2440,7 @@ Create `docs/adr/2026-06-13-swift-language-pack.md`:
 
 **Status:** Accepted (implemented)
 **Date:** 2026-06-13
-**Related:** [Design](../plans/2026-06-12-swift-language-pack-design.md) · [Implementation plan](../plans/2026-06-13-swift-language-pack-plan.md)
+**Related:** [Design](./2026-06-12-swift-language-pack-design.md) · [Implementation plan](./2026-06-13-swift-language-pack-plan.md)
 
 ## Context
 

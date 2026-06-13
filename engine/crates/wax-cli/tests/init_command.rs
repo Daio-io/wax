@@ -464,8 +464,7 @@ fn init_scaffolds_swift_per_language_registry_and_lock_entry() {
     assert_eq!(swift.extra["roots"], serde_json::json!(["App/Sources"]));
 
     let lock = load_lockfile(repo.join(".wax/wax.lock.json")).unwrap();
-    assert_eq!(
-        lock.registries.get(&lang("swift")).unwrap().source,
-        ".wax/swift.registry.json"
-    );
+    let swift_registry = lock.registries.get(&lang("swift")).unwrap();
+    assert_eq!(swift_registry.source, ".wax/swift.registry.json");
+    assert!(!swift_registry.sha256.is_empty());
 }

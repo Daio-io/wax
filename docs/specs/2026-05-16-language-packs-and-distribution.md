@@ -653,6 +653,6 @@ Phase 0 compared TS-core and Go-core spikes (fixtures, goldens, benchmarks). Pro
 
 1. **Wax config format:** JSON-only for v1 (`.wax/wax.config.json`, legacy `.waxrc`).
 2. **Lockfile:** required for repositories using language packs.
-3. **Swift parser:** deferred to a later phase.
+3. **Swift parser:** `wax-lang-swift` uses tree-sitter-swift; public alpha pack (see Swift correctness gate above).
 4. **Response size:** no fixed cap; engine implementation must handle large responses safely.
 5. **Signing:** plan Sigstore/cosign for v1.1, while v1 relies on HTTPS + sha256 + lockfile pins.

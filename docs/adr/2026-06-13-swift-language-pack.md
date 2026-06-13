@@ -2,7 +2,7 @@
 
 **Status:** Accepted (implemented)
 **Date:** 2026-06-13
-**Related:** [Design](../plans/2026-06-12-swift-language-pack-design.md) · [Implementation plan](../plans/2026-06-13-swift-language-pack-plan.md)
+**Related:** [Design](../plans/archive/2026-06-12-swift-language-pack-design.md) · [Implementation plan](../plans/archive/2026-06-13-swift-language-pack-plan.md)
 
 ## Context
 
