@@ -159,7 +159,7 @@ fn assert_alpha_index_ids(index_path: &Path) {
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(ids, ["compose", "basic", "react"]);
+    assert_eq!(ids, ["compose", "basic", "react", "swift"]);
 }
 
 #[test]
