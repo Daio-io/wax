@@ -1757,9 +1757,9 @@ Create `engine/crates/wax-lang-swift/tests/fixtures/small/golden.json`:
 
 ```json
 {
-  "usage_site_count": 4,
-  "resolved_count": 4,
-  "local_component_count": 3,
+  "usage_site_count": 6,
+  "resolved_count": 6,
+  "local_component_count": 5,
   "design_system_component_count": 2
 }
 ```

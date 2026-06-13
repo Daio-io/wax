@@ -30,9 +30,22 @@ fn golden_small_swiftui_fixture_matches_counts() {
         facts.counts.design_system_component_count,
         golden["design_system_component_count"].as_u64().unwrap() as u32
     );
-    assert!(facts.usage_sites.iter().any(|site| {
-        site.symbol == "PrimaryCTA" && site.registry_symbol.as_deref() == Some("PrimaryButton")
-    }));
+    let alias_sites = facts
+        .usage_sites
+        .iter()
+        .filter(|site| site.symbol == "PrimaryCTA")
+        .collect::<Vec<_>>();
+    assert_eq!(
+        alias_sites.len(),
+        2,
+        "expected qualified and unqualified PrimaryCTA alias usages"
+    );
+    assert!(
+        alias_sites
+            .iter()
+            .all(|site| site.registry_symbol.as_deref() == Some("PrimaryButton")),
+        "all PrimaryCTA alias usages must resolve to PrimaryButton"
+    );
     assert!(
         !facts
             .design_system_components
@@ -52,13 +65,23 @@ fn scan_status_is_complete_when_configured() {
 #[test]
 fn alias_usage_resolves_to_canonical_symbol() {
     let facts = scan_small_fixture();
-    let alias_site = facts
+    let alias_sites = facts
         .usage_sites
         .iter()
-        .find(|site| site.symbol == "PrimaryCTA")
-        .expect("alias usage should be present");
+        .filter(|site| site.symbol == "PrimaryCTA")
+        .collect::<Vec<_>>();
 
-    assert_eq!(alias_site.registry_symbol.as_deref(), Some("PrimaryButton"));
+    assert_eq!(
+        alias_sites.len(),
+        2,
+        "Sample.swift and Extended.swift each contribute one PrimaryCTA alias usage"
+    );
+    assert!(
+        alias_sites
+            .iter()
+            .all(|site| site.registry_symbol.as_deref() == Some("PrimaryButton")),
+        "all PrimaryCTA alias usages must resolve to PrimaryButton"
+    );
 }
 
 fn scan_small_fixture() -> ScanFacts {
