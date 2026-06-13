@@ -249,6 +249,53 @@ You can also point a language at a hosted or alternate registry source:
 }
 ```
 
+### Separate design system repository
+
+When the design system lives in its own codebase, you do not need `wax init` in that repository to generate a registry. Install the matching language pack once, point discover at the design-system source tree, and publish the JSON artifact for app repositories to consume.
+
+**Generate in the design-system repo (configless):**
+
+```bash
+wax language install react
+wax discover --language react --root packages/components/src
+```
+
+This writes `.wax/react.registry.json` under the design-system repository. From there you can:
+
+- **Host it** — upload the file to a versioned URL in CI (for example `https://cdn.example.com/acme-ds/v2.4.1/react.json`)
+- **Copy it** — commit or copy the generated JSON into an app repository's `.wax/` directory
+- **Release it** — attach the registry file to a GitHub Release or internal artifact store
+
+App repositories then point at the hosted file:
+
+```json
+"registry": {
+  "source": "https://cdn.example.com/acme-ds/v2.4.1/react.json"
+}
+```
+
+Run `wax language update` in the app repo after changing the registry source so the lockfile pins the new digest.
+
+**Generate from a sibling checkout at your workspace root:**
+
+If the design-system repository is cloned next to an app repository (or anywhere reachable from the repo root), you can pass `--root` to that folder without initializing Wax in the design-system repo:
+
+```text
+workspace/
+  acme-app/          # wax init here; scans app code
+  acme-design-system/ # design-system source only
+```
+
+From `acme-app`:
+
+```bash
+wax discover --language react --root ../acme-design-system/packages/components/src
+```
+
+Wax still writes the registry under `acme-app/.wax/react.registry.json`. Use this when you want to refresh the registry locally from a checked-out design-system tree before committing or publishing it.
+
+Discovery requires a globally installed language pack when no repo lockfile exists. Deterministic discovery may include false positives — review the generated registry before publishing.
+
 SwiftUI v1 detects `struct Name: View` components, `func Name(...) -> some View`
 components, direct calls such as `PrimaryButton(...)`, and simple member-qualified
 calls such as `DesignSystem.PrimaryButton(...)`.
