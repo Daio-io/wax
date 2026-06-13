@@ -1655,7 +1655,7 @@ git commit -m "feat: detect SwiftUI components and usage"
 - Create: `engine/crates/wax-lang-swift/tests/fixtures/small/golden.json`
 - Create: `engine/crates/wax-lang-swift/tests/golden_small.rs`
 
-- [ ] **Step 1: Create the registry fixture**
+- [x] **Step 1: Create the registry fixture**
 
 Create `engine/crates/wax-lang-swift/tests/fixtures/small/design-system/registry.json`:
 
@@ -1683,7 +1683,7 @@ Create `engine/crates/wax-lang-swift/tests/fixtures/small/design-system/registry
 }
 ```
 
-- [ ] **Step 2: Create the Swift fixture**
+- [x] **Step 2: Create the Swift fixture**
 
 Create `engine/crates/wax-lang-swift/tests/fixtures/small/app/Sources/App/Sample.swift`:
 
@@ -1751,7 +1751,7 @@ struct FalsePositives: View {
 }
 ```
 
-- [ ] **Step 3: Create golden counts**
+- [x] **Step 3: Create golden counts**
 
 Create `engine/crates/wax-lang-swift/tests/fixtures/small/golden.json`:
 
@@ -1764,7 +1764,7 @@ Create `engine/crates/wax-lang-swift/tests/fixtures/small/golden.json`:
 }
 ```
 
-- [ ] **Step 4: Write the golden test**
+- [x] **Step 4: Write the golden test**
 
 Create `engine/crates/wax-lang-swift/tests/golden_small.rs`:
 
@@ -1850,7 +1850,7 @@ fn alias_usage_resolves_to_canonical_symbol() {
 
 Refactor the test helper to expose `scan_small_fixture() -> wax_contract::ScanFacts` so these tests are separate, matching the Compose golden pattern.
 
-- [ ] **Step 5: Run the golden test**
+- [x] **Step 5: Run the golden test**
 
 Run:
 
@@ -1862,7 +1862,7 @@ cargo test -p wax-lang-swift
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add engine/crates/wax-lang-swift/tests engine/crates/wax-lang-swift/src
