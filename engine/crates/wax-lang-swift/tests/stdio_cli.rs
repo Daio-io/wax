@@ -528,7 +528,7 @@ fn stdio_discover_wrong_language_id_returns_config_invalid() {
 }
 
 #[test]
-fn stdio_discover_parse_failure_returns_scan_failed() {
+fn stdio_discover_parse_failure_returns_symbols_with_diagnostic() {
     let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/discover");
     let request = json!({
         "type": "discover",
@@ -542,11 +542,16 @@ fn stdio_discover_parse_failure_returns_scan_failed() {
     let response: WirePackResponse = serde_json::from_str(output.trim()).unwrap();
 
     match response {
-        WirePackResponse::Error { code, message, .. } => {
-            assert_eq!(code, WireErrorCode::ScanFailed);
-            assert!(message.contains("failed to parse"));
-            assert!(message.contains("Broken.swift"));
+        WirePackResponse::DiscoverSymbols {
+            symbols,
+            diagnostics,
+            ..
+        } => {
+            assert!(symbols.is_empty());
+            assert_eq!(diagnostics.len(), 1);
+            assert_eq!(diagnostics[0].code, "parse_failed");
+            assert!(diagnostics[0].message.contains("Broken.swift"));
         }
-        other => panic!("expected error response, got {other:?}"),
+        other => panic!("expected discover_symbols response, got {other:?}"),
     }
 }

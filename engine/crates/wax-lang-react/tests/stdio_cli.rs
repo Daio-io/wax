@@ -81,7 +81,7 @@ fn stdio_cli_returns_config_invalid_for_bad_discover_language_id() {
 }
 
 #[test]
-fn stdio_cli_returns_scan_failed_for_discover_parse_failure() {
+fn stdio_cli_returns_discover_symbols_with_parse_failure_diagnostic() {
     let temp = tempfile::tempdir().expect("temp dir should be created");
     let src = temp.path().join("src");
     fs::create_dir_all(&src).expect("src dir should be created");
@@ -100,12 +100,22 @@ fn stdio_cli_returns_scan_failed_for_discover_parse_failure() {
     let response: WirePackResponse = serde_json::from_str(output.trim()).unwrap();
 
     match response {
-        WirePackResponse::Error { code, message, .. } => {
-            assert_eq!(code, WireErrorCode::ScanFailed);
-            assert!(message.contains("failed to parse"));
-            assert!(message.contains("Broken.tsx"));
+        WirePackResponse::DiscoverSymbols {
+            symbols,
+            diagnostics,
+            ..
+        } => {
+            assert!(symbols.is_empty());
+            assert_eq!(diagnostics.len(), 1);
+            assert_eq!(diagnostics[0].code, "parse_failed");
+            assert!(
+                diagnostics[0]
+                    .location
+                    .as_ref()
+                    .is_some_and(|location| location.file.contains("Broken.tsx"))
+            );
         }
-        other => panic!("expected error response, got {other:?}"),
+        other => panic!("expected discover_symbols response, got {other:?}"),
     }
 }
 
