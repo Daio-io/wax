@@ -14,7 +14,7 @@ It helps teams define a canonical component registry, scan repositories with lan
 - Scans source code with installable language packs such as `compose`, `react`, `swift`, and `basic`.
 - Writes repo-local config, lock, and output files under `.wax/`.
 - Supports deterministic validation and CI-safe scanning.
-- Can bootstrap and refresh registries with `wax registry discover`.
+- Can bootstrap and refresh registries with `wax discover` (`wax registry discover` remains supported).
 - Can be paired with optional agent skills for AI-assisted registry authoring and review.
 
 ## How it fits together
@@ -128,8 +128,8 @@ Minimal manual registry example:
 Or discover components from source:
 
 ```bash
-wax registry discover --language <language-id> --dry-run
-wax registry discover --language <language-id> --force
+wax discover --language <language-id> --dry-run
+wax discover --language <language-id> --force
 wax language update --all
 wax validate
 ```
@@ -249,6 +249,53 @@ You can also point a language at a hosted or alternate registry source:
 }
 ```
 
+### Separate design system repository
+
+When the design system lives in its own codebase, you do not need `wax init` in that repository to generate a registry. Install the matching language pack once, point discover at the design-system source tree, and publish the JSON artifact for app repositories to consume.
+
+**Generate in the design-system repo (configless):**
+
+```bash
+wax language install react
+wax discover --language react --root packages/components/src
+```
+
+This writes `.wax/react.registry.json` under the design-system repository. From there you can:
+
+- **Host it** — upload the file to a versioned URL in CI (for example `https://cdn.example.com/acme-ds/v2.4.1/react.json`)
+- **Copy it** — commit or copy the generated JSON into an app repository's `.wax/` directory
+- **Release it** — attach the registry file to a GitHub Release or internal artifact store
+
+App repositories then point at the hosted file:
+
+```json
+"registry": {
+  "source": "https://cdn.example.com/acme-ds/v2.4.1/react.json"
+}
+```
+
+Run `wax language update` in the app repo after changing the registry source so the lockfile pins the new digest.
+
+**Generate from a sibling checkout at your workspace root:**
+
+If the design-system repository is cloned next to an app repository (or anywhere reachable from the repo root), you can pass `--root` to that folder without initializing Wax in the design-system repo:
+
+```text
+workspace/
+  acme-app/          # wax init here; scans app code
+  acme-design-system/ # design-system source only
+```
+
+From `acme-app`:
+
+```bash
+wax discover --language react --root ../acme-design-system/packages/components/src
+```
+
+Wax still writes the registry under `acme-app/.wax/react.registry.json`. Use this when you want to refresh the registry locally from a checked-out design-system tree before committing or publishing it.
+
+Discovery requires a globally installed language pack when no repo lockfile exists. Deterministic discovery may include false positives — review the generated registry before publishing.
+
 SwiftUI v1 detects `struct Name: View` components, `func Name(...) -> some View`
 components, direct calls such as `PrimaryButton(...)`, and simple member-qualified
 calls such as `DesignSystem.PrimaryButton(...)`.
@@ -261,7 +308,7 @@ Today the repo includes:
 
 | Skill | Purpose |
 | --- | --- |
-| `wax-registry-sync` | Preview discovered registry entries, review changes, write `.wax/wax.registry.json`, validate, and refresh locks |
+| `wax-registry-sync` | Preview discovered registry entries, review changes, write per-language registry files (for example `.wax/react.registry.json`), validate, and refresh locks |
 
 The key distinction:
 
@@ -270,9 +317,9 @@ The key distinction:
 
 In practice, a skill like `wax-registry-sync` fits around the registry workflow like this:
 
-1. Run `wax registry discover --language <id> --dry-run`
+1. Run `wax discover --language <id> --dry-run`
 2. Review additions and removals
-3. Write `.wax/wax.registry.json` with `wax registry discover --language <id> --force`
+3. Write `.wax/<language-id>.registry.json` with `wax discover --language <id> --force`
 4. Run `wax validate`
 5. Run `wax language update --all` when registry locks need refreshing
 

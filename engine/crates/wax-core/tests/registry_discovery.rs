@@ -887,6 +887,20 @@ fn discover_without_installed_pack_returns_clear_error() {
     write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
     link_compose_fixture_into_repo(repo.path());
     write_compose_lockfile(repo.path());
+    let wax_home = std::env::temp_dir().join(format!(
+        "wax-core-empty-home-{}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after epoch")
+            .as_nanos()
+    ));
+    fs::create_dir_all(&wax_home).expect("create empty wax home");
+    fs::write(
+        wax_home.join("state.json"),
+        "{\"installed_languages\":{}}\n",
+    )
+    .expect("write empty wax state");
+    let _wax_home_guard = EnvVarGuard::set("WAX_HOME", &wax_home);
 
     let err = discover_with_config_roots_write(repo.path()).expect_err("missing installed pack");
 
@@ -1047,6 +1061,59 @@ fn force_replaces_existing_registry() {
         written_json["components"][0]["id"],
         json!("ds.primary-button")
     );
+}
+
+#[test]
+fn configless_discover_without_lockfile_uses_global_install() {
+    let _guard = env_lock();
+    let repo = TestRepo::new("configless-discover-no-lockfile-core");
+    link_compose_fixture_into_repo(repo.path());
+    let (_wax_home, _wax_home_guard) = install_compose_pack_fixture();
+
+    let result = discover_registry(RegistryDiscoverOptions {
+        repo_root: repo.path(),
+        language_id: "compose",
+        roots: vec![compose_fixture_root()],
+        dry_run: false,
+        force: false,
+    })
+    .expect("configless discover should succeed without lockfile");
+
+    assert!(result.output_path.exists());
+    assert!(
+        !repo.path().join(".wax/wax.lock.json").exists(),
+        "configless discover should not create a lockfile"
+    );
+    assert!(!result.wax_config_present);
+    assert!(!result.lockfile_present);
+}
+
+#[test]
+fn discover_with_lockfile_does_not_fallback_to_latest_global_install() {
+    let _guard = env_lock();
+    let repo = TestRepo::new("discover-lockfile-no-global-fallback");
+    link_compose_fixture_into_repo(repo.path());
+    write_compose_lockfile(repo.path());
+    let (_wax_home, _wax_home_guard) = install_discover_fixture_pack(
+        "compose",
+        "0.2.0",
+        r#"{"type":"discover_symbols","api_version":1,"language_id":"compose","symbols":["WrongPack"],"diagnostics":[]}"#,
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    );
+
+    let err = discover_registry(RegistryDiscoverOptions {
+        repo_root: repo.path(),
+        language_id: "compose",
+        roots: vec![compose_fixture_root()],
+        dry_run: true,
+        force: false,
+    })
+    .expect_err("lockfile pin should not fall back to a different global install");
+
+    assert!(matches!(
+        err,
+        RegistryDiscoverError::PackNotInstalled { .. }
+    ));
 }
 
 fn dry_run_registry() -> serde_json::Value {

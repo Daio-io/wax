@@ -1,4 +1,4 @@
-//! `wax registry` command implementations.
+//! Registry discovery command implementations for `wax discover` and `wax registry discover`.
 
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -7,7 +7,7 @@ use wax_core::registry_discovery::{
     RegistryDiscoverError, RegistryDiscoverOptions, discover_registry,
 };
 
-/// Options for `wax registry discover`.
+/// Options for `wax discover` and `wax registry discover`.
 #[derive(Debug, Clone)]
 pub struct RegistryDiscoverCommandOptions {
     /// Repository root where the registry should be written.
@@ -22,7 +22,7 @@ pub struct RegistryDiscoverCommandOptions {
     pub force: bool,
 }
 
-/// Errors returned by `wax registry discover`.
+/// Errors returned by registry discovery commands.
 #[derive(Debug, Error)]
 pub enum RegistryDiscoverCommandError {
     /// Registry discovery orchestration failed.
@@ -37,7 +37,7 @@ pub enum RegistryDiscoverCommandError {
     },
 }
 
-/// Runs `wax registry discover`.
+/// Runs `wax discover` or `wax registry discover`.
 pub fn run_registry_discover(
     options: RegistryDiscoverCommandOptions,
     writer: &mut impl Write,
@@ -98,16 +98,20 @@ pub fn run_registry_discover(
         "Review before committing: deterministic discovery may include false positives."
     )
     .map_err(|source| RegistryDiscoverCommandError::Io { source })?;
-    writeln!(
-        writer,
-        "Run `wax language update` to refresh registry locks."
-    )
-    .map_err(|source| RegistryDiscoverCommandError::Io { source })?;
-    writeln!(
-        writer,
-        "Run `wax validate` to verify repository configuration."
-    )
-    .map_err(|source| RegistryDiscoverCommandError::Io { source })?;
+    if result.lockfile_present {
+        writeln!(
+            writer,
+            "Run `wax language update` to refresh registry locks."
+        )
+        .map_err(|source| RegistryDiscoverCommandError::Io { source })?;
+    }
+    if result.wax_config_present {
+        writeln!(
+            writer,
+            "Run `wax validate` to verify repository configuration."
+        )
+        .map_err(|source| RegistryDiscoverCommandError::Io { source })?;
+    }
     write_config_roots_warning(result.used_config_roots);
 
     Ok(())

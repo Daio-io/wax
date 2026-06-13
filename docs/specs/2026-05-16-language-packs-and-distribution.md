@@ -23,7 +23,7 @@ Plan order, doc/implementation status, gates, and agent rules live in **[`docs/p
 | **Engine / kernel** | `wax` binary: orchestration, merge, graph, metrics, static site export |
 | **Language pack** | Installable unit for one stack (`compose`, `react`, `swift`): discover → parse → extract → `ScanFacts` |
 | **Language id** | Stable string key used in wax config, CLI, and global install paths |
-| **Design system registry** | Repo-local file listing canonical DS components; `wax scan` falls back to `.wax/wax.registry.json` when a language omits `registry`, while `wax init` and `wax registry discover` scaffold or write `.wax/<language-id>.registry.json` per language |
+| **Design system registry** | Repo-local file listing canonical DS components; `wax scan` falls back to `.wax/wax.registry.json` when a language omits `registry`, while `wax init` and `wax discover` scaffold or write `.wax/<language-id>.registry.json` per language |
 | **Pack index** | Remote manifest listing downloadable language pack artifacts (`WAX_LANG_INDEX`) |
 | **`scan`** | CLI command that runs all **enabled** language packs and produces merged artifacts |
 | **Plugin** (future) | Optional kernel extension; not used for language extraction in v1 |
@@ -127,7 +127,7 @@ Primary project config. Canonical path: **`.wax/wax.config.json`**. Legacy **`.w
 }
 ```
 
-When a language omits `registry`, `wax scan` registry resolution defaults to `.wax/wax.registry.json`. `wax init` scaffolds one file per enabled language at `.wax/<language-id>.registry.json` and sets each language's `registry` key. `wax registry discover` uses the same per-language default when the language entry has no configured registry. Hosted sources use `registry.source`:
+When a language omits `registry`, `wax scan` registry resolution defaults to `.wax/wax.registry.json`. `wax init` scaffolds one file per enabled language at `.wax/<language-id>.registry.json` and sets each language's `registry` key. `wax discover` (alias: `wax registry discover`) uses the same per-language default when the language entry has no configured registry. Hosted sources use `registry.source`:
 
 ```json
 "registry": {
@@ -317,11 +317,12 @@ The engine builds flat schema v1 registry JSON (`schema_version`, `components[]`
 
 ### Discover output paths
 
-`wax registry discover --language <id>` writes **repo-local registry files only** (no hosted or `file://` overwrites).
+`wax discover --language <id>` writes **repo-local registry files only** (no hosted or `file://` overwrites). `wax registry discover` is a backward-compatible alias.
 
 | Config shape | Write target |
 |--------------|--------------|
-| No `registry` configured | `.wax/<language-id>.registry.json` (config and lockfile patched on write) |
+| No Wax config or lockfile (configless discover with `--root`) | `.wax/<language-id>.registry.json`; uses globally installed pack; does not patch config or lockfile |
+| Wax config present, no `registry` configured | `.wax/<language-id>.registry.json` (config and lockfile patched on write when those files exist) |
 | String `"registry": ".wax/compose.registry.json"` | That repo-relative path |
 | Object `"registry": { "source": ".wax/compose.registry.json" }` | `registry.source` when repo-relative |
 | Hosted `https://…` or `file://…` source | Discover fails; external sources are not writable |
@@ -406,7 +407,7 @@ All language lifecycle commands use the **`wax language`** group (singular):
 | Command | Purpose |
 |---------|---------|
 | `wax init` | Onboard: write `.wax/wax.config.json`, resolve packs, write `.wax/wax.lock.json`, scaffold per-language `.wax/<id>.registry.json` files |
-| `wax registry discover` | Deterministic registry authoring: spawn installed pack, write per-language registry JSON (`--dry-run`, `--force`, optional `--root`) |
+| `wax discover` | Deterministic registry authoring: spawn installed pack, write per-language registry JSON (`--dry-run`, `--force`, optional `--root`). Alias: `wax registry discover` |
 | `wax language list` | Installed language ids (all packs are downloaded; none ship inside `wax`) |
 | `wax language install <id>[@version]` | Download to `~/.wax/langs/` |
 | `wax language uninstall <id>` | Remove global install |

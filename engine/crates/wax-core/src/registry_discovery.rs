@@ -16,7 +16,7 @@ use wax_lang_api::{DiscoverRequest, DiscoverRequestType, WIRE_API_VERSION};
 
 use crate::auto_install::{InstalledManifest, installed_manifest_matches_locked};
 use crate::config::lockfile::{
-    LockedRegistry, LockfileError, WAX_LOCK_SCHEMA_VERSION, load_lockfile,
+    LockedRegistry, LockfileError, WAX_LOCK_SCHEMA_VERSION, WaxLock, load_lockfile,
 };
 use crate::config::repo_files::{default_registry_path_for_language, discover_repo_files};
 use crate::config::waxrc::{LanguageEntry, WaxRc, WaxRcError, load_waxrc};
@@ -67,6 +67,10 @@ pub struct RegistryDiscoverResult {
     pub used_config_roots: bool,
     /// Number of source roots scanned during discovery.
     pub root_count: usize,
+    /// Whether `.wax/wax.config.json` or legacy `.waxrc` was loaded.
+    pub wax_config_present: bool,
+    /// Whether `.wax/wax.lock.json` or legacy lockfile was loaded.
+    pub lockfile_present: bool,
 }
 
 /// Errors returned while discovering and optionally writing a registry file.
@@ -330,6 +334,7 @@ pub fn discover_registry(
     let repo_files = discover_repo_files(options.repo_root);
     let config_path_display = repo_files.config_path.display().to_string();
     let waxrc = load_optional_waxrc(&repo_files.config_path)?;
+    let wax_config_present = waxrc.is_some();
     let configured_entry = waxrc
         .as_ref()
         .and_then(|waxrc| find_enabled_language(waxrc, options.language_id));
@@ -359,9 +364,10 @@ pub fn discover_registry(
         &config_path_display,
     )?;
 
-    let lockfile = load_lockfile(&repo_files.lockfile_path)?;
+    let lockfile = load_optional_lockfile(&repo_files.lockfile_path)?;
+    let lockfile_present = lockfile.is_some();
     let state = load_global_state(state_file()?)?;
-    let pack_command = resolve_installed_pack_command(&state, &lockfile, &language_id)?;
+    let pack_command = resolve_discover_pack_command(&state, lockfile.as_ref(), &language_id)?;
     let symbols = discover_symbols(
         options.repo_root,
         &language_id,
@@ -379,6 +385,8 @@ pub fn discover_registry(
             registry,
             used_config_roots,
             root_count: roots.len(),
+            wax_config_present,
+            lockfile_present,
         });
     }
 
@@ -410,18 +418,23 @@ pub fn discover_registry(
         patch_config_registry(&repo_files.config_path, &language_id, &output_source)?;
     }
 
-    patch_lockfile_registry(
-        &repo_files.lockfile_path,
-        language_id.clone(),
-        output_source,
-        sha256_hex(written_bytes.as_bytes()),
-    )?;
+    if let Some(lockfile) = lockfile.as_ref() {
+        patch_lockfile_registry(
+            &repo_files.lockfile_path,
+            lockfile,
+            language_id.clone(),
+            output_source,
+            sha256_hex(written_bytes.as_bytes()),
+        )?;
+    }
 
     Ok(RegistryDiscoverResult {
         output_path,
         registry,
         used_config_roots,
         root_count: roots.len(),
+        wax_config_present,
+        lockfile_present,
     })
 }
 
@@ -555,6 +568,16 @@ fn load_optional_waxrc(path: &Path) -> Result<Option<WaxRc>, RegistryDiscoverErr
     }
 }
 
+fn load_optional_lockfile(path: &Path) -> Result<Option<WaxLock>, RegistryDiscoverError> {
+    match load_lockfile(path) {
+        Ok(lockfile) => Ok(Some(lockfile)),
+        Err(LockfileError::Read { source, .. }) if source.kind() == io::ErrorKind::NotFound => {
+            Ok(None)
+        }
+        Err(err) => Err(RegistryDiscoverError::Lockfile(err)),
+    }
+}
+
 fn find_enabled_language<'a>(waxrc: &'a WaxRc, language_id: &str) -> Option<&'a LanguageEntry> {
     waxrc
         .languages
@@ -635,9 +658,20 @@ struct InstalledManifestFile {
     sha256: String,
 }
 
-fn resolve_installed_pack_command(
+fn resolve_discover_pack_command(
     state: &crate::global_state::GlobalState,
-    lockfile: &crate::config::lockfile::WaxLock,
+    lockfile: Option<&WaxLock>,
+    language_id: &LanguageId,
+) -> Result<Vec<String>, RegistryDiscoverError> {
+    match lockfile {
+        Some(lockfile) => resolve_locked_pack_command(state, lockfile, language_id),
+        None => resolve_latest_global_pack_command(state, language_id),
+    }
+}
+
+fn resolve_locked_pack_command(
+    state: &crate::global_state::GlobalState,
+    lockfile: &WaxLock,
     language_id: &LanguageId,
 ) -> Result<Vec<String>, RegistryDiscoverError> {
     let Some(locked) = lockfile.languages.get(language_id) else {
@@ -686,6 +720,53 @@ fn resolve_installed_pack_command(
         pack.install_dir.as_path(),
         manifest.command,
     ))
+}
+
+fn resolve_latest_global_pack_command(
+    state: &crate::global_state::GlobalState,
+    language_id: &LanguageId,
+) -> Result<Vec<String>, RegistryDiscoverError> {
+    let Some(versions) = state.installed_languages.get(language_id) else {
+        return Err(RegistryDiscoverError::PackNotInstalled {
+            language_id: language_id.clone(),
+        });
+    };
+    let Some((_, pack)) = versions
+        .iter()
+        .max_by(|(left, _), (right, _)| compare_discover_versions(left, right))
+    else {
+        return Err(RegistryDiscoverError::PackNotInstalled {
+            language_id: language_id.clone(),
+        });
+    };
+
+    let manifest_path = pack.install_dir.join("manifest.json");
+    let raw = fs::read_to_string(&manifest_path).map_err(|_| {
+        RegistryDiscoverError::PackNotInstalled {
+            language_id: language_id.clone(),
+        }
+    })?;
+    let manifest: InstalledManifestFile =
+        serde_json::from_str(&raw).map_err(|_| RegistryDiscoverError::PackNotInstalled {
+            language_id: language_id.clone(),
+        })?;
+    if manifest.id != *language_id || manifest.command.is_empty() {
+        return Err(RegistryDiscoverError::PackNotInstalled {
+            language_id: language_id.clone(),
+        });
+    }
+
+    Ok(resolve_manifest_command(
+        pack.install_dir.as_path(),
+        manifest.command,
+    ))
+}
+
+fn compare_discover_versions(left: &str, right: &str) -> std::cmp::Ordering {
+    match (semver::Version::parse(left), semver::Version::parse(right)) {
+        (Ok(left), Ok(right)) => left.cmp(&right),
+        _ => left.cmp(right),
+    }
 }
 
 fn resolve_manifest_command(install_dir: &Path, mut command: Vec<String>) -> Vec<String> {
@@ -798,12 +879,13 @@ fn patch_config_registry(
 
 fn patch_lockfile_registry(
     lockfile_path: &Path,
+    existing_lockfile: &WaxLock,
     language_id: LanguageId,
     source: String,
     sha256: String,
 ) -> Result<(), RegistryDiscoverError> {
     let path_display = lockfile_path.display().to_string();
-    let mut lockfile = load_lockfile(lockfile_path)?;
+    let mut lockfile = existing_lockfile.clone();
     lockfile
         .registries
         .insert(language_id, LockedRegistry { source, sha256 });
