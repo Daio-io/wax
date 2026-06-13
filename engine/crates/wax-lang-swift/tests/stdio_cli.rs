@@ -193,6 +193,44 @@ fn stdio_cli_emits_one_scan_facts_response() {
 }
 
 #[test]
+fn stdio_scan_invalid_config_returns_config_invalid() {
+    let temp = tempfile::tempdir().expect("temp dir should be created");
+    let src_dir = temp.path().join("Sources/App");
+    fs::create_dir_all(&src_dir).expect("src dir should be created");
+    fs::write(
+        src_dir.join("Valid.swift"),
+        "import SwiftUI\nstruct ValidView: View { var body: some View { Text(\"ok\") } }\n",
+    )
+    .expect("source fixture");
+
+    let request = json!({
+        "type": "scan",
+        "api_version": 1,
+        "language_id": "swift",
+        "repo_root": temp.path().to_string_lossy(),
+        "snapshot_id": "snap-invalid-config",
+        "config": {
+            "roots": ["Sources/App"]
+        }
+    });
+
+    let stdout = run_stdio_request(&request);
+    let mut lines = stdout.lines();
+    let response: WirePackResponse =
+        serde_json::from_str(lines.next().expect("expected one stdout line"))
+            .expect("stdout line must be a wire response");
+
+    match response {
+        WirePackResponse::Error { code, message, .. } => {
+            assert_eq!(code, WireErrorCode::ConfigInvalid);
+            assert!(message.contains("registry is required"));
+        }
+        other => panic!("expected error response, got {other:?}"),
+    }
+    assert_eq!(lines.next(), None, "expected exactly one stdout line");
+}
+
+#[test]
 fn stdio_scan_reports_partial_facts_for_parse_failure() {
     let temp = tempfile::tempdir().expect("temp dir should be created");
     let registry_dir = temp.path().join("design-system");
