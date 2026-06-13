@@ -1,12 +1,23 @@
 //! SwiftUI registry symbol discovery.
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use wax_contract::{Diagnostic, DiagnosticSeverity, SourceLocation};
 
 use crate::component_detect::collect_component_declarations;
 use crate::swift_ast::{
     ParseSwiftFileError, collect_swift_files, new_parser, parse_swift_file_strict,
 };
+
+/// Result of discovering SwiftUI registry symbols from source roots.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscoverRegistryResult {
+    /// Discovered design-system symbol names.
+    pub symbols: Vec<String>,
+    /// Structured diagnostics emitted while discovering symbols.
+    pub diagnostics: Vec<Diagnostic>,
+}
 
 /// Errors produced while discovering SwiftUI registry symbols.
 #[derive(Debug)]
@@ -15,8 +26,6 @@ pub enum SwiftDiscoverError {
     InvalidLanguageId(String),
     /// A configured discovery root does not exist.
     MissingRoot(PathBuf),
-    /// A Swift file could not be parsed successfully.
-    ParseFailed(PathBuf),
     /// Tree-sitter parser failed to initialize.
     ParserInitFailed(String),
     /// A filesystem operation failed.
@@ -35,9 +44,6 @@ impl std::fmt::Display for SwiftDiscoverError {
             Self::MissingRoot(path) => {
                 write!(f, "discovery root does not exist: {}", path.display())
             }
-            Self::ParseFailed(path) => {
-                write!(f, "failed to parse Swift source {}", path.display())
-            }
             Self::ParserInitFailed(reason) => write!(f, "parser init failed: {reason}"),
             Self::Io { context, source } => write!(f, "{context}: {source}"),
         }
@@ -47,17 +53,20 @@ impl std::fmt::Display for SwiftDiscoverError {
 impl std::error::Error for SwiftDiscoverError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::InvalidLanguageId(_)
-            | Self::MissingRoot(_)
-            | Self::ParseFailed(_)
-            | Self::ParserInitFailed(_) => None,
+            Self::InvalidLanguageId(_) | Self::MissingRoot(_) | Self::ParserInitFailed(_) => None,
             Self::Io { source, .. } => Some(source),
         }
     }
 }
 
 /// Discovers likely public top-level SwiftUI component symbols from source roots.
-pub fn discover_registry_symbols(roots: &[PathBuf]) -> Result<Vec<String>, SwiftDiscoverError> {
+///
+/// Files that fail to parse are skipped and reported as diagnostics so discovery can
+/// continue with the remaining Swift sources.
+pub fn discover_registry_symbols(
+    parse_root: &Path,
+    roots: &[PathBuf],
+) -> Result<DiscoverRegistryResult, SwiftDiscoverError> {
     let mut parser = new_parser().map_err(SwiftDiscoverError::ParserInitFailed)?;
     let mut swift_files = Vec::new();
     for root in roots {
@@ -72,21 +81,51 @@ pub fn discover_registry_symbols(roots: &[PathBuf]) -> Result<Vec<String>, Swift
     swift_files.sort();
 
     let mut symbols = BTreeSet::new();
+    let mut diagnostics = Vec::new();
     for file_path in swift_files {
-        let parsed = parse_swift_file_strict(&mut parser, &file_path).map_err(map_parse_error)?;
-        for component in
-            collect_component_declarations(parsed.tree.root_node(), parsed.source.as_bytes(), true)
-        {
-            symbols.insert(component.symbol);
+        match parse_swift_file_strict(&mut parser, &file_path) {
+            Ok(parsed) => {
+                for component in collect_component_declarations(
+                    parsed.tree.root_node(),
+                    parsed.source.as_bytes(),
+                    true,
+                ) {
+                    symbols.insert(component.symbol);
+                }
+            }
+            Err(ParseSwiftFileError::ParseFailed(_)) => {
+                let relative_file = repo_relative_path(parse_root, &file_path);
+                diagnostics.push(Diagnostic {
+                    severity: DiagnosticSeverity::Error,
+                    code: "parse_failed".to_owned(),
+                    message: format!("tree-sitter failed to parse {relative_file}; file skipped"),
+                    location: Some(SourceLocation {
+                        file: relative_file,
+                        line: 1,
+                        column: None,
+                    }),
+                });
+            }
+            Err(ParseSwiftFileError::Io { context, source }) => {
+                return Err(SwiftDiscoverError::Io { context, source });
+            }
         }
     }
 
-    Ok(symbols.into_iter().collect())
+    Ok(DiscoverRegistryResult {
+        symbols: symbols.into_iter().collect(),
+        diagnostics,
+    })
 }
 
-fn map_parse_error(err: ParseSwiftFileError) -> SwiftDiscoverError {
-    match err {
-        ParseSwiftFileError::Io { context, source } => SwiftDiscoverError::Io { context, source },
-        ParseSwiftFileError::ParseFailed(path) => SwiftDiscoverError::ParseFailed(path),
-    }
+fn repo_relative_path(parse_root: &Path, file_path: &Path) -> String {
+    file_path
+        .strip_prefix(parse_root)
+        .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_else(|_| {
+            file_path
+                .file_name()
+                .map(|name| name.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_else(|| file_path.to_string_lossy().replace('\\', "/"))
+        })
 }

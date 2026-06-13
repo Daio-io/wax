@@ -407,7 +407,7 @@ pub fn scan_repository(
             Err(ParseKotlinFileError::ParseFailed(_)) => {
                 parse_failures += 1;
                 diagnostics.push(Diagnostic {
-                    severity: DiagnosticSeverity::Warning,
+                    severity: DiagnosticSeverity::Error,
                     code: "parse_failed".to_owned(),
                     message: format!("tree-sitter failed to parse {relative_file}; file skipped"),
                     location: None,

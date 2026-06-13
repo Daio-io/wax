@@ -1,12 +1,23 @@
 //! Compose registry symbol discovery.
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use wax_contract::{Diagnostic, DiagnosticSeverity, SourceLocation};
 
 use crate::kotlin_ast::{
     ParseKotlinFileError, collect_kotlin_files, function_name_from_decl, has_composable_annotation,
     new_parser, parse_kotlin_file_strict,
 };
+
+/// Result of discovering Compose registry symbols from Kotlin source roots.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscoverRegistryResult {
+    /// Discovered design-system symbol names.
+    pub symbols: Vec<String>,
+    /// Structured diagnostics emitted while discovering symbols.
+    pub diagnostics: Vec<Diagnostic>,
+}
 
 /// Errors produced while discovering Compose registry symbols.
 #[derive(Debug)]
@@ -15,8 +26,6 @@ pub enum ComposeDiscoverError {
     InvalidLanguageId(String),
     /// A configured discovery root does not exist.
     MissingRoot(PathBuf),
-    /// A Kotlin file could not be parsed successfully.
-    ParseFailed(PathBuf),
     /// Tree-sitter parser failed to initialize.
     ParserInitFailed(String),
     /// A filesystem operation failed.
@@ -35,9 +44,6 @@ impl std::fmt::Display for ComposeDiscoverError {
             Self::MissingRoot(path) => {
                 write!(f, "discovery root does not exist: {}", path.display())
             }
-            Self::ParseFailed(path) => {
-                write!(f, "failed to parse Kotlin source {}", path.display())
-            }
             Self::ParserInitFailed(reason) => write!(f, "parser init failed: {reason}"),
             Self::Io { context, source } => write!(f, "{context}: {source}"),
         }
@@ -47,17 +53,20 @@ impl std::fmt::Display for ComposeDiscoverError {
 impl std::error::Error for ComposeDiscoverError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::InvalidLanguageId(_)
-            | Self::MissingRoot(_)
-            | Self::ParseFailed(_)
-            | Self::ParserInitFailed(_) => None,
+            Self::InvalidLanguageId(_) | Self::MissingRoot(_) | Self::ParserInitFailed(_) => None,
             Self::Io { source, .. } => Some(source),
         }
     }
 }
 
 /// Discovers likely public top-level Compose component symbols from Kotlin source roots.
-pub fn discover_registry_symbols(roots: &[PathBuf]) -> Result<Vec<String>, ComposeDiscoverError> {
+///
+/// Files that fail to parse are skipped and reported as diagnostics so discovery can
+/// continue with the remaining Kotlin sources.
+pub fn discover_registry_symbols(
+    parse_root: &Path,
+    roots: &[PathBuf],
+) -> Result<DiscoverRegistryResult, ComposeDiscoverError> {
     let mut parser = new_parser().map_err(ComposeDiscoverError::ParserInitFailed)?;
 
     let mut kotlin_files = Vec::new();
@@ -75,16 +84,37 @@ pub fn discover_registry_symbols(roots: &[PathBuf]) -> Result<Vec<String>, Compo
     kotlin_files.sort();
 
     let mut symbols = BTreeSet::new();
+    let mut diagnostics = Vec::new();
     for file_path in kotlin_files {
-        let parsed = parse_kotlin_file_strict(&mut parser, &file_path).map_err(map_parse_error)?;
-        collect_symbols(
-            parsed.tree.root_node(),
-            parsed.source.as_bytes(),
-            &mut symbols,
-        );
+        match parse_kotlin_file_strict(&mut parser, &file_path) {
+            Ok(parsed) => collect_symbols(
+                parsed.tree.root_node(),
+                parsed.source.as_bytes(),
+                &mut symbols,
+            ),
+            Err(ParseKotlinFileError::ParseFailed(_)) => {
+                let relative_file = repo_relative_path(parse_root, &file_path);
+                diagnostics.push(Diagnostic {
+                    severity: DiagnosticSeverity::Error,
+                    code: "parse_failed".to_owned(),
+                    message: format!("tree-sitter failed to parse {relative_file}; file skipped"),
+                    location: Some(SourceLocation {
+                        file: relative_file,
+                        line: 1,
+                        column: None,
+                    }),
+                });
+            }
+            Err(ParseKotlinFileError::Io { context, source }) => {
+                return Err(ComposeDiscoverError::Io { context, source });
+            }
+        }
     }
 
-    Ok(symbols.into_iter().collect())
+    Ok(DiscoverRegistryResult {
+        symbols: symbols.into_iter().collect(),
+        diagnostics,
+    })
 }
 
 fn collect_symbols(root: tree_sitter::Node<'_>, source: &[u8], symbols: &mut BTreeSet<String>) {
@@ -105,15 +135,6 @@ fn collect_symbols(root: tree_sitter::Node<'_>, source: &[u8], symbols: &mut BTr
                 stack.push(child);
             }
         }
-    }
-}
-
-fn map_parse_error(err: ParseKotlinFileError) -> ComposeDiscoverError {
-    match err {
-        ParseKotlinFileError::Io { context, source } => {
-            ComposeDiscoverError::Io { context, source }
-        }
-        ParseKotlinFileError::ParseFailed(path) => ComposeDiscoverError::ParseFailed(path),
     }
 }
 
@@ -145,4 +166,16 @@ fn is_public(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
         }
     }
     true
+}
+
+fn repo_relative_path(parse_root: &Path, file_path: &Path) -> String {
+    file_path
+        .strip_prefix(parse_root)
+        .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_else(|_| {
+            file_path
+                .file_name()
+                .map(|name| name.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_else(|| file_path.to_string_lossy().replace('\\', "/"))
+        })
 }

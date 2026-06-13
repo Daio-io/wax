@@ -175,9 +175,7 @@ fn discover_error_response(
             WireErrorCode::ConfigInvalid
         }
         ComposeDiscoverError::ParserInitFailed(_) => WireErrorCode::ParserInitFailed,
-        ComposeDiscoverError::ParseFailed(_) | ComposeDiscoverError::Io { .. } => {
-            WireErrorCode::ScanFailed
-        }
+        ComposeDiscoverError::Io { .. } => WireErrorCode::ScanFailed,
     };
     WirePackResponse::Error {
         api_version,

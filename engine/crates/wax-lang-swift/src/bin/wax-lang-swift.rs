@@ -174,9 +174,7 @@ fn discover_error_response(
             WireErrorCode::ConfigInvalid
         }
         SwiftDiscoverError::ParserInitFailed(_) => WireErrorCode::ParserInitFailed,
-        SwiftDiscoverError::ParseFailed(_) | SwiftDiscoverError::Io { .. } => {
-            WireErrorCode::ScanFailed
-        }
+        SwiftDiscoverError::Io { .. } => WireErrorCode::ScanFailed,
     };
     WirePackResponse::Error {
         api_version,

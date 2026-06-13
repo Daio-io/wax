@@ -9,7 +9,7 @@ mod tree_sitter_scan;
 
 use std::path::Path;
 
-pub use discover::{SwiftDiscoverError, discover_registry_symbols};
+pub use discover::{DiscoverRegistryResult, SwiftDiscoverError, discover_registry_symbols};
 use time::OffsetDateTime;
 use wax_contract::{
     CountSummary, Diagnostic, DiagnosticSeverity, LanguageId, LanguageMetadata, Metrics,
@@ -134,11 +134,11 @@ impl SwiftLanguage {
             .iter()
             .map(|root| repo_root.join(root))
             .collect::<Vec<_>>();
-        let symbols = discover_registry_symbols(&roots)?;
+        let result = discover_registry_symbols(repo_root, &roots)?;
 
         Ok(DiscoverSymbolsResult {
-            symbols,
-            diagnostics: Vec::new(),
+            symbols: result.symbols,
+            diagnostics: result.diagnostics,
         })
     }
 }

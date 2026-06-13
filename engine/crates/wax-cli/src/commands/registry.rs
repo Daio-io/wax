@@ -1,8 +1,10 @@
 //! Registry discovery command implementations for `wax discover` and `wax registry discover`.
 
+use super::diagnostic_output::format_diagnostic_line;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
+use wax_contract::Diagnostic;
 use wax_core::registry_discovery::{
     RegistryDiscoverError, RegistryDiscoverOptions, discover_registry,
 };
@@ -77,6 +79,7 @@ pub fn run_registry_discover(
             root_count,
             true,
             result.used_config_roots,
+            &result.diagnostics,
         );
         return Ok(());
     }
@@ -113,6 +116,7 @@ pub fn run_registry_discover(
         .map_err(|source| RegistryDiscoverCommandError::Io { source })?;
     }
     write_config_roots_warning(result.used_config_roots);
+    write_pack_diagnostics(&result.diagnostics);
 
     Ok(())
 }
@@ -136,6 +140,7 @@ fn write_diagnostics(
     root_count: usize,
     dry_run: bool,
     used_config_roots: bool,
+    diagnostics: &[Diagnostic],
 ) {
     let root_label = if root_count == 1 { "root" } else { "roots" };
     eprintln!(
@@ -145,7 +150,19 @@ fn write_diagnostics(
         eprintln!("Dry run: no registry file was written.");
     }
     write_config_roots_warning(used_config_roots);
+    write_pack_diagnostics(diagnostics);
     eprintln!("warning: deterministic discovery may include false positives.");
+}
+
+fn write_pack_diagnostics(diagnostics: &[Diagnostic]) {
+    if diagnostics.is_empty() {
+        return;
+    }
+
+    eprintln!("discovery diagnostics ({}):", diagnostics.len());
+    for diagnostic in diagnostics {
+        eprintln!("  {}", format_diagnostic_line(diagnostic));
+    }
 }
 
 fn write_config_roots_warning(used_config_roots: bool) {

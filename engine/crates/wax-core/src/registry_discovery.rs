@@ -11,7 +11,7 @@ use std::time::Duration;
 use serde::Serialize;
 use serde_json::Value;
 use thiserror::Error;
-use wax_contract::LanguageId;
+use wax_contract::{Diagnostic, LanguageId};
 use wax_lang_api::{DiscoverRequest, DiscoverRequestType, WIRE_API_VERSION};
 
 use crate::auto_install::{InstalledManifest, installed_manifest_matches_locked};
@@ -71,6 +71,8 @@ pub struct RegistryDiscoverResult {
     pub wax_config_present: bool,
     /// Whether `.wax/wax.lock.json` or legacy lockfile was loaded.
     pub lockfile_present: bool,
+    /// Structured diagnostics returned by the language pack subprocess.
+    pub diagnostics: Vec<Diagnostic>,
 }
 
 /// Errors returned while discovering and optionally writing a registry file.
@@ -368,7 +370,7 @@ pub fn discover_registry(
     let lockfile_present = lockfile.is_some();
     let state = load_global_state(state_file()?)?;
     let pack_command = resolve_discover_pack_command(&state, lockfile.as_ref(), &language_id)?;
-    let symbols = discover_symbols(
+    let (symbols, diagnostics) = discover_symbols(
         options.repo_root,
         &language_id,
         &roots,
@@ -387,6 +389,7 @@ pub fn discover_registry(
             root_count: roots.len(),
             wax_config_present,
             lockfile_present,
+            diagnostics,
         });
     }
 
@@ -435,6 +438,7 @@ pub fn discover_registry(
         root_count: roots.len(),
         wax_config_present,
         lockfile_present,
+        diagnostics,
     })
 }
 
@@ -784,7 +788,7 @@ fn discover_symbols(
     roots: &[PathBuf],
     pack_command: Vec<String>,
     timeout: Duration,
-) -> Result<Vec<String>, RegistryDiscoverError> {
+) -> Result<(Vec<String>, Vec<Diagnostic>), RegistryDiscoverError> {
     let request = DiscoverRequest {
         request_type: DiscoverRequestType::Discover,
         api_version: WIRE_API_VERSION,
@@ -804,7 +808,7 @@ fn discover_symbols(
         timeout,
     });
     match discoverer.discover(request) {
-        Ok(result) => Ok(result.symbols),
+        Ok(result) => Ok((result.symbols, result.diagnostics)),
         Err(DiscoverError::Unsupported { .. }) => Err(RegistryDiscoverError::DiscoverUnsupported {
             language_id: language_id.clone(),
         }),
