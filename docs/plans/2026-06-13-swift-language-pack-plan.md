@@ -2344,7 +2344,8 @@ cargo test -p wax-core assert_alpha_index_matches_release
 Run:
 
 ```bash
-scripts/build-release.sh --target "$(rustc -vV | awk '/host/ { print $2 }')" --out-dir /tmp/wax-swift-release-smoke
+WAX_RELEASE_OUT_DIR=/tmp/wax-swift-release-smoke scripts/build-release.sh "$(rustc -vV | awk '/host:/ { print $2 }')"
+test -f /tmp/wax-swift-release-smoke/*/wax-lang-swift-*.tar.gz
 cd engine
 cargo test -p wax-core validates_pack_index_from_env -- --ignored
 ```
