@@ -2,6 +2,7 @@
 
 #![deny(missing_docs)]
 
+mod swift_ast;
 mod tree_sitter_scan;
 
 use std::path::Path;

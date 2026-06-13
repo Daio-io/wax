@@ -1134,7 +1134,7 @@ git commit -m "feat: parse Swift language config and registry"
 - Modify: `engine/crates/wax-lang-swift/src/tree_sitter_scan.rs`
 - Add tests inside: `engine/crates/wax-lang-swift/src/swift_ast.rs`
 
-- [ ] **Step 1: Write parser and file collection tests**
+- [x] **Step 1: Write parser and file collection tests**
 
 Add this test module to `swift_ast.rs` before implementation or create the file with tests first:
 
@@ -1180,7 +1180,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -1191,7 +1191,7 @@ cargo test -p wax-lang-swift swift_ast
 
 Expected: FAIL because `swift_ast` helpers are not implemented.
 
-- [ ] **Step 3: Implement parser and file helpers**
+- [x] **Step 3: Implement parser and file helpers**
 
 Create `engine/crates/wax-lang-swift/src/swift_ast.rs`:
 
@@ -1281,7 +1281,7 @@ pub(crate) fn parse_swift_file_strict(
 }
 ```
 
-- [ ] **Step 4: Wire file collection and parser into scans**
+- [x] **Step 4: Wire file collection and parser into scans**
 
 Modify `scan_repository` in `tree_sitter_scan.rs`:
 
@@ -1321,7 +1321,7 @@ Diagnostic {
 
 Set status to `Partial` if any `parse_failed`, `root_not_found`, or `root_glob_not_found` diagnostic exists.
 
-- [ ] **Step 5: Run parser-focused tests**
+- [x] **Step 5: Run parser-focused tests**
 
 Run:
 
@@ -1334,7 +1334,7 @@ cargo clippy -p wax-lang-swift --all-targets -- -D warnings
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add engine/crates/wax-lang-swift/src/swift_ast.rs engine/crates/wax-lang-swift/src/tree_sitter_scan.rs
