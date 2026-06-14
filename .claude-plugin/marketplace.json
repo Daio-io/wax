@@ -6,13 +6,10 @@
   "description": "Agent skills for Wax design-system analysis and CLI workflows",
   "homepage": "https://github.com/Daio-io/wax",
   "repository": "https://github.com/Daio-io/wax",
-  "metadata": {
-    "pluginRoot": "./plugins"
-  },
   "plugins": [
     {
-      "name": "wax",
-      "source": "wax",
+      "name": "wax-skills",
+      "source": "./",
       "description": "Wax agent skills for registry sync and future design-system authoring workflows",
       "version": "1.0.0",
       "keywords": ["wax", "design-system", "registry", "compose"],

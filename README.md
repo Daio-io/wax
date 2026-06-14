@@ -310,7 +310,7 @@ calls such as `DesignSystem.PrimaryButton(...)`.
 
 ## AI skills
 
-Wax also ships optional agent skills under [plugins/wax/skills](plugins/wax/skills). These are for authoring help, not runtime analysis.
+Wax also ships optional agent skills under [skills](skills). These are for authoring help, not runtime analysis.
 
 Today the repo includes:
 
@@ -331,47 +331,48 @@ In practice, a skill like `wax-registry-sync` fits around the registry workflow 
 4. Run `wax validate`
 5. Run `wax language update --all` when registry locks need refreshing
 
-### Install skills with `skills.sh`
+### Install
 
-Requires Node.js.
-
-List available skills from this repo:
+With the [skills CLI](https://skills.sh/):
 
 ```bash
-npx skills add Daio-io/wax --list
+npx skills add daio-io/wax
 ```
 
-Install `wax-registry-sync` into a project-local skills directory:
-
-```bash
-npx skills add Daio-io/wax --skill wax-registry-sync -a cursor -y
-```
-
-Install it globally instead:
-
-```bash
-npx skills add Daio-io/wax --skill wax-registry-sync -g -a cursor -y
-```
-
-Swap `cursor` for your agent, such as `claude-code`, `codex`, or `opencode`.
-
-### Install skills in Claude Code
+Or install as a Claude Code plugin:
 
 ```text
-/plugin marketplace add Daio-io/wax
-/plugin install wax@wax-skills
+/plugin marketplace add daio-io/wax
+/plugin install wax-skills@wax-skills
 /reload-plugins
 ```
 
 Then invoke the skill directly, for example:
 
 ```text
-/wax:wax-registry-sync
+/wax-skills:wax-registry-sync
+```
+
+If you installed the earlier preview plugin as `wax@wax-skills`, reinstall it with the new plugin name:
+
+```text
+/plugin uninstall wax@wax-skills
+/plugin install wax-skills@wax-skills
+```
+
+The skill command also changed from `/wax:wax-registry-sync` to `/wax-skills:wax-registry-sync`.
+
+Advanced skills CLI options still work for scripted installs:
+
+```bash
+npx skills add daio-io/wax --list
+npx skills add daio-io/wax --skill wax-registry-sync -a claude-code -y
+npx skills add daio-io/wax --skill wax-registry-sync -g -a claude-code -y
 ```
 
 ### Manual skill install
 
-Copy or symlink a skill directory from `plugins/wax/skills/<skill-name>/` into your agent's skills folder, such as:
+Copy or symlink a skill directory from `skills/<skill-name>/` into your agent's skills folder, such as:
 
 - `.agents/skills/`
 - `.claude/skills/`

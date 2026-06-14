@@ -17,7 +17,7 @@ Other important surfaces:
 - [scripts](scripts): release helpers, pack index generation, installer
 - [homebrew](homebrew): Homebrew formula
 - [packages/cli](packages/cli): npm wrapper
-- [plugins/wax](plugins/wax): optional AI skills and plugin metadata
+- [skills](skills) and [.claude-plugin](.claude-plugin): optional AI skills and plugin metadata
 
 Keep generated scan output out of git, especially `.wax/` outputs and global `~/.wax/` state.
 
@@ -76,6 +76,12 @@ For documentation-only changes, inspect the rendered Markdown when practical and
 - Keep CLI behavior scriptable, stable, and CI-friendly.
 - Prefer repo-relative paths in config and outputs unless a task explicitly requires otherwise.
 - When changing user-facing contracts such as `.wax/wax.config.json`, `.wax/wax.lock.json`, `.wax/wax.registry.json`, or schemas, update fixtures, tests, and docs together.
+
+## AI skills
+
+- Skills live at `skills/<skill-name>/SKILL.md`.
+- Keep the `name:` frontmatter in `SKILL.md` aligned with the skill directory name.
+- Keep [.claude-plugin/marketplace.json](.claude-plugin/marketplace.json) and [.claude-plugin/plugin.json](.claude-plugin/plugin.json) aligned with the public install commands.
 
 ## Commits and PRs
 
