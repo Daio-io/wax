@@ -57,7 +57,7 @@ or natural language such as “scan this repo and report on design system adopti
 | *(none)* | Terminal section-by-section report |
 | `--html` | Also write `.wax/out/report/index.html` |
 | `--html-only` | Write HTML only; skip terminal report |
-| `--baseline <path>` | Compare against a prior `scan-merged.json` or compatible summary for trend deltas |
+| `--baseline <path>` | Compare against a prior `scan-merged.json` for limited trend deltas |
 | `--no-auto-install` | Pass through to `wax scan` for CI-style runs with committed lockfiles |
 
 ### Workflow
@@ -147,10 +147,14 @@ Unless `--html-only` is set, the terminal report still prints when HTML is reque
 skills/wax-scan/
 ├── SKILL.md
 ├── reference.md
+├── fixtures/
+│   ├── scan-merged.sample.json
+│   └── expected-insights.sample.json
 ├── templates/
 │   └── report.html
 └── scripts/
-    └── extract-insights.sh
+    ├── extract-insights.sh
+    └── test-extract-insights.sh
 ```
 
 ### Deterministic metrics (current facts)
@@ -181,7 +185,7 @@ Executive summary scores (health, maturity, debt) are agent-synthesized composit
 ### Trend analysis (v1)
 
 - No automatic git-history baseline discovery.
-- When `--baseline <path>` is provided, compute deltas for adoption coverage, resolved/candidate/unresolved counts, and per-language status when computable.
+- When `--baseline <path>` is provided, the baseline must be a prior `scan-merged.json` with a compatible `schema_version`. Compute deltas for adoption coverage, resolved/candidate/unresolved counts, and per-language status when computable.
 - Otherwise emit a single trends data-gap section.
 
 ## Analytics Spec

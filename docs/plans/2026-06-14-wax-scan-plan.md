@@ -43,13 +43,15 @@
 
 ## Phase 1 — Skill scaffold and workflow
 
-### - [ ] Task 1: Add `wax-scan` skill scaffold
+### - [x] Task 1: Add `wax-scan` skill scaffold
 
 **Files:**
 - Create: `skills/wax-scan/SKILL.md`
 - Create: `skills/wax-scan/reference.md`
+- Create: `skills/wax-scan/scripts/extract-insights.sh` (placeholder until Task 2)
+- Create: `skills/wax-scan/templates/report.html` (placeholder until Task 3)
 
-- [ ] **Step 1: Create SKILL.md with parameters in frontmatter**
+- [x] **Step 1: Create SKILL.md with parameters in frontmatter**
 
 YAML frontmatter must include `--html`, `--html-only`, `--baseline`, and `--no-auto-install` in the `description` field. Add a `## Parameters` section immediately after the title.
 
@@ -64,7 +66,7 @@ description: >-
 ---
 ```
 
-- [ ] **Step 2: Document workflow guardrails**
+- [x] **Step 2: Document workflow guardrails**
 
 Include ordered steps:
 1. Verify Wax config exists; stop with `wax init` guidance if missing.
@@ -75,11 +77,11 @@ Include ordered steps:
 6. Produce terminal report unless `--html-only`.
 7. Write HTML when `--html` or `--html-only`.
 
-- [ ] **Step 3: Embed analytics spec verbatim**
+- [x] **Step 3: Embed analytics spec verbatim**
 
 Copy the full Design System Analytics and Adoption Specialist prompt from the design conversation into `SKILL.md` without paraphrasing. Preserve section order and output principles.
 
-- [ ] **Step 4: Create reference.md**
+- [x] **Step 4: Create reference.md**
 
 Document:
 - Extractor output field definitions
@@ -88,7 +90,7 @@ Document:
 - Data-gap block template
 - Baseline delta fields when `--baseline` is supplied
 
-- [ ] **Step 5: Commit Task 1**
+- [x] **Step 5: Commit Task 1**
 
 ---
 
@@ -152,7 +154,7 @@ Emit `baseline_deltas` or a single limit entry when baseline is incompatible.
 
 - [ ] **Step 4: Add fixture test script**
 
-`scripts/test-extract-insights.sh` runs the extractor against `fixtures/scan-merged.sample.json` and diffs key fields against `fixtures/expected-insights.sample.json`.
+`skills/wax-scan/scripts/test-extract-insights.sh` runs the extractor against `skills/wax-scan/fixtures/scan-merged.sample.json` and diffs key fields against `skills/wax-scan/fixtures/expected-insights.sample.json`.
 
 Run:
 
@@ -218,7 +220,7 @@ Add order 10 (or next available) to `docs/plans/README.md`:
 
 | Plan | Document | Doc status | Implementation status |
 |------|----------|------------|------------------------|
-| Wax scan analytics skill | `2026-06-14-wax-scan-plan.md` | `merged` | `not-started` |
+| Wax scan analytics skill | `2026-06-14-wax-scan-plan.md` | `pending` until PR merges | `in-progress` |
 
 - [ ] **Step 3: Commit Task 4**
 

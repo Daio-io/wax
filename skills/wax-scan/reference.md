@@ -6,7 +6,7 @@ Script: `skills/wax-scan/scripts/extract-insights.sh`
 
 Input: `.wax/out/scan-merged.json`
 
-Optional second argument: `--baseline <path>` to a prior compatible scan artifact.
+Optional second argument: `--baseline <path>` to a prior `scan-merged.json` with a compatible `schema_version`.
 
 Output: versioned insights JSON consumed by the agent when rendering terminal and HTML reports.
 
@@ -56,7 +56,7 @@ Data gap: <metric> requires <missing capability>. Not computed in this scan.
 
 ## Baseline deltas (when `--baseline` provided)
 
-Compute when baseline schema is compatible:
+Compute when the baseline is a compatible `scan-merged.json`:
 
 - Adoption coverage ratio change
 - Resolved / candidate / unresolved count changes

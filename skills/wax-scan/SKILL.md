@@ -13,13 +13,25 @@ Use this skill to validate Wax configuration, run a fresh `wax scan`, extract de
 
 AI interpretation is an authoring aid only. Do not make `wax scan` or `wax validate` depend on agent decisions.
 
+## Status
+
+**Scaffold only (Task 1).** This skill documents the analytics workflow and guardrails. Deterministic extraction and HTML rendering are not executable until Tasks 2 and 3 land:
+
+| Artifact | Path | Task |
+|----------|------|------|
+| Extractor | `skills/wax-scan/scripts/extract-insights.sh` | Task 2 |
+| Extractor tests | `skills/wax-scan/scripts/test-extract-insights.sh` | Task 2 |
+| HTML template | `skills/wax-scan/templates/report.html` | Task 3 |
+
+Until Task 2 merges, after a successful scan read `.wax/out/scan-merged.json` directly for deterministic sections. Do not run the extractor placeholder. Until Task 3 merges, do not offer `--html` or `--html-only`; tell the user HTML output is not available yet.
+
 ## Parameters
 
 | Parameter | Effect |
 |-----------|--------|
 | *(none)* | Section-by-section terminal report |
-| `--html` | Also write `.wax/out/report/index.html` |
-| `--html-only` | Write HTML only; skip terminal report |
+| `--html` | Also write `.wax/out/report/index.html` (requires Task 3 template) |
+| `--html-only` | Write HTML only; skip terminal report (requires Task 3 template) |
 | `--baseline <path>` | Compare against a prior `scan-merged.json` for limited trend deltas |
 | `--no-auto-install` | Pass through to `wax scan` for CI runs with committed lockfiles |
 
@@ -33,7 +45,7 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
    - Pass `--no-auto-install` when the user requests CI mode.
 4. Read `.wax/out/scan-merged.json`.
    - If `--baseline <path>` is provided, read the baseline file for trend deltas.
-5. Run the deterministic extractor:
+5. Run the deterministic extractor when Task 2 is complete:
 
    ```bash
    skills/wax-scan/scripts/extract-insights.sh .wax/out/scan-merged.json
@@ -45,6 +57,8 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
    skills/wax-scan/scripts/extract-insights.sh .wax/out/scan-merged.json --baseline <path>
    ```
 
+   Before Task 2 lands, skip this step and derive deterministic metrics directly from `.wax/out/scan-merged.json`.
+
 6. Produce the terminal report unless `--html-only` was requested.
    - Walk sections in the analytics spec order below.
    - Use extractor JSON for **Deterministic** insights.
@@ -55,9 +69,10 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
      Data gap: <metric> requires <missing capability>. Not computed in this scan.
      ```
 
-7. When `--html` or `--html-only` is requested, render `.wax/out/report/index.html` using `skills/wax-scan/templates/report.html`.
+7. When `--html` or `--html-only` is requested and Task 3 is complete, render `.wax/out/report/index.html` using `skills/wax-scan/templates/report.html`.
    - Self-contained dashboard: cards, severity badges, inline SVG charts.
    - Pin executive summary at top; mute data-gap sections.
+   - Before Task 3 lands, explain that HTML output is unavailable and offer the terminal report instead.
 
 ## Guardrails
 

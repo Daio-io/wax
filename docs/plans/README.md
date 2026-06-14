@@ -9,7 +9,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 3. Each implementation task remains **one PR per task** inside the active plan, per that plan's execution model.
 4. Update the **Doc status** and **Implementation status** columns when a plan doc PR merges or when implementation of a plan finishes.
 
-**Active plan:** None. Interactive init wizard (order 9) is `complete`. Post-alpha UX (order 5) remains otherwise deferred.
+**Active plan:** Wax scan analytics skill (order 10) — plan doc `pending` in [#151](https://github.com/Daio-io/wax/pull/151); implementation `in-progress` (Task 1 complete). Post-alpha UX (order 5) remains otherwise deferred.
 
 ---
 
@@ -26,7 +26,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 | 7 | Generic registry discovery protocol | [archive/2026-06-10-generic-registry-discovery-protocol.md](./archive/2026-06-10-generic-registry-discovery-protocol.md) | `merged` | `complete` | [ADR](../adr/2026-06-10-generic-registry-discovery-protocol.md) |
 | 8 | SwiftUI language pack | [archive/2026-06-13-swift-language-pack-plan.md](./archive/2026-06-13-swift-language-pack-plan.md) | `merged` | `complete` | [ADR](../adr/2026-06-13-swift-language-pack.md) |
 | 9 | Interactive init wizard | [archive/2026-06-13-interactive-init.md](./archive/2026-06-13-interactive-init.md) | `merged` | `complete` | [ADR](../adr/2026-06-13-interactive-init.md) |
-| 10 | Wax scan analytics skill | [2026-06-14-wax-scan-plan.md](./2026-06-14-wax-scan-plan.md) | `merged` | `not-started` | — |
+| 10 | Wax scan analytics skill | [2026-06-14-wax-scan-plan.md](./2026-06-14-wax-scan-plan.md) | `pending` | `in-progress` | — |
 
 **Doc status:** `pending` -> plan PR open; `merged` -> plan doc on `main`; `planned` -> not yet drafted.
 
@@ -37,10 +37,10 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 ## Which plan should I run?
 
 ```text
--> no active implementation plan; post-alpha UX (order 5) is deferred
+-> wax scan analytics skill (order 10); plan doc pending in PR #151; continue Tasks 2-5 after merge
 ```
 
-Orders 1-4, 6-9 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Interactive init (order 9) shipped Post-alpha UX Task 1. See [`archive/README.md`](./archive/README.md) and [`docs/adr/`](../adr/README.md) for prior implementation records.
+Orders 1-4, 6-9 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Interactive init (order 9) shipped Post-alpha UX Task 1. Order 10 Task 1 (skill scaffold) is complete in PR #151; extractor, HTML template, and smoke tests remain. See [`archive/README.md`](./archive/README.md) and [`docs/adr/`](../adr/README.md) for prior implementation records.
 
 ---
 
@@ -57,6 +57,7 @@ Orders 1-4, 6-9 are **complete**. Post-alpha UX (order 5) remains otherwise defe
 | 7 | `docs/generic-registry-discovery-plan` | #115 (merged) | Generic registry discovery protocol implementation plan |
 | 8 | `dai/swift-language-pack-plan` | merged | SwiftUI language pack design and implementation plan |
 | 9 | `dai/interactive-init-plan` | #142 (merged) | Interactive init design and implementation plan |
+| 10 | `docs/wax-scan-skill-plan` | #151 (open) | Wax scan analytics skill design, implementation plan, and Task 1 scaffold |
 
 ---
 
