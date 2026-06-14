@@ -18,7 +18,7 @@
 
 ## When to Start
 
-This plan is an extracted implementation plan for Post-alpha UX Task 1 only. Do not start implementation until the roadmap in `docs/plans/README.md` marks this extracted plan as active, or the maintainer explicitly asks to implement it.
+This plan is an extracted implementation plan for Post-alpha UX Task 1 only. The roadmap marks it as `merged` and as the current `in-progress` implementation plan.
 
 The implementation PR should still tick Post-alpha UX Task 1 in `docs/plans/2026-05-24-post-alpha-ux-plan.md` when all task steps are complete. This docs PR only records the plan.
 

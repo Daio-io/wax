@@ -9,7 +9,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 3. Each implementation task remains **one PR per task** inside the active plan, per that plan's execution model.
 4. Update the **Doc status** and **Implementation status** columns when a plan doc PR merges or when implementation of a plan finishes.
 
-**Active plan:** Interactive init wizard (order 9) is `in-progress` and can be worked immediately after this plan PR merges.
+**Active plan:** Interactive init wizard (order 9) is `merged` and is the current `in-progress` implementation plan.
 
 ---
 
@@ -43,7 +43,7 @@ ELSE
   -> no active implementation plan; post-alpha UX (order 5) is deferred
 ```
 
-Orders 1-4 and 6-8 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Interactive init (order 9) is an extracted implementation plan for Post-alpha UX Task 1 and is ready to execute after this plan PR merges. See [`archive/README.md`](./archive/README.md) and [`docs/adr/`](../adr/README.md) for prior implementation records.
+Orders 1-4 and 6-8 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Interactive init (order 9) is an extracted implementation plan for Post-alpha UX Task 1 and is the current in-progress plan. See [`archive/README.md`](./archive/README.md) and [`docs/adr/`](../adr/README.md) for prior implementation records.
 
 ---
 
