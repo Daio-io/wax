@@ -294,7 +294,7 @@ fn write_next_steps(
                         if language_roots.is_empty() {
                             writeln!(
                                 writer,
-                                "No registry source roots were provided for {}; populate .wax/{}.registry.json or rerun wax registry discover with --root.",
+                                "No registry source roots were provided for {}; populate .wax/{}.registry.json or rerun wax registry discover with a source root.",
                                 language_id.as_str(),
                                 language_id.as_str()
                             )?;
@@ -1035,7 +1035,7 @@ mod tests {
         let output = String::from_utf8(output).unwrap();
 
         assert!(output.contains("No registry source roots were provided for compose"));
-        assert!(!output.contains("wax registry discover --language"));
+        assert!(!output.contains("--root"));
         assert!(output.contains("wax scan"));
     }
 
