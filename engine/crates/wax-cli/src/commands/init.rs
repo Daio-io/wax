@@ -45,6 +45,30 @@ struct PendingRegistryScaffold {
     contents: String,
 }
 
+/// Answers collected by the interactive init wizard.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InitSelections {
+    /// Language pack ids selected by the user.
+    pub languages: Vec<LanguageId>,
+    /// Scan roots to persist in `.wax/wax.config.json`, keyed by language id.
+    pub scan_roots: BTreeMap<LanguageId, Vec<PathBuf>>,
+    /// Registry setup mode selected by the user.
+    pub registry_setup: RegistrySetup,
+}
+
+/// Registry setup answer collected during interactive init.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)] // Task 2 reads this for printed follow-up guidance.
+pub enum RegistrySetup {
+    /// Registry definitions are managed outside this repository.
+    External,
+    /// Registry source is in this repository. Roots are used only for printed follow-up commands.
+    InRepository {
+        /// Source roots for `wax registry discover`, keyed by language id.
+        roots: BTreeMap<LanguageId, Vec<PathBuf>>,
+    },
+}
+
 /// Options for `wax init`.
 #[derive(Debug, Clone)]
 pub struct InitOptions {
@@ -64,16 +88,18 @@ pub struct InitOptions {
     pub state_path: Option<PathBuf>,
     /// Copy example design-system registry files when paths are missing.
     pub scaffold_registries: bool,
+    /// Interactive selections. When present, init uses these answers instead of CLI language flags.
+    pub interactive: Option<InitSelections>,
 }
 
 /// Errors returned by `wax init`.
 #[derive(Debug, Error)]
 pub enum InitCommandError {
-    /// Scriptable init requires `--non-interactive`.
+    /// Interactive init requires a terminal unless scriptable flags are used.
     #[error(
-        "wax init requires --non-interactive for scriptable onboarding; interactive prompts are not implemented yet"
+        "wax init needs an interactive terminal. For CI or scripts, run: wax init --non-interactive --language <language-id>"
     )]
-    RequiresNonInteractiveFlag,
+    RequiresInteractiveTerminal,
     /// No language ids were provided for onboarding.
     #[error("wax init requires at least one --language <id>")]
     MissingLanguageSelection,
@@ -121,11 +147,15 @@ pub enum InitCommandError {
 
 /// Runs `wax init`.
 pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), InitCommandError> {
-    if !options.non_interactive {
-        return Err(InitCommandError::RequiresNonInteractiveFlag);
+    let selections = options.interactive.clone();
+    if !options.non_interactive && selections.is_none() {
+        return Err(InitCommandError::RequiresInteractiveTerminal);
     }
 
-    let languages = dedupe_languages(&options.languages);
+    let languages = match &selections {
+        Some(selections) => dedupe_languages(&selections.languages),
+        None => dedupe_languages(&options.languages),
+    };
     if languages.is_empty() {
         return Err(InitCommandError::MissingLanguageSelection);
     }
@@ -137,7 +167,8 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
         return Err(InitCommandError::WaxConfigAlreadyExists { path: config_path });
     }
 
-    let waxrc_contents = build_waxrc_contents(&languages, options.scaffold_registries)?;
+    let waxrc_contents =
+        build_waxrc_contents(&languages, options.scaffold_registries, selections.as_ref())?;
     let registry_url = resolve_registry_url(options.registry_url)?;
     let manifests = fetch_pack_index(&registry_url)?;
     let pending_registry_scaffolds =
@@ -242,6 +273,7 @@ fn dedupe_languages(languages: &[LanguageId]) -> Vec<LanguageId> {
 fn build_waxrc_contents(
     selected: &[LanguageId],
     scaffold_registries: bool,
+    selections: Option<&InitSelections>,
 ) -> Result<String, InitCommandError> {
     let mut template: serde_json::Value = serde_json::from_str(EXAMPLE_WAXRC)
         .map_err(|source| InitCommandError::InvalidExampleWaxRc { source })?;
@@ -292,6 +324,25 @@ fn build_waxrc_contents(
                 }
             } else {
                 object.remove("registry");
+            }
+            if let Some(selections) = selections
+                && let Some(id) = object.get("id").and_then(serde_json::Value::as_str)
+            {
+                let language_id =
+                    LanguageId::try_from(id).expect("example template language ids are validated");
+                if let Some(roots) = selections.scan_roots.get(&language_id) {
+                    object.insert(
+                        "roots".to_owned(),
+                        serde_json::Value::Array(
+                            roots
+                                .iter()
+                                .map(|root| {
+                                    serde_json::Value::String(root.to_string_lossy().to_string())
+                                })
+                                .collect(),
+                        ),
+                    );
+                }
             }
         }
     }
@@ -505,7 +556,7 @@ mod tests {
     }
 
     #[test]
-    fn requires_non_interactive_flag_for_scriptable_init() {
+    fn init_without_interactive_answers_requires_terminal() {
         let temp = TestDir::new("requires-non-interactive");
         let err = run_init(
             InitOptions {
@@ -517,12 +568,150 @@ mod tests {
                 target_triple: Some("test-target".to_owned()),
                 state_path: None,
                 scaffold_registries: false,
+                interactive: None,
             },
             &mut Vec::new(),
         )
         .unwrap_err();
 
-        assert!(matches!(err, InitCommandError::RequiresNonInteractiveFlag));
+        assert!(matches!(err, InitCommandError::RequiresInteractiveTerminal));
+    }
+
+    #[test]
+    fn init_writes_interactive_scan_roots() {
+        let temp = TestDir::new("init-interactive-scan-roots");
+        let artifact_path = temp.path.join("compose.tgz");
+        let digest = write_pack_artifact(&artifact_path, "wax-lang-compose");
+        let react_artifact_path = temp.path.join("react.tgz");
+        let react_digest = write_pack_artifact(&react_artifact_path, "wax-lang-react");
+        let registry_path = temp.path.join("registry.json");
+        fs::write(
+            &registry_path,
+            format!(
+                r#"[{{"id":"compose","version":"0.4.2","api_version":1,"targets":{{"test-target":{{"url":"{}","sha256":"{}"}}}}}},{{"id":"react","version":"0.2.0","api_version":1,"targets":{{"test-target":{{"url":"{}","sha256":"{}"}}}}}}]"#,
+                file_url(&artifact_path),
+                digest,
+                file_url(&react_artifact_path),
+                react_digest
+            ),
+        )
+        .unwrap();
+        let repo_root = temp.path.join("repo");
+        fs::create_dir_all(&repo_root).unwrap();
+        let mut output = Vec::new();
+
+        run_init(
+            InitOptions {
+                non_interactive: false,
+                languages: Vec::new(),
+                no_install: true,
+                registry_url: Some(file_url(&registry_path)),
+                repo_root: repo_root.clone(),
+                target_triple: Some("test-target".to_owned()),
+                state_path: Some(temp.path.join("home/state.json")),
+                scaffold_registries: true,
+                interactive: Some(InitSelections {
+                    languages: vec![
+                        LanguageId::try_from("compose").unwrap(),
+                        LanguageId::try_from("react").unwrap(),
+                    ],
+                    scan_roots: BTreeMap::from([
+                        (
+                            LanguageId::try_from("compose").unwrap(),
+                            vec![PathBuf::from("android/app/src/main/kotlin")],
+                        ),
+                        (
+                            LanguageId::try_from("react").unwrap(),
+                            vec![
+                                PathBuf::from("apps/web/src"),
+                                PathBuf::from("packages/ui/src"),
+                            ],
+                        ),
+                    ]),
+                    registry_setup: RegistrySetup::External,
+                }),
+            },
+            &mut output,
+        )
+        .expect("interactive init");
+
+        let config: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(repo_root.join(".wax/wax.config.json")).unwrap(),
+        )
+        .unwrap();
+        let languages = config["languages"].as_array().unwrap();
+        assert_eq!(languages[0]["id"], "compose");
+        assert_eq!(
+            languages[0]["roots"],
+            serde_json::json!(["android/app/src/main/kotlin"])
+        );
+        assert_eq!(languages[1]["id"], "react");
+        assert_eq!(
+            languages[1]["roots"],
+            serde_json::json!(["apps/web/src", "packages/ui/src"])
+        );
+    }
+
+    #[test]
+    fn init_does_not_persist_registry_source_roots() {
+        let temp = TestDir::new("init-registry-roots-not-persisted");
+        let artifact_path = temp.path.join("compose.tgz");
+        let digest = write_pack_artifact(&artifact_path, "wax-lang-compose");
+        let registry_path = temp.path.join("registry.json");
+        fs::write(
+            &registry_path,
+            format!(
+                r#"[{{"id":"compose","version":"0.4.2","api_version":1,"targets":{{"test-target":{{"url":"{}","sha256":"{}"}}}}}}]"#,
+                file_url(&artifact_path),
+                digest
+            ),
+        )
+        .unwrap();
+        let repo_root = temp.path.join("repo");
+        fs::create_dir_all(&repo_root).unwrap();
+
+        run_init(
+            InitOptions {
+                non_interactive: false,
+                languages: Vec::new(),
+                no_install: true,
+                registry_url: Some(file_url(&registry_path)),
+                repo_root: repo_root.clone(),
+                target_triple: Some("test-target".to_owned()),
+                state_path: Some(temp.path.join("home/state.json")),
+                scaffold_registries: true,
+                interactive: Some(InitSelections {
+                    languages: vec![LanguageId::try_from("compose").unwrap()],
+                    scan_roots: BTreeMap::from([(
+                        LanguageId::try_from("compose").unwrap(),
+                        vec![PathBuf::from("app/src/main/kotlin")],
+                    )]),
+                    registry_setup: RegistrySetup::InRepository {
+                        roots: BTreeMap::from([(
+                            LanguageId::try_from("compose").unwrap(),
+                            vec![PathBuf::from("design-system/src/main/kotlin")],
+                        )]),
+                    },
+                }),
+            },
+            &mut Vec::new(),
+        )
+        .expect("interactive init");
+
+        let config: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(repo_root.join(".wax/wax.config.json")).unwrap(),
+        )
+        .unwrap();
+        let language = &config["languages"][0];
+        assert_eq!(
+            language["roots"],
+            serde_json::json!(["app/src/main/kotlin"])
+        );
+        let serialized = serde_json::to_string(language).unwrap();
+        assert!(
+            !serialized.contains("design-system/src/main/kotlin"),
+            "registry source roots must only appear in next-step output"
+        );
     }
 
     #[test]
@@ -558,6 +747,7 @@ mod tests {
                 target_triple: Some("test-target".to_owned()),
                 state_path: Some(temp.path.join("home/state.json")),
                 scaffold_registries: true,
+                interactive: None,
             },
             &mut output,
         )
@@ -631,6 +821,7 @@ mod tests {
                 target_triple: Some("test-target".to_owned()),
                 state_path: Some(temp.path.join("home/state.json")),
                 scaffold_registries: false,
+                interactive: None,
             },
             &mut Vec::new(),
         )
@@ -681,6 +872,7 @@ mod tests {
                 target_triple: Some("test-target".to_owned()),
                 state_path: Some(state_path.clone()),
                 scaffold_registries: false,
+                interactive: None,
             },
             &mut Vec::new(),
         )
@@ -697,6 +889,7 @@ mod tests {
                 target_triple: Some("test-target".to_owned()),
                 state_path: Some(state_path.clone()),
                 scaffold_registries: false,
+                interactive: None,
             },
             &mut output,
         )
@@ -738,6 +931,7 @@ mod tests {
                 target_triple: Some("test-target".to_owned()),
                 state_path: None,
                 scaffold_registries: false,
+                interactive: None,
             },
             &mut Vec::new(),
         )
@@ -772,6 +966,7 @@ mod tests {
                 target_triple: Some("test-target".to_owned()),
                 state_path: None,
                 scaffold_registries: false,
+                interactive: None,
             },
             &mut Vec::new(),
         )
@@ -819,6 +1014,7 @@ mod tests {
                 target_triple: Some("test-target".to_owned()),
                 state_path: None,
                 scaffold_registries: false,
+                interactive: None,
             },
             &mut Vec::new(),
         )
@@ -874,6 +1070,7 @@ mod tests {
                 target_triple: Some("test-target".to_owned()),
                 state_path: Some(temp.path.join("home/state.json")),
                 scaffold_registries: true,
+                interactive: None,
             },
             &mut Vec::new(),
         )
@@ -920,6 +1117,7 @@ mod tests {
                 target_triple: Some("test-target".to_owned()),
                 state_path: Some(temp.path.join("home/state.json")),
                 scaffold_registries: true,
+                interactive: None,
             },
             &mut Vec::new(),
         )
@@ -967,6 +1165,7 @@ mod tests {
                 target_triple: Some("test-target".to_owned()),
                 state_path: Some(temp.path.join("home/state.json")),
                 scaffold_registries: false,
+                interactive: None,
             },
             &mut Vec::new(),
         )

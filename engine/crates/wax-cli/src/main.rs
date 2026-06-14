@@ -270,6 +270,7 @@ fn main() {
                 target_triple: args.target,
                 state_path: None,
                 scaffold_registries: !args.no_scaffold_registries,
+                interactive: None,
             },
             &mut stdout,
         )
