@@ -9,7 +9,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 3. Each implementation task remains **one PR per task** inside the active plan, per that plan's execution model.
 4. Update the **Doc status** and **Implementation status** columns when a plan doc PR merges or when implementation of a plan finishes.
 
-**Active plan:** Wax scan analytics skill (order 10) — plan doc `merged`; implementation `in-progress` (Task 1 complete). Post-alpha UX (order 5) remains otherwise deferred.
+**Active plan:** Wax scan analytics skill (order 10) — plan doc `merged`; implementation `in-progress` (Tasks 1–3 complete).
 
 ---
 
@@ -37,10 +37,10 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 ## Which plan should I run?
 
 ```text
--> wax scan analytics skill (order 10); continue Tasks 2-5
+-> wax scan analytics skill (order 10); continue Tasks 4-5
 ```
 
-Orders 1-4, 6-9 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Interactive init (order 9) shipped Post-alpha UX Task 1. Order 10 Task 1 (skill scaffold) is complete; extractor, HTML template, and smoke tests remain. See [`archive/README.md`](./archive/README.md) and [`docs/adr/`](../adr/README.md) for prior implementation records.
+Orders 1-4, 6-9 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Interactive init (order 9) shipped Post-alpha UX Task 1. Order 10 Tasks 1–3 (scaffold, extractor, HTML template) are complete; docs wiring and end-to-end smoke remain. See [`archive/README.md`](./archive/README.md) and [`docs/adr/`](../adr/README.md) for prior implementation records.
 
 ---
 

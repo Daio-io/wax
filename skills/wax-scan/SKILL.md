@@ -15,23 +15,20 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
 
 ## Status
 
-**Extractor available (Task 2).** Run `skills/wax-scan/scripts/extract-insights.sh` after each successful scan. HTML dashboard rendering remains Task 3:
-
 | Artifact | Path | Status |
 |----------|------|--------|
-| Extractor | `skills/wax-scan/scripts/extract-insights.sh` | Available (Task 2) |
-| Extractor tests | `skills/wax-scan/scripts/test-extract-insights.sh` | Available (Task 2) |
-| HTML template | `skills/wax-scan/templates/report.html` | Task 3 — placeholder only |
-
-Until Task 3 merges, do not offer `--html` or `--html-only`; tell the user HTML output is not available yet and offer the terminal report instead.
+| Extractor | `skills/wax-scan/scripts/extract-insights.sh` | Available |
+| Extractor tests | `skills/wax-scan/scripts/test-extract-insights.sh` | Available |
+| HTML template | `skills/wax-scan/templates/report.html` | Available |
+| HTML escape helper | `skills/wax-scan/scripts/html-escape.sh` | Available |
 
 ## Parameters
 
 | Parameter | Effect |
 |-----------|--------|
 | *(none)* | Section-by-section terminal report |
-| `--html` | Also write `.wax/out/report/index.html` (requires Task 3 template) |
-| `--html-only` | Write HTML only; skip terminal report (requires Task 3 template) |
+| `--html` | Also write `.wax/out/report/index.html` |
+| `--html-only` | Write HTML only; skip terminal report |
 | `--baseline <path>` | Compare against a prior `scan-merged.json` for limited trend deltas |
 | `--no-auto-install` | Pass through to `wax scan` for CI runs with committed lockfiles |
 
@@ -69,10 +66,10 @@ Until Task 3 merges, do not offer `--html` or `--html-only`; tell the user HTML 
      Data gap: <metric> requires <missing capability>. Not computed in this scan.
      ```
 
-7. When `--html` or `--html-only` is requested and Task 3 is complete, render `.wax/out/report/index.html` using `skills/wax-scan/templates/report.html`.
+7. When `--html` or `--html-only` is requested, render `.wax/out/report/index.html` using `skills/wax-scan/templates/report.html`.
    - Self-contained dashboard: cards, severity badges, inline SVG charts.
    - Pin executive summary at top; mute data-gap sections.
-   - Before Task 3 lands, explain that HTML output is unavailable and offer the terminal report instead.
+   - Escape all scan-derived text (symbols, limits, paths, narrative evidence) with `skills/wax-scan/scripts/html-escape.sh` before inserting into HTML or SVG. Only trusted template snippets (card shells, badges) may be raw HTML.
 
 ## Guardrails
 
@@ -83,6 +80,7 @@ Until Task 3 merges, do not offer `--html` or `--html-only`; tell the user HTML 
 - Do not invent precision for health, maturity, or debt scores when data is sparse; explain weighting and uncertainty.
 - Skip trend analysis unless `--baseline` is provided.
 - When post-alpha engine artifacts exist (`.wax/out/scan-summary.json`, `.wax/out/scan-graph.json`), prefer them over the skill-local extractor.
+- When rendering HTML, escape scan-derived strings before substitution; never inject raw symbol names, limit text, or paths from JSON.
 
 ## Analytics Spec
 

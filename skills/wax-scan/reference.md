@@ -64,6 +64,28 @@ Compute when the baseline is a compatible `scan-merged.json`:
 
 Otherwise emit a single limit entry explaining baseline incompatibility.
 
+## HTML escaping
+
+Scan-derived text is untrusted HTML input. Repository-controlled symbol names, limit messages, and paths can contain markup.
+
+Before substituting any value from `scan-merged.json` or insights JSON into HTML or SVG text nodes:
+
+1. Run the value through `skills/wax-scan/scripts/html-escape.sh`.
+2. Treat only intentional template snippets (card shells, badge markup) as trusted raw HTML.
+3. Never concatenate unescaped JSON strings into `{{section_*}}`, `{{limits_html}}`, `{{fragmentation_chart_svg}}`, or narrative placeholders.
+
+Helper:
+
+```bash
+printf '%s' "$symbol_name" | skills/wax-scan/scripts/html-escape.sh
+```
+
+Verification:
+
+```bash
+skills/wax-scan/scripts/test-html-escape.sh
+```
+
 ## HTML template placeholders
 
 Template: `skills/wax-scan/templates/report.html`
@@ -86,8 +108,8 @@ The agent copies the template to `.wax/out/report/index.html` and substitutes pl
 | `{{health_score}}` | Agent-synthesized | e.g. `72/100`; explain weighting when data is sparse |
 | `{{coverage_percent}}` | Deterministic | `repo_summary.adoption_coverage_ratio` as percent |
 | `{{maturity_level}}` | Agent-synthesized | e.g. `Emerging`, `Established` |
-| `{{debt_score_proxy}}` | Agent-synthesized or deterministic | Proxy from unresolved + candidate share |
-| `{{debt_score_explanation}}` | Agent narrative | Short evidence line |
+| `{{debt_score_proxy}}` | Deterministic proxy | Share of usage sites not fully resolved to DS: `(candidate + unresolved) / total` |
+| `{{debt_score_explanation}}` | Deterministic narrative | e.g. `1 candidate + 4 unresolved of 11 usage sites` |
 | `{{executive_severity_badge}}` | Agent judgment | HTML badge: `critical` / `high` / `medium` / `low` |
 | `{{executive_summary_body}}` | Agent narrative | Top wins, top opportunities, major risks |
 
@@ -124,7 +146,7 @@ Each item is a `<li>` with priority prefix:
 
 ### Analytics section cards
 
-Replace each `{{section_<id>}}` placeholder with a full section card. Sections follow analytics spec order (executive summary is separate, pinned above charts).
+Replace each `{{section_<id>}}` placeholder with a full section card. Build card shells from the trusted patterns below; escape all scan-derived text inside `card-body` before insertion.
 
 | Placeholder | Section title |
 |-------------|---------------|
@@ -206,4 +228,4 @@ Fixture smoke script:
 skills/wax-scan/scripts/render-fixture-smoke.sh
 ```
 
-Writes `skills/wax-scan/fixtures/report.sample.html` for offline inspection.
+Writes `.wax/out/report/index.html` under the repository root (override path with an optional first argument). Generated output is gitignored under `.wax/`.

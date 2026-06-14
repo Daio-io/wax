@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
 # Fixture-driven smoke render for wax-scan HTML template (Task 3).
 # Substitutes deterministic placeholders from expected-insights.sample.json
-# and writes a self-contained HTML file for offline browser verification.
+# and writes a self-contained HTML file to the real report output path.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=html-escape.sh
+source "$SCRIPT_DIR/html-escape.sh"
+
 FIXTURE="$SKILL_DIR/fixtures/expected-insights.sample.json"
 TEMPLATE="$SKILL_DIR/templates/report.html"
-OUTPUT="${1:-$SKILL_DIR/fixtures/report.sample.html}"
+REPO_ROOT="$(git -C "$SKILL_DIR" rev-parse --show-toplevel 2>/dev/null || pwd)"
+OUTPUT="${1:-$REPO_ROOT/.wax/out/report/index.html}"
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "FAIL: jq is required" >&2
@@ -20,8 +24,10 @@ if [[ ! -f "$FIXTURE" || ! -f "$TEMPLATE" ]]; then
   exit 1
 fi
 
+mkdir -p "$(dirname "$OUTPUT")"
+
 generated_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-source_scan="$(jq -r '.source_scan' "$FIXTURE")"
+source_scan="$(jq -r '.source_scan' "$FIXTURE" | html_escape_stdin)"
 schema_version="$(jq -r '.schema_version' "$FIXTURE")"
 total="$(jq -r '.repo_summary.total_usage_sites' "$FIXTURE")"
 resolved="$(jq -r '.repo_summary.resolved_count' "$FIXTURE")"
@@ -31,36 +37,109 @@ coverage_ratio="$(jq -r '.repo_summary.adoption_coverage_ratio' "$FIXTURE")"
 coverage_pct="$(awk "BEGIN { printf \"%.1f%%\", $coverage_ratio * 100 }")"
 coverage_bar_width="$(awk "BEGIN { printf \"%.0f\", $coverage_ratio * 320 }")"
 
-# Debt proxy: share of non-resolved usage (local + unresolved + candidate)
+# Debt proxy: share of usage sites not fully resolved to DS (candidate + unresolved).
 debt_ratio="$(awk "BEGIN { n=$candidate+$unresolved; t=$total; if (t>0) print n/t; else print 0 }")"
 debt_pct="$(awk "BEGIN { printf \"%.1f%%\", $debt_ratio * 100 }")"
 debt_bar_width="$(awk "BEGIN { printf \"%.0f\", $debt_ratio * 320 }")"
+debt_score_explanation="${candidate} candidate + ${unresolved} unresolved of ${total} usage sites"
 
-fragmentation_svg="$(jq -r '
-  .fragmentation_candidates[:3]
-  | to_entries
-  | map(
-      . as $e
-      | ($e.key * 32 + 8) as $y
-      | ($e.value.count * 40) as $w
-      | "<text x=\"0\" y=\"\($y)\" class=\"chart-label\">\($e.value.pattern)</text>"
-        + "<rect x=\"80\" y=\"\($y - 10)\" width=\"\($w)\" height=\"14\" rx=\"3\" fill=\"var(--chart-fill)\"/>"
-        + "<text x=\"\($w + 88)\" y=\"\($y)\" class=\"chart-value\">\($e.value.count)</text>"
+fragmentation_svg="$(python3 - "$FIXTURE" <<'PY'
+import html
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as f:
+    data = json.load(f)
+
+def esc(value):
+    return html.escape(str(value), quote=False)
+
+parts = []
+for i, item in enumerate(data.get("fragmentation_candidates", [])[:3]):
+    y = i * 32 + 8
+    width = item["count"] * 40
+    pattern = esc(item["pattern"])
+    count = esc(item["count"])
+    parts.append(
+        f'<text x="0" y="{y}" class="chart-label">{pattern}</text>'
+        f'<rect x="80" y="{y - 10}" width="{width}" height="14" rx="3" fill="var(--chart-fill)"/>'
+        f'<text x="{width + 88}" y="{y}" class="chart-value">{count}</text>'
     )
-  | join(" ")
-' "$FIXTURE")"
+print(" ".join(parts))
+PY
+)"
 
-fragmentation_list="$(jq -r '.fragmentation_candidates[] | "- \(.pattern): \(.symbols | join(", ")) (\(.count) symbols)"' "$FIXTURE")"
+limits_html="$(python3 - "$FIXTURE" <<'PY'
+import html
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as f:
+    data = json.load(f)
+
+def esc(value):
+    return html.escape(str(value), quote=False)
+
+for item in data.get("limits", [])[:5]:
+    metric = esc(item["metric"])
+    missing = esc(item["missing_capability"])
+    print(
+        f'<li class="data-gap-notice">Data gap: {metric} requires {missing}. Not computed in this scan.</li>'
+    )
+PY
+)"
+
+fragmentation_items="$(python3 - "$FIXTURE" <<'PY'
+import html
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as f:
+    data = json.load(f)
+
+def esc(value):
+    return html.escape(str(value), quote=False)
+
+for item in data.get("fragmentation_candidates", []):
+    symbols = ", ".join(esc(s) for s in item.get("symbols", []))
+    print(f"<li>{esc(item['pattern'])}: {symbols} ({esc(item['count'])} symbols)</li>")
+PY
+)"
+
+top_ds_symbol="$(python3 - "$FIXTURE" <<'PY'
+import html
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as f:
+    data = json.load(f)
+
+def esc(value):
+    return html.escape(str(value), quote=False)
+
+ds = data.get("symbol_rollups", {}).get("design_system", [])
+print(esc(ds[0].get("symbol", "n/a")) if ds else "n/a")
+PY
+)"
+
+top_ds_count="$(python3 - "$FIXTURE" <<'PY'
+import html
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as f:
+    data = json.load(f)
+
+def esc(value):
+    return html.escape(str(value), quote=False)
+
+ds = data.get("symbol_rollups", {}).get("design_system", [])
+print(esc(ds[0].get("count", 0)) if ds else "0")
+PY
+)"
+
 local_count="$(jq -r '.symbol_rollups.local | length' "$FIXTURE")"
-top_ds_symbol="$(jq -r '.symbol_rollups.design_system[0].symbol' "$FIXTURE")"
-top_ds_count="$(jq -r '.symbol_rollups.design_system[0].count' "$FIXTURE")"
 fragmentation_count="$(jq -r '.fragmentation_candidates | length' "$FIXTURE")"
-
-limits_html="$(jq -r '
-  .limits[:5]
-  | map("<li class=\"data-gap-notice\">Data gap: \(.metric) requires \(.missing_capability). Not computed in this scan.</li>")
-  | join("\n          ")
-' "$FIXTURE")"
 
 section_card() {
   local id="$1" title="$2" severity="$3" body="$4" gap="${5:-false}"
@@ -87,7 +166,7 @@ section_coverage="$(section_card "design-system-coverage" "Design System Coverag
   "<p><strong>Deterministic:</strong> Overall adoption coverage is ${coverage_pct} (${resolved} resolved of ${total} usage sites).</p><p>Coverage by feature, screen, route, module, and team is not available from current scan facts.</p>")"
 
 section_fragmentation="$(section_card "fragmentation-analysis" "Fragmentation Analysis" "high" \
-  "<p><strong>Deterministic:</strong> Found ${fragmentation_count} symbol families suggesting duplication.</p><ul>$(printf '%s\n' "$fragmentation_list" | sed 's/^/<li>/;s/$/<\/li>/')</ul>")"
+  "<p><strong>Deterministic:</strong> Found ${fragmentation_count} symbol families suggesting duplication.</p><ul>${fragmentation_items}</ul>")"
 
 section_trend="$(section_card "trend-analysis" "Trend Analysis" "gap" \
   "<p class=\"data-gap-notice\">Data gap: Trends require a prior scan baseline via --baseline. Not computed in this scan.</p>" "true")"
@@ -119,7 +198,7 @@ replace health_score "72/100"
 replace coverage_percent "$coverage_pct"
 replace maturity_level "Emerging"
 replace debt_score_proxy "$debt_pct"
-replace debt_score_explanation "${candidate} candidate + ${unresolved} unresolved of ${total}"
+replace debt_score_explanation "$debt_score_explanation"
 replace debt_bar_width "$debt_bar_width"
 replace coverage_bar_width "$coverage_bar_width"
 replace resolved_count "$resolved"
@@ -149,14 +228,12 @@ replace section_migration_roi_analysis "$(section_card "migration-roi-analysis" 
 replace section_migration_readiness "$(section_card "migration-readiness" "Migration Readiness" "low" "<p><strong>Inferred (low confidence):</strong> Partial React scan may affect migration readiness estimates.</p>")"
 replace section_trend_analysis "$section_trend"
 
-# Verify no unresolved placeholders remain
 if grep -q '{{' "$OUTPUT"; then
   echo "FAIL: unresolved placeholders remain in $OUTPUT" >&2
   grep '{{' "$OUTPUT" >&2 || true
   exit 1
 fi
 
-# Structural checks
 for token in 'class="card pinned"' 'class="badge badge-' '<svg' 'class="card data-gap"' 'Generated at' 'Source scan:'; do
   if ! grep -q "$token" "$OUTPUT"; then
     echo "FAIL: missing expected token: $token" >&2
