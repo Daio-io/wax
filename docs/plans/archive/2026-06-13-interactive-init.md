@@ -12,15 +12,13 @@
 
 ## Reference Specs
 
-- [Interactive init design](../specs/2026-06-13-interactive-init-design.md)
-- [Post-alpha UX plan, Task 1](./2026-05-24-post-alpha-ux-plan.md#phase-1--guided-init)
-- [Language packs and distribution](../specs/2026-05-16-language-packs-and-distribution.md)
+- [Interactive init design](../../specs/2026-06-13-interactive-init-design.md)
+- [Post-alpha UX plan, Task 1](../2026-05-24-post-alpha-ux-plan.md#phase-1--guided-init)
+- [Language packs and distribution](../../specs/2026-05-16-language-packs-and-distribution.md)
 
 ## When to Start
 
-This plan is an extracted implementation plan for Post-alpha UX Task 1 only. The roadmap marks it as `merged` and as the current `in-progress` implementation plan.
-
-The implementation PR should still tick Post-alpha UX Task 1 in `docs/plans/2026-05-24-post-alpha-ux-plan.md` when all task steps are complete. This docs PR only records the plan.
+This plan is an extracted implementation plan for Post-alpha UX Task 1 only. Implementation is **complete**; see [ADR: Interactive init wizard](../../adr/2026-06-13-interactive-init.md).
 
 ## File Structure
 
@@ -50,7 +48,7 @@ The implementation PR should still tick Post-alpha UX Task 1 in `docs/plans/2026
 **Files:**
 - Modify: `engine/crates/wax-cli/src/commands/init.rs`
 
-- [ ] **Step 1: Add failing tests for scan roots from selections**
+- [x] **Step 1: Add failing tests for scan roots from selections**
 
 Add these tests near the existing `init_writes_waxrc_lockfile_and_installs_selected_language` tests in `engine/crates/wax-cli/src/commands/init.rs`:
 
@@ -187,7 +185,7 @@ fn init_does_not_persist_registry_source_roots() {
 
 Expected: FAIL because `InitOptions` has no `interactive` field and `InitSelections` / `RegistrySetup` do not exist.
 
-- [ ] **Step 2: Add selection types**
+- [x] **Step 2: Add selection types**
 
 In `engine/crates/wax-cli/src/commands/init.rs`, add these types below `PendingRegistryScaffold`:
 
@@ -223,7 +221,7 @@ Extend `InitOptions`:
 pub interactive: Option<InitSelections>,
 ```
 
-- [ ] **Step 3: Route languages through selections**
+- [x] **Step 3: Route languages through selections**
 
 Replace the start of `run_init` with:
 
@@ -254,7 +252,7 @@ RequiresInteractiveTerminal,
 
 Remove or stop using `RequiresNonInteractiveFlag` only after all call sites and tests are updated in Task 3.
 
-- [ ] **Step 4: Add root injection into config generation**
+- [x] **Step 4: Add root injection into config generation**
 
 Change the call site:
 
@@ -294,7 +292,7 @@ if let Some(selections) = selections
 }
 ```
 
-- [ ] **Step 5: Run focused failing/passing test**
+- [x] **Step 5: Run focused failing/passing test**
 
 Run:
 
@@ -306,7 +304,7 @@ cargo test -p wax-cli init_does_not_persist_registry_source_roots
 
 Expected: PASS after implementation.
 
-- [ ] **Step 6: Commit Task 1**
+- [x] **Step 6: Commit Task 1**
 
 ```bash
 git add engine/crates/wax-cli/src/commands/init.rs
@@ -319,7 +317,7 @@ git commit -m "feat: model interactive init selections"
 - Modify: `engine/crates/wax-cli/Cargo.toml`
 - Modify: `engine/crates/wax-cli/src/commands/init.rs`
 
-- [ ] **Step 1: Add prompt dependency**
+- [x] **Step 1: Add prompt dependency**
 
 In `engine/crates/wax-cli/Cargo.toml`, add:
 
@@ -336,7 +334,7 @@ cargo check -p wax-cli
 
 Expected: PASS and `engine/Cargo.lock` updates with `dialoguer` dependencies.
 
-- [ ] **Step 2: Add failing unit tests for prompt-independent guidance**
+- [x] **Step 2: Add failing unit tests for prompt-independent guidance**
 
 Add these tests in `engine/crates/wax-cli/src/commands/init.rs`:
 
@@ -410,7 +408,7 @@ fn empty_registry_source_roots_print_guidance_without_root_args() {
 
 Expected: FAIL because `write_next_steps` does not exist.
 
-- [ ] **Step 3: Implement final guidance helper**
+- [x] **Step 3: Implement final guidance helper**
 
 Add this helper near `run_init`:
 
@@ -480,7 +478,7 @@ Call it after the existing `initialized wax in ...` line:
 write_next_steps(selections.as_ref(), writer)?;
 ```
 
-- [ ] **Step 4: Add prompt abstraction and dialoguer implementation**
+- [x] **Step 4: Add prompt abstraction and dialoguer implementation**
 
 Add this trait and dialoguer-backed implementation:
 
@@ -531,7 +529,7 @@ fn sorted_language_manifests(manifests: &[RegistryManifest]) -> Vec<&RegistryMan
 }
 ```
 
-- [ ] **Step 5: Add selection collection function**
+- [x] **Step 5: Add selection collection function**
 
 Add:
 
@@ -568,7 +566,7 @@ fn collect_interactive_selections(
 }
 ```
 
-- [ ] **Step 6: Add mocked prompt tests**
+- [x] **Step 6: Add mocked prompt tests**
 
 Add a test prompt implementation under `#[cfg(test)]`:
 
@@ -645,7 +643,7 @@ fn collect_interactive_selections_uses_mocked_prompt_answers() {
 }
 ```
 
-- [ ] **Step 7: Run focused tests**
+- [x] **Step 7: Run focused tests**
 
 Run:
 
@@ -660,7 +658,7 @@ cargo test -p wax-cli parse_roots
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit Task 2**
+- [x] **Step 8: Commit Task 2**
 
 ```bash
 git add engine/Cargo.lock engine/crates/wax-cli/Cargo.toml engine/crates/wax-cli/src/commands/init.rs
@@ -674,7 +672,7 @@ git commit -m "feat: add interactive init prompts"
 - Modify: `engine/crates/wax-cli/src/main.rs`
 - Create: `engine/crates/wax-cli/tests/init_interactive.rs`
 
-- [ ] **Step 1: Add failing non-TTY integration test**
+- [x] **Step 1: Add failing non-TTY integration test**
 
 Create `engine/crates/wax-cli/tests/init_interactive.rs`:
 
@@ -742,7 +740,7 @@ cargo test -p wax-cli --test init_interactive
 
 Expected: FAIL until TTY detection and error message are wired.
 
-- [ ] **Step 2: Add TTY-aware entry point**
+- [x] **Step 2: Add TTY-aware entry point**
 
 In `engine/crates/wax-cli/src/commands/init.rs`, import:
 
@@ -785,7 +783,7 @@ pub fn run_init_cli(options: InitOptions, writer: &mut impl Write) -> Result<(),
 
 Keep `run_init` testable with injected selections and no direct terminal dependency.
 
-- [ ] **Step 3: Switch `main.rs` to CLI entry point**
+- [x] **Step 3: Switch `main.rs` to CLI entry point**
 
 Change the import:
 
@@ -813,7 +811,7 @@ Commands::Init(args) => run_init_cli(
 .map_err(Into::into),
 ```
 
-- [ ] **Step 4: Update existing tests for new field**
+- [x] **Step 4: Update existing tests for new field**
 
 For every existing `InitOptions { ... }` literal in `engine/crates/wax-cli/src/commands/init.rs`, add:
 
@@ -831,7 +829,7 @@ fn init_without_interactive_answers_requires_terminal() {
 }
 ```
 
-- [ ] **Step 5: Run init tests**
+- [x] **Step 5: Run init tests**
 
 Run:
 
@@ -843,7 +841,7 @@ cargo test -p wax-cli --test init_interactive
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit Task 3**
+- [x] **Step 6: Commit Task 3**
 
 ```bash
 git add engine/crates/wax-cli/src/commands/init.rs engine/crates/wax-cli/src/main.rs engine/crates/wax-cli/tests/init_interactive.rs
@@ -904,7 +902,7 @@ Implementation keeps init setup-only: it asks for scan roots and registry source
 In `docs/plans/README.md`, update order 9 after the implementation PR completes:
 
 ```markdown
-| 9 | Interactive init wizard | [2026-06-13-interactive-init.md](./2026-06-13-interactive-init.md) | `merged` | `complete` | — |
+| 9 | Interactive init wizard | [archive/2026-06-13-interactive-init.md](./2026-06-13-interactive-init.md) | `merged` | `complete` | [ADR](../../adr/2026-06-13-interactive-init.md) |
 ```
 
 In `docs/specs/2026-05-16-language-packs-and-distribution.md`, replace the sentence that says interactive init remains deferred with:

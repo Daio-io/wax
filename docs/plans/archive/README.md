@@ -17,5 +17,7 @@ Completed implementation plans live here. Each plan has a corresponding **ADR** 
 | 7 | [Generic registry discovery protocol](./2026-06-10-generic-registry-discovery-protocol.md) | [ADR](../../adr/2026-06-10-generic-registry-discovery-protocol.md) | Complete |
 | 8 | [SwiftUI language pack](./2026-06-13-swift-language-pack-plan.md) | [ADR](../../adr/2026-06-13-swift-language-pack.md) | Complete |
 | 8 (design) | [SwiftUI language pack design](./2026-06-12-swift-language-pack-design.md) | — | Reference |
+| 9 | [Interactive init wizard](./2026-06-13-interactive-init.md) | [ADR](../../adr/2026-06-13-interactive-init.md) | Complete |
+| 9 (design) | [Interactive init design](../../specs/2026-06-13-interactive-init-design.md) | — | Reference |
 
 **Active plans** remain in [`docs/plans/`](../README.md).

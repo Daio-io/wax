@@ -25,7 +25,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 | 6 | React language pack | [archive/2026-06-07-react-language-pack-plan.md](./archive/2026-06-07-react-language-pack-plan.md) | `merged` | `complete` | [ADR](../adr/2026-06-07-react-language-pack.md) |
 | 7 | Generic registry discovery protocol | [archive/2026-06-10-generic-registry-discovery-protocol.md](./archive/2026-06-10-generic-registry-discovery-protocol.md) | `merged` | `complete` | [ADR](../adr/2026-06-10-generic-registry-discovery-protocol.md) |
 | 8 | SwiftUI language pack | [archive/2026-06-13-swift-language-pack-plan.md](./archive/2026-06-13-swift-language-pack-plan.md) | `merged` | `complete` | [ADR](../adr/2026-06-13-swift-language-pack.md) |
-| 9 | Interactive init wizard | [2026-06-13-interactive-init.md](./2026-06-13-interactive-init.md) | `merged` | `complete` | — |
+| 9 | Interactive init wizard | [archive/2026-06-13-interactive-init.md](./archive/2026-06-13-interactive-init.md) | `merged` | `complete` | [ADR](../adr/2026-06-13-interactive-init.md) |
 
 **Doc status:** `pending` -> plan PR open; `merged` -> plan doc on `main`; `planned` -> not yet drafted.
 
@@ -55,7 +55,7 @@ Orders 1-4, 6-9 are **complete**. Post-alpha UX (order 5) remains otherwise defe
 | 6 | `codex/react-language-pack-plan` | #95 (merged) | React language pack design, implementation plan, and capability roadmap |
 | 7 | `docs/generic-registry-discovery-plan` | #115 (merged) | Generic registry discovery protocol implementation plan |
 | 8 | `dai/swift-language-pack-plan` | merged | SwiftUI language pack design and implementation plan |
-| 9 | `dai/interactive-init-plan` | #142 (draft) | Interactive init design and implementation plan |
+| 9 | `dai/interactive-init-plan` | #142 (merged) | Interactive init design and implementation plan |
 
 ---
 
