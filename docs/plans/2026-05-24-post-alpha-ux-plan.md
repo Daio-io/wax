@@ -144,7 +144,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 ## Phase 1 — Guided init
 
-### - [ ] Task 1: Interactive `wax init` TTY wizard
+### - [x] Task 1: Interactive `wax init` TTY wizard
 
 **Files:**
 
@@ -152,19 +152,21 @@ cargo clippy --workspace --all-targets -- -D warnings
 - Modify: `engine/crates/wax-cli/Cargo.toml` (prompt dependency)
 - Create: `engine/crates/wax-cli/tests/init_interactive.rs` (TTY-gated or mocked)
 
-- [ ] **Step 1: Choose prompt library and document non-interactive invariant**
+- [x] **Step 1: Choose prompt library and document non-interactive invariant**
 
 CI and scripts must continue to use `--non-interactive`. Interactive mode only when stdin is a terminal and flag is absent.
 
-- [ ] **Step 2: Prompt for language (Compose-first), roots, optional first scan**
+- [x] **Step 2: Prompt for language (Compose-first), scan roots, and registry source roots**
 
-Reuse existing init install/lockfile logic after selections. Default language list matches the public pack index (`compose`, `basic`, `react`). Interactive init remains deferred to this plan; non-interactive `wax init --language react` already works via the example template.
+Reuse existing init install/lockfile logic after selections. Default language list matches the public pack index (`compose`, `basic`, `react`). Non-interactive `wax init --language react` already works via the example template.
 
-- [ ] **Step 3: Fall back to current behavior when not a TTY**
+Implementation keeps init setup-only: it asks for scan roots and registry source roots, then prints registry-discovery and scan next steps instead of running either command automatically.
+
+- [x] **Step 3: Fall back to current behavior when not a TTY**
 
 Clear message: use `--non-interactive` with `--language` and other flags.
 
-- [ ] **Step 4: Manual smoke + unit tests with mocked stdin**
+- [x] **Step 4: Manual smoke + unit tests with mocked stdin**
 
 Run: `cd engine && cargo test -p wax-cli init_interactive`
 
@@ -266,7 +268,9 @@ Expected: Copy-paste CI recipe works on `ubuntu-latest`; markdown includes delta
 - Modify: `README.md`
 - Modify: `docs/plans/archive/2026-05-24-release-and-rollout-plan.md` (follow-on link only)
 
-- [ ] **Step 1: README section “Interactive init” after Task 1 ships**
+- [x] **Step 1: README section “Interactive init” after Task 1 ships**
+
+Shipped in order 9 (README updated in #148).
 
 - [ ] **Step 2: README / docs for scan `--format`, `--output`, JSON, graph-data, markdown, HTML, and CI after Tasks 2–4**
 
@@ -306,7 +310,7 @@ Expected: Users upgrading from alpha.1 see new UX without reading implementation
 2. Prompt library choice is acceptable for license and binary size.
 3. `json-summary` and `graph-data` schema versioning strategy is acceptable for external CI and dashboards.
 4. HTML report stays static/local and does not accidentally become a hosted web UI scope increase.
-5. React is in the public pack index (React plan Task 11); interactive init language prompts remain deferred to this plan.
+5. React is in the public pack index (React plan Task 11); interactive init language prompts shipped in Task 1 via the extracted [interactive init plan](./archive/2026-06-13-interactive-init.md) (order 9, [ADR](../adr/2026-06-13-interactive-init.md)).
 
 ---
 
@@ -314,4 +318,4 @@ Expected: Users upgrading from alpha.1 see new UX without reading implementation
 
 **Plan saved to:** `docs/plans/2026-05-24-post-alpha-ux-plan.md`
 
-Start with **Task 1** after alpha.1 is tagged and install docs are live.
+Start with **Task 2** (scan output controls). Task 1 (interactive init) shipped via order 9 (#144–#148).

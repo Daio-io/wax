@@ -566,7 +566,7 @@ React v1 discovers local components conservatively: PascalCase function declarat
 
 **Release status:**
 
-`wax-lang-react` is a public alpha pack alongside `compose` and `basic`. Release builds and generated pack indexes include `react`; the default `gh-pages/index.json` lists it after the next tagged alpha publish. README getting started documents `wax init --language react` and `wax language install react` with that index timing. Interactive init language prompts remain deferred to the post-alpha UX plan.
+`wax-lang-react` is a public alpha pack alongside `compose` and `basic`. Release builds and generated pack indexes include `react`; the default `gh-pages/index.json` lists it after the next tagged alpha publish. README getting started documents `wax init --language react` and `wax language install react` with that index timing. Interactive init is implemented by the Post-alpha UX Task 1 extraction. It guides TTY users through language selection, scan roots, and registry next steps while preserving `--non-interactive` for scripts.
 
 ### Swift correctness gate and parser path
 
@@ -613,7 +613,7 @@ Swift v1 discovers local components conservatively: uppercase `struct` declarati
 
 **Release status:**
 
-`wax-lang-swift` is a public alpha pack alongside `compose`, `react`, and `basic`. Release builds and generated pack indexes include `swift`. README getting started documents `wax init --language swift` and `wax language install swift`. Interactive init language prompts remain deferred to the post-alpha UX plan.
+`wax-lang-swift` is a public alpha pack alongside `compose`, `react`, and `basic`. Release builds and generated pack indexes include `swift`. README getting started documents `wax init --language swift` and `wax language install swift`. Interactive init is implemented by the Post-alpha UX Task 1 extraction. It guides TTY users through language selection, scan roots, and registry next steps while preserving `--non-interactive` for scripts.
 
 ### Monolithic vs modular CLI
 

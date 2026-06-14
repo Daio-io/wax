@@ -95,11 +95,19 @@ You can repeat `--language` for multiple stacks:
 wax init --non-interactive --language compose --language react
 ```
 
+For local setup, `wax init` can guide you through the same choices:
+
+```bash
+wax init
+```
+
+The wizard asks which language packs to enable, which source roots Wax should scan for each language, and whether your design-system registry source lives in this repository. If the registry source is in the repo, init prints the `wax registry discover` commands to run next. It does not run discovery or scan automatically.
+
 `wax init` writes:
 
 - `.wax/wax.config.json`
 - `.wax/wax.lock.json`
-- per-language registry scaffolds at `.wax/<language-id>.registry.json` (for example `.wax/compose.registry.json` or `.wax/swift.registry.json`)
+- `.wax/<language-id>.registry.json`
 
 When a language omits `registry` in config, `wax scan` falls back to `.wax/wax.registry.json`.
 
