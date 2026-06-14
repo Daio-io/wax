@@ -268,7 +268,9 @@ Expected: Copy-paste CI recipe works on `ubuntu-latest`; markdown includes delta
 - Modify: `README.md`
 - Modify: `docs/plans/archive/2026-05-24-release-and-rollout-plan.md` (follow-on link only)
 
-- [ ] **Step 1: README section “Interactive init” after Task 1 ships**
+- [x] **Step 1: README section “Interactive init” after Task 1 ships**
+
+Shipped in order 9 (README updated in #148).
 
 - [ ] **Step 2: README / docs for scan `--format`, `--output`, JSON, graph-data, markdown, HTML, and CI after Tasks 2–4**
 
@@ -308,7 +310,7 @@ Expected: Users upgrading from alpha.1 see new UX without reading implementation
 2. Prompt library choice is acceptable for license and binary size.
 3. `json-summary` and `graph-data` schema versioning strategy is acceptable for external CI and dashboards.
 4. HTML report stays static/local and does not accidentally become a hosted web UI scope increase.
-5. React is in the public pack index (React plan Task 11); interactive init language prompts remain deferred to this plan.
+5. React is in the public pack index (React plan Task 11); interactive init language prompts shipped in Task 1 via the extracted [interactive init plan](./archive/2026-06-13-interactive-init.md) (order 9, [ADR](../adr/2026-06-13-interactive-init.md)).
 
 ---
 
@@ -316,4 +318,4 @@ Expected: Users upgrading from alpha.1 see new UX without reading implementation
 
 **Plan saved to:** `docs/plans/2026-05-24-post-alpha-ux-plan.md`
 
-Start with **Task 1** after alpha.1 is tagged and install docs are live.
+Start with **Task 2** (scan output controls). Task 1 (interactive init) shipped via order 9 (#144–#148).
