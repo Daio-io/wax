@@ -220,7 +220,7 @@ Add order 10 (or next available) to `docs/plans/README.md`:
 
 | Plan | Document | Doc status | Implementation status |
 |------|----------|------------|------------------------|
-| Wax scan analytics skill | `2026-06-14-wax-scan-plan.md` | `pending` until PR merges | `in-progress` |
+| Wax scan analytics skill | `2026-06-14-wax-scan-plan.md` | `merged` | `in-progress` |
 
 - [ ] **Step 3: Commit Task 4**
 
