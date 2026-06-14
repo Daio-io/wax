@@ -170,12 +170,12 @@ Expected: PASS.
 
 ## Phase 3 — HTML dashboard template
 
-### - [ ] Task 3: Add dashboard HTML report template
+### - [x] Task 3: Add dashboard HTML report template
 
 **Files:**
 - Create: `skills/wax-scan/templates/report.html`
 
-- [ ] **Step 1: Build self-contained dashboard shell**
+- [x] **Step 1: Build self-contained dashboard shell**
 
 Requirements:
 - Embedded CSS only; no external assets or CDN
@@ -186,19 +186,19 @@ Requirements:
 - Muted styling for data-gap sections
 - Generated timestamp and source scan path in footer
 
-- [ ] **Step 2: Document placeholder contract in reference.md**
+- [x] **Step 2: Document placeholder contract in reference.md**
 
 Define placeholders the agent must fill from extractor JSON + narrative, for example:
 - `{{health_score}}`, `{{coverage_percent}}`, `{{sections[]}}`, `{{recommendations[]}}`, `{{limits[]}}`
 
-- [ ] **Step 3: Manual smoke checklist**
+- [x] **Step 3: Manual smoke checklist**
 
 After a fixture-driven render:
 - Open `.wax/out/report/index.html` in a browser with network disabled
 - Verify cards, badges, and at least one SVG chart render
 - Verify data-gap sections are visually distinct
 
-- [ ] **Step 4: Commit Task 3**
+- [x] **Step 4: Commit Task 3**
 
 ---
 
@@ -258,7 +258,7 @@ Confirm skill docs require:
 | Task | Command / check |
 |------|-----------------|
 | 2 | `skills/wax-scan/scripts/test-extract-insights.sh` |
-| 3 | Manual offline HTML open smoke |
+| 3 | `skills/wax-scan/scripts/render-fixture-smoke.sh` + manual offline HTML open smoke |
 | 5 | Manual skill workflow on sample repo |
 
 No `engine/` verification required for this plan unless later promoted.
