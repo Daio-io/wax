@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 struct TestDir {
@@ -36,6 +36,7 @@ fn init_without_non_interactive_requires_tty() {
         .arg("--no-install")
         .arg("--repo-root")
         .arg(&repo)
+        .stdin(Stdio::null())
         .output()
         .expect("run wax init");
 
@@ -48,5 +49,34 @@ fn init_without_non_interactive_requires_tty() {
     assert!(
         stderr.contains("wax init --non-interactive --language <language-id>"),
         "stderr was: {stderr}"
+    );
+}
+
+#[test]
+fn init_rejects_existing_config_before_tty_check() {
+    let root = TestDir::new("init-existing-config");
+    let repo = root.path.join("repo");
+    let config_path = repo.join(".wax/wax.config.json");
+    fs::create_dir_all(config_path.parent().expect("config parent")).expect("create .wax");
+    fs::write(&config_path, "{}\n").expect("write existing config");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .arg("init")
+        .arg("--no-install")
+        .arg("--repo-root")
+        .arg(&repo)
+        .stdin(Stdio::null())
+        .output()
+        .expect("run wax init");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("wax config already exists"),
+        "stderr was: {stderr}"
+    );
+    assert!(
+        !stderr.contains("wax init needs an interactive terminal"),
+        "existing config should be rejected before TTY check; stderr was: {stderr}"
     );
 }
