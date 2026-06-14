@@ -2,10 +2,388 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Wax Scan Report (placeholder)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wax Scan Report — {{repo_name}}</title>
+  <style>
+    :root {
+      --bg: #f4f5f7;
+      --surface: #ffffff;
+      --border: #dfe1e6;
+      --text: #172b4d;
+      --text-muted: #5e6c84;
+      --accent: #0052cc;
+      --accent-soft: #deebff;
+      --critical: #bf2600;
+      --critical-bg: #ffebe6;
+      --high: #de350b;
+      --high-bg: #fff0eb;
+      --medium: #ff8b00;
+      --medium-bg: #fff7e6;
+      --low: #006644;
+      --low-bg: #e3fcef;
+      --gap-bg: #f0f1f3;
+      --gap-border: #c1c7d0;
+      --chart-track: #ebecf0;
+      --chart-fill: #0052cc;
+      --chart-fill-alt: #6554c0;
+      --shadow: 0 1px 2px rgba(9, 30, 66, 0.15);
+      --radius: 8px;
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: var(--font);
+      font-size: 15px;
+      line-height: 1.5;
+      color: var(--text);
+      background: var(--bg);
+    }
+
+    .page {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 24px 20px 48px;
+    }
+
+    .page-header {
+      margin-bottom: 20px;
+    }
+
+    .page-header h1 {
+      margin: 0 0 4px;
+      font-size: 1.5rem;
+      font-weight: 600;
+    }
+
+    .page-header p {
+      margin: 0;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+
+    .card.pinned {
+      border-color: var(--accent);
+      box-shadow: 0 2px 8px rgba(0, 82, 204, 0.12);
+    }
+
+    .card.data-gap {
+      background: var(--gap-bg);
+      border-color: var(--gap-border);
+      border-style: dashed;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.6);
+    }
+
+    .card.data-gap .card-header {
+      background: transparent;
+      border-bottom-color: var(--gap-border);
+    }
+
+    .card-header h2 {
+      margin: 0;
+      font-size: 1rem;
+      font-weight: 600;
+    }
+
+    .card-body {
+      padding: 16px 18px;
+    }
+
+    .card-body p:last-child,
+    .card-body ul:last-child {
+      margin-bottom: 0;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 3px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      white-space: nowrap;
+    }
+
+    .badge-critical { background: var(--critical-bg); color: var(--critical); }
+    .badge-high { background: var(--high-bg); color: var(--high); }
+    .badge-medium { background: var(--medium-bg); color: var(--medium); }
+    .badge-low { background: var(--low-bg); color: var(--low); }
+    .badge-info { background: var(--accent-soft); color: var(--accent); }
+    .badge-gap { background: var(--gap-bg); color: var(--text-muted); border: 1px solid var(--gap-border); }
+
+    .exec-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .metric-tile {
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--bg);
+    }
+
+    .metric-tile .label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    .metric-tile .value {
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    .charts-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .chart-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      box-shadow: var(--shadow);
+    }
+
+    .chart-card h3 {
+      margin: 0 0 10px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .chart-card svg {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    .chart-label {
+      font-size: 11px;
+      fill: var(--text-muted);
+    }
+
+    .chart-value {
+      font-size: 12px;
+      font-weight: 600;
+      fill: var(--text);
+    }
+
+    .recommendations {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    .recommendations li {
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .recommendations li:last-child {
+      border-bottom: none;
+    }
+
+    .rec-priority {
+      font-weight: 600;
+      margin-right: 6px;
+    }
+
+    .data-gap-notice {
+      color: var(--text-muted);
+      font-style: italic;
+      font-size: 0.9rem;
+    }
+
+    .confidence {
+      display: inline-block;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-left: 6px;
+    }
+
+    .footer {
+      margin-top: 32px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .footer p {
+      margin: 0 0 4px;
+    }
+
+    @media print {
+      body { background: #fff; }
+      .card { break-inside: avoid; box-shadow: none; }
+    }
+  </style>
 </head>
 <body>
-  <!-- Placeholder — implemented in wax-scan plan Task 3. -->
-  <p>Wax scan HTML report template is not implemented yet.</p>
+  <div class="page">
+    <header class="page-header">
+      <h1>Design System Adoption Report</h1>
+      <p>{{repo_name}} — generated {{generated_at}}</p>
+    </header>
+
+    <!-- Executive summary pinned at top -->
+    <section class="card pinned" id="executive-summary">
+      <div class="card-header">
+        <h2>Executive Summary</h2>
+        {{executive_severity_badge}}
+      </div>
+      <div class="card-body">
+        <div class="exec-grid">
+          <div class="metric-tile">
+            <div class="label">Health Score</div>
+            <div class="value">{{health_score}}</div>
+          </div>
+          <div class="metric-tile">
+            <div class="label">Coverage</div>
+            <div class="value">{{coverage_percent}}</div>
+          </div>
+          <div class="metric-tile">
+            <div class="label">Maturity</div>
+            <div class="value">{{maturity_level}}</div>
+          </div>
+          <div class="metric-tile">
+            <div class="label">Debt Score (proxy)</div>
+            <div class="value">{{debt_score_proxy}}</div>
+          </div>
+        </div>
+        {{executive_summary_body}}
+      </div>
+    </section>
+
+    <!-- Deterministic inline SVG charts -->
+    <div class="charts-row">
+      <div class="chart-card">
+        <h3>Adoption Coverage</h3>
+        <svg viewBox="0 0 320 80" role="img" aria-label="Adoption coverage bar chart">
+          <text x="0" y="14" class="chart-label">DS resolved / total usage sites</text>
+          <rect x="0" y="24" width="320" height="20" rx="4" fill="var(--chart-track)"/>
+          <rect x="0" y="24" width="{{coverage_bar_width}}" height="20" rx="4" fill="var(--chart-fill)"/>
+          <text x="0" y="62" class="chart-value">{{coverage_percent}} ({{resolved_count}} / {{total_usage_sites}})</text>
+        </svg>
+      </div>
+      <div class="chart-card">
+        <h3>Debt Score Proxy</h3>
+        <svg viewBox="0 0 320 80" role="img" aria-label="Debt score proxy bar chart">
+          <text x="0" y="14" class="chart-label">Candidate + unresolved vs total usage sites</text>
+          <rect x="0" y="24" width="320" height="20" rx="4" fill="var(--chart-track)"/>
+          <rect x="0" y="24" width="{{debt_bar_width}}" height="20" rx="4" fill="var(--chart-fill-alt)"/>
+          <text x="0" y="62" class="chart-value">{{debt_score_proxy}} — {{debt_score_explanation}}</text>
+        </svg>
+      </div>
+      <div class="chart-card">
+        <h3>Top Fragmentation</h3>
+        <svg viewBox="0 0 320 120" role="img" aria-label="Top fragmentation bar chart">
+          {{fragmentation_chart_svg}}
+        </svg>
+      </div>
+    </div>
+
+    <!-- Priority recommendations -->
+    <section class="card" id="recommendations">
+      <div class="card-header">
+        <h2>Priority Recommendations</h2>
+        <span class="badge badge-info">P0–P3</span>
+      </div>
+      <div class="card-body">
+        <ul class="recommendations">
+          {{recommendations_html}}
+        </ul>
+      </div>
+    </section>
+
+    <!-- Analytics sections in spec order -->
+    {{section_design_system_coverage}}
+
+    {{section_design_system_debt}}
+
+    {{section_custom_component_analysis}}
+
+    {{section_component_health_analysis}}
+
+    {{section_override_analysis}}
+
+    {{section_deprecated_component_analysis}}
+
+    {{section_version_adoption}}
+
+    {{section_fragmentation_analysis}}
+
+    {{section_wrapper_proliferation_analysis}}
+
+    {{section_feature_level_coverage}}
+
+    {{section_design_system_maturity}}
+
+    {{section_missing_component_detection}}
+
+    {{section_missing_variant_detection}}
+
+    {{section_component_api_pain_signals}}
+
+    {{section_reuse_analysis}}
+
+    {{section_design_system_influence}}
+
+    {{section_migration_roi_analysis}}
+
+    {{section_migration_readiness}}
+
+    {{section_trend_analysis}}
+
+    <!-- Aggregated data-gap limits when not covered per-section -->
+    <section class="card data-gap" id="data-gaps">
+      <div class="card-header">
+        <h2>Data Gaps</h2>
+        <span class="badge badge-gap">Not computed</span>
+      </div>
+      <div class="card-body">
+        <ul>
+          {{limits_html}}
+        </ul>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <p>Generated at {{generated_at}}</p>
+      <p>Source scan: {{source_scan}}</p>
+      <p>Insights schema version {{schema_version}}</p>
+    </footer>
+  </div>
 </body>
 </html>
