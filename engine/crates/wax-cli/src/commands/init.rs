@@ -7,7 +7,7 @@ use super::language::{
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 use wax_contract::LanguageId;
@@ -58,7 +58,6 @@ pub struct InitSelections {
 
 /// Registry setup answer collected during interactive init.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(not(test), allow(dead_code))] // constructed by interactive prompts in Task 3
 pub enum RegistrySetup {
     /// Registry definitions are managed outside this repository.
     External,
@@ -261,6 +260,35 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
     Ok(())
 }
 
+/// Runs `wax init` using the process terminal for interactive prompts.
+pub fn run_init_cli(options: InitOptions, writer: &mut impl Write) -> Result<(), InitCommandError> {
+    if options.non_interactive {
+        return run_init(options, writer);
+    }
+
+    let config_path = options.repo_root.join(PREFERRED_CONFIG_RELATIVE_PATH);
+    if config_path.exists() {
+        return Err(InitCommandError::WaxConfigAlreadyExists { path: config_path });
+    }
+
+    if !io::stdin().is_terminal() {
+        return Err(InitCommandError::RequiresInteractiveTerminal);
+    }
+
+    let registry_url = resolve_registry_url(options.registry_url.clone())?;
+    let manifests = fetch_pack_index(&registry_url)?;
+    let mut prompts = DialoguerInitPrompts;
+    let selections = collect_interactive_selections(&manifests, &mut prompts)?;
+    run_init(
+        InitOptions {
+            interactive: Some(selections),
+            registry_url: Some(registry_url),
+            ..options
+        },
+        writer,
+    )
+}
+
 fn write_next_steps(
     selections: Option<&InitSelections>,
     writer: &mut impl Write,
@@ -332,7 +360,6 @@ fn parse_roots(input: &str) -> Vec<PathBuf> {
         .collect()
 }
 
-#[allow(dead_code)] // used by DialoguerInitPrompts; wired in Task 3
 fn sorted_language_manifests(manifests: &[RegistryManifest]) -> Vec<&RegistryManifest> {
     let mut sorted = manifests.iter().collect::<Vec<_>>();
     sorted.sort_by(|left, right| match (left.id.as_str(), right.id.as_str()) {
@@ -360,7 +387,6 @@ trait InitPrompts {
     ) -> Result<Vec<PathBuf>, InitCommandError>;
 }
 
-#[allow(dead_code)] // wired in Task 3 via run_init_cli
 struct DialoguerInitPrompts;
 
 impl InitPrompts for DialoguerInitPrompts {
@@ -443,7 +469,6 @@ impl InitPrompts for DialoguerInitPrompts {
     }
 }
 
-#[allow(dead_code)] // wired in Task 3 via run_init_cli
 fn collect_interactive_selections(
     manifests: &[RegistryManifest],
     prompts: &mut impl InitPrompts,

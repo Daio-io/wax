@@ -14,7 +14,7 @@ mod progress;
 mod testing;
 
 use clap::{Args, Parser, Subcommand};
-use commands::init::{InitOptions, run_init};
+use commands::init::{InitOptions, run_init_cli};
 use commands::language::{
     DoctorOptions, InstallOptions, LanguageInstallSpec, ListOptions, UninstallOptions,
     UpdateOptions, run_doctor, run_install, run_list, run_uninstall, run_update,
@@ -260,7 +260,7 @@ fn main() {
             ),
         }
         .map_err(Into::into),
-        Commands::Init(args) => run_init(
+        Commands::Init(args) => run_init_cli(
             InitOptions {
                 non_interactive: args.non_interactive,
                 languages: args.languages,
