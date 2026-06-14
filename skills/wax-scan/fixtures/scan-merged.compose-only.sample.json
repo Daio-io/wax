@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-06-01T12:00:00Z",
+  "languages": {
+    "compose": {
+      "schema_version": 1,
+      "language": {
+        "id": "compose",
+        "version": "0.1.0",
+        "ecosystem": "jetpack-compose",
+        "parser_name": "tree-sitter-kotlin",
+        "parser_version": "0.3.8"
+      },
+      "snapshot_id": "compose-snap",
+      "scanned_at": "2026-06-14T12:00:00Z",
+      "status": "complete",
+      "design_system_components": [
+        {
+          "id": "ds.button",
+          "symbol": "Button",
+          "registry_symbol": "com.ds.Button"
+        },
+        {
+          "id": "ds.card",
+          "symbol": "Card",
+          "registry_symbol": "com.ds.Card"
+        }
+      ],
+      "local_components": [
+        {
+          "id": "local.primary-button",
+          "symbol": "PrimaryButton",
+          "location": {
+            "file": "src/Buttons.kt",
+            "line": 10
+          }
+        },
+        {
+          "id": "local.secondary-button",
+          "symbol": "SecondaryButton",
+          "location": {
+            "file": "src/Buttons.kt",
+            "line": 30
+          }
+        },
+        {
+          "id": "local.app-modal",
+          "symbol": "AppModal",
+          "location": {
+            "file": "src/Modal.kt",
+            "line": 5
+          }
+        }
+      ],
+      "usage_sites": [
+        {
+          "id": "c:1:Button:resolved",
+          "location": {
+            "file": "src/Home.kt",
+            "line": 12
+          },
+          "symbol": "Button",
+          "match_status": "resolved",
+          "registry_symbol": "com.ds.Button"
+        },
+        {
+          "id": "c:2:Button:resolved",
+          "location": {
+            "file": "src/Home.kt",
+            "line": 18
+          },
+          "symbol": "Button",
+          "match_status": "resolved",
+          "registry_symbol": "com.ds.Button"
+        },
+        {
+          "id": "c:3:Card:resolved",
+          "location": {
+            "file": "src/Home.kt",
+            "line": 24
+          },
+          "symbol": "Card",
+          "match_status": "resolved",
+          "registry_symbol": "com.ds.Card"
+        },
+        {
+          "id": "c:4:Modal:candidate",
+          "location": {
+            "file": "src/Home.kt",
+            "line": 30
+          },
+          "symbol": "Modal",
+          "match_status": "candidate",
+          "registry_symbol": "com.ds.Modal"
+        },
+        {
+          "id": "c:5:PrimaryButton:unresolved",
+          "location": {
+            "file": "src/Home.kt",
+            "line": 36
+          },
+          "symbol": "PrimaryButton",
+          "match_status": "unresolved"
+        },
+        {
+          "id": "c:6:UnknownWidget:unresolved",
+          "location": {
+            "file": "src/Home.kt",
+            "line": 42
+          },
+          "symbol": "UnknownWidget",
+          "match_status": "unresolved"
+        }
+      ],
+      "diagnostics": [],
+      "metrics": {
+        "adoption_coverage_ratio": 0.5,
+        "parse_extract_ms": 100,
+        "files_scanned": 3
+      },
+      "counts": {
+        "design_system_component_count": 2,
+        "local_component_count": 3,
+        "usage_site_count": 6,
+        "resolved_count": 3,
+        "candidate_count": 1
+      }
+    }
+  }
+}

@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "source_scan": "skills/wax-scan/fixtures/scan-merged.sample.json",
+  "repo_summary": {
+    "languages": ["compose", "react"],
+    "total_usage_sites": 11,
+    "resolved_count": 6,
+    "candidate_count": 1,
+    "unresolved_count": 4,
+    "adoption_coverage_ratio": 0.5454545454545454
+  },
+  "per_language": [
+    {
+      "language_id": "compose",
+      "status": "complete",
+      "adoption_coverage_ratio": 0.5,
+      "resolved_count": 3,
+      "candidate_count": 1,
+      "unresolved_count": 2,
+      "usage_site_count": 6
+    },
+    {
+      "language_id": "react",
+      "status": "partial",
+      "adoption_coverage_ratio": 0.6,
+      "resolved_count": 3,
+      "candidate_count": 0,
+      "unresolved_count": 2,
+      "usage_site_count": 5
+    }
+  ],
+  "symbol_rollups": {
+    "design_system": [
+      { "symbol": "Button", "count": 3 },
+      { "symbol": "com.ds.Button", "count": 2 },
+      { "symbol": "com.ds.Card", "count": 1 },
+      { "symbol": "com.ds.Modal", "count": 1 }
+    ],
+    "local": [
+      { "symbol": "ConfirmModal", "count": 1 },
+      { "symbol": "IconButton", "count": 1 },
+      { "symbol": "PrimaryButton", "count": 1 }
+    ],
+    "unresolved": [
+      { "symbol": "ConfirmModal", "count": 1 },
+      { "symbol": "IconButton", "count": 1 },
+      { "symbol": "PrimaryButton", "count": 1 },
+      { "symbol": "UnknownWidget", "count": 1 }
+    ]
+  },
+  "fragmentation_candidates": [
+    {
+      "pattern": "*Button",
+      "symbols": ["IconButton", "PrimaryButton", "SecondaryButton"],
+      "count": 3
+    },
+    {
+      "pattern": "*Modal",
+      "symbols": ["AppModal", "ConfirmModal"],
+      "count": 2
+    }
+  ],
+  "limits": [
+    {
+      "metric": "Coverage by feature/screen/route/module/team",
+      "missing_capability": "Reporting boundary metadata in usage sites"
+    },
+    {
+      "metric": "Override rate / override patterns",
+      "missing_capability": "Override detection in language packs"
+    },
+    {
+      "metric": "Deprecated usage",
+      "missing_capability": "Deprecation metadata in registry or facts"
+    },
+    {
+      "metric": "Version adoption / upgrade lag",
+      "missing_capability": "DS package version facts"
+    },
+    {
+      "metric": "Wrapper proliferation",
+      "missing_capability": "Composition/wrapper edges in facts"
+    },
+    {
+      "metric": "Feature-level coverage",
+      "missing_capability": "Feature/module attribution"
+    },
+    {
+      "metric": "LOC reduction estimates",
+      "missing_capability": "Source line metrics beyond usage sites"
+    }
+  ],
+  "baseline_deltas": null
+}

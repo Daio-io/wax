@@ -15,15 +15,15 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
 
 ## Status
 
-**Scaffold only (Task 1).** This skill documents the analytics workflow and guardrails. Deterministic extraction and HTML rendering are not executable until Tasks 2 and 3 land:
+**Extractor available (Task 2).** Run `skills/wax-scan/scripts/extract-insights.sh` after each successful scan. HTML dashboard rendering remains Task 3:
 
-| Artifact | Path | Task |
-|----------|------|------|
-| Extractor | `skills/wax-scan/scripts/extract-insights.sh` | Task 2 |
-| Extractor tests | `skills/wax-scan/scripts/test-extract-insights.sh` | Task 2 |
-| HTML template | `skills/wax-scan/templates/report.html` | Task 3 |
+| Artifact | Path | Status |
+|----------|------|--------|
+| Extractor | `skills/wax-scan/scripts/extract-insights.sh` | Available (Task 2) |
+| Extractor tests | `skills/wax-scan/scripts/test-extract-insights.sh` | Available (Task 2) |
+| HTML template | `skills/wax-scan/templates/report.html` | Task 3 — placeholder only |
 
-Until Task 2 merges, after a successful scan read `.wax/out/scan-merged.json` directly for deterministic sections. Do not run the extractor placeholder. Until Task 3 merges, do not offer `--html` or `--html-only`; tell the user HTML output is not available yet.
+Until Task 3 merges, do not offer `--html` or `--html-only`; tell the user HTML output is not available yet and offer the terminal report instead.
 
 ## Parameters
 
@@ -45,7 +45,7 @@ Until Task 2 merges, after a successful scan read `.wax/out/scan-merged.json` di
    - Pass `--no-auto-install` when the user requests CI mode.
 4. Read `.wax/out/scan-merged.json`.
    - If `--baseline <path>` is provided, read the baseline file for trend deltas.
-5. Run the deterministic extractor when Task 2 is complete:
+5. Run the deterministic extractor:
 
    ```bash
    skills/wax-scan/scripts/extract-insights.sh .wax/out/scan-merged.json
@@ -57,7 +57,7 @@ Until Task 2 merges, after a successful scan read `.wax/out/scan-merged.json` di
    skills/wax-scan/scripts/extract-insights.sh .wax/out/scan-merged.json --baseline <path>
    ```
 
-   Before Task 2 lands, skip this step and derive deterministic metrics directly from `.wax/out/scan-merged.json`.
+   Use the extractor JSON for deterministic report sections. Fall back to reading `.wax/out/scan-merged.json` directly only if the script is missing or fails.
 
 6. Produce the terminal report unless `--html-only` was requested.
    - Walk sections in the analytics spec order below.
