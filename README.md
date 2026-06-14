@@ -24,7 +24,7 @@ It helps teams define a canonical component registry, scan repositories with lan
 - Registry: your canonical design-system component list, usually `.wax/wax.registry.json`.
 - Repo config: `.wax/wax.config.json` enables languages and points at roots and registry sources.
 - Lockfile: `.wax/wax.lock.json` pins language-pack artifacts and registry digests for reproducible scans.
-- AI skills: optional authoring workflows that call `wax` commands for tasks like registry sync.
+- AI skills: optional authoring workflows that call `wax` commands for tasks like registry discovery.
 
 ## Install
 
@@ -316,14 +316,14 @@ Today the repo includes:
 
 | Skill | Purpose |
 | --- | --- |
-| `wax-registry-sync` | Preview discovered registry entries, review changes, write per-language registry files (for example `.wax/react.registry.json`), validate, and refresh locks |
+| `wax-registry-discover` | Preview discovered registry entries, review changes, write per-language registry files (for example `.wax/react.registry.json`), validate, and refresh locks |
 
 The key distinction:
 
 - `wax` CLI: deterministic runtime used in local development and CI
 - AI skills: optional guided workflows that call `wax` commands to help you create or update registry files
 
-In practice, a skill like `wax-registry-sync` fits around the registry workflow like this:
+In practice, a skill like `wax-registry-discover` fits around the registry workflow like this:
 
 1. Run `wax discover --language <id> --dry-run`
 2. Review additions and removals
@@ -350,7 +350,7 @@ Or install as a Claude Code plugin:
 Then invoke the skill directly, for example:
 
 ```text
-/wax-skills:wax-registry-sync
+/wax-skills:wax-registry-discover
 ```
 
 If you installed the earlier preview plugin as `wax@wax-skills`, reinstall it with the new plugin name:
@@ -360,14 +360,14 @@ If you installed the earlier preview plugin as `wax@wax-skills`, reinstall it wi
 /plugin install wax-skills@wax-skills
 ```
 
-The skill command also changed from `/wax:wax-registry-sync` to `/wax-skills:wax-registry-sync`.
+The skill command also changed from the earlier preview plugin command to `/wax-skills:wax-registry-discover`.
 
 Advanced skills CLI options still work for scripted installs:
 
 ```bash
 npx skills add daio-io/wax --list
-npx skills add daio-io/wax --skill wax-registry-sync -a claude-code -y
-npx skills add daio-io/wax --skill wax-registry-sync -g -a claude-code -y
+npx skills add daio-io/wax --skill wax-registry-discover -a claude-code -y
+npx skills add daio-io/wax --skill wax-registry-discover -g -a claude-code -y
 ```
 
 ### Manual skill install

@@ -1,9 +1,9 @@
 ---
-name: wax-registry-sync
+name: wax-registry-discover
 description: Use when updating Wax design-system registries from source packages; auto-detects languages and roots when needed, runs deterministic discovery, reviews candidates, asks about ambiguous exports, writes the language registry, validates config, and refreshes locks.
 ---
 
-# Wax Registry Sync
+# Wax Registry Discover
 
 Use this skill to help a project author update a Wax language registry, such as `.wax/react.registry.json` or a configured language-specific `registry` path, from source packages while keeping all runtime scan and validate behavior deterministic. AI review is an authoring aid only; do not make `wax scan` or `wax validate` depend on agent decisions.
 
@@ -28,7 +28,7 @@ Inspect the repository before running discover.
 - Prefer `.wax/wax.config.json`, then fall back to `.waxrc`.
 - Use enabled language ids from config.
 - Use configured `roots` for the selected language when `--root` is not passed.
-- Ask which language to sync when more than one enabled language could apply and the user did not specify one.
+- Ask which language to discover when more than one enabled language could apply and the user did not specify one.
 
 ### When Wax config is absent (no `wax init`)
 
@@ -56,7 +56,7 @@ Use configless discovery: **always pass `--root`** and do not assume configured 
 
    Configless discover uses the globally installed pack when no repo lockfile pins a version.
 
-4. Ask which language to sync when auto-detection finds more than one plausible language and the user did not specify one.
+4. Ask which language to discover when auto-detection finds more than one plausible language and the user did not specify one.
 
 ## Workflow
 
