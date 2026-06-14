@@ -26,6 +26,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 | 7 | Generic registry discovery protocol | [archive/2026-06-10-generic-registry-discovery-protocol.md](./archive/2026-06-10-generic-registry-discovery-protocol.md) | `merged` | `complete` | [ADR](../adr/2026-06-10-generic-registry-discovery-protocol.md) |
 | 8 | SwiftUI language pack | [archive/2026-06-13-swift-language-pack-plan.md](./archive/2026-06-13-swift-language-pack-plan.md) | `merged` | `complete` | [ADR](../adr/2026-06-13-swift-language-pack.md) |
 | 9 | Interactive init wizard | [archive/2026-06-13-interactive-init.md](./archive/2026-06-13-interactive-init.md) | `merged` | `complete` | [ADR](../adr/2026-06-13-interactive-init.md) |
+| 10 | Wax scan analytics skill | [2026-06-14-wax-scan-plan.md](./2026-06-14-wax-scan-plan.md) | `merged` | `not-started` | — |
 
 **Doc status:** `pending` -> plan PR open; `merged` -> plan doc on `main`; `planned` -> not yet drafted.
 
@@ -69,3 +70,4 @@ Orders 1-4, 6-9 are **complete**. Post-alpha UX (order 5) remains otherwise defe
 - [React language pack design](./archive/2026-06-07-react-language-pack-design.md) — React parser-backed pack (complete)
 - [SwiftUI language pack design](./archive/2026-06-12-swift-language-pack-design.md) — SwiftUI parser-backed pack (complete)
 - [Interactive init design](../specs/2026-06-13-interactive-init-design.md) — extracted Post-alpha UX Task 1 plan
+- [Wax scan analytics skill design](../specs/2026-06-14-wax-scan-design.md) — scan orchestration and adoption reporting skill (order 10)
