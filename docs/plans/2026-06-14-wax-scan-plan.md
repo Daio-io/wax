@@ -96,7 +96,7 @@ Document:
 
 ## Phase 2 — Deterministic extractor
 
-### - [ ] Task 2: Implement `extract-insights.sh`
+### - [x] Task 2: Implement `extract-insights.sh`
 
 **Files:**
 - Create: `skills/wax-scan/scripts/extract-insights.sh`
@@ -104,7 +104,7 @@ Document:
 - Create: `skills/wax-scan/fixtures/expected-insights.sample.json`
 - Create: `skills/wax-scan/scripts/test-extract-insights.sh`
 
-- [ ] **Step 1: Define insights JSON shape**
+- [x] **Step 1: Define insights JSON shape**
 
 Emit a versioned object including at minimum:
 
@@ -133,7 +133,7 @@ Emit a versioned object including at minimum:
 }
 ```
 
-- [ ] **Step 2: Implement extraction logic**
+- [x] **Step 2: Implement extraction logic**
 
 From `scan-merged.json`, compute:
 - Per-language status, adoption %, counts
@@ -143,7 +143,7 @@ From `scan-merged.json`, compute:
 - Basic fragmentation groups (symbol prefix/suffix families like `*Button`, `*Modal`)
 - `limits[]` entries for metrics not supported by current facts
 
-- [ ] **Step 3: Add optional baseline comparison**
+- [x] **Step 3: Add optional baseline comparison**
 
 When second argument `--baseline <path>` is supplied, compute deltas for:
 - Adoption coverage ratio
@@ -152,7 +152,7 @@ When second argument `--baseline <path>` is supplied, compute deltas for:
 
 Emit `baseline_deltas` or a single limit entry when baseline is incompatible.
 
-- [ ] **Step 4: Add fixture test script**
+- [x] **Step 4: Add fixture test script**
 
 `skills/wax-scan/scripts/test-extract-insights.sh` runs the extractor against `skills/wax-scan/fixtures/scan-merged.sample.json` and diffs key fields against `skills/wax-scan/fixtures/expected-insights.sample.json`.
 
@@ -164,7 +164,7 @@ skills/wax-scan/scripts/test-extract-insights.sh
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit Task 2**
+- [x] **Step 5: Commit Task 2**
 
 ---
 
