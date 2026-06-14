@@ -310,26 +310,54 @@ calls such as `DesignSystem.PrimaryButton(...)`.
 
 ## AI skills
 
-Wax also ships optional agent skills under [skills](skills). These are for authoring help, not runtime analysis.
+Wax also ships optional agent skills under [skills](skills). These are guided workflows that call `wax` commands for registry authoring and adoption analytics — not a replacement for the deterministic CLI runtime.
 
 Today the repo includes:
 
 | Skill | Purpose |
 | --- | --- |
 | `wax-registry-discover` | Preview discovered registry entries, review changes, write per-language registry files (for example `.wax/react.registry.json`), validate, and refresh locks |
+| `wax-scan` | Validate config, run a fresh scan, extract adoption metrics, and produce terminal or HTML design-system analytics reports |
 
 The key distinction:
 
 - `wax` CLI: deterministic runtime used in local development and CI
-- AI skills: optional guided workflows that call `wax` commands to help you create or update registry files
+- AI skills: optional guided workflows that call `wax` commands to help you create or update registry files, or interpret scan results into actionable reports
 
-In practice, a skill like `wax-registry-discover` fits around the registry workflow like this:
+### `wax-registry-discover`
+
+In practice, `wax-registry-discover` fits around the registry workflow like this:
 
 1. Run `wax discover --language <id> --dry-run`
 2. Review additions and removals
 3. Write `.wax/<language-id>.registry.json` with `wax discover --language <id> --force`
 4. Run `wax validate`
 5. Run `wax language update --all` when registry locks need refreshing
+
+### `wax-scan`
+
+Invoke the skill when you want adoption analytics after a scan — for example `/wax-skills:wax-scan` in Claude Code, or by attaching `skills/wax-scan/SKILL.md` in your agent.
+
+The skill orchestrates:
+
+1. `wax validate` — stop on failure
+2. `wax scan` — always a fresh scan (pass `--no-auto-install` in CI)
+3. `skills/wax-scan/scripts/extract-insights.sh` on `.wax/out/scan-merged.json`
+4. A section-by-section terminal report (default), and optionally an HTML dashboard
+
+| Parameter | Effect |
+| --- | --- |
+| *(none)* | Terminal report only |
+| `--html` | Also write `.wax/out/report/index.html` |
+| `--html-only` | Write HTML only; skip terminal output |
+| `--baseline <path>` | Compare against a prior `scan-merged.json` for limited trend deltas |
+| `--no-auto-install` | Pass through to `wax scan` for CI runs with committed lockfiles |
+
+**Output paths:**
+
+- Terminal report — default skill output (section-by-section analytics)
+- `.wax/out/report/index.html` — self-contained HTML dashboard when `--html` or `--html-only` is requested
+- Extractor JSON — stdout from `extract-insights.sh` (used internally by the skill for deterministic metrics)
 
 ### Install
 
@@ -347,10 +375,11 @@ Or install as a Claude Code plugin:
 /reload-plugins
 ```
 
-Then invoke the skill directly, for example:
+Then invoke a skill directly, for example:
 
 ```text
 /wax-skills:wax-registry-discover
+/wax-skills:wax-scan
 ```
 
 If you installed the earlier preview plugin as `wax@wax-skills`, reinstall it with the new plugin name:
@@ -367,7 +396,9 @@ Advanced skills CLI options still work for scripted installs:
 ```bash
 npx skills add daio-io/wax --list
 npx skills add daio-io/wax --skill wax-registry-discover -a claude-code -y
+npx skills add daio-io/wax --skill wax-scan -a claude-code -y
 npx skills add daio-io/wax --skill wax-registry-discover -g -a claude-code -y
+npx skills add daio-io/wax --skill wax-scan -g -a claude-code -y
 ```
 
 ### Manual skill install
