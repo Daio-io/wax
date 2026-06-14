@@ -1,10 +1,10 @@
-# Registry Discovery and Skill-Assisted Sync Implementation Plan
+# Registry Discovery and Skill-Assisted Review Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add deterministic design-system registry discovery plus a proper Agent Skill workflow for AI-assisted registry review and sync.
+**Goal:** Add deterministic design-system registry discovery plus a proper Agent Skill workflow for AI-assisted registry review.
 
-**Architecture:** `wax-cli` exposes `wax registry discover`; `wax-core` owns command orchestration, root resolution, registry JSON generation, and safe writes; language-specific discovery starts with Compose and emits deterministic component symbols. Registry discovery is an authoring-time exception to the current subprocess language-pack scan path: implementation may call in-process discovery code from `wax-lang-compose` for v1, but scan and validate continue using the distributed subprocess protocol. A separate `wax-registry-sync` skill wraps the CLI with review, diffing, validation, and lock refresh guidance without making AI part of scan or validate runtime.
+**Architecture:** `wax-cli` exposes `wax registry discover`; `wax-core` owns command orchestration, root resolution, registry JSON generation, and safe writes; language-specific discovery starts with Compose and emits deterministic component symbols. Registry discovery is an authoring-time exception to the current subprocess language-pack scan path: implementation may call in-process discovery code from `wax-lang-compose` for v1, but scan and validate continue using the distributed subprocess protocol. A separate `wax-registry-discover` skill wraps the CLI with review, diffing, validation, and lock refresh guidance without making AI part of scan or validate runtime.
 
 **Tech Stack:** Rust 2024, clap, serde JSON, existing `wax-core`, `wax-cli`, and `wax-lang-compose` crates, tree-sitter-backed Compose source inspection, Agent Skill `SKILL.md`.
 
@@ -46,11 +46,11 @@
   - Fixture with public, private, internal, duplicate, and helper composables.
 - Create `engine/crates/wax-lang-compose/tests/fixtures/discover/design-system/src/main/kotlin/DuplicateComponents.kt`
   - Fixture with a duplicate public symbol under another source file.
-- Create `plugins/wax/skills/wax-registry-sync/SKILL.md`
+- Create `plugins/wax/skills/wax-registry-discover/SKILL.md`
 - Create `.claude-plugin/marketplace.json` and `plugins/wax/.claude-plugin/plugin.json`
-  - Project-scoped Agent Skill for AI-assisted registry review and sync.
+  - Project-scoped Agent Skill for AI-assisted registry review.
 - Modify `README.md`
-  - Add registry discovery quick-start and skill-assisted sync mention when implementation tasks land.
+  - Add registry discovery quick-start and skill-assisted review mention when implementation tasks land.
 - Modify `docs/plans/README.md`
   - Keep registry discovery marked as the order 4 active plan.
 
@@ -427,22 +427,22 @@ git commit -m "docs: document registry discovery workflow"
 
 ## Phase 3 - Agent Skill
 
-### - [x] Task 6: Add `wax-registry-sync` project skill
+### - [x] Task 6: Add `wax-registry-discover` project skill
 
 **Files:**
-- Create: `plugins/wax/skills/wax-registry-sync/SKILL.md`
+- Create: `plugins/wax/skills/wax-registry-discover/SKILL.md`
 - Create: `.claude-plugin/marketplace.json`
 - Create: `plugins/wax/.claude-plugin/plugin.json`
-- Create: `plugins/wax/skills/wax-registry-sync/fixtures/README.md` if fixture notes are useful
+- Create: `plugins/wax/skills/wax-registry-discover/fixtures/README.md` if fixture notes are useful
 - Modify: `README.md`
 
 - [x] **Step 1: Create the skill file**
 
-Create `plugins/wax/skills/wax-registry-sync/SKILL.md` with YAML frontmatter:
+Create `plugins/wax/skills/wax-registry-discover/SKILL.md` with YAML frontmatter:
 
 ```markdown
 ---
-name: wax-registry-sync
+name: wax-registry-discover
 description: Use when updating Wax design-system registries from source packages; runs deterministic registry discovery, reviews candidates, asks about ambiguous exports, writes .wax/wax.registry.json, validates config, and refreshes locks.
 ---
 ```
@@ -470,13 +470,13 @@ refresh locks
 
 - [x] **Step 3: Document installation and use**
 
-Update `README.md` with a short AI skills section and concrete install steps for [skills.sh](https://skills.sh) (`npx skills add Daio-io/wax --skill wax-registry-sync`) and Claude Code (`/plugin marketplace add Daio-io/wax`, `/plugin install wax@wax-skills`). New skills go under `plugins/wax/skills/<name>/` inside the grouped `wax` plugin.
+Update `README.md` with a short AI skills section and concrete install steps for [skills.sh](https://skills.sh) (`npx skills add Daio-io/wax --skill wax-registry-discover`) and Claude Code (`/plugin marketplace add Daio-io/wax`, `/plugin install wax@wax-skills`). New skills go under `plugins/wax/skills/<name>/` inside the grouped `wax` plugin.
 
 - [x] **Step 4: Commit Task 6**
 
 ```bash
 git add plugins/wax/ .claude-plugin/marketplace.json README.md
-git commit -m "docs: add wax registry sync skill"
+git commit -m "docs: add wax registry discovery skill"
 ```
 
 ## Phase 4 - Full Verification

@@ -1,4 +1,4 @@
-# ADR: Registry discovery and skill-assisted sync
+# ADR: Registry discovery and skill-assisted review
 
 **Status:** Accepted (implemented)  
 **Date:** 2026-06-04  
@@ -14,7 +14,7 @@ After centralized registry layout shipped, teams still needed a deterministic wa
 1. **`wax registry discover` CLI** — deterministic discovery command with `--dry-run`, `--force`, and optional `--root`; stdout stays JSON-clean in dry-run mode.
 2. **Core orchestration in `wax-core`** — root resolution from Wax config, schema v1 registry JSON generation, atomic writes, overwrite refusal unless forced.
 3. **Compose-first discovery** — `wax-lang-compose` discovers likely public top-level component symbols via tree-sitter inspection. **Superseded (2026-06-10):** the in-process authoring exception is removed; discover now uses the subprocess wire protocol and requires an installed pack. See [generic registry discovery protocol ADR](./2026-06-10-generic-registry-discovery-protocol.md).
-4. **Skill-assisted sync** — `wax-registry-sync` Agent Skill wraps the CLI with review, diffing, validation, and lock-refresh guidance for AI-assisted workflows.
+4. **Skill-assisted review** — `wax-registry-discover` Agent Skill wraps the CLI with review, diffing, validation, and lock-refresh guidance for AI-assisted workflows.
 5. **Post-write guidance** — CLI prints validate/lock-refresh next steps after successful writes.
 
 ## Implementation summary
@@ -28,7 +28,7 @@ All 7 tasks shipped:
 | CLI wiring | `wax registry discover` in `wax-cli` with stdout/stderr contracts |
 | Root resolution | Config-derived roots when `--root` omitted |
 | Guidance | Post-write validate and lock refresh messaging |
-| Agent skill | `.agents/skills/wax-registry-sync/SKILL.md` project skill |
+| Agent skill | `.agents/skills/wax-registry-discover/SKILL.md` project skill |
 | Verification | Full engine fmt/test/clippy, plan checkbox completion |
 
 ## Consequences

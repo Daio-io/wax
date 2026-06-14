@@ -1,4 +1,4 @@
-# Registry Discovery and Skill-Assisted Sync Design
+# Registry Discovery and Skill-Assisted Review Design
 
 **Status:** Implemented (historical). See [registry discovery ADR](../../adr/2026-06-04-registry-discovery.md) and the [archived implementation plan](./2026-06-04-registry-discovery-plan.md).
 
@@ -6,7 +6,7 @@
 
 ## Summary
 
-Wax should help design-system maintainers create `.wax/wax.registry.json` from a design-system package without making AI a runtime dependency. The first version adds a deterministic `wax registry discover` command that scans a design-system root, writes the default registry file, and refuses to overwrite an existing registry unless `--force` is supplied. A companion Agent Skill, `wax-registry-sync`, can wrap that deterministic command with source inspection, human confirmation, and validation.
+Wax should help design-system maintainers create `.wax/wax.registry.json` from a design-system package without making AI a runtime dependency. The first version adds a deterministic `wax registry discover` command that scans a design-system root, writes the default registry file, and refuses to overwrite an existing registry unless `--force` is supplied. A companion Agent Skill, `wax-registry-discover`, can wrap that deterministic command with source inspection, human confirmation, and validation.
 
 This feature targets design-system repositories or packages. It does not infer registries from consuming app usage.
 
@@ -137,7 +137,7 @@ Future improvements can add language-specific candidate diagnostics, source loca
 
 ## AI-Assisted Skill
 
-Wax should publish Agent Skills under `plugins/wax/skills/<skill-name>/`. The first skill is `wax-registry-sync`. Skills in the open skills ecosystem are reusable agent capabilities defined by `SKILL.md` files with YAML frontmatter containing `name` and `description`. Install individual skills via [skills.sh](https://skills.sh) (`npx skills add Daio-io/wax --skill wax-registry-sync`) into project `.agents/skills/` or global agent paths, or install the grouped Claude plugin (`/plugin marketplace add Daio-io/wax`, `/plugin install wax@wax-skills`).
+Wax should publish Agent Skills under `plugins/wax/skills/<skill-name>/`. The first skill is `wax-registry-discover`. Skills in the open skills ecosystem are reusable agent capabilities defined by `SKILL.md` files with YAML frontmatter containing `name` and `description`. Install individual skills via [skills.sh](https://skills.sh) (`npx skills add Daio-io/wax --skill wax-registry-discover`) into project `.agents/skills/` or global agent paths, or install the grouped Claude plugin (`/plugin marketplace add Daio-io/wax`, `/plugin install wax@wax-skills`).
 
 The skill is not part of the Wax runtime. It is an authoring assistant around source-controlled registry files.
 
