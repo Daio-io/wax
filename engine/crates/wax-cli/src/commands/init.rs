@@ -58,7 +58,7 @@ pub struct InitSelections {
 
 /// Registry setup answer collected during interactive init.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)] // Task 2 reads this for printed follow-up guidance.
+#[cfg_attr(not(test), allow(dead_code))] // constructed by interactive prompts in Task 3
 pub enum RegistrySetup {
     /// Registry definitions are managed outside this repository.
     External,
@@ -257,7 +257,222 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
             source,
         }
     })?;
+    write_next_steps(selections.as_ref(), writer)?;
     Ok(())
+}
+
+fn write_next_steps(
+    selections: Option<&InitSelections>,
+    writer: &mut impl Write,
+) -> Result<(), InitCommandError> {
+    let Some(selections) = selections else {
+        return Ok(());
+    };
+
+    (|| -> io::Result<()> {
+        match &selections.registry_setup {
+            RegistrySetup::External => {
+                writeln!(writer)?;
+                writeln!(writer, "Registry setup:")?;
+                for language_id in &selections.languages {
+                    writeln!(
+                        writer,
+                        "- Populate .wax/{}.registry.json or update that language's registry source before scanning.",
+                        language_id.as_str()
+                    )?;
+                }
+                writeln!(writer, "Then run `wax scan`.")?;
+            }
+            RegistrySetup::InRepository { roots } => {
+                writeln!(writer)?;
+                writeln!(
+                    writer,
+                    "Next, populate registries from your design-system source:"
+                )?;
+                for language_id in &selections.languages {
+                    if let Some(language_roots) = roots.get(language_id) {
+                        if language_roots.is_empty() {
+                            writeln!(
+                                writer,
+                                "No registry source roots were provided for {}; populate .wax/{}.registry.json or rerun wax registry discover with a source root.",
+                                language_id.as_str(),
+                                language_id.as_str()
+                            )?;
+                        } else {
+                            for root in language_roots {
+                                writeln!(
+                                    writer,
+                                    "wax registry discover --language {} --root {}",
+                                    language_id.as_str(),
+                                    root.display()
+                                )?;
+                            }
+                        }
+                    }
+                }
+                writeln!(writer, "Then run `wax scan`.")?;
+            }
+        }
+
+        Ok(())
+    })()
+    .map_err(|source| InitCommandError::Io {
+        context: "write init guidance".to_owned(),
+        source,
+    })
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+fn parse_roots(input: &str) -> Vec<PathBuf> {
+    input
+        .split(',')
+        .map(str::trim)
+        .filter(|root| !root.is_empty())
+        .map(PathBuf::from)
+        .collect()
+}
+
+#[allow(dead_code)] // used by DialoguerInitPrompts; wired in Task 3
+fn sorted_language_manifests(manifests: &[RegistryManifest]) -> Vec<&RegistryManifest> {
+    let mut sorted = manifests.iter().collect::<Vec<_>>();
+    sorted.sort_by(|left, right| match (left.id.as_str(), right.id.as_str()) {
+        ("compose", "compose") => std::cmp::Ordering::Equal,
+        ("compose", _) => std::cmp::Ordering::Less,
+        (_, "compose") => std::cmp::Ordering::Greater,
+        _ => left.id.as_str().cmp(right.id.as_str()),
+    });
+    sorted
+}
+
+trait InitPrompts {
+    fn select_languages(
+        &mut self,
+        manifests: &[RegistryManifest],
+    ) -> Result<Vec<LanguageId>, InitCommandError>;
+
+    fn scan_roots(&mut self, language_id: &LanguageId) -> Result<Vec<PathBuf>, InitCommandError>;
+
+    fn registry_in_repo(&mut self) -> Result<bool, InitCommandError>;
+
+    fn registry_roots(
+        &mut self,
+        language_id: &LanguageId,
+    ) -> Result<Vec<PathBuf>, InitCommandError>;
+}
+
+#[allow(dead_code)] // wired in Task 3 via run_init_cli
+struct DialoguerInitPrompts;
+
+impl InitPrompts for DialoguerInitPrompts {
+    fn select_languages(
+        &mut self,
+        manifests: &[RegistryManifest],
+    ) -> Result<Vec<LanguageId>, InitCommandError> {
+        use dialoguer::MultiSelect;
+
+        let sorted = sorted_language_manifests(manifests);
+        let labels: Vec<String> = sorted
+            .iter()
+            .map(|manifest| format!("{} ({})", manifest.id.as_str(), manifest.version))
+            .collect();
+        let label_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+
+        let selected = MultiSelect::new()
+            .with_prompt("Select language packs to enable")
+            .items(&label_refs)
+            .interact()
+            .map_err(|source| InitCommandError::Io {
+                context: "select language packs".to_owned(),
+                source: io::Error::other(source),
+            })?;
+
+        Ok(selected
+            .into_iter()
+            .map(|index| sorted[index].id.clone())
+            .collect())
+    }
+
+    fn scan_roots(&mut self, language_id: &LanguageId) -> Result<Vec<PathBuf>, InitCommandError> {
+        use dialoguer::Input;
+
+        let input: String = Input::new()
+            .with_prompt(format!(
+                "Scan roots for {} (comma-separated)",
+                language_id.as_str()
+            ))
+            .interact_text()
+            .map_err(|source| InitCommandError::Io {
+                context: format!("scan roots for {}", language_id.as_str()),
+                source: io::Error::other(source),
+            })?;
+
+        Ok(parse_roots(&input))
+    }
+
+    fn registry_in_repo(&mut self) -> Result<bool, InitCommandError> {
+        use dialoguer::Confirm;
+
+        Confirm::new()
+            .with_prompt("Is your design-system registry source in this repository?")
+            .default(true)
+            .interact()
+            .map_err(|source| InitCommandError::Io {
+                context: "registry source location".to_owned(),
+                source: io::Error::other(source),
+            })
+    }
+
+    fn registry_roots(
+        &mut self,
+        language_id: &LanguageId,
+    ) -> Result<Vec<PathBuf>, InitCommandError> {
+        use dialoguer::Input;
+
+        let input: String = Input::new()
+            .with_prompt(format!(
+                "Registry source roots for {} (comma-separated)",
+                language_id.as_str()
+            ))
+            .interact_text()
+            .map_err(|source| InitCommandError::Io {
+                context: format!("registry source roots for {}", language_id.as_str()),
+                source: io::Error::other(source),
+            })?;
+
+        Ok(parse_roots(&input))
+    }
+}
+
+#[allow(dead_code)] // wired in Task 3 via run_init_cli
+fn collect_interactive_selections(
+    manifests: &[RegistryManifest],
+    prompts: &mut impl InitPrompts,
+) -> Result<InitSelections, InitCommandError> {
+    let languages = dedupe_languages(&prompts.select_languages(manifests)?);
+    if languages.is_empty() {
+        return Err(InitCommandError::MissingLanguageSelection);
+    }
+
+    let mut scan_roots = BTreeMap::new();
+    for language_id in &languages {
+        scan_roots.insert(language_id.clone(), prompts.scan_roots(language_id)?);
+    }
+
+    let registry_setup = if prompts.registry_in_repo()? {
+        let mut roots = BTreeMap::new();
+        for language_id in &languages {
+            roots.insert(language_id.clone(), prompts.registry_roots(language_id)?);
+        }
+        RegistrySetup::InRepository { roots }
+    } else {
+        RegistrySetup::External
+    };
+
+    Ok(InitSelections {
+        languages,
+        scan_roots,
+        registry_setup,
+    })
 }
 
 fn dedupe_languages(languages: &[LanguageId]) -> Vec<LanguageId> {
@@ -711,6 +926,172 @@ mod tests {
         assert!(
             !serialized.contains("design-system/src/main/kotlin"),
             "registry source roots must only appear in next-step output"
+        );
+    }
+
+    struct MockInitPrompts {
+        languages: Vec<LanguageId>,
+        scan_roots: BTreeMap<LanguageId, Vec<PathBuf>>,
+        registry_in_repo: bool,
+        registry_roots: BTreeMap<LanguageId, Vec<PathBuf>>,
+    }
+
+    impl InitPrompts for MockInitPrompts {
+        fn select_languages(
+            &mut self,
+            _manifests: &[RegistryManifest],
+        ) -> Result<Vec<LanguageId>, InitCommandError> {
+            Ok(self.languages.clone())
+        }
+
+        fn scan_roots(
+            &mut self,
+            language_id: &LanguageId,
+        ) -> Result<Vec<PathBuf>, InitCommandError> {
+            Ok(self
+                .scan_roots
+                .get(language_id)
+                .cloned()
+                .unwrap_or_default())
+        }
+
+        fn registry_in_repo(&mut self) -> Result<bool, InitCommandError> {
+            Ok(self.registry_in_repo)
+        }
+
+        fn registry_roots(
+            &mut self,
+            language_id: &LanguageId,
+        ) -> Result<Vec<PathBuf>, InitCommandError> {
+            Ok(self
+                .registry_roots
+                .get(language_id)
+                .cloned()
+                .unwrap_or_default())
+        }
+    }
+
+    #[test]
+    fn registry_discover_guidance_uses_interactive_roots() {
+        let selections = InitSelections {
+            languages: vec![LanguageId::try_from("compose").unwrap()],
+            scan_roots: BTreeMap::from([(
+                LanguageId::try_from("compose").unwrap(),
+                vec![PathBuf::from("app/src/main/kotlin")],
+            )]),
+            registry_setup: RegistrySetup::InRepository {
+                roots: BTreeMap::from([(
+                    LanguageId::try_from("compose").unwrap(),
+                    vec![PathBuf::from("design-system/src/main/kotlin")],
+                )]),
+            },
+        };
+
+        let mut output = Vec::new();
+        write_next_steps(Some(&selections), &mut output).unwrap();
+        let output = String::from_utf8(output).unwrap();
+
+        assert!(output.contains(
+            "wax registry discover --language compose --root design-system/src/main/kotlin"
+        ));
+        assert!(output.contains("wax scan"));
+    }
+
+    #[test]
+    fn external_registry_guidance_explains_registry_setup() {
+        let selections = InitSelections {
+            languages: vec![LanguageId::try_from("react").unwrap()],
+            scan_roots: BTreeMap::from([(
+                LanguageId::try_from("react").unwrap(),
+                vec![PathBuf::from("apps/web/src")],
+            )]),
+            registry_setup: RegistrySetup::External,
+        };
+
+        let mut output = Vec::new();
+        write_next_steps(Some(&selections), &mut output).unwrap();
+        let output = String::from_utf8(output).unwrap();
+
+        assert!(output.contains(".wax/react.registry.json"));
+        assert!(output.contains("wax scan"));
+        assert!(!output.contains("wax registry discover"));
+    }
+
+    #[test]
+    fn empty_registry_source_roots_print_guidance_without_root_args() {
+        let selections = InitSelections {
+            languages: vec![LanguageId::try_from("compose").unwrap()],
+            scan_roots: BTreeMap::from([(
+                LanguageId::try_from("compose").unwrap(),
+                vec![PathBuf::from("app/src/main/kotlin")],
+            )]),
+            registry_setup: RegistrySetup::InRepository {
+                roots: BTreeMap::from([(LanguageId::try_from("compose").unwrap(), Vec::new())]),
+            },
+        };
+
+        let mut output = Vec::new();
+        write_next_steps(Some(&selections), &mut output).unwrap();
+        let output = String::from_utf8(output).unwrap();
+
+        assert!(output.contains("No registry source roots were provided for compose"));
+        assert!(!output.contains("--root"));
+        assert!(output.contains("wax scan"));
+    }
+
+    #[test]
+    fn collect_interactive_selections_uses_mocked_prompt_answers() {
+        let manifests = vec![
+            RegistryManifest {
+                id: LanguageId::try_from("compose").unwrap(),
+                version: "0.4.2".to_owned(),
+                api_version: 1,
+                targets: BTreeMap::new(),
+            },
+            RegistryManifest {
+                id: LanguageId::try_from("react").unwrap(),
+                version: "0.2.0".to_owned(),
+                api_version: 1,
+                targets: BTreeMap::new(),
+            },
+        ];
+        let mut prompts = MockInitPrompts {
+            languages: vec![LanguageId::try_from("compose").unwrap()],
+            scan_roots: BTreeMap::from([(
+                LanguageId::try_from("compose").unwrap(),
+                vec![PathBuf::from("app/src/main/kotlin")],
+            )]),
+            registry_in_repo: true,
+            registry_roots: BTreeMap::from([(
+                LanguageId::try_from("compose").unwrap(),
+                vec![PathBuf::from("design-system/src/main/kotlin")],
+            )]),
+        };
+
+        let selections = collect_interactive_selections(&manifests, &mut prompts).unwrap();
+
+        assert_eq!(
+            selections.languages,
+            vec![LanguageId::try_from("compose").unwrap()]
+        );
+        assert_eq!(
+            selections.scan_roots[&LanguageId::try_from("compose").unwrap()],
+            vec![PathBuf::from("app/src/main/kotlin")]
+        );
+        assert!(matches!(
+            selections.registry_setup,
+            RegistrySetup::InRepository { .. }
+        ));
+    }
+
+    #[test]
+    fn parse_roots_splits_comma_separated_paths() {
+        assert_eq!(
+            parse_roots(" apps/web/src , packages/ui/src , "),
+            vec![
+                PathBuf::from("apps/web/src"),
+                PathBuf::from("packages/ui/src"),
+            ]
         );
     }
 
