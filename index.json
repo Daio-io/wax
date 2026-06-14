@@ -1,93 +1,93 @@
 [
   {
     "id": "compose",
-    "version": "0.1.0-alpha.8",
+    "version": "0.1.0-alpha.9",
     "api_version": 1,
     "targets": {
       "aarch64-apple-darwin": {
-        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.8/wax-lang-compose-0.1.0-alpha.8-aarch64-apple-darwin.tar.gz",
-        "sha256": "977e835e7b4891ace05a844750c6b3b0b33a06d6180edc8f00a83c273dd45aa9"
+        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.9/wax-lang-compose-0.1.0-alpha.9-aarch64-apple-darwin.tar.gz",
+        "sha256": "b15dedd145804f2d57b0493d97e9ec2daa7cebb4bcf3b78d69bfa450f29b687c"
       },
       "aarch64-unknown-linux-gnu": {
-        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.8/wax-lang-compose-0.1.0-alpha.8-aarch64-unknown-linux-gnu.tar.gz",
-        "sha256": "e60291964bb47f1902d09648950b57871a9c4949aaff92d6d3b5caa16835adee"
+        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.9/wax-lang-compose-0.1.0-alpha.9-aarch64-unknown-linux-gnu.tar.gz",
+        "sha256": "6ccde6e39bb5f0c97cb7e73ca61423855bdc1e96e91e2523e634ec14bc1d1100"
       },
       "x86_64-apple-darwin": {
-        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.8/wax-lang-compose-0.1.0-alpha.8-x86_64-apple-darwin.tar.gz",
-        "sha256": "8c4145866eadb8885040bffbd5aad5e5e7f8f2cff2871fac3824fa73e721d756"
+        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.9/wax-lang-compose-0.1.0-alpha.9-x86_64-apple-darwin.tar.gz",
+        "sha256": "0617838f5906b344b6af4f0bbec3e1a927b482eca33de4b1867f45b19771d335"
       },
       "x86_64-unknown-linux-gnu": {
-        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.8/wax-lang-compose-0.1.0-alpha.8-x86_64-unknown-linux-gnu.tar.gz",
-        "sha256": "422ec66f84ec94454e0a632f4ffb73c49720505e9df75860470e09abd4ec9f89"
+        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.9/wax-lang-compose-0.1.0-alpha.9-x86_64-unknown-linux-gnu.tar.gz",
+        "sha256": "b582b0fd11e4db1a61271e4b4c476613b979f31c6ef10b6192123d790b9cab9a"
       }
     }
   },
   {
     "id": "basic",
-    "version": "0.1.0-alpha.8",
+    "version": "0.1.0-alpha.9",
     "api_version": 1,
     "targets": {
       "aarch64-apple-darwin": {
-        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.8/wax-lang-basic-0.1.0-alpha.8-aarch64-apple-darwin.tar.gz",
-        "sha256": "c74cdc148f73e5057af523b8ce2cced088c8d0f1df78cf70e1e2d8e154d96706"
+        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.9/wax-lang-basic-0.1.0-alpha.9-aarch64-apple-darwin.tar.gz",
+        "sha256": "4028fdb9bbe4d9d478e5b0d47dd35ab83bf8ee240780f4ed4bc21c2e1d2f6f12"
       },
       "aarch64-unknown-linux-gnu": {
-        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.8/wax-lang-basic-0.1.0-alpha.8-aarch64-unknown-linux-gnu.tar.gz",
-        "sha256": "fc54a3234df34751996918d561966ed29078163a0679d5ec036286306f1b05e5"
+        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.9/wax-lang-basic-0.1.0-alpha.9-aarch64-unknown-linux-gnu.tar.gz",
+        "sha256": "035b1b6e798e8c6ce3b7b9fb7ad66f230742ed5fadf2cd1cc005c15f94b4b95d"
       },
       "x86_64-apple-darwin": {
-        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.8/wax-lang-basic-0.1.0-alpha.8-x86_64-apple-darwin.tar.gz",
-        "sha256": "9403fc71cf45201d050ea1133824dceed1296690af6010607cecd876ad837711"
+        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.9/wax-lang-basic-0.1.0-alpha.9-x86_64-apple-darwin.tar.gz",
+        "sha256": "06a1e88411fbb970a8b8a400357d05ebb83e821464fb79e76873a93064205fd5"
       },
       "x86_64-unknown-linux-gnu": {
-        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.8/wax-lang-basic-0.1.0-alpha.8-x86_64-unknown-linux-gnu.tar.gz",
-        "sha256": "46e781c7dcc41cce7cf19f5ee3d5febd4ae53c1dd2996945b3391cf7cec3bd6d"
+        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.9/wax-lang-basic-0.1.0-alpha.9-x86_64-unknown-linux-gnu.tar.gz",
+        "sha256": "2e58e5d712afbd40a7fa99f01afdf51e3bbb3813b821f6e8a2768c98cc4de667"
       }
     }
   },
   {
     "id": "react",
-    "version": "0.1.0-alpha.8",
+    "version": "0.1.0-alpha.9",
     "api_version": 1,
     "targets": {
       "aarch64-apple-darwin": {
-        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.8/wax-lang-react-0.1.0-alpha.8-aarch64-apple-darwin.tar.gz",
-        "sha256": "bddb01e8e8996b14dce05d27861dbcc285133c2cd81a18bc88767414bcd68376"
+        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.9/wax-lang-react-0.1.0-alpha.9-aarch64-apple-darwin.tar.gz",
+        "sha256": "e40ac70bf04ff57f2699f565b2a70017c88a92b9cabf2c546dce95d821a77c84"
       },
       "aarch64-unknown-linux-gnu": {
-        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.8/wax-lang-react-0.1.0-alpha.8-aarch64-unknown-linux-gnu.tar.gz",
-        "sha256": "1878ac33fcf4a5a44edc301e861d85ec102ffffcbe5c97251f0a3644c892d87d"
+        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.9/wax-lang-react-0.1.0-alpha.9-aarch64-unknown-linux-gnu.tar.gz",
+        "sha256": "035fce8fa4c4551a8e1ef1ea538ab8658bf70cc46397d7157361763e1b2f047d"
       },
       "x86_64-apple-darwin": {
-        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.8/wax-lang-react-0.1.0-alpha.8-x86_64-apple-darwin.tar.gz",
-        "sha256": "54832b2afc32d61ffd3021563eadef96b2600f17fe968aa06c8b4d321a666794"
+        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.9/wax-lang-react-0.1.0-alpha.9-x86_64-apple-darwin.tar.gz",
+        "sha256": "6efc9d34c6bc30a71881a74efc1cc34519164b82b7d9c69ecca8686f717cf7d8"
       },
       "x86_64-unknown-linux-gnu": {
-        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.8/wax-lang-react-0.1.0-alpha.8-x86_64-unknown-linux-gnu.tar.gz",
-        "sha256": "83b0845fcd07e7ff14575ea92f8dcee28fc2256cb323a3c75f6b0816e430f93f"
+        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.9/wax-lang-react-0.1.0-alpha.9-x86_64-unknown-linux-gnu.tar.gz",
+        "sha256": "0401732274be6827a542f49302c00c376eab9f24b4ce1a986a1dcaa810e56fea"
       }
     }
   },
   {
     "id": "swift",
-    "version": "0.1.0-alpha.8",
+    "version": "0.1.0-alpha.9",
     "api_version": 1,
     "targets": {
       "aarch64-apple-darwin": {
-        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.8/wax-lang-swift-0.1.0-alpha.8-aarch64-apple-darwin.tar.gz",
-        "sha256": "a90e588414d6121248009542772416e943359e444cd39e82c361247531bf404a"
+        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.9/wax-lang-swift-0.1.0-alpha.9-aarch64-apple-darwin.tar.gz",
+        "sha256": "8d32619c7b2f9c7c35d6496a0e7617d586ced44f1b4961750b852f781d2a17db"
       },
       "aarch64-unknown-linux-gnu": {
-        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.8/wax-lang-swift-0.1.0-alpha.8-aarch64-unknown-linux-gnu.tar.gz",
-        "sha256": "41a6586a40bbe67992fe51bee63eb6505217c8c0f5f9c2ba093d200dfc57958b"
+        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.9/wax-lang-swift-0.1.0-alpha.9-aarch64-unknown-linux-gnu.tar.gz",
+        "sha256": "c864313285e16bfa31d13e63b6201e2df8e3e57c1701e855c2abda07ce7559c3"
       },
       "x86_64-apple-darwin": {
-        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.8/wax-lang-swift-0.1.0-alpha.8-x86_64-apple-darwin.tar.gz",
-        "sha256": "322956b40f569f59d37cfac8a7850245afbae9cd83dcd8b9ca968d47c0bdaa0d"
+        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.9/wax-lang-swift-0.1.0-alpha.9-x86_64-apple-darwin.tar.gz",
+        "sha256": "57c1ed1723817139978c914b94146f32131dfd797c49a1af4e388fe8e4a91b29"
       },
       "x86_64-unknown-linux-gnu": {
-        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.8/wax-lang-swift-0.1.0-alpha.8-x86_64-unknown-linux-gnu.tar.gz",
-        "sha256": "9d7b55adef6004c687a04a0e91acac18831ed001472a0f541a428cc9b190cf2b"
+        "url": "https://github.com/Daio-io/wax/releases/download/v0.1.0-alpha.9/wax-lang-swift-0.1.0-alpha.9-x86_64-unknown-linux-gnu.tar.gz",
+        "sha256": "07bbe4e37f00b997ec3315d125f32ed0543be11060572c0c94e968706470d7c1"
       }
     }
   }
