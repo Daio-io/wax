@@ -204,17 +204,17 @@ After a fixture-driven render:
 
 ## Phase 4 — Documentation and roadmap
 
-### - [ ] Task 4: Wire docs and README
+### - [x] Task 4: Wire docs and README
 
 **Files:**
 - Modify: `README.md`
 - Modify: `docs/plans/README.md`
 
-- [ ] **Step 1: Add README AI skills entry**
+- [x] **Step 1: Add README AI skills entry**
 
 Document invocation, parameters (`--html`, `--html-only`, `--baseline`, `--no-auto-install`), and output paths.
 
-- [ ] **Step 2: Add roadmap row**
+- [x] **Step 2: Add roadmap row**
 
 Add order 10 (or next available) to `docs/plans/README.md`:
 
@@ -222,7 +222,7 @@ Add order 10 (or next available) to `docs/plans/README.md`:
 |------|----------|------------|------------------------|
 | Wax scan analytics skill | `2026-06-14-wax-scan-plan.md` | `merged` | `in-progress` |
 
-- [ ] **Step 3: Commit Task 4**
+- [x] **Step 3: Commit Task 4**
 
 ---
 
