@@ -155,7 +155,8 @@ extract_core() {
           symbols: ([.[].symbol] | unique | sort),
           count: ([.[].symbol] | unique | length)
         })
-      | sort_by(-.count, .pattern);
+      | sort_by(-.count, .pattern)
+      | map(select(.count >= 2));
 
     {
       schema_version: 1,
@@ -230,8 +231,20 @@ compute_baseline_deltas() {
           unresolved_count: $unresolved
         };
 
-    def per_language($scan):
-      [$scan.languages | to_entries[] | per_language_entry(.key; .value)] | sort_by(.language_id);
+    def per_language_delta($lang_id; $current_scan; $baseline_scan):
+      per_language_entry($lang_id; $current_scan.languages[$lang_id]) as $cur
+      | per_language_entry($lang_id; $baseline_scan.languages[$lang_id]) as $base
+      | {
+          language_id: $lang_id,
+          adoption_coverage_ratio: (
+            if ($cur.adoption_coverage_ratio == null or $base.adoption_coverage_ratio == null) then null
+            else ($cur.adoption_coverage_ratio - $base.adoption_coverage_ratio)
+            end
+          ),
+          resolved_count: ($cur.resolved_count - $base.resolved_count),
+          candidate_count: ($cur.candidate_count - $base.candidate_count),
+          unresolved_count: ($cur.unresolved_count - $base.unresolved_count)
+        };
 
     def repo_totals($scan):
       [$scan.languages[] | .counts] as $counts
@@ -249,37 +262,46 @@ compute_baseline_deltas() {
     def delta_num($current; $baseline):
       if ($current == null or $baseline == null) then null else ($current - $baseline) end;
 
+    def lang_intersection($current_ids; $baseline_ids):
+      [$current_ids[] | select(. as $id | ($baseline_ids | index($id)) != null)];
+
+    def only_in($ids; $other):
+      [$ids[] | select(. as $id | ($other | index($id)) == null)];
+
     . as $insights
     | $current[0] as $current_scan
     | $baseline[0] as $baseline_scan
-    | if (lang_ids($current_scan) != lang_ids($baseline_scan)) then
-        $insights | .limits += [{
-          metric: "Baseline comparison",
-          missing_capability: "Baseline language set differs from current scan"
+    | (lang_ids($current_scan)) as $current_lang_ids
+    | (lang_ids($baseline_scan)) as $baseline_lang_ids
+    | (repo_totals($current_scan)) as $cur_repo
+    | (repo_totals($baseline_scan)) as $base_repo
+    | (lang_intersection($current_lang_ids; $baseline_lang_ids)) as $shared_lang_ids
+    | $insights
+    | .baseline_deltas = {
+        adoption_coverage_ratio: delta_num($cur_repo.adoption_coverage_ratio; $base_repo.adoption_coverage_ratio),
+        resolved_count: ($cur_repo.resolved_count - $base_repo.resolved_count),
+        candidate_count: ($cur_repo.candidate_count - $base_repo.candidate_count),
+        unresolved_count: ($cur_repo.unresolved_count - $base_repo.unresolved_count),
+        per_language: [
+          $shared_lang_ids[]
+          | per_language_delta(.; $current_scan; $baseline_scan)
+        ]
+      }
+    | if ($current_lang_ids != $baseline_lang_ids) then
+        .limits += [{
+          metric: "Per-language baseline deltas",
+          missing_capability: (
+            "Language sets differ between current and baseline scans. "
+            + "Per-language deltas include only comparable languages ("
+            + ($shared_lang_ids | join(", "))
+            + "). Missing from baseline: "
+            + ((only_in($current_lang_ids; $baseline_lang_ids) | if length == 0 then "none" else join(", ") end))
+            + ". Missing from current: "
+            + ((only_in($baseline_lang_ids; $current_lang_ids) | if length == 0 then "none" else join(", ") end))
+            + "."
+          )
         }]
-      else
-        (repo_totals($current_scan)) as $cur_repo
-        | (repo_totals($baseline_scan)) as $base_repo
-        | (per_language($current_scan)) as $cur_langs
-        | (per_language($baseline_scan)) as $base_langs
-        | $insights | .baseline_deltas = {
-            adoption_coverage_ratio: delta_num($cur_repo.adoption_coverage_ratio; $base_repo.adoption_coverage_ratio),
-            resolved_count: ($cur_repo.resolved_count - $base_repo.resolved_count),
-            candidate_count: ($cur_repo.candidate_count - $base_repo.candidate_count),
-            unresolved_count: ($cur_repo.unresolved_count - $base_repo.unresolved_count),
-            per_language: [
-              $cur_langs[]
-              | . as $cur
-              | ($base_langs[] | select(.language_id == $cur.language_id)) as $base
-              | {
-                  language_id: $cur.language_id,
-                  adoption_coverage_ratio: delta_num($cur.adoption_coverage_ratio; $base.adoption_coverage_ratio),
-                  resolved_count: ($cur.resolved_count - $base.resolved_count),
-                  candidate_count: ($cur.candidate_count - $base.candidate_count),
-                  unresolved_count: ($cur.unresolved_count - $base.unresolved_count)
-                }
-            ]
-          }
+      else .
       end
   ' <<<"$insights_json"
 }
