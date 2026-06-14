@@ -858,7 +858,7 @@ git commit -m "feat: wire interactive init cli"
 - Modify: `docs/plans/README.md`
 - Modify: `docs/specs/2026-05-16-language-packs-and-distribution.md`
 
-- [ ] **Step 1: Update README init docs**
+- [x] **Step 1: Update README init docs**
 
 In `README.md`, after the non-interactive examples, add:
 
@@ -880,7 +880,7 @@ Update the file list under `` `wax init` writes:`` to:
 - `.wax/<language-id>.registry.json`
 ```
 
-- [ ] **Step 2: Tick post-alpha UX Task 1**
+- [x] **Step 2: Tick post-alpha UX Task 1**
 
 In `docs/plans/2026-05-24-post-alpha-ux-plan.md`, change Task 1 and all four steps from unchecked to checked:
 
@@ -899,7 +899,7 @@ Replace the old optional-scan wording with a short note below Step 2:
 Implementation keeps init setup-only: it asks for scan roots and registry source roots, then prints registry-discovery and scan next steps instead of running either command automatically.
 ```
 
-- [ ] **Step 3: Update roadmap and older spec references**
+- [x] **Step 3: Update roadmap and older spec references**
 
 In `docs/plans/README.md`, update order 9 after the implementation PR completes:
 
@@ -913,7 +913,7 @@ In `docs/specs/2026-05-16-language-packs-and-distribution.md`, replace the sente
 Interactive init is implemented by the Post-alpha UX Task 1 extraction. It guides TTY users through language selection, scan roots, and registry next steps while preserving `--non-interactive` for scripts.
 ```
 
-- [ ] **Step 4: Run focused verification**
+- [x] **Step 4: Run focused verification**
 
 Run:
 
@@ -927,7 +927,7 @@ cargo test -p wax-cli --test init_interactive
 
 Expected: PASS.
 
-- [ ] **Step 5: Run broad verification if shared behavior changed**
+- [x] **Step 5: Run broad verification if shared behavior changed**
 
 If the implementation touched `wax-core`, config parsing, lockfile serialization, or language install behavior, also run:
 
@@ -939,7 +939,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 Expected: PASS. If this is not run because the implementation stayed inside `wax-cli`, note that in the PR.
 
-- [ ] **Step 6: Commit Task 4**
+- [x] **Step 6: Commit Task 4**
 
 ```bash
 git add README.md docs/plans/2026-05-24-post-alpha-ux-plan.md docs/plans/README.md docs/specs/2026-05-16-language-packs-and-distribution.md
