@@ -556,7 +556,7 @@ mod tests {
     }
 
     #[test]
-    fn requires_non_interactive_flag_for_scriptable_init() {
+    fn init_without_interactive_answers_requires_terminal() {
         let temp = TestDir::new("requires-non-interactive");
         let err = run_init(
             InitOptions {
