@@ -58,6 +58,7 @@ pub struct InitSelections {
 
 /// Registry setup answer collected during interactive init.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)] // Task 2 reads this for printed follow-up guidance.
 pub enum RegistrySetup {
     /// Registry definitions are managed outside this repository.
     External,
@@ -94,11 +95,6 @@ pub struct InitOptions {
 /// Errors returned by `wax init`.
 #[derive(Debug, Error)]
 pub enum InitCommandError {
-    /// Scriptable init requires `--non-interactive`.
-    #[error(
-        "wax init requires --non-interactive for scriptable onboarding; interactive prompts are not implemented yet"
-    )]
-    RequiresNonInteractiveFlag,
     /// Interactive init requires a terminal unless scriptable flags are used.
     #[error(
         "wax init needs an interactive terminal. For CI or scripts, run: wax init --non-interactive --language <language-id>"
