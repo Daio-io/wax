@@ -21,7 +21,7 @@ It helps teams define a canonical component registry, scan repositories with lan
 
 - `wax` binary: the engine and CLI you install and run.
 - Language packs: stack-specific analyzers installed globally under `~/.wax/langs/`.
-- Registry: your canonical design-system component list, usually `.wax/wax.registry.json`.
+- Registry: per-language design-system component lists at `.wax/<language-id>.registry.json`.
 - Repo config: `.wax/wax.config.json` enables languages and points at roots and registry sources.
 - Lockfile: `.wax/wax.lock.json` pins language-pack artifacts and registry digests for reproducible scans.
 - AI skills: optional authoring workflows that call `wax` commands for tasks like registry discovery.
@@ -109,7 +109,7 @@ The wizard asks which language packs to enable, which source roots Wax should sc
 - `.wax/wax.lock.json`
 - `.wax/<language-id>.registry.json`
 
-When a language omits `registry` in config, `wax scan` falls back to `.wax/wax.registry.json`.
+When a language omits `registry` in config, `wax scan` defaults to `.wax/<language-id>.registry.json` for that language.
 
 3. Validate the repo setup:
 
@@ -127,13 +127,14 @@ Minimal manual registry example:
   "components": [
     {
       "id": "ds.primary-button",
-      "symbol": "PrimaryButton"
+      "symbol": "PrimaryButton",
+      "package": "com.acme.designsystem"
     }
   ]
 }
 ```
 
-Or discover components from source:
+Or discover components from source (includes `package` when the language pack can infer it):
 
 ```bash
 wax discover --language <language-id> --dry-run
@@ -141,6 +142,8 @@ wax discover --language <language-id> --force
 wax language update --all
 wax validate
 ```
+
+Discover infers `package` per component from Kotlin package headers, the nearest npm `package.json` name, or Swift `Sources/<Module>/` layout. Import-aware scans use that field to count only usages imported from the design-system package.
 
 5. Run a scan:
 
@@ -162,6 +165,8 @@ Current first-party packs in this repository:
 | `react` | React and JSX/TSX projects |
 | `swift` | SwiftUI projects |
 | `basic` | Text-based fallback for unsupported ecosystems and smoke tests |
+
+Parser-backed packs support optional registry component `package` fields so scans only count usages imported from the design-system package. See the language packs spec for examples.
 
 Install a pack explicitly:
 
@@ -223,7 +228,7 @@ Per-language default:
 .wax/<language-id>.registry.json
 ```
 
-For example, `wax init --language swift` scaffolds `.wax/swift.registry.json`. When a language entry omits `registry`, scan resolution falls back to `.wax/wax.registry.json`.
+For example, `wax init --language swift` scaffolds `.wax/swift.registry.json`. When a language entry omits `registry`, scan resolution defaults to `.wax/<language-id>.registry.json`.
 
 Typical workflow:
 

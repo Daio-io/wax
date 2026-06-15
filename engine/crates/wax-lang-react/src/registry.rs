@@ -16,6 +16,8 @@ pub struct ReactRegistryIndex {
     pub design_system_components: Vec<DesignSystemComponent>,
     /// Map from any observed name (symbol or alias) to canonical registry symbol.
     pub resolve_targets: BTreeMap<String, String>,
+    /// Optional import package per canonical registry symbol.
+    pub component_packages: BTreeMap<String, Option<String>>,
 }
 
 /// Kind of registry load failure.
@@ -92,23 +94,38 @@ pub fn load_react_registry(path: &Path) -> Result<ReactRegistryIndex, RegistryEr
 
     let mut design_system_components = Vec::new();
     let mut resolve_targets = BTreeMap::new();
+    let mut component_packages = BTreeMap::new();
     for (index, component) in components.iter().enumerate() {
-        if !component_available_to_react(component, index)? {
-            continue;
-        }
-
         let symbol = component
             .get("symbol")
             .and_then(serde_json::Value::as_str)
             .ok_or_else(|| {
                 RegistryError::invalid(format!("components[{index}] is missing symbol"))
             })?;
+        let package = component
+            .get("package")
+            .map(|value| {
+                value.as_str().ok_or_else(|| {
+                    RegistryError::invalid(format!("components[{index}].package must be a string"))
+                })
+            })
+            .transpose()?
+            .map(str::to_owned);
+        if let Some(package) = &package
+            && package.is_empty()
+        {
+            return Err(RegistryError::invalid(format!(
+                "components[{index}].package must not be empty"
+            )));
+        }
+
         design_system_components.push(DesignSystemComponent {
             id: format!("ds.{symbol}"),
             symbol: symbol.to_owned(),
             registry_symbol: symbol.to_owned(),
         });
         resolve_targets.insert(symbol.to_owned(), symbol.to_owned());
+        component_packages.insert(symbol.to_owned(), package);
         if let Some(aliases) = component
             .get("aliases")
             .and_then(serde_json::Value::as_array)
@@ -135,6 +152,7 @@ pub fn load_react_registry(path: &Path) -> Result<ReactRegistryIndex, RegistryEr
     Ok(ReactRegistryIndex {
         design_system_components,
         resolve_targets,
+        component_packages,
     })
 }
 
@@ -171,34 +189,6 @@ fn validate_schema_version(value: &serde_json::Value, path: &Path) -> Result<(),
         )));
     }
     Ok(())
-}
-
-fn component_available_to_react(
-    component: &serde_json::Value,
-    index: usize,
-) -> Result<bool, RegistryError> {
-    let Some(targets_value) = component.get("targets") else {
-        return Ok(true);
-    };
-    if targets_value.is_null() {
-        return Ok(true);
-    }
-    let Some(targets) = targets_value.as_array() else {
-        return Err(RegistryError::invalid(format!(
-            "components[{index}].targets must be an array of strings"
-        )));
-    };
-    for (target_index, target) in targets.iter().enumerate() {
-        let Some(target) = target.as_str() else {
-            return Err(RegistryError::invalid(format!(
-                "components[{index}].targets[{target_index}] must be a string"
-            )));
-        };
-        if target == "react" {
-            return Ok(true);
-        }
-    }
-    Ok(false)
 }
 
 #[cfg(test)]
@@ -262,19 +252,14 @@ mod tests {
     }
 
     #[test]
-    fn registry_excludes_symbols_when_targets_exclude_react() {
+    fn registry_ignores_legacy_targets_field() {
         let fixture = RegistryFixture::write(
             r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"Button","targets":["compose"]}]}"#,
         );
 
-        let err =
-            load_react_registry(fixture.path()).expect_err("compose-only registry should fail");
-        assert_eq!(err.kind(), RegistryErrorKind::Invalid);
-        assert!(
-            err.reason().contains("at least one React component symbol"),
-            "unexpected error: {}",
-            err.reason()
-        );
+        let index = load_react_registry(fixture.path()).expect("registry should load");
+        assert_eq!(index.design_system_components.len(), 1);
+        assert_eq!(index.design_system_components[0].symbol, "Button");
     }
 
     #[test]
@@ -350,28 +335,5 @@ mod tests {
             .expect_err("unsupported schema_version should fail");
         assert_eq!(err.kind(), RegistryErrorKind::Invalid);
         assert!(err.reason().contains("unsupported schema_version 2"));
-    }
-
-    #[test]
-    fn registry_rejects_string_targets() {
-        let fixture = RegistryFixture::write(
-            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"Button","targets":"react"}]}"#,
-        );
-
-        let err = load_react_registry(fixture.path()).expect_err("string targets should fail");
-        assert_eq!(err.kind(), RegistryErrorKind::Invalid);
-        assert!(err.reason().contains("targets must be an array of strings"));
-    }
-
-    #[test]
-    fn registry_rejects_non_string_target_entries() {
-        let fixture = RegistryFixture::write(
-            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"Button","targets":[42,"react"]}]}"#,
-        );
-
-        let err =
-            load_react_registry(fixture.path()).expect_err("non-string target entry should fail");
-        assert_eq!(err.kind(), RegistryErrorKind::Invalid);
-        assert!(err.reason().contains("targets[0] must be a string"));
     }
 }

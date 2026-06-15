@@ -13,6 +13,7 @@ use swc_ecma_ast::{
 use wax_contract::{
     Diagnostic, DiagnosticSeverity, LocalComponent, MatchStatus, SourceLocation, UsageSite,
 };
+use wax_lang_api::{npm_import_package_root, resolve_import_aware_match};
 
 use crate::component_detect::{
     expression_returns_jsx, function_returns_jsx, is_pascal_case, module_export_name,
@@ -20,7 +21,7 @@ use crate::component_detect::{
 };
 use crate::config::ReactScanConfig;
 use crate::diagnostics::DS_USAGE_UNRESOLVED;
-use crate::module_graph::ReactModuleGraph;
+use crate::module_graph::{ImportedSymbol, ReactModuleGraph};
 use crate::registry::ReactRegistryIndex;
 use crate::swc_parse::ParsedReactModule;
 
@@ -91,15 +92,15 @@ pub fn collect_usage_sites(
         }
 
         for candidate in candidates {
-            if let Some(registry_symbol) =
-                resolve_usage_registry_symbol(parsed, module_graph, config, registry, &candidate)
+            if let Some((registry_symbol, match_status)) =
+                classify_jsx_usage(parsed, module_graph, config, registry, &candidate)
             {
                 if let Some(location) = parsed.source_location_from_span(candidate.span) {
                     extraction.usage_sites.push(UsageSite {
                         id: usage_site_id(&location, &candidate.symbol),
                         location,
                         symbol: candidate.symbol,
-                        match_status: MatchStatus::Resolved,
+                        match_status,
                         registry_symbol: Some(registry_symbol),
                     });
                 }
@@ -916,6 +917,98 @@ fn collect_jsx_usage_candidates_from_key(
     if let Key::Public(prop_name) = key {
         collect_jsx_usage_candidates_from_prop_name(parsed, prop_name, scopes, candidates);
     }
+}
+
+fn classify_jsx_usage(
+    parsed: &ParsedReactModule,
+    module_graph: &ReactModuleGraph,
+    config: &ReactScanConfig,
+    registry: &ReactRegistryIndex,
+    candidate: &JsxUsageCandidate,
+) -> Option<(String, MatchStatus)> {
+    if candidate.shadowed {
+        return None;
+    }
+
+    let import_package = module_graph
+        .import_binding(&parsed.file, &candidate.binding_name)
+        .map(|import| npm_import_package_root(&import.source_specifier));
+
+    if let Some(registry_symbol) =
+        registry_symbol_for_candidate(parsed, module_graph, config, registry, candidate)
+    {
+        let registry_package = registry
+            .component_packages
+            .get(&registry_symbol)
+            .and_then(|package| package.as_deref());
+        if registry_package.is_none() {
+            return Some((registry_symbol, MatchStatus::Resolved));
+        }
+        return resolve_import_aware_match(registry_package, import_package.as_deref())
+            .map(|match_status| (registry_symbol, match_status));
+    }
+
+    let registry_symbol =
+        lookup_registry_symbol_by_name(parsed, module_graph, registry, candidate)?;
+    let registry_package = registry
+        .component_packages
+        .get(&registry_symbol)
+        .and_then(|package| package.as_deref());
+
+    resolve_import_aware_match(registry_package, import_package.as_deref())
+        .map(|match_status| (registry_symbol, match_status))
+}
+
+fn registry_symbol_for_candidate(
+    parsed: &ParsedReactModule,
+    module_graph: &ReactModuleGraph,
+    config: &ReactScanConfig,
+    registry: &ReactRegistryIndex,
+    candidate: &JsxUsageCandidate,
+) -> Option<String> {
+    resolve_usage_registry_symbol(parsed, module_graph, config, registry, candidate)
+        .or_else(|| lookup_namespace_registry_symbol(parsed, module_graph, registry, candidate))
+}
+
+fn lookup_namespace_registry_symbol(
+    parsed: &ParsedReactModule,
+    module_graph: &ReactModuleGraph,
+    registry: &ReactRegistryIndex,
+    candidate: &JsxUsageCandidate,
+) -> Option<String> {
+    let import = module_graph.import_binding(&parsed.file, &candidate.binding_name)?;
+    if !matches!(import.imported_symbol, ImportedSymbol::Namespace) {
+        return None;
+    }
+
+    let member_symbol = namespace_member_symbol(candidate)?;
+    if let Some(source_module) = import.source_module.as_ref()
+        && let Some(member_resolved) = module_graph.resolve_export(source_module, &member_symbol)
+        && let Some(registry_symbol) = registry.resolve_targets.get(&member_resolved.symbol)
+    {
+        return Some(registry_symbol.clone());
+    }
+
+    registry.resolve_targets.get(&member_symbol).cloned()
+}
+
+fn lookup_registry_symbol_by_name(
+    parsed: &ParsedReactModule,
+    module_graph: &ReactModuleGraph,
+    registry: &ReactRegistryIndex,
+    candidate: &JsxUsageCandidate,
+) -> Option<String> {
+    if let Some(resolved) = module_graph.resolve_import(&parsed.file, &candidate.binding_name)
+        && let Some(registry_symbol) = registry.resolve_targets.get(&resolved.symbol)
+    {
+        return Some(registry_symbol.clone());
+    }
+
+    registry
+        .resolve_targets
+        .get(&candidate.symbol)
+        .or_else(|| registry.resolve_targets.get(&candidate.binding_name))
+        .cloned()
 }
 
 fn resolve_usage_registry_symbol(
@@ -2090,8 +2183,10 @@ mod tests {
 
     fn registry_with_aliases(symbols: &[(&str, &[&str])]) -> ReactRegistryIndex {
         let mut resolve_targets = BTreeMap::new();
+        let mut component_packages = BTreeMap::new();
         for (symbol, aliases) in symbols {
             resolve_targets.insert((*symbol).to_owned(), (*symbol).to_owned());
+            component_packages.insert((*symbol).to_owned(), None);
             for alias in *aliases {
                 resolve_targets.insert((*alias).to_owned(), (*symbol).to_owned());
             }
@@ -2099,7 +2194,61 @@ mod tests {
         ReactRegistryIndex {
             design_system_components: Vec::new(),
             resolve_targets,
+            component_packages,
         }
+    }
+
+    fn registry_with_package(symbol: &str, package: &str) -> ReactRegistryIndex {
+        ReactRegistryIndex {
+            design_system_components: Vec::new(),
+            resolve_targets: BTreeMap::from([(symbol.to_owned(), symbol.to_owned())]),
+            component_packages: BTreeMap::from([(symbol.to_owned(), Some(package.to_owned()))]),
+        }
+    }
+
+    #[test]
+    fn non_ds_import_is_not_counted_when_registry_package_is_set() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "src/Screen.tsx",
+            r#"
+            import { Button } from "@foundation/ui";
+            export function Screen() {
+                return <Button />;
+            }
+            "#,
+        );
+
+        let extraction = fixture.extract_usage(
+            vec!["src/Screen.tsx"],
+            base_config(),
+            registry_with_package("Button", "@acme/design-system"),
+        );
+
+        assert!(extraction.usage_sites.is_empty());
+    }
+
+    #[test]
+    fn namespace_non_ds_import_is_not_counted_when_registry_package_is_set() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "src/Screen.tsx",
+            r#"
+            import * as Foundation from "@foundation/ui";
+
+            export function Screen() {
+                return <Foundation.Button />;
+            }
+            "#,
+        );
+
+        let extraction = fixture.extract_usage(
+            vec!["src/Screen.tsx"],
+            base_config(),
+            registry_with_package("Button", "@acme/design-system"),
+        );
+
+        assert!(extraction.usage_sites.is_empty());
     }
 
     struct Fixture {

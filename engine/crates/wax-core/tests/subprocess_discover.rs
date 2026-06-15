@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use wax_core::subprocess_discover::SubprocessLanguageDiscoverer;
 use wax_core::subprocess_lang::SubprocessLanguageManifest;
-use wax_lang_api::{DiscoverRequest, DiscoverRequestType, WIRE_API_VERSION};
+use wax_lang_api::{
+    DiscoverRequest, DiscoverRequestType, DiscoveredRegistrySymbol, WIRE_API_VERSION,
+};
 
 #[test]
 fn subprocess_discover_parses_discover_symbols_response() {
@@ -34,7 +36,14 @@ fn subprocess_discover_parses_discover_symbols_response() {
 
     let result = extractor.discover(request).unwrap();
 
-    assert_eq!(result.symbols, vec!["PrimaryButton".to_owned()]);
+    assert_eq!(
+        DiscoveredRegistrySymbol::symbol_names(&result.components),
+        vec!["PrimaryButton".to_owned()]
+    );
+    assert_eq!(
+        result.components[0].package.as_deref(),
+        Some("com.acme.designsystem")
+    );
     assert!(result.diagnostics.is_empty());
 
     let request_json: Value =
@@ -66,6 +75,10 @@ JSON
                 "api_version": WIRE_API_VERSION,
                 "language_id": "compose",
                 "symbols": ["PrimaryButton"],
+                "components": [{
+                    "symbol": "PrimaryButton",
+                    "package": "com.acme.designsystem"
+                }],
                 "diagnostics": [],
             }))
             .unwrap()

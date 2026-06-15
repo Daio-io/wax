@@ -207,8 +207,6 @@ pub enum ScanStatus {
 pub enum MatchStatus {
     /// The usage is resolved to a known design-system component.
     Resolved,
-    /// The usage imports the underlying framework equivalent of a design-system component.
-    FrameworkShadow,
     /// The usage is a possible design-system component match.
     Candidate,
     /// The usage could not be resolved to the design-system registry.
@@ -292,7 +290,7 @@ pub struct UsageSite {
     pub symbol: String,
     /// Resolution status against the design-system registry.
     pub match_status: MatchStatus,
-    /// Registry symbol for resolved, framework_shadow, and candidate usage; absent for unresolved usage.
+    /// Registry symbol for resolved and candidate usage; absent for unresolved usage.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub registry_symbol: Option<String>,
 }
@@ -338,9 +336,6 @@ pub struct CountSummary {
     pub resolved_count: u32,
     /// Number of candidate usage sites.
     pub candidate_count: u32,
-    /// Number of framework-shadow usage sites.
-    #[serde(default)]
-    pub framework_shadow_count: u32,
 }
 
 /// Merged scan facts keyed by language id.
@@ -533,16 +528,13 @@ fn validate_usage_site_registry_symbol(
     site: &UsageSite,
 ) -> Result<(), ScanFactsError> {
     match (site.match_status, &site.registry_symbol) {
-        (
-            MatchStatus::Resolved | MatchStatus::FrameworkShadow | MatchStatus::Candidate,
-            Some(registry_symbol),
-        ) => require_non_empty(&format!("{field}.registry_symbol"), registry_symbol),
-        (MatchStatus::Resolved | MatchStatus::FrameworkShadow | MatchStatus::Candidate, None) => {
-            Err(contract_violation(
-                &format!("{field}.registry_symbol"),
-                "registry_symbol is required for resolved, framework_shadow, and candidate usage",
-            ))
+        (MatchStatus::Resolved | MatchStatus::Candidate, Some(registry_symbol)) => {
+            require_non_empty(&format!("{field}.registry_symbol"), registry_symbol)
         }
+        (MatchStatus::Resolved | MatchStatus::Candidate, None) => Err(contract_violation(
+            &format!("{field}.registry_symbol"),
+            "registry_symbol is required for resolved and candidate usage",
+        )),
         (MatchStatus::Unresolved, Some(_)) => Err(contract_violation(
             &format!("{field}.registry_symbol"),
             "registry_symbol must be absent for unresolved usage",
@@ -599,14 +591,10 @@ fn derive_counts_and_ratio(
 ) -> Result<(CountSummary, Option<f64>), ScanFactsError> {
     let mut resolved_count = 0_u32;
     let mut candidate_count = 0_u32;
-    let mut framework_shadow_count = 0_u32;
 
     for site in &facts.usage_sites {
         match site.match_status {
             MatchStatus::Resolved => increment_count("counts.resolved_count", &mut resolved_count)?,
-            MatchStatus::FrameworkShadow => {
-                increment_count("counts.framework_shadow_count", &mut framework_shadow_count)?
-            }
             MatchStatus::Candidate => {
                 increment_count("counts.candidate_count", &mut candidate_count)?;
             }
@@ -627,7 +615,6 @@ fn derive_counts_and_ratio(
         usage_site_count,
         resolved_count,
         candidate_count,
-        framework_shadow_count,
     };
     let ratio = if usage_site_count == 0 {
         None

@@ -74,7 +74,15 @@ Use configless discovery: **always pass `--root`** and do not assume configured 
    - Use the language entry's configured `registry` path when present.
    - Otherwise expect the default `.wax/<language-id>.registry.json`.
 
-4. Compare the dry-run output with the existing target registry when it exists. Show the user a concise diff or summary of added, removed, and changed component ids/symbols.
+4. Compare the dry-run output with the existing target registry when it exists. Show the user a concise diff or summary of added, removed, and changed component ids/symbols. Discovered registries should include a `package` field per component when the language pack can infer it:
+
+   | Language | `package` inference |
+   |----------|---------------------|
+   | `compose` | Kotlin `package` declaration in the source file |
+   | `react` | `package.json` `name` above the discovery root |
+   | `swift` | Module name from `Sources/<Module>/` |
+
+   When `package` is present, parser-backed scans count only imports from that package as resolved design-system usage. If discover omits `package` for a symbol (for example after a `discover_package_conflict` warning), scans fall back to legacy name-only matching for that symbol.
 
 5. Review ambiguous candidates before writing:
 

@@ -1,5 +1,6 @@
 //! Swift tree-sitter parsing helpers.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -183,10 +184,137 @@ fn first_error_node(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>
     None
 }
 
+/// Import bindings collected from Swift `import` declarations in one source file.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct ImportBindings {
+    /// Maps local symbol names to the module prefix they were imported from.
+    pub symbol_packages: BTreeMap<String, String>,
+    /// Module imports that expose all public symbols from a module.
+    pub module_imports: Vec<String>,
+}
+
+impl ImportBindings {
+    /// Returns the module prefix for a symbol used at a call site, when known.
+    pub(crate) fn package_for_symbol(&self, symbol: &str) -> Option<String> {
+        if let Some(package) = self.symbol_packages.get(symbol) {
+            return Some(package.clone());
+        }
+
+        match self.module_imports.len() {
+            0 => None,
+            1 => Some(self.module_imports[0].clone()),
+            _ => None,
+        }
+    }
+
+    /// Returns the import package for a call site, preferring an explicit qualifier.
+    pub(crate) fn package_for_call(&self, symbol: &str, qualifier: Option<&str>) -> Option<String> {
+        if let Some(qualifier) = qualifier.filter(|value| !value.is_empty()) {
+            return Some(qualifier.to_owned());
+        }
+
+        self.package_for_symbol(symbol)
+    }
+}
+
+/// Collects import bindings from the top level of a Swift source file.
+pub(crate) fn collect_import_bindings(
+    root: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> ImportBindings {
+    let mut bindings = ImportBindings::default();
+    let mut stack = vec![root];
+
+    while let Some(node) = stack.pop() {
+        if node.kind() == "import_declaration"
+            && let Some(module_name) = import_module_from_declaration(node, source)
+        {
+            if let Some((package, symbol)) = module_name.rsplit_once('.') {
+                if !package.is_empty() {
+                    bindings
+                        .symbol_packages
+                        .insert(symbol.to_owned(), package.to_owned());
+                }
+            } else {
+                bindings.module_imports.push(module_name);
+            }
+            continue;
+        }
+
+        for index in (0..node.child_count()).rev() {
+            if let Some(child) = node.child(index) {
+                stack.push(child);
+            }
+        }
+    }
+
+    bindings.module_imports.sort();
+    bindings
+}
+
+fn import_module_from_declaration(
+    import_node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Option<String> {
+    let mut cursor = import_node.walk();
+    for child in import_node.named_children(&mut cursor) {
+        if matches!(
+            child.kind(),
+            "identifier" | "simple_identifier" | "type_identifier"
+        ) {
+            return child.utf8_text(source).ok().map(str::to_owned);
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn collect_import_bindings_tracks_module_and_selective_imports() {
+        let mut parser = new_parser().expect("parser");
+        let source = r#"
+import SwiftUI
+import AcmeDesignSystem
+import struct Foundation.URL
+
+struct Screen: View {
+    var body: some View { Text("ok") }
+}
+"#;
+        let tree = parser.parse(source.as_bytes(), None).expect("tree");
+        let bindings = collect_import_bindings(tree.root_node(), source.as_bytes());
+
+        assert_eq!(bindings.module_imports, vec!["AcmeDesignSystem", "SwiftUI"]);
+        assert_eq!(
+            bindings.symbol_packages.get("URL"),
+            Some(&"Foundation".to_owned())
+        );
+        assert_eq!(bindings.package_for_symbol("Button"), None);
+        assert_eq!(
+            bindings.package_for_call("Button", Some("SwiftUI")),
+            Some("SwiftUI".to_owned())
+        );
+        assert_eq!(
+            bindings.package_for_call("Button", None),
+            None,
+            "unqualified calls stay ambiguous when multiple modules are imported"
+        );
+
+        let single_module_source = "import SwiftUI\nstruct Screen {}\n";
+        let single_tree = parser
+            .parse(single_module_source.as_bytes(), None)
+            .expect("tree");
+        let single_bindings =
+            collect_import_bindings(single_tree.root_node(), single_module_source.as_bytes());
+        assert_eq!(
+            single_bindings.package_for_symbol("Button"),
+            Some("SwiftUI".to_owned())
+        );
+    }
 
     #[test]
     fn collect_swift_files_recurses_and_skips_non_swift_files() {

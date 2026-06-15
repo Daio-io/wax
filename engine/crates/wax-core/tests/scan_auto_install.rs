@@ -91,7 +91,7 @@ fn fixture_with_registry_url(name: &str, registry_artifact_url: Option<&str>) ->
 
     let design_registry =
         r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#;
-    fs::write(repo.join(".wax/wax.registry.json"), design_registry).unwrap();
+    fs::write(repo.join(".wax/compose.registry.json"), design_registry).unwrap();
     let design_registry_sha256 = sha256_hex(design_registry.as_bytes());
 
     fs::write(
@@ -114,7 +114,7 @@ fn fixture_with_registry_url(name: &str, registry_artifact_url: Option<&str>) ->
   "wax_version": "0.0.0",
   "registries": {{
     "compose": {{
-      "source": ".wax/wax.registry.json",
+      "source": ".wax/compose.registry.json",
       "sha256": "{design_registry_sha256}"
     }}
   }},
@@ -187,7 +187,7 @@ fn fixture_script() -> &'static str {
 set -eu
 cat >/dev/null
 cat <<JSON
-{"type":"scan_facts","api_version":1,"language_id":"compose","facts":{"schema_version":1,"language":{"id":"compose","version":"0.1.0","ecosystem":"compose","parser_name":"compose","parser_version":"0.1.0"},"snapshot_id":"snap-compose","scanned_at":"1970-01-01T00:00:00Z","status":"complete","design_system_components":[],"local_components":[],"usage_sites":[],"diagnostics":[],"metrics":{"parse_extract_ms":0,"files_scanned":0,"adoption_coverage_ratio":null},"counts":{"design_system_component_count":0,"local_component_count":0,"usage_site_count":0,"resolved_count":0,"candidate_count":0,"framework_shadow_count":0}}}
+{"type":"scan_facts","api_version":1,"language_id":"compose","facts":{"schema_version":1,"language":{"id":"compose","version":"0.1.0","ecosystem":"compose","parser_name":"compose","parser_version":"0.1.0"},"snapshot_id":"snap-compose","scanned_at":"1970-01-01T00:00:00Z","status":"complete","design_system_components":[],"local_components":[],"usage_sites":[],"diagnostics":[],"metrics":{"parse_extract_ms":0,"files_scanned":0,"adoption_coverage_ratio":null},"counts":{"design_system_component_count":0,"local_component_count":0,"usage_site_count":0,"resolved_count":0,"candidate_count":0}}}
 JSON
 "#
 }

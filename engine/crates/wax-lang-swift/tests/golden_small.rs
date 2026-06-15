@@ -46,12 +46,65 @@ fn golden_small_swiftui_fixture_matches_counts() {
             .all(|site| site.registry_symbol.as_deref() == Some("PrimaryButton")),
         "all PrimaryCTA alias usages must resolve to PrimaryButton"
     );
-    assert!(
-        !facts
-            .design_system_components
-            .iter()
-            .any(|component| component.symbol == "ComposeOnly")
+}
+
+#[test]
+fn non_ds_import_is_not_counted_when_registry_package_is_set() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let registry_dir = tmp.path().join("design-system");
+    std::fs::create_dir_all(&registry_dir).unwrap();
+    std::fs::write(
+        registry_dir.join("registry.json"),
+        r#"{
+            "schema_version": 1,
+            "components": [
+                {
+                    "id": "ds.btn",
+                    "symbol": "Button",
+                    "package": "AcmeDesignSystem"
+                }
+            ]
+        }"#,
+    )
+    .unwrap();
+
+    let source_dir = tmp.path().join("app/Sources");
+    std::fs::create_dir_all(&source_dir).unwrap();
+    std::fs::write(
+        source_dir.join("Screen.swift"),
+        r#"
+import SwiftUI
+
+struct Screen: View {
+    var body: some View {
+        Button("Save") {}
+    }
+}
+"#,
+    )
+    .unwrap();
+
+    let mut config = ScanConfig::new();
+    config.insert(
+        "registry".to_owned(),
+        serde_json::json!("design-system/registry.json"),
     );
+    config.insert("roots".to_owned(), serde_json::json!(["app/Sources"]));
+
+    let request = ScanRequest {
+        request_type: ScanRequestType::Scan,
+        api_version: WIRE_API_VERSION,
+        language_id: "swift".try_into().unwrap(),
+        repo_root: tmp.path().to_string_lossy().to_string(),
+        snapshot_id: "snap-swift-non-ds-import".to_owned(),
+        config,
+    };
+
+    let facts = SwiftLanguage::new().scan(&request).unwrap();
+
+    assert_eq!(facts.counts.usage_site_count, 0);
+    assert_eq!(facts.counts.resolved_count, 0);
+    assert_eq!(facts.counts.candidate_count, 0);
 }
 
 #[test]

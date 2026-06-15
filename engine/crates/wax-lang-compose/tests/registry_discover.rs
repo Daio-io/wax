@@ -17,12 +17,23 @@ fn discovers_public_top_level_composables() {
     let result = discover_registry_symbols(&fixture_parse_root(), &[fixture_root()])
         .expect("discover symbols");
 
-    assert!(!result.symbols.iter().any(|symbol| symbol == "NestedCard"));
+    assert!(!result.symbols().iter().any(|symbol| symbol == "NestedCard"));
     assert_eq!(
-        result.symbols,
+        result.symbols(),
         vec!["PrimaryButton", "QualifiedButton", "SecondaryButton"]
     );
-    assert!(result.diagnostics.is_empty());
+    let package_for = |symbol: &str| {
+        result
+            .components
+            .iter()
+            .find(|component| component.symbol == symbol)
+            .and_then(|component| component.package.as_deref())
+    };
+    assert_eq!(package_for("SecondaryButton"), Some("com.example.ds"));
+    assert_eq!(package_for("QualifiedButton"), Some("com.example.ds"));
+    assert_eq!(package_for("PrimaryButton"), None);
+    assert_eq!(result.diagnostics.len(), 1);
+    assert_eq!(result.diagnostics[0].code, "discover_package_conflict");
 }
 
 #[test]
@@ -46,7 +57,7 @@ fn parse_failures_do_not_block_symbols_from_other_files() -> io::Result<()> {
     let result = discover_registry_symbols(tempdir.path(), &[tempdir.path().to_path_buf()])
         .expect("discover should continue after parse failure");
 
-    assert_eq!(result.symbols, vec!["GoodButton"]);
+    assert_eq!(result.symbols(), vec!["GoodButton"]);
     assert_eq!(result.diagnostics.len(), 1);
     assert_eq!(result.diagnostics[0].code, "parse_failed");
     assert_eq!(
@@ -68,7 +79,7 @@ fn parse_failures_are_skipped_with_diagnostics() -> io::Result<()> {
     let result = discover_registry_symbols(tempdir.path(), &[tempdir.path().to_path_buf()])
         .expect("discover should continue after parse failure");
 
-    assert!(result.symbols.is_empty());
+    assert!(result.symbols().is_empty());
     assert_eq!(result.diagnostics.len(), 1);
     assert_eq!(result.diagnostics[0].severity, DiagnosticSeverity::Error);
     assert_eq!(result.diagnostics[0].code, "parse_failed");

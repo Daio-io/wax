@@ -1,9 +1,10 @@
 //! SwiftUI registry symbol discovery.
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use wax_contract::Diagnostic;
+use wax_contract::{Diagnostic, DiagnosticSeverity};
+use wax_lang_api::{DiscoveredRegistrySymbol, swift_module_from_source_path};
 
 use crate::component_detect::collect_component_declarations;
 use crate::swift_ast::{
@@ -14,10 +15,18 @@ use crate::swift_ast::{
 /// Result of discovering SwiftUI registry symbols from source roots.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscoverRegistryResult {
-    /// Discovered design-system symbol names.
-    pub symbols: Vec<String>,
+    /// Discovered design-system symbols with optional package identity.
+    pub components: Vec<DiscoveredRegistrySymbol>,
     /// Structured diagnostics emitted while discovering symbols.
     pub diagnostics: Vec<Diagnostic>,
+}
+
+impl DiscoverRegistryResult {
+    /// Returns discovered symbol names in stable order.
+    #[must_use]
+    pub fn symbols(&self) -> Vec<String> {
+        DiscoveredRegistrySymbol::symbol_names(&self.components)
+    }
 }
 
 /// Errors produced while discovering SwiftUI registry symbols.
@@ -81,9 +90,10 @@ pub fn discover_registry_symbols(
     }
     swift_files.sort();
 
-    let mut symbols = BTreeSet::new();
+    let mut components = BTreeMap::<String, Option<String>>::new();
     let mut diagnostics = Vec::new();
     for file_path in swift_files {
+        let package = swift_module_from_source_path(&file_path);
         match parse_swift_file_permissive(&mut parser, &file_path) {
             Ok(parsed) => {
                 for component in collect_component_declarations(
@@ -91,7 +101,12 @@ pub fn discover_registry_symbols(
                     parsed.source.as_bytes(),
                     true,
                 ) {
-                    symbols.insert(component.symbol);
+                    insert_discovered_symbol(
+                        &mut components,
+                        &mut diagnostics,
+                        component.symbol,
+                        package.clone(),
+                    );
                 }
                 if tree_has_syntax_errors(&parsed.tree) {
                     let relative_file = repo_relative_path(parse_root, &file_path);
@@ -112,19 +127,46 @@ pub fn discover_registry_symbols(
     }
 
     Ok(DiscoverRegistryResult {
-        symbols: symbols.into_iter().collect(),
+        components: components
+            .into_iter()
+            .map(|(symbol, package)| DiscoveredRegistrySymbol::new(symbol, package))
+            .collect(),
         diagnostics,
     })
+}
+
+fn insert_discovered_symbol(
+    components: &mut BTreeMap<String, Option<String>>,
+    diagnostics: &mut Vec<Diagnostic>,
+    symbol: String,
+    package: Option<String>,
+) {
+    if let Some(existing) = components.get(&symbol) {
+        if existing.as_ref() != package.as_ref() && existing.is_some() && package.is_some() {
+            diagnostics.push(Diagnostic {
+                severity: DiagnosticSeverity::Warning,
+                code: "discover_package_conflict".to_owned(),
+                message: format!(
+                    "symbol '{symbol}' was discovered in multiple packages; omitting package metadata"
+                ),
+                location: None,
+            });
+            components.insert(symbol, None);
+        }
+        return;
+    }
+
+    components.insert(symbol, package);
 }
 
 fn repo_relative_path(parse_root: &Path, file_path: &Path) -> String {
     file_path
         .strip_prefix(parse_root)
-        .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+        .map(|relative| relative.to_string_lossy().replace("\\", "/"))
         .unwrap_or_else(|_| {
             file_path
                 .file_name()
-                .map(|name| name.to_string_lossy().replace('\\', "/"))
-                .unwrap_or_else(|| file_path.to_string_lossy().replace('\\', "/"))
+                .map(|name| name.to_string_lossy().replace("\\", "/"))
+                .unwrap_or_else(|| file_path.to_string_lossy().replace("\\", "/"))
         })
 }

@@ -1,6 +1,8 @@
 //! Design-system registry source resolution.
 
-use crate::config::repo_files::{DEFAULT_REGISTRY_RELATIVE_PATH, REGISTRY_CACHE_RELATIVE_DIR};
+use crate::config::repo_files::{
+    REGISTRY_CACHE_RELATIVE_DIR, default_registry_path_for_language_id,
+};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -153,9 +155,8 @@ fn resolve_registry_source_with_options(
         .source
         .map(str::trim)
         .filter(|source| !source.is_empty())
-        .unwrap_or(DEFAULT_REGISTRY_RELATIVE_PATH);
-
-    let source = source.to_owned();
+        .map(str::to_owned)
+        .unwrap_or_else(|| default_registry_path_for_language_id(input.language_id));
     let (bytes, repo_relative_path, external) = read_source(input.repo_root, &source)?;
     validate_registry_json(&source, &bytes, allow_missing_components)?;
     let sha256 = hex_lower_sha256(&bytes);

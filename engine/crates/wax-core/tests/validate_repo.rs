@@ -135,7 +135,7 @@ fn validate_repo_requires_lockfile_when_language_enabled() {
 }
 
 #[test]
-fn validate_repo_rejects_missing_default_registry_file() {
+fn validate_repo_rejects_missing_per_language_registry_file() {
     let root = TestDir::new("validate-repo-missing-default-registry");
     fs::write(
         root.path.join(".waxrc"),
@@ -147,7 +147,7 @@ fn validate_repo_rejects_missing_default_registry_file() {
     .unwrap();
     write_lockfile(&root.path);
 
-    let err = validate_repo(&root.path).expect_err("missing default registry should fail");
+    let err = validate_repo(&root.path).expect_err("missing per-language registry should fail");
     assert!(matches!(
         err,
         ValidateError::RegistrySource {
@@ -287,11 +287,11 @@ fn validate_repo_accepts_default_centralized_registry() {
     )
     .unwrap();
     fs::write(
-        root.path.join(".wax/wax.registry.json"),
+        root.path.join(".wax/compose.registry.json"),
         r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
     )
     .unwrap();
-    write_lockfile_with_registry(&root.path, ".wax/wax.registry.json");
+    write_lockfile_with_registry(&root.path, ".wax/compose.registry.json");
 
     let report = validate_repo(&root.path).unwrap();
 

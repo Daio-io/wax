@@ -8,12 +8,16 @@ use wax_contract::{
     DesignSystemComponent, Diagnostic, DiagnosticSeverity, LocalComponent, MatchStatus, ScanStatus,
     SourceLocation, UsageSite,
 };
-use wax_lang_api::{RootPatternKind, RootResolutionError, ScanConfig, resolve_source_roots};
 
 use crate::component_detect::collect_component_declarations;
 use crate::swift_ast::{
-    ParseSwiftFileError, collect_swift_files, new_parser, parse_swift_file_permissive,
-    partial_tree_parse_diagnostic, tree_has_syntax_errors, unparseable_file_diagnostic,
+    ImportBindings, ParseSwiftFileError, collect_import_bindings, collect_swift_files, new_parser,
+    parse_swift_file_permissive, partial_tree_parse_diagnostic, tree_has_syntax_errors,
+    unparseable_file_diagnostic,
+};
+use wax_lang_api::{
+    RootPatternKind, RootResolutionError, ScanConfig, resolve_import_aware_match,
+    resolve_source_roots,
 };
 
 /// Parsed Swift scan configuration from the engine request payload.
@@ -205,6 +209,7 @@ pub struct TreeSitterScanResult {
 struct RegistryIndex {
     canonical_symbols: Vec<String>,
     resolve_targets: BTreeMap<String, String>,
+    component_packages: BTreeMap<String, Option<String>>,
 }
 
 fn load_registry(path: &Path) -> Result<RegistryIndex, TreeSitterScanError> {
@@ -236,11 +241,8 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, TreeSitterScanError> {
 
     let mut canonical_symbols = Vec::new();
     let mut resolve_targets = BTreeMap::new();
+    let mut component_packages = BTreeMap::new();
     for (index, component) in components.iter().enumerate() {
-        if !component_available_to_swift(component, index, path)? {
-            continue;
-        }
-
         let symbol = component
             .get("symbol")
             .and_then(serde_json::Value::as_str)
@@ -248,8 +250,30 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, TreeSitterScanError> {
                 path: path.to_path_buf(),
                 reason: format!("components[{index}] is missing symbol"),
             })?;
+        let package = component
+            .get("package")
+            .map(|value| {
+                value
+                    .as_str()
+                    .ok_or_else(|| TreeSitterScanError::RegistryInvalid {
+                        path: path.to_path_buf(),
+                        reason: format!("components[{index}].package must be a string"),
+                    })
+            })
+            .transpose()?
+            .map(str::to_owned);
+        if let Some(package) = &package
+            && package.is_empty()
+        {
+            return Err(TreeSitterScanError::RegistryInvalid {
+                path: path.to_path_buf(),
+                reason: format!("components[{index}].package must not be empty"),
+            });
+        }
+
         canonical_symbols.push(symbol.to_owned());
         resolve_targets.insert(symbol.to_owned(), symbol.to_owned());
+        component_packages.insert(symbol.to_owned(), package);
 
         if let Some(aliases) = component
             .get("aliases")
@@ -281,48 +305,49 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, TreeSitterScanError> {
     Ok(RegistryIndex {
         canonical_symbols,
         resolve_targets,
+        component_packages,
     })
 }
 
-fn component_available_to_swift(
-    component: &serde_json::Value,
-    index: usize,
-    path: &Path,
-) -> Result<bool, TreeSitterScanError> {
-    let Some(targets_value) = component.get("targets") else {
-        return Ok(true);
-    };
-    if targets_value.is_null() {
-        return Ok(true);
-    }
-    let Some(targets) = targets_value.as_array() else {
-        return Err(TreeSitterScanError::RegistryInvalid {
-            path: path.to_path_buf(),
-            reason: format!("components[{index}].targets must be an array of strings"),
-        });
-    };
-    for (target_index, target) in targets.iter().enumerate() {
-        let target = target
-            .as_str()
-            .ok_or_else(|| TreeSitterScanError::RegistryInvalid {
-                path: path.to_path_buf(),
-                reason: format!("components[{index}].targets[{target_index}] must be a string"),
-            })?;
-        if target == "swift" {
-            return Ok(true);
+fn resolve_registry_match(
+    call_symbol: &str,
+    call_qualifier: Option<&str>,
+    registry_symbol: &str,
+    registry: &RegistryIndex,
+    imports: &ImportBindings,
+) -> Option<MatchStatus> {
+    resolve_import_aware_match(
+        registry
+            .component_packages
+            .get(registry_symbol)
+            .and_then(|package| package.as_deref()),
+        imports
+            .package_for_call(call_symbol, call_qualifier)
+            .as_deref(),
+    )
+    .or_else(|| {
+        if registry
+            .component_packages
+            .get(registry_symbol)
+            .and_then(|package| package.as_deref())
+            .is_none()
+        {
+            Some(MatchStatus::Resolved)
+        } else {
+            None
         }
-    }
-    Ok(false)
+    })
 }
 
 fn extract_from_source(
     root: tree_sitter::Node<'_>,
     source: &[u8],
     file: &str,
-    resolve_targets: &BTreeMap<String, String>,
+    registry: &RegistryIndex,
     local_components: &mut Vec<LocalComponent>,
     usage_sites: &mut Vec<UsageSite>,
 ) {
+    let imports = collect_import_bindings(root, source);
     for component in collect_component_declarations(root, source, false) {
         local_components.push(LocalComponent {
             id: format!("local.{file}:{}:{}", component.line, component.symbol),
@@ -338,20 +363,30 @@ fn extract_from_source(
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
         if is_call_expression_node(node)
-            && let Some((call_symbol, pos)) = call_final_member_name(node, source)
-            && let Some(registry_symbol) = resolve_targets.get(&call_symbol)
+            && let Some(call_site) = resolve_call_site(node, source)
+            && let Some(registry_symbol) = registry.resolve_targets.get(&call_site.symbol)
         {
-            let line = pos.row as u32 + 1;
-            let column = pos.column as u32 + 1;
+            let Some(match_status) = resolve_registry_match(
+                &call_site.symbol,
+                call_site.qualifier.as_deref(),
+                registry_symbol,
+                registry,
+                &imports,
+            ) else {
+                continue;
+            };
+
+            let line = call_site.position.row as u32 + 1;
+            let column = call_site.position.column as u32 + 1;
             usage_sites.push(UsageSite {
-                id: format!("usage.{file}:{line}:{column}:{call_symbol}"),
+                id: format!("usage.{file}:{line}:{column}:{}", call_site.symbol),
                 location: SourceLocation {
                     file: file.to_owned(),
                     line,
                     column: Some(column),
                 },
-                symbol: call_symbol.clone(),
-                match_status: MatchStatus::Resolved,
+                symbol: call_site.symbol.clone(),
+                match_status,
                 registry_symbol: Some(registry_symbol.clone()),
             });
         }
@@ -368,42 +403,62 @@ fn is_call_expression_node(node: tree_sitter::Node<'_>) -> bool {
     node.kind() == "call_expression"
 }
 
-fn call_final_member_name(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-) -> Option<(String, tree_sitter::Point)> {
-    let mut cursor = node.walk();
-    let callee = node.named_children(&mut cursor).next()?;
-    final_member_from_callee(callee, source)
+struct ResolvedCallSite {
+    symbol: String,
+    qualifier: Option<String>,
+    position: tree_sitter::Point,
 }
 
-fn final_member_from_callee(
+fn resolve_call_site(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<ResolvedCallSite> {
+    let mut cursor = node.walk();
+    let callee = node.named_children(&mut cursor).next()?;
+    resolve_call_site_from_callee(callee, source)
+}
+
+fn resolve_call_site_from_callee(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-) -> Option<(String, tree_sitter::Point)> {
+) -> Option<ResolvedCallSite> {
     match node.kind() {
         "simple_identifier" => {
             let name = node.utf8_text(source).ok()?.to_owned();
-            Some((name, node.start_position()))
+            Some(ResolvedCallSite {
+                symbol: name,
+                qualifier: None,
+                position: node.start_position(),
+            })
         }
         "navigation_expression" => {
             let suffix = node.child_by_field_name("suffix")?;
-            final_member_from_navigation_suffix(suffix, source)
+            let member = suffix.child_by_field_name("suffix")?;
+            if member.kind() != "simple_identifier" {
+                return None;
+            }
+            let name = member.utf8_text(source).ok()?.to_owned();
+            let qualifier = navigation_expression_qualifier(node, source);
+            Some(ResolvedCallSite {
+                symbol: name,
+                qualifier,
+                position: member.start_position(),
+            })
         }
         _ => None,
     }
 }
 
-fn final_member_from_navigation_suffix(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-) -> Option<(String, tree_sitter::Point)> {
-    let member = node.child_by_field_name("suffix")?;
-    if member.kind() == "simple_identifier" {
-        let name = member.utf8_text(source).ok()?.to_owned();
-        Some((name, member.start_position()))
-    } else {
-        None
+fn navigation_expression_qualifier(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let target = node.child_by_field_name("target")?;
+    identifier_from_expression(target, source)
+}
+
+fn identifier_from_expression(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    match node.kind() {
+        "simple_identifier" | "type_identifier" => node.utf8_text(source).ok().map(str::to_owned),
+        "navigation_expression" => {
+            let target = node.child_by_field_name("target")?;
+            identifier_from_expression(target, source)
+        }
+        _ => None,
     }
 }
 
@@ -470,7 +525,7 @@ pub fn scan_repository(
                     parsed.tree.root_node(),
                     parsed.source.as_bytes(),
                     &relative_file,
-                    &registry.resolve_targets,
+                    &registry,
                     &mut local_components,
                     &mut usage_sites,
                 );
@@ -562,9 +617,35 @@ mod tests {
             .collect()
     }
 
+    fn registry_index(
+        resolve_targets: BTreeMap<String, String>,
+        component_packages: BTreeMap<String, Option<String>>,
+    ) -> RegistryIndex {
+        let canonical_symbols = resolve_targets
+            .values()
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        RegistryIndex {
+            canonical_symbols,
+            resolve_targets,
+            component_packages,
+        }
+    }
+
+    fn registry_without_packages(pairs: &[(&str, &str)]) -> RegistryIndex {
+        let resolve_targets = resolve_map(pairs);
+        let component_packages = resolve_targets
+            .values()
+            .map(|symbol| (symbol.clone(), None))
+            .collect();
+        registry_index(resolve_targets, component_packages)
+    }
+
     fn parse_and_extract(
         source: &str,
-        resolve_targets: &BTreeMap<String, String>,
+        registry: &RegistryIndex,
     ) -> (Vec<LocalComponent>, Vec<UsageSite>) {
         let mut parser = make_parser();
         let tree = parser.parse(source.as_bytes(), None).expect("parse");
@@ -574,7 +655,7 @@ mod tests {
             tree.root_node(),
             source.as_bytes(),
             "Test.swift",
-            resolve_targets,
+            registry,
             &mut locals,
             &mut usages,
         );
@@ -593,7 +674,7 @@ mod tests {
 
     #[test]
     fn direct_member_and_alias_calls_resolve_to_registry_symbols() {
-        let resolve = resolve_map(&[
+        let registry = registry_without_packages(&[
             ("PrimaryButton", "PrimaryButton"),
             ("PrimaryCTA", "PrimaryButton"),
             ("Card", "Card"),
@@ -610,7 +691,7 @@ mod tests {
             }
         }
         "#,
-            &resolve,
+            &registry,
         );
 
         assert_eq!(usages.len(), 3);
@@ -621,7 +702,7 @@ mod tests {
 
     #[test]
     fn comments_strings_and_non_registry_calls_are_ignored() {
-        let resolve = resolve_map(&[("PrimaryButton", "PrimaryButton")]);
+        let registry = registry_without_packages(&[("PrimaryButton", "PrimaryButton")]);
         let (_, usages) = parse_and_extract(
             r#"
         let label = "PrimaryButton(title:)"
@@ -630,7 +711,7 @@ mod tests {
             LocalCard()
         }
         "#,
-            &resolve,
+            &registry,
         );
 
         assert!(usages.is_empty());
@@ -638,7 +719,7 @@ mod tests {
 
     #[test]
     fn multiline_call_is_detected_at_first_line() {
-        let resolve = resolve_map(&[("PrimaryButton", "PrimaryButton")]);
+        let registry = registry_without_packages(&[("PrimaryButton", "PrimaryButton")]);
         let source = r#"
         struct Screen: View {
             var body: some View {
@@ -648,10 +729,67 @@ mod tests {
             }
         }
         "#;
-        let (_, usages) = parse_and_extract(source, &resolve);
+        let (_, usages) = parse_and_extract(source, &registry);
         assert_eq!(usages.len(), 1);
         assert_eq!(usages[0].location.line, 4);
         assert!(usages[0].location.column.unwrap() >= 16);
+    }
+
+    #[test]
+    fn non_ds_module_import_is_not_counted_when_package_is_configured() {
+        let mut component_packages = BTreeMap::new();
+        component_packages.insert("Button".to_owned(), Some("AcmeDesignSystem".to_owned()));
+        let registry = registry_index(resolve_map(&[("Button", "Button")]), component_packages);
+        let source = r#"
+import SwiftUI
+
+struct Screen: View {
+    var body: some View {
+        Button("Save") {}
+    }
+}
+"#;
+        let (_, usages) = parse_and_extract(source, &registry);
+        assert_eq!(usages.len(), 0);
+    }
+
+    #[test]
+    fn qualified_non_ds_call_is_not_counted_when_package_is_configured() {
+        let mut component_packages = BTreeMap::new();
+        component_packages.insert("Button".to_owned(), Some("AcmeDesignSystem".to_owned()));
+        let registry = registry_index(resolve_map(&[("Button", "Button")]), component_packages);
+        let source = r#"
+import SwiftUI
+import AcmeDesignSystem
+
+struct Screen: View {
+    var body: some View {
+        SwiftUI.Button("Save") {}
+    }
+}
+"#;
+        let (_, usages) = parse_and_extract(source, &registry);
+        assert_eq!(usages.len(), 0);
+    }
+
+    #[test]
+    fn unqualified_call_with_multiple_module_imports_becomes_candidate() {
+        let mut component_packages = BTreeMap::new();
+        component_packages.insert("Button".to_owned(), Some("AcmeDesignSystem".to_owned()));
+        let registry = registry_index(resolve_map(&[("Button", "Button")]), component_packages);
+        let source = r#"
+import SwiftUI
+import AcmeDesignSystem
+
+struct Screen: View {
+    var body: some View {
+        Button("Save") {}
+    }
+}
+"#;
+        let (_, usages) = parse_and_extract(source, &registry);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].match_status, MatchStatus::Candidate);
     }
 
     #[test]

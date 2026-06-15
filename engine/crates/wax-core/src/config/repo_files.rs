@@ -12,16 +12,19 @@ pub const LEGACY_CONFIG_RELATIVE_PATH: &str = ".waxrc";
 pub const PREFERRED_LOCKFILE_RELATIVE_PATH: &str = ".wax/wax.lock.json";
 /// Legacy repo-local wax lockfile path.
 pub const LEGACY_LOCKFILE_RELATIVE_PATH: &str = "wax.lock.json";
-/// Default local registry path used when language config omits `registry`.
-pub const DEFAULT_REGISTRY_RELATIVE_PATH: &str = ".wax/wax.registry.json";
 /// Registry cache directory used for materialized external sources.
 pub const REGISTRY_CACHE_RELATIVE_DIR: &str = ".wax/cache/registries";
 /// Generated scan output directory.
 pub const SCAN_OUTPUT_RELATIVE_DIR: &str = ".wax/out";
 
 /// Default per-language registry path when a language entry omits `registry`.
+pub fn default_registry_path_for_language_id(language_id: &str) -> String {
+    format!(".wax/{language_id}.registry.json")
+}
+
+/// Default per-language registry path when a language entry omits `registry`.
 pub fn default_registry_path_for_language(language_id: &LanguageId) -> String {
-    format!(".wax/{}.registry.json", language_id.as_str())
+    default_registry_path_for_language_id(language_id.as_str())
 }
 
 /// Repo-local wax files selected for a command invocation.

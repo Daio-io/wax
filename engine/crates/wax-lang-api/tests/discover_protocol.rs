@@ -29,6 +29,10 @@ fn discover_success_response_fixture_roundtrips() {
         "api_version": WIRE_API_VERSION,
         "language_id": "compose",
         "symbols": ["PrimaryButton", "SecondaryButton"],
+        "components": [
+            {"symbol": "PrimaryButton", "package": "com.acme.designsystem"},
+            {"symbol": "SecondaryButton", "package": "com.acme.designsystem"}
+        ],
         "diagnostics": [{
             "severity": "info",
             "code": "compose_discover_skipped_private",

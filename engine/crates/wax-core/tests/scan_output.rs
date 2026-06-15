@@ -53,7 +53,7 @@ fn fixture(name: &str, languages: &[&str]) -> ScanOutputFixture {
     fs::create_dir_all(&wax_home).unwrap();
 
     write_waxrc(&repo, languages);
-    write_default_registry(&repo);
+    write_default_registry(&repo, languages);
     write_lockfile(&repo, languages);
     write_installed_packs(&wax_home, languages);
 
@@ -70,13 +70,22 @@ fn temp_dir(name: &str) -> PathBuf {
     path
 }
 
-fn write_default_registry(repo: &Path) {
+const DEFAULT_REGISTRY_JSON: &str =
+    r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#;
+
+fn language_registry_relative_path(language: &str) -> String {
+    format!(".wax/{language}.registry.json")
+}
+
+fn write_default_registry(repo: &Path, languages: &[&str]) {
     fs::create_dir_all(repo.join(".wax")).unwrap();
-    fs::write(
-        repo.join(".wax/wax.registry.json"),
-        r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
-    )
-    .unwrap();
+    for language in languages {
+        fs::write(
+            repo.join(language_registry_relative_path(language)),
+            DEFAULT_REGISTRY_JSON,
+        )
+        .unwrap();
+    }
 }
 
 fn write_waxrc(repo: &Path, languages: &[&str]) {
@@ -101,13 +110,14 @@ fn write_waxrc(repo: &Path, languages: &[&str]) {
 }
 
 fn write_lockfile(repo: &Path, languages: &[&str]) {
-    let registry_sha256 = file_sha256(&repo.join(".wax/wax.registry.json"));
     let registry_entries = languages
         .iter()
         .map(|language| {
+            let path = language_registry_relative_path(language);
+            let registry_sha256 = file_sha256(&repo.join(&path));
             format!(
                 r#"    "{language}": {{
-      "source": ".wax/wax.registry.json",
+      "source": "{path}",
       "sha256": "{registry_sha256}"
     }}"#
             )
@@ -222,7 +232,7 @@ set -eu
 language="$1"
 cat >/dev/null
 cat <<JSON
-{"type":"scan_facts","api_version":1,"language_id":"$language","facts":{"schema_version":1,"language":{"id":"$language","version":"0.1.0","ecosystem":"test","parser_name":"fixture","parser_version":"1.0.0"},"snapshot_id":"snap-$language","scanned_at":"1970-01-01T00:00:00Z","status":"complete","design_system_components":[],"local_components":[],"usage_sites":[],"diagnostics":[],"metrics":{"parse_extract_ms":0,"files_scanned":0,"adoption_coverage_ratio":null},"counts":{"design_system_component_count":0,"local_component_count":0,"usage_site_count":0,"resolved_count":0,"candidate_count":0,"framework_shadow_count":0}}}
+{"type":"scan_facts","api_version":1,"language_id":"$language","facts":{"schema_version":1,"language":{"id":"$language","version":"0.1.0","ecosystem":"test","parser_name":"fixture","parser_version":"1.0.0"},"snapshot_id":"snap-$language","scanned_at":"1970-01-01T00:00:00Z","status":"complete","design_system_components":[],"local_components":[],"usage_sites":[],"diagnostics":[],"metrics":{"parse_extract_ms":0,"files_scanned":0,"adoption_coverage_ratio":null},"counts":{"design_system_component_count":0,"local_component_count":0,"usage_site_count":0,"resolved_count":0,"candidate_count":0}}}
 JSON
 "#
 }

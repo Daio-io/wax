@@ -449,7 +449,7 @@ fn init_scaffolds_swift_per_language_registry_and_lock_entry() {
     );
 
     assert!(repo.join(".wax/swift.registry.json").is_file());
-    assert!(!repo.join(".wax/wax.registry.json").exists());
+    assert!(!repo.join(".wax/compose.registry.json").exists());
 
     let waxrc = load_waxrc(repo.join(".wax/wax.config.json")).unwrap();
     let swift = waxrc

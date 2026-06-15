@@ -4,18 +4,11 @@
     {
       "id": "ds.primary-button",
       "symbol": "PrimaryButton",
-      "aliases": ["PrimaryCTA"],
-      "targets": ["swift"]
+      "aliases": ["PrimaryCTA"]
     },
     {
       "id": "ds.card",
-      "symbol": "Card",
-      "targets": ["swift"]
-    },
-    {
-      "id": "ds.compose-only",
-      "symbol": "ComposeOnly",
-      "targets": ["compose"]
+      "symbol": "Card"
     }
   ]
 }

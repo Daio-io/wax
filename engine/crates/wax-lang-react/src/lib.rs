@@ -16,7 +16,7 @@ mod swc_parse;
 use std::path::Path;
 
 use wax_contract::{LanguageId, ScanFacts, ScanFactsError};
-use wax_lang_api::{DiscoverRequest, ScanRequest};
+use wax_lang_api::{DiscoverRequest, DiscoveredRegistrySymbol, ScanRequest};
 
 pub use config::{PackageConfig, ReactConfigMode, ReactScanConfig, parse_react_scan_config};
 pub use discover::{DiscoverRegistryResult, ReactDiscoverError, discover_registry_symbols};
@@ -36,10 +36,18 @@ pub use swc_parse::{
 /// Result of a React registry symbol discovery request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscoverSymbolsResult {
-    /// Discovered design-system symbol names.
-    pub symbols: Vec<String>,
+    /// Discovered design-system symbols with optional package identity.
+    pub components: Vec<DiscoveredRegistrySymbol>,
     /// Structured diagnostics emitted with the result.
     pub diagnostics: Vec<wax_contract::Diagnostic>,
+}
+
+impl DiscoverSymbolsResult {
+    /// Returns discovered symbol names in stable order.
+    #[must_use]
+    pub fn symbols(&self) -> Vec<String> {
+        DiscoveredRegistrySymbol::symbol_names(&self.components)
+    }
 }
 
 /// Errors returned by [`ReactLanguage::scan`].
@@ -187,7 +195,7 @@ impl ReactLanguage {
         let result = discover_registry_symbols(repo_root, &absolute_roots)?;
 
         Ok(DiscoverSymbolsResult {
-            symbols: result.symbols,
+            components: result.components,
             diagnostics: result.diagnostics,
         })
     }
@@ -212,7 +220,7 @@ mod tests {
         )
         .unwrap();
         fs::write(
-            repo_root.join(".wax/wax.registry.json"),
+            repo_root.join(".wax/react.registry.json"),
             r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"Button","targets":["react"]}]}"#,
         )
         .unwrap();
@@ -220,7 +228,7 @@ mod tests {
         let mut config = ScanConfig::new();
         config.insert(
             "registry".to_owned(),
-            serde_json::Value::String(".wax/wax.registry.json".to_owned()),
+            serde_json::Value::String(".wax/react.registry.json".to_owned()),
         );
         config.insert(
             "roots".to_owned(),
@@ -280,7 +288,7 @@ mod tests {
         )
         .unwrap();
         fs::write(
-            repo_root.join(".wax/wax.registry.json"),
+            repo_root.join(".wax/react.registry.json"),
             r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"Button","targets":["react"]}]}"#,
         )
         .unwrap();
@@ -288,7 +296,7 @@ mod tests {
         let mut config = ScanConfig::new();
         config.insert(
             "registry".to_owned(),
-            serde_json::Value::String(".wax/wax.registry.json".to_owned()),
+            serde_json::Value::String(".wax/react.registry.json".to_owned()),
         );
         config.insert(
             "roots".to_owned(),

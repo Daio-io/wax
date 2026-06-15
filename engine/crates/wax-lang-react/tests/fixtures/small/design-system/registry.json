@@ -4,13 +4,11 @@
     {
       "id": "ds.primary-button",
       "symbol": "PrimaryButton",
-      "aliases": ["PrimaryBtn"],
-      "targets": ["react"]
+      "aliases": ["PrimaryBtn"]
     },
     {
       "id": "ds.text-field",
-      "symbol": "TextField",
-      "targets": ["react"]
+      "symbol": "TextField"
     }
   ]
 }

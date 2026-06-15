@@ -51,7 +51,6 @@ pub fn scaffold_facts(request: &ScanRequest, react_language_id: LanguageId) -> S
             usage_site_count: 0,
             resolved_count: 0,
             candidate_count: 0,
-            framework_shadow_count: 0,
         },
     }
 }
@@ -128,7 +127,6 @@ pub fn configured_scan_facts(
             usage_site_count: 0,
             resolved_count: 0,
             candidate_count: 0,
-            framework_shadow_count: 0,
         },
     })
 }

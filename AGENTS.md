@@ -76,6 +76,19 @@ For documentation-only changes, inspect the rendered Markdown when practical and
 - Keep language-pack protocol changes backward-aware. Update contract/API crates, pack implementations, fixtures, and schemas together.
 - Prefer repo-relative paths in config and outputs unless a task explicitly introduces an absolute-path escape hatch.
 
+## Language Pack Parity
+
+Parser-backed language packs (`compose`, `react`, `swift`, and future packs) must stay aligned on scan semantics. Do not ship behavior in one pack that others cannot express without drift.
+
+When changing registry resolution, usage classification, or scan config for one pack:
+
+1. Update the shared contract (`wax-contract` schemas and types) and any shared helpers in `wax-lang-api` first when the behavior is cross-cutting.
+2. Apply the same rules to every parser-backed pack that emits `usage_sites`, including `match_status` values such as `resolved` and `candidate`.
+3. Keep optional registry fields backward-compatible across packs. Example: registry component `package` with per-language registry files at `.wax/<language-id>.registry.json`.
+4. Add or update fixtures/tests in each affected pack crate, not just the pack you are editing.
+
+If a pack needs ecosystem-specific import syntax, mirror the same outcomes: imports that match registry `package` resolve, non-matching imports are not counted as design-system usage, unclear imports become `candidate`, and legacy name-only behavior remains only when registry `package` is absent.
+
 ## Product Contracts
 
 - `.waxrc`, `wax.lock.json`, pack index JSON, scan output JSON, and schema files are user-facing contracts. Update fixtures, schemas, docs, and tests when changing them.

@@ -75,7 +75,7 @@ For documentation-only changes, inspect the rendered Markdown when practical and
 - Use typed errors at contract boundaries instead of bare strings.
 - Keep CLI behavior scriptable, stable, and CI-friendly.
 - Prefer repo-relative paths in config and outputs unless a task explicitly requires otherwise.
-- When changing user-facing contracts such as `.wax/wax.config.json`, `.wax/wax.lock.json`, `.wax/wax.registry.json`, or schemas, update fixtures, tests, and docs together.
+- When changing user-facing contracts such as `.wax/wax.config.json`, `.wax/wax.lock.json`, per-language `.wax/<language-id>.registry.json`, or schemas, update fixtures, tests, and docs together.
 
 ## AI skills
 

@@ -12,7 +12,7 @@ fn discover_registry_symbols_emits_exported_public_components() {
         discover_registry_symbols(&fixture_root(), &[root]).expect("discover should succeed");
 
     assert_eq!(
-        result.symbols,
+        result.symbols(),
         vec![
             "Button".to_owned(),
             "Card".to_owned(),
@@ -44,12 +44,20 @@ fn react_language_discover_resolves_repo_relative_roots() {
         .expect("discover should succeed");
 
     assert!(result.diagnostics.is_empty());
-    assert!(result.symbols.contains(&"Button".to_owned()));
-    assert!(!result.symbols.contains(&"PrivateBadge".to_owned()));
-    assert!(!result.symbols.contains(&"lowerBadge".to_owned()));
-    assert!(!result.symbols.contains(&"notComponent".to_owned()));
-    assert!(!result.symbols.contains(&"FactoryMemo".to_owned()));
-    assert!(!result.symbols.contains(&"FactoryRef".to_owned()));
+    assert!(result.symbols().contains(&"Button".to_owned()));
+    assert_eq!(
+        result
+            .components
+            .iter()
+            .find(|component| component.symbol == "Button")
+            .and_then(|component| component.package.as_deref()),
+        Some("@acme/design-system")
+    );
+    assert!(!result.symbols().contains(&"PrivateBadge".to_owned()));
+    assert!(!result.symbols().contains(&"lowerBadge".to_owned()));
+    assert!(!result.symbols().contains(&"notComponent".to_owned()));
+    assert!(!result.symbols().contains(&"FactoryMemo".to_owned()));
+    assert!(!result.symbols().contains(&"FactoryRef".to_owned()));
 }
 
 #[test]
@@ -71,7 +79,7 @@ fn parse_failures_are_skipped_with_diagnostics() -> io::Result<()> {
     let result = discover_registry_symbols(tempdir.path(), &[tempdir.path().to_path_buf()])
         .expect("discover should continue after parse failure");
 
-    assert!(result.symbols.is_empty());
+    assert!(result.symbols().is_empty());
     assert_eq!(result.diagnostics.len(), 1);
     assert_eq!(result.diagnostics[0].code, "parse_failed");
     assert_eq!(
@@ -96,7 +104,7 @@ fn parse_failures_do_not_block_symbols_from_other_files() -> io::Result<()> {
     let result = discover_registry_symbols(tempdir.path(), &[tempdir.path().to_path_buf()])
         .expect("discover should continue after parse failure");
 
-    assert_eq!(result.symbols, vec!["Button".to_owned()]);
+    assert_eq!(result.symbols(), vec!["Button".to_owned()]);
     assert_eq!(result.diagnostics.len(), 1);
     assert_eq!(result.diagnostics[0].code, "parse_failed");
     Ok(())
@@ -119,7 +127,7 @@ fn discover_detects_chained_memo_forward_ref_exports() -> io::Result<()> {
     let result = discover_registry_symbols(tempdir.path(), &[tempdir.path().to_path_buf()])
         .expect("discover should succeed");
 
-    assert_eq!(result.symbols, vec!["ChainedInput".to_owned()]);
+    assert_eq!(result.symbols(), vec!["ChainedInput".to_owned()]);
     Ok(())
 }
 
@@ -140,7 +148,7 @@ fn discover_detects_default_chained_memo_forward_ref_exports() -> io::Result<()>
     let result = discover_registry_symbols(tempdir.path(), &[tempdir.path().to_path_buf()])
         .expect("discover should succeed");
 
-    assert_eq!(result.symbols, vec!["DefaultChainedInput".to_owned()]);
+    assert_eq!(result.symbols(), vec!["DefaultChainedInput".to_owned()]);
     Ok(())
 }
 
@@ -161,7 +169,7 @@ fn discover_detects_default_forward_ref_exports() -> io::Result<()> {
     let result = discover_registry_symbols(tempdir.path(), &[tempdir.path().to_path_buf()])
         .expect("discover should succeed");
 
-    assert_eq!(result.symbols, vec!["DefaultInput".to_owned()]);
+    assert_eq!(result.symbols(), vec!["DefaultInput".to_owned()]);
     Ok(())
 }
 
@@ -182,7 +190,7 @@ fn discover_defers_aliased_named_exports() -> io::Result<()> {
     let result = discover_registry_symbols(tempdir.path(), &[tempdir.path().to_path_buf()])
         .expect("discover should succeed");
 
-    assert!(result.symbols.is_empty());
+    assert!(result.symbols().is_empty());
     Ok(())
 }
 
@@ -204,12 +212,16 @@ fn invalid_language_id_fails() {
 }
 
 #[test]
-fn discover_merges_symbols_from_multiple_roots() -> io::Result<()> {
+fn discover_merges_symbols_from_multiple_roots_with_per_package_metadata() -> io::Result<()> {
     let tempdir = tempfile::tempdir()?;
-    let root_a = tempdir.path().join("pkg-a");
-    let root_b = tempdir.path().join("pkg-b");
+    let pkg_a = tempdir.path().join("packages/pkg-a");
+    let pkg_b = tempdir.path().join("packages/pkg-b");
+    let root_a = pkg_a.join("src");
+    let root_b = pkg_b.join("src");
     fs::create_dir_all(&root_a)?;
     fs::create_dir_all(&root_b)?;
+    fs::write(pkg_a.join("package.json"), r#"{"name":"@acme/pkg-a"}"#)?;
+    fs::write(pkg_b.join("package.json"), r#"{"name":"@acme/pkg-b"}"#)?;
     fs::write(
         root_a.join("Alpha.tsx"),
         "export function Alpha() { return <a />; }",
@@ -222,7 +234,57 @@ fn discover_merges_symbols_from_multiple_roots() -> io::Result<()> {
     let result = discover_registry_symbols(tempdir.path(), &[root_a, root_b])
         .expect("discover should succeed");
 
-    assert_eq!(result.symbols, vec!["Alpha".to_owned(), "Beta".to_owned()]);
+    assert_eq!(
+        result.symbols(),
+        vec!["Alpha".to_owned(), "Beta".to_owned()]
+    );
+    let package_for = |symbol: &str| {
+        result
+            .components
+            .iter()
+            .find(|component| component.symbol == symbol)
+            .and_then(|component| component.package.as_deref())
+    };
+    assert_eq!(package_for("Alpha"), Some("@acme/pkg-a"));
+    assert_eq!(package_for("Beta"), Some("@acme/pkg-b"));
+    assert!(result.diagnostics.is_empty());
+    Ok(())
+}
+
+#[test]
+fn discover_omits_package_when_symbol_appears_in_multiple_npm_packages() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let pkg_a = tempdir.path().join("packages/pkg-a");
+    let pkg_b = tempdir.path().join("packages/pkg-b");
+    let root_a = pkg_a.join("src");
+    let root_b = pkg_b.join("src");
+    fs::create_dir_all(&root_a)?;
+    fs::create_dir_all(&root_b)?;
+    fs::write(pkg_a.join("package.json"), r#"{"name":"@acme/pkg-a"}"#)?;
+    fs::write(pkg_b.join("package.json"), r#"{"name":"@acme/pkg-b"}"#)?;
+    fs::write(
+        root_a.join("Shared.tsx"),
+        "export function Shared() { return <a />; }",
+    )?;
+    fs::write(
+        root_b.join("Shared.tsx"),
+        "export function Shared() { return <b />; }",
+    )?;
+
+    let result = discover_registry_symbols(tempdir.path(), &[root_a, root_b])
+        .expect("discover should succeed");
+
+    assert_eq!(result.symbols(), vec!["Shared".to_owned()]);
+    assert_eq!(
+        result
+            .components
+            .iter()
+            .find(|component| component.symbol == "Shared")
+            .and_then(|component| component.package.as_deref()),
+        None
+    );
+    assert_eq!(result.diagnostics.len(), 1);
+    assert_eq!(result.diagnostics[0].code, "discover_package_conflict");
     Ok(())
 }
 
@@ -247,7 +309,7 @@ fn discover_skips_excluded_source_files() -> io::Result<()> {
     let result =
         discover_registry_symbols(tempdir.path(), &[root]).expect("discover should succeed");
 
-    assert_eq!(result.symbols, vec!["Button".to_owned()]);
+    assert_eq!(result.symbols(), vec!["Button".to_owned()]);
     Ok(())
 }
 
@@ -264,7 +326,7 @@ fn discover_skips_barrel_only_roots_without_implementation_files() -> io::Result
     let result =
         discover_registry_symbols(tempdir.path(), &[root]).expect("discover should succeed");
 
-    assert!(result.symbols.is_empty());
+    assert!(result.symbols().is_empty());
     Ok(())
 }
 

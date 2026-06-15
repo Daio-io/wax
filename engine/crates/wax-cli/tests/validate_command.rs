@@ -195,11 +195,11 @@ fn validate_command_prints_ignored_legacy_file_warnings() {
     )
     .unwrap();
     fs::write(
-        repo.join(".wax/wax.registry.json"),
+        repo.join(".wax/compose.registry.json"),
         r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
     )
     .unwrap();
-    write_lockfile_with_registry(&repo, ".wax/wax.registry.json");
+    write_lockfile_with_registry(&repo, ".wax/compose.registry.json");
     fs::write(
         repo.join(".waxrc"),
         r#"{"schema_version":1,"languages":[]}"#,

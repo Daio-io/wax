@@ -51,6 +51,32 @@ pub(crate) fn new_parser() -> Result<tree_sitter::Parser, String> {
     Ok(parser)
 }
 
+/// Returns the Kotlin `package` declaration from a parsed source file, when present.
+pub(crate) fn package_name_from_source(
+    root: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Option<String> {
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "package_header" {
+            let mut cursor = node.walk();
+            for child in node.named_children(&mut cursor) {
+                if child.kind() == "qualified_identifier" {
+                    return child.utf8_text(source).ok().map(str::to_owned);
+                }
+            }
+        }
+
+        for index in (0..node.child_count()).rev() {
+            if let Some(child) = node.child(index) {
+                stack.push(child);
+            }
+        }
+    }
+
+    None
+}
+
 pub(crate) fn collect_kotlin_files(dir: &Path, files: &mut Vec<PathBuf>) -> std::io::Result<()> {
     let entries = fs::read_dir(dir)?;
     for entry in entries {

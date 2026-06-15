@@ -13,7 +13,7 @@ use wax_contract::{
     CountSummary, Diagnostic, DiagnosticSeverity, LanguageId, LanguageMetadata, Metrics,
     SCHEMA_VERSION, ScanFacts, ScanFactsError, ScanStatus,
 };
-use wax_lang_api::{DiscoverRequest, ScanRequest, build_version};
+use wax_lang_api::{DiscoverRequest, DiscoveredRegistrySymbol, ScanRequest, build_version};
 
 pub use discover::{ComposeDiscoverError, DiscoverRegistryResult, discover_registry_symbols};
 use tree_sitter_scan::TreeSitterScanError;
@@ -22,10 +22,18 @@ pub use tree_sitter_scan::{ComposeConfigMode, ComposeScanConfig};
 /// Result of a Compose registry symbol discovery request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscoverSymbolsResult {
-    /// Discovered design-system symbol names.
-    pub symbols: Vec<String>,
+    /// Discovered design-system symbols with optional package identity.
+    pub components: Vec<DiscoveredRegistrySymbol>,
     /// Structured diagnostics emitted with the result.
     pub diagnostics: Vec<Diagnostic>,
+}
+
+impl DiscoverSymbolsResult {
+    /// Returns discovered symbol names in stable order.
+    #[must_use]
+    pub fn symbols(&self) -> Vec<String> {
+        DiscoveredRegistrySymbol::symbol_names(&self.components)
+    }
 }
 
 /// Errors returned by [`ComposeLanguage::scan`].
@@ -131,7 +139,7 @@ impl ComposeLanguage {
         let result = discover_registry_symbols(repo_root, &absolute_roots)?;
 
         Ok(DiscoverSymbolsResult {
-            symbols: result.symbols,
+            components: result.components,
             diagnostics: result.diagnostics,
         })
     }
@@ -178,7 +186,6 @@ fn facts_from_scan(
             usage_site_count: 0,
             resolved_count: 0,
             candidate_count: 0,
-            framework_shadow_count: 0,
         },
     }
 }
@@ -217,7 +224,6 @@ fn scaffold_facts(request: &ScanRequest) -> ScanFacts {
             usage_site_count: 0,
             resolved_count: 0,
             candidate_count: 0,
-            framework_shadow_count: 0,
         },
     }
 }

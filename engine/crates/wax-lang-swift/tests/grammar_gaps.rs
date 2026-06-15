@@ -84,7 +84,7 @@ fn discover_finds_component_with_available_preview_fixture() {
     .expect("copy fixture");
 
     let result = discover_registry_symbols(tempdir.path(), &[sources]).expect("discover symbols");
-    assert_eq!(result.symbols, vec!["AvailablePreviewCard"]);
+    assert_eq!(result.symbols(), vec!["AvailablePreviewCard"]);
     assert_eq!(result.diagnostics.len(), 1);
     assert_parse_gap_diagnostic(
         &result.diagnostics[0],
@@ -106,7 +106,7 @@ fn discover_finds_component_with_empty_paren_attribute_fixture() {
     .expect("copy fixture");
 
     let result = discover_registry_symbols(tempdir.path(), &[sources]).expect("discover symbols");
-    assert_eq!(result.symbols, vec!["EmptyParenAttributeCard"]);
+    assert_eq!(result.symbols(), vec!["EmptyParenAttributeCard"]);
     assert_eq!(result.diagnostics.len(), 1);
     assert_parse_gap_diagnostic(
         &result.diagnostics[0],
@@ -130,7 +130,7 @@ fn discover_via_stdio_finds_grammar_gap_components() {
         .discover(&request)
         .expect("discover via language wrapper");
     assert_eq!(
-        result.symbols,
+        result.symbols(),
         vec!["AvailablePreviewCard", "EmptyParenAttributeCard"]
     );
     assert_eq!(result.diagnostics.len(), 2);

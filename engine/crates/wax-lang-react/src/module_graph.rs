@@ -1324,12 +1324,15 @@ mod tests {
 
     fn registry_with_symbols(symbols: &[&str]) -> ReactRegistryIndex {
         let mut resolve_targets = BTreeMap::new();
+        let mut component_packages = BTreeMap::new();
         for symbol in symbols {
             resolve_targets.insert((*symbol).to_owned(), (*symbol).to_owned());
+            component_packages.insert((*symbol).to_owned(), None);
         }
         ReactRegistryIndex {
             design_system_components: Vec::new(),
             resolve_targets,
+            component_packages,
         }
     }
 

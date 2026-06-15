@@ -15,7 +15,7 @@ use wax_contract::{
     CountSummary, Diagnostic, DiagnosticSeverity, LanguageId, LanguageMetadata, Metrics,
     SCHEMA_VERSION, ScanFacts, ScanFactsError, ScanStatus,
 };
-use wax_lang_api::{DiscoverRequest, ScanRequest, build_version};
+use wax_lang_api::{DiscoverRequest, DiscoveredRegistrySymbol, ScanRequest, build_version};
 
 /// Parser version bundled through the `tree-sitter-swift` dependency.
 pub const TREE_SITTER_SWIFT_GRAMMAR_VERSION: &str = "0.6.0";
@@ -25,10 +25,18 @@ pub use tree_sitter_scan::{SwiftConfigMode, SwiftScanConfig};
 /// Result of a Swift registry symbol discovery request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscoverSymbolsResult {
-    /// Discovered design-system symbol names.
-    pub symbols: Vec<String>,
+    /// Discovered design-system symbols with optional package identity.
+    pub components: Vec<DiscoveredRegistrySymbol>,
     /// Non-fatal diagnostics emitted during discovery.
     pub diagnostics: Vec<Diagnostic>,
+}
+
+impl DiscoverSymbolsResult {
+    /// Returns discovered symbol names in stable order.
+    #[must_use]
+    pub fn symbols(&self) -> Vec<String> {
+        DiscoveredRegistrySymbol::symbol_names(&self.components)
+    }
 }
 
 /// Errors returned by [`SwiftLanguage::scan`].
@@ -137,7 +145,7 @@ impl SwiftLanguage {
         let result = discover_registry_symbols(repo_root, &roots)?;
 
         Ok(DiscoverSymbolsResult {
-            symbols: result.symbols,
+            components: result.components,
             diagnostics: result.diagnostics,
         })
     }
@@ -191,7 +199,6 @@ fn facts_from_scan(
             usage_site_count: 0,
             resolved_count: 0,
             candidate_count: 0,
-            framework_shadow_count: 0,
         },
     }
 }
@@ -230,7 +237,6 @@ fn scaffold_facts(request: &ScanRequest, language_id: LanguageId) -> ScanFacts {
             usage_site_count: 0,
             resolved_count: 0,
             candidate_count: 0,
-            framework_shadow_count: 0,
         },
     }
 }

@@ -147,7 +147,10 @@ fn run_stdio_with_reader<R: BufRead, W: Write>(
                         Ok(result) => WirePackResponse::DiscoverSymbols {
                             api_version,
                             language_id,
-                            symbols: result.symbols,
+                            symbols: wax_lang_api::DiscoveredRegistrySymbol::symbol_names(
+                                &result.components,
+                            ),
+                            components: result.components,
                             diagnostics: result.diagnostics,
                         },
                         Err(err) => discover_error_response(api_version, language_id, err),
@@ -319,7 +322,7 @@ mod tests {
         std::fs::create_dir_all(&registry_dir).expect("registry dir should be created");
         std::fs::write(
             registry_dir.join("registry.json"),
-            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"Button","targets":["compose"]}]}"#,
+            r#"{"schema_version":1,"components":[]}"#,
         )
         .expect("registry fixture should be written");
 
