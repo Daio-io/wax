@@ -17,8 +17,14 @@ fn discovers_public_and_package_swiftui_symbols() {
     let result = discover_registry_symbols(&fixture_root(), &[fixture_sources_root()])
         .expect("discover symbols");
     assert_eq!(
-        result.symbols,
+        result.symbols(),
         vec!["Badge", "PackageCard", "PrimaryButton"]
+    );
+    assert!(
+        result
+            .components
+            .iter()
+            .all(|component| component.package.as_deref() == Some("AcmeDesignSystem"))
     );
     assert!(result.diagnostics.is_empty());
 }
@@ -36,7 +42,7 @@ fn parse_failures_are_reported_while_discovery_continues() {
     let root = fixture_root().join("broken/Sources");
     let result =
         discover_registry_symbols(&fixture_root(), &[root]).expect("discover should continue");
-    assert!(result.symbols.is_empty());
+    assert!(result.symbols().is_empty());
     assert_eq!(result.diagnostics.len(), 1);
     assert_eq!(result.diagnostics[0].code, "parse_failed");
     assert_eq!(
@@ -54,13 +60,13 @@ fn duplicate_symbols_are_deduped_and_nested_symbols_are_excluded() {
         .expect("discover symbols");
     assert_eq!(
         result
-            .symbols
+            .symbols()
             .iter()
             .filter(|symbol| *symbol == "PrimaryButton")
             .count(),
         1
     );
-    assert!(!result.symbols.iter().any(|symbol| symbol == "NestedCard"));
+    assert!(!result.symbols().iter().any(|symbol| symbol == "NestedCard"));
 }
 
 #[test]
@@ -77,7 +83,7 @@ fn swift_language_discover_joins_repo_relative_roots() {
         .discover(&request)
         .expect("discover via language wrapper");
     assert_eq!(
-        result.symbols,
+        result.symbols(),
         vec!["Badge", "PackageCard", "PrimaryButton"]
     );
 }
@@ -96,7 +102,7 @@ fn parse_failures_do_not_block_symbols_from_other_files() -> io::Result<()> {
     let result = discover_registry_symbols(tempdir.path(), &[tempdir.path().to_path_buf()])
         .expect("discover should continue after parse failure");
 
-    assert_eq!(result.symbols, vec!["GoodButton"]);
+    assert_eq!(result.symbols(), vec!["GoodButton"]);
     assert_eq!(result.diagnostics.len(), 1);
     assert_eq!(result.diagnostics[0].code, "parse_failed");
     Ok(())

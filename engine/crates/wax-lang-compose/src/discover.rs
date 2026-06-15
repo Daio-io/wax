@@ -1,23 +1,32 @@
 //! Compose registry symbol discovery.
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use wax_contract::Diagnostic;
+use wax_contract::{Diagnostic, DiagnosticSeverity};
+use wax_lang_api::DiscoveredRegistrySymbol;
 
 use crate::kotlin_ast::{
     ParseKotlinFileError, collect_kotlin_files, function_name_from_decl, has_composable_annotation,
-    new_parser, parse_kotlin_file_permissive, partial_tree_parse_diagnostic,
-    tree_has_syntax_errors, unparseable_file_diagnostic,
+    new_parser, package_name_from_source, parse_kotlin_file_permissive,
+    partial_tree_parse_diagnostic, tree_has_syntax_errors, unparseable_file_diagnostic,
 };
 
 /// Result of discovering Compose registry symbols from Kotlin source roots.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscoverRegistryResult {
-    /// Discovered design-system symbol names.
-    pub symbols: Vec<String>,
+    /// Discovered design-system symbols with optional package identity.
+    pub components: Vec<DiscoveredRegistrySymbol>,
     /// Structured diagnostics emitted while discovering symbols.
     pub diagnostics: Vec<Diagnostic>,
+}
+
+impl DiscoverRegistryResult {
+    /// Returns discovered symbol names in stable order.
+    #[must_use]
+    pub fn symbols(&self) -> Vec<String> {
+        DiscoveredRegistrySymbol::symbol_names(&self.components)
+    }
 }
 
 /// Errors produced while discovering Compose registry symbols.
@@ -84,15 +93,19 @@ pub fn discover_registry_symbols(
     }
     kotlin_files.sort();
 
-    let mut symbols = BTreeSet::new();
+    let mut components = BTreeMap::<String, Option<String>>::new();
     let mut diagnostics = Vec::new();
     for file_path in kotlin_files {
         match parse_kotlin_file_permissive(&mut parser, &file_path) {
             Ok(parsed) => {
+                let package =
+                    package_name_from_source(parsed.tree.root_node(), parsed.source.as_bytes());
                 collect_symbols(
                     parsed.tree.root_node(),
                     parsed.source.as_bytes(),
-                    &mut symbols,
+                    package,
+                    &mut components,
+                    &mut diagnostics,
                 );
                 if tree_has_syntax_errors(&parsed.tree) {
                     let relative_file = repo_relative_path(parse_root, &file_path);
@@ -113,12 +126,21 @@ pub fn discover_registry_symbols(
     }
 
     Ok(DiscoverRegistryResult {
-        symbols: symbols.into_iter().collect(),
+        components: components
+            .into_iter()
+            .map(|(symbol, package)| DiscoveredRegistrySymbol::new(symbol, package))
+            .collect(),
         diagnostics,
     })
 }
 
-fn collect_symbols(root: tree_sitter::Node<'_>, source: &[u8], symbols: &mut BTreeSet<String>) {
+fn collect_symbols(
+    root: tree_sitter::Node<'_>,
+    source: &[u8],
+    package: Option<String>,
+    components: &mut BTreeMap<String, Option<String>>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
         if node.kind() == "function_declaration"
@@ -128,7 +150,7 @@ fn collect_symbols(root: tree_sitter::Node<'_>, source: &[u8], symbols: &mut BTr
             && let Some((name, _)) = function_name_from_decl(node, source)
             && name.starts_with(|c: char| c.is_ascii_uppercase())
         {
-            symbols.insert(name);
+            insert_discovered_symbol(components, diagnostics, name, package.clone());
         }
 
         for index in (0..node.child_count()).rev() {
@@ -137,6 +159,33 @@ fn collect_symbols(root: tree_sitter::Node<'_>, source: &[u8], symbols: &mut BTr
             }
         }
     }
+}
+
+fn insert_discovered_symbol(
+    components: &mut BTreeMap<String, Option<String>>,
+    diagnostics: &mut Vec<Diagnostic>,
+    symbol: String,
+    package: Option<String>,
+) {
+    if let Some(existing) = components.get(&symbol) {
+        if existing.as_ref() != package.as_ref()
+            && existing.is_some()
+            && package.is_some()
+        {
+            diagnostics.push(Diagnostic {
+                severity: DiagnosticSeverity::Warning,
+                code: "discover_package_conflict".to_owned(),
+                message: format!(
+                    "symbol '{symbol}' was discovered in multiple packages; omitting package metadata"
+                ),
+                location: None,
+            });
+            components.insert(symbol, None);
+        }
+        return;
+    }
+
+    components.insert(symbol, package);
 }
 
 fn is_top_level_declaration(node: tree_sitter::Node<'_>) -> bool {
@@ -172,11 +221,11 @@ fn is_public(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
 fn repo_relative_path(parse_root: &Path, file_path: &Path) -> String {
     file_path
         .strip_prefix(parse_root)
-        .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+        .map(|relative| relative.to_string_lossy().replace("\\", "/"))
         .unwrap_or_else(|_| {
             file_path
                 .file_name()
-                .map(|name| name.to_string_lossy().replace('\\', "/"))
-                .unwrap_or_else(|| file_path.to_string_lossy().replace('\\', "/"))
+                .map(|name| name.to_string_lossy().replace("\\", "/"))
+                .unwrap_or_else(|| file_path.to_string_lossy().replace("\\", "/"))
         })
 }

@@ -3,12 +3,18 @@
 //! Public language pack API for wax.
 
 pub mod build_info;
+pub mod discover;
 pub mod import_resolution;
 pub mod protocol;
 pub mod root_patterns;
 
 pub use build_info::build_version;
 pub use wax_contract::Diagnostic;
+
+pub use discover::{
+    DiscoveredRegistrySymbol, normalize_discovered_components, npm_package_name_for_roots,
+    swift_module_from_source_path,
+};
 
 pub use import_resolution::{
     FrameworkPackagesParseError, import_matches_framework_package, npm_import_package_root,

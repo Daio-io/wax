@@ -16,7 +16,8 @@ use std::time::{Duration, Instant};
 use thiserror::Error;
 use wax_contract::Diagnostic;
 use wax_lang_api::{
-    DiscoverRequest, WIRE_API_VERSION, WireErrorCode, WirePackRequest, WirePackResponse,
+    DiscoverRequest, DiscoveredRegistrySymbol, WIRE_API_VERSION, WireErrorCode, WirePackRequest,
+    WirePackResponse, normalize_discovered_components,
 };
 
 use crate::subprocess_lang::{LanguageCancellationToken, SubprocessLanguageManifest};
@@ -29,8 +30,8 @@ static SPOOL_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// Successful discover response from a language pack subprocess.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscoverSymbolsResult {
-    /// Discovered design-system symbol names.
-    pub symbols: Vec<String>,
+    /// Discovered design-system symbols with optional package identity.
+    pub components: Vec<DiscoveredRegistrySymbol>,
     /// Structured diagnostics emitted with the result.
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -485,12 +486,13 @@ fn parse_wire_response(stdout: &Path) -> Result<DiscoverSymbolsResult, DiscoverE
         WirePackResponse::DiscoverSymbols {
             api_version,
             symbols,
+            components,
             diagnostics,
             ..
         } => {
             ensure_supported_api_version(api_version)?;
             Ok(DiscoverSymbolsResult {
-                symbols,
+                components: normalize_discovered_components(symbols, components),
                 diagnostics,
             })
         }

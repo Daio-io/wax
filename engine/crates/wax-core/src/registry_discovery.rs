@@ -1,6 +1,6 @@
 //! Registry discovery orchestration and safe writes.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fs;
 use std::fs::{File, OpenOptions};
 use std::io;
@@ -12,7 +12,9 @@ use serde::Serialize;
 use serde_json::Value;
 use thiserror::Error;
 use wax_contract::{Diagnostic, LanguageId};
-use wax_lang_api::{DiscoverRequest, DiscoverRequestType, WIRE_API_VERSION};
+use wax_lang_api::{
+    DiscoverRequest, DiscoverRequestType, DiscoveredRegistrySymbol, WIRE_API_VERSION,
+};
 
 use crate::auto_install::{InstalledManifest, installed_manifest_matches_locked};
 use crate::config::lockfile::{
@@ -322,6 +324,8 @@ struct DiscoveredRegistry {
 struct DiscoveredComponent {
     id: String,
     symbol: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    package: Option<String>,
 }
 
 /// Discovers a registry for a single language and optionally writes it to disk.
@@ -370,14 +374,14 @@ pub fn discover_registry(
     let lockfile_present = lockfile.is_some();
     let state = load_global_state(state_file()?)?;
     let pack_command = resolve_discover_pack_command(&state, lockfile.as_ref(), &language_id)?;
-    let (symbols, diagnostics) = discover_symbols(
+    let (components, diagnostics) = discover_symbols(
         options.repo_root,
         &language_id,
         &roots,
         pack_command,
         DEFAULT_DISCOVER_TIMEOUT,
     )?;
-    let registry = build_registry(&symbols)?;
+    let registry = build_registry(&components)?;
     let registry = serde_json::to_value(&registry)
         .map_err(|source| RegistryDiscoverError::Serialize { source })?;
 
@@ -788,7 +792,7 @@ fn discover_symbols(
     roots: &[PathBuf],
     pack_command: Vec<String>,
     timeout: Duration,
-) -> Result<(Vec<String>, Vec<Diagnostic>), RegistryDiscoverError> {
+) -> Result<(Vec<DiscoveredRegistrySymbol>, Vec<Diagnostic>), RegistryDiscoverError> {
     let request = DiscoverRequest {
         request_type: DiscoverRequestType::Discover,
         api_version: WIRE_API_VERSION,
@@ -808,7 +812,7 @@ fn discover_symbols(
         timeout,
     });
     match discoverer.discover(request) {
-        Ok(result) => Ok((result.symbols, result.diagnostics)),
+        Ok(result) => Ok((result.components, result.diagnostics)),
         Err(DiscoverError::Unsupported { .. }) => Err(RegistryDiscoverError::DiscoverUnsupported {
             language_id: language_id.clone(),
         }),
@@ -922,32 +926,43 @@ fn sha256_hex(bytes: &[u8]) -> String {
         })
 }
 
-fn build_registry(symbols: &[String]) -> Result<DiscoveredRegistry, RegistryDiscoverError> {
+fn build_registry(
+    components: &[DiscoveredRegistrySymbol],
+) -> Result<DiscoveredRegistry, RegistryDiscoverError> {
     let mut seen_ids = BTreeMap::new();
-    let mut components = Vec::new();
-    for symbol in normalized_symbols(symbols.to_vec()) {
-        let id = format!("ds.{}", kebab_case_symbol(&symbol));
-        if let Some(first_symbol) = seen_ids.insert(id.clone(), symbol.clone()) {
+    let mut registry_components = Vec::new();
+    for component in normalized_components(components.to_vec()) {
+        let id = format!("ds.{}", kebab_case_symbol(&component.symbol));
+        if let Some(first_symbol) = seen_ids.insert(id.clone(), component.symbol.clone()) {
             return Err(RegistryDiscoverError::IdCollision {
                 id,
                 first_symbol,
-                second_symbol: symbol,
+                second_symbol: component.symbol,
             });
         }
-        components.push(DiscoveredComponent { id, symbol });
+        registry_components.push(DiscoveredComponent {
+            id,
+            symbol: component.symbol,
+            package: component.package,
+        });
     }
 
     Ok(DiscoveredRegistry {
         schema_version: REGISTRY_SCHEMA_VERSION,
-        components,
+        components: registry_components,
     })
 }
 
-fn normalized_symbols(symbols: Vec<String>) -> Vec<String> {
-    symbols
+fn normalized_components(
+    components: Vec<DiscoveredRegistrySymbol>,
+) -> Vec<DiscoveredRegistrySymbol> {
+    components
         .into_iter()
-        .collect::<BTreeSet<_>>()
-        .into_iter()
+        .fold(BTreeMap::new(), |mut acc, component| {
+            acc.entry(component.symbol.clone()).or_insert(component);
+            acc
+        })
+        .into_values()
         .collect()
 }
 

@@ -74,7 +74,7 @@ Use configless discovery: **always pass `--root`** and do not assume configured 
    - Use the language entry's configured `registry` path when present.
    - Otherwise expect the default `.wax/<language-id>.registry.json`.
 
-4. Compare the dry-run output with the existing target registry when it exists. Show the user a concise diff or summary of added, removed, and changed component ids/symbols.
+4. Compare the dry-run output with the existing target registry when it exists. Show the user a concise diff or summary of added, removed, and changed component ids/symbols. Discovered registries should include a `package` field per component when the language pack can infer it (Kotlin package, npm name, or Swift module). After discovery, remind the user to configure `framework_packages` in wax config when framework symbols can shadow design-system names.
 
 5. Review ambiguous candidates before writing:
 

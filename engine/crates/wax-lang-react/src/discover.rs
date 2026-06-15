@@ -10,6 +10,7 @@ use swc_ecma_ast::{
     ModuleItem, Stmt, VarDeclarator,
 };
 use wax_contract::Diagnostic;
+use wax_lang_api::{DiscoveredRegistrySymbol, npm_package_name_for_roots};
 
 use crate::component_detect::{
     class_returns_jsx, expression_returns_jsx, function_returns_jsx, is_pascal_case,
@@ -20,10 +21,18 @@ use crate::swc_parse::{ReactParseOutcome, parse_react_source_file};
 /// Result of discovering React registry symbols from source roots.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscoverRegistryResult {
-    /// Discovered design-system symbol names.
-    pub symbols: Vec<String>,
+    /// Discovered design-system symbols with optional package identity.
+    pub components: Vec<DiscoveredRegistrySymbol>,
     /// Structured diagnostics emitted while discovering symbols.
     pub diagnostics: Vec<Diagnostic>,
+}
+
+impl DiscoverRegistryResult {
+    /// Returns discovered symbol names in stable order.
+    #[must_use]
+    pub fn symbols(&self) -> Vec<String> {
+        DiscoveredRegistrySymbol::symbol_names(&self.components)
+    }
 }
 
 /// Errors produced while discovering React registry symbols.
@@ -83,6 +92,7 @@ pub fn discover_registry_symbols(
     }
     source_files.sort();
 
+    let package = npm_package_name_for_roots(parse_root, roots);
     let mut symbols = BTreeSet::new();
     let mut diagnostics = Vec::new();
     for file_path in source_files {
@@ -105,7 +115,10 @@ pub fn discover_registry_symbols(
     }
 
     Ok(DiscoverRegistryResult {
-        symbols: symbols.into_iter().collect(),
+        components: symbols
+            .into_iter()
+            .map(|symbol| DiscoveredRegistrySymbol::new(symbol, package.clone()))
+            .collect(),
         diagnostics,
     })
 }

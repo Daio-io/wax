@@ -126,7 +126,10 @@ fn run_stdio_with_reader<R: BufRead, W: Write>(
                         Ok(result) => WirePackResponse::DiscoverSymbols {
                             api_version,
                             language_id,
-                            symbols: result.symbols,
+                            symbols: wax_lang_api::DiscoveredRegistrySymbol::symbol_names(
+                                &result.components,
+                            ),
+                            components: result.components,
                             diagnostics: result.diagnostics,
                         },
                         Err(err) => discover_error_response(api_version, language_id, err),

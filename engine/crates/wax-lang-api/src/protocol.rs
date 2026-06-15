@@ -115,6 +115,9 @@ pub enum WirePackResponse {
         language_id: LanguageId,
         /// Discovered design-system symbol names.
         symbols: Vec<String>,
+        /// Discovered symbols with optional package identity.
+        #[serde(default)]
+        components: Vec<crate::discover::DiscoveredRegistrySymbol>,
         /// Structured diagnostics emitted with the result.
         diagnostics: Vec<Diagnostic>,
     },
