@@ -278,12 +278,14 @@ fn stdio_scan_reports_partial_facts_for_parse_failure() {
             assert_eq!(facts.snapshot_id, "snap-partial");
             assert_eq!(facts.status, ScanStatus::Partial);
             assert_eq!(facts.metrics.files_scanned, 2);
+            assert_eq!(facts.local_components.len(), 1);
+            assert_eq!(facts.local_components[0].symbol, "ValidView");
             assert!(
                 facts
                     .diagnostics
                     .iter()
                     .any(|diagnostic| diagnostic.code == "parse_failed"),
-                "expected parse_failed diagnostic, got: {:?}",
+                "partial trees with syntax errors must emit parse_failed: {:?}",
                 facts.diagnostics
             );
         }
