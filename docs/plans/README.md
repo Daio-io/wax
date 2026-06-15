@@ -9,7 +9,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 3. Each implementation task remains **one PR per task** inside the active plan, per that plan's execution model.
 4. Update the **Doc status** and **Implementation status** columns when a plan doc PR merges or when implementation of a plan finishes.
 
-**Active plan:** Wax scan analytics skill (order 10) — plan doc `merged`; implementation `in-progress` (Tasks 1–4 complete).
+**Active plan:** None — order 10 (wax scan analytics skill) is complete. Post-alpha UX (order 5) remains deferred.
 
 ---
 
@@ -26,7 +26,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 | 7 | Generic registry discovery protocol | [archive/2026-06-10-generic-registry-discovery-protocol.md](./archive/2026-06-10-generic-registry-discovery-protocol.md) | `merged` | `complete` | [ADR](../adr/2026-06-10-generic-registry-discovery-protocol.md) |
 | 8 | SwiftUI language pack | [archive/2026-06-13-swift-language-pack-plan.md](./archive/2026-06-13-swift-language-pack-plan.md) | `merged` | `complete` | [ADR](../adr/2026-06-13-swift-language-pack.md) |
 | 9 | Interactive init wizard | [archive/2026-06-13-interactive-init.md](./archive/2026-06-13-interactive-init.md) | `merged` | `complete` | [ADR](../adr/2026-06-13-interactive-init.md) |
-| 10 | Wax scan analytics skill | [2026-06-14-wax-scan-plan.md](./2026-06-14-wax-scan-plan.md) | `merged` | `in-progress` | — |
+| 10 | Wax scan analytics skill | [archive/2026-06-14-wax-scan-plan.md](./archive/2026-06-14-wax-scan-plan.md) | `merged` | `complete` | [ADR](../adr/2026-06-14-wax-scan-analytics-skill.md) |
 
 **Doc status:** `pending` -> plan PR open; `merged` -> plan doc on `main`; `planned` -> not yet drafted.
 
@@ -37,10 +37,10 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 ## Which plan should I run?
 
 ```text
--> wax scan analytics skill (order 10); continue Task 5
+-> Post-alpha UX (order 5) when explicitly un-deferred; otherwise no active implementation plan
 ```
 
-Orders 1-4, 6-9 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Interactive init (order 9) shipped Post-alpha UX Task 1. Order 10 Tasks 1–4 (scaffold, extractor, HTML template, docs wiring) are complete; end-to-end smoke remains. See [`archive/README.md`](./archive/README.md) and [`docs/adr/`](../adr/README.md) for prior implementation records.
+Orders 1-4, 6-10 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Interactive init (order 9) shipped Post-alpha UX Task 1. Wax scan analytics skill (order 10) shipped all five tasks. See [`archive/README.md`](./archive/README.md) and [`docs/adr/`](../adr/README.md) for prior implementation records.
 
 ---
 

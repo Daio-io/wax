@@ -13,5 +13,6 @@ ADRs record significant product and engineering decisions after implementation. 
 | 2026-06-10 | [Generic registry discovery protocol](./2026-06-10-generic-registry-discovery-protocol.md) | Accepted | [Plan archive](../plans/archive/2026-06-10-generic-registry-discovery-protocol.md) |
 | 2026-06-13 | [SwiftUI language pack](./2026-06-13-swift-language-pack.md) | Accepted | [Plan archive](../plans/archive/2026-06-13-swift-language-pack-plan.md) |
 | 2026-06-13 | [Interactive init wizard](./2026-06-13-interactive-init.md) | Accepted | [Plan archive](../plans/archive/2026-06-13-interactive-init.md) |
+| 2026-06-14 | [Wax scan analytics skill](./2026-06-14-wax-scan-analytics-skill.md) | Accepted | [Plan archive](../plans/archive/2026-06-14-wax-scan-plan.md) |
 
 **Active plans** (not yet implemented or deferred) remain in [`docs/plans/`](../plans/README.md).

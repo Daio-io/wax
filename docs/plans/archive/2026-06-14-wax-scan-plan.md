@@ -228,19 +228,19 @@ Add order 10 (or next available) to `docs/plans/README.md`:
 
 ## Phase 5 — End-to-end skill validation
 
-### - [ ] Task 5: Skill integration smoke
+### - [x] Task 5: Skill integration smoke
 
 **Files:**
 - Modify: `skills/wax-scan/SKILL.md` (only if smoke reveals doc gaps)
 
-- [ ] **Step 1: Run against a fixture or sample repo**
+- [x] **Step 1: Run against a fixture or sample repo**
 
 In a repo with Wax config and registries:
 1. Invoke skill workflow manually
 2. Confirm validate → scan → extract → terminal report
 3. Confirm `--html` writes `.wax/out/report/index.html`
 
-- [ ] **Step 2: Verify guardrails**
+- [x] **Step 2: Verify guardrails**
 
 Confirm skill docs require:
 - Stop when config missing
@@ -249,7 +249,7 @@ Confirm skill docs require:
 - Data-gap sections for unsupported metrics
 - Trends skipped unless `--baseline` provided
 
-- [ ] **Step 3: Commit Task 5**
+- [x] **Step 3: Commit Task 5**
 
 ---
 
@@ -259,7 +259,7 @@ Confirm skill docs require:
 |------|-----------------|
 | 2 | `skills/wax-scan/scripts/test-extract-insights.sh` |
 | 3 | `skills/wax-scan/scripts/test-html-escape.sh`, `skills/wax-scan/scripts/render-fixture-smoke.sh` + manual offline HTML open smoke |
-| 5 | Manual skill workflow on sample repo |
+| 5 | `skills/wax-scan/scripts/test-integration-smoke.sh` |
 
 No `engine/` verification required for this plan unless later promoted.
 

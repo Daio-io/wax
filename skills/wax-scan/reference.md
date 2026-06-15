@@ -229,3 +229,13 @@ skills/wax-scan/scripts/render-fixture-smoke.sh
 ```
 
 Writes `.wax/out/report/index.html` under the repository root (override path with an optional first argument). Generated output is gitignored under `.wax/`.
+
+### Integration smoke (Task 5)
+
+End-to-end workflow on the compose smoke fixture (`engine/fixtures/smoke/compose/repo`):
+
+```bash
+skills/wax-scan/scripts/test-integration-smoke.sh
+```
+
+Exercises `wax validate` → `wax scan --no-auto-install` → `extract-insights.sh` → HTML report at `.wax/out/report/index.html`, and asserts guardrail phrases are documented in `SKILL.md`. Requires `wax` on `PATH`.
