@@ -1,17 +1,70 @@
 #!/usr/bin/env bash
-# Fixture-driven smoke render for wax-scan HTML template (repository maintainer verification).
-# Substitutes deterministic placeholders from expected-insights.sample.json
-# and writes a self-contained HTML file to the real report output path.
+# Render wax-scan HTML report from insights JSON (repository maintainer verification).
+# Substitutes deterministic placeholders from insights JSON and writes a self-contained HTML file.
+#
+# Usage:
+#   render-wax-scan-fixture-report.sh [--insights PATH] [--repo-name NAME] [OUTPUT]
+#
+# Defaults:
+#   --insights  scripts/fixtures/wax-scan/expected-insights.sample.json
+#   --repo-name wax-scan fixture
+#   OUTPUT      .wax/out/report/index.html (under repo root)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../skills/wax-scan/scripts/html-escape.sh
 source "$ROOT/skills/wax-scan/scripts/html-escape.sh"
 
-FIXTURE="$ROOT/scripts/fixtures/wax-scan/expected-insights.sample.json"
+DEFAULT_FIXTURE="$ROOT/scripts/fixtures/wax-scan/expected-insights.sample.json"
 TEMPLATE="$ROOT/skills/wax-scan/templates/report.html"
 REPO_ROOT="$(git -C "$ROOT" rev-parse --show-toplevel 2>/dev/null || echo "$ROOT")"
-OUTPUT="${1:-$REPO_ROOT/.wax/out/report/index.html}"
+
+FIXTURE="$DEFAULT_FIXTURE"
+REPO_NAME="wax-scan fixture"
+OUTPUT=""
+
+usage() {
+  echo "Usage: render-wax-scan-fixture-report.sh [--insights PATH] [--repo-name NAME] [OUTPUT]" >&2
+  exit 1
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --insights)
+      FIXTURE="${2:-}"
+      [[ -n "$FIXTURE" ]] || usage
+      shift 2
+      ;;
+    --repo-name)
+      REPO_NAME="${2:-}"
+      [[ -n "$REPO_NAME" ]] || usage
+      shift 2
+      ;;
+    -h | --help)
+      usage
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      echo "FAIL: unknown option: $1" >&2
+      usage
+      ;;
+    *)
+      if [[ -n "$OUTPUT" ]]; then
+        echo "FAIL: unexpected extra argument: $1" >&2
+        usage
+      fi
+      OUTPUT="$1"
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$OUTPUT" ]]; then
+  OUTPUT="$REPO_ROOT/.wax/out/report/index.html"
+fi
 
 CHART_WIDTH=360
 ROW_H=20
@@ -458,7 +511,7 @@ open(path, "w", encoding="utf-8").write(text)
 PY
 }
 
-replace repo_name "wax-scan fixture"
+replace repo_name "$REPO_NAME"
 replace generated_at "$generated_at"
 replace source_scan "$source_scan"
 replace schema_version "$schema_version"

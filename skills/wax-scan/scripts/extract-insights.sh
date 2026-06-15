@@ -83,8 +83,11 @@ extract_core() {
     def all_usage_sites:
       [.languages[] | .usage_sites[]?];
 
+    def local_components_all:
+      [.languages[] | .local_components[]?];
+
     def local_symbols:
-      [.languages[] | .local_components[]? | .symbol] | unique;
+      [local_components_all[] | .symbol] | unique;
 
     def repo_totals:
       [.languages[] | .counts] as $counts
@@ -92,9 +95,9 @@ extract_core() {
       | ($counts | map(.resolved_count // 0) | add // 0) as $resolved
       | ($counts | map(.candidate_count // 0) | add // 0) as $candidate
       | ($total - $resolved - $candidate) as $unresolved
-      | local_symbols as $local
-      | ($local | length) as $local_defs
-      | ([all_usage_sites[] | select(.symbol as $s | ($local | index($s)) != null)] | length) as $local_usage
+      | local_symbols as $local_syms
+      | (local_components_all | length) as $local_defs
+      | ([all_usage_sites[] | select(.symbol as $s | ($local_syms | index($s)) != null)] | length) as $local_usage
       | {
           languages: lang_ids,
           total_usage_sites: $total,

@@ -84,6 +84,8 @@ printf '%s' "$symbol_name" | skills/wax-scan/scripts/html-escape.sh
 
 Template: `skills/wax-scan/templates/report.html`
 
+Render helper: `scripts/render-wax-scan-fixture-report.sh [--insights PATH] [--repo-name NAME] [OUTPUT]`
+
 The agent copies the template to `.wax/out/report/index.html` and substitutes placeholders. Use deterministic values from extractor JSON where available; synthesize narrative fields with confidence labels.
 
 ### Page metadata

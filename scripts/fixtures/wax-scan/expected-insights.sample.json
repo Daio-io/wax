@@ -8,9 +8,9 @@
     "candidate_count": 1,
     "unresolved_count": 4,
     "adoption_coverage_ratio": 0.5454545454545454,
-    "local_definition_count": 5,
+    "local_definition_count": 6,
     "local_usage_site_count": 3,
-    "ds_vs_local_ratio": 0.5454545454545454
+    "ds_vs_local_ratio": 0.5
   },
   "per_language": [
     {
