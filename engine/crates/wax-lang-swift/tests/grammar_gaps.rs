@@ -8,6 +8,27 @@ fn fixture_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/discover/grammar-gaps")
 }
 
+fn assert_parse_gap_diagnostic(
+    diagnostic: &wax_contract::Diagnostic,
+    expected_file: &str,
+    expected_line: u32,
+    expected_column: u32,
+) {
+    assert_eq!(diagnostic.code, "parse_failed");
+    assert!(
+        diagnostic.message.contains("file scanned with gaps"),
+        "unexpected message: {}",
+        diagnostic.message
+    );
+    let location = diagnostic
+        .location
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected location for {expected_file}"));
+    assert_eq!(location.file, expected_file);
+    assert_eq!(location.line, expected_line);
+    assert_eq!(location.column, Some(expected_column));
+}
+
 fn parse_source(source: &str) -> bool {
     let tempdir = tempfile::tempdir().expect("tempdir");
     let path = tempdir.path().join("Test.swift");
@@ -65,11 +86,11 @@ fn discover_finds_component_with_available_preview_fixture() {
     let result = discover_registry_symbols(tempdir.path(), &[sources]).expect("discover symbols");
     assert_eq!(result.symbols, vec!["AvailablePreviewCard"]);
     assert_eq!(result.diagnostics.len(), 1);
-    assert_eq!(result.diagnostics[0].code, "parse_failed");
-    assert!(
-        result.diagnostics[0]
-            .message
-            .contains("file scanned with gaps")
+    assert_parse_gap_diagnostic(
+        &result.diagnostics[0],
+        "Sources/AvailablePreview.swift",
+        9,
+        1,
     );
 }
 
@@ -87,11 +108,11 @@ fn discover_finds_component_with_empty_paren_attribute_fixture() {
     let result = discover_registry_symbols(tempdir.path(), &[sources]).expect("discover symbols");
     assert_eq!(result.symbols, vec!["EmptyParenAttributeCard"]);
     assert_eq!(result.diagnostics.len(), 1);
-    assert_eq!(result.diagnostics[0].code, "parse_failed");
-    assert!(
-        result.diagnostics[0]
-            .message
-            .contains("file scanned with gaps")
+    assert_parse_gap_diagnostic(
+        &result.diagnostics[0],
+        "Sources/EmptyParenAttribute.swift",
+        4,
+        13,
     );
 }
 
@@ -119,4 +140,28 @@ fn discover_via_stdio_finds_grammar_gap_components() {
             .iter()
             .all(|diagnostic| diagnostic.code == "parse_failed")
     );
+
+    let available_preview = result
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .location
+                .as_ref()
+                .is_some_and(|location| location.file.ends_with("AvailablePreview.swift"))
+        })
+        .expect("AvailablePreview diagnostic");
+    assert_parse_gap_diagnostic(available_preview, "Sources/AvailablePreview.swift", 9, 1);
+
+    let empty_paren = result
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .location
+                .as_ref()
+                .is_some_and(|location| location.file.ends_with("EmptyParenAttribute.swift"))
+        })
+        .expect("EmptyParenAttribute diagnostic");
+    assert_parse_gap_diagnostic(empty_paren, "Sources/EmptyParenAttribute.swift", 4, 13);
 }
