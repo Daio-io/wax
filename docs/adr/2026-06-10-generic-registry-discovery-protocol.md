@@ -11,7 +11,7 @@ The v1 registry discovery workflow shipped with an intentional exception: `wax-c
 
 ## Decision
 
-1. **Subprocess discover wire protocol** — extend the v1 stdio JSON protocol with `discover` / `discover_symbols` messages on `WirePackRequest` / `WirePackResponse`. The engine spawns the installed language pack (same lockfile + global install resolution as scan) and reads symbol names plus diagnostics from stdout.
+1. **Subprocess discover wire protocol** — extend the v1 stdio JSON protocol with `discover` / `discover_symbols` messages on `WirePackRequest` / `WirePackResponse`. The engine spawns the installed language pack (same lockfile + global install resolution as scan) and reads symbol names, optional per-symbol `package` metadata, and diagnostics from stdout.
 2. **No in-process pack dependencies in core** — remove `wax-lang-compose` from `wax-core`. Discover and scan share pack resolution; compose implements discover in its stdio binary via existing `discover_registry_symbols` logic.
 3. **Installed pack required** — discover fails with a clear error when the locked pack is not installed locally (for example: `registry discovery requires language pack compose to be installed; run wax language install compose`). There is no in-process fallback.
 4. **Per-language registry files** — each `wax registry discover --language <id>` writes only that language's registry file. When the language entry has no configured `registry`, the default path is `.wax/<language-id>.registry.json`. Multi-language discover does not merge files or require `--force` across languages; duplicate symbols across files are allowed.

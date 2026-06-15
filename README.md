@@ -134,7 +134,7 @@ Minimal manual registry example:
 }
 ```
 
-Or discover components from source:
+Or discover components from source (includes `package` when the language pack can infer it):
 
 ```bash
 wax discover --language <language-id> --dry-run
@@ -142,6 +142,8 @@ wax discover --language <language-id> --force
 wax language update --all
 wax validate
 ```
+
+Discover infers `package` per component from Kotlin package headers, the nearest npm `package.json` name, or Swift `Sources/<Module>/` layout. Import-aware scans use that field to count only usages imported from the design-system package.
 
 5. Run a scan:
 
