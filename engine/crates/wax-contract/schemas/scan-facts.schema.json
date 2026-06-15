@@ -75,7 +75,7 @@
     },
     "match_status": {
       "type": "string",
-      "enum": ["resolved", "candidate", "unresolved"]
+      "enum": ["resolved", "framework_shadow", "candidate", "unresolved"]
     },
     "diagnostic_severity": {
       "type": "string",
@@ -116,6 +116,13 @@
         {
           "if": {
             "properties": { "match_status": { "const": "resolved" } },
+            "required": ["match_status"]
+          },
+          "then": { "required": ["registry_symbol"] }
+        },
+        {
+          "if": {
+            "properties": { "match_status": { "const": "framework_shadow" } },
             "required": ["match_status"]
           },
           "then": { "required": ["registry_symbol"] }
@@ -174,14 +181,16 @@
         "local_component_count",
         "usage_site_count",
         "resolved_count",
-        "candidate_count"
+        "candidate_count",
+        "framework_shadow_count"
       ],
       "properties": {
         "design_system_component_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
         "local_component_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
         "usage_site_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
         "resolved_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "candidate_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+        "candidate_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "framework_shadow_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
       }
     }
   }

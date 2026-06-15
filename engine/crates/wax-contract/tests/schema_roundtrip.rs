@@ -78,6 +78,7 @@ fn minimal_facts() -> ScanFacts {
             usage_site_count: 0,
             resolved_count: 0,
             candidate_count: 0,
+            framework_shadow_count: 0,
         },
     }
 }
@@ -244,6 +245,30 @@ fn requires_registry_symbol_for_resolved_and_candidate_usage() {
         .remove("registry_symbol");
     assert_schema_rejects(&candidate_missing);
     assert!(wax_contract::scan_facts_from_json(&candidate_missing.to_string()).is_err());
+}
+
+#[test]
+fn framework_shadow_usage_requires_registry_symbol() {
+    let mut facts = minimal_facts();
+    facts.usage_sites.push(UsageSite {
+        id: "a:3:Button:framework_shadow".into(),
+        location: SourceLocation {
+            file: "a.kt".into(),
+            line: 3,
+            column: Some(1),
+        },
+        symbol: "Button".into(),
+        match_status: MatchStatus::FrameworkShadow,
+        registry_symbol: Some("Button".into()),
+    });
+    facts.recompute_counts().unwrap();
+
+    let json = serde_json::to_string(&facts).unwrap();
+    let back = wax_contract::scan_facts_from_json(&json).unwrap();
+
+    assert_eq!(back.counts.framework_shadow_count, 1);
+    assert_eq!(back.counts.usage_site_count, 3);
+    assert_eq!(back.metrics.adoption_coverage_ratio, Some(1.0 / 3.0));
 }
 
 #[test]

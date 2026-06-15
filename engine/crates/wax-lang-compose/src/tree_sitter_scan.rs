@@ -5,9 +5,10 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use crate::kotlin_ast::{
-    ParseKotlinFileError, call_simple_callee, collect_kotlin_files, function_name_from_decl,
-    has_composable_annotation, new_parser, parse_kotlin_file_permissive,
-    partial_tree_parse_diagnostic, tree_has_syntax_errors, unparseable_file_diagnostic,
+    ImportBindings, ParseKotlinFileError, call_simple_callee, collect_import_bindings,
+    collect_kotlin_files, function_name_from_decl, has_composable_annotation, new_parser,
+    parse_kotlin_file_permissive, partial_tree_parse_diagnostic, tree_has_syntax_errors,
+    unparseable_file_diagnostic,
 };
 
 /// Grammar version bundled via the `tree-sitter-kotlin-ng` crate dependency.
@@ -29,6 +30,8 @@ pub struct ComposeScanConfig {
     pub design_system_registry: PathBuf,
     /// Repo-relative Kotlin source roots to scan.
     pub roots: Vec<PathBuf>,
+    /// Package prefixes for the underlying UI framework used to detect shadowed usage.
+    pub framework_packages: Vec<String>,
 }
 
 /// Whether the request should run the tree-sitter scanner or return scaffold facts.
@@ -100,10 +103,42 @@ pub fn parse_compose_scan_config(
         roots.push(PathBuf::from(root));
     }
 
+    let framework_packages = config
+        .get("framework_packages")
+        .map(parse_framework_packages)
+        .transpose()?
+        .unwrap_or_default();
+
     Ok(ComposeConfigMode::Configured(ComposeScanConfig {
         design_system_registry: PathBuf::from(registry),
         roots,
+        framework_packages,
     }))
+}
+
+fn parse_framework_packages(value: &serde_json::Value) -> Result<Vec<String>, TreeSitterScanError> {
+    let array = value
+        .as_array()
+        .ok_or_else(|| TreeSitterScanError::ConfigInvalid {
+            reason: "framework_packages must be an array of strings".to_owned(),
+        })?;
+    let mut packages = Vec::with_capacity(array.len());
+    for (index, entry) in array.iter().enumerate() {
+        let package = entry
+            .as_str()
+            .ok_or_else(|| TreeSitterScanError::ConfigInvalid {
+                reason: format!("framework_packages[{index}] must be a non-empty string"),
+            })?;
+        if package.is_empty() {
+            return Err(TreeSitterScanError::ConfigInvalid {
+                reason: format!("framework_packages[{index}] must be a non-empty string"),
+            });
+        }
+        packages.push(package.to_owned());
+    }
+    packages.sort();
+    packages.dedup();
+    Ok(packages)
 }
 
 fn validate_repo_relative_path(path: &str, field: &str) -> Result<(), TreeSitterScanError> {
@@ -209,6 +244,7 @@ pub struct TreeSitterScanResult {
 struct RegistryIndex {
     canonical_symbols: Vec<String>,
     resolve_targets: BTreeMap<String, String>,
+    component_packages: BTreeMap<String, Option<String>>,
 }
 
 fn load_registry(path: &Path) -> Result<RegistryIndex, TreeSitterScanError> {
@@ -231,6 +267,7 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, TreeSitterScanError> {
 
     let mut canonical_symbols = Vec::new();
     let mut resolve_targets = BTreeMap::new();
+    let mut component_packages = BTreeMap::new();
     for (index, component) in components.iter().enumerate() {
         let symbol = component
             .get("symbol")
@@ -239,8 +276,30 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, TreeSitterScanError> {
                 path: path.to_path_buf(),
                 reason: format!("components[{index}] is missing symbol"),
             })?;
+        let package = component
+            .get("package")
+            .map(|value| {
+                value
+                    .as_str()
+                    .ok_or_else(|| TreeSitterScanError::RegistryInvalid {
+                        path: path.to_path_buf(),
+                        reason: format!("components[{index}].package must be a string"),
+                    })
+            })
+            .transpose()?
+            .map(str::to_owned);
+        if let Some(package) = &package
+            && package.is_empty()
+        {
+            return Err(TreeSitterScanError::RegistryInvalid {
+                path: path.to_path_buf(),
+                reason: format!("components[{index}].package must not be empty"),
+            });
+        }
+
         canonical_symbols.push(symbol.to_owned());
         resolve_targets.insert(symbol.to_owned(), symbol.to_owned());
+        component_packages.insert(symbol.to_owned(), package);
         if let Some(aliases) = component
             .get("aliases")
             .and_then(serde_json::Value::as_array)
@@ -271,19 +330,55 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, TreeSitterScanError> {
     Ok(RegistryIndex {
         canonical_symbols,
         resolve_targets,
+        component_packages,
     })
 }
 
 // ── Extraction ────────────────────────────────────────────────────────────────
 
+fn resolve_registry_match(
+    call_symbol: &str,
+    registry_symbol: &str,
+    registry: &RegistryIndex,
+    imports: &ImportBindings,
+    framework_packages: &[String],
+) -> Option<MatchStatus> {
+    let ds_package = registry
+        .component_packages
+        .get(registry_symbol)
+        .and_then(|package| package.as_deref());
+
+    let Some(ds_package) = ds_package else {
+        return Some(MatchStatus::Resolved);
+    };
+
+    let Some(import_package) = imports.package_for_symbol(call_symbol) else {
+        return Some(MatchStatus::Candidate);
+    };
+
+    if import_package == ds_package {
+        return Some(MatchStatus::Resolved);
+    }
+    if framework_packages
+        .iter()
+        .any(|framework_package| framework_package == &import_package)
+    {
+        return Some(MatchStatus::FrameworkShadow);
+    }
+
+    None
+}
+
 fn extract_from_source(
     root: tree_sitter::Node<'_>,
     source: &[u8],
     file: &str,
-    resolve_targets: &BTreeMap<String, String>,
+    registry: &RegistryIndex,
+    framework_packages: &[String],
     local_components: &mut Vec<LocalComponent>,
     usage_sites: &mut Vec<UsageSite>,
 ) {
+    let imports = collect_import_bindings(root, source);
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
         let kind = node.kind();
@@ -308,8 +403,18 @@ fn extract_from_source(
 
         if kind == "call_expression"
             && let Some((call_symbol, pos)) = call_simple_callee(node, source)
-            && let Some(registry_symbol) = resolve_targets.get(&call_symbol)
+            && let Some(registry_symbol) = registry.resolve_targets.get(&call_symbol)
         {
+            let Some(match_status) = resolve_registry_match(
+                &call_symbol,
+                registry_symbol,
+                registry,
+                &imports,
+                framework_packages,
+            ) else {
+                continue;
+            };
+
             let line = pos.row as u32 + 1;
             let column = pos.column as u32 + 1;
             usage_sites.push(UsageSite {
@@ -320,7 +425,7 @@ fn extract_from_source(
                     column: Some(column),
                 },
                 symbol: call_symbol.clone(),
-                match_status: MatchStatus::Resolved,
+                match_status,
                 registry_symbol: Some(registry_symbol.clone()),
             });
         }
@@ -400,7 +505,8 @@ pub fn scan_repository(
                     parsed.tree.root_node(),
                     parsed.source.as_bytes(),
                     &relative_file,
-                    &registry.resolve_targets,
+                    &registry,
+                    &config.framework_packages,
                     &mut local_components,
                     &mut usage_sites,
                 );
@@ -500,9 +606,36 @@ mod tests {
             .collect()
     }
 
+    fn registry_index(
+        resolve_targets: BTreeMap<String, String>,
+        component_packages: BTreeMap<String, Option<String>>,
+    ) -> RegistryIndex {
+        let canonical_symbols = resolve_targets
+            .values()
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        RegistryIndex {
+            canonical_symbols,
+            resolve_targets,
+            component_packages,
+        }
+    }
+
+    fn registry_without_packages(pairs: &[(&str, &str)]) -> RegistryIndex {
+        let resolve_targets = resolve_map(pairs);
+        let component_packages = resolve_targets
+            .values()
+            .map(|symbol| (symbol.clone(), None))
+            .collect();
+        registry_index(resolve_targets, component_packages)
+    }
+
     fn parse_and_extract(
         source: &str,
-        resolve_targets: &BTreeMap<String, String>,
+        registry: &RegistryIndex,
+        framework_packages: &[String],
     ) -> (Vec<LocalComponent>, Vec<UsageSite>) {
         let mut parser = make_parser();
         let tree = parser.parse(source.as_bytes(), None).unwrap();
@@ -512,7 +645,8 @@ mod tests {
             tree.root_node(),
             source.as_bytes(),
             "Test.kt",
-            resolve_targets,
+            registry,
+            framework_packages,
             &mut locals,
             &mut usages,
         );
@@ -521,10 +655,11 @@ mod tests {
 
     #[test]
     fn direct_call_to_registry_symbol_is_resolved() {
-        let resolve = resolve_map(&[("PrimaryButton", "PrimaryButton")]);
+        let registry = registry_without_packages(&[("PrimaryButton", "PrimaryButton")]);
         let (_, usages) = parse_and_extract(
             "@Composable\nfun Screen() { PrimaryButton(onClick = {}) }",
-            &resolve,
+            &registry,
+            &[],
         );
         assert_eq!(usages.len(), 1);
         assert_eq!(usages[0].symbol, "PrimaryButton");
@@ -534,13 +669,14 @@ mod tests {
 
     #[test]
     fn alias_resolves_to_canonical_registry_symbol() {
-        let resolve = resolve_map(&[
+        let registry = registry_without_packages(&[
             ("PrimaryButton", "PrimaryButton"),
             ("PrimaryBtn", "PrimaryButton"),
         ]);
         let (_, usages) = parse_and_extract(
             "@Composable\nfun Screen() { PrimaryBtn(onClick = {}) }",
-            &resolve,
+            &registry,
+            &[],
         );
         assert_eq!(usages.len(), 1);
         assert_eq!(usages[0].symbol, "PrimaryBtn");
@@ -549,28 +685,33 @@ mod tests {
 
     #[test]
     fn comment_lines_are_not_extracted() {
-        let resolve = resolve_map(&[("PrimaryButton", "PrimaryButton")]);
-        let (_, usages) =
-            parse_and_extract("// PrimaryButton( not a call\nfun Screen() {}", &resolve);
+        let registry = registry_without_packages(&[("PrimaryButton", "PrimaryButton")]);
+        let (_, usages) = parse_and_extract(
+            "// PrimaryButton( not a call\nfun Screen() {}",
+            &registry,
+            &[],
+        );
         assert_eq!(usages.len(), 0);
     }
 
     #[test]
     fn string_literal_content_is_not_extracted() {
-        let resolve = resolve_map(&[("TextField", "TextField")]);
+        let registry = registry_without_packages(&[("TextField", "TextField")]);
         let (_, usages) = parse_and_extract(
             "val label = \"TextField(not a call)\"\nfun Screen() {}",
-            &resolve,
+            &registry,
+            &[],
         );
         assert_eq!(usages.len(), 0);
     }
 
     #[test]
     fn qualified_call_is_not_extracted() {
-        let resolve = resolve_map(&[("PrimaryButton", "PrimaryButton")]);
+        let registry = registry_without_packages(&[("PrimaryButton", "PrimaryButton")]);
         let (_, usages) = parse_and_extract(
             "@Composable\nfun Screen() { com.example.PrimaryButton(onClick = {}) }",
-            &resolve,
+            &registry,
+            &[],
         );
         // navigation_expression as first child → not counted
         assert_eq!(usages.len(), 0);
@@ -578,32 +719,32 @@ mod tests {
 
     #[test]
     fn composable_function_is_detected_as_local() {
-        let resolve = BTreeMap::new();
-        let (locals, _) = parse_and_extract("@Composable\nfun MyScreen() {}", &resolve);
+        let registry = registry_without_packages(&[]);
+        let (locals, _) = parse_and_extract("@Composable\nfun MyScreen() {}", &registry, &[]);
         assert_eq!(locals.len(), 1);
         assert_eq!(locals[0].symbol, "MyScreen");
     }
 
     #[test]
     fn non_composable_function_is_not_a_local_component() {
-        let resolve = BTreeMap::new();
-        let (locals, _) = parse_and_extract("fun helper() {}", &resolve);
+        let registry = registry_without_packages(&[]);
+        let (locals, _) = parse_and_extract("fun helper() {}", &registry, &[]);
         assert_eq!(locals.len(), 0);
     }
 
     #[test]
     fn lowercase_composable_function_is_not_a_local_component() {
-        let resolve = BTreeMap::new();
-        let (locals, _) = parse_and_extract("@Composable\nfun myHelper() {}", &resolve);
+        let registry = registry_without_packages(&[]);
+        let (locals, _) = parse_and_extract("@Composable\nfun myHelper() {}", &registry, &[]);
         assert_eq!(locals.len(), 0);
     }
 
     #[test]
     fn multiline_call_is_detected_at_first_line() {
-        let resolve = resolve_map(&[("PrimaryButton", "PrimaryButton")]);
+        let registry = registry_without_packages(&[("PrimaryButton", "PrimaryButton")]);
         let source =
             "@Composable\nfun Screen() {\n    PrimaryButton(\n        onClick = {},\n    )\n}";
-        let (_, usages) = parse_and_extract(source, &resolve);
+        let (_, usages) = parse_and_extract(source, &registry, &[]);
         assert_eq!(usages.len(), 1);
         // Row 2 (0-based) = line 3 (1-based); col 4 (0-based) = col 5 (1-based)
         assert_eq!(usages[0].location.line, 3);
@@ -612,18 +753,19 @@ mod tests {
 
     #[test]
     fn annotation_on_previous_line_is_recognised() {
-        let resolve = BTreeMap::new();
-        let (locals, _) = parse_and_extract("@Composable\nfun CardComponent() {}", &resolve);
+        let registry = registry_without_packages(&[]);
+        let (locals, _) = parse_and_extract("@Composable\nfun CardComponent() {}", &registry, &[]);
         assert_eq!(locals.len(), 1);
         assert_eq!(locals[0].symbol, "CardComponent");
     }
 
     #[test]
     fn qualified_annotation_is_recognised() {
-        let resolve = BTreeMap::new();
+        let registry = registry_without_packages(&[]);
         let (locals, _) = parse_and_extract(
             "@androidx.compose.runtime.Composable\nfun QualifiedCard() {}",
-            &resolve,
+            &registry,
+            &[],
         );
         assert_eq!(locals.len(), 1);
         assert_eq!(locals[0].symbol, "QualifiedCard");
@@ -631,9 +773,81 @@ mod tests {
 
     #[test]
     fn non_ds_composable_call_is_not_a_resolved_usage() {
-        let resolve = resolve_map(&[("PrimaryButton", "PrimaryButton")]);
+        let registry = registry_without_packages(&[("PrimaryButton", "PrimaryButton")]);
         // LocalCard is not in the registry
-        let (_, usages) = parse_and_extract("@Composable\nfun Screen() { LocalCard {} }", &resolve);
+        let (_, usages) =
+            parse_and_extract("@Composable\nfun Screen() { LocalCard {} }", &registry, &[]);
+        assert_eq!(usages.len(), 0);
+    }
+
+    #[test]
+    fn design_system_import_resolves_when_package_is_configured() {
+        let mut component_packages = BTreeMap::new();
+        component_packages.insert(
+            "Button".to_owned(),
+            Some("com.acme.designsystem".to_owned()),
+        );
+        let registry = registry_index(resolve_map(&[("Button", "Button")]), component_packages);
+        let source = r#"
+import com.acme.designsystem.Button
+
+@Composable
+fun Screen() { Button(onClick = {}) }
+"#;
+        let (_, usages) = parse_and_extract(source, &registry, &["com.foundation.ui".to_owned()]);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].match_status, MatchStatus::Resolved);
+    }
+
+    #[test]
+    fn framework_import_becomes_framework_shadow_when_package_is_configured() {
+        let mut component_packages = BTreeMap::new();
+        component_packages.insert(
+            "Button".to_owned(),
+            Some("com.acme.designsystem".to_owned()),
+        );
+        let registry = registry_index(resolve_map(&[("Button", "Button")]), component_packages);
+        let source = r#"
+import com.foundation.ui.Button
+
+@Composable
+fun Screen() { Button(onClick = {}) }
+"#;
+        let (_, usages) = parse_and_extract(source, &registry, &["com.foundation.ui".to_owned()]);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].match_status, MatchStatus::FrameworkShadow);
+        assert_eq!(usages[0].registry_symbol.as_deref(), Some("Button"));
+    }
+
+    #[test]
+    fn unclear_import_becomes_candidate_when_package_is_configured() {
+        let mut component_packages = BTreeMap::new();
+        component_packages.insert(
+            "Button".to_owned(),
+            Some("com.acme.designsystem".to_owned()),
+        );
+        let registry = registry_index(resolve_map(&[("Button", "Button")]), component_packages);
+        let source = "@Composable\nfun Screen() { Button(onClick = {}) }";
+        let (_, usages) = parse_and_extract(source, &registry, &["com.foundation.ui".to_owned()]);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].match_status, MatchStatus::Candidate);
+    }
+
+    #[test]
+    fn third_party_import_is_not_counted_when_package_is_configured() {
+        let mut component_packages = BTreeMap::new();
+        component_packages.insert(
+            "Button".to_owned(),
+            Some("com.acme.designsystem".to_owned()),
+        );
+        let registry = registry_index(resolve_map(&[("Button", "Button")]), component_packages);
+        let source = r#"
+import com.other.vendor.Button
+
+@Composable
+fun Screen() { Button(onClick = {}) }
+"#;
+        let (_, usages) = parse_and_extract(source, &registry, &["com.foundation.ui".to_owned()]);
         assert_eq!(usages.len(), 0);
     }
 
@@ -650,6 +864,7 @@ mod tests {
         let config = ComposeScanConfig {
             design_system_registry: std::path::PathBuf::from("does-not-exist/registry.json"),
             roots: vec![std::path::PathBuf::from("no-such-root")],
+            framework_packages: vec![],
         };
 
         // Create a temp dir with just a minimal registry file.
@@ -683,6 +898,7 @@ mod tests {
         let config = ComposeScanConfig {
             design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
             roots: vec![std::path::PathBuf::from("app/src/main/kotlin")],
+            framework_packages: vec![],
         };
 
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -723,6 +939,7 @@ mod tests {
         let config = ComposeScanConfig {
             design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
             roots: vec![std::path::PathBuf::from("*/src/main/kotlin")],
+            framework_packages: vec![],
         };
 
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -753,6 +970,7 @@ mod tests {
         let config = ComposeScanConfig {
             design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
             roots: vec![std::path::PathBuf::from("*/src/main/kotlin")],
+            framework_packages: vec![],
         };
 
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -794,6 +1012,7 @@ mod tests {
         let config = ComposeScanConfig {
             design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
             roots: vec![std::path::PathBuf::from("capsule/**/src/main/kotlin")],
+            framework_packages: vec![],
         };
 
         let tmp = tempfile::tempdir().expect("tempdir");
