@@ -1,5 +1,6 @@
 //! Shared Kotlin tree-sitter helpers for Compose extraction.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -223,6 +224,127 @@ pub(crate) fn function_name_from_decl(
     None
 }
 
+/// Import bindings collected from Kotlin `import` declarations in one source file.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct ImportBindings {
+    /// Maps local symbol names to the package prefix they were imported from.
+    pub symbol_packages: BTreeMap<String, String>,
+    /// Package prefixes imported with a wildcard (`import com.example.*`).
+    pub wildcard_packages: Vec<String>,
+}
+
+impl ImportBindings {
+    /// Returns the package prefix for a symbol used at a call site, when known.
+    pub(crate) fn package_for_symbol(&self, symbol: &str) -> Option<String> {
+        if let Some(package) = self.symbol_packages.get(symbol) {
+            return Some(package.clone());
+        }
+
+        match self.wildcard_packages.len() {
+            0 => None,
+            1 => Some(self.wildcard_packages[0].clone()),
+            _ => None,
+        }
+    }
+}
+
+/// Collects import bindings from the top level of a Kotlin source file.
+pub(crate) fn collect_import_bindings(
+    root: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> ImportBindings {
+    let mut bindings = ImportBindings::default();
+    let mut stack = vec![root];
+
+    while let Some(node) = stack.pop() {
+        if node.kind() == "import" {
+            if let Some(import) = parse_import_directive(node, source) {
+                match import {
+                    ParsedImport::Named {
+                        local_name,
+                        package,
+                    } => {
+                        bindings.symbol_packages.insert(local_name, package);
+                    }
+                    ParsedImport::Wildcard { package } => {
+                        bindings.wildcard_packages.push(package);
+                    }
+                }
+            }
+            continue;
+        }
+
+        for index in (0..node.child_count()).rev() {
+            if let Some(child) = node.child(index) {
+                stack.push(child);
+            }
+        }
+    }
+
+    bindings.wildcard_packages.sort();
+    bindings
+}
+
+enum ParsedImport {
+    Named { local_name: String, package: String },
+    Wildcard { package: String },
+}
+
+fn parse_import_directive(
+    import_node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Option<ParsedImport> {
+    let qualified = import_node
+        .named_children(&mut import_node.walk())
+        .find(|child| child.kind() == "qualified_identifier")?;
+
+    let qualified_name = qualified.utf8_text(source).ok()?.to_owned();
+    let mut alias = None;
+    let mut is_wildcard = false;
+
+    let mut cursor = import_node.walk();
+    for child in import_node.children(&mut cursor) {
+        if child.kind() == "as"
+            && let Some(next) = child.next_sibling()
+            && (next.kind() == "identifier" || next.kind() == "simple_identifier")
+        {
+            alias = next.utf8_text(source).ok().map(str::to_owned);
+        }
+        if child.kind() == "*" || child.utf8_text(source).ok().is_some_and(|text| text == "*") {
+            is_wildcard = true;
+        }
+    }
+
+    if is_wildcard {
+        return Some(ParsedImport::Wildcard {
+            package: qualified_name,
+        });
+    }
+
+    let package = package_prefix_from_qualified(&qualified_name)?;
+    let local_name = alias.unwrap_or_else(|| symbol_from_qualified(&qualified_name));
+    Some(ParsedImport::Named {
+        local_name,
+        package,
+    })
+}
+
+fn package_prefix_from_qualified(qualified: &str) -> Option<String> {
+    let (package, _) = qualified.rsplit_once('.')?;
+    if package.is_empty() {
+        None
+    } else {
+        Some(package.to_owned())
+    }
+}
+
+fn symbol_from_qualified(qualified: &str) -> String {
+    qualified
+        .rsplit_once('.')
+        .map_or(qualified, |(_, symbol)| symbol)
+        .to_owned()
+}
+
 pub(crate) fn call_simple_callee(
     node: tree_sitter::Node<'_>,
     source: &[u8],
@@ -263,6 +385,47 @@ fn simple_identifier_from_expression(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn collect_import_bindings_maps_named_and_wildcard_imports() {
+        let mut parser = new_parser().expect("parser");
+        let source = r#"
+import com.acme.designsystem.Button
+import com.foundation.ui.Icon
+import com.example.widgets.*
+import com.example.widgets.Widget as CustomWidget
+
+@Composable
+fun Screen() {}
+"#;
+        let tree = parser.parse(source.as_bytes(), None).expect("tree");
+        let bindings = collect_import_bindings(tree.root_node(), source.as_bytes());
+
+        assert_eq!(
+            bindings.symbol_packages.get("Button"),
+            Some(&"com.acme.designsystem".to_owned())
+        );
+        assert_eq!(
+            bindings.symbol_packages.get("Icon"),
+            Some(&"com.foundation.ui".to_owned())
+        );
+        assert_eq!(
+            bindings.symbol_packages.get("CustomWidget"),
+            Some(&"com.example.widgets".to_owned())
+        );
+        assert_eq!(
+            bindings.wildcard_packages,
+            vec!["com.example.widgets".to_owned()]
+        );
+        assert_eq!(
+            bindings.package_for_symbol("Button"),
+            Some("com.acme.designsystem".to_owned())
+        );
+        assert_eq!(
+            bindings.package_for_symbol("Icon"),
+            Some("com.foundation.ui".to_owned())
+        );
+    }
 
     #[test]
     fn annotation_type_name_returns_last_segment_for_qualified_names() {

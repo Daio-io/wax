@@ -65,7 +65,8 @@ fn alpha_smoke_contract_rejects_registry_only_counts() {
                     "local_component_count": 0,
                     "usage_site_count": 0,
                     "resolved_count": 0,
-                    "candidate_count": 0
+                    "candidate_count": 0,
+                    "framework_shadow_count": 0
                 }
             }
         }
@@ -99,7 +100,8 @@ fn alpha_smoke_contract_accepts_fixture_scan_counts() {
                     "local_component_count": 1,
                     "usage_site_count": 1,
                     "resolved_count": 1,
-                    "candidate_count": 0
+                    "candidate_count": 0,
+                    "framework_shadow_count": 0
                 }
             }
         }
