@@ -80,19 +80,38 @@ extract_core() {
     def per_language:
       [.languages | to_entries[] | per_language_entry(.key; .value)] | sort_by(.language_id);
 
+    def all_usage_sites:
+      [.languages[] | .usage_sites[]?];
+
+    def local_components_all:
+      [.languages[] | .local_components[]?];
+
+    def local_symbols:
+      [local_components_all[] | .symbol] | unique;
+
     def repo_totals:
       [.languages[] | .counts] as $counts
       | ($counts | map(.usage_site_count // 0) | add // 0) as $total
       | ($counts | map(.resolved_count // 0) | add // 0) as $resolved
       | ($counts | map(.candidate_count // 0) | add // 0) as $candidate
       | ($total - $resolved - $candidate) as $unresolved
+      | local_symbols as $local_syms
+      | (local_components_all | length) as $local_defs
+      | ([all_usage_sites[] | select(.symbol as $s | ($local_syms | index($s)) != null)] | length) as $local_usage
       | {
           languages: lang_ids,
           total_usage_sites: $total,
           resolved_count: $resolved,
           candidate_count: $candidate,
           unresolved_count: $unresolved,
-          adoption_coverage_ratio: (if $total == 0 then null else ($resolved / $total) end)
+          adoption_coverage_ratio: (if $total == 0 then null else ($resolved / $total) end),
+          local_definition_count: $local_defs,
+          local_usage_site_count: $local_usage,
+          ds_vs_local_ratio: (
+            if ($resolved + $local_defs) == 0 then null
+            else ($resolved / ($resolved + $local_defs))
+            end
+          )
         };
 
     def symbol_rollup($sites; $field):
@@ -109,9 +128,6 @@ extract_core() {
       | map({symbol: .[0], count: length})
       | sort_by(-.count, .symbol);
 
-    def all_usage_sites:
-      [.languages[] | .usage_sites[]?];
-
     def ds_symbol_rollups:
       [all_usage_sites[]
         | select(.match_status == "resolved" or .match_status == "candidate")
@@ -120,9 +136,6 @@ extract_core() {
       | group_by(.)
       | map({symbol: .[0], count: length})
       | sort_by(-.count, .symbol);
-
-    def local_symbols:
-      [.languages[] | .local_components[]? | .symbol] | unique;
 
     def local_symbol_rollups:
       local_symbols as $local

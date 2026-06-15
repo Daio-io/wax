@@ -41,6 +41,11 @@
           "id": "local.app-modal",
           "symbol": "AppModal",
           "location": { "file": "src/Modal.kt", "line": 5 }
+        },
+        {
+          "id": "local.primary-button-alias",
+          "symbol": "PrimaryButton",
+          "location": { "file": "src/Legacy.kt", "line": 8 }
         }
       ],
       "usage_sites": [

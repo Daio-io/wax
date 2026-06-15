@@ -17,7 +17,7 @@ Output: versioned insights JSON consumed by the agent when rendering terminal an
 | `schema_version` | Insights contract version |
 | `generated_at` | RFC3339 timestamp |
 | `source_scan` | Path to merged scan input |
-| `repo_summary` | Repository-level usage and adoption totals |
+| `repo_summary` | Repository-level usage and adoption totals (includes `local_definition_count`, `local_usage_site_count`, `ds_vs_local_ratio`) |
 | `per_language` | Per-language status, adoption %, counts |
 | `symbol_rollups.design_system` | DS symbol usage frequency |
 | `symbol_rollups.local` | Local component symbol frequency |
@@ -84,6 +84,8 @@ printf '%s' "$symbol_name" | skills/wax-scan/scripts/html-escape.sh
 
 Template: `skills/wax-scan/templates/report.html`
 
+Render helper: `scripts/render-wax-scan-fixture-report.sh [--insights PATH] [--repo-name NAME] [OUTPUT]`
+
 The agent copies the template to `.wax/out/report/index.html` and substitutes placeholders. Use deterministic values from extractor JSON where available; synthesize narrative fields with confidence labels.
 
 ### Page metadata
@@ -100,7 +102,7 @@ The agent copies the template to `.wax/out/report/index.html` and substitutes pl
 | Placeholder | Source | Notes |
 |-------------|--------|-------|
 | `{{health_score}}` | Agent-synthesized | e.g. `72/100`; explain weighting when data is sparse |
-| `{{coverage_percent}}` | Deterministic | `repo_summary.adoption_coverage_ratio` as percent |
+| `{{coverage_percent}}` | Deterministic | `repo_summary.adoption_coverage_ratio` as percent (used in detailed analysis sections, not headline KPIs) |
 | `{{maturity_level}}` | Agent-synthesized | e.g. `Emerging`, `Established` |
 | `{{debt_score_proxy}}` | Deterministic proxy | Share of usage sites not fully resolved to DS: `(candidate + unresolved) / total` |
 | `{{debt_score_explanation}}` | Deterministic narrative | e.g. `1 candidate + 4 unresolved of 11 usage sites` |
@@ -113,18 +115,37 @@ Badge HTML pattern:
 <span class="badge badge-high">high</span>
 ```
 
-### Inline SVG charts
+### KPI grid and caveat
 
 | Placeholder | Source | Notes |
 |-------------|--------|-------|
-| `{{coverage_bar_width}}` | Deterministic | Pixel width 0–320 from `adoption_coverage_ratio` |
+| `{{kpi_grid_html}}` | Deterministic | Four `.panel.kpi` tiles: DS vs local %, usage sites, DS symbols, unresolved |
+| `{{caveat_html}}` | Template/trusted | “How to read this report” callout with accent left border |
+
+### Inline SVG charts and tables
+
+| Placeholder | Source | Notes |
+|-------------|--------|-------|
+| `{{coverage_bar_width}}` | Deterministic | Optional; retained for detailed section cards if needed |
 | `{{coverage_percent}}` | Deterministic | Formatted percent string |
 | `{{resolved_count}}` | Deterministic | `repo_summary.resolved_count` |
 | `{{total_usage_sites}}` | Deterministic | `repo_summary.total_usage_sites` |
-| `{{debt_bar_width}}` | Deterministic or proxy | Pixel width 0–320 for debt proxy bar |
-| `{{fragmentation_chart_svg}}` | Deterministic | SVG `<text>` + `<rect>` rows from `fragmentation_candidates` |
+| `{{debt_bar_width}}` | Deterministic or proxy | Pixel width 0–400 for debt proxy bar |
+| `{{ds_vs_local_chart_svg}}` | Deterministic | Compact horizontal bars: DS resolved sites vs local definitions |
+| `{{ds_usage_chart_svg}}` | Deterministic | Full `<svg>` horizontal bar chart from `symbol_rollups.design_system` |
+| `{{ds_symbols_table_html}}` | Deterministic | Table: component, usages, share of DS sites |
+| `{{language_chart_svg}}` | Deterministic | Stacked horizontal bars from `per_language` (resolved / candidate / unresolved) |
+| `{{fragmentation_chart_svg}}` | Deterministic | Full `<svg>` horizontal bar chart from `fragmentation_candidates` |
+| `{{key_findings_html}}` | Deterministic + agent | Bullet list of top findings; agent may extend |
 
-Omit or zero-width bars when data is missing. Keep charts inline; no external assets.
+Omit or zero-width bars when data is missing. Keep charts inline; no external assets or CDN scripts.
+
+### Visual theme
+
+- Background: `#000000`; panels: `#111111`; border: `#2a2a2a`
+- Accent / DS bars: beeswax yellow `#c9a84c`
+- Local/candidate bars: `#a8884a`; unresolved: `#666666`
+- Severity: red `#f85149`, amber `#c9a84c`, green `#3fb950`
 
 ### Recommendations
 
@@ -211,7 +232,8 @@ Each limit as a list item:
 After rendering `.wax/out/report/index.html`:
 
 1. Open in a browser with network disabled (offline).
-2. Verify executive summary card, section cards, and severity badges render.
-3. Verify at least one inline SVG chart is visible.
-4. Verify `data-gap` sections use muted dashed styling.
-5. Verify footer shows `generated_at` and `source_scan`.
+2. Verify dark theme, beeswax yellow accent, and KPI grid at top.
+3. Verify executive summary, section panels, and severity badges render.
+4. Verify horizontal SVG charts (DS usage, language breakdown, fragmentation) and DS symbols table.
+5. Verify `data-gap` sections use muted dashed styling.
+6. Verify footer shows `generated_at` and `source_scan`.
