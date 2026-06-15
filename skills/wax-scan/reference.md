@@ -100,7 +100,7 @@ The agent copies the template to `.wax/out/report/index.html` and substitutes pl
 | Placeholder | Source | Notes |
 |-------------|--------|-------|
 | `{{health_score}}` | Agent-synthesized | e.g. `72/100`; explain weighting when data is sparse |
-| `{{coverage_percent}}` | Deterministic | `repo_summary.adoption_coverage_ratio` as percent |
+| `{{coverage_percent}}` | Deterministic | `repo_summary.adoption_coverage_ratio` as percent (used in detailed analysis sections, not headline KPIs) |
 | `{{maturity_level}}` | Agent-synthesized | e.g. `Emerging`, `Established` |
 | `{{debt_score_proxy}}` | Deterministic proxy | Share of usage sites not fully resolved to DS: `(candidate + unresolved) / total` |
 | `{{debt_score_explanation}}` | Deterministic narrative | e.g. `1 candidate + 4 unresolved of 11 usage sites` |
@@ -117,14 +117,14 @@ Badge HTML pattern:
 
 | Placeholder | Source | Notes |
 |-------------|--------|-------|
-| `{{kpi_grid_html}}` | Deterministic | Six `.panel.kpi` tiles: DS vs local %, resolved sites, coverage %, DS symbols, local definitions, unresolved |
+| `{{kpi_grid_html}}` | Deterministic | Six `.panel.kpi` tiles: DS vs local %, resolved sites, local definitions, DS symbols, total sites, unresolved |
 | `{{caveat_html}}` | Template/trusted | “How to read this report” callout with accent left border |
 
 ### Inline SVG charts and tables
 
 | Placeholder | Source | Notes |
 |-------------|--------|-------|
-| `{{coverage_bar_width}}` | Deterministic | Pixel width 0–400 from `adoption_coverage_ratio` |
+| `{{coverage_bar_width}}` | Deterministic | Optional; retained for detailed section cards if needed |
 | `{{coverage_percent}}` | Deterministic | Formatted percent string |
 | `{{resolved_count}}` | Deterministic | `repo_summary.resolved_count` |
 | `{{total_usage_sites}}` | Deterministic | `repo_summary.total_usage_sites` |

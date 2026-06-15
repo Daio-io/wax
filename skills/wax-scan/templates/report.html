@@ -366,29 +366,16 @@
       <p class="subtitle" style="margin-top:12px;">{{ds_vs_local_percent}} of classified adoption volume favors the design system over local definitions.</p>
     </div>
 
-    <h2>Adoption metrics</h2>
-    <div class="grid" style="margin-bottom:16px;">
-      <div class="panel">
-        <h3 style="margin-top:0;">Coverage</h3>
-        <div class="chart-wrap">
-          <svg viewBox="0 0 400 80" role="img" aria-label="Adoption coverage bar chart">
-            <text x="0" y="14" class="chart-label">DS resolved / total usage sites</text>
-            <rect x="0" y="24" width="400" height="20" rx="4" fill="var(--chart-track)"/>
-            <rect x="0" y="24" width="{{coverage_bar_width}}" height="20" rx="4" fill="var(--ds)"/>
-            <text x="0" y="62" class="chart-value">{{coverage_percent}} ({{resolved_count}} / {{total_usage_sites}})</text>
-          </svg>
-        </div>
-      </div>
-      <div class="panel">
-        <h3 style="margin-top:0;">Debt proxy</h3>
-        <div class="chart-wrap">
-          <svg viewBox="0 0 400 80" role="img" aria-label="Debt score proxy bar chart">
-            <text x="0" y="14" class="chart-label">Candidate + unresolved vs total usage sites</text>
-            <rect x="0" y="24" width="400" height="20" rx="4" fill="var(--chart-track)"/>
-            <rect x="0" y="24" width="{{debt_bar_width}}" height="20" rx="4" fill="var(--local)"/>
-            <text x="0" y="62" class="chart-value">{{debt_score_proxy}} — {{debt_score_explanation}}</text>
-          </svg>
-        </div>
+    <h2>Adoption debt</h2>
+    <div class="panel">
+      <h3 style="margin-top:0;">Unresolved and candidate usage</h3>
+      <div class="chart-wrap">
+        <svg viewBox="0 0 400 80" role="img" aria-label="Debt score proxy bar chart">
+          <text x="0" y="14" class="chart-label">Candidate + unresolved vs total usage sites</text>
+          <rect x="0" y="24" width="400" height="20" rx="4" fill="var(--chart-track)"/>
+          <rect x="0" y="24" width="{{debt_bar_width}}" height="20" rx="4" fill="var(--local)"/>
+          <text x="0" y="62" class="chart-value">{{debt_score_proxy}} — {{debt_score_explanation}}</text>
+        </svg>
       </div>
     </div>
 

@@ -67,7 +67,7 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
 
 7. When `--html` or `--html-only` is requested, render `.wax/out/report/index.html` using `skills/wax-scan/templates/report.html`.
    - Self-contained dark dashboard: black background, beeswax yellow (`#f5c518`) accent, KPI card grid, horizontal SVG bar charts, data tables, severity badges, and section panels.
-   - Layout: header → KPI grid → caveat → executive summary → adoption metric charts → DS usage chart + table → language breakdown → fragmentation → recommendations → detailed section cards → key findings → data gaps.
+   - Layout: header → KPI grid → caveat → executive summary → DS vs local chart → adoption debt → DS usage chart + table → language breakdown → fragmentation → recommendations → detailed section cards → key findings → data gaps.
    - Pin executive summary near the top; mute data-gap sections with dashed borders.
    - No CDN or external assets — self-contained inline SVG horizontal bar charts only.
    - Escape all scan-derived text (symbols, limits, paths, narrative evidence) with `skills/wax-scan/scripts/html-escape.sh` before inserting into HTML or SVG. Only trusted template snippets (card shells, badges) may be raw HTML.

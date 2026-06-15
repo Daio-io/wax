@@ -69,9 +69,9 @@ ds_vs_local_pct = f"{ds_vs_local * 100:.1f}%" if ds_vs_local is not None else "n
 kpis = [
     (ds_vs_local_pct, "DS vs local"),
     (esc(summary["resolved_count"]), "DS resolved sites"),
-    (coverage_pct, "Adoption coverage"),
-    (f"{ds_count}", "DS symbols in use"),
     (esc(local_count), "Local definitions"),
+    (f"{ds_count}", "DS symbols in use"),
+    (esc(summary["total_usage_sites"]), "Total usage sites"),
     (esc(summary["unresolved_count"]), "Unresolved sites"),
 ]
 
@@ -83,7 +83,7 @@ for num, label in kpis:
 PY
 )"
 
-caveat_html='<div class="caveat"><strong>How to read this report.</strong> Wax scans configured language packs for component usage sites and matches them against the design system registry. <strong>DS vs local</strong> compares resolved DS usage sites to local component definitions — a directional adoption signal, not strict UI coverage. Adoption coverage is resolved sites divided by total classified usage sites. Inferred insights are labeled with confidence; data-gap sections indicate metrics unavailable from current scan facts.</div>'
+caveat_html='<div class="caveat"><strong>How to read this report.</strong> Wax scans configured language packs for component usage sites and matches them against the design system registry. <strong>DS vs local</strong> compares resolved DS usage sites to local component definitions — the primary directional adoption signal in this report, not strict UI coverage. Inferred insights are labeled with confidence; data-gap sections indicate metrics unavailable from current scan facts.</div>'
 
 ds_vs_local_chart_svg="$(python3 - "$FIXTURE" "$CHART_WIDTH" <<'PY'
 import html
@@ -102,7 +102,7 @@ bar_max = chart_width - 120
 scale = bar_max / max_val
 ds_w = int(resolved * scale)
 local_w = int(local_defs * scale)
-height = 120
+height = 88
 
 def esc(value):
     return html.escape(str(value), quote=False)
@@ -115,9 +115,6 @@ print(
     f'<text x="0" y="58" class="chart-label">Local definitions</text>'
     f'<rect x="110" y="46" width="{local_w}" height="18" rx="3" fill="var(--local)"/>'
     f'<text x="{110 + local_w + 8}" y="58" class="chart-value">{esc(local_defs)}</text>'
-    f'<text x="0" y="98" class="chart-label">DS share of DS + local volume</text>'
-    f'<rect x="110" y="86" width="{bar_max}" height="18" rx="3" fill="var(--chart-track)"/>'
-    f'<rect x="110" y="86" width="{int((resolved / (resolved + local_defs)) * bar_max) if (resolved + local_defs) else 0}" height="18" rx="3" fill="var(--ds)"/>'
     f'</svg>'
 )
 PY
@@ -316,10 +313,6 @@ if top:
 findings.append(
     f"<li><strong>DS vs local is {ds_vs_local_pct}</strong> — "
     f"{esc(summary['resolved_count'])} resolved DS sites vs {esc(summary.get('local_definition_count', 0))} local component definitions.</li>"
-)
-findings.append(
-    f"<li><strong>Adoption coverage is {coverage_pct}</strong> — "
-    f"{esc(summary['resolved_count'])} resolved of {esc(summary['total_usage_sites'])} usage sites.</li>"
 )
 if frag:
     findings.append(
