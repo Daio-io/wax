@@ -141,9 +141,9 @@ Omit or zero-width bars when data is missing. Keep charts inline; no external as
 ### Visual theme
 
 - Background: `#000000`; panels: `#111111`; border: `#2a2a2a`
-- Accent / DS bars: beeswax yellow `#f5c518`
+- Accent / DS bars: beeswax yellow `#c9a84c`
 - Local/candidate bars: `#a8884a`; unresolved: `#666666`
-- Severity: red `#f85149`, amber `#f5c518`, green `#3fb950`
+- Severity: red `#f85149`, amber `#c9a84c`, green `#3fb950`
 
 ### Recommendations
 

@@ -66,7 +66,7 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
      ```
 
 7. When `--html` or `--html-only` is requested, render `.wax/out/report/index.html` using `skills/wax-scan/templates/report.html`.
-   - Self-contained dark dashboard: black background, beeswax yellow (`#f5c518`) accent, KPI card grid, horizontal SVG bar charts, data tables, severity badges, and section panels.
+   - Self-contained dark dashboard: black background, beeswax yellow (`#c9a84c`) accent, KPI card grid, horizontal SVG bar charts, data tables, severity badges, and section panels.
    - Layout: header → KPI grid → caveat → executive summary → DS vs local chart → adoption debt → DS usage chart + table → language breakdown → fragmentation → recommendations → detailed section cards → key findings → data gaps.
    - Pin executive summary near the top; mute data-gap sections with dashed borders.
    - No CDN or external assets — self-contained inline SVG horizontal bar charts only.
