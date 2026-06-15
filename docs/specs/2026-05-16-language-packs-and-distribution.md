@@ -23,7 +23,7 @@ Plan order, doc/implementation status, gates, and agent rules live in **[`docs/p
 | **Engine / kernel** | `wax` binary: orchestration, merge, graph, metrics, static site export |
 | **Language pack** | Installable unit for one stack (`compose`, `react`, `swift`): discover → parse → extract → `ScanFacts` |
 | **Language id** | Stable string key used in wax config, CLI, and global install paths |
-| **Design system registry** | Repo-local file listing canonical DS components; `wax scan` falls back to `.wax/wax.registry.json` when a language omits `registry`, while `wax init` and `wax discover` scaffold or write `.wax/<language-id>.registry.json` per language |
+| **Design system registry** | Per-language repo-local file listing canonical DS components at `.wax/<language-id>.registry.json`; `wax init` and `wax discover` scaffold or write those paths and set each language's `registry` key |
 | **Pack index** | Remote manifest listing downloadable language pack artifacts (`WAX_LANG_INDEX`) |
 | **`scan`** | CLI command that runs all **enabled** language packs and produces merged artifacts |
 | **Plugin** (future) | Optional kernel extension; not used for language extraction in v1 |
@@ -127,7 +127,7 @@ Primary project config. Canonical path: **`.wax/wax.config.json`**. Legacy **`.w
 }
 ```
 
-When a language omits `registry`, `wax scan` registry resolution defaults to `.wax/wax.registry.json`. `wax init` scaffolds one file per enabled language at `.wax/<language-id>.registry.json` and sets each language's `registry` key. `wax discover` (alias: `wax registry discover`) uses the same per-language default when the language entry has no configured registry. Hosted sources use `registry.source`:
+When a language omits `registry`, `wax scan` registry resolution defaults to `.wax/<language-id>.registry.json`. `wax init` scaffolds one file per enabled language at that path and sets each language's `registry` key. `wax discover` (alias: `wax registry discover`) uses the same per-language default when the language entry has no configured registry. Hosted sources use `registry.source`:
 
 ```json
 "registry": {
@@ -547,7 +547,7 @@ Registry components may declare an optional `package` string (Kotlin package, np
 }
 ```
 
-Each enabled language uses its own registry file (for example `.wax/compose.registry.json`). The legacy per-component `targets` field is ignored when present.
+Each enabled language uses its own registry file (for example `.wax/compose.registry.json`). Component `targets` is not part of the registry schema; language scope comes from the registry file path, not per-component filters.
 
 When `package` is omitted on a registry component, packs keep legacy name-only behavior (all matching usages count as `resolved`). Run `wax discover` to populate `package` when authoring registries from source; manual registries should set `package` explicitly for import-aware scans.
 
@@ -612,7 +612,7 @@ All resolver paths must be repo-relative; absolute paths and parent-directory es
 - Resolved design-system usage is **import-aware** and **registry-backed**. A JSX tag counts as resolved registry usage only when the module graph shows the binding was imported or one-hop re-exported from a source that exports a registry symbol or alias.
 - Bare PascalCase JSX names do **not** produce resolved usage. For example, `<Button />` counts only when `Button` resolves through the import graph to a registry component—not when a local app component shares the same name.
 - When registry components declare `package`, React compares npm import roots from named and namespace imports against the registry package to emit `resolved` or `candidate` usage sites; non-matching imports are omitted.
-- The legacy per-component `targets` field is ignored. Each language uses its own registry file.
+- The legacy per-component `targets` field is not used. Each language uses its own registry file.
 - Diagnostics for unresolved imports or JSX names are scoped to **design-system-relevant candidates**: imports from configured `packages`, configured package entrypoints, or JSX names matching registry symbols or aliases that cannot be resolved. Ordinary local and third-party JSX components do not produce unresolved diagnostics and do not affect resolved counts.
 
 **Local component discovery:**
@@ -661,7 +661,7 @@ and React.
 
 - Resolved design-system usage is **registry-backed** by final call member name. Direct calls such as `PrimaryButton(...)` and member-qualified calls such as `DesignSystem.PrimaryButton(...)` resolve when the member name matches a registry symbol or alias.
 - When registry components declare `package`, Swift uses `import` bindings to emit `resolved` or `candidate` usage sites; non-matching imports are omitted. Qualified calls such as `SwiftUI.Button(...)` use the qualifier module even when multiple modules are imported.
-- The legacy per-component `targets` field is ignored. Each language uses its own registry file.
+- The legacy per-component `targets` field is not used. Each language uses its own registry file.
 
 **Local component discovery:**
 

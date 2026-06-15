@@ -93,7 +93,7 @@ fn write_repo_files(repo: &Path, registry_file: &Path) {
 }
 
 fn write_repo_files_with_source(repo: &Path, source: &str) {
-    write_default_registry(repo);
+    write_default_registry(repo, &["compose"]);
     fs::write(
         repo.join(".waxrc"),
         r#"{
@@ -109,17 +109,19 @@ fn write_repo_files_with_source(repo: &Path, source: &str) {
     write_lockfile_with_source(repo, source);
 }
 
-fn write_default_registry(repo: &Path) {
+fn write_default_registry(repo: &Path, languages: &[&str]) {
     fs::create_dir_all(repo.join(".wax")).unwrap();
-    fs::write(
-        repo.join(".wax/wax.registry.json"),
-        r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
-    )
-    .unwrap();
+    for language in languages {
+        fs::write(
+            repo.join(format!(".wax/{language}.registry.json")),
+            r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
+        )
+        .unwrap();
+    }
 }
 
 fn write_lockfile_with_source(repo: &Path, pack_index_source: &str) {
-    write_lockfile_with_sources(repo, pack_index_source, ".wax/wax.registry.json");
+    write_lockfile_with_sources(repo, pack_index_source, ".wax/compose.registry.json");
 }
 
 fn write_lockfile_with_sources(repo: &Path, pack_index_source: &str, registry_source: &str) {
@@ -451,7 +453,7 @@ fn scan_repo_rewrites_default_registry_to_pack_config() {
     fs::create_dir_all(repo.join(".wax")).unwrap();
     fs::create_dir_all(&wax_home).unwrap();
 
-    write_default_registry(&repo);
+    write_default_registry(&repo, &["compose"]);
     fs::write(
         repo.join(".wax/wax.config.json"),
         r#"{"schema_version":1,"languages":[{"id":"compose","enabled":true,"roots":["src"]}]}"#,
@@ -467,7 +469,7 @@ fn scan_repo_rewrites_default_registry_to_pack_config() {
         serde_json::from_str(&fs::read_to_string(captured_request).unwrap()).unwrap();
     assert_eq!(
         request["config"]["registry"],
-        serde_json::json!(".wax/wax.registry.json")
+        serde_json::json!(".wax/compose.registry.json")
     );
     assert!(request["config"].get("design_system_registry").is_none());
 }
@@ -641,8 +643,9 @@ fn scan_resolve_fetches_registry_only_for_missing_languages() {
 }"#,
     )
     .unwrap();
-    write_default_registry(&repo);
-    let registry_sha256 = file_sha256(&repo.join(".wax/wax.registry.json"));
+    write_default_registry(&repo, &["compose", "react"]);
+    let compose_registry_sha256 = file_sha256(&repo.join(".wax/compose.registry.json"));
+    let react_registry_sha256 = file_sha256(&repo.join(".wax/react.registry.json"));
 
     let react_registry = root.join("react-registry.json");
     fs::write(
@@ -670,12 +673,12 @@ fn scan_resolve_fetches_registry_only_for_missing_languages() {
   "wax_version": "0.0.0",
   "registries": {{
     "compose": {{
-      "source": ".wax/wax.registry.json",
+      "source": ".wax/compose.registry.json",
       "sha256": "{0}"
     }},
     "react": {{
-      "source": ".wax/wax.registry.json",
-      "sha256": "{0}"
+      "source": ".wax/react.registry.json",
+      "sha256": "{1}"
     }}
   }},
   "languages": {{
@@ -693,7 +696,7 @@ fn scan_resolve_fetches_registry_only_for_missing_languages() {
     "react": {{
       "version": "1.0.0",
       "api_version": 1,
-      "source": "file://{1}",
+      "source": "file://{2}",
       "resolved": {{
         "target": "x86_64-unknown-linux-gnu",
         "url": "https://example.invalid/react-1.0.0.tgz",
@@ -703,7 +706,8 @@ fn scan_resolve_fetches_registry_only_for_missing_languages() {
     }}
   }}
 }}"#,
-        registry_sha256,
+        compose_registry_sha256,
+        react_registry_sha256,
         react_registry.display()
     );
     fs::write(repo.join("wax.lock.json"), lock).unwrap();
@@ -774,7 +778,7 @@ fn scan_resolve_rejects_registry_lock_source_drift() {
     let root = temp_dir("scan-resolve-registry-lock-source");
     let repo = root.join("repo");
     fs::create_dir_all(&repo).unwrap();
-    write_default_registry(&repo);
+    write_default_registry(&repo, &["compose"]);
     fs::write(
         repo.join(".waxrc"),
         r#"{
@@ -786,7 +790,7 @@ fn scan_resolve_rejects_registry_lock_source_drift() {
     )
     .unwrap();
 
-    let registry_sha256 = file_sha256(&repo.join(".wax/wax.registry.json"));
+    let registry_sha256 = file_sha256(&repo.join(".wax/compose.registry.json"));
     let lock = format!(
         r#"{{
   "schema_version": 2,
@@ -818,7 +822,7 @@ fn scan_resolve_rejects_registry_lock_digest_drift() {
     let root = temp_dir("scan-resolve-registry-lock-digest");
     let repo = root.join("repo");
     fs::create_dir_all(&repo).unwrap();
-    write_default_registry(&repo);
+    write_default_registry(&repo, &["compose"]);
     fs::write(
         repo.join(".waxrc"),
         r#"{
@@ -836,7 +840,7 @@ fn scan_resolve_rejects_registry_lock_digest_drift() {
   "wax_version": "0.0.0",
   "registries": {
     "compose": {
-      "source": ".wax/wax.registry.json",
+      "source": ".wax/compose.registry.json",
       "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
     }
   },

@@ -208,7 +208,7 @@ fn scan_command_default_auto_installs_missing_pack() {
 }
 
 fn write_repo_files(repo: &Path, registry_file: &Path, languages: &[&str]) {
-    write_default_registry(repo);
+    write_default_registry(repo, languages);
     let languages_json = languages
         .iter()
         .map(|language| format!(r#"    {{ "id": "{language}", "enabled": true }}"#))
@@ -319,8 +319,8 @@ fn write_repo_files_with_resolved_artifacts(
     registry_file: &Path,
     entries: &[(&str, &str, &str)],
 ) {
-    write_default_registry(repo);
     let languages = entries.iter().map(|(id, _, _)| *id).collect::<Vec<_>>();
+    write_default_registry(repo, &languages);
     let languages_json = languages
         .iter()
         .map(|language| format!(r#"    {{ "id": "{language}", "enabled": true }}"#))
@@ -379,23 +379,33 @@ fn write_repo_files_with_resolved_artifacts(
     .expect("write lockfile");
 }
 
-fn write_default_registry(repo: &Path) {
+const DEFAULT_REGISTRY_JSON: &str =
+    r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#;
+
+fn language_registry_relative_path(language: &str) -> String {
+    format!(".wax/{language}.registry.json")
+}
+
+fn write_default_registry(repo: &Path, languages: &[&str]) {
     fs::create_dir_all(repo.join(".wax")).expect("create .wax dir");
-    fs::write(
-        repo.join(".wax/wax.registry.json"),
-        r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
-    )
-    .expect("write default registry");
+    for language in languages {
+        fs::write(
+            repo.join(language_registry_relative_path(language)),
+            DEFAULT_REGISTRY_JSON,
+        )
+        .expect("write default registry");
+    }
 }
 
 fn registry_lock_entries(repo: &Path, languages: &[&str]) -> String {
-    let registry_sha256 = file_sha256(&repo.join(".wax/wax.registry.json"));
     languages
         .iter()
         .map(|language| {
+            let path = language_registry_relative_path(language);
+            let registry_sha256 = file_sha256(&repo.join(&path));
             format!(
                 r#"    "{language}": {{
-      "source": ".wax/wax.registry.json",
+      "source": "{path}",
       "sha256": "{registry_sha256}"
     }}"#
             )

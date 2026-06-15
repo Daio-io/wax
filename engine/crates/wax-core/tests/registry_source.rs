@@ -128,10 +128,14 @@ fn repo_relative_symlink_cannot_escape_repo() {
 }
 
 #[test]
-fn missing_registry_defaults_to_centralized_local_registry() {
+fn missing_registry_defaults_to_per_language_registry() {
     let repo = TestRepo::new();
     fs::create_dir_all(repo.path().join(".wax")).unwrap();
-    fs::write(repo.path().join(".wax/wax.registry.json"), REGISTRY_JSON).unwrap();
+    fs::write(
+        repo.path().join(".wax/compose.registry.json"),
+        REGISTRY_JSON,
+    )
+    .unwrap();
 
     let resolved = resolve_registry_source(RegistrySourceInput {
         repo_root: repo.path(),
@@ -140,8 +144,8 @@ fn missing_registry_defaults_to_centralized_local_registry() {
     })
     .unwrap();
 
-    assert_eq!(resolved.source, ".wax/wax.registry.json");
-    assert_eq!(resolved.repo_relative_path, ".wax/wax.registry.json");
+    assert_eq!(resolved.source, ".wax/compose.registry.json");
+    assert_eq!(resolved.repo_relative_path, ".wax/compose.registry.json");
     assert_eq!(resolved.sha256.len(), 64);
     assert!(!resolved.deprecated);
 }
@@ -246,7 +250,7 @@ fn malformed_registry_is_rejected() {
     let repo = TestRepo::new();
     fs::create_dir_all(repo.path().join(".wax")).unwrap();
     fs::write(
-        repo.path().join(".wax/wax.registry.json"),
+        repo.path().join(".wax/compose.registry.json"),
         "{\"components\":[]}",
     )
     .unwrap();
@@ -265,7 +269,11 @@ fn malformed_registry_is_rejected() {
 fn preserves_deprecated_source_marker() {
     let repo = TestRepo::new();
     fs::create_dir_all(repo.path().join(".wax")).unwrap();
-    fs::write(repo.path().join(".wax/wax.registry.json"), REGISTRY_JSON).unwrap();
+    fs::write(
+        repo.path().join(".wax/compose.registry.json"),
+        REGISTRY_JSON,
+    )
+    .unwrap();
 
     let resolved = resolve_registry_source_with_deprecation(
         RegistrySourceInput {

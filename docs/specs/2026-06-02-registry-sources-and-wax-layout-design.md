@@ -2,18 +2,20 @@
 
 ## Summary
 
-Wax should support design-system registry definitions that live outside the scanned repository while keeping local, committed registries simple. The new default repository layout centralizes wax-owned files under `.wax/` and makes the registry source optional in config:
+Wax should support design-system registry definitions that live outside the scanned repository while keeping local, committed registries simple. The default repository layout centralizes wax-owned files under `.wax/`:
 
 ```text
 .wax/
   wax.config.json
   wax.lock.json
-  wax.registry.json
+  compose.registry.json
+  react.registry.json
+  swift.registry.json
   cache/
   out/
 ```
 
-When a language does not declare a registry, wax uses `.wax/wax.registry.json`. Repositories can override that with a repo-relative path or a hosted/local source object. Remote and outside-repo sources are checked during validation and scan, and their resolved content is locked by digest for deterministic CI.
+Each enabled language has its own registry file at `.wax/<language-id>.registry.json`. When a language omits `registry` in config, wax resolves that per-language default. Repositories can override the path with a repo-relative file or a hosted/local source object. Remote and outside-repo sources are checked during validation and scan, and their resolved content is locked by digest for deterministic CI.
 
 ## Goals
 
@@ -21,6 +23,7 @@ When a language does not declare a registry, wax uses `.wax/wax.registry.json`. 
 - Let app repositories consume registry definitions published by a design-system repository.
 - Let design-system teams encode versioning in their source URL or path instead of making wax infer package-manager semantics.
 - Centralize wax-owned repository files while preserving searchable `wax.*.json` filenames.
+- Keep registries scoped per language so multi-stack repositories do not share one component list.
 - Keep scans deterministic with lockfile-pinned registry content.
 - Preserve compatibility with existing `.waxrc`, `wax.lock.json`, and `design_system_registry` users during a migration window.
 
@@ -30,6 +33,7 @@ When a language does not declare a registry, wax uses `.wax/wax.registry.json`. 
 - Wax will not define a hosted registry service or package protocol.
 - Wax will not support plain absolute filesystem paths in config; outside-repo local files must use `file://`.
 - Language packs will not fetch remote registries directly.
+- Wax will not use one shared `.wax/wax.registry.json` for all enabled languages.
 
 ## Repository Layout
 
@@ -39,10 +43,12 @@ New `wax init` writes the canonical layout:
 .wax/
   wax.config.json
   wax.lock.json
-  wax.registry.json
+  <language-id>.registry.json
   cache/
   out/
 ```
+
+`wax init` scaffolds one empty registry per enabled language (for example `.wax/compose.registry.json`) and sets each language's `registry` key in config.
 
 `wax init` also updates `.gitignore` with:
 
@@ -73,11 +79,7 @@ The canonical config path is `.wax/wax.config.json`. Its schema remains close to
 }
 ```
 
-Missing `registry` means the enabled language uses `.wax/wax.registry.json`.
-This shared default is intentional. Repositories with multiple enabled
-languages use one default registry unless a language entry declares its own
-`registry`; multi-stack repositories with different DS definitions should set
-an explicit registry per language.
+Missing `registry` means the enabled language uses `.wax/<language-id>.registry.json`.
 
 A string `registry` is a repo-relative path:
 
@@ -146,7 +148,7 @@ Before `wax validate` or `wax scan` runs language-pack validation or scanning, w
 
 1. Read `.wax/wax.config.json`, or fall back to legacy `.waxrc`.
 2. Normalize each enabled language's registry setting:
-   - missing `registry` -> repo-relative `.wax/wax.registry.json`
+   - missing `registry` -> repo-relative `.wax/<language-id>.registry.json`
    - string `registry` -> repo-relative path
    - object `registry.source` -> repo-relative path, `file://`, `http://`, or `https://`
    - legacy `design_system_registry` -> repo-relative path
@@ -176,7 +178,7 @@ Each registry lock entry records:
 
 ## Lock Refresh and Migration
 
-`wax init` writes registry lock entries for the generated `.wax/wax.registry.json`.
+`wax init` writes registry lock entries for each generated `.wax/<language-id>.registry.json`.
 
 `wax language update` refreshes registry lock entries for every enabled language
 when it writes `.wax/wax.lock.json`. It resolves each language's registry source
@@ -185,9 +187,9 @@ and upserts the matching lock entry. Existing repositories that only have
 language-pack locks migrate by running `wax language update` after adopting the
 centralized config or after editing a local registry.
 
-Local registry edits are intentionally lock-protected. After changing
-`.wax/wax.registry.json` or another repo-relative registry, users refresh the
-lock before CI scans by running `wax language update`.
+Local registry edits are intentionally lock-protected. After changing a
+repo-relative registry file, users refresh the lock before CI scans by running
+`wax language update`.
 
 ## Compatibility and Precedence
 
@@ -198,9 +200,9 @@ Wax reads old and new file locations during a migration window:
 - preferred lockfile: `.wax/wax.lock.json`
 - legacy lockfile: top-level `wax.lock.json`
 
-If both old and new config files exist, `.wax/wax.config.json` wins and validation emits a warning about the ignored legacy config. If both old and new lockfiles exist, `.wax/wax.lock.json` wins and validation emits a warning about the ignored legacy lockfile.
+When both preferred and legacy files exist, wax prefers the centralized paths and emits warnings for ignored legacy files.
 
-New `wax init` writes only the centralized layout. Existing repositories can keep using legacy files until they migrate.
+New `wax init` writes only the centralized per-language layout. Existing repositories can keep using legacy config and lockfile paths until they migrate.
 
 ## Errors and Warnings
 
@@ -225,7 +227,7 @@ Validation should warn for:
 
 Focused tests should cover:
 
-- missing `registry` defaults to `.wax/wax.registry.json`
+- missing `registry` defaults to `.wax/<language-id>.registry.json`
 - string `registry` resolves as a repo-relative path
 - object `registry.source` resolves repo-relative paths, `file://`, `http://`, and `https://`
 - plain absolute paths are rejected
@@ -235,6 +237,6 @@ Focused tests should cover:
 - old and new config precedence emits warnings
 - old and new lockfile precedence emits warnings
 - `design_system_registry` remains accepted with a deprecation warning
-- `wax init` scaffolds `.wax/wax.config.json`, `.wax/wax.lock.json`, `.wax/wax.registry.json`
+- `wax init` scaffolds `.wax/wax.config.json`, `.wax/wax.lock.json`, and per-language `.wax/<language-id>.registry.json`
 - `wax init` adds `/.wax/cache/` and `/.wax/out/` to `.gitignore` without duplicating them
 - language packs receive a resolved repo-relative registry path and do not fetch remote sources

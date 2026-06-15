@@ -220,7 +220,7 @@ mod tests {
         )
         .unwrap();
         fs::write(
-            repo_root.join(".wax/wax.registry.json"),
+            repo_root.join(".wax/react.registry.json"),
             r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"Button","targets":["react"]}]}"#,
         )
         .unwrap();
@@ -228,7 +228,7 @@ mod tests {
         let mut config = ScanConfig::new();
         config.insert(
             "registry".to_owned(),
-            serde_json::Value::String(".wax/wax.registry.json".to_owned()),
+            serde_json::Value::String(".wax/react.registry.json".to_owned()),
         );
         config.insert(
             "roots".to_owned(),
@@ -288,7 +288,7 @@ mod tests {
         )
         .unwrap();
         fs::write(
-            repo_root.join(".wax/wax.registry.json"),
+            repo_root.join(".wax/react.registry.json"),
             r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"Button","targets":["react"]}]}"#,
         )
         .unwrap();
@@ -296,7 +296,7 @@ mod tests {
         let mut config = ScanConfig::new();
         config.insert(
             "registry".to_owned(),
-            serde_json::Value::String(".wax/wax.registry.json".to_owned()),
+            serde_json::Value::String(".wax/react.registry.json".to_owned()),
         );
         config.insert(
             "roots".to_owned(),

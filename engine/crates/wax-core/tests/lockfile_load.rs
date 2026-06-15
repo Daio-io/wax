@@ -63,7 +63,7 @@ fn loads_minimal_lockfile() {
         time::macros::datetime!(2026-05-16 12:00 UTC)
     );
     let registry = lock.registries.get("compose").unwrap();
-    assert_eq!(registry.source, ".wax/wax.registry.json");
+    assert_eq!(registry.source, ".wax/compose.registry.json");
     assert_eq!(
         registry.sha256,
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -160,7 +160,7 @@ fn parses_registry_locks() {
         .get(&LanguageId::try_from("compose").unwrap())
         .expect("compose registry lock should exist");
 
-    assert_eq!(registry.source, ".wax/wax.registry.json");
+    assert_eq!(registry.source, ".wax/compose.registry.json");
     assert_eq!(
         registry.sha256,
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"

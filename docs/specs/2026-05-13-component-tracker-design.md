@@ -432,7 +432,7 @@ Allow users to edit the registry and rerun validation until stable.
 
 ### Registry Design Principles
 
-- the default registry lives at `.wax/wax.registry.json`
+- each enabled language uses its own registry at `.wax/<language-id>.registry.json`
 - external registry sources are allowed through `.wax/wax.config.json` `registry`
 - validation and scan operate on lockfile-pinned registry content
 - it is versioned and reviewable

@@ -91,7 +91,7 @@ fn fixture_with_registry_url(name: &str, registry_artifact_url: Option<&str>) ->
 
     let design_registry =
         r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#;
-    fs::write(repo.join(".wax/wax.registry.json"), design_registry).unwrap();
+    fs::write(repo.join(".wax/compose.registry.json"), design_registry).unwrap();
     let design_registry_sha256 = sha256_hex(design_registry.as_bytes());
 
     fs::write(
@@ -114,7 +114,7 @@ fn fixture_with_registry_url(name: &str, registry_artifact_url: Option<&str>) ->
   "wax_version": "0.0.0",
   "registries": {{
     "compose": {{
-      "source": ".wax/wax.registry.json",
+      "source": ".wax/compose.registry.json",
       "sha256": "{design_registry_sha256}"
     }}
   }},

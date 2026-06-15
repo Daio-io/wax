@@ -1407,7 +1407,7 @@ mod tests {
         )
         .unwrap();
         fs::write(
-            temp.path().join(".wax/wax.registry.json"),
+            temp.path().join(".wax/compose.registry.json"),
             r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
         )
         .unwrap();
@@ -1468,7 +1468,7 @@ mod tests {
             .registries
             .get(&lang("compose"))
             .expect("compose registry lock should exist after update");
-        assert_eq!(registry.source, ".wax/wax.registry.json");
+        assert_eq!(registry.source, ".wax/compose.registry.json");
         assert_eq!(registry.sha256.len(), 64);
         assert_eq!(lockfile.schema_version, WAX_LOCK_SCHEMA_VERSION);
         assert_eq!(lockfile.languages[&lang("compose")].version, "0.4.2");
@@ -1729,7 +1729,7 @@ mod tests {
         )
         .unwrap();
         fs::write(
-            temp.path().join(".wax/wax.registry.json"),
+            temp.path().join(".wax/compose.registry.json"),
             r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
         )
         .unwrap();
@@ -1748,7 +1748,7 @@ mod tests {
             .registries
             .get(&lang("compose"))
             .expect("compose registry lock should exist");
-        assert_eq!(registry.source, ".wax/wax.registry.json");
+        assert_eq!(registry.source, ".wax/compose.registry.json");
         assert_eq!(registry.sha256.len(), 64);
         assert_eq!(
             lock.schema_version,
