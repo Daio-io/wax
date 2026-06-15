@@ -117,7 +117,7 @@ Badge HTML pattern:
 
 | Placeholder | Source | Notes |
 |-------------|--------|-------|
-| `{{kpi_grid_html}}` | Deterministic | Six `.panel.kpi` tiles: DS vs local %, resolved sites, local definitions, DS symbols, total sites, unresolved |
+| `{{kpi_grid_html}}` | Deterministic | Four `.panel.kpi` tiles: DS vs local %, usage sites, DS symbols, unresolved |
 | `{{caveat_html}}` | Template/trusted | “How to read this report” callout with accent left border |
 
 ### Inline SVG charts and tables
@@ -129,9 +129,7 @@ Badge HTML pattern:
 | `{{resolved_count}}` | Deterministic | `repo_summary.resolved_count` |
 | `{{total_usage_sites}}` | Deterministic | `repo_summary.total_usage_sites` |
 | `{{debt_bar_width}}` | Deterministic or proxy | Pixel width 0–400 for debt proxy bar |
-| `{{ds_vs_local_chart_svg}}` | Deterministic | Grouped bar chart: DS resolved sites vs local component definitions |
-| `{{ds_vs_local_percent}}` | Deterministic | `repo_summary.ds_vs_local_ratio` as percent string |
-| `{{local_definition_count}}` | Deterministic | `repo_summary.local_definition_count` |
+| `{{ds_vs_local_chart_svg}}` | Deterministic | Compact horizontal bars: DS resolved sites vs local definitions |
 | `{{ds_usage_chart_svg}}` | Deterministic | Full `<svg>` horizontal bar chart from `symbol_rollups.design_system` |
 | `{{ds_symbols_table_html}}` | Deterministic | Table: component, usages, share of DS sites |
 | `{{language_chart_svg}}` | Deterministic | Stacked horizontal bars from `per_language` (resolved / candidate / unresolved) |

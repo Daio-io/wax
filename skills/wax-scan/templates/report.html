@@ -132,7 +132,7 @@
 
     .grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
       gap: 16px;
     }
 
@@ -166,14 +166,35 @@
 
     .chart-wrap {
       position: relative;
-      margin: 16px 0;
+      margin: 8px 0 0;
       overflow-x: auto;
+    }
+
+    .charts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      margin-bottom: 16px;
     }
 
     .chart-wrap svg {
       display: block;
       width: 100%;
+      max-width: 520px;
       height: auto;
+    }
+
+    .chart-wrap.chart-tall svg {
+      max-height: 320px;
+    }
+
+    .panel h3.chart-title {
+      margin: 0 0 8px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
     }
 
     .legend {
@@ -255,13 +276,13 @@
     .muted { color: var(--muted); }
 
     .chart-label {
-      font-size: 11px;
+      font-size: 10px;
       fill: var(--muted);
     }
 
     .chart-value {
-      font-size: 12px;
-      font-weight: 600;
+      font-size: 10px;
+      font-weight: 500;
       fill: var(--text);
     }
 
@@ -355,27 +376,22 @@
       </div>
     </div>
 
-    <h2>DS vs local</h2>
-    <p class="subtitle">Resolved design system usage sites compared to local component definitions — a directional adoption signal, not strict UI coverage.</p>
-    <div class="panel">
-      <div class="legend">
-        <div class="legend-item"><span class="legend-dot" style="background:var(--ds)"></span> DS resolved usage sites ({{resolved_count}})</div>
-        <div class="legend-item"><span class="legend-dot" style="background:var(--local)"></span> Local component definitions ({{local_definition_count}})</div>
+    <h2>Adoption</h2>
+    <div class="charts-grid">
+      <div class="panel">
+        <h3 class="chart-title">DS vs local</h3>
+        <div class="chart-wrap chart-compact">{{ds_vs_local_chart_svg}}</div>
       </div>
-      <div class="chart-wrap">{{ds_vs_local_chart_svg}}</div>
-      <p class="subtitle" style="margin-top:12px;">{{ds_vs_local_percent}} of classified adoption volume favors the design system over local definitions.</p>
-    </div>
-
-    <h2>Adoption debt</h2>
-    <div class="panel">
-      <h3 style="margin-top:0;">Unresolved and candidate usage</h3>
-      <div class="chart-wrap">
-        <svg viewBox="0 0 400 80" role="img" aria-label="Debt score proxy bar chart">
-          <text x="0" y="14" class="chart-label">Candidate + unresolved vs total usage sites</text>
-          <rect x="0" y="24" width="400" height="20" rx="4" fill="var(--chart-track)"/>
-          <rect x="0" y="24" width="{{debt_bar_width}}" height="20" rx="4" fill="var(--local)"/>
-          <text x="0" y="62" class="chart-value">{{debt_score_proxy}} — {{debt_score_explanation}}</text>
-        </svg>
+      <div class="panel">
+        <h3 class="chart-title">Unresolved usage</h3>
+        <div class="chart-wrap chart-compact">
+          <svg viewBox="0 0 360 52" role="img" aria-label="Debt score proxy bar chart">
+            <rect x="0" y="16" width="360" height="10" rx="2" fill="var(--chart-track)"/>
+            <rect x="0" y="16" width="{{debt_bar_width}}" height="10" rx="2" fill="var(--local)"/>
+            <text x="0" y="11" class="chart-label">Candidate + unresolved of {{total_usage_sites}} sites</text>
+            <text x="0" y="44" class="chart-value">{{debt_score_proxy}} — {{debt_score_explanation}}</text>
+          </svg>
+        </div>
       </div>
     </div>
 
@@ -384,7 +400,7 @@
       <div class="legend">
         <div class="legend-item"><span class="legend-dot" style="background:var(--ds)"></span> Resolved DS call sites</div>
       </div>
-      <div class="chart-wrap">{{ds_usage_chart_svg}}</div>
+      <div class="chart-wrap chart-tall">{{ds_usage_chart_svg}}</div>
     </div>
 
     <div class="panel">
@@ -392,7 +408,6 @@
     </div>
 
     <h2>Adoption by language</h2>
-    <p class="subtitle">Resolved vs unresolved usage sites per language pack.</p>
     <div class="panel">
       <div class="legend">
         <div class="legend-item"><span class="legend-dot" style="background:var(--ds)"></span> Resolved</div>
@@ -403,7 +418,6 @@
     </div>
 
     <h2>Fragmentation</h2>
-    <p class="subtitle">Symbol families suggesting duplicate implementations of the same UI pattern.</p>
     <div class="panel">
       <div class="chart-wrap">{{fragmentation_chart_svg}}</div>
     </div>
