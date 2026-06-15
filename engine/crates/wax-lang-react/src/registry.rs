@@ -16,6 +16,8 @@ pub struct ReactRegistryIndex {
     pub design_system_components: Vec<DesignSystemComponent>,
     /// Map from any observed name (symbol or alias) to canonical registry symbol.
     pub resolve_targets: BTreeMap<String, String>,
+    /// Optional import package per canonical registry symbol.
+    pub component_packages: BTreeMap<String, Option<String>>,
 }
 
 /// Kind of registry load failure.
@@ -92,6 +94,7 @@ pub fn load_react_registry(path: &Path) -> Result<ReactRegistryIndex, RegistryEr
 
     let mut design_system_components = Vec::new();
     let mut resolve_targets = BTreeMap::new();
+    let mut component_packages = BTreeMap::new();
     for (index, component) in components.iter().enumerate() {
         if !component_available_to_react(component, index)? {
             continue;
@@ -103,12 +106,30 @@ pub fn load_react_registry(path: &Path) -> Result<ReactRegistryIndex, RegistryEr
             .ok_or_else(|| {
                 RegistryError::invalid(format!("components[{index}] is missing symbol"))
             })?;
+        let package = component
+            .get("package")
+            .map(|value| {
+                value.as_str().ok_or_else(|| {
+                    RegistryError::invalid(format!("components[{index}].package must be a string"))
+                })
+            })
+            .transpose()?
+            .map(str::to_owned);
+        if let Some(package) = &package
+            && package.is_empty()
+        {
+            return Err(RegistryError::invalid(format!(
+                "components[{index}].package must not be empty"
+            )));
+        }
+
         design_system_components.push(DesignSystemComponent {
             id: format!("ds.{symbol}"),
             symbol: symbol.to_owned(),
             registry_symbol: symbol.to_owned(),
         });
         resolve_targets.insert(symbol.to_owned(), symbol.to_owned());
+        component_packages.insert(symbol.to_owned(), package);
         if let Some(aliases) = component
             .get("aliases")
             .and_then(serde_json::Value::as_array)
@@ -135,6 +156,7 @@ pub fn load_react_registry(path: &Path) -> Result<ReactRegistryIndex, RegistryEr
     Ok(ReactRegistryIndex {
         design_system_components,
         resolve_targets,
+        component_packages,
     })
 }
 

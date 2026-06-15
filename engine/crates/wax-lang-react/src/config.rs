@@ -20,6 +20,8 @@ pub struct ReactScanConfig {
     pub aliases: BTreeMap<String, Vec<String>>,
     /// Configured design-system package entrypoint hints.
     pub packages: BTreeMap<String, PackageConfig>,
+    /// Package prefixes for the underlying UI framework used to detect shadowed usage.
+    pub framework_packages: Vec<String>,
 }
 
 /// Configured source mappings for a design-system package.
@@ -46,7 +48,8 @@ pub fn parse_react_scan_config(config: &ScanConfig) -> Result<ReactConfigMode, C
     let has_react_only_config = config.contains_key("ignore")
         || config.contains_key("tsconfig")
         || config.contains_key("aliases")
-        || config.contains_key("packages");
+        || config.contains_key("packages")
+        || config.contains_key("framework_packages");
     if !has_registry && !has_roots && !has_react_only_config {
         return Ok(ReactConfigMode::Scaffold);
     }
@@ -78,6 +81,12 @@ pub fn parse_react_scan_config(config: &ScanConfig) -> Result<ReactConfigMode, C
 
     let aliases = parse_aliases(config)?;
     let packages = parse_packages(config)?;
+    let framework_packages = config
+        .get("framework_packages")
+        .map(wax_lang_api::parse_framework_packages)
+        .transpose()
+        .map_err(|err| ConfigError::new(err.to_string()))?
+        .unwrap_or_default();
 
     Ok(ReactConfigMode::Configured(ReactScanConfig {
         design_system_registry: PathBuf::from(registry),
@@ -86,6 +95,7 @@ pub fn parse_react_scan_config(config: &ScanConfig) -> Result<ReactConfigMode, C
         tsconfig,
         aliases,
         packages,
+        framework_packages,
     }))
 }
 

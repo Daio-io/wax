@@ -19,7 +19,10 @@ use wax_contract::{
     DesignSystemComponent, Diagnostic, DiagnosticSeverity, LocalComponent, MatchStatus, ScanStatus,
     SourceLocation, UsageSite,
 };
-use wax_lang_api::{RootPatternKind, RootResolutionError, ScanConfig, resolve_source_roots};
+use wax_lang_api::{
+    RootPatternKind, RootResolutionError, ScanConfig, resolve_import_aware_match,
+    resolve_source_roots,
+};
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -105,7 +108,13 @@ pub fn parse_compose_scan_config(
 
     let framework_packages = config
         .get("framework_packages")
-        .map(parse_framework_packages)
+        .map(|value| {
+            wax_lang_api::parse_framework_packages(value).map_err(|err| {
+                TreeSitterScanError::ConfigInvalid {
+                    reason: err.to_string(),
+                }
+            })
+        })
         .transpose()?
         .unwrap_or_default();
 
@@ -114,31 +123,6 @@ pub fn parse_compose_scan_config(
         roots,
         framework_packages,
     }))
-}
-
-fn parse_framework_packages(value: &serde_json::Value) -> Result<Vec<String>, TreeSitterScanError> {
-    let array = value
-        .as_array()
-        .ok_or_else(|| TreeSitterScanError::ConfigInvalid {
-            reason: "framework_packages must be an array of strings".to_owned(),
-        })?;
-    let mut packages = Vec::with_capacity(array.len());
-    for (index, entry) in array.iter().enumerate() {
-        let package = entry
-            .as_str()
-            .ok_or_else(|| TreeSitterScanError::ConfigInvalid {
-                reason: format!("framework_packages[{index}] must be a non-empty string"),
-            })?;
-        if package.is_empty() {
-            return Err(TreeSitterScanError::ConfigInvalid {
-                reason: format!("framework_packages[{index}] must be a non-empty string"),
-            });
-        }
-        packages.push(package.to_owned());
-    }
-    packages.sort();
-    packages.dedup();
-    Ok(packages)
 }
 
 fn validate_repo_relative_path(path: &str, field: &str) -> Result<(), TreeSitterScanError> {
@@ -336,13 +320,6 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, TreeSitterScanError> {
 
 // ── Extraction ────────────────────────────────────────────────────────────────
 
-fn package_matches_prefix(package: &str, prefix: &str) -> bool {
-    package == prefix
-        || package
-            .strip_prefix(prefix)
-            .is_some_and(|rest| rest.starts_with('.'))
-}
-
 fn resolve_registry_match(
     call_symbol: &str,
     registry_symbol: &str,
@@ -350,30 +327,26 @@ fn resolve_registry_match(
     imports: &ImportBindings,
     framework_packages: &[String],
 ) -> Option<MatchStatus> {
-    let ds_package = registry
-        .component_packages
-        .get(registry_symbol)
-        .and_then(|package| package.as_deref());
-
-    let Some(ds_package) = ds_package else {
-        return Some(MatchStatus::Resolved);
-    };
-
-    let Some(import_package) = imports.package_for_symbol(call_symbol) else {
-        return Some(MatchStatus::Candidate);
-    };
-
-    if import_package == ds_package {
-        return Some(MatchStatus::Resolved);
-    }
-    if framework_packages
-        .iter()
-        .any(|framework_package| package_matches_prefix(&import_package, framework_package))
-    {
-        return Some(MatchStatus::FrameworkShadow);
-    }
-
-    None
+    resolve_import_aware_match(
+        registry
+            .component_packages
+            .get(registry_symbol)
+            .and_then(|package| package.as_deref()),
+        imports.package_for_symbol(call_symbol).as_deref(),
+        framework_packages,
+    )
+    .or_else(|| {
+        if registry
+            .component_packages
+            .get(registry_symbol)
+            .and_then(|package| package.as_deref())
+            .is_none()
+        {
+            Some(MatchStatus::Resolved)
+        } else {
+            None
+        }
+    })
 }
 
 fn extract_from_source(
