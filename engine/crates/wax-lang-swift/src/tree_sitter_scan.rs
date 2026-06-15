@@ -27,8 +27,6 @@ pub struct SwiftScanConfig {
     pub design_system_registry: PathBuf,
     /// Repo-relative Swift source roots to scan.
     pub roots: Vec<PathBuf>,
-    /// Module prefixes for the underlying UI framework used to detect shadowed usage.
-    pub framework_packages: Vec<String>,
 }
 
 /// Whether the request should run the tree-sitter scanner or return scaffold facts.
@@ -167,22 +165,9 @@ pub fn parse_swift_scan_config(
         roots.push(PathBuf::from(root));
     }
 
-    let framework_packages = config
-        .get("framework_packages")
-        .map(|value| {
-            wax_lang_api::parse_framework_packages(value).map_err(|err| {
-                TreeSitterScanError::ConfigInvalid {
-                    reason: err.to_string(),
-                }
-            })
-        })
-        .transpose()?
-        .unwrap_or_default();
-
     Ok(SwiftConfigMode::Configured(SwiftScanConfig {
         design_system_registry: PathBuf::from(registry),
         roots,
-        framework_packages,
     }))
 }
 
@@ -258,10 +243,6 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, TreeSitterScanError> {
     let mut resolve_targets = BTreeMap::new();
     let mut component_packages = BTreeMap::new();
     for (index, component) in components.iter().enumerate() {
-        if !component_available_to_swift(component, index, path)? {
-            continue;
-        }
-
         let symbol = component
             .get("symbol")
             .and_then(serde_json::Value::as_str)
@@ -334,7 +315,6 @@ fn resolve_registry_match(
     registry_symbol: &str,
     registry: &RegistryIndex,
     imports: &ImportBindings,
-    framework_packages: &[String],
 ) -> Option<MatchStatus> {
     resolve_import_aware_match(
         registry
@@ -344,7 +324,6 @@ fn resolve_registry_match(
         imports
             .package_for_call(call_symbol, call_qualifier)
             .as_deref(),
-        framework_packages,
     )
     .or_else(|| {
         if registry
@@ -360,43 +339,11 @@ fn resolve_registry_match(
     })
 }
 
-fn component_available_to_swift(
-    component: &serde_json::Value,
-    index: usize,
-    path: &Path,
-) -> Result<bool, TreeSitterScanError> {
-    let Some(targets_value) = component.get("targets") else {
-        return Ok(true);
-    };
-    if targets_value.is_null() {
-        return Ok(true);
-    }
-    let Some(targets) = targets_value.as_array() else {
-        return Err(TreeSitterScanError::RegistryInvalid {
-            path: path.to_path_buf(),
-            reason: format!("components[{index}].targets must be an array of strings"),
-        });
-    };
-    for (target_index, target) in targets.iter().enumerate() {
-        let target = target
-            .as_str()
-            .ok_or_else(|| TreeSitterScanError::RegistryInvalid {
-                path: path.to_path_buf(),
-                reason: format!("components[{index}].targets[{target_index}] must be a string"),
-            })?;
-        if target == "swift" {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
 fn extract_from_source(
     root: tree_sitter::Node<'_>,
     source: &[u8],
     file: &str,
     registry: &RegistryIndex,
-    framework_packages: &[String],
     local_components: &mut Vec<LocalComponent>,
     usage_sites: &mut Vec<UsageSite>,
 ) {
@@ -425,7 +372,6 @@ fn extract_from_source(
                 registry_symbol,
                 registry,
                 &imports,
-                framework_packages,
             ) else {
                 continue;
             };
@@ -580,7 +526,6 @@ pub fn scan_repository(
                     parsed.source.as_bytes(),
                     &relative_file,
                     &registry,
-                    &config.framework_packages,
                     &mut local_components,
                     &mut usage_sites,
                 );
@@ -701,7 +646,6 @@ mod tests {
     fn parse_and_extract(
         source: &str,
         registry: &RegistryIndex,
-        framework_packages: &[String],
     ) -> (Vec<LocalComponent>, Vec<UsageSite>) {
         let mut parser = make_parser();
         let tree = parser.parse(source.as_bytes(), None).expect("parse");
@@ -712,7 +656,6 @@ mod tests {
             source.as_bytes(),
             "Test.swift",
             registry,
-            framework_packages,
             &mut locals,
             &mut usages,
         );
@@ -726,21 +669,6 @@ mod tests {
         config.insert("roots".to_owned(), serde_json::json!(["../Sources/App"]));
 
         let err = parse_swift_scan_config(&config).expect_err("parent-dir roots must fail");
-        assert!(matches!(err, TreeSitterScanError::ConfigInvalid { .. }));
-    }
-
-    #[test]
-    fn parse_config_rejects_invalid_framework_packages() {
-        let mut config = ScanConfig::new();
-        config.insert("registry".to_owned(), serde_json::json!("registry.json"));
-        config.insert("roots".to_owned(), serde_json::json!(["app/Sources"]));
-        config.insert(
-            "framework_packages".to_owned(),
-            serde_json::json!(["SwiftUI", 42]),
-        );
-
-        let err =
-            parse_swift_scan_config(&config).expect_err("invalid framework_packages must fail");
         assert!(matches!(err, TreeSitterScanError::ConfigInvalid { .. }));
     }
 
@@ -764,7 +692,6 @@ mod tests {
         }
         "#,
             &registry,
-            &[],
         );
 
         assert_eq!(usages.len(), 3);
@@ -785,7 +712,6 @@ mod tests {
         }
         "#,
             &registry,
-            &[],
         );
 
         assert!(usages.is_empty());
@@ -803,14 +729,14 @@ mod tests {
             }
         }
         "#;
-        let (_, usages) = parse_and_extract(source, &registry, &[]);
+        let (_, usages) = parse_and_extract(source, &registry);
         assert_eq!(usages.len(), 1);
         assert_eq!(usages[0].location.line, 4);
         assert!(usages[0].location.column.unwrap() >= 16);
     }
 
     #[test]
-    fn framework_module_import_becomes_framework_shadow_when_package_is_configured() {
+    fn non_ds_module_import_is_not_counted_when_package_is_configured() {
         let mut component_packages = BTreeMap::new();
         component_packages.insert("Button".to_owned(), Some("AcmeDesignSystem".to_owned()));
         let registry = registry_index(resolve_map(&[("Button", "Button")]), component_packages);
@@ -823,13 +749,12 @@ struct Screen: View {
     }
 }
 "#;
-        let (_, usages) = parse_and_extract(source, &registry, &["SwiftUI".to_owned()]);
-        assert_eq!(usages.len(), 1);
-        assert_eq!(usages[0].match_status, MatchStatus::FrameworkShadow);
+        let (_, usages) = parse_and_extract(source, &registry);
+        assert_eq!(usages.len(), 0);
     }
 
     #[test]
-    fn qualified_framework_call_resolves_with_multiple_module_imports() {
+    fn qualified_non_ds_call_is_not_counted_when_package_is_configured() {
         let mut component_packages = BTreeMap::new();
         component_packages.insert("Button".to_owned(), Some("AcmeDesignSystem".to_owned()));
         let registry = registry_index(resolve_map(&[("Button", "Button")]), component_packages);
@@ -843,9 +768,8 @@ struct Screen: View {
     }
 }
 "#;
-        let (_, usages) = parse_and_extract(source, &registry, &["SwiftUI".to_owned()]);
-        assert_eq!(usages.len(), 1);
-        assert_eq!(usages[0].match_status, MatchStatus::FrameworkShadow);
+        let (_, usages) = parse_and_extract(source, &registry);
+        assert_eq!(usages.len(), 0);
     }
 
     #[test]
@@ -863,7 +787,7 @@ struct Screen: View {
     }
 }
 "#;
-        let (_, usages) = parse_and_extract(source, &registry, &["SwiftUI".to_owned()]);
+        let (_, usages) = parse_and_extract(source, &registry);
         assert_eq!(usages.len(), 1);
         assert_eq!(usages[0].match_status, MatchStatus::Candidate);
     }
@@ -873,7 +797,6 @@ struct Screen: View {
         let config = SwiftScanConfig {
             design_system_registry: std::path::PathBuf::from("does-not-exist/registry.json"),
             roots: vec![std::path::PathBuf::from("no-such-root")],
-            framework_packages: vec![],
         };
 
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -906,7 +829,6 @@ struct Screen: View {
         let config = SwiftScanConfig {
             design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
             roots: vec![std::path::PathBuf::from("app/Sources")],
-            framework_packages: vec![],
         };
 
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -948,7 +870,6 @@ struct Screen: View {
         let config = SwiftScanConfig {
             design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
             roots: vec![std::path::PathBuf::from("*/Sources")],
-            framework_packages: vec![],
         };
 
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -979,7 +900,6 @@ struct Screen: View {
         let config = SwiftScanConfig {
             design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
             roots: vec![std::path::PathBuf::from("*/Sources")],
-            framework_packages: vec![],
         };
 
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -1021,7 +941,6 @@ struct Screen: View {
         let config = SwiftScanConfig {
             design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
             roots: vec![std::path::PathBuf::from("capsule/**/Sources")],
-            framework_packages: vec![],
         };
 
         let tmp = tempfile::tempdir().expect("tempdir");

@@ -322,7 +322,7 @@ mod tests {
         std::fs::create_dir_all(&registry_dir).expect("registry dir should be created");
         std::fs::write(
             registry_dir.join("registry.json"),
-            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"Button","targets":["compose"]}]}"#,
+            r#"{"schema_version":1,"components":[]}"#,
         )
         .expect("registry fixture should be written");
 

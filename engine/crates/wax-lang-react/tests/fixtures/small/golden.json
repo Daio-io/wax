@@ -12,8 +12,7 @@
     "local_component_count": 4,
     "usage_site_count": 5,
     "resolved_count": 5,
-    "candidate_count": 0,
-    "framework_shadow_count": 0
+    "candidate_count": 0
   },
   "metrics": {
     "files_scanned": 6,

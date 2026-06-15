@@ -83,11 +83,11 @@ Parser-backed language packs (`compose`, `react`, `swift`, and future packs) mus
 When changing registry resolution, usage classification, or scan config for one pack:
 
 1. Update the shared contract (`wax-contract` schemas and types) and any shared helpers in `wax-lang-api` first when the behavior is cross-cutting.
-2. Apply the same rules to every parser-backed pack that emits `usage_sites`, including `match_status` values such as `resolved`, `framework_shadow`, and `candidate`.
-3. Keep optional registry fields backward-compatible across packs. Example: registry component `package`, scan config `framework_packages`, and `framework_shadow_count` defaults.
+2. Apply the same rules to every parser-backed pack that emits `usage_sites`, including `match_status` values such as `resolved` and `candidate`.
+3. Keep optional registry fields backward-compatible across packs. Example: registry component `package` with per-language registry files at `.wax/<language-id>.registry.json`.
 4. Add or update fixtures/tests in each affected pack crate, not just the pack you are editing.
 
-If a pack needs ecosystem-specific import syntax, mirror the same outcomes: design-system imports resolve, framework-equivalent imports become `framework_shadow`, unclear imports become `candidate`, and legacy name-only behavior remains only when registry `package` is absent.
+If a pack needs ecosystem-specific import syntax, mirror the same outcomes: imports that match registry `package` resolve, non-matching imports are not counted as design-system usage, unclear imports become `candidate`, and legacy name-only behavior remains only when registry `package` is absent.
 
 ## Product Contracts
 

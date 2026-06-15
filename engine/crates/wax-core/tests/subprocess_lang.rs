@@ -251,7 +251,6 @@ fn sample_scan_facts() -> ScanFacts {
             usage_site_count: 0,
             resolved_count: 0,
             candidate_count: 0,
-            framework_shadow_count: 0,
         },
     }
 }

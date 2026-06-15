@@ -30,13 +30,6 @@ fn golden_small_swiftui_fixture_matches_counts() {
         facts.counts.design_system_component_count,
         golden["design_system_component_count"].as_u64().unwrap() as u32
     );
-    assert_eq!(
-        facts.counts.framework_shadow_count,
-        golden
-            .get("framework_shadow_count")
-            .and_then(|value| value.as_u64())
-            .unwrap_or(0) as u32
-    );
     let alias_sites = facts
         .usage_sites
         .iter()
@@ -53,16 +46,10 @@ fn golden_small_swiftui_fixture_matches_counts() {
             .all(|site| site.registry_symbol.as_deref() == Some("PrimaryButton")),
         "all PrimaryCTA alias usages must resolve to PrimaryButton"
     );
-    assert!(
-        !facts
-            .design_system_components
-            .iter()
-            .any(|component| component.symbol == "ComposeOnly")
-    );
 }
 
 #[test]
-fn scan_reports_framework_shadow_count_for_configured_framework_imports() {
+fn non_ds_import_is_not_counted_when_registry_package_is_set() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let registry_dir = tmp.path().join("design-system");
     std::fs::create_dir_all(&registry_dir).unwrap();
@@ -74,8 +61,7 @@ fn scan_reports_framework_shadow_count_for_configured_framework_imports() {
                 {
                     "id": "ds.btn",
                     "symbol": "Button",
-                    "package": "AcmeDesignSystem",
-                    "targets": ["swift"]
+                    "package": "AcmeDesignSystem"
                 }
             ]
         }"#,
@@ -104,30 +90,21 @@ struct Screen: View {
         serde_json::json!("design-system/registry.json"),
     );
     config.insert("roots".to_owned(), serde_json::json!(["app/Sources"]));
-    config.insert(
-        "framework_packages".to_owned(),
-        serde_json::json!(["SwiftUI"]),
-    );
 
     let request = ScanRequest {
         request_type: ScanRequestType::Scan,
         api_version: WIRE_API_VERSION,
         language_id: "swift".try_into().unwrap(),
         repo_root: tmp.path().to_string_lossy().to_string(),
-        snapshot_id: "snap-swift-framework-shadow".to_owned(),
+        snapshot_id: "snap-swift-non-ds-import".to_owned(),
         config,
     };
 
     let facts = SwiftLanguage::new().scan(&request).unwrap();
 
-    assert_eq!(facts.counts.usage_site_count, 1);
-    assert_eq!(facts.counts.framework_shadow_count, 1);
+    assert_eq!(facts.counts.usage_site_count, 0);
     assert_eq!(facts.counts.resolved_count, 0);
     assert_eq!(facts.counts.candidate_count, 0);
-    assert_eq!(
-        facts.usage_sites[0].match_status,
-        wax_contract::MatchStatus::FrameworkShadow
-    );
 }
 
 #[test]

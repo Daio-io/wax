@@ -13,9 +13,7 @@ use swc_ecma_ast::{
 use wax_contract::{
     Diagnostic, DiagnosticSeverity, LocalComponent, MatchStatus, SourceLocation, UsageSite,
 };
-use wax_lang_api::{
-    import_matches_framework_package, npm_import_package_root, resolve_import_aware_match,
-};
+use wax_lang_api::{npm_import_package_root, resolve_import_aware_match};
 
 use crate::component_detect::{
     expression_returns_jsx, function_returns_jsx, is_pascal_case, module_export_name,
@@ -946,12 +944,8 @@ fn classify_jsx_usage(
         if registry_package.is_none() {
             return Some((registry_symbol, MatchStatus::Resolved));
         }
-        return resolve_import_aware_match(
-            registry_package,
-            import_package.as_deref(),
-            &config.framework_packages,
-        )
-        .map(|match_status| (registry_symbol, match_status));
+        return resolve_import_aware_match(registry_package, import_package.as_deref())
+            .map(|match_status| (registry_symbol, match_status));
     }
 
     let registry_symbol =
@@ -961,23 +955,8 @@ fn classify_jsx_usage(
         .get(&registry_symbol)
         .and_then(|package| package.as_deref());
 
-    if let Some(match_status) = resolve_import_aware_match(
-        registry_package,
-        import_package.as_deref(),
-        &config.framework_packages,
-    ) {
-        return Some((registry_symbol, match_status));
-    }
-
-    if registry_package.is_none()
-        && import_package.as_deref().is_some_and(|package| {
-            import_matches_framework_package(package, &config.framework_packages)
-        })
-    {
-        return Some((registry_symbol, MatchStatus::FrameworkShadow));
-    }
-
-    None
+    resolve_import_aware_match(registry_package, import_package.as_deref())
+        .map(|match_status| (registry_symbol, match_status))
 }
 
 fn registry_symbol_for_candidate(
@@ -2189,7 +2168,6 @@ mod tests {
             tsconfig: None,
             aliases: BTreeMap::new(),
             packages: BTreeMap::new(),
-            framework_packages: Vec::new(),
         }
     }
 
@@ -2229,7 +2207,7 @@ mod tests {
     }
 
     #[test]
-    fn framework_import_becomes_framework_shadow_when_registry_package_is_set() {
+    fn non_ds_import_is_not_counted_when_registry_package_is_set() {
         let fixture = Fixture::new();
         fixture.write(
             "src/Screen.tsx",
@@ -2241,23 +2219,17 @@ mod tests {
             "#,
         );
 
-        let mut config = base_config();
-        config.framework_packages = vec!["@foundation/ui".to_owned()];
         let extraction = fixture.extract_usage(
             vec!["src/Screen.tsx"],
-            config,
+            base_config(),
             registry_with_package("Button", "@acme/design-system"),
         );
 
-        assert_eq!(extraction.usage_sites.len(), 1);
-        assert_eq!(
-            extraction.usage_sites[0].match_status,
-            wax_contract::MatchStatus::FrameworkShadow
-        );
+        assert!(extraction.usage_sites.is_empty());
     }
 
     #[test]
-    fn namespace_framework_import_becomes_framework_shadow_when_registry_package_is_set() {
+    fn namespace_non_ds_import_is_not_counted_when_registry_package_is_set() {
         let fixture = Fixture::new();
         fixture.write(
             "src/Screen.tsx",
@@ -2270,24 +2242,13 @@ mod tests {
             "#,
         );
 
-        let mut config = base_config();
-        config.framework_packages = vec!["@foundation/ui".to_owned()];
         let extraction = fixture.extract_usage(
             vec!["src/Screen.tsx"],
-            config,
+            base_config(),
             registry_with_package("Button", "@acme/design-system"),
         );
 
-        assert_eq!(extraction.usage_sites.len(), 1);
-        assert_eq!(extraction.usage_sites[0].symbol, "Foundation.Button");
-        assert_eq!(
-            extraction.usage_sites[0].match_status,
-            wax_contract::MatchStatus::FrameworkShadow
-        );
-        assert_eq!(
-            extraction.usage_sites[0].registry_symbol.as_deref(),
-            Some("Button")
-        );
+        assert!(extraction.usage_sites.is_empty());
     }
 
     struct Fixture {

@@ -199,7 +199,6 @@ fn facts_from_scan(
             usage_site_count: 0,
             resolved_count: 0,
             candidate_count: 0,
-            framework_shadow_count: 0,
         },
     }
 }
@@ -238,7 +237,6 @@ fn scaffold_facts(request: &ScanRequest, language_id: LanguageId) -> ScanFacts {
             usage_site_count: 0,
             resolved_count: 0,
             candidate_count: 0,
-            framework_shadow_count: 0,
         },
     }
 }

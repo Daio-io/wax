@@ -164,7 +164,7 @@ Current first-party packs in this repository:
 | `swift` | SwiftUI projects |
 | `basic` | Text-based fallback for unsupported ecosystems and smoke tests |
 
-Parser-backed packs support optional registry component `package` fields and scan config `framework_packages` so scans can distinguish design-system imports from framework symbols that share the same name. See the language packs spec for examples.
+Parser-backed packs support optional registry component `package` fields so scans only count usages imported from the design-system package. See the language packs spec for examples.
 
 Install a pack explicitly:
 

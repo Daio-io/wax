@@ -16,10 +16,7 @@ pub use discover::{
     swift_module_from_source_path,
 };
 
-pub use import_resolution::{
-    FrameworkPackagesParseError, import_matches_framework_package, npm_import_package_root,
-    package_matches_prefix, parse_framework_packages, resolve_import_aware_match,
-};
+pub use import_resolution::{npm_import_package_root, resolve_import_aware_match};
 
 pub use protocol::{
     DiscoverRequest, DiscoverRequestType, NotDiscoverRequest, ScanConfig, ScanRequest,
