@@ -104,9 +104,9 @@ Triggered only when the user passes `--html` or `--html-only`.
 | Item | Value |
 |------|-------|
 | Path | `.wax/out/report/index.html` |
-| Style | Dashboard — cards, severity badges, inline SVG bar charts |
+| Style | Dashboard — black background, beeswax yellow accent, KPI cards, horizontal SVG bar charts, data tables |
 | Network | Self-contained; embedded CSS; no CDN |
-| Content | Same sections as terminal; executive summary pinned at top; data-gap sections visually muted |
+| Content | Same sections as terminal; KPI grid and charts at top; executive summary near top; data-gap sections visually muted |
 
 Unless `--html-only` is set, the terminal report still prints when HTML is requested.
 

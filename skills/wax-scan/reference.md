@@ -17,7 +17,7 @@ Output: versioned insights JSON consumed by the agent when rendering terminal an
 | `schema_version` | Insights contract version |
 | `generated_at` | RFC3339 timestamp |
 | `source_scan` | Path to merged scan input |
-| `repo_summary` | Repository-level usage and adoption totals |
+| `repo_summary` | Repository-level usage and adoption totals (includes `local_definition_count`, `local_usage_site_count`, `ds_vs_local_ratio`) |
 | `per_language` | Per-language status, adoption %, counts |
 | `symbol_rollups.design_system` | DS symbol usage frequency |
 | `symbol_rollups.local` | Local component symbol frequency |
@@ -113,18 +113,39 @@ Badge HTML pattern:
 <span class="badge badge-high">high</span>
 ```
 
-### Inline SVG charts
+### KPI grid and caveat
 
 | Placeholder | Source | Notes |
 |-------------|--------|-------|
-| `{{coverage_bar_width}}` | Deterministic | Pixel width 0–320 from `adoption_coverage_ratio` |
+| `{{kpi_grid_html}}` | Deterministic | Six `.panel.kpi` tiles: DS vs local %, resolved sites, coverage %, DS symbols, local definitions, unresolved |
+| `{{caveat_html}}` | Template/trusted | “How to read this report” callout with accent left border |
+
+### Inline SVG charts and tables
+
+| Placeholder | Source | Notes |
+|-------------|--------|-------|
+| `{{coverage_bar_width}}` | Deterministic | Pixel width 0–400 from `adoption_coverage_ratio` |
 | `{{coverage_percent}}` | Deterministic | Formatted percent string |
 | `{{resolved_count}}` | Deterministic | `repo_summary.resolved_count` |
 | `{{total_usage_sites}}` | Deterministic | `repo_summary.total_usage_sites` |
-| `{{debt_bar_width}}` | Deterministic or proxy | Pixel width 0–320 for debt proxy bar |
-| `{{fragmentation_chart_svg}}` | Deterministic | SVG `<text>` + `<rect>` rows from `fragmentation_candidates` |
+| `{{debt_bar_width}}` | Deterministic or proxy | Pixel width 0–400 for debt proxy bar |
+| `{{ds_vs_local_chart_svg}}` | Deterministic | Grouped bar chart: DS resolved sites vs local component definitions |
+| `{{ds_vs_local_percent}}` | Deterministic | `repo_summary.ds_vs_local_ratio` as percent string |
+| `{{local_definition_count}}` | Deterministic | `repo_summary.local_definition_count` |
+| `{{ds_usage_chart_svg}}` | Deterministic | Full `<svg>` horizontal bar chart from `symbol_rollups.design_system` |
+| `{{ds_symbols_table_html}}` | Deterministic | Table: component, usages, share of DS sites |
+| `{{language_chart_svg}}` | Deterministic | Stacked horizontal bars from `per_language` (resolved / candidate / unresolved) |
+| `{{fragmentation_chart_svg}}` | Deterministic | Full `<svg>` horizontal bar chart from `fragmentation_candidates` |
+| `{{key_findings_html}}` | Deterministic + agent | Bullet list of top findings; agent may extend |
 
-Omit or zero-width bars when data is missing. Keep charts inline; no external assets.
+Omit or zero-width bars when data is missing. Keep charts inline; no external assets or CDN scripts.
+
+### Visual theme
+
+- Background: `#000000`; panels: `#111111`; border: `#2a2a2a`
+- Accent / DS bars: beeswax yellow `#f5c518`
+- Local/candidate bars: `#a8884a`; unresolved: `#666666`
+- Severity: red `#f85149`, amber `#f5c518`, green `#3fb950`
 
 ### Recommendations
 
@@ -211,7 +232,8 @@ Each limit as a list item:
 After rendering `.wax/out/report/index.html`:
 
 1. Open in a browser with network disabled (offline).
-2. Verify executive summary card, section cards, and severity badges render.
-3. Verify at least one inline SVG chart is visible.
-4. Verify `data-gap` sections use muted dashed styling.
-5. Verify footer shows `generated_at` and `source_scan`.
+2. Verify dark theme, beeswax yellow accent, and KPI grid at top.
+3. Verify executive summary, section panels, and severity badges render.
+4. Verify horizontal SVG charts (DS usage, language breakdown, fragmentation) and DS symbols table.
+5. Verify `data-gap` sections use muted dashed styling.
+6. Verify footer shows `generated_at` and `source_scan`.
