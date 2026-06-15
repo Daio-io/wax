@@ -127,7 +127,8 @@ Minimal manual registry example:
   "components": [
     {
       "id": "ds.primary-button",
-      "symbol": "PrimaryButton"
+      "symbol": "PrimaryButton",
+      "package": "com.acme.designsystem"
     }
   ]
 }
@@ -162,6 +163,8 @@ Current first-party packs in this repository:
 | `react` | React and JSX/TSX projects |
 | `swift` | SwiftUI projects |
 | `basic` | Text-based fallback for unsupported ecosystems and smoke tests |
+
+Parser-backed packs support optional registry component `package` fields and scan config `framework_packages` so scans can distinguish design-system imports from framework symbols that share the same name. See the language packs spec for examples.
 
 Install a pack explicitly:
 

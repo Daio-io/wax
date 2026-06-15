@@ -330,6 +330,7 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, TreeSitterScanError> {
 
 fn resolve_registry_match(
     call_symbol: &str,
+    call_qualifier: Option<&str>,
     registry_symbol: &str,
     registry: &RegistryIndex,
     imports: &ImportBindings,
@@ -340,7 +341,9 @@ fn resolve_registry_match(
             .component_packages
             .get(registry_symbol)
             .and_then(|package| package.as_deref()),
-        imports.package_for_symbol(call_symbol).as_deref(),
+        imports
+            .package_for_call(call_symbol, call_qualifier)
+            .as_deref(),
         framework_packages,
     )
     .or_else(|| {
@@ -413,11 +416,12 @@ fn extract_from_source(
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
         if is_call_expression_node(node)
-            && let Some((call_symbol, pos)) = call_final_member_name(node, source)
-            && let Some(registry_symbol) = registry.resolve_targets.get(&call_symbol)
+            && let Some(call_site) = resolve_call_site(node, source)
+            && let Some(registry_symbol) = registry.resolve_targets.get(&call_site.symbol)
         {
             let Some(match_status) = resolve_registry_match(
-                &call_symbol,
+                &call_site.symbol,
+                call_site.qualifier.as_deref(),
                 registry_symbol,
                 registry,
                 &imports,
@@ -426,16 +430,16 @@ fn extract_from_source(
                 continue;
             };
 
-            let line = pos.row as u32 + 1;
-            let column = pos.column as u32 + 1;
+            let line = call_site.position.row as u32 + 1;
+            let column = call_site.position.column as u32 + 1;
             usage_sites.push(UsageSite {
-                id: format!("usage.{file}:{line}:{column}:{call_symbol}"),
+                id: format!("usage.{file}:{line}:{column}:{}", call_site.symbol),
                 location: SourceLocation {
                     file: file.to_owned(),
                     line,
                     column: Some(column),
                 },
-                symbol: call_symbol.clone(),
+                symbol: call_site.symbol.clone(),
                 match_status,
                 registry_symbol: Some(registry_symbol.clone()),
             });
@@ -453,42 +457,62 @@ fn is_call_expression_node(node: tree_sitter::Node<'_>) -> bool {
     node.kind() == "call_expression"
 }
 
-fn call_final_member_name(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-) -> Option<(String, tree_sitter::Point)> {
-    let mut cursor = node.walk();
-    let callee = node.named_children(&mut cursor).next()?;
-    final_member_from_callee(callee, source)
+struct ResolvedCallSite {
+    symbol: String,
+    qualifier: Option<String>,
+    position: tree_sitter::Point,
 }
 
-fn final_member_from_callee(
+fn resolve_call_site(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<ResolvedCallSite> {
+    let mut cursor = node.walk();
+    let callee = node.named_children(&mut cursor).next()?;
+    resolve_call_site_from_callee(callee, source)
+}
+
+fn resolve_call_site_from_callee(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-) -> Option<(String, tree_sitter::Point)> {
+) -> Option<ResolvedCallSite> {
     match node.kind() {
         "simple_identifier" => {
             let name = node.utf8_text(source).ok()?.to_owned();
-            Some((name, node.start_position()))
+            Some(ResolvedCallSite {
+                symbol: name,
+                qualifier: None,
+                position: node.start_position(),
+            })
         }
         "navigation_expression" => {
             let suffix = node.child_by_field_name("suffix")?;
-            final_member_from_navigation_suffix(suffix, source)
+            let member = suffix.child_by_field_name("suffix")?;
+            if member.kind() != "simple_identifier" {
+                return None;
+            }
+            let name = member.utf8_text(source).ok()?.to_owned();
+            let qualifier = navigation_expression_qualifier(node, source);
+            Some(ResolvedCallSite {
+                symbol: name,
+                qualifier,
+                position: member.start_position(),
+            })
         }
         _ => None,
     }
 }
 
-fn final_member_from_navigation_suffix(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-) -> Option<(String, tree_sitter::Point)> {
-    let member = node.child_by_field_name("suffix")?;
-    if member.kind() == "simple_identifier" {
-        let name = member.utf8_text(source).ok()?.to_owned();
-        Some((name, member.start_position()))
-    } else {
-        None
+fn navigation_expression_qualifier(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let target = node.child_by_field_name("target")?;
+    identifier_from_expression(target, source)
+}
+
+fn identifier_from_expression(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    match node.kind() {
+        "simple_identifier" | "type_identifier" => node.utf8_text(source).ok().map(str::to_owned),
+        "navigation_expression" => {
+            let target = node.child_by_field_name("target")?;
+            identifier_from_expression(target, source)
+        }
+        _ => None,
     }
 }
 
@@ -706,6 +730,21 @@ mod tests {
     }
 
     #[test]
+    fn parse_config_rejects_invalid_framework_packages() {
+        let mut config = ScanConfig::new();
+        config.insert("registry".to_owned(), serde_json::json!("registry.json"));
+        config.insert("roots".to_owned(), serde_json::json!(["app/Sources"]));
+        config.insert(
+            "framework_packages".to_owned(),
+            serde_json::json!(["SwiftUI", 42]),
+        );
+
+        let err =
+            parse_swift_scan_config(&config).expect_err("invalid framework_packages must fail");
+        assert!(matches!(err, TreeSitterScanError::ConfigInvalid { .. }));
+    }
+
+    #[test]
     fn direct_member_and_alias_calls_resolve_to_registry_symbols() {
         let registry = registry_without_packages(&[
             ("PrimaryButton", "PrimaryButton"),
@@ -787,6 +826,46 @@ struct Screen: View {
         let (_, usages) = parse_and_extract(source, &registry, &["SwiftUI".to_owned()]);
         assert_eq!(usages.len(), 1);
         assert_eq!(usages[0].match_status, MatchStatus::FrameworkShadow);
+    }
+
+    #[test]
+    fn qualified_framework_call_resolves_with_multiple_module_imports() {
+        let mut component_packages = BTreeMap::new();
+        component_packages.insert("Button".to_owned(), Some("AcmeDesignSystem".to_owned()));
+        let registry = registry_index(resolve_map(&[("Button", "Button")]), component_packages);
+        let source = r#"
+import SwiftUI
+import AcmeDesignSystem
+
+struct Screen: View {
+    var body: some View {
+        SwiftUI.Button("Save") {}
+    }
+}
+"#;
+        let (_, usages) = parse_and_extract(source, &registry, &["SwiftUI".to_owned()]);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].match_status, MatchStatus::FrameworkShadow);
+    }
+
+    #[test]
+    fn unqualified_call_with_multiple_module_imports_becomes_candidate() {
+        let mut component_packages = BTreeMap::new();
+        component_packages.insert("Button".to_owned(), Some("AcmeDesignSystem".to_owned()));
+        let registry = registry_index(resolve_map(&[("Button", "Button")]), component_packages);
+        let source = r#"
+import SwiftUI
+import AcmeDesignSystem
+
+struct Screen: View {
+    var body: some View {
+        Button("Save") {}
+    }
+}
+"#;
+        let (_, usages) = parse_and_extract(source, &registry, &["SwiftUI".to_owned()]);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].match_status, MatchStatus::Candidate);
     }
 
     #[test]

@@ -492,6 +492,44 @@ Use `basic` for unsupported languages, smoke tests, and early adoption estimates
 
 `engine/crates/wax-lang-basic/tests/fixtures/small/` commits a language-agnostic fixture and golden count summary. `cargo test -p wax-lang-basic` asserts usage counts, alias resolution, comment/string false-positive guards, and one-based source columns against `golden.json`.
 
+### Import-aware registry resolution (Compose, React, Swift)
+
+Parser-backed packs classify registry-backed usage sites with `match_status`:
+
+- `resolved` — the usage import matches the registry component's optional `package` field (or legacy name-only resolution when `package` is omitted).
+- `framework_shadow` — the usage is imported from a configured framework package prefix and shadows a design-system symbol with the same name.
+- `candidate` — the symbol matches the registry but the import package is ambiguous or unknown.
+
+Registry components may declare an optional `package` string (Kotlin package, npm scope, or Swift module name) so packs can distinguish design-system imports from framework or third-party symbols that share a name:
+
+```json
+{
+  "schema_version": 1,
+  "components": [
+    {
+      "id": "ds.button",
+      "symbol": "Button",
+      "package": "com.acme.designsystem",
+      "targets": ["compose", "react", "swift"]
+    }
+  ]
+}
+```
+
+Scan config for each language may declare optional `framework_packages` — package or module prefixes treated as framework imports for `framework_shadow` classification:
+
+```json
+{
+  "id": "compose",
+  "enabled": true,
+  "registry": ".wax/compose.registry.json",
+  "roots": ["app/src/main/java"],
+  "framework_packages": ["androidx.compose.material3", "androidx.compose.material"]
+}
+```
+
+When `package` is omitted on a registry component, packs keep legacy name-only behavior (all matching usages count as `resolved`). `framework_shadow_count` in scan output counts usage sites with `match_status: "framework_shadow"`.
+
 ### Compose correctness gate and parser path
 
 `wax-lang-compose` commits a small Kotlin fixture set and golden count summary under `engine/crates/wax-lang-compose/tests/fixtures/small/`. `cargo test -p wax-lang-compose` asserts `usage_site_count`, `resolved_count`, `local_component_count`, and `design_system_component_count` against `golden.json`.
@@ -501,6 +539,7 @@ Use `basic` for unsupported languages, smoke tests, and early adoption estimates
 - `wax-lang-compose` uses **tree-sitter-kotlin** for AST-based Kotlin parsing. `language.parser_name` is `"tree-sitter-kotlin"`.
 - The scanner discovers Kotlin files under configured `roots`, expands path components that are exactly `*` or `**` for Android multi-module repositories, parses syntax trees, identifies `@Composable` function declarations (local components) and call expressions matching registry symbols (resolved DS usages), and emits repository-relative `SourceLocation` values with one-based line and column numbers.
 - Direct calls and alias calls resolve to canonical registry symbols. Qualified (navigation) calls, comments, and string literal content are not counted.
+- When registry components declare `package`, Compose uses Kotlin import bindings and optional `framework_packages` to emit `resolved`, `framework_shadow`, or `candidate` usage sites.
 - Parser initialisation failures map to the `parser_init_failed` wire error code rather than panicking.
 - Requests without compose scan keys return scaffold facts with the `compose_scaffold` diagnostic.
 - `wax-lang-basic` is the explicit text-scanner fallback for unsupported languages; Compose does not use line scanning.
@@ -537,13 +576,15 @@ When `registry` and `roots` are present, React v1 accepts optional resolver hint
         "./*": "packages/design-system/src/*.ts"
       }
     }
-  }
+  },
+  "framework_packages": ["@foundation/ui"]
 }
 ```
 
 - `tsconfig` — optional repo-relative path. Supplies `compilerOptions.paths` and `baseUrl` for import resolution when projects rely on TypeScript path mapping.
 - `aliases` — optional explicit alias prefix → repo-relative target patterns (for example `"@/*": ["apps/web/src/*"]`) when bundler aliases are not visible through `tsconfig`.
 - `packages` — optional design-system package entrypoint hints. Maps package names to `exports` entries (export specifier → repo-relative source module) so imports from configured design-system packages resolve to registry-backed symbols.
+- `framework_packages` — optional npm package prefixes (for example `"@foundation/ui"`) used to classify framework imports as `framework_shadow` when they shadow registry symbols. Namespace imports such as `import * as Foundation from "@foundation/ui"` and member JSX such as `<Foundation.Button />` are supported.
 
 All resolver paths must be repo-relative; absolute paths and parent-directory escapes are fatal config errors.
 
@@ -551,6 +592,7 @@ All resolver paths must be repo-relative; absolute paths and parent-directory es
 
 - Resolved design-system usage is **import-aware** and **registry-backed**. A JSX tag counts as resolved registry usage only when the module graph shows the binding was imported or one-hop re-exported from a source that exports a registry symbol or alias.
 - Bare PascalCase JSX names do **not** produce resolved usage. For example, `<Button />` counts only when `Button` resolves through the import graph to a registry component—not when a local app component shares the same name.
+- When registry components declare `package`, React compares npm import roots from named and namespace imports against the registry package and `framework_packages` to emit `resolved`, `framework_shadow`, or `candidate` usage sites.
 - Registry components whose `targets` array is present and does not include `"react"` are excluded from React facts and do not contribute to React coverage counts. Omitted or null `targets` keeps the component available to React (same rule as Compose).
 - Diagnostics for unresolved imports or JSX names are scoped to **design-system-relevant candidates**: imports from configured `packages`, configured package entrypoints, or JSX names matching registry symbols or aliases that cannot be resolved. Ordinary local and third-party JSX components do not produce unresolved diagnostics and do not affect resolved counts.
 
@@ -592,13 +634,15 @@ and React.
   "id": "swift",
   "enabled": true,
   "registry": ".wax/swift.registry.json",
-  "roots": ["App/Sources"]
+  "roots": ["App/Sources"],
+  "framework_packages": ["SwiftUI"]
 }
 ```
 
-**Accuracy model (static, registry-backed):**
+**Accuracy model (import-aware, registry-backed):**
 
-- Resolved design-system usage is **registry-backed** by final call member name. Direct calls such as `PrimaryButton(...)` and simple member-qualified calls such as `DesignSystem.PrimaryButton(...)` resolve when the member name matches a registry symbol or alias.
+- Resolved design-system usage is **registry-backed** by final call member name. Direct calls such as `PrimaryButton(...)` and member-qualified calls such as `DesignSystem.PrimaryButton(...)` resolve when the member name matches a registry symbol or alias.
+- When registry components declare `package`, Swift uses `import` bindings and optional `framework_packages` to emit `resolved`, `framework_shadow`, or `candidate` usage sites. Qualified calls such as `SwiftUI.Button(...)` use the qualifier module even when multiple modules are imported.
 - Registry components whose `targets` array is present and does not include `"swift"` are excluded from Swift facts and do not contribute to Swift coverage counts. Omitted or null `targets` keeps the component available to Swift (same rule as Compose and React).
 
 **Local component discovery:**

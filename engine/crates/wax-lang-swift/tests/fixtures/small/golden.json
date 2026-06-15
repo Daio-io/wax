@@ -2,5 +2,6 @@
   "usage_site_count": 6,
   "resolved_count": 6,
   "local_component_count": 5,
-  "design_system_component_count": 2
+  "design_system_component_count": 2,
+  "framework_shadow_count": 0
 }

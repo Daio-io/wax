@@ -23,7 +23,7 @@ use crate::component_detect::{
 };
 use crate::config::ReactScanConfig;
 use crate::diagnostics::DS_USAGE_UNRESOLVED;
-use crate::module_graph::ReactModuleGraph;
+use crate::module_graph::{ImportedSymbol, ReactModuleGraph};
 use crate::registry::ReactRegistryIndex;
 use crate::swc_parse::ParsedReactModule;
 
@@ -937,7 +937,7 @@ fn classify_jsx_usage(
         .map(|import| npm_import_package_root(&import.source_specifier));
 
     if let Some(registry_symbol) =
-        resolve_usage_registry_symbol(parsed, module_graph, config, registry, candidate)
+        registry_symbol_for_candidate(parsed, module_graph, config, registry, candidate)
     {
         let registry_package = registry
             .component_packages
@@ -978,6 +978,39 @@ fn classify_jsx_usage(
     }
 
     None
+}
+
+fn registry_symbol_for_candidate(
+    parsed: &ParsedReactModule,
+    module_graph: &ReactModuleGraph,
+    config: &ReactScanConfig,
+    registry: &ReactRegistryIndex,
+    candidate: &JsxUsageCandidate,
+) -> Option<String> {
+    resolve_usage_registry_symbol(parsed, module_graph, config, registry, candidate)
+        .or_else(|| lookup_namespace_registry_symbol(parsed, module_graph, registry, candidate))
+}
+
+fn lookup_namespace_registry_symbol(
+    parsed: &ParsedReactModule,
+    module_graph: &ReactModuleGraph,
+    registry: &ReactRegistryIndex,
+    candidate: &JsxUsageCandidate,
+) -> Option<String> {
+    let import = module_graph.import_binding(&parsed.file, &candidate.binding_name)?;
+    if !matches!(import.imported_symbol, ImportedSymbol::Namespace) {
+        return None;
+    }
+
+    let member_symbol = namespace_member_symbol(candidate)?;
+    if let Some(source_module) = import.source_module.as_ref()
+        && let Some(member_resolved) = module_graph.resolve_export(source_module, &member_symbol)
+        && let Some(registry_symbol) = registry.resolve_targets.get(&member_resolved.symbol)
+    {
+        return Some(registry_symbol.clone());
+    }
+
+    registry.resolve_targets.get(&member_symbol).cloned()
 }
 
 fn lookup_registry_symbol_by_name(
@@ -2220,6 +2253,40 @@ mod tests {
         assert_eq!(
             extraction.usage_sites[0].match_status,
             wax_contract::MatchStatus::FrameworkShadow
+        );
+    }
+
+    #[test]
+    fn namespace_framework_import_becomes_framework_shadow_when_registry_package_is_set() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "src/Screen.tsx",
+            r#"
+            import * as Foundation from "@foundation/ui";
+
+            export function Screen() {
+                return <Foundation.Button />;
+            }
+            "#,
+        );
+
+        let mut config = base_config();
+        config.framework_packages = vec!["@foundation/ui".to_owned()];
+        let extraction = fixture.extract_usage(
+            vec!["src/Screen.tsx"],
+            config,
+            registry_with_package("Button", "@acme/design-system"),
+        );
+
+        assert_eq!(extraction.usage_sites.len(), 1);
+        assert_eq!(extraction.usage_sites[0].symbol, "Foundation.Button");
+        assert_eq!(
+            extraction.usage_sites[0].match_status,
+            wax_contract::MatchStatus::FrameworkShadow
+        );
+        assert_eq!(
+            extraction.usage_sites[0].registry_symbol.as_deref(),
+            Some("Button")
         );
     }
 

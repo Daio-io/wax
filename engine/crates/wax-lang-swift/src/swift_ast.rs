@@ -206,6 +206,15 @@ impl ImportBindings {
             _ => None,
         }
     }
+
+    /// Returns the import package for a call site, preferring an explicit qualifier.
+    pub(crate) fn package_for_call(&self, symbol: &str, qualifier: Option<&str>) -> Option<String> {
+        if let Some(qualifier) = qualifier.filter(|value| !value.is_empty()) {
+            return Some(qualifier.to_owned());
+        }
+
+        self.package_for_symbol(symbol)
+    }
 }
 
 /// Collects import bindings from the top level of a Swift source file.
@@ -285,6 +294,15 @@ struct Screen: View {
             Some(&"Foundation".to_owned())
         );
         assert_eq!(bindings.package_for_symbol("Button"), None);
+        assert_eq!(
+            bindings.package_for_call("Button", Some("SwiftUI")),
+            Some("SwiftUI".to_owned())
+        );
+        assert_eq!(
+            bindings.package_for_call("Button", None),
+            None,
+            "unqualified calls stay ambiguous when multiple modules are imported"
+        );
 
         let single_module_source = "import SwiftUI\nstruct Screen {}\n";
         let single_tree = parser
