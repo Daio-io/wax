@@ -205,12 +205,15 @@ fn configured_scan_reports_parse_failed_for_invalid_source() {
 
     assert_eq!(facts.status, ScanStatus::Partial);
     assert_eq!(facts.metrics.files_scanned, 2);
+    assert_eq!(facts.local_components.len(), 1);
+    assert_eq!(facts.local_components[0].symbol, "ValidView");
     assert!(
         facts
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.code == "parse_failed"),
-        "expected parse_failed diagnostic when invalid swift source exists"
+        "partial trees with syntax errors must emit parse_failed: {:?}",
+        facts.diagnostics
     );
 }
 

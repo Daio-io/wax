@@ -32,7 +32,7 @@ fn missing_discovery_root_fails() {
 }
 
 #[test]
-fn parse_failures_are_skipped_with_diagnostics() {
+fn parse_failures_are_reported_while_discovery_continues() {
     let root = fixture_root().join("broken/Sources");
     let result =
         discover_registry_symbols(&fixture_root(), &[root]).expect("discover should continue");

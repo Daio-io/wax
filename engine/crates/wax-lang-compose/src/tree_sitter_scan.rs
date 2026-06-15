@@ -7,6 +7,7 @@ use std::path::{Component, Path, PathBuf};
 use crate::kotlin_ast::{
     ParseKotlinFileError, call_simple_callee, collect_kotlin_files, function_name_from_decl,
     has_composable_annotation, new_parser, parse_kotlin_file_permissive,
+    partial_tree_parse_diagnostic, tree_has_syntax_errors, unparseable_file_diagnostic,
 };
 
 /// Grammar version bundled via the `tree-sitter-kotlin-ng` crate dependency.
@@ -403,15 +404,17 @@ pub fn scan_repository(
                     &mut local_components,
                     &mut usage_sites,
                 );
+                if tree_has_syntax_errors(&parsed.tree) {
+                    parse_failures += 1;
+                    diagnostics.push(partial_tree_parse_diagnostic(
+                        parsed.tree.root_node(),
+                        &relative_file,
+                    ));
+                }
             }
             Err(ParseKotlinFileError::ParseFailed(_)) => {
                 parse_failures += 1;
-                diagnostics.push(Diagnostic {
-                    severity: DiagnosticSeverity::Error,
-                    code: "parse_failed".to_owned(),
-                    message: format!("tree-sitter failed to parse {relative_file}; file skipped"),
-                    location: None,
-                });
+                diagnostics.push(unparseable_file_diagnostic(&relative_file));
             }
             Err(ParseKotlinFileError::Io { context, source }) => {
                 return Err(TreeSitterScanError::Io { context, source });
@@ -709,10 +712,10 @@ mod tests {
             result
                 .diagnostics
                 .iter()
-                .all(|diagnostic| diagnostic.code != "parse_failed"),
-            "permissive scan should not mark parser recovery as parse_failed"
+                .any(|diagnostic| diagnostic.code == "parse_failed"),
+            "partial trees with syntax errors must emit parse_failed"
         );
-        assert_eq!(result.status, ScanStatus::Complete);
+        assert_eq!(result.status, ScanStatus::Partial);
     }
 
     #[test]

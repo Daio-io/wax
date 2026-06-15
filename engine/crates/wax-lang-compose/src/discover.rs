@@ -3,11 +3,12 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use wax_contract::{Diagnostic, DiagnosticSeverity, SourceLocation};
+use wax_contract::Diagnostic;
 
 use crate::kotlin_ast::{
     ParseKotlinFileError, collect_kotlin_files, function_name_from_decl, has_composable_annotation,
-    new_parser, parse_kotlin_file_strict,
+    new_parser, parse_kotlin_file_permissive, partial_tree_parse_diagnostic,
+    tree_has_syntax_errors, unparseable_file_diagnostic,
 };
 
 /// Result of discovering Compose registry symbols from Kotlin source roots.
@@ -61,8 +62,8 @@ impl std::error::Error for ComposeDiscoverError {
 
 /// Discovers likely public top-level Compose component symbols from Kotlin source roots.
 ///
-/// Files that fail to parse are skipped and reported as diagnostics so discovery can
-/// continue with the remaining Kotlin sources.
+/// Files that tree-sitter cannot parse at all are skipped and reported as diagnostics.
+/// Recoverable syntax errors still allow symbol extraction from the partial tree.
 pub fn discover_registry_symbols(
     parse_root: &Path,
     roots: &[PathBuf],
@@ -86,24 +87,24 @@ pub fn discover_registry_symbols(
     let mut symbols = BTreeSet::new();
     let mut diagnostics = Vec::new();
     for file_path in kotlin_files {
-        match parse_kotlin_file_strict(&mut parser, &file_path) {
-            Ok(parsed) => collect_symbols(
-                parsed.tree.root_node(),
-                parsed.source.as_bytes(),
-                &mut symbols,
-            ),
+        match parse_kotlin_file_permissive(&mut parser, &file_path) {
+            Ok(parsed) => {
+                collect_symbols(
+                    parsed.tree.root_node(),
+                    parsed.source.as_bytes(),
+                    &mut symbols,
+                );
+                if tree_has_syntax_errors(&parsed.tree) {
+                    let relative_file = repo_relative_path(parse_root, &file_path);
+                    diagnostics.push(partial_tree_parse_diagnostic(
+                        parsed.tree.root_node(),
+                        &relative_file,
+                    ));
+                }
+            }
             Err(ParseKotlinFileError::ParseFailed(_)) => {
                 let relative_file = repo_relative_path(parse_root, &file_path);
-                diagnostics.push(Diagnostic {
-                    severity: DiagnosticSeverity::Error,
-                    code: "parse_failed".to_owned(),
-                    message: format!("tree-sitter failed to parse {relative_file}; file skipped"),
-                    location: Some(SourceLocation {
-                        file: relative_file,
-                        line: 1,
-                        column: None,
-                    }),
-                });
+                diagnostics.push(unparseable_file_diagnostic(&relative_file));
             }
             Err(ParseKotlinFileError::Io { context, source }) => {
                 return Err(ComposeDiscoverError::Io { context, source });

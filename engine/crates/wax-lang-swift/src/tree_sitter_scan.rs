@@ -13,6 +13,7 @@ use wax_lang_api::{RootPatternKind, RootResolutionError, ScanConfig, resolve_sou
 use crate::component_detect::collect_component_declarations;
 use crate::swift_ast::{
     ParseSwiftFileError, collect_swift_files, new_parser, parse_swift_file_permissive,
+    partial_tree_parse_diagnostic, tree_has_syntax_errors, unparseable_file_diagnostic,
 };
 
 /// Parsed Swift scan configuration from the engine request payload.
@@ -473,15 +474,17 @@ pub fn scan_repository(
                     &mut local_components,
                     &mut usage_sites,
                 );
+                if tree_has_syntax_errors(&parsed.tree) {
+                    parse_failures += 1;
+                    diagnostics.push(partial_tree_parse_diagnostic(
+                        parsed.tree.root_node(),
+                        &relative_file,
+                    ));
+                }
             }
             Err(ParseSwiftFileError::ParseFailed(_)) => {
                 parse_failures += 1;
-                diagnostics.push(Diagnostic {
-                    severity: DiagnosticSeverity::Error,
-                    code: "parse_failed".to_owned(),
-                    message: format!("tree-sitter failed to parse {relative_file}; file skipped"),
-                    location: None,
-                });
+                diagnostics.push(unparseable_file_diagnostic(&relative_file));
             }
             Err(ParseSwiftFileError::Io { context, source }) => {
                 return Err(TreeSitterScanError::Io { context, source });
@@ -719,7 +722,7 @@ mod tests {
                 .diagnostics
                 .iter()
                 .any(|diagnostic| diagnostic.code == "parse_failed"),
-            "broken Swift file must emit parse_failed diagnostic"
+            "partial trees with syntax errors must emit parse_failed"
         );
         assert_eq!(result.status, ScanStatus::Partial);
     }

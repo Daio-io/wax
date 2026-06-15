@@ -3,6 +3,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use wax_contract::{Diagnostic, DiagnosticSeverity, SourceLocation};
+
 /// Parsed Kotlin source and syntax tree.
 #[derive(Debug)]
 pub(crate) struct ParsedKotlinFile {
@@ -77,16 +79,79 @@ pub(crate) fn parse_kotlin_file_permissive(
     Ok(ParsedKotlinFile { source, tree })
 }
 
+#[allow(dead_code)]
 pub(crate) fn parse_kotlin_file_strict(
     parser: &mut tree_sitter::Parser,
     path: &Path,
 ) -> Result<ParsedKotlinFile, ParseKotlinFileError> {
     let parsed = parse_kotlin_file_permissive(parser, path)?;
-    if parsed.tree.root_node().has_error() {
+    if tree_has_syntax_errors(&parsed.tree) {
         return Err(ParseKotlinFileError::ParseFailed(path.to_path_buf()));
     }
 
     Ok(parsed)
+}
+
+/// Returns whether tree-sitter reported recoverable syntax errors in a parsed tree.
+pub(crate) fn tree_has_syntax_errors(tree: &tree_sitter::Tree) -> bool {
+    tree.root_node().has_error()
+}
+
+/// Diagnostic emitted when tree-sitter returns no syntax tree for a source file.
+pub(crate) fn unparseable_file_diagnostic(relative_file: &str) -> Diagnostic {
+    Diagnostic {
+        severity: DiagnosticSeverity::Error,
+        code: "parse_failed".to_owned(),
+        message: format!("tree-sitter failed to parse {relative_file}; file skipped"),
+        location: Some(SourceLocation {
+            file: relative_file.to_owned(),
+            line: 1,
+            column: None,
+        }),
+    }
+}
+
+/// Diagnostic emitted when tree-sitter recovers a partial tree with syntax errors.
+pub(crate) fn partial_tree_parse_diagnostic(
+    root: tree_sitter::Node<'_>,
+    relative_file: &str,
+) -> Diagnostic {
+    Diagnostic {
+        severity: DiagnosticSeverity::Error,
+        code: "parse_failed".to_owned(),
+        message: format!(
+            "tree-sitter reported syntax errors in {relative_file}; file scanned with gaps"
+        ),
+        location: first_syntax_error_location(root, relative_file),
+    }
+}
+
+fn first_syntax_error_location(
+    root: tree_sitter::Node<'_>,
+    relative_file: &str,
+) -> Option<SourceLocation> {
+    let node = first_error_node(root)?;
+    let start = node.start_position();
+    Some(SourceLocation {
+        file: relative_file.to_owned(),
+        line: u32::try_from(start.row.saturating_add(1)).unwrap_or(u32::MAX),
+        column: Some(u32::try_from(start.column.saturating_add(1)).unwrap_or(u32::MAX)),
+    })
+}
+
+fn first_error_node(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+    if node.is_error() || node.is_missing() {
+        return Some(node);
+    }
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if let Some(found) = first_error_node(child) {
+            return Some(found);
+        }
+    }
+
+    None
 }
 
 pub(crate) fn annotation_type_name(
