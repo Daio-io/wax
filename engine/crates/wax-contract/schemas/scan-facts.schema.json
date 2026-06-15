@@ -181,8 +181,7 @@
         "local_component_count",
         "usage_site_count",
         "resolved_count",
-        "candidate_count",
-        "framework_shadow_count"
+        "candidate_count"
       ],
       "properties": {
         "design_system_component_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
@@ -190,7 +189,12 @@
         "usage_site_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
         "resolved_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
         "candidate_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "framework_shadow_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+        "framework_shadow_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295,
+          "description": "Optional in v1 ingest for backward compatibility; omitted values are treated as 0."
+        }
       }
     }
   }

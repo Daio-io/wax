@@ -292,7 +292,7 @@ pub struct UsageSite {
     pub symbol: String,
     /// Resolution status against the design-system registry.
     pub match_status: MatchStatus,
-    /// Registry symbol for resolved and candidate usage; absent for unresolved usage.
+    /// Registry symbol for resolved, framework_shadow, and candidate usage; absent for unresolved usage.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub registry_symbol: Option<String>,
 }
@@ -339,6 +339,7 @@ pub struct CountSummary {
     /// Number of candidate usage sites.
     pub candidate_count: u32,
     /// Number of framework-shadow usage sites.
+    #[serde(default)]
     pub framework_shadow_count: u32,
 }
 

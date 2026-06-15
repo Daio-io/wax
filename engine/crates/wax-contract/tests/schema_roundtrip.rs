@@ -272,6 +272,21 @@ fn framework_shadow_usage_requires_registry_symbol() {
 }
 
 #[test]
+fn accepts_v1_counts_without_framework_shadow_count_field() {
+    let mut facts = minimal_facts();
+    facts.recompute_counts().unwrap();
+    let mut value = serde_json::to_value(&facts).unwrap();
+    value["counts"]
+        .as_object_mut()
+        .unwrap()
+        .remove("framework_shadow_count");
+
+    let back = wax_contract::scan_facts_from_json(&value.to_string()).unwrap();
+
+    assert_eq!(back.counts.framework_shadow_count, 0);
+}
+
+#[test]
 fn rejects_registry_symbol_for_unresolved_usage() {
     let mut facts = minimal_facts();
     facts.usage_sites[0].match_status = MatchStatus::Unresolved;

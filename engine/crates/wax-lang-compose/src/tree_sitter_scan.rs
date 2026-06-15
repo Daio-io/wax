@@ -336,6 +336,13 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, TreeSitterScanError> {
 
 // ── Extraction ────────────────────────────────────────────────────────────────
 
+fn package_matches_prefix(package: &str, prefix: &str) -> bool {
+    package == prefix
+        || package
+            .strip_prefix(prefix)
+            .is_some_and(|rest| rest.starts_with('.'))
+}
+
 fn resolve_registry_match(
     call_symbol: &str,
     registry_symbol: &str,
@@ -361,7 +368,7 @@ fn resolve_registry_match(
     }
     if framework_packages
         .iter()
-        .any(|framework_package| framework_package == &import_package)
+        .any(|framework_package| package_matches_prefix(&import_package, framework_package))
     {
         return Some(MatchStatus::FrameworkShadow);
     }
@@ -817,6 +824,25 @@ fun Screen() { Button(onClick = {}) }
         assert_eq!(usages.len(), 1);
         assert_eq!(usages[0].match_status, MatchStatus::FrameworkShadow);
         assert_eq!(usages[0].registry_symbol.as_deref(), Some("Button"));
+    }
+
+    #[test]
+    fn nested_framework_package_prefix_matches_subpackage_import() {
+        let mut component_packages = BTreeMap::new();
+        component_packages.insert(
+            "Button".to_owned(),
+            Some("com.acme.designsystem".to_owned()),
+        );
+        let registry = registry_index(resolve_map(&[("Button", "Button")]), component_packages);
+        let source = r#"
+import androidx.compose.material3.Button
+
+@Composable
+fun Screen() { Button(onClick = {}) }
+"#;
+        let (_, usages) = parse_and_extract(source, &registry, &["androidx.compose".to_owned()]);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].match_status, MatchStatus::FrameworkShadow);
     }
 
     #[test]
