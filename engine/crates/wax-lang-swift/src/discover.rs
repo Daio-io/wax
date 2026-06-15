@@ -142,10 +142,7 @@ fn insert_discovered_symbol(
     package: Option<String>,
 ) {
     if let Some(existing) = components.get(&symbol) {
-        if existing.as_ref() != package.as_ref()
-            && existing.is_some()
-            && package.is_some()
-        {
+        if existing.as_ref() != package.as_ref() && existing.is_some() && package.is_some() {
             diagnostics.push(Diagnostic {
                 severity: DiagnosticSeverity::Warning,
                 code: "discover_package_conflict".to_owned(),
