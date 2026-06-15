@@ -18,10 +18,8 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
 | Artifact | Path | Status |
 |----------|------|--------|
 | Extractor | `skills/wax-scan/scripts/extract-insights.sh` | Available |
-| Extractor tests | `skills/wax-scan/scripts/test-extract-insights.sh` | Available |
 | HTML template | `skills/wax-scan/templates/report.html` | Available |
 | HTML escape helper | `skills/wax-scan/scripts/html-escape.sh` | Available |
-| Integration smoke | `skills/wax-scan/scripts/test-integration-smoke.sh` | Available |
 
 ## Parameters
 

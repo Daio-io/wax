@@ -15,7 +15,7 @@ Wax ships deterministic `wax validate` and `wax scan` commands that produce `sca
 2. **Skill-local extractor** — `extract-insights.sh` reads `scan-merged.json` and emits versioned insights JSON with adoption rollups, symbol frequency, fragmentation candidates, `limits[]` for unsupported metrics, and optional `--baseline` deltas.
 3. **Self-contained HTML dashboard** — `templates/report.html` with embedded CSS, severity badges, inline SVG charts, and `html-escape.sh` for safe substitution of scan-derived text.
 4. **No engine changes** — Skill orchestrates existing CLI; AI narrative is authoring-time only with explicit confidence labels and data-gap callouts.
-5. **Fixture-based verification** — Extractor, HTML escape, fixture render, and end-to-end integration smoke scripts under `skills/wax-scan/scripts/`.
+5. **Fixture-based verification** — Extractor, HTML escape, fixture render, and end-to-end integration smoke scripts under `scripts/wax-scan/` (not shipped with the skill install).
 
 ## Implementation summary
 
@@ -24,10 +24,10 @@ All 5 tasks shipped:
 | Task | What shipped |
 |------|----------------|
 | Skill scaffold | `SKILL.md`, `reference.md`, workflow guardrails, embedded analytics spec |
-| Deterministic extractor | `extract-insights.sh`, fixtures, `test-extract-insights.sh` with baseline comparison |
-| HTML dashboard | `report.html`, placeholder contract, `render-fixture-smoke.sh`, `test-html-escape.sh` |
+| Deterministic extractor | `extract-insights.sh`; repo verification under `scripts/wax-scan/` |
+| HTML dashboard | `report.html`, placeholder contract; `scripts/wax-scan/render-fixture-smoke.sh` |
 | Documentation | README AI skills entry, roadmap row in `docs/plans/README.md` |
-| Integration smoke | `test-integration-smoke.sh` on compose smoke fixture; plan archived |
+| Integration smoke | `scripts/wax-scan/test-integration-smoke.sh` on compose smoke fixture; plan archived |
 
 ## Consequences
 

@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# End-to-end integration smoke for wax-scan skill workflow (Task 5).
+# End-to-end integration smoke for wax-scan skill workflow (repository maintainer verification).
 # Exercises validate → scan → extract → HTML report on the compose smoke fixture.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
-SKILL_DIR="skills/wax-scan"
-EXTRACTOR="$SKILL_DIR/scripts/extract-insights.sh"
-RENDER="$SKILL_DIR/scripts/render-fixture-smoke.sh"
+EXTRACTOR="skills/wax-scan/scripts/extract-insights.sh"
+RENDER="$SCRIPT_DIR/render-fixture-smoke.sh"
 FIXTURE_SRC="engine/fixtures/smoke/compose/repo"
-SKILL_MD="$SKILL_DIR/SKILL.md"
+SKILL_MD="skills/wax-scan/SKILL.md"
 
 if ! command -v wax >/dev/null 2>&1; then
   echo "FAIL: wax CLI is required on PATH" >&2
@@ -71,18 +71,16 @@ cp -R "$FIXTURE_SRC/." "$WORK_DIR/"
     fail "expected at least one resolved usage site, got ${resolved}"
   fi
 
-  # Minimal terminal summary (agent would expand this in the skill workflow).
   coverage="$(printf '%s' "$INSIGHTS" | jq -r '.repo_summary.adoption_coverage_ratio')"
   printf 'Terminal summary: %s resolved usage site(s), adoption coverage %.0f%%\n' \
     "$resolved" "$(awk "BEGIN { printf \"%.0f\", $coverage * 100 }")"
 
-  "$ROOT/$RENDER" .wax/out/report/index.html >/dev/null
+  "$RENDER" .wax/out/report/index.html >/dev/null
   if [[ ! -s .wax/out/report/index.html ]]; then
     fail "HTML report was not written to .wax/out/report/index.html"
   fi
 )
 
-# Guardrail documentation checks (skill docs, not runtime).
 guardrail_checks=(
   "wax init"
   "Run \`wax validate\`"

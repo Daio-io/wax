@@ -80,12 +80,6 @@ Helper:
 printf '%s' "$symbol_name" | skills/wax-scan/scripts/html-escape.sh
 ```
 
-Verification:
-
-```bash
-skills/wax-scan/scripts/test-html-escape.sh
-```
-
 ## HTML template placeholders
 
 Template: `skills/wax-scan/templates/report.html`
@@ -212,7 +206,7 @@ Each limit as a list item:
 <li class="data-gap-notice">Data gap: &lt;metric&gt; requires &lt;missing_capability&gt;. Not computed in this scan.</li>
 ```
 
-### Manual smoke checklist
+### Manual HTML smoke checklist
 
 After rendering `.wax/out/report/index.html`:
 
@@ -221,21 +215,3 @@ After rendering `.wax/out/report/index.html`:
 3. Verify at least one inline SVG chart is visible.
 4. Verify `data-gap` sections use muted dashed styling.
 5. Verify footer shows `generated_at` and `source_scan`.
-
-Fixture smoke script:
-
-```bash
-skills/wax-scan/scripts/render-fixture-smoke.sh
-```
-
-Writes `.wax/out/report/index.html` under the repository root (override path with an optional first argument). Generated output is gitignored under `.wax/`.
-
-### Integration smoke (Task 5)
-
-End-to-end workflow on the compose smoke fixture (`engine/fixtures/smoke/compose/repo`):
-
-```bash
-skills/wax-scan/scripts/test-integration-smoke.sh
-```
-
-Exercises `wax validate` → `wax scan --no-auto-install` → `extract-insights.sh` → HTML report at `.wax/out/report/index.html`, and asserts guardrail phrases are documented in `SKILL.md`. Requires `wax` on `PATH`.

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
+# Repository maintainer verification for wax-scan html-escape.sh.
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=html-escape.sh
-source "$SCRIPT_DIR/html-escape.sh"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=../../skills/wax-scan/scripts/html-escape.sh
+source "$ROOT/skills/wax-scan/scripts/html-escape.sh"
 
 payload='<script>alert(1)</script><img onerror=evil src=x>'
 escaped="$(printf '%s' "$payload" | html_escape_stdin)"

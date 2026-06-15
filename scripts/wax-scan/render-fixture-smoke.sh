@@ -5,13 +5,13 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SKILL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-# shellcheck source=html-escape.sh
-source "$SCRIPT_DIR/html-escape.sh"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# shellcheck source=../../skills/wax-scan/scripts/html-escape.sh
+source "$ROOT/skills/wax-scan/scripts/html-escape.sh"
 
-FIXTURE="$SKILL_DIR/fixtures/expected-insights.sample.json"
-TEMPLATE="$SKILL_DIR/templates/report.html"
-REPO_ROOT="$(git -C "$SKILL_DIR" rev-parse --show-toplevel 2>/dev/null || pwd)"
+FIXTURE="$SCRIPT_DIR/fixtures/expected-insights.sample.json"
+TEMPLATE="$ROOT/skills/wax-scan/templates/report.html"
+REPO_ROOT="$(git -C "$ROOT" rev-parse --show-toplevel 2>/dev/null || echo "$ROOT")"
 OUTPUT="${1:-$REPO_ROOT/.wax/out/report/index.html}"
 
 if ! command -v jq >/dev/null 2>&1; then
