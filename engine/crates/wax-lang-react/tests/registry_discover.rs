@@ -212,12 +212,16 @@ fn invalid_language_id_fails() {
 }
 
 #[test]
-fn discover_merges_symbols_from_multiple_roots() -> io::Result<()> {
+fn discover_merges_symbols_from_multiple_roots_with_per_package_metadata() -> io::Result<()> {
     let tempdir = tempfile::tempdir()?;
-    let root_a = tempdir.path().join("pkg-a");
-    let root_b = tempdir.path().join("pkg-b");
+    let pkg_a = tempdir.path().join("packages/pkg-a");
+    let pkg_b = tempdir.path().join("packages/pkg-b");
+    let root_a = pkg_a.join("src");
+    let root_b = pkg_b.join("src");
     fs::create_dir_all(&root_a)?;
     fs::create_dir_all(&root_b)?;
+    fs::write(pkg_a.join("package.json"), r#"{"name":"@acme/pkg-a"}"#)?;
+    fs::write(pkg_b.join("package.json"), r#"{"name":"@acme/pkg-b"}"#)?;
     fs::write(
         root_a.join("Alpha.tsx"),
         "export function Alpha() { return <a />; }",
@@ -234,6 +238,53 @@ fn discover_merges_symbols_from_multiple_roots() -> io::Result<()> {
         result.symbols(),
         vec!["Alpha".to_owned(), "Beta".to_owned()]
     );
+    let package_for = |symbol: &str| {
+        result
+            .components
+            .iter()
+            .find(|component| component.symbol == symbol)
+            .and_then(|component| component.package.as_deref())
+    };
+    assert_eq!(package_for("Alpha"), Some("@acme/pkg-a"));
+    assert_eq!(package_for("Beta"), Some("@acme/pkg-b"));
+    assert!(result.diagnostics.is_empty());
+    Ok(())
+}
+
+#[test]
+fn discover_omits_package_when_symbol_appears_in_multiple_npm_packages() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let pkg_a = tempdir.path().join("packages/pkg-a");
+    let pkg_b = tempdir.path().join("packages/pkg-b");
+    let root_a = pkg_a.join("src");
+    let root_b = pkg_b.join("src");
+    fs::create_dir_all(&root_a)?;
+    fs::create_dir_all(&root_b)?;
+    fs::write(pkg_a.join("package.json"), r#"{"name":"@acme/pkg-a"}"#)?;
+    fs::write(pkg_b.join("package.json"), r#"{"name":"@acme/pkg-b"}"#)?;
+    fs::write(
+        root_a.join("Shared.tsx"),
+        "export function Shared() { return <a />; }",
+    )?;
+    fs::write(
+        root_b.join("Shared.tsx"),
+        "export function Shared() { return <b />; }",
+    )?;
+
+    let result = discover_registry_symbols(tempdir.path(), &[root_a, root_b])
+        .expect("discover should succeed");
+
+    assert_eq!(result.symbols(), vec!["Shared".to_owned()]);
+    assert_eq!(
+        result
+            .components
+            .iter()
+            .find(|component| component.symbol == "Shared")
+            .and_then(|component| component.package.as_deref()),
+        None
+    );
+    assert_eq!(result.diagnostics.len(), 1);
+    assert_eq!(result.diagnostics[0].code, "discover_package_conflict");
     Ok(())
 }
 

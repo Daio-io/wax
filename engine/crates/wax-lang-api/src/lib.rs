@@ -12,8 +12,8 @@ pub use build_info::build_version;
 pub use wax_contract::Diagnostic;
 
 pub use discover::{
-    DiscoveredRegistrySymbol, normalize_discovered_components, npm_package_name_for_roots,
-    swift_module_from_source_path,
+    DiscoveredRegistrySymbol, normalize_discovered_components, npm_package_name_for_path,
+    npm_package_name_for_roots, swift_module_from_source_path,
 };
 
 pub use import_resolution::{npm_import_package_root, resolve_import_aware_match};

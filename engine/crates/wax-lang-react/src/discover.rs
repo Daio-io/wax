@@ -1,6 +1,6 @@
 //! React registry symbol discovery.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -9,8 +9,8 @@ use swc_ecma_ast::{
     Callee, Decl, DefaultDecl, ExportSpecifier, Expr, ImportSpecifier, MemberProp, ModuleDecl,
     ModuleItem, Stmt, VarDeclarator,
 };
-use wax_contract::Diagnostic;
-use wax_lang_api::{DiscoveredRegistrySymbol, npm_package_name_for_roots};
+use wax_contract::{Diagnostic, DiagnosticSeverity};
+use wax_lang_api::{DiscoveredRegistrySymbol, npm_package_name_for_path};
 
 use crate::component_detect::{
     class_returns_jsx, expression_returns_jsx, function_returns_jsx, is_pascal_case,
@@ -92,11 +92,11 @@ pub fn discover_registry_symbols(
     }
     source_files.sort();
 
-    let package = npm_package_name_for_roots(parse_root, roots);
-    let mut symbols = BTreeSet::new();
+    let mut components = BTreeMap::<String, Option<String>>::new();
     let mut diagnostics = Vec::new();
     for file_path in source_files {
         let relative_path = repo_relative_path(parse_root, &file_path);
+        let package = npm_package_name_for_path(parse_root, &file_path);
         let parsed = match parse_react_source_file(parse_root, Path::new(&relative_path)).map_err(
             |source| ReactDiscoverError::Io {
                 context: format!("read React source {relative_path}"),
@@ -111,16 +111,44 @@ pub fn discover_registry_symbols(
                 continue;
             }
         };
-        collect_exported_component_symbols(&parsed.module.body, &mut symbols);
+        let mut file_symbols = BTreeSet::new();
+        collect_exported_component_symbols(&parsed.module.body, &mut file_symbols);
+        for symbol in file_symbols {
+            insert_discovered_symbol(&mut components, &mut diagnostics, symbol, package.clone());
+        }
     }
 
     Ok(DiscoverRegistryResult {
-        components: symbols
+        components: components
             .into_iter()
-            .map(|symbol| DiscoveredRegistrySymbol::new(symbol, package.clone()))
+            .map(|(symbol, package)| DiscoveredRegistrySymbol::new(symbol, package))
             .collect(),
         diagnostics,
     })
+}
+
+fn insert_discovered_symbol(
+    components: &mut BTreeMap<String, Option<String>>,
+    diagnostics: &mut Vec<Diagnostic>,
+    symbol: String,
+    package: Option<String>,
+) {
+    if let Some(existing) = components.get(&symbol) {
+        if existing.as_ref() != package.as_ref() && existing.is_some() && package.is_some() {
+            diagnostics.push(Diagnostic {
+                severity: DiagnosticSeverity::Warning,
+                code: "discover_package_conflict".to_owned(),
+                message: format!(
+                    "symbol '{symbol}' was discovered in multiple packages; omitting package metadata"
+                ),
+                location: None,
+            });
+            components.insert(symbol, None);
+        }
+        return;
+    }
+
+    components.insert(symbol, package);
 }
 
 fn repo_relative_path(parse_root: &Path, file_path: &Path) -> String {

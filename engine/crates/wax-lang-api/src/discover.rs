@@ -62,23 +62,41 @@ pub fn npm_package_name_for_roots(
     roots: &[std::path::PathBuf],
 ) -> Option<String> {
     for root in roots {
-        let mut current = root.as_path();
-        loop {
-            let package_json = current.join("package.json");
-            if package_json.is_file()
-                && let Ok(contents) = std::fs::read_to_string(&package_json)
-                && let Ok(value) = serde_json::from_str::<serde_json::Value>(&contents)
-                && let Some(name) = value.get("name").and_then(serde_json::Value::as_str)
-                && !name.is_empty()
-            {
-                return Some(name.to_owned());
-            }
-
-            if current == repo_root {
-                break;
-            }
-            current = current.parent()?;
+        if let Some(name) = npm_package_name_for_path(repo_root, root) {
+            return Some(name);
         }
+    }
+
+    None
+}
+
+/// Resolves the npm package name for one source file or directory by walking upward for `package.json`.
+#[must_use]
+pub fn npm_package_name_for_path(
+    repo_root: &std::path::Path,
+    path: &std::path::Path,
+) -> Option<String> {
+    let mut current = if path.is_file() {
+        path.parent().unwrap_or(path)
+    } else {
+        path
+    };
+
+    loop {
+        let package_json = current.join("package.json");
+        if package_json.is_file()
+            && let Ok(contents) = std::fs::read_to_string(&package_json)
+            && let Ok(value) = serde_json::from_str::<serde_json::Value>(&contents)
+            && let Some(name) = value.get("name").and_then(serde_json::Value::as_str)
+            && !name.is_empty()
+        {
+            return Some(name.to_owned());
+        }
+
+        if current == repo_root {
+            break;
+        }
+        current = current.parent()?;
     }
 
     None
@@ -115,6 +133,22 @@ mod tests {
         .unwrap();
 
         let name = npm_package_name_for_roots(tempdir.path(), &[package_dir.join("src")]);
+        assert_eq!(name.as_deref(), Some("@acme/design-system"));
+    }
+
+    #[test]
+    fn npm_package_name_is_inferred_from_source_file_path() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let package_dir = tempdir.path().join("packages/design-system");
+        std::fs::create_dir_all(package_dir.join("src")).unwrap();
+        std::fs::write(
+            package_dir.join("package.json"),
+            r#"{"name":"@acme/design-system"}"#,
+        )
+        .unwrap();
+        let source_file = package_dir.join("src/Button.tsx");
+
+        let name = npm_package_name_for_path(tempdir.path(), &source_file);
         assert_eq!(name.as_deref(), Some("@acme/design-system"));
     }
 
