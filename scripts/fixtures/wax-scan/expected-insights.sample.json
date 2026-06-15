@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_scan": "scripts/wax-scan/fixtures/scan-merged.sample.json",
+  "source_scan": "scripts/fixtures/wax-scan/scan-merged.sample.json",
   "repo_summary": {
     "languages": ["compose", "react"],
     "total_usage_sites": 11,

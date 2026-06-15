@@ -3,12 +3,12 @@
 # Exercises validate → scan → extract → HTML report on the compose smoke fixture.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
 EXTRACTOR="skills/wax-scan/scripts/extract-insights.sh"
-RENDER="$SCRIPT_DIR/render-fixture-smoke.sh"
+RENDER="$SCRIPT_DIR/render-wax-scan-fixture-report.sh"
 FIXTURE_SRC="engine/fixtures/smoke/compose/repo"
 SKILL_MD="skills/wax-scan/SKILL.md"
 

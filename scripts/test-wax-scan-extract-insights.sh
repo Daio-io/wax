@@ -2,15 +2,15 @@
 # Fixture test for wax-scan extract-insights.sh (repository maintainer verification).
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+FIXTURES="$ROOT/scripts/fixtures/wax-scan"
 cd "$ROOT"
 
 SCRIPT="skills/wax-scan/scripts/extract-insights.sh"
-FIXTURE="$SCRIPT_DIR/fixtures/scan-merged.sample.json"
-EXPECTED="$SCRIPT_DIR/fixtures/expected-insights.sample.json"
-BASELINE_COMPOSE_ONLY="$SCRIPT_DIR/fixtures/scan-merged.compose-only.sample.json"
-BASELINE_SCHEMA_V2="$SCRIPT_DIR/fixtures/scan-merged.schema-v2.sample.json"
+FIXTURE="$FIXTURES/scan-merged.sample.json"
+EXPECTED="$FIXTURES/expected-insights.sample.json"
+BASELINE_COMPOSE_ONLY="$FIXTURES/scan-merged.compose-only.sample.json"
+BASELINE_SCHEMA_V2="$FIXTURES/scan-merged.schema-v2.sample.json"
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "FAIL: jq is required" >&2
@@ -42,7 +42,7 @@ assert_eq() {
 normalize() {
   jq -S '
     del(.generated_at)
-    | .source_scan = "scripts/wax-scan/fixtures/scan-merged.sample.json"
+    | .source_scan = "scripts/fixtures/wax-scan/scan-merged.sample.json"
   '
 }
 
@@ -89,7 +89,7 @@ if ! jq -e '.limits[] | select(.metric == "Per-language baseline deltas")' <<<"$
 fi
 echo "PASS: partial baseline comparison"
 
-MISSING_BASELINE="$("$SCRIPT" "$FIXTURE" --baseline "$SCRIPT_DIR/fixtures/does-not-exist.json")"
+MISSING_BASELINE="$("$SCRIPT" "$FIXTURE" --baseline "$FIXTURES/does-not-exist.json")"
 if jq -e '.baseline_deltas != null' <<<"$MISSING_BASELINE" >/dev/null; then
   fail "missing baseline should leave baseline_deltas null"
 fi
@@ -107,4 +107,4 @@ if ! jq -e '.limits[] | select(.metric == "Baseline comparison" and (.missing_ca
 fi
 echo "PASS: schema mismatch handling"
 
-echo "PASS: all extract-insights tests"
+echo "PASS: all wax-scan extract-insights tests"

@@ -257,9 +257,9 @@ Confirm skill docs require:
 
 | Task | Command / check |
 |------|-----------------|
-| 2 | `scripts/wax-scan/test-extract-insights.sh` |
-| 3 | `scripts/wax-scan/test-html-escape.sh`, `scripts/wax-scan/render-fixture-smoke.sh` + manual offline HTML open smoke |
-| 5 | `scripts/wax-scan/test-integration-smoke.sh` |
+| 2 | `scripts/test-wax-scan-extract-insights.sh` |
+| 3 | `scripts/test-wax-scan-html-escape.sh`, `scripts/render-wax-scan-fixture-report.sh` + manual offline HTML open smoke |
+| 5 | `scripts/test-wax-scan-integration-smoke.sh` |
 
 No `engine/` verification required for this plan unless later promoted.
 

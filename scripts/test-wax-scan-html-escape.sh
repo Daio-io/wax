@@ -2,8 +2,8 @@
 # Repository maintainer verification for wax-scan html-escape.sh.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-# shellcheck source=../../skills/wax-scan/scripts/html-escape.sh
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=../skills/wax-scan/scripts/html-escape.sh
 source "$ROOT/skills/wax-scan/scripts/html-escape.sh"
 
 payload='<script>alert(1)</script><img onerror=evil src=x>'
@@ -19,4 +19,4 @@ if [[ "$escaped" != *"&lt;script&gt;"* ]]; then
   exit 1
 fi
 
-echo "PASS: html_escape neutralizes HTML/script injection in scan-derived text"
+echo "PASS: wax-scan html_escape neutralizes HTML/script injection in scan-derived text"
