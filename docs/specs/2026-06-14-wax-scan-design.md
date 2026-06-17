@@ -104,9 +104,9 @@ Triggered only when the user passes `--html` or `--html-only`.
 | Item | Value |
 |------|-------|
 | Path | `.wax/out/report/index.html` |
-| Style | Dashboard — black background, beeswax yellow accent, KPI cards, horizontal SVG bar charts, data tables |
+| Style | Branded visual report — warm paper background, soft green adoption areas, beeswax yellow accent, large adoption hero, split-area trend, and ranked horizontal charts |
 | Network | Self-contained; embedded CSS; no CDN |
-| Content | Same sections as terminal; KPI grid and charts at top; executive summary near top; data-gap sections visually muted |
+| Content | Current adoption hero, adoption over time, adoption by project/package, top non-DS components to tackle, visible limits, and diagnostics |
 
 Unless `--html-only` is set, the terminal report still prints when HTML is requested.
 

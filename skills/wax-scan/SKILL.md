@@ -3,13 +3,13 @@ name: wax-scan
 description: >-
   Use when running Wax scans and producing design system adoption analytics reports.
   Validates config, runs a fresh scan, outputs a section-by-section terminal report by default.
-  Supports --html for dashboard HTML at .wax/out/report/index.html, --baseline for trend deltas,
+  Supports --html for branded HTML at .wax/out/report/index.html, --baseline for trend deltas,
   --no-auto-install for CI, and --html-only to skip terminal output.
 ---
 
 # Wax Scan
 
-Use this skill to validate Wax configuration, run a fresh `wax scan`, extract deterministic adoption metrics from `.wax/out/scan-merged.json`, and produce an actionable design-system analytics report. Default output is terminal. Request `--html` for a dashboard report at `.wax/out/report/index.html`.
+Use this skill to validate Wax configuration, run a fresh `wax scan`, extract deterministic adoption metrics from `.wax/out/scan-merged.json`, and produce an actionable design-system analytics report. Default output is terminal. Request `--html` for the visual report at `.wax/out/report/index.html`.
 
 AI interpretation is an authoring aid only. Do not make `wax scan` or `wax validate` depend on agent decisions.
 
@@ -66,10 +66,19 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
      ```
 
 7. When `--html` or `--html-only` is requested, render `.wax/out/report/index.html` using `skills/wax-scan/templates/report.html`.
-   - Self-contained dark dashboard: black background, beeswax yellow (`#c9a84c`) accent, KPI card grid, horizontal SVG bar charts, data tables, severity badges, and section panels.
-   - Layout: header → KPI grid → caveat → executive summary → DS vs local chart → adoption debt → DS usage chart + table → language breakdown → fragmentation → recommendations → detailed section cards → key findings → data gaps.
-   - Pin executive summary near the top; mute data-gap sections with dashed borders.
-   - No CDN or external assets — self-contained inline SVG horizontal bar charts only.
+   - Self-contained branded report: warm paper background, soft green adoption areas, beeswax yellow accent, large adoption hero, smooth 100% split-area trend, ranked project/package bars, ranked non-DS opportunity bars, and secondary diagnostics.
+   - Layout: header → current adoption hero → adoption over time → adoption by project/package → top non-DS components to tackle → visible limits + diagnostics.
+   - Prefer project/package breakdowns before language breakdowns unless the user explicitly asks for multi-language analysis.
+   - Populate the agreed first-screen metrics:
+     - current adoption percentage from resolved design-system usage share
+     - design-system usage count and total tracked usage count
+     - adopted components count over total registry components
+     - optional trend delta/status when a baseline exists, otherwise first-scan copy
+     - 100% split-area trend points for design-system vs non-design-system share
+     - ranked project/package adoption rows
+     - ranked non-DS component opportunity rows
+     - visible limits and diagnostics as secondary context
+   - No CDN or external assets — self-contained CSS and inline SVG only.
    - Escape all scan-derived text (symbols, limits, paths, narrative evidence) with `skills/wax-scan/scripts/html-escape.sh` before inserting into HTML or SVG. Only trusted template snippets (card shells, badges) may be raw HTML.
 
 ## Guardrails
@@ -82,6 +91,7 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
 - Skip trend analysis unless `--baseline` is provided.
 - When post-alpha engine artifacts exist (`.wax/out/scan-summary.json`, `.wax/out/scan-graph.json`), prefer them over the skill-local extractor.
 - When rendering HTML, escape scan-derived strings before substitution; never inject raw symbol names, limit text, or paths from JSON.
+- Preserve the approved visual template in `skills/wax-scan/templates/report.html`; do not replace it with a generic dashboard without explicit design review.
 
 ## Analytics Spec
 

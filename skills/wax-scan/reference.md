@@ -88,6 +88,8 @@ Render helper: `scripts/render-wax-scan-fixture-report.sh [--insights PATH] [--r
 
 The agent copies the template to `.wax/out/report/index.html` and substitutes placeholders. Use deterministic values from extractor JSON where available; synthesize narrative fields with confidence labels.
 
+The template is the approved visual source of truth for the report UI. It uses a warm paper background, soft green adoption areas, beeswax yellow accents, a large adoption hero, a smooth 100% split-area trend chart, ranked project/package bars, ranked non-DS opportunity bars, and secondary diagnostics.
+
 ### Page metadata
 
 | Placeholder | Source | Example |
@@ -97,55 +99,40 @@ The agent copies the template to `.wax/out/report/index.html` and substitutes pl
 | `{{source_scan}}` | Insights JSON `source_scan` | `.wax/out/scan-merged.json` |
 | `{{schema_version}}` | Insights JSON `schema_version` | `1` |
 
-### Executive summary (pinned at top)
+### Opening adoption hero
 
 | Placeholder | Source | Notes |
 |-------------|--------|-------|
-| `{{health_score}}` | Agent-synthesized | e.g. `72/100`; explain weighting when data is sparse |
-| `{{coverage_percent}}` | Deterministic | `repo_summary.adoption_coverage_ratio` as percent (used in detailed analysis sections, not headline KPIs) |
-| `{{maturity_level}}` | Agent-synthesized | e.g. `Emerging`, `Established` |
-| `{{debt_score_proxy}}` | Deterministic proxy | Share of usage sites not fully resolved to DS: `(candidate + unresolved) / total` |
-| `{{debt_score_explanation}}` | Deterministic narrative | e.g. `1 candidate + 4 unresolved of 11 usage sites` |
-| `{{executive_severity_badge}}` | Agent judgment | HTML badge: `critical` / `high` / `medium` / `low` |
-| `{{executive_summary_body}}` | Agent narrative | Top wins, top opportunities, major risks |
-
-Badge HTML pattern:
-
-```html
-<span class="badge badge-high">high</span>
-```
-
-### KPI grid and caveat
-
-| Placeholder | Source | Notes |
-|-------------|--------|-------|
-| `{{kpi_grid_html}}` | Deterministic | Four `.panel.kpi` tiles: DS vs local %, usage sites, DS symbols, unresolved |
-| `{{caveat_html}}` | Template/trusted | “How to read this report” callout with accent left border |
-
-### Inline SVG charts and tables
-
-| Placeholder | Source | Notes |
-|-------------|--------|-------|
-| `{{coverage_bar_width}}` | Deterministic | Optional; retained for detailed section cards if needed |
-| `{{coverage_percent}}` | Deterministic | Formatted percent string |
+| `{{coverage_percent}}` | Deterministic | `repo_summary.adoption_coverage_ratio` as formatted percent string |
+| `{{non_ds_percent}}` | Deterministic | `100 - coverage_percent`, formatted as percent |
 | `{{resolved_count}}` | Deterministic | `repo_summary.resolved_count` |
 | `{{total_usage_sites}}` | Deterministic | `repo_summary.total_usage_sites` |
-| `{{debt_bar_width}}` | Deterministic or proxy | Pixel width 0–400 for debt proxy bar |
-| `{{ds_vs_local_chart_svg}}` | Deterministic | Compact horizontal bars: DS resolved sites vs local definitions |
-| `{{ds_usage_chart_svg}}` | Deterministic | Full `<svg>` horizontal bar chart from `symbol_rollups.design_system` |
-| `{{ds_symbols_table_html}}` | Deterministic | Table: component, usages, share of DS sites |
-| `{{language_chart_svg}}` | Deterministic | Stacked horizontal bars from `per_language` (resolved / candidate / unresolved) |
-| `{{fragmentation_chart_svg}}` | Deterministic | Full `<svg>` horizontal bar chart from `fragmentation_candidates` |
-| `{{key_findings_html}}` | Deterministic + agent | Bullet list of top findings; agent may extend |
+| `{{adopted_components_count}}` | Deterministic | Registry components with observed DS usage |
+| `{{total_registry_components}}` | Deterministic | Total registry component count |
+| `{{trend_delta}}` | Baseline or fallback | e.g. `+8 pts`; use `First scan` when no baseline exists |
+| `{{trend_context}}` | Baseline or fallback | e.g. `Compared with previous baseline` |
+| `{{trend_status}}` | Baseline or fallback | e.g. `Steady improvement` or `History starts here` |
 
-Omit or zero-width bars when data is missing. Keep charts inline; no external assets or CDN scripts.
+### Visual chart placeholders
+
+| Placeholder | Source | Notes |
+|-------------|--------|-------|
+| `{{split_area_chart_svg}}` | Deterministic + template | Smooth 100% split-area SVG. Green lower area = DS share; beeswax line = adoption boundary |
+| `{{trend_axis_html}}` | Deterministic + escaped labels | `<span>` labels for trend points |
+| `{{project_package_rows_html}}` | Deterministic or inferred | Ranked horizontal rows. Prefer project/package over language |
+| `{{migration_opportunity_rows_html}}` | Deterministic + agent | Ranked non-DS opportunities from local symbol usage, fragmentation, or AI-selected candidates |
+| `{{visible_limits_html}}` | Insights JSON `limits[]` | Keep visually secondary |
+| `{{diagnostics_summary_html}}` | Diagnostics summary | Keep visually secondary |
+
+Omit or render first-scan fallback states when data is missing. Keep charts inline; no external assets or CDN scripts.
 
 ### Visual theme
 
-- Background: `#000000`; panels: `#111111`; border: `#2a2a2a`
-- Accent / DS bars: beeswax yellow `#c9a84c`
-- Local/candidate bars: `#a8884a`; unresolved: `#666666`
-- Severity: red `#f85149`, amber `#c9a84c`, green `#3fb950`
+- Background: warm paper gradient using `#f4efe9`, `#f8f2ec`, and white panels
+- Accent: beeswax yellow `#d6a117`
+- Adoption: soft green `#5f8d4e`, `#8fb17d`, `#dbe8cf`
+- Neutral comparison fill: warm sand `#f5edd3`
+- Red: reserved for true errors or severity states, not default chart language
 
 ### Recommendations
 
@@ -232,8 +219,8 @@ Each limit as a list item:
 After rendering `.wax/out/report/index.html`:
 
 1. Open in a browser with network disabled (offline).
-2. Verify dark theme, beeswax yellow accent, and KPI grid at top.
-3. Verify executive summary, section panels, and severity badges render.
-4. Verify horizontal SVG charts (DS usage, language breakdown, fragmentation) and DS symbols table.
-5. Verify `data-gap` sections use muted dashed styling.
-6. Verify footer shows `generated_at` and `source_scan`.
+2. Verify warm paper theme, soft green adoption area, and beeswax yellow accent.
+3. Verify the hero shows current adoption, usage counts, adopted components, and trend status.
+4. Verify the trend chart is a smooth 100% split-area chart, not bars.
+5. Verify project/package and non-DS opportunity rows render as ranked horizontal bars.
+6. Verify visible limits and diagnostics stay secondary.
