@@ -94,9 +94,12 @@ candidate="$(jq -r '.repo_summary.candidate_count' "$FIXTURE")"
 unresolved="$(jq -r '.repo_summary.unresolved_count' "$FIXTURE")"
 coverage_ratio="$(jq -r '.repo_summary.adoption_coverage_ratio' "$FIXTURE")"
 coverage_pct="$(awk "BEGIN { printf \"%.1f%%\", $coverage_ratio * 100 }")"
+non_ds_pct="$(awk "BEGIN { printf \"%.1f%%\", (1 - $coverage_ratio) * 100 }")"
 local_defs="$(jq -r '.repo_summary.local_definition_count' "$FIXTURE")"
 ds_vs_local_ratio="$(jq -r '.repo_summary.ds_vs_local_ratio' "$FIXTURE")"
 ds_vs_local_pct="$(awk "BEGIN { printf \"%.1f%%\", $ds_vs_local_ratio * 100 }")"
+adopted_components_count="$(jq -r '.symbol_rollups.design_system | length' "$FIXTURE")"
+total_registry_components="$adopted_components_count"
 
 # Debt proxy: share of usage sites not fully resolved to DS (candidate + unresolved).
 debt_ratio="$(awk "BEGIN { n=$candidate+$unresolved; t=$total; if (t>0) print n/t; else print 0 }")"
@@ -410,6 +413,107 @@ for item in data.get("limits", []):
 PY
 )"
 
+split_area_chart_svg="$(python3 - "$coverage_ratio" <<'PY'
+import sys
+
+ratio = max(0.0, min(1.0, float(sys.argv[1])))
+height = 170
+width = 640
+boundary = round((1 - ratio) * height, 2)
+control = round(boundary + 8, 2)
+print(f'''<svg class="trend-svg" viewBox="0 0 {width} {height}" preserveAspectRatio="none" aria-label="Adoption trend">
+  <defs>
+    <linearGradient id="waxGreenFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#8fb17d" stop-opacity="0.95"></stop>
+      <stop offset="100%" stop-color="#dbe8cf" stop-opacity="0.75"></stop>
+    </linearGradient>
+    <linearGradient id="waxSandFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f3dfa0" stop-opacity="0.95"></stop>
+      <stop offset="100%" stop-color="#f7f0d8" stop-opacity="0.75"></stop>
+    </linearGradient>
+  </defs>
+  <path d="M0,0 H{width} V{height} H0 Z" fill="url(#waxSandFill)"></path>
+  <path d="M0,{boundary} C160,{control} 320,{control} {width},{boundary} L{width},{height} L0,{height} Z" fill="url(#waxGreenFill)"></path>
+  <path d="M0,{boundary} C160,{control} 320,{control} {width},{boundary}" fill="none" stroke="#d6a117" stroke-width="5" stroke-linecap="round"></path>
+  <path d="M0,{boundary} C160,{control} 320,{control} {width},{boundary}" fill="none" stroke="#5f8d4e" stroke-width="2.2" stroke-linecap="round"></path>
+  <line x1="0" y1="132" x2="{width}" y2="132" stroke="#efe6d0" stroke-width="1"></line>
+  <line x1="0" y1="86" x2="{width}" y2="86" stroke="#f3ecd8" stroke-width="1"></line>
+  <line x1="0" y1="40" x2="{width}" y2="40" stroke="#f6f1e1" stroke-width="1"></line>
+</svg>''')
+PY
+)"
+
+trend_axis_html='<span>Current</span>'
+project_package_rows_html="$(python3 - "$coverage_pct" <<'PY'
+import html
+import sys
+
+coverage = sys.argv[1]
+width = coverage.rstrip("%")
+print(
+    '<div class="mini-row">'
+    '<div class="name">Repository</div>'
+    f'<div class="track" style="background:#e6efdd;"><div class="fill" style="width:{html.escape(width)}%;background:linear-gradient(90deg,#5f8d4e,#d6a117);"></div></div>'
+    f'<div style="text-align:right;font-weight:900;color:#5f8d4e;">{html.escape(coverage)}</div>'
+    '</div>'
+)
+PY
+)"
+
+migration_opportunity_rows_html="$(python3 - "$FIXTURE" <<'PY'
+import html
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as f:
+    data = json.load(f)
+
+items = sorted(
+    data.get("symbol_rollups", {}).get("local", []),
+    key=lambda item: item.get("count", 0),
+    reverse=True,
+)[:4]
+if not items:
+    print('<div class="issue-row"><div class="name">No local candidates</div><div class="track"><div class="fill" style="width:0%;"></div></div><div class="score">0</div></div>')
+    sys.exit(0)
+
+max_count = max(item.get("count", 0) for item in items) or 1
+for item in items:
+    symbol = html.escape(str(item.get("symbol", "")), quote=False)
+    count = int(item.get("count", 0))
+    width = max(6, round(count / max_count * 100))
+    print(
+        '<div class="issue-row">'
+        f'<div class="name">{symbol}</div>'
+        f'<div class="track"><div class="fill" style="width:{width}%;background:linear-gradient(90deg,#6b9658,#d6a117);"></div></div>'
+        f'<div class="score">{count}</div>'
+        '</div>'
+    )
+PY
+)"
+
+visible_limits_html="$(python3 - "$FIXTURE" <<'PY'
+import html
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as f:
+    data = json.load(f)
+
+limits = data.get("limits", [])[:2]
+if not limits:
+    print("<p>No visible report limits for this scan.</p>")
+else:
+    text = "; ".join(
+        f"{item.get('metric', 'Metric')} requires {item.get('missing_capability', 'more data')}"
+        for item in limits
+    )
+    print(f"<p>{html.escape(text, quote=False)}</p>")
+PY
+)"
+
+diagnostics_summary_html="<p>${unresolved} unresolved usage sites, ${candidate} candidate usage sites, and ${local_defs} local definitions. Diagnostics stay secondary so the main screen remains visual and action-oriented.</p>"
+
 fragmentation_items="$(python3 - "$FIXTURE" <<'PY'
 import html
 import json
@@ -515,10 +619,24 @@ replace repo_name "$REPO_NAME"
 replace generated_at "$generated_at"
 replace source_scan "$source_scan"
 replace schema_version "$schema_version"
+replace coverage_percent "$coverage_pct"
+replace non_ds_percent "$non_ds_pct"
+replace resolved_count "$resolved"
+replace total_usage_sites "$total"
+replace adopted_components_count "$adopted_components_count"
+replace total_registry_components "$total_registry_components"
+replace trend_delta "First scan"
+replace trend_context "History starts with this scan"
+replace trend_status "History starts here"
+replace split_area_chart_svg "$split_area_chart_svg"
+replace trend_axis_html "$trend_axis_html"
+replace project_package_rows_html "$project_package_rows_html"
+replace migration_opportunity_rows_html "$migration_opportunity_rows_html"
+replace visible_limits_html "$visible_limits_html"
+replace diagnostics_summary_html "$diagnostics_summary_html"
 replace debt_score_proxy "$debt_pct"
 replace debt_score_explanation "$debt_score_explanation"
 replace debt_bar_width "$debt_bar_width"
-replace total_usage_sites "$total"
 replace kpi_grid_html "$kpi_grid_html"
 replace caveat_html "$caveat_html"
 replace ds_vs_local_chart_svg "$ds_vs_local_chart_svg"
@@ -557,7 +675,7 @@ if grep -q '{{' "$OUTPUT"; then
   exit 1
 fi
 
-for token in 'class="card pinned"' 'class="badge badge-' '<svg' 'card data-gap' 'Generated at' 'Source scan:' 'class="panel kpi"' 'chart-title'; do
+for token in 'Current adoption' 'Adopted components' 'Adoption over time' 'Adoption by project/package' 'Top non-DS components to tackle' '<svg' 'Visible limits' 'Diagnostics'; do
   if ! grep -q "$token" "$OUTPUT"; then
     echo "FAIL: missing expected token: $token" >&2
     exit 1
@@ -565,4 +683,4 @@ for token in 'class="card pinned"' 'class="badge badge-' '<svg' 'card data-gap' 
 done
 
 echo "PASS: rendered fixture report to $OUTPUT"
-echo "Smoke: open offline in a browser (disable network) and verify KPI cards, charts, tables, and section panels."
+echo "Smoke: open offline in a browser (disable network) and verify hero, split-area trend, ranked bars, limits, and diagnostics."
