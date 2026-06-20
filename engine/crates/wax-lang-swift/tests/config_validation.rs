@@ -95,7 +95,7 @@ fn registry_key_is_accepted_as_canonical_registry_path() {
     let facts = scan_fixture_with_config(config).expect("registry key should scan");
 
     assert_eq!(facts.status, ScanStatus::Complete);
-    assert_eq!(facts.counts.design_system_component_count, 2);
+    assert_eq!(facts.counts.registry.component_count, 2);
 }
 
 #[test]
@@ -103,7 +103,7 @@ fn design_system_registry_key_still_scans() {
     let facts = scan_fixture_with_config(valid_fixture_config()).expect("legacy key should scan");
 
     assert_eq!(facts.status, ScanStatus::Complete);
-    assert_eq!(facts.counts.design_system_component_count, 2);
+    assert_eq!(facts.counts.registry.component_count, 2);
 }
 
 #[test]
@@ -120,7 +120,7 @@ fn registry_key_wins_when_both_registry_keys_are_present() {
 
     let facts = scan_fixture_with_config(config).expect("canonical registry key should win");
 
-    assert_eq!(facts.counts.design_system_component_count, 2);
+    assert_eq!(facts.counts.registry.component_count, 2);
 }
 
 #[test]

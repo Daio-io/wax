@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use wax_contract::{ScanFacts, ScanStatus};
+use wax_contract::{MatchStatus, ScanFacts, ScanStatus};
 use wax_lang_api::{ScanConfig, ScanRequest, ScanRequestType, WIRE_API_VERSION};
 use wax_lang_swift::SwiftLanguage;
 
@@ -15,20 +15,26 @@ fn golden_small_swiftui_fixture_matches_counts() {
 
     assert_eq!(facts.status, ScanStatus::Complete);
     assert_eq!(
-        facts.counts.usage_site_count,
-        golden["usage_site_count"].as_u64().unwrap() as u32
+        facts.counts.raw_invocations.total,
+        golden["raw_invocations"]["total"].as_u64().unwrap() as u32
     );
     assert_eq!(
-        facts.counts.resolved_count,
-        golden["resolved_count"].as_u64().unwrap() as u32
+        facts.counts.raw_invocations.resolved,
+        golden["raw_invocations"]["resolved"].as_u64().unwrap() as u32
     );
     assert_eq!(
-        facts.counts.local_component_count,
-        golden["local_component_count"].as_u64().unwrap() as u32
+        facts.counts.raw_invocations.local,
+        golden["raw_invocations"]["local"].as_u64().unwrap() as u32
     );
     assert_eq!(
-        facts.counts.design_system_component_count,
-        golden["design_system_component_count"].as_u64().unwrap() as u32
+        facts.counts.definitions.local_definition_count,
+        golden["definitions"]["local_definition_count"]
+            .as_u64()
+            .unwrap() as u32
+    );
+    assert_eq!(
+        facts.counts.registry.component_count,
+        golden["registry"]["component_count"].as_u64().unwrap() as u32
     );
     let alias_sites = facts
         .usage_sites
@@ -102,9 +108,9 @@ struct Screen: View {
 
     let facts = SwiftLanguage::new().scan(&request).unwrap();
 
-    assert_eq!(facts.counts.usage_site_count, 0);
-    assert_eq!(facts.counts.resolved_count, 0);
-    assert_eq!(facts.counts.candidate_count, 0);
+    assert_eq!(facts.counts.raw_invocations.total, 0);
+    assert_eq!(facts.counts.raw_invocations.resolved, 0);
+    assert_eq!(facts.counts.raw_invocations.candidate, 0);
 }
 
 #[test]
@@ -135,6 +141,71 @@ fn alias_usage_resolves_to_canonical_symbol() {
             .all(|site| site.registry_symbol.as_deref() == Some("PrimaryButton")),
         "all PrimaryCTA alias usages must resolve to PrimaryButton"
     );
+}
+
+#[test]
+fn wrapper_fixture_reports_local_invocations_and_parent_attribution() {
+    let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/wrapper");
+    let facts = scan_fixture(&fixture_root, "app/Sources", "snap-wrapper");
+
+    assert_eq!(facts.counts.raw_invocations.local, 1);
+    assert_eq!(facts.counts.raw_invocations.resolved, 3);
+    assert_eq!(facts.counts.raw_invocations.total, 4);
+
+    let episode_sites: Vec<_> = facts
+        .usage_sites
+        .iter()
+        .filter(|site| site.symbol == "EpisodeCardView")
+        .collect();
+    assert_eq!(episode_sites.len(), 1);
+    assert_eq!(episode_sites[0].match_status, MatchStatus::Local);
+    assert!(
+        episode_sites[0]
+            .parent
+            .as_ref()
+            .is_some_and(|parent| { parent.symbol == "DiscoverView" })
+    );
+
+    let tier_count = facts
+        .usage_sites
+        .iter()
+        .filter(|site| site.symbol == "Tier" && site.match_status == MatchStatus::Resolved)
+        .count();
+    let button_count = facts
+        .usage_sites
+        .iter()
+        .filter(|site| site.symbol == "Button" && site.match_status == MatchStatus::Resolved)
+        .count();
+    assert_eq!(tier_count, 1);
+    assert_eq!(button_count, 2);
+
+    assert!(facts.usage_sites.iter().any(|site| {
+        site.symbol == "Button"
+            && site
+                .parent
+                .as_ref()
+                .is_some_and(|parent| parent.symbol == "DiscoverView")
+    }));
+}
+
+fn scan_fixture(fixture_root: &Path, roots: &str, snapshot_id: &str) -> ScanFacts {
+    let mut config = ScanConfig::new();
+    config.insert(
+        "registry".to_owned(),
+        serde_json::json!("design-system/registry.json"),
+    );
+    config.insert("roots".to_owned(), serde_json::json!([roots]));
+
+    let request = ScanRequest {
+        request_type: ScanRequestType::Scan,
+        api_version: WIRE_API_VERSION,
+        language_id: "swift".try_into().unwrap(),
+        repo_root: fixture_root.to_string_lossy().to_string(),
+        snapshot_id: snapshot_id.to_owned(),
+        config,
+    };
+
+    SwiftLanguage::new().scan(&request).unwrap()
 }
 
 fn scan_small_fixture() -> ScanFacts {

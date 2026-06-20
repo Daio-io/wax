@@ -164,6 +164,27 @@ pub fn scan_repository(
         message: BASIC_TEXT_SCAN_DIAGNOSTIC.to_owned(),
         location: None,
     }];
+    for (code, message) in [
+        (
+            "basic_capability_gap",
+            "Local invocation tracking is unavailable in the basic text scanner.",
+        ),
+        (
+            "basic_capability_gap",
+            "Unresolved UI invocation tracking is unavailable in the basic text scanner.",
+        ),
+        (
+            "basic_capability_gap",
+            "Parent scope attribution is unavailable in the basic text scanner.",
+        ),
+    ] {
+        diagnostics.push(Diagnostic {
+            severity: DiagnosticSeverity::Info,
+            code: code.to_owned(),
+            message: message.to_owned(),
+            location: None,
+        });
+    }
     for root in &config.roots {
         let resolved = resolve_source_roots(repo_root, root).map_err(map_root_resolution_error)?;
         if resolved.roots.is_empty() {
@@ -487,8 +508,11 @@ fn extract_usage_sites(
                         column: Some(column),
                     },
                     symbol: call_symbol.clone(),
+                    qualified_symbol: None,
                     match_status: MatchStatus::Resolved,
                     registry_symbol: Some(registry_symbol.clone()),
+                    local_definition_id: None,
+                    parent: None,
                 });
                 search_from = start + pattern.len();
             }

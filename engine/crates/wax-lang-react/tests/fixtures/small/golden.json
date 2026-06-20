@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "status": "complete",
   "language": {
     "id": "react",
@@ -8,15 +8,40 @@
     "parser_version": "41.0.0"
   },
   "counts": {
-    "design_system_component_count": 2,
-    "local_component_count": 4,
-    "usage_site_count": 5,
-    "resolved_count": 5,
-    "candidate_count": 0
+    "registry": {
+      "component_count": 2,
+      "used_component_count": 2,
+      "resolved_raw_invocation_count": 5,
+      "candidate_raw_invocation_count": 0
+    },
+    "definitions": {
+      "local_definition_count": 4,
+      "invoked_local_definition_count": 0,
+      "unused_local_definition_count": 4
+    },
+    "raw_invocations": {
+      "total": 5,
+      "resolved": 5,
+      "local": 0,
+      "candidate": 0,
+      "unresolved": 0
+    },
+    "adoption": {
+      "eligible_invocation_count": 5,
+      "adopted_invocation_count": 5,
+      "non_adopted_invocation_count": 0
+    },
+    "parent_scopes": {
+      "total": 0,
+      "with_resolved_invocations": 0,
+      "with_local_invocations": 0,
+      "with_unresolved_invocations": 0
+    }
   },
   "metrics": {
     "files_scanned": 6,
-    "adoption_coverage_ratio": 1.0
+    "invocation_adoption_ratio": 1.0,
+    "registry_resolution_ratio": 1.0
   },
   "design_system_components": [
     {
@@ -32,8 +57,11 @@
   ],
   "local_components": [
     {
-      "id": "local.src/Extended.tsx:12:CustomCard",
+      "id": "react:component:src/Extended#CustomCard",
       "symbol": "CustomCard",
+      "qualified_symbol": "src/Extended#CustomCard",
+      "identity_basis": "module_path_and_symbol",
+      "identity_stability": "path_sensitive",
       "location": {
         "file": "src/Extended.tsx",
         "line": 12,
@@ -41,8 +69,11 @@
       }
     },
     {
-      "id": "local.src/Sample.tsx:3:LocalCard",
+      "id": "react:component:src/Sample#LocalCard",
       "symbol": "LocalCard",
+      "qualified_symbol": "src/Sample#LocalCard",
+      "identity_basis": "module_path_and_symbol",
+      "identity_stability": "path_sensitive",
       "location": {
         "file": "src/Sample.tsx",
         "line": 3,
@@ -50,8 +81,11 @@
       }
     },
     {
-      "id": "local.src/Extended.tsx:3:MultilineUsageScreen",
+      "id": "react:component:src/Extended#MultilineUsageScreen",
       "symbol": "MultilineUsageScreen",
+      "qualified_symbol": "src/Extended#MultilineUsageScreen",
+      "identity_basis": "module_path_and_symbol",
+      "identity_stability": "path_sensitive",
       "location": {
         "file": "src/Extended.tsx",
         "line": 3,
@@ -59,8 +93,11 @@
       }
     },
     {
-      "id": "local.src/Sample.tsx:10:SampleScreen",
+      "id": "react:component:src/Sample#SampleScreen",
       "symbol": "SampleScreen",
+      "qualified_symbol": "src/Sample#SampleScreen",
+      "identity_basis": "module_path_and_symbol",
+      "identity_stability": "path_sensitive",
       "location": {
         "file": "src/Sample.tsx",
         "line": 10,

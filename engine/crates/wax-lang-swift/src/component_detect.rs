@@ -331,6 +331,43 @@ fn is_pascal_case(symbol: &str) -> bool {
         .is_some_and(|ch| ch.is_ascii_uppercase())
 }
 
+/// Returns true when `symbol` looks like a SwiftUI view or design-system component name.
+pub(crate) fn is_pascal_case_symbol(symbol: &str) -> bool {
+    is_pascal_case(symbol)
+}
+
+/// Returns the nearest enclosing SwiftUI view declaration containing `node`.
+pub(crate) fn nearest_enclosing_view(
+    mut node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Option<(String, tree_sitter::Point)> {
+    while let Some(parent) = node.parent() {
+        match parent.kind() {
+            "class_declaration" if is_struct_declaration(parent) => {
+                if type_inherits_view(parent, source)
+                    && type_has_view_body(parent, source)
+                    && let Some(name_node) = parent.child_by_field_name("name")
+                    && let Some(name) = type_declaration_name(name_node, source)
+                    && is_pascal_case(&name)
+                {
+                    return Some((name, name_node.start_position()));
+                }
+            }
+            "function_declaration" => {
+                if component_from_function_declaration(parent, source, false).is_some()
+                    && let Some(name_node) = parent.child_by_field_name("name")
+                {
+                    let name = function_declaration_name(name_node, source)?;
+                    return Some((name, name_node.start_position()));
+                }
+            }
+            _ => {}
+        }
+        node = parent;
+    }
+    None
+}
+
 fn node_text(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
     node.utf8_text(source).unwrap_or("").to_owned()
 }

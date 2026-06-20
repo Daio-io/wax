@@ -371,6 +371,30 @@ fn symbol_from_qualified(qualified: &str) -> String {
         .to_owned()
 }
 
+pub(crate) fn nearest_enclosing_composable(
+    mut node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Option<(String, tree_sitter::Point)> {
+    while let Some(parent) = node.parent() {
+        if parent.kind() == "function_declaration"
+            && has_composable_annotation(parent, source)
+            && let Some((name, pos)) = function_name_from_decl(parent, source)
+            && name.starts_with(|c: char| c.is_ascii_uppercase())
+        {
+            return Some((name, pos));
+        }
+        node = parent;
+    }
+    None
+}
+
+pub(crate) fn is_pascal_case_composable_symbol(symbol: &str) -> bool {
+    symbol
+        .chars()
+        .next()
+        .is_some_and(|ch| ch.is_ascii_uppercase())
+}
+
 pub(crate) fn call_simple_callee(
     node: tree_sitter::Node<'_>,
     source: &[u8],

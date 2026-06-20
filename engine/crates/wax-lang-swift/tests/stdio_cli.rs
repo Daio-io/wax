@@ -76,7 +76,7 @@ fn stdio_scan_with_empty_config_returns_swift_scaffold_facts() {
             assert_eq!(facts.language.ecosystem, "swiftui");
             assert_eq!(facts.language.parser_name, "tree-sitter-swift");
             assert_eq!(facts.snapshot_id, "snap-swift-scaffold");
-            assert_eq!(facts.counts.usage_site_count, 0);
+            assert_eq!(facts.counts.raw_invocations.total, 0);
             assert!(
                 facts
                     .diagnostics
@@ -182,10 +182,11 @@ fn stdio_cli_emits_one_scan_facts_response() {
             assert_eq!(facts.snapshot_id, "snap-cli");
             assert_eq!(facts.status, ScanStatus::Complete);
             assert_eq!(facts.language.parser_name, "tree-sitter-swift");
-            assert_eq!(facts.counts.usage_site_count, 6);
-            assert_eq!(facts.counts.resolved_count, 6);
-            assert_eq!(facts.counts.design_system_component_count, 2);
-            assert_eq!(facts.counts.local_component_count, 5);
+            assert_eq!(facts.counts.raw_invocations.total, 8);
+            assert_eq!(facts.counts.raw_invocations.resolved, 6);
+            assert_eq!(facts.counts.raw_invocations.local, 2);
+            assert_eq!(facts.counts.registry.component_count, 2);
+            assert_eq!(facts.counts.definitions.local_definition_count, 5);
         }
         other => panic!("expected scan_facts response, got {other:?}"),
     }

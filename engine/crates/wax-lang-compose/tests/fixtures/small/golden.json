@@ -1,6 +1,20 @@
 {
-  "usage_site_count": 5,
-  "resolved_count": 5,
-  "local_component_count": 4,
-  "design_system_component_count": 2
+  "raw_invocations": {
+    "total": 5,
+    "resolved": 5,
+    "local": 0,
+    "candidate": 0,
+    "unresolved": 0
+  },
+  "registry": {
+    "component_count": 2,
+    "used_component_count": 2,
+    "resolved_raw_invocation_count": 5,
+    "candidate_raw_invocation_count": 0
+  },
+  "definitions": {
+    "local_definition_count": 4,
+    "invoked_local_definition_count": 0,
+    "unused_local_definition_count": 4
+  }
 }

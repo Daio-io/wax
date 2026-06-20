@@ -267,10 +267,10 @@ fn stdio_cli_emits_complete_scan_facts_for_small_fixture() {
                 wax_lang_react::SWC_PARSER_VERSION,
                 "parser_version must track the pinned SWC crate version"
             );
-            assert_eq!(facts.counts.usage_site_count, 5);
-            assert_eq!(facts.counts.resolved_count, 5);
-            assert_eq!(facts.counts.design_system_component_count, 2);
-            assert_eq!(facts.counts.local_component_count, 4);
+            assert_eq!(facts.counts.raw_invocations.total, 5);
+            assert_eq!(facts.counts.raw_invocations.resolved, 5);
+            assert_eq!(facts.counts.registry.component_count, 2);
+            assert_eq!(facts.counts.definitions.local_definition_count, 4);
             assert_eq!(facts.metrics.files_scanned, 6);
             assert!(
                 facts

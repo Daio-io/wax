@@ -72,6 +72,61 @@ fn alias_usage_resolves_to_canonical_symbol() {
     );
 }
 
+#[test]
+fn wrapper_fixture_reports_local_invocations_and_parent_attribution() {
+    let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/wrapper");
+    let request = scan_request(&fixture_root, "snap-wrapper");
+    let facts = ReactLanguage::new()
+        .scan(&request)
+        .expect("wrapper scan should succeed");
+
+    assert_eq!(facts.counts.raw_invocations.local, 1);
+    assert_eq!(facts.counts.raw_invocations.resolved, 3);
+    assert_eq!(facts.counts.raw_invocations.total, 4);
+
+    let episode_sites: Vec<_> = facts
+        .usage_sites
+        .iter()
+        .filter(|site| site.symbol == "EpisodeCard")
+        .collect();
+    assert_eq!(episode_sites.len(), 1);
+    assert_eq!(
+        episode_sites[0].match_status,
+        wax_contract::MatchStatus::Local
+    );
+    assert!(
+        episode_sites[0]
+            .parent
+            .as_ref()
+            .is_some_and(|parent| { parent.symbol == "DiscoverScreen" })
+    );
+
+    let tier_count = facts
+        .usage_sites
+        .iter()
+        .filter(|site| {
+            site.symbol == "Tier" && site.match_status == wax_contract::MatchStatus::Resolved
+        })
+        .count();
+    let button_count = facts
+        .usage_sites
+        .iter()
+        .filter(|site| {
+            site.symbol == "Button" && site.match_status == wax_contract::MatchStatus::Resolved
+        })
+        .count();
+    assert_eq!(tier_count, 1);
+    assert_eq!(button_count, 2);
+
+    assert!(facts.usage_sites.iter().any(|site| {
+        site.symbol == "Button"
+            && site
+                .parent
+                .as_ref()
+                .is_some_and(|parent| parent.symbol == "DiscoverScreen")
+    }));
+}
+
 fn scan_request(fixture_root: &Path, snapshot_id: &str) -> ScanRequest {
     let mut config = serde_json::Map::new();
     config.insert(
@@ -118,5 +173,6 @@ fn facts_golden_projection(facts: &ScanFacts) -> serde_json::Value {
     if let Some(metrics) = object.get_mut("metrics").and_then(|v| v.as_object_mut()) {
         metrics.remove("parse_extract_ms");
     }
+    object.remove("symbol_usage_summary");
     value
 }

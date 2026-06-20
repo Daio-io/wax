@@ -107,7 +107,7 @@ fn scan_command_prints_full_summary_and_writes_output() {
         stdout.contains(&format!("scan output: {}", output_path.display())),
         "expected output path in summary, got: {stdout}"
     );
-    assert!(stdout.contains("compose: complete (50.0%)"));
+    assert!(stdout.contains("compose: complete (UI invocation adoption: 100.0%)"));
     assert!(stdout.contains("react: partial"));
     assert!(stdout.contains("swift: failed"));
     assert!(stdout.contains("failure diagnostics (up to 5):"));
@@ -429,7 +429,7 @@ fn write_pack_artifact(path: &Path) -> String {
 set -eu
 cat >/dev/null
 cat <<JSON
-{"type":"scan_facts","api_version":1,"language_id":"compose","facts":{"schema_version":1,"language":{"id":"compose","version":"0.1.0","ecosystem":"test","parser_name":"fixture","parser_version":"1.0.0"},"snapshot_id":"snap-compose","scanned_at":"1970-01-01T00:00:00Z","status":"complete","design_system_components":[],"local_components":[],"usage_sites":[],"diagnostics":[],"metrics":{"parse_extract_ms":0,"files_scanned":0,"adoption_coverage_ratio":null},"counts":{"design_system_component_count":0,"local_component_count":0,"usage_site_count":0,"resolved_count":0,"candidate_count":0}}}
+{"type":"scan_facts","api_version":1,"language_id":"compose","facts":{"schema_version":2,"language":{"id":"compose","version":"0.1.0","ecosystem":"test","parser_name":"fixture","parser_version":"1.0.0"},"snapshot_id":"snap-compose","scanned_at":"1970-01-01T00:00:00Z","status":"complete","design_system_components":[],"local_components":[],"usage_sites":[],"diagnostics":[],"metrics":{"invocation_adoption_ratio":null,"registry_resolution_ratio":null,"parse_extract_ms":0,"files_scanned":0},"counts":{"registry":{"component_count":0,"used_component_count":0,"resolved_raw_invocation_count":0,"candidate_raw_invocation_count":0},"definitions":{"local_definition_count":0,"invoked_local_definition_count":0,"unused_local_definition_count":0},"raw_invocations":{"total":0,"resolved":0,"local":0,"candidate":0,"unresolved":0},"adoption":{"eligible_invocation_count":0,"adopted_invocation_count":0,"non_adopted_invocation_count":0},"parent_scopes":{"total":0,"with_resolved_invocations":0,"with_local_invocations":0,"with_unresolved_invocations":0}}}}
 JSON
 "#;
     let artifact = gzip_tar(&[("wax-lang-compose", script.as_bytes(), 0o755)]);
@@ -463,7 +463,7 @@ fn gzip_tar(entries: &[(&str, &[u8], u32)]) -> Vec<u8> {
 
 fn write_installed_packs(wax_home: &Path, specs: &[(&str, &str, &str, &str, &str)]) {
     let mut state_entries = Vec::new();
-    for (language, status, adoption_coverage_ratio, error_code, error_message) in specs {
+    for (language, status, invocation_fixture, error_code, error_message) in specs {
         let install_dir = wax_home.join(format!("langs/{language}/0.1.0"));
         fs::create_dir_all(&install_dir).expect("create install dir");
 
@@ -476,36 +476,103 @@ fn write_installed_packs(wax_home: &Path, specs: &[(&str, &str, &str, &str, &str
                 "message": error_message
             }])
         };
-        let (usage_sites, usage_site_count, resolved_count, candidate_count) =
-            if *adoption_coverage_ratio == "null" {
-                (serde_json::json!([]), 0, 0, 0)
-            } else {
-                (
-                    serde_json::json!([
-                        {
-                            "id": "site-1",
-                            "location": { "file": "src/a.tsx", "line": 1 },
-                            "symbol": "Button",
-                            "match_status": "resolved",
-                            "registry_symbol": "button"
-                        },
-                        {
-                            "id": "site-2",
-                            "location": { "file": "src/b.tsx", "line": 1 },
-                            "symbol": "Button",
-                            "match_status": "candidate",
-                            "registry_symbol": "button"
-                        }
-                    ]),
-                    2,
-                    1,
-                    1,
-                )
-            };
-        let adoption_coverage_ratio = if *adoption_coverage_ratio == "null" {
-            serde_json::Value::Null
+        let (usage_sites, counts, metrics) = if *invocation_fixture == "null" {
+            (
+                serde_json::json!([]),
+                serde_json::json!({
+                    "registry": {
+                        "component_count": 0,
+                        "used_component_count": 0,
+                        "resolved_raw_invocation_count": 0,
+                        "candidate_raw_invocation_count": 0
+                    },
+                    "definitions": {
+                        "local_definition_count": 0,
+                        "invoked_local_definition_count": 0,
+                        "unused_local_definition_count": 0
+                    },
+                    "raw_invocations": {
+                        "total": 0,
+                        "resolved": 0,
+                        "local": 0,
+                        "candidate": 0,
+                        "unresolved": 0
+                    },
+                    "adoption": {
+                        "eligible_invocation_count": 0,
+                        "adopted_invocation_count": 0,
+                        "non_adopted_invocation_count": 0
+                    },
+                    "parent_scopes": {
+                        "total": 0,
+                        "with_resolved_invocations": 0,
+                        "with_local_invocations": 0,
+                        "with_unresolved_invocations": 0
+                    }
+                }),
+                serde_json::json!({
+                    "invocation_adoption_ratio": null,
+                    "registry_resolution_ratio": null,
+                    "parse_extract_ms": 5,
+                    "files_scanned": 1
+                }),
+            )
         } else {
-            serde_json::json!(adoption_coverage_ratio.parse::<f64>().unwrap())
+            (
+                serde_json::json!([
+                    {
+                        "id": "site-1",
+                        "location": { "file": "src/a.tsx", "line": 1 },
+                        "symbol": "Button",
+                        "match_status": "resolved",
+                        "registry_symbol": "button"
+                    },
+                    {
+                        "id": "site-2",
+                        "location": { "file": "src/b.tsx", "line": 1 },
+                        "symbol": "Button",
+                        "match_status": "candidate",
+                        "registry_symbol": "button"
+                    }
+                ]),
+                serde_json::json!({
+                    "registry": {
+                        "component_count": 0,
+                        "used_component_count": 1,
+                        "resolved_raw_invocation_count": 1,
+                        "candidate_raw_invocation_count": 1
+                    },
+                    "definitions": {
+                        "local_definition_count": 0,
+                        "invoked_local_definition_count": 0,
+                        "unused_local_definition_count": 0
+                    },
+                    "raw_invocations": {
+                        "total": 2,
+                        "resolved": 1,
+                        "local": 0,
+                        "candidate": 1,
+                        "unresolved": 0
+                    },
+                    "adoption": {
+                        "eligible_invocation_count": 1,
+                        "adopted_invocation_count": 1,
+                        "non_adopted_invocation_count": 0
+                    },
+                    "parent_scopes": {
+                        "total": 0,
+                        "with_resolved_invocations": 0,
+                        "with_local_invocations": 0,
+                        "with_unresolved_invocations": 0
+                    }
+                }),
+                serde_json::json!({
+                    "invocation_adoption_ratio": 1.0,
+                    "registry_resolution_ratio": 0.5,
+                    "parse_extract_ms": 5,
+                    "files_scanned": 1
+                }),
+            )
         };
         let facts = serde_json::json!({
             "schema_version": SCHEMA_VERSION,
@@ -523,18 +590,8 @@ fn write_installed_packs(wax_home: &Path, specs: &[(&str, &str, &str, &str, &str
             "local_components": [],
             "usage_sites": usage_sites,
             "diagnostics": diagnostics,
-            "metrics": {
-                "parse_extract_ms": 5,
-                "files_scanned": 1,
-                "adoption_coverage_ratio": adoption_coverage_ratio
-            },
-            "counts": {
-                "design_system_component_count": 0,
-                "local_component_count": 0,
-                "usage_site_count": usage_site_count,
-                "resolved_count": resolved_count,
-                "candidate_count": candidate_count,
-            }
+            "metrics": metrics,
+            "counts": counts
         });
         let wire = serde_json::json!({
             "type": "scan_facts",
