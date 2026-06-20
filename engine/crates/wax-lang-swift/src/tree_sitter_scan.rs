@@ -450,8 +450,59 @@ impl LocalViewIndex {
     }
 }
 
-fn unresolved_symbol_is_registry_shaped(symbol: &str, registry: &RegistryIndex) -> bool {
-    registry.resolve_targets.contains_key(symbol)
+fn unresolved_symbol_is_swiftui_shaped(
+    call_site: &ResolvedCallSite,
+    imports: &ImportBindings,
+) -> bool {
+    if call_site.qualifier.as_deref() == Some("SwiftUI") {
+        return false;
+    }
+    if is_framework_swiftui_symbol(&call_site.symbol) {
+        return false;
+    }
+    if imports
+        .package_for_call(&call_site.symbol, call_site.qualifier.as_deref())
+        .as_deref()
+        .is_some_and(|package| package != "SwiftUI")
+    {
+        return false;
+    }
+    true
+}
+
+fn is_framework_swiftui_symbol(symbol: &str) -> bool {
+    matches!(
+        symbol,
+        "AnyView"
+            | "Button"
+            | "Color"
+            | "Divider"
+            | "EmptyView"
+            | "ForEach"
+            | "Form"
+            | "Group"
+            | "HStack"
+            | "Image"
+            | "Label"
+            | "LazyHGrid"
+            | "LazyHStack"
+            | "LazyVGrid"
+            | "LazyVStack"
+            | "List"
+            | "NavigationLink"
+            | "NavigationStack"
+            | "Picker"
+            | "ProgressView"
+            | "ScrollView"
+            | "Section"
+            | "Slider"
+            | "Spacer"
+            | "Text"
+            | "TextField"
+            | "Toggle"
+            | "VStack"
+            | "ZStack"
+    )
 }
 
 fn index_local_components_from_source(
@@ -528,7 +579,7 @@ fn extract_usage_from_source(
                     local_definition_id: Some(local.id.clone()),
                     parent,
                 });
-            } else if unresolved_symbol_is_registry_shaped(&call_site.symbol, registry) {
+            } else if unresolved_symbol_is_swiftui_shaped(&call_site, &imports) {
                 usage_sites.push(UsageSite {
                     id: format!("usage.swift:{file}:{line}:{column}:{}", call_site.symbol),
                     location,
@@ -900,6 +951,50 @@ mod tests {
         // PrimaryButton(title: "No")
         func Screen() -> some View {
             LocalCard()
+        }
+        "#,
+            &registry,
+        );
+
+        assert!(usages.is_empty());
+    }
+
+    #[test]
+    fn unknown_pascal_case_view_call_becomes_unresolved() {
+        let registry = registry_without_packages(&[("PrimaryButton", "PrimaryButton")]);
+        let (_, usages) = parse_and_extract(
+            r#"
+        import SwiftUI
+        struct Screen: View {
+            var body: some View {
+                VStack {
+                    Text("Title")
+                    UnknownCard()
+                }
+            }
+        }
+        "#,
+            &registry,
+        );
+
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].symbol, "UnknownCard");
+        assert_eq!(usages[0].match_status, MatchStatus::Unresolved);
+    }
+
+    #[test]
+    fn framework_swiftui_calls_are_not_unresolved() {
+        let registry = registry_without_packages(&[("PrimaryButton", "PrimaryButton")]);
+        let (_, usages) = parse_and_extract(
+            r#"
+        import SwiftUI
+        struct Screen: View {
+            var body: some View {
+                VStack {
+                    Text("Title")
+                    SwiftUI.Button("Save") {}
+                }
+            }
         }
         "#,
             &registry,

@@ -9,7 +9,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 3. Each implementation task remains **one PR per task** inside the active plan, per that plan's execution model.
 4. Update the **Doc status** and **Implementation status** columns when a plan doc PR merges or when implementation of a plan finishes.
 
-**Active plan:** [Adoption Metrics v2](./2026-06-20-adoption-metrics-v2-plan.md) — implementation complete in open PRs (#165, #171, #172); merge to `main` pending. Post-alpha UX (order 5) remains deferred.
+**Active plan:** [Adoption Metrics v2](./2026-06-20-adoption-metrics-v2-plan.md) — implementation in progress across open PRs (#165, #171, #172); merge to `main` in stack order. Post-alpha UX (order 5) remains deferred.
 
 ---
 
@@ -27,7 +27,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 | 8 | SwiftUI language pack | [archive/2026-06-13-swift-language-pack-plan.md](./archive/2026-06-13-swift-language-pack-plan.md) | `merged` | `complete` | [ADR](../adr/2026-06-13-swift-language-pack.md) |
 | 9 | Interactive init wizard | [archive/2026-06-13-interactive-init.md](./archive/2026-06-13-interactive-init.md) | `merged` | `complete` | [ADR](../adr/2026-06-13-interactive-init.md) |
 | 10 | Wax scan analytics skill | [archive/2026-06-14-wax-scan-plan.md](./archive/2026-06-14-wax-scan-plan.md) | `merged` | `complete` | [ADR](../adr/2026-06-14-wax-scan-analytics-skill.md) |
-| 11 | Adoption Metrics v2 | [2026-06-20-adoption-metrics-v2-plan.md](./2026-06-20-adoption-metrics-v2-plan.md) | `merged` | `complete` (PRs open) | [ADR](../adr/2026-06-20-adoption-metrics-v2.md) |
+| 11 | Adoption Metrics v2 | [2026-06-20-adoption-metrics-v2-plan.md](./2026-06-20-adoption-metrics-v2-plan.md) | `pending` | `in-progress` | — |
 
 **Doc status:** `pending` -> plan PR open; `merged` -> plan doc on `main`; `planned` -> not yet drafted.
 

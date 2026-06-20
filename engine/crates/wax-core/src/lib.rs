@@ -18,7 +18,7 @@ pub mod subprocess_discover;
 pub mod subprocess_lang;
 pub mod validate;
 
-use adoption_merge::merge_language_scans;
+use adoption_merge::merge_language_scans_with_parent_scope_limit;
 use auto_install::{AutoInstallPolicyInput, InstalledManifest, PackIndexArtifact};
 use config::lockfile::{LockfileError, load_lockfile};
 use config::waxrc::{WaxRcError, load_waxrc};
@@ -242,6 +242,7 @@ impl Engine {
         let repo_files = config::repo_files::discover_repo_files(repo_root);
         let waxrc = load_waxrc(&repo_files.config_path)?;
         let scan_concurrency = effective_scan_concurrency(&waxrc.engine, &options);
+        let parent_scope_limit = waxrc.adoption.symbol_usage_summary.parent_scope_limit;
         let lockfile = load_lockfile(&repo_files.lockfile_path)?;
         let state_path = state_file()?;
         let mut state = load_global_state(&state_path)?;
@@ -363,7 +364,8 @@ impl Engine {
             });
         }
         let languages = run_scan_jobs(repo_root, jobs, scan_concurrency, &progress)?;
-        let merged = merge_language_scans(languages).map_err(EngineError::ScanFacts)?;
+        let merged = merge_language_scans_with_parent_scope_limit(languages, parent_scope_limit)
+            .map_err(EngineError::ScanFacts)?;
         progress.emit(ScanProgressEvent::WritingOutputs);
         write_scan_outputs(repo_root, &merged)?;
 

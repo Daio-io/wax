@@ -50,6 +50,31 @@ fn waxrc_loads_multiple_languages() {
 }
 
 #[test]
+fn waxrc_parses_supported_adoption_config() {
+    let rc = load_waxrc(fixture_path("with-adoption.waxrc")).unwrap();
+
+    assert!(rc.adoption.track_local_invocations);
+    assert!(rc.adoption.track_unresolved_invocations);
+    assert!(rc.adoption.parent_attribution.enabled);
+    assert_eq!(
+        rc.adoption.parent_attribution.scope_visibility,
+        ["public", "internal", "private"]
+    );
+    assert_eq!(rc.adoption.symbol_usage_summary.parent_scope_limit, Some(0));
+}
+
+#[test]
+fn waxrc_rejects_reserved_adoption_modes() {
+    let err = load_waxrc(fixture_path("with-unsupported-adoption.waxrc")).unwrap_err();
+
+    assert!(matches!(err, WaxRcError::InvalidConfig { .. }));
+    assert!(
+        err.to_string()
+            .contains("adoption.track_local_invocations=false is not supported yet")
+    );
+}
+
+#[test]
 fn waxrc_rejects_unsupported_schema_version() {
     let err = load_waxrc(fixture_path("unsupported-schema.waxrc")).unwrap_err();
 

@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "adoption": {
+    "track_local_invocations": true,
+    "track_unresolved_invocations": true,
+    "parent_attribution": {
+      "enabled": true,
+      "scope_visibility": ["public", "internal", "private"]
+    },
+    "candidate_policy": "report_separately",
+    "symbol_usage_summary": {
+      "enabled": true,
+      "parent_scope_limit": 0
+    }
+  },
+  "languages": [
+    {
+      "id": "compose",
+      "enabled": true,
+      "registry": ".wax/compose.registry.json",
+      "roots": ["app/src/main/kotlin"]
+    }
+  ]
+}

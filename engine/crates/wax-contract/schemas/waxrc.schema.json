@@ -26,20 +26,20 @@
       "description": "Adoption Metrics v2 scan behavior and reporting limits.",
       "properties": {
         "track_local_invocations": {
-          "type": "boolean",
-          "description": "When true, parser-backed packs emit local invocation facts."
+          "const": true,
+          "description": "Parser-backed packs emit local invocation facts. false is reserved for a future reporting-gap mode."
         },
         "track_unresolved_invocations": {
-          "type": "boolean",
-          "description": "When true, parser-backed packs emit unresolved UI invocation facts."
+          "const": true,
+          "description": "Parser-backed packs emit unresolved UI invocation facts. false is reserved for a future reporting-gap mode."
         },
         "parent_attribution": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "enabled": {
-              "type": "boolean",
-              "description": "When true, usage sites include parent scope attribution."
+              "const": true,
+              "description": "Usage sites include parent scope attribution. false is reserved for a future reporting-gap mode."
             },
             "scope_visibility": {
               "type": "array",
@@ -52,17 +52,16 @@
           }
         },
         "candidate_policy": {
-          "type": "string",
-          "enum": ["report_separately", "count_as_non_adopted", "count_as_adopted"],
-          "description": "How candidate invocations affect primary adoption counters."
+          "const": "report_separately",
+          "description": "Candidates are reported separately from the primary adoption numerator and denominator. Other policies are reserved."
         },
         "symbol_usage_summary": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "enabled": {
-              "type": "boolean",
-              "description": "When true, derived symbol_usage_summary rows are emitted."
+              "const": true,
+              "description": "Derived symbol_usage_summary rows are emitted. false is reserved for a future reporting-gap mode."
             },
             "parent_scope_limit": {
               "type": ["integer", "null"],

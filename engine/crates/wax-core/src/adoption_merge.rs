@@ -17,9 +17,22 @@ pub fn recompute_derived_scan_facts(
     facts: &mut ScanFacts,
     language_id: &LanguageId,
 ) -> Result<(), ScanFactsError> {
+    recompute_derived_scan_facts_with_parent_scope_limit(
+        facts,
+        language_id,
+        DEFAULT_PARENT_SCOPE_LIMIT,
+    )
+}
+
+/// Recomputes derived scan facts using an explicit parent-scope row limit.
+pub fn recompute_derived_scan_facts_with_parent_scope_limit(
+    facts: &mut ScanFacts,
+    language_id: &LanguageId,
+    parent_scope_limit: Option<u32>,
+) -> Result<(), ScanFactsError> {
     facts.recompute_counts()?;
     facts.symbol_usage_summary =
-        build_symbol_usage_summaries(facts, language_id, DEFAULT_PARENT_SCOPE_LIMIT)?;
+        build_symbol_usage_summaries(facts, language_id, parent_scope_limit)?;
     Ok(())
 }
 
@@ -27,9 +40,21 @@ pub fn recompute_derived_scan_facts(
 pub fn merge_language_scans(
     languages: BTreeMap<LanguageId, ScanFacts>,
 ) -> Result<MergedScan, ScanFactsError> {
+    merge_language_scans_with_parent_scope_limit(languages, DEFAULT_PARENT_SCOPE_LIMIT)
+}
+
+/// Builds a merged scan using an explicit parent-scope row limit.
+pub fn merge_language_scans_with_parent_scope_limit(
+    languages: BTreeMap<LanguageId, ScanFacts>,
+    parent_scope_limit: Option<u32>,
+) -> Result<MergedScan, ScanFactsError> {
     let mut merged_languages = BTreeMap::new();
     for (language_id, mut facts) in languages {
-        recompute_derived_scan_facts(&mut facts, &language_id)?;
+        recompute_derived_scan_facts_with_parent_scope_limit(
+            &mut facts,
+            &language_id,
+            parent_scope_limit,
+        )?;
         merged_languages.insert(language_id, facts);
     }
 
