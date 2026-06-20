@@ -198,11 +198,9 @@ pub fn collect_usage_sites(
                 .as_ref()
                 .and_then(|(name, span)| parent_scope_for_component(parsed, name, *span));
 
-            if let Some(local) = local_index.resolve(
-                &parsed.file,
-                &candidate.binding_name,
-                &candidate.symbol,
-            ) {
+            if let Some(local) =
+                local_index.resolve(&parsed.file, &candidate.binding_name, &candidate.symbol)
+            {
                 extraction.usage_sites.push(UsageSite {
                     id: usage_site_id(&location, &candidate.symbol),
                     location,
@@ -2071,7 +2069,10 @@ mod tests {
             export const App = () => <Button />;
             "#,
         );
-        fixture.write("src/LocalButton.tsx", "export const Button = () => <button />;");
+        fixture.write(
+            "src/LocalButton.tsx",
+            "export const Button = () => <button />;",
+        );
 
         let extraction = fixture.extract_usage(
             vec!["src/App.tsx", "src/LocalButton.tsx"],
