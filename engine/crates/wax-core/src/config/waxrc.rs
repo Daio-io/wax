@@ -129,21 +129,16 @@ impl Default for ParentAttributionConfig {
 }
 
 /// Candidate counting policy for primary adoption metrics.
-#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CandidatePolicy {
     /// Exclude candidates from the primary numerator and denominator.
+    #[default]
     ReportSeparately,
     /// Include candidates in the denominator but not the numerator.
     CountAsNonAdopted,
     /// Include candidates in both numerator and denominator.
     CountAsAdopted,
-}
-
-impl Default for CandidatePolicy {
-    fn default() -> Self {
-        Self::ReportSeparately
-    }
 }
 
 /// Derived symbol summary settings.
