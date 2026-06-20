@@ -368,6 +368,8 @@ fn sample_scan_facts() -> ScanFacts {
         counts: CountSummary::default(),
         symbol_usage_summary: vec![],
     };
-    facts.recompute_counts().unwrap();
+    facts
+        .recompute_counts()
+        .expect("sample facts should recompute");
     facts
 }
