@@ -9,7 +9,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 3. Each implementation task remains **one PR per task** inside the active plan, per that plan's execution model.
 4. Update the **Doc status** and **Implementation status** columns when a plan doc PR merges or when implementation of a plan finishes.
 
-**Active plan:** [Adoption Metrics v2](./2026-06-20-adoption-metrics-v2-plan.md) — draft doc PR. Post-alpha UX (order 5) remains deferred.
+**Active plan:** [Adoption Metrics v2](./2026-06-20-adoption-metrics-v2-plan.md) — implementation complete in open PRs (#165, #171, #172); merge to `main` pending. Post-alpha UX (order 5) remains deferred.
 
 ---
 
@@ -27,7 +27,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 | 8 | SwiftUI language pack | [archive/2026-06-13-swift-language-pack-plan.md](./archive/2026-06-13-swift-language-pack-plan.md) | `merged` | `complete` | [ADR](../adr/2026-06-13-swift-language-pack.md) |
 | 9 | Interactive init wizard | [archive/2026-06-13-interactive-init.md](./archive/2026-06-13-interactive-init.md) | `merged` | `complete` | [ADR](../adr/2026-06-13-interactive-init.md) |
 | 10 | Wax scan analytics skill | [archive/2026-06-14-wax-scan-plan.md](./archive/2026-06-14-wax-scan-plan.md) | `merged` | `complete` | [ADR](../adr/2026-06-14-wax-scan-analytics-skill.md) |
-| 11 | Adoption Metrics v2 | [2026-06-20-adoption-metrics-v2-plan.md](./2026-06-20-adoption-metrics-v2-plan.md) | `pending` | `not-started` | — |
+| 11 | Adoption Metrics v2 | [2026-06-20-adoption-metrics-v2-plan.md](./2026-06-20-adoption-metrics-v2-plan.md) | `merged` | `complete` (PRs open) | [ADR](../adr/2026-06-20-adoption-metrics-v2.md) |
 
 **Doc status:** `pending` -> plan PR open; `merged` -> plan doc on `main`; `planned` -> not yet drafted.
 
@@ -38,10 +38,10 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 ## Which plan should I run?
 
 ```text
--> Adoption Metrics v2 (order 11) once the draft plan doc PR is reviewed and merged
+-> Merge Adoption Metrics v2 PRs (#165 → #171 → #172), then archive plan and update this README
 ```
 
-Orders 1-4, 6-10 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Interactive init (order 9) shipped Post-alpha UX Task 1. Wax scan analytics skill (order 10) shipped all five tasks. Adoption Metrics v2 (order 11) is the next active plan once its draft document is accepted. See [`archive/README.md`](./archive/README.md) and [`docs/adr/`](../adr/README.md) for prior implementation records.
+Orders 1-4, 6-10 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Adoption Metrics v2 (order 11) is the active implementation plan with stacked PRs for contract, engine, language packs, CLI reporting, and docs.
 
 ---
 
@@ -59,7 +59,7 @@ Orders 1-4, 6-10 are **complete**. Post-alpha UX (order 5) remains otherwise def
 | 8 | `dai/swift-language-pack-plan` | merged | SwiftUI language pack design and implementation plan |
 | 9 | `dai/interactive-init-plan` | #142 (merged) | Interactive init design and implementation plan |
 | 10 | `docs/wax-scan-skill-plan` | #151 (merged) | Wax scan analytics skill design, implementation plan, and Task 1 scaffold |
-| 11 | `dai/adoption-metrics-v2-contract` | draft | Adoption Metrics v2 design and implementation plan |
+| 11 | `dai/adoption-metrics-v2-contract` | [#165](https://github.com/Daio-io/wax/pull/165) | Adoption Metrics v2 design and contract |
 
 ---
 
