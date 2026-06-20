@@ -107,17 +107,13 @@ fn facts_from_scan(request: &ScanRequest, scan: LineScanResult) -> ScanFacts {
         usage_sites: scan.usage_sites,
         diagnostics: scan.diagnostics,
         metrics: Metrics {
-            adoption_coverage_ratio: None,
+            invocation_adoption_ratio: None,
+            registry_resolution_ratio: None,
             parse_extract_ms: 0,
             files_scanned: scan.files_scanned,
         },
-        counts: CountSummary {
-            design_system_component_count: 0,
-            local_component_count: 0,
-            usage_site_count: 0,
-            resolved_count: 0,
-            candidate_count: 0,
-        },
+        counts: CountSummary::default(),
+        symbol_usage_summary: vec![],
     }
 }
 
@@ -145,16 +141,12 @@ fn scaffold_facts(request: &ScanRequest) -> ScanFacts {
             location: None,
         }],
         metrics: Metrics {
-            adoption_coverage_ratio: None,
+            invocation_adoption_ratio: None,
+            registry_resolution_ratio: None,
             parse_extract_ms: 0,
             files_scanned: 0,
         },
-        counts: CountSummary {
-            design_system_component_count: 0,
-            local_component_count: 0,
-            usage_site_count: 0,
-            resolved_count: 0,
-            candidate_count: 0,
-        },
+        counts: CountSummary::default(),
+        symbol_usage_summary: vec![],
     }
 }
