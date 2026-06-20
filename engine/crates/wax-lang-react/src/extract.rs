@@ -11,16 +11,16 @@ use swc_ecma_ast::{
     Stmt, VarDecl, VarDeclOrExpr, VarDeclarator,
 };
 use wax_contract::{
-    Diagnostic, DiagnosticSeverity, LocalComponent, MatchStatus, SourceLocation, UsageSite,
+    Diagnostic, IdentityStability, LocalComponent, MatchStatus, ParentScope, SourceLocation,
+    UsageSite,
 };
 use wax_lang_api::{npm_import_package_root, resolve_import_aware_match};
 
 use crate::component_detect::{
-    expression_returns_jsx, function_returns_jsx, is_pascal_case, module_export_name,
-    simple_binding_ident,
+    class_returns_jsx, expression_returns_jsx, function_returns_jsx, is_pascal_case,
+    module_export_name, simple_binding_ident,
 };
 use crate::config::ReactScanConfig;
-use crate::diagnostics::DS_USAGE_UNRESOLVED;
 use crate::module_graph::{ImportedSymbol, ReactModuleGraph};
 use crate::registry::ReactRegistryIndex;
 use crate::swc_parse::ParsedReactModule;
@@ -74,6 +74,99 @@ pub fn discover_local_components(parsed_modules: &[ParsedReactModule]) -> Vec<Lo
     components
 }
 
+#[derive(Debug, Default)]
+struct LocalComponentIndex {
+    by_file_symbol: BTreeMap<(String, String), LocalComponent>,
+    by_qualified: BTreeMap<String, LocalComponent>,
+}
+
+impl LocalComponentIndex {
+    fn from_components(components: &[LocalComponent]) -> Self {
+        let mut index = Self::default();
+        for component in components {
+            let file = normalize_file(std::path::Path::new(&component.location.file));
+            if let Some(qualified) = &component.qualified_symbol {
+                index
+                    .by_qualified
+                    .insert(qualified.clone(), component.clone());
+            }
+            index
+                .by_file_symbol
+                .insert((file, component.symbol.clone()), component.clone());
+        }
+        index
+    }
+
+    fn resolve(
+        &self,
+        file: &std::path::Path,
+        binding_name: &str,
+        symbol: &str,
+    ) -> Option<&LocalComponent> {
+        let file = normalize_file(file);
+        if let Some(component) = self
+            .by_file_symbol
+            .get(&(file.clone(), binding_name.to_owned()))
+        {
+            return Some(component);
+        }
+        if let Some(component) = self.by_file_symbol.get(&(file.clone(), symbol.to_owned())) {
+            return Some(component);
+        }
+        let module_identity = module_identity_for_file(&file);
+        let qualified = qualified_component_symbol(&module_identity, symbol);
+        self.by_qualified.get(&qualified)
+    }
+
+    fn resolve_with_import(
+        &self,
+        module_graph: &ReactModuleGraph,
+        parsed: &ParsedReactModule,
+        binding_name: &str,
+        symbol: &str,
+    ) -> Option<&LocalComponent> {
+        if let Some(local) = self.resolve(&parsed.file, binding_name, symbol) {
+            return Some(local);
+        }
+        let resolved = module_graph.resolve_import(&parsed.file, binding_name)?;
+        self.resolve(&resolved.module, &resolved.symbol, &resolved.symbol)
+    }
+}
+
+fn module_identity_for_file(file: &str) -> String {
+    std::path::Path::new(file)
+        .with_extension("")
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+fn qualified_component_symbol(module_identity: &str, symbol: &str) -> String {
+    format!("{module_identity}#{symbol}")
+}
+
+fn local_definition_id(module_identity: &str, symbol: &str) -> String {
+    format!("react:component:{module_identity}#{symbol}")
+}
+
+fn parent_scope_for_component(
+    parsed: &ParsedReactModule,
+    symbol: &str,
+    span: Span,
+) -> Option<ParentScope> {
+    let file = normalize_file(&parsed.file);
+    let module_identity = module_identity_for_file(&file);
+    let location = parsed.source_location_from_span(span)?;
+    Some(ParentScope {
+        parent_id: local_definition_id(&module_identity, symbol),
+        symbol: symbol.to_owned(),
+        qualified_symbol: Some(qualified_component_symbol(&module_identity, symbol)),
+        scope_kind: "component".to_owned(),
+        identity_basis: "module_path_and_symbol".to_owned(),
+        identity_stability: IdentityStability::PathSensitive,
+        location: Some(location),
+    })
+}
+
 /// Collects registry-backed JSX usage sites from parsed modules.
 #[must_use]
 pub fn collect_usage_sites(
@@ -81,45 +174,91 @@ pub fn collect_usage_sites(
     module_graph: &ReactModuleGraph,
     config: &ReactScanConfig,
     registry: &ReactRegistryIndex,
+    local_components: &[LocalComponent],
 ) -> ReactUsageExtraction {
+    let local_index = LocalComponentIndex::from_components(local_components);
     let mut extraction = ReactUsageExtraction::default();
 
     for parsed in parsed_modules {
-        let local_bindings = local_declared_bindings(parsed);
         let mut candidates = Vec::new();
         for item in &parsed.module.body {
             collect_jsx_usage_candidates_from_module_item(parsed, item, &mut candidates);
         }
 
         for candidate in candidates {
-            if let Some((registry_symbol, match_status)) =
+            if candidate.shadowed {
+                continue;
+            }
+
+            let Some(location) = parsed.source_location_from_span(candidate.span) else {
+                continue;
+            };
+            let parent = candidate
+                .parent_component
+                .as_ref()
+                .and_then(|(name, span)| parent_scope_for_component(parsed, name, *span));
+
+            if let Some(local) = local_index.resolve(
+                &parsed.file,
+                &candidate.binding_name,
+                &candidate.symbol,
+            ) {
+                extraction.usage_sites.push(UsageSite {
+                    id: usage_site_id(&location, &candidate.symbol),
+                    location,
+                    symbol: candidate.symbol,
+                    qualified_symbol: local.qualified_symbol.clone(),
+                    match_status: MatchStatus::Local,
+                    registry_symbol: None,
+                    local_definition_id: Some(local.id.clone()),
+                    parent,
+                });
+            } else if let Some((registry_symbol, match_status)) =
                 classify_jsx_usage(parsed, module_graph, config, registry, &candidate)
             {
-                if let Some(location) = parsed.source_location_from_span(candidate.span) {
-                    extraction.usage_sites.push(UsageSite {
-                        id: usage_site_id(&location, &candidate.symbol),
-                        location,
-                        symbol: candidate.symbol,
-                        match_status,
-                        registry_symbol: Some(registry_symbol),
-                    });
-                }
+                extraction.usage_sites.push(UsageSite {
+                    id: usage_site_id(&location, &candidate.symbol),
+                    location,
+                    symbol: candidate.symbol,
+                    qualified_symbol: None,
+                    match_status,
+                    registry_symbol: Some(registry_symbol),
+                    local_definition_id: None,
+                    parent,
+                });
+            } else if let Some(local) = local_index.resolve_with_import(
+                module_graph,
+                parsed,
+                &candidate.binding_name,
+                &candidate.symbol,
+            ) {
+                extraction.usage_sites.push(UsageSite {
+                    id: usage_site_id(&location, &candidate.symbol),
+                    location,
+                    symbol: candidate.symbol,
+                    qualified_symbol: local.qualified_symbol.clone(),
+                    match_status: MatchStatus::Local,
+                    registry_symbol: None,
+                    local_definition_id: Some(local.id.clone()),
+                    parent,
+                });
             } else if unresolved_usage_is_design_system_relevant(
                 parsed,
                 module_graph,
                 config,
                 registry,
                 &candidate,
-                &local_bindings,
+                &local_declared_bindings(parsed),
             ) {
-                extraction.diagnostics.push(Diagnostic {
-                    severity: DiagnosticSeverity::Warning,
-                    code: DS_USAGE_UNRESOLVED.to_owned(),
-                    message: format!(
-                        "design-system-relevant JSX usage '{}' could not be resolved",
-                        candidate.symbol
-                    ),
-                    location: parsed.source_location_from_span(candidate.span),
+                extraction.usage_sites.push(UsageSite {
+                    id: usage_site_id(&location, &candidate.symbol),
+                    location,
+                    symbol: candidate.symbol,
+                    qualified_symbol: None,
+                    match_status: MatchStatus::Unresolved,
+                    registry_symbol: None,
+                    local_definition_id: None,
+                    parent,
                 });
             }
         }
@@ -134,42 +273,50 @@ struct JsxUsageCandidate {
     binding_name: String,
     span: Span,
     shadowed: bool,
+    parent_component: Option<(String, Span)>,
 }
 
-type UsageScopes = Vec<BTreeSet<String>>;
+#[derive(Debug, Default)]
+struct UsageWalkState {
+    scopes: Vec<BTreeSet<String>>,
+    parent_stack: Vec<(String, Span)>,
+}
 
 fn collect_jsx_usage_candidates_from_module_item(
     parsed: &ParsedReactModule,
     item: &ModuleItem,
     candidates: &mut Vec<JsxUsageCandidate>,
 ) {
-    let mut scopes = Vec::new();
+    let mut state = UsageWalkState::default();
     match item {
         ModuleItem::Stmt(stmt) => {
-            collect_jsx_usage_candidates_from_stmt(parsed, stmt, &mut scopes, candidates);
+            collect_jsx_usage_candidates_from_stmt(parsed, stmt, &mut state, candidates);
         }
         ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(export_decl)) => {
             collect_jsx_usage_candidates_from_decl(
                 parsed,
                 &export_decl.decl,
-                &mut scopes,
+                &mut state,
                 candidates,
             );
         }
         ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultDecl(default_decl)) => {
             if let DefaultDecl::Fn(fn_expr) = &default_decl.decl {
+                let component_name = fn_expr.ident.as_ref().map(|ident| ident.sym.as_ref());
                 collect_jsx_usage_candidates_from_function(
                     parsed,
                     &fn_expr.function,
-                    &mut scopes,
+                    &mut state,
                     candidates,
+                    component_name,
                 );
             } else if let DefaultDecl::Class(class_expr) = &default_decl.decl {
                 collect_jsx_usage_candidates_from_class(
                     parsed,
                     &class_expr.class,
-                    &mut scopes,
+                    &mut state,
                     candidates,
+                    class_expr.ident.as_ref().map(|ident| ident.sym.as_ref()),
                 );
             }
         }
@@ -177,7 +324,7 @@ fn collect_jsx_usage_candidates_from_module_item(
             collect_jsx_usage_candidates_from_expr(
                 parsed,
                 &default_expr.expr,
-                &mut scopes,
+                &mut state,
                 candidates,
             );
         }
@@ -188,7 +335,7 @@ fn collect_jsx_usage_candidates_from_module_item(
 fn collect_jsx_usage_candidates_from_decl(
     parsed: &ParsedReactModule,
     decl: &Decl,
-    scopes: &mut UsageScopes,
+    state: &mut UsageWalkState,
     candidates: &mut Vec<JsxUsageCandidate>,
 ) {
     match decl {
@@ -196,15 +343,22 @@ fn collect_jsx_usage_candidates_from_decl(
             collect_jsx_usage_candidates_from_function(
                 parsed,
                 &fn_decl.function,
-                scopes,
+                state,
                 candidates,
+                Some(fn_decl.ident.sym.as_ref()),
             );
         }
         Decl::Var(var_decl) => {
-            collect_jsx_usage_candidates_from_var_decl(parsed, var_decl, scopes, candidates);
+            collect_jsx_usage_candidates_from_var_decl(parsed, var_decl, state, candidates);
         }
         Decl::Class(class_decl) => {
-            collect_jsx_usage_candidates_from_class(parsed, &class_decl.class, scopes, candidates);
+            collect_jsx_usage_candidates_from_class(
+                parsed,
+                &class_decl.class,
+                state,
+                candidates,
+                Some(class_decl.ident.sym.as_ref()),
+            );
         }
         _ => {}
     }
@@ -213,141 +367,152 @@ fn collect_jsx_usage_candidates_from_decl(
 fn collect_jsx_usage_candidates_from_function(
     parsed: &ParsedReactModule,
     function: &Function,
-    scopes: &mut UsageScopes,
+    state: &mut UsageWalkState,
     candidates: &mut Vec<JsxUsageCandidate>,
+    component_name: Option<&str>,
 ) {
+    let parent_frame = component_name
+        .filter(|name| is_pascal_case(name))
+        .filter(|_| function_returns_jsx(function))
+        .map(|name| (name.to_owned(), function.span));
+    if let Some(frame) = parent_frame.clone() {
+        state.parent_stack.push(frame);
+    }
+
     let mut function_bindings = BTreeSet::new();
     for param in &function.params {
         collect_pat_bindings(&param.pat, &mut function_bindings);
     }
-    scopes.push(function_bindings);
+    state.scopes.push(function_bindings);
     if let Some(body) = &function.body {
-        collect_jsx_usage_candidates_from_block(parsed, body, scopes, candidates);
+        collect_jsx_usage_candidates_from_block(parsed, body, state, candidates);
     }
-    scopes.pop();
+    state.scopes.pop();
+
+    if parent_frame.is_some() {
+        state.parent_stack.pop();
+    }
 }
 
 fn collect_jsx_usage_candidates_from_block(
     parsed: &ParsedReactModule,
     block: &BlockStmt,
-    scopes: &mut UsageScopes,
+    state: &mut UsageWalkState,
     candidates: &mut Vec<JsxUsageCandidate>,
 ) {
-    scopes.push(block_declared_bindings(block));
+    state.scopes.push(block_declared_bindings(block));
     for stmt in &block.stmts {
-        collect_jsx_usage_candidates_from_stmt(parsed, stmt, scopes, candidates);
+        collect_jsx_usage_candidates_from_stmt(parsed, stmt, state, candidates);
     }
-    scopes.pop();
+    state.scopes.pop();
 }
 
 fn collect_jsx_usage_candidates_from_stmt(
     parsed: &ParsedReactModule,
     stmt: &Stmt,
-    scopes: &mut UsageScopes,
+    state: &mut UsageWalkState,
     candidates: &mut Vec<JsxUsageCandidate>,
 ) {
     match stmt {
-        Stmt::Decl(decl) => {
-            collect_jsx_usage_candidates_from_decl(parsed, decl, scopes, candidates)
-        }
+        Stmt::Decl(decl) => collect_jsx_usage_candidates_from_decl(parsed, decl, state, candidates),
         Stmt::Return(return_stmt) => {
             if let Some(arg) = return_stmt.arg.as_deref() {
-                collect_jsx_usage_candidates_from_expr(parsed, arg, scopes, candidates);
+                collect_jsx_usage_candidates_from_expr(parsed, arg, state, candidates);
             }
         }
         Stmt::Expr(expr_stmt) => {
-            collect_jsx_usage_candidates_from_expr(parsed, &expr_stmt.expr, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &expr_stmt.expr, state, candidates);
         }
         Stmt::Block(block) => {
-            collect_jsx_usage_candidates_from_block(parsed, block, scopes, candidates);
+            collect_jsx_usage_candidates_from_block(parsed, block, state, candidates);
         }
         Stmt::If(if_stmt) => {
-            collect_jsx_usage_candidates_from_expr(parsed, &if_stmt.test, scopes, candidates);
-            collect_jsx_usage_candidates_from_stmt(parsed, &if_stmt.cons, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &if_stmt.test, state, candidates);
+            collect_jsx_usage_candidates_from_stmt(parsed, &if_stmt.cons, state, candidates);
             if let Some(alt) = if_stmt.alt.as_deref() {
-                collect_jsx_usage_candidates_from_stmt(parsed, alt, scopes, candidates);
+                collect_jsx_usage_candidates_from_stmt(parsed, alt, state, candidates);
             }
         }
         Stmt::With(with_stmt) => {
-            collect_jsx_usage_candidates_from_expr(parsed, &with_stmt.obj, scopes, candidates);
-            collect_jsx_usage_candidates_from_stmt(parsed, &with_stmt.body, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &with_stmt.obj, state, candidates);
+            collect_jsx_usage_candidates_from_stmt(parsed, &with_stmt.body, state, candidates);
         }
         Stmt::Labeled(labeled) => {
-            collect_jsx_usage_candidates_from_stmt(parsed, &labeled.body, scopes, candidates);
+            collect_jsx_usage_candidates_from_stmt(parsed, &labeled.body, state, candidates);
         }
         Stmt::Throw(throw_stmt) => {
-            collect_jsx_usage_candidates_from_expr(parsed, &throw_stmt.arg, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &throw_stmt.arg, state, candidates);
         }
         Stmt::Switch(switch_stmt) => {
             collect_jsx_usage_candidates_from_expr(
                 parsed,
                 &switch_stmt.discriminant,
-                scopes,
+                state,
                 candidates,
             );
             for case in &switch_stmt.cases {
                 if let Some(test) = case.test.as_deref() {
-                    collect_jsx_usage_candidates_from_expr(parsed, test, scopes, candidates);
+                    collect_jsx_usage_candidates_from_expr(parsed, test, state, candidates);
                 }
                 let mut case_bindings = BTreeSet::new();
                 for stmt in &case.cons {
                     collect_stmt_declared_bindings(stmt, &mut case_bindings);
                 }
-                scopes.push(case_bindings);
+                state.scopes.push(case_bindings);
                 for stmt in &case.cons {
-                    collect_jsx_usage_candidates_from_stmt(parsed, stmt, scopes, candidates);
+                    collect_jsx_usage_candidates_from_stmt(parsed, stmt, state, candidates);
                 }
-                scopes.pop();
+                state.scopes.pop();
             }
         }
         Stmt::Try(try_stmt) => {
-            collect_jsx_usage_candidates_from_block(parsed, &try_stmt.block, scopes, candidates);
+            collect_jsx_usage_candidates_from_block(parsed, &try_stmt.block, state, candidates);
             if let Some(handler) = &try_stmt.handler {
                 let mut catch_bindings = BTreeSet::new();
                 if let Some(param) = &handler.param {
                     collect_pat_bindings(param, &mut catch_bindings);
                 }
-                scopes.push(catch_bindings);
-                collect_jsx_usage_candidates_from_block(parsed, &handler.body, scopes, candidates);
-                scopes.pop();
+                state.scopes.push(catch_bindings);
+                collect_jsx_usage_candidates_from_block(parsed, &handler.body, state, candidates);
+                state.scopes.pop();
             }
             if let Some(finalizer) = &try_stmt.finalizer {
-                collect_jsx_usage_candidates_from_block(parsed, finalizer, scopes, candidates);
+                collect_jsx_usage_candidates_from_block(parsed, finalizer, state, candidates);
             }
         }
         Stmt::While(while_stmt) => {
-            collect_jsx_usage_candidates_from_expr(parsed, &while_stmt.test, scopes, candidates);
-            collect_jsx_usage_candidates_from_stmt(parsed, &while_stmt.body, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &while_stmt.test, state, candidates);
+            collect_jsx_usage_candidates_from_stmt(parsed, &while_stmt.body, state, candidates);
         }
         Stmt::DoWhile(do_while) => {
-            collect_jsx_usage_candidates_from_stmt(parsed, &do_while.body, scopes, candidates);
-            collect_jsx_usage_candidates_from_expr(parsed, &do_while.test, scopes, candidates);
+            collect_jsx_usage_candidates_from_stmt(parsed, &do_while.body, state, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &do_while.test, state, candidates);
         }
         Stmt::For(for_stmt) => {
-            scopes.push(for_declared_bindings(for_stmt));
+            state.scopes.push(for_declared_bindings(for_stmt));
             if let Some(init) = &for_stmt.init {
-                collect_jsx_usage_candidates_from_for_init(parsed, init, scopes, candidates);
+                collect_jsx_usage_candidates_from_for_init(parsed, init, state, candidates);
             }
             if let Some(test) = for_stmt.test.as_deref() {
-                collect_jsx_usage_candidates_from_expr(parsed, test, scopes, candidates);
+                collect_jsx_usage_candidates_from_expr(parsed, test, state, candidates);
             }
             if let Some(update) = for_stmt.update.as_deref() {
-                collect_jsx_usage_candidates_from_expr(parsed, update, scopes, candidates);
+                collect_jsx_usage_candidates_from_expr(parsed, update, state, candidates);
             }
-            collect_jsx_usage_candidates_from_stmt(parsed, &for_stmt.body, scopes, candidates);
-            scopes.pop();
+            collect_jsx_usage_candidates_from_stmt(parsed, &for_stmt.body, state, candidates);
+            state.scopes.pop();
         }
         Stmt::ForIn(for_in) => {
-            scopes.push(for_head_declared_bindings(&for_in.left));
-            collect_jsx_usage_candidates_from_expr(parsed, &for_in.right, scopes, candidates);
-            collect_jsx_usage_candidates_from_stmt(parsed, &for_in.body, scopes, candidates);
-            scopes.pop();
+            state.scopes.push(for_head_declared_bindings(&for_in.left));
+            collect_jsx_usage_candidates_from_expr(parsed, &for_in.right, state, candidates);
+            collect_jsx_usage_candidates_from_stmt(parsed, &for_in.body, state, candidates);
+            state.scopes.pop();
         }
         Stmt::ForOf(for_of) => {
-            scopes.push(for_head_declared_bindings(&for_of.left));
-            collect_jsx_usage_candidates_from_expr(parsed, &for_of.right, scopes, candidates);
-            collect_jsx_usage_candidates_from_stmt(parsed, &for_of.body, scopes, candidates);
-            scopes.pop();
+            state.scopes.push(for_head_declared_bindings(&for_of.left));
+            collect_jsx_usage_candidates_from_expr(parsed, &for_of.right, state, candidates);
+            collect_jsx_usage_candidates_from_stmt(parsed, &for_of.body, state, candidates);
+            state.scopes.pop();
         }
         _ => {}
     }
@@ -356,15 +521,15 @@ fn collect_jsx_usage_candidates_from_stmt(
 fn collect_jsx_usage_candidates_from_expr(
     parsed: &ParsedReactModule,
     expr: &Expr,
-    scopes: &mut UsageScopes,
+    state: &mut UsageWalkState,
     candidates: &mut Vec<JsxUsageCandidate>,
 ) {
     match expr {
         Expr::JSXElement(element) => {
-            collect_jsx_usage_candidates_from_jsx_element(parsed, element, scopes, candidates);
+            collect_jsx_usage_candidates_from_jsx_element(parsed, element, state, candidates);
         }
         Expr::JSXFragment(fragment) => {
-            collect_jsx_usage_candidates_from_jsx_fragment(parsed, fragment, scopes, candidates);
+            collect_jsx_usage_candidates_from_jsx_fragment(parsed, fragment, state, candidates);
         }
         Expr::Arrow(arrow) => match &*arrow.body {
             BlockStmtOrExpr::BlockStmt(block) => {
@@ -372,18 +537,18 @@ fn collect_jsx_usage_candidates_from_expr(
                 for param in &arrow.params {
                     collect_pat_bindings(param, &mut arrow_bindings);
                 }
-                scopes.push(arrow_bindings);
-                collect_jsx_usage_candidates_from_block(parsed, block, scopes, candidates);
-                scopes.pop();
+                state.scopes.push(arrow_bindings);
+                collect_jsx_usage_candidates_from_block(parsed, block, state, candidates);
+                state.scopes.pop();
             }
             BlockStmtOrExpr::Expr(expr) => {
                 let mut arrow_bindings = BTreeSet::new();
                 for param in &arrow.params {
                     collect_pat_bindings(param, &mut arrow_bindings);
                 }
-                scopes.push(arrow_bindings);
-                collect_jsx_usage_candidates_from_expr(parsed, expr, scopes, candidates);
-                scopes.pop();
+                state.scopes.push(arrow_bindings);
+                collect_jsx_usage_candidates_from_expr(parsed, expr, state, candidates);
+                state.scopes.pop();
             }
         },
         Expr::Fn(fn_expr) => {
@@ -391,151 +556,158 @@ fn collect_jsx_usage_candidates_from_expr(
             if let Some(ident) = &fn_expr.ident {
                 fn_bindings.insert(ident.sym.to_string());
             }
-            scopes.push(fn_bindings);
+            state.scopes.push(fn_bindings);
             collect_jsx_usage_candidates_from_function(
                 parsed,
                 &fn_expr.function,
-                scopes,
+                state,
                 candidates,
+                fn_expr.ident.as_ref().map(|ident| ident.sym.as_ref()),
             );
-            scopes.pop();
+            state.scopes.pop();
         }
         Expr::Class(class_expr) => {
             let mut class_bindings = BTreeSet::new();
             if let Some(ident) = &class_expr.ident {
                 class_bindings.insert(ident.sym.to_string());
             }
-            scopes.push(class_bindings);
-            collect_jsx_usage_candidates_from_class(parsed, &class_expr.class, scopes, candidates);
-            scopes.pop();
+            state.scopes.push(class_bindings);
+            collect_jsx_usage_candidates_from_class(
+                parsed,
+                &class_expr.class,
+                state,
+                candidates,
+                class_expr.ident.as_ref().map(|ident| ident.sym.as_ref()),
+            );
+            state.scopes.pop();
         }
         Expr::Paren(paren) => {
-            collect_jsx_usage_candidates_from_expr(parsed, &paren.expr, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &paren.expr, state, candidates);
         }
         Expr::Cond(cond) => {
-            collect_jsx_usage_candidates_from_expr(parsed, &cond.test, scopes, candidates);
-            collect_jsx_usage_candidates_from_expr(parsed, &cond.cons, scopes, candidates);
-            collect_jsx_usage_candidates_from_expr(parsed, &cond.alt, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &cond.test, state, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &cond.cons, state, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &cond.alt, state, candidates);
         }
         Expr::Bin(binary) => {
-            collect_jsx_usage_candidates_from_expr(parsed, &binary.left, scopes, candidates);
-            collect_jsx_usage_candidates_from_expr(parsed, &binary.right, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &binary.left, state, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &binary.right, state, candidates);
         }
         Expr::Call(call) => {
             if let Callee::Expr(callee) = &call.callee {
-                collect_jsx_usage_candidates_from_expr(parsed, callee, scopes, candidates);
+                collect_jsx_usage_candidates_from_expr(parsed, callee, state, candidates);
             }
             for arg in &call.args {
-                collect_jsx_usage_candidates_from_expr(parsed, &arg.expr, scopes, candidates);
+                collect_jsx_usage_candidates_from_expr(parsed, &arg.expr, state, candidates);
             }
         }
         Expr::Array(array) => {
             for elem in array.elems.iter().flatten() {
-                collect_jsx_usage_candidates_from_expr(parsed, &elem.expr, scopes, candidates);
+                collect_jsx_usage_candidates_from_expr(parsed, &elem.expr, state, candidates);
             }
         }
         Expr::Object(object) => {
             for prop in &object.props {
-                collect_jsx_usage_candidates_from_object_prop(parsed, prop, scopes, candidates);
+                collect_jsx_usage_candidates_from_object_prop(parsed, prop, state, candidates);
             }
         }
         Expr::Assign(assign) => {
             collect_jsx_usage_candidates_from_assign_target(
                 parsed,
                 &assign.left,
-                scopes,
+                state,
                 candidates,
             );
-            collect_jsx_usage_candidates_from_expr(parsed, &assign.right, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &assign.right, state, candidates);
         }
         Expr::Seq(seq) => {
             for expr in &seq.exprs {
-                collect_jsx_usage_candidates_from_expr(parsed, expr, scopes, candidates);
+                collect_jsx_usage_candidates_from_expr(parsed, expr, state, candidates);
             }
         }
         Expr::Await(await_expr) => {
-            collect_jsx_usage_candidates_from_expr(parsed, &await_expr.arg, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &await_expr.arg, state, candidates);
         }
         Expr::Yield(yield_expr) => {
             if let Some(arg) = yield_expr.arg.as_deref() {
-                collect_jsx_usage_candidates_from_expr(parsed, arg, scopes, candidates);
+                collect_jsx_usage_candidates_from_expr(parsed, arg, state, candidates);
             }
         }
         Expr::Tpl(tpl) => {
             for expr in &tpl.exprs {
-                collect_jsx_usage_candidates_from_expr(parsed, expr, scopes, candidates);
+                collect_jsx_usage_candidates_from_expr(parsed, expr, state, candidates);
             }
         }
         Expr::TaggedTpl(tagged) => {
-            collect_jsx_usage_candidates_from_expr(parsed, &tagged.tag, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &tagged.tag, state, candidates);
             for expr in &tagged.tpl.exprs {
-                collect_jsx_usage_candidates_from_expr(parsed, expr, scopes, candidates);
+                collect_jsx_usage_candidates_from_expr(parsed, expr, state, candidates);
             }
         }
         Expr::Unary(unary) => {
-            collect_jsx_usage_candidates_from_expr(parsed, &unary.arg, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &unary.arg, state, candidates);
         }
         Expr::Update(update) => {
-            collect_jsx_usage_candidates_from_expr(parsed, &update.arg, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &update.arg, state, candidates);
         }
         Expr::Member(member) => {
-            collect_jsx_usage_candidates_from_expr(parsed, &member.obj, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &member.obj, state, candidates);
             if let MemberProp::Computed(computed) = &member.prop {
-                collect_jsx_usage_candidates_from_expr(parsed, &computed.expr, scopes, candidates);
+                collect_jsx_usage_candidates_from_expr(parsed, &computed.expr, state, candidates);
             }
         }
         Expr::SuperProp(super_prop) => {
             if let swc_ecma_ast::SuperProp::Computed(computed) = &super_prop.prop {
-                collect_jsx_usage_candidates_from_expr(parsed, &computed.expr, scopes, candidates);
+                collect_jsx_usage_candidates_from_expr(parsed, &computed.expr, state, candidates);
             }
         }
         Expr::New(new_expr) => {
-            collect_jsx_usage_candidates_from_expr(parsed, &new_expr.callee, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &new_expr.callee, state, candidates);
             if let Some(args) = &new_expr.args {
                 for arg in args {
-                    collect_jsx_usage_candidates_from_expr(parsed, &arg.expr, scopes, candidates);
+                    collect_jsx_usage_candidates_from_expr(parsed, &arg.expr, state, candidates);
                 }
             }
         }
         Expr::TsAs(ts_as) => {
-            collect_jsx_usage_candidates_from_expr(parsed, &ts_as.expr, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &ts_as.expr, state, candidates);
         }
         Expr::TsSatisfies(ts_satisfies) => {
-            collect_jsx_usage_candidates_from_expr(parsed, &ts_satisfies.expr, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &ts_satisfies.expr, state, candidates);
         }
         Expr::TsNonNull(ts_non_null) => {
-            collect_jsx_usage_candidates_from_expr(parsed, &ts_non_null.expr, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &ts_non_null.expr, state, candidates);
         }
         Expr::TsTypeAssertion(ts_assertion) => {
-            collect_jsx_usage_candidates_from_expr(parsed, &ts_assertion.expr, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &ts_assertion.expr, state, candidates);
         }
         Expr::TsConstAssertion(ts_const) => {
-            collect_jsx_usage_candidates_from_expr(parsed, &ts_const.expr, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &ts_const.expr, state, candidates);
         }
         Expr::TsInstantiation(ts_instantiation) => {
             collect_jsx_usage_candidates_from_expr(
                 parsed,
                 &ts_instantiation.expr,
-                scopes,
+                state,
                 candidates,
             );
         }
         Expr::OptChain(opt_chain) => match &*opt_chain.base {
             swc_ecma_ast::OptChainBase::Member(member) => {
-                collect_jsx_usage_candidates_from_expr(parsed, &member.obj, scopes, candidates);
+                collect_jsx_usage_candidates_from_expr(parsed, &member.obj, state, candidates);
                 if let MemberProp::Computed(computed) = &member.prop {
                     collect_jsx_usage_candidates_from_expr(
                         parsed,
                         &computed.expr,
-                        scopes,
+                        state,
                         candidates,
                     );
                 }
             }
             swc_ecma_ast::OptChainBase::Call(call) => {
-                collect_jsx_usage_candidates_from_expr(parsed, &call.callee, scopes, candidates);
+                collect_jsx_usage_candidates_from_expr(parsed, &call.callee, state, candidates);
                 for arg in &call.args {
-                    collect_jsx_usage_candidates_from_expr(parsed, &arg.expr, scopes, candidates);
+                    collect_jsx_usage_candidates_from_expr(parsed, &arg.expr, state, candidates);
                 }
             }
         },
@@ -546,60 +718,61 @@ fn collect_jsx_usage_candidates_from_expr(
 fn collect_jsx_usage_candidates_from_jsx_element(
     parsed: &ParsedReactModule,
     element: &JSXElement,
-    scopes: &mut UsageScopes,
+    state: &mut UsageWalkState,
     candidates: &mut Vec<JsxUsageCandidate>,
 ) {
     if let Some((symbol, binding_name)) = jsx_element_name(&element.opening.name)
         && is_pascal_case(&binding_name)
     {
-        let shadowed = binding_is_shadowed(&binding_name, scopes);
+        let shadowed = binding_is_shadowed(&binding_name, &state.scopes);
         candidates.push(JsxUsageCandidate {
             symbol,
             binding_name,
             span: element.opening.span,
             shadowed,
+            parent_component: state.parent_stack.last().cloned(),
         });
     }
 
     for attr in &element.opening.attrs {
-        collect_jsx_usage_candidates_from_jsx_attr(parsed, attr, scopes, candidates);
+        collect_jsx_usage_candidates_from_jsx_attr(parsed, attr, state, candidates);
     }
     for child in &element.children {
-        collect_jsx_usage_candidates_from_jsx_child(parsed, child, scopes, candidates);
+        collect_jsx_usage_candidates_from_jsx_child(parsed, child, state, candidates);
     }
 }
 
 fn collect_jsx_usage_candidates_from_jsx_fragment(
     parsed: &ParsedReactModule,
     fragment: &JSXFragment,
-    scopes: &mut UsageScopes,
+    state: &mut UsageWalkState,
     candidates: &mut Vec<JsxUsageCandidate>,
 ) {
     for child in &fragment.children {
-        collect_jsx_usage_candidates_from_jsx_child(parsed, child, scopes, candidates);
+        collect_jsx_usage_candidates_from_jsx_child(parsed, child, state, candidates);
     }
 }
 
 fn collect_jsx_usage_candidates_from_jsx_child(
     parsed: &ParsedReactModule,
     child: &JSXElementChild,
-    scopes: &mut UsageScopes,
+    state: &mut UsageWalkState,
     candidates: &mut Vec<JsxUsageCandidate>,
 ) {
     match child {
         JSXElementChild::JSXElement(element) => {
-            collect_jsx_usage_candidates_from_jsx_element(parsed, element, scopes, candidates);
+            collect_jsx_usage_candidates_from_jsx_element(parsed, element, state, candidates);
         }
         JSXElementChild::JSXFragment(fragment) => {
-            collect_jsx_usage_candidates_from_jsx_fragment(parsed, fragment, scopes, candidates);
+            collect_jsx_usage_candidates_from_jsx_fragment(parsed, fragment, state, candidates);
         }
         JSXElementChild::JSXExprContainer(container) => {
             if let JSXExpr::Expr(expr) = &container.expr {
-                collect_jsx_usage_candidates_from_expr(parsed, expr, scopes, candidates);
+                collect_jsx_usage_candidates_from_expr(parsed, expr, state, candidates);
             }
         }
         JSXElementChild::JSXSpreadChild(spread) => {
-            collect_jsx_usage_candidates_from_expr(parsed, &spread.expr, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &spread.expr, state, candidates);
         }
         JSXElementChild::JSXText(_) => {}
     }
@@ -608,28 +781,26 @@ fn collect_jsx_usage_candidates_from_jsx_child(
 fn collect_jsx_usage_candidates_from_jsx_attr(
     parsed: &ParsedReactModule,
     attr: &JSXAttrOrSpread,
-    scopes: &mut UsageScopes,
+    state: &mut UsageWalkState,
     candidates: &mut Vec<JsxUsageCandidate>,
 ) {
     match attr {
         JSXAttrOrSpread::JSXAttr(attr) => match &attr.value {
             Some(JSXAttrValue::JSXExprContainer(container)) => {
                 if let JSXExpr::Expr(expr) = &container.expr {
-                    collect_jsx_usage_candidates_from_expr(parsed, expr, scopes, candidates);
+                    collect_jsx_usage_candidates_from_expr(parsed, expr, state, candidates);
                 }
             }
             Some(JSXAttrValue::JSXElement(element)) => {
-                collect_jsx_usage_candidates_from_jsx_element(parsed, element, scopes, candidates);
+                collect_jsx_usage_candidates_from_jsx_element(parsed, element, state, candidates);
             }
             Some(JSXAttrValue::JSXFragment(fragment)) => {
-                collect_jsx_usage_candidates_from_jsx_fragment(
-                    parsed, fragment, scopes, candidates,
-                );
+                collect_jsx_usage_candidates_from_jsx_fragment(parsed, fragment, state, candidates);
             }
             Some(JSXAttrValue::Str(_)) | None => {}
         },
         JSXAttrOrSpread::SpreadElement(spread) => {
-            collect_jsx_usage_candidates_from_expr(parsed, &spread.expr, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &spread.expr, state, candidates);
         }
     }
 }
@@ -637,12 +808,12 @@ fn collect_jsx_usage_candidates_from_jsx_attr(
 fn collect_jsx_usage_candidates_from_var_decl(
     parsed: &ParsedReactModule,
     var_decl: &VarDecl,
-    scopes: &mut UsageScopes,
+    state: &mut UsageWalkState,
     candidates: &mut Vec<JsxUsageCandidate>,
 ) {
     for declarator in &var_decl.decls {
         if let Some(init) = declarator.init.as_deref() {
-            collect_jsx_usage_candidates_from_expr(parsed, init, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, init, state, candidates);
         }
     }
 }
@@ -650,15 +821,15 @@ fn collect_jsx_usage_candidates_from_var_decl(
 fn collect_jsx_usage_candidates_from_for_init(
     parsed: &ParsedReactModule,
     init: &VarDeclOrExpr,
-    scopes: &mut UsageScopes,
+    state: &mut UsageWalkState,
     candidates: &mut Vec<JsxUsageCandidate>,
 ) {
     match init {
         VarDeclOrExpr::VarDecl(var_decl) => {
-            collect_jsx_usage_candidates_from_var_decl(parsed, var_decl, scopes, candidates);
+            collect_jsx_usage_candidates_from_var_decl(parsed, var_decl, state, candidates);
         }
         VarDeclOrExpr::Expr(expr) => {
-            collect_jsx_usage_candidates_from_expr(parsed, expr, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, expr, state, candidates);
         }
     }
 }
@@ -666,69 +837,50 @@ fn collect_jsx_usage_candidates_from_for_init(
 fn collect_jsx_usage_candidates_from_object_prop(
     parsed: &ParsedReactModule,
     prop: &PropOrSpread,
-    scopes: &mut UsageScopes,
+    state: &mut UsageWalkState,
     candidates: &mut Vec<JsxUsageCandidate>,
 ) {
     match prop {
         PropOrSpread::Spread(spread) => {
-            collect_jsx_usage_candidates_from_expr(parsed, &spread.expr, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &spread.expr, state, candidates);
         }
         PropOrSpread::Prop(prop) => match &**prop {
             Prop::KeyValue(key_value) => {
                 collect_jsx_usage_candidates_from_prop_name(
                     parsed,
                     &key_value.key,
-                    scopes,
+                    state,
                     candidates,
                 );
-                collect_jsx_usage_candidates_from_expr(
-                    parsed,
-                    &key_value.value,
-                    scopes,
-                    candidates,
-                );
+                collect_jsx_usage_candidates_from_expr(parsed, &key_value.value, state, candidates);
             }
             Prop::Assign(assign) => {
-                collect_jsx_usage_candidates_from_expr(parsed, &assign.value, scopes, candidates);
+                collect_jsx_usage_candidates_from_expr(parsed, &assign.value, state, candidates);
             }
             Prop::Getter(getter) => {
-                collect_jsx_usage_candidates_from_prop_name(
-                    parsed,
-                    &getter.key,
-                    scopes,
-                    candidates,
-                );
+                collect_jsx_usage_candidates_from_prop_name(parsed, &getter.key, state, candidates);
                 if let Some(body) = &getter.body {
-                    collect_jsx_usage_candidates_from_block(parsed, body, scopes, candidates);
+                    collect_jsx_usage_candidates_from_block(parsed, body, state, candidates);
                 }
             }
             Prop::Setter(setter) => {
-                collect_jsx_usage_candidates_from_prop_name(
-                    parsed,
-                    &setter.key,
-                    scopes,
-                    candidates,
-                );
+                collect_jsx_usage_candidates_from_prop_name(parsed, &setter.key, state, candidates);
                 let mut setter_bindings = BTreeSet::new();
                 collect_pat_bindings(&setter.param, &mut setter_bindings);
-                scopes.push(setter_bindings);
+                state.scopes.push(setter_bindings);
                 if let Some(body) = &setter.body {
-                    collect_jsx_usage_candidates_from_block(parsed, body, scopes, candidates);
+                    collect_jsx_usage_candidates_from_block(parsed, body, state, candidates);
                 }
-                scopes.pop();
+                state.scopes.pop();
             }
             Prop::Method(method) => {
-                collect_jsx_usage_candidates_from_prop_name(
-                    parsed,
-                    &method.key,
-                    scopes,
-                    candidates,
-                );
+                collect_jsx_usage_candidates_from_prop_name(parsed, &method.key, state, candidates);
                 collect_jsx_usage_candidates_from_function(
                     parsed,
                     &method.function,
-                    scopes,
+                    state,
                     candidates,
+                    None,
                 );
             }
             Prop::Shorthand(_) => {}
@@ -739,82 +891,82 @@ fn collect_jsx_usage_candidates_from_object_prop(
 fn collect_jsx_usage_candidates_from_prop_name(
     parsed: &ParsedReactModule,
     prop_name: &PropName,
-    scopes: &mut UsageScopes,
+    state: &mut UsageWalkState,
     candidates: &mut Vec<JsxUsageCandidate>,
 ) {
     if let PropName::Computed(computed) = prop_name {
-        collect_jsx_usage_candidates_from_expr(parsed, &computed.expr, scopes, candidates);
+        collect_jsx_usage_candidates_from_expr(parsed, &computed.expr, state, candidates);
     }
 }
 
 fn collect_jsx_usage_candidates_from_assign_target(
     parsed: &ParsedReactModule,
     target: &AssignTarget,
-    scopes: &mut UsageScopes,
+    state: &mut UsageWalkState,
     candidates: &mut Vec<JsxUsageCandidate>,
 ) {
     if let AssignTarget::Simple(simple) = target {
-        collect_jsx_usage_candidates_from_simple_assign_target(parsed, simple, scopes, candidates);
+        collect_jsx_usage_candidates_from_simple_assign_target(parsed, simple, state, candidates);
     }
 }
 
 fn collect_jsx_usage_candidates_from_simple_assign_target(
     parsed: &ParsedReactModule,
     target: &SimpleAssignTarget,
-    scopes: &mut UsageScopes,
+    state: &mut UsageWalkState,
     candidates: &mut Vec<JsxUsageCandidate>,
 ) {
     match target {
         SimpleAssignTarget::Member(member) => {
-            collect_jsx_usage_candidates_from_expr(parsed, &member.obj, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &member.obj, state, candidates);
             if let MemberProp::Computed(computed) = &member.prop {
-                collect_jsx_usage_candidates_from_expr(parsed, &computed.expr, scopes, candidates);
+                collect_jsx_usage_candidates_from_expr(parsed, &computed.expr, state, candidates);
             }
         }
         SimpleAssignTarget::SuperProp(super_prop) => {
             if let swc_ecma_ast::SuperProp::Computed(computed) = &super_prop.prop {
-                collect_jsx_usage_candidates_from_expr(parsed, &computed.expr, scopes, candidates);
+                collect_jsx_usage_candidates_from_expr(parsed, &computed.expr, state, candidates);
             }
         }
         SimpleAssignTarget::Paren(paren) => {
-            collect_jsx_usage_candidates_from_expr(parsed, &paren.expr, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &paren.expr, state, candidates);
         }
         SimpleAssignTarget::TsAs(ts_as) => {
-            collect_jsx_usage_candidates_from_expr(parsed, &ts_as.expr, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &ts_as.expr, state, candidates);
         }
         SimpleAssignTarget::TsSatisfies(ts_satisfies) => {
-            collect_jsx_usage_candidates_from_expr(parsed, &ts_satisfies.expr, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &ts_satisfies.expr, state, candidates);
         }
         SimpleAssignTarget::TsNonNull(ts_non_null) => {
-            collect_jsx_usage_candidates_from_expr(parsed, &ts_non_null.expr, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &ts_non_null.expr, state, candidates);
         }
         SimpleAssignTarget::TsTypeAssertion(ts_assertion) => {
-            collect_jsx_usage_candidates_from_expr(parsed, &ts_assertion.expr, scopes, candidates);
+            collect_jsx_usage_candidates_from_expr(parsed, &ts_assertion.expr, state, candidates);
         }
         SimpleAssignTarget::TsInstantiation(ts_instantiation) => {
             collect_jsx_usage_candidates_from_expr(
                 parsed,
                 &ts_instantiation.expr,
-                scopes,
+                state,
                 candidates,
             );
         }
         SimpleAssignTarget::OptChain(opt_chain) => match &*opt_chain.base {
             swc_ecma_ast::OptChainBase::Member(member) => {
-                collect_jsx_usage_candidates_from_expr(parsed, &member.obj, scopes, candidates);
+                collect_jsx_usage_candidates_from_expr(parsed, &member.obj, state, candidates);
                 if let MemberProp::Computed(computed) = &member.prop {
                     collect_jsx_usage_candidates_from_expr(
                         parsed,
                         &computed.expr,
-                        scopes,
+                        state,
                         candidates,
                     );
                 }
             }
             swc_ecma_ast::OptChainBase::Call(call) => {
-                collect_jsx_usage_candidates_from_expr(parsed, &call.callee, scopes, candidates);
+                collect_jsx_usage_candidates_from_expr(parsed, &call.callee, state, candidates);
                 for arg in &call.args {
-                    collect_jsx_usage_candidates_from_expr(parsed, &arg.expr, scopes, candidates);
+                    collect_jsx_usage_candidates_from_expr(parsed, &arg.expr, state, candidates);
                 }
             }
         },
@@ -825,21 +977,34 @@ fn collect_jsx_usage_candidates_from_simple_assign_target(
 fn collect_jsx_usage_candidates_from_class(
     parsed: &ParsedReactModule,
     class: &Class,
-    scopes: &mut UsageScopes,
+    state: &mut UsageWalkState,
     candidates: &mut Vec<JsxUsageCandidate>,
+    class_name: Option<&str>,
 ) {
+    let parent_frame = class_name
+        .filter(|name| is_pascal_case(name))
+        .filter(|_| class_returns_jsx(class))
+        .map(|name| (name.to_owned(), class.span));
+    if let Some(frame) = parent_frame.clone() {
+        state.parent_stack.push(frame);
+    }
+
     if let Some(super_class) = class.super_class.as_deref() {
-        collect_jsx_usage_candidates_from_expr(parsed, super_class, scopes, candidates);
+        collect_jsx_usage_candidates_from_expr(parsed, super_class, state, candidates);
     }
     for member in &class.body {
-        collect_jsx_usage_candidates_from_class_member(parsed, member, scopes, candidates);
+        collect_jsx_usage_candidates_from_class_member(parsed, member, state, candidates);
+    }
+
+    if parent_frame.is_some() {
+        state.parent_stack.pop();
     }
 }
 
 fn collect_jsx_usage_candidates_from_class_member(
     parsed: &ParsedReactModule,
     member: &ClassMember,
-    scopes: &mut UsageScopes,
+    state: &mut UsageWalkState,
     candidates: &mut Vec<JsxUsageCandidate>,
 ) {
     match member {
@@ -847,7 +1012,7 @@ fn collect_jsx_usage_candidates_from_class_member(
             collect_jsx_usage_candidates_from_prop_name(
                 parsed,
                 &constructor.key,
-                scopes,
+                state,
                 candidates,
             );
             let mut constructor_bindings = BTreeSet::new();
@@ -856,52 +1021,49 @@ fn collect_jsx_usage_candidates_from_class_member(
                     collect_pat_bindings(&param.pat, &mut constructor_bindings);
                 }
             }
-            scopes.push(constructor_bindings);
+            state.scopes.push(constructor_bindings);
             if let Some(body) = &constructor.body {
-                collect_jsx_usage_candidates_from_block(parsed, body, scopes, candidates);
+                collect_jsx_usage_candidates_from_block(parsed, body, state, candidates);
             }
-            scopes.pop();
+            state.scopes.pop();
         }
         ClassMember::Method(method) => {
-            collect_jsx_usage_candidates_from_prop_name(parsed, &method.key, scopes, candidates);
+            collect_jsx_usage_candidates_from_prop_name(parsed, &method.key, state, candidates);
             collect_jsx_usage_candidates_from_function(
                 parsed,
                 &method.function,
-                scopes,
+                state,
                 candidates,
+                None,
             );
         }
         ClassMember::PrivateMethod(method) => {
             collect_jsx_usage_candidates_from_function(
                 parsed,
                 &method.function,
-                scopes,
+                state,
                 candidates,
+                None,
             );
         }
         ClassMember::ClassProp(class_prop) => {
-            collect_jsx_usage_candidates_from_prop_name(
-                parsed,
-                &class_prop.key,
-                scopes,
-                candidates,
-            );
+            collect_jsx_usage_candidates_from_prop_name(parsed, &class_prop.key, state, candidates);
             if let Some(value) = class_prop.value.as_deref() {
-                collect_jsx_usage_candidates_from_expr(parsed, value, scopes, candidates);
+                collect_jsx_usage_candidates_from_expr(parsed, value, state, candidates);
             }
         }
         ClassMember::PrivateProp(private_prop) => {
             if let Some(value) = private_prop.value.as_deref() {
-                collect_jsx_usage_candidates_from_expr(parsed, value, scopes, candidates);
+                collect_jsx_usage_candidates_from_expr(parsed, value, state, candidates);
             }
         }
         ClassMember::StaticBlock(static_block) => {
-            collect_jsx_usage_candidates_from_block(parsed, &static_block.body, scopes, candidates);
+            collect_jsx_usage_candidates_from_block(parsed, &static_block.body, state, candidates);
         }
         ClassMember::AutoAccessor(accessor) => {
-            collect_jsx_usage_candidates_from_key(parsed, &accessor.key, scopes, candidates);
+            collect_jsx_usage_candidates_from_key(parsed, &accessor.key, state, candidates);
             if let Some(value) = accessor.value.as_deref() {
-                collect_jsx_usage_candidates_from_expr(parsed, value, scopes, candidates);
+                collect_jsx_usage_candidates_from_expr(parsed, value, state, candidates);
             }
         }
         ClassMember::TsIndexSignature(_) | ClassMember::Empty(_) => {}
@@ -911,11 +1073,11 @@ fn collect_jsx_usage_candidates_from_class_member(
 fn collect_jsx_usage_candidates_from_key(
     parsed: &ParsedReactModule,
     key: &Key,
-    scopes: &mut UsageScopes,
+    state: &mut UsageWalkState,
     candidates: &mut Vec<JsxUsageCandidate>,
 ) {
     if let Key::Public(prop_name) = key {
-        collect_jsx_usage_candidates_from_prop_name(parsed, prop_name, scopes, candidates);
+        collect_jsx_usage_candidates_from_prop_name(parsed, prop_name, state, candidates);
     }
 }
 
@@ -1095,7 +1257,7 @@ fn unresolved_usage_is_design_system_relevant(
             .contains_key(&candidate.binding_name)
 }
 
-fn binding_is_shadowed(binding_name: &str, scopes: &UsageScopes) -> bool {
+fn binding_is_shadowed(binding_name: &str, scopes: &[BTreeSet<String>]) -> bool {
     scopes
         .iter()
         .rev()
@@ -1425,8 +1587,14 @@ fn insert_component_without_detected(
     components.insert(
         key,
         LocalComponent {
-            id: local_component_id(&file, &symbol, &location),
-            symbol,
+            id: local_definition_id(&module_identity_for_file(&file), &symbol),
+            symbol: symbol.clone(),
+            qualified_symbol: Some(qualified_component_symbol(
+                &module_identity_for_file(&file),
+                &symbol,
+            )),
+            identity_basis: Some("module_path_and_symbol".to_owned()),
+            identity_stability: Some(IdentityStability::PathSensitive),
             location,
         },
     );
@@ -1476,10 +1644,6 @@ fn callee_matches(callee: &Callee, expected: &str) -> bool {
     )
 }
 
-fn local_component_id(file: &str, symbol: &str, location: &SourceLocation) -> String {
-    format!("local.{file}:{}:{symbol}", location.line)
-}
-
 fn usage_site_id(location: &SourceLocation, symbol: &str) -> String {
     let column = location.column.unwrap_or(0);
     format!(
@@ -1503,6 +1667,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::fs;
     use std::path::{Path, PathBuf};
+    use wax_contract::MatchStatus;
 
     #[test]
     fn extract_local_component_detects_jsx_returning_declarations() {
@@ -1695,7 +1860,10 @@ mod tests {
         assert_eq!(symbols, vec!["Alpha", "Zeta"]);
         assert_eq!(
             ids,
-            vec!["local.src/zzz.tsx:2:Alpha", "local.src/aaa.tsx:2:Zeta"]
+            vec![
+                "react:component:src/zzz#Alpha",
+                "react:component:src/aaa#Zeta",
+            ]
         );
     }
 
@@ -1832,29 +2000,38 @@ mod tests {
             registry_with_aliases(&[("Button", &["PrimaryButton"])]),
         );
 
-        assert!(extraction.usage_sites.is_empty());
+        assert_eq!(extraction.usage_sites.len(), 3);
         assert_eq!(
-            diagnostic_codes(&extraction.diagnostics),
-            vec!["ds_usage_unresolved", "ds_usage_unresolved"]
+            extraction
+                .usage_sites
+                .iter()
+                .filter(|site| site.match_status == MatchStatus::Unresolved)
+                .count(),
+            2
+        );
+        assert!(
+            extraction.usage_sites.iter().any(|site| {
+                site.symbol == "LocalCard" && site.match_status == MatchStatus::Local
+            })
+        );
+        assert!(extraction.diagnostics.is_empty());
+        assert!(
+            extraction
+                .usage_sites
+                .iter()
+                .any(|site| site.symbol == "Button")
         );
         assert!(
             extraction
-                .diagnostics
+                .usage_sites
                 .iter()
-                .any(|diagnostic| diagnostic.message.contains("Button"))
+                .any(|site| site.symbol == "PrimaryButton")
         );
         assert!(
             extraction
-                .diagnostics
+                .usage_sites
                 .iter()
-                .any(|diagnostic| diagnostic.message.contains("PrimaryButton"))
-        );
-        assert!(
-            extraction
-                .diagnostics
-                .iter()
-                .all(|diagnostic| !diagnostic.message.contains("External")
-                    && !diagnostic.message.contains("LocalCard"))
+                .all(|site| site.symbol != "External")
         );
     }
 
@@ -1878,7 +2055,8 @@ mod tests {
             registry_with_aliases(&[("Button", &[])]),
         );
 
-        assert!(extraction.usage_sites.is_empty());
+        assert_eq!(extraction.usage_sites.len(), 1);
+        assert_eq!(extraction.usage_sites[0].match_status, MatchStatus::Local);
         assert!(extraction.diagnostics.is_empty());
     }
 
@@ -1893,7 +2071,7 @@ mod tests {
             export const App = () => <Button />;
             "#,
         );
-        fixture.write("src/LocalButton.tsx", "export const Button = () => null;");
+        fixture.write("src/LocalButton.tsx", "export const Button = () => <button />;");
 
         let extraction = fixture.extract_usage(
             vec!["src/App.tsx", "src/LocalButton.tsx"],
@@ -1901,7 +2079,8 @@ mod tests {
             registry_with_aliases(&[("Button", &[])]),
         );
 
-        assert!(extraction.usage_sites.is_empty());
+        assert_eq!(extraction.usage_sites.len(), 1);
+        assert_eq!(extraction.usage_sites[0].match_status, MatchStatus::Local);
         assert!(extraction.diagnostics.is_empty());
     }
 
@@ -2153,13 +2332,6 @@ mod tests {
             .collect()
     }
 
-    fn diagnostic_codes(diagnostics: &[wax_contract::Diagnostic]) -> Vec<&str> {
-        diagnostics
-            .iter()
-            .map(|diagnostic| diagnostic.code.as_str())
-            .collect()
-    }
-
     fn base_config() -> ReactScanConfig {
         ReactScanConfig {
             design_system_registry: PathBuf::from("design-system/registry.json"),
@@ -2303,7 +2475,14 @@ mod tests {
                 &config,
                 &registry,
             );
-            collect_usage_sites(&parsed_modules, &graph_build.graph, &config, &registry)
+            let local_components = discover_local_components(&parsed_modules);
+            collect_usage_sites(
+                &parsed_modules,
+                &graph_build.graph,
+                &config,
+                &registry,
+                &local_components,
+            )
         }
     }
 }
