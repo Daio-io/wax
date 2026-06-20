@@ -64,6 +64,23 @@ The engine and packs should emit:
 
 Consumers should use `usage_sites[]` for call-site detail, `symbol_usage_summary[]` for component-level counters, and `counts` for repo/language rollups.
 
+## Derived Field Ownership
+
+Language packs own raw extraction facts. The engine owns derived counters, metrics, and summaries.
+
+| Surface | Owner | Notes |
+|---------|-------|-------|
+| `design_system_components[]` | Language pack | Registry entries loaded for that language. |
+| `local_components[]` | Language pack | Local definition inventory. |
+| `usage_sites[]` | Language pack | Raw invocation facts, including parent attribution when enabled. |
+| Per-language `counts` | Engine | Recomputed from raw facts after pack output is validated. |
+| Per-language `metrics` | Engine | Recomputed from `counts`; packs should not hand-author ratios. |
+| Per-language `symbol_usage_summary[]` | Engine | Derived from that language's `usage_sites[]` and config limits. |
+| Merged `repo_summary` | Engine | Sum counters across languages and recompute ratios. |
+| Merged `symbol_usage_summary[]` | Engine | Derived from all language summaries or directly from all usage sites. |
+
+Implementation should follow a `recompute_derived()` pattern: deserialize and validate raw pack facts, recompute all derived fields, then write per-language and merged artifacts. This keeps parser packs focused on extraction and prevents inconsistent summary math.
+
 ## Core Concepts
 
 | Term | Meaning |
@@ -137,6 +154,14 @@ Every new enum-like field must be documented in schemas, Rust API docs, and repo
 | `count_as_non_adopted` | Include candidates in the primary denominator but not the numerator. Reserved for stricter teams. |
 | `count_as_adopted` | Include candidates in numerator and denominator. Not recommended; reports must label the policy because this can overstate adoption. |
 
+Candidate policy formulas:
+
+| Policy | `eligible_invocation_count` | `adopted_invocation_count` |
+|--------|-----------------------------|----------------------------|
+| `report_separately` | `resolved + local + unresolved` | `resolved` |
+| `count_as_non_adopted` | `resolved + local + unresolved + candidate` | `resolved` |
+| `count_as_adopted` | `resolved + local + unresolved + candidate` | `resolved + candidate` |
+
 ### `parent_scope_limit`
 
 `parent_scope_limit` controls how many per-symbol parent rows are emitted.
@@ -201,6 +226,17 @@ Baseline rules:
 - Basic text scanner: remains registry-only and should not claim v2 local/unresolved semantics until it has a language-aware UI detector.
 
 Each parser-backed pack should document ecosystem exclusions in its tests. Examples include previews, tests, generated sources, declaration files, and framework-native controls when they are outside the configured registry and not intended to be local DS adoption signals.
+
+### Basic Pack Cutover
+
+`wax-lang-basic` must still emit schema v2 after the alpha cutover, but it should stay honest about its lower-fidelity extraction model:
+
+- It may emit only registry-backed `resolved` or `candidate` usage sites.
+- It should not emit `local` or `unresolved` invocation facts until it has a language-aware local-definition and UI-shape detector.
+- Its derived counts should set local and unresolved invocation counts to zero because those facts were not collected.
+- It should emit diagnostics or capability flags that let reports show data gaps for local invocations, unresolved invocations, and parent attribution.
+
+This keeps all packs on one JSON schema without pretending the text scanner has parser-backed adoption semantics.
 
 ## Parent Attribution
 
@@ -374,6 +410,33 @@ Rules:
 - `registry.resolved_raw_invocation_count` is the raw DS primitive invocation counter.
 - Merged scans sum counts across languages and recompute ratios. They must never average per-language percentages.
 
+## Merged Scan Shape
+
+Repo-level totals should live on the `MergedScan` root so consumers do not need to sum every language before rendering common reports.
+
+```json
+{
+  "schema_version": 2,
+  "recorded_at": "2026-06-20T12:00:00Z",
+  "repo_summary": {
+    "languages": ["compose", "react", "swift"],
+    "counts": { "...": "same count groups as language facts" },
+    "metrics": { "...": "same metric fields as language facts" }
+  },
+  "symbol_usage_summary": [],
+  "languages": {
+    "compose": { "...": "per-language ScanFacts" }
+  }
+}
+```
+
+Rules:
+
+- `repo_summary.counts` sums compatible raw counters across all languages.
+- `repo_summary.metrics` recomputes ratios from repo-level counters.
+- Root `symbol_usage_summary[]` groups by language-qualified `symbol_id`; identical source names from different languages remain separate unless they share a registry id.
+- Consumers may still inspect `languages.<id>.counts` for per-language reporting, but root summary is authoritative for repo-level numbers.
+
 ## Metrics
 
 Metrics are derived conveniences over explicit counters:
@@ -539,7 +602,6 @@ All parser-backed packs should use the same config semantics:
   "enabled": true,
   "registry": ".wax/compose.registry.json",
   "roots": ["feature/**/src/main/kotlin"],
-  "exclude": ["**/test/**", "**/*Test.kt", "**/*Preview*"],
   "adoption": {
     "track_local_invocations": true,
     "track_unresolved_invocations": true,
@@ -556,6 +618,8 @@ All parser-backed packs should use the same config semantics:
 }
 ```
 
+v2 introduces only the nested `adoption` block above. It does not introduce a generic `exclude` key; packs should continue using their existing root discovery, file-extension, generated-source, and test/preview filtering behavior until a separate config plan standardizes exclusions.
+
 Defaults:
 
 | Key | Default |
@@ -566,6 +630,18 @@ Defaults:
 | `candidate_policy` | `report_separately`. |
 | `symbol_usage_summary.enabled` | `true`. |
 | `symbol_usage_summary.parent_scope_limit` | `null`. |
+
+Disable behavior:
+
+| Config | When false or zero | Required reporting behavior |
+|--------|--------------------|-----------------------------|
+| `track_local_invocations: false` | Packs still emit `local_components[]`, but local invocation usage sites are not emitted. | Reports must show a local-invocation data gap; invocation adoption is partial. |
+| `track_unresolved_invocations: false` | Packs omit unresolved invocation usage sites. | Reports must show an unresolved-invocation data gap; adoption denominator excludes unknown UI calls. |
+| `parent_attribution.enabled: false` | Usage sites omit `parent`; parent scope counts are zero or absent. | Reports must hide parent-scope rankings and show a parent-attribution data gap. |
+| `symbol_usage_summary.enabled: false` | Engine omits `symbol_usage_summary[]` while preserving raw `usage_sites[]` and aggregate `counts`. | Reports must derive summaries themselves or show a summary data gap. |
+| `symbol_usage_summary.parent_scope_limit: 0` | Engine emits symbol rows with `parent_scope_count`, empty `parent_scopes[]`, and `parent_scopes_truncated: true` when parents exist. | Reports may show breadth counts but not parent names. |
+
+`candidate_policy` affects only adoption counters and metrics. Raw candidate invocation counts are always preserved when candidate sites are emitted.
 
 ## Worked Example
 

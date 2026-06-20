@@ -21,6 +21,14 @@
 
 ---
 
+## Execution Model
+
+- One task = one focused PR unless the maintainer explicitly batches adjacent tasks.
+- Branch names should use the repository default prefix, for example `dai/adoption-metrics-v2-contract`.
+- Task PR titles should follow `Task N: <description> (adoption metrics v2)`.
+- Each task updates this plan's checkboxes for completed steps before opening or updating its PR.
+- Implementation tasks should start from this merged plan and use `superpowers:subagent-driven-development` or `superpowers:executing-plans`.
+
 ## Reference Spec
 
 - Design spec: [docs/specs/2026-06-20-adoption-metrics-v2-design.md](../specs/2026-06-20-adoption-metrics-v2-design.md)
@@ -30,10 +38,15 @@
 ## File Structure
 
 - Modify `engine/crates/wax-contract/src/lib.rs` — add v2 contract fields and validation.
+- Modify `engine/crates/wax-contract/schemas/scan-facts.schema.json` — publish schema v2 output shape.
+- Modify `engine/crates/wax-contract/schemas/waxrc.schema.json` — document nested `adoption` config keys.
 - Modify `engine/crates/wax-contract/tests/schema_roundtrip.rs` — add schema v2 round-trip and validation tests.
 - Modify `engine/crates/wax-core/src/lib.rs` — aggregate v2 counters and summaries across language scans.
 - Modify `engine/crates/wax-core/tests/scan_output.rs` — assert merged v2 output and direct schema cutover.
+- Modify `engine/crates/wax-core/tests/subprocess_protocol.rs` — update canned subprocess facts to schema v2.
 - Modify `engine/crates/wax-cli/src/commands/scan.rs` — update terminal labels from coverage to invocation adoption/registry resolution.
+- Modify `engine/crates/wax-cli/tests/scan_command.rs` — update CLI scan fixtures and output assertions.
+- Modify `engine/crates/wax-lang-basic/src/line_scan.rs` and tests — emit schema v2 registry-only facts with explicit capability gaps.
 - Modify `engine/crates/wax-lang-compose/src/tree_sitter_scan.rs` — emit local/unresolved Compose invocations and parent attribution.
 - Modify `engine/crates/wax-lang-compose/tests/fixtures/small/` — add wrapper and slot examples.
 - Modify `engine/crates/wax-lang-react/src/extract.rs` and related tests — emit local/unresolved JSX invocations and parent attribution.
@@ -41,19 +54,24 @@
 - Modify `engine/crates/wax-lang-swift/src/tree_sitter_scan.rs` and tests — emit SwiftUI local/unresolved invocations and parent attribution.
 - Modify `engine/crates/wax-lang-swift/tests/fixtures/small/` — add wrapper and `@ViewBuilder` examples.
 - Modify `skills/wax-scan/scripts/extract-insights.sh` — prefer v2 counts and summaries when present.
-- Modify `skills/wax-scan/templates/report.html` and `skills/wax-scan/reference.md` — update labels and charts.
+- Modify `skills/wax-scan/SKILL.md` — replace coverage language with invocation adoption and registry resolution.
+- Modify `skills/wax-scan/templates/report.html` and `skills/wax-scan/reference.md` — update labels, charts, insights versioning, and baseline rules.
+- Modify `scripts/fixtures/wax-scan/*.json` — update extractor and HTML fixture inputs/expectations.
 - Modify `docs/specs/2026-05-16-language-packs-and-distribution.md` — link to the v2 contract and alpha cutover rules.
+- Modify `docs/adr/README.md` and add an ADR when implementation completes.
 - Modify `docs/plans/README.md` — track active adoption metrics v2 plan.
 
 ## Task 1: Extend the Shared Contract
 
 **Files:**
 - Modify: `engine/crates/wax-contract/src/lib.rs`
+- Modify: `engine/crates/wax-contract/schemas/scan-facts.schema.json`
+- Modify: `engine/crates/wax-contract/schemas/waxrc.schema.json`
 - Modify: `engine/crates/wax-contract/tests/schema_roundtrip.rs`
 - Modify: `docs/specs/2026-05-16-language-packs-and-distribution.md`
 
 **Interfaces:**
-- Produces: `MatchStatus::Local`, `ParentScope`, `IdentityStability`, `SymbolUsageSummary`, v2 count groups, and v2 metrics.
+- Produces: `MatchStatus::Local`, `ParentScope`, `SymbolParentScopeSummary`, `IdentityStability`, `SymbolUsageSummary`, v2 count groups, and v2 metrics.
 - Consumes: existing `SourceLocation`, `UsageSite`, `LocalComponent`, `Metrics`, and `CountSummary`.
 
 - [ ] **Step 1: Write failing contract tests**
@@ -157,6 +175,17 @@ pub struct SymbolUsageSummary {
     pub parent_scope_limit: Option<u32>,
     pub parent_scopes_truncated: bool,
 }
+
+pub struct SymbolParentScopeSummary {
+    pub parent_id: String,
+    pub symbol: String,
+    pub qualified_symbol: Option<String>,
+    pub scope_kind: String,
+    pub identity_basis: String,
+    pub identity_stability: IdentityStability,
+    pub invocation_count: u32,
+    pub location: Option<SourceLocation>,
+}
 ```
 
 - [ ] **Step 3: Add Rust docs and schema descriptions**
@@ -169,7 +198,23 @@ Mirror the design spec's Type and Resolution Dictionary in public Rust doc comme
 - `parent_scope_limit: null | 0 | N`
 - every new count group under `registry`, `definitions`, `raw_invocations`, `adoption`, and `parent_scopes`
 
-- [ ] **Step 4: Extend `UsageSite` and `LocalComponent`**
+- [ ] **Step 4: Update JSON schemas**
+
+Update `engine/crates/wax-contract/schemas/scan-facts.schema.json` for schema v2 facts, including `MatchStatus::Local`, parent attribution, v2 count groups, metrics, and `symbol_usage_summary[]`.
+
+Update `engine/crates/wax-contract/schemas/waxrc.schema.json` for the nested `adoption` config block:
+
+```json
+{
+  "track_local_invocations": true,
+  "track_unresolved_invocations": true,
+  "parent_attribution": { "enabled": true, "scope_visibility": ["public", "internal", "private"] },
+  "candidate_policy": "report_separately",
+  "symbol_usage_summary": { "enabled": true, "parent_scope_limit": null }
+}
+```
+
+- [ ] **Step 5: Extend `UsageSite` and `LocalComponent`**
 
 Add:
 
@@ -189,21 +234,25 @@ pub identity_stability: Option<IdentityStability>
 
 to `LocalComponent`.
 
-- [ ] **Step 5: Add v2 counts and metrics**
+- [ ] **Step 6: Add v2 counts and metrics**
 
 Add count groups from the spec and remove v1-only metric fields from the schema v2 output shape. Add explicit denominators for `invocation_adoption_ratio` and `registry_resolution_ratio`.
 
-- [ ] **Step 6: Update validation**
+- [ ] **Step 7: Update validation**
 
 Validation must enforce:
 
 - `local` usage sites require `local_definition_id`.
 - `resolved` and `candidate` usage sites require `registry_symbol`.
+- `local` and `unresolved` usage sites must not carry `registry_symbol`.
+- `resolved`, `candidate`, and `unresolved` usage sites must not carry `local_definition_id`.
+- `unresolved` usage sites require a non-empty `symbol` and no registry/local linkage.
+- `symbol_usage_summary[]` rows must match the represented status: `registry` rows use `resolved`, `candidate` rows use `candidate`, `local` rows use `local`, and `unresolved` rows use `unresolved`.
 - `parent_scope_limit: 0` allows empty `parent_scopes` with `parent_scope_count > 0`.
 - `parent_scopes_truncated` is true when emitted rows are fewer than `parent_scope_count`.
 - Ratios match v2 count denominators within the existing floating-point tolerance.
 
-- [ ] **Step 7: Run focused checks**
+- [ ] **Step 8: Run focused checks**
 
 Run:
 
@@ -216,22 +265,25 @@ cargo clippy -p wax-contract --all-targets -- -D warnings
 
 Expected: all pass.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add engine/crates/wax-contract docs/specs/2026-05-16-language-packs-and-distribution.md
 git commit -m "feat: extend scan contract for adoption metrics v2"
 ```
 
+The language-pack distribution spec update must explicitly state that Adoption Metrics v2 supersedes the v1 `adoption_coverage_ratio` semantics for schema v2 outputs.
+
 ## Task 2: Add Engine Aggregation and Summary Generation
 
 **Files:**
 - Modify: `engine/crates/wax-core/src/lib.rs`
 - Modify: `engine/crates/wax-core/tests/scan_output.rs`
+- Modify: `engine/crates/wax-core/tests/subprocess_protocol.rs`
 
 **Interfaces:**
 - Consumes: v2 `ScanFacts` from Task 1.
-- Produces: merged v2 counters and `symbol_usage_summary[]` sorted deterministically.
+- Produces: per-language and root `MergedScan.repo_summary` counters plus `symbol_usage_summary[]` sorted deterministically.
 
 - [ ] **Step 1: Write failing merge tests**
 
@@ -269,7 +321,15 @@ For each symbol summary, group parent rows by `parent_id`, count invocations, an
 
 Remove v1 compatibility aliases from v2 merged output. Compute and label `registry_resolution_ratio` and `invocation_adoption_ratio` directly from the new counter groups.
 
-- [ ] **Step 5: Run focused checks**
+- [ ] **Step 5: Update subprocess fixtures**
+
+Update canned subprocess facts in `engine/crates/wax-core/tests/subprocess_protocol.rs` to schema v2 so pack protocol tests cover the new shape.
+
+- [ ] **Step 6: Emit root repo summaries**
+
+Add root-level `repo_summary.counts`, `repo_summary.metrics`, and root `symbol_usage_summary[]` to `MergedScan`. Tests must assert repo-level ratios are recomputed from summed counters.
+
+- [ ] **Step 7: Run focused checks**
 
 Run:
 
@@ -282,14 +342,63 @@ cargo clippy -p wax-core --all-targets -- -D warnings
 
 Expected: all pass.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add engine/crates/wax-core
 git commit -m "feat: aggregate adoption metrics v2 summaries"
 ```
 
-## Task 3: Implement Compose v2 Facts
+## Task 3: Migrate Basic Pack to Schema v2
+
+**Files:**
+- Modify: `engine/crates/wax-lang-basic/src/line_scan.rs`
+- Modify: `engine/crates/wax-lang-basic/tests/golden_small.rs`
+- Modify: `engine/crates/wax-lang-basic/tests/config_validation.rs`
+- Modify: `engine/crates/wax-lang-basic/tests/stdio_cli.rs`
+- Modify: `engine/crates/wax-lang-basic/tests/fixtures/small/golden.json`
+
+**Interfaces:**
+- Consumes: v2 contract from Task 1.
+- Produces: schema v2 registry-only facts with explicit capability gaps.
+
+- [ ] **Step 1: Update golden expectations**
+
+Update basic-pack fixtures so output uses `schema_version: 2`, v2 counts, and v2 metrics. Local and unresolved invocation counters should be zero because the text scanner does not collect those facts.
+
+- [ ] **Step 2: Keep basic extraction registry-only**
+
+Preserve existing registry text scanning behavior. Do not emit `local` or `unresolved` usage sites from `wax-lang-basic` until a future language-aware detector exists.
+
+- [ ] **Step 3: Emit capability diagnostics**
+
+Emit informational diagnostics or capability flags that allow reporting to show data gaps for:
+
+- local invocation tracking
+- unresolved UI invocation tracking
+- parent attribution
+
+- [ ] **Step 4: Run focused checks**
+
+Run:
+
+```bash
+cd engine
+cargo fmt --all
+cargo test -p wax-lang-basic
+cargo clippy -p wax-lang-basic --all-targets -- -D warnings
+```
+
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add engine/crates/wax-lang-basic
+git commit -m "feat: emit basic schema v2 scan facts"
+```
+
+## Task 4: Implement Compose v2 Facts
 
 **Files:**
 - Modify: `engine/crates/wax-lang-compose/src/tree_sitter_scan.rs`
@@ -383,7 +492,7 @@ git add engine/crates/wax-lang-compose
 git commit -m "feat: emit compose adoption metrics v2 facts"
 ```
 
-## Task 4: Implement React v2 Facts
+## Task 5: Implement React v2 Facts
 
 **Files:**
 - Modify: `engine/crates/wax-lang-react/src/extract.rs`
@@ -463,7 +572,7 @@ git add engine/crates/wax-lang-react
 git commit -m "feat: emit react adoption metrics v2 facts"
 ```
 
-## Task 5: Implement SwiftUI v2 Facts
+## Task 6: Implement SwiftUI v2 Facts
 
 **Files:**
 - Modify: `engine/crates/wax-lang-swift/src/tree_sitter_scan.rs`
@@ -510,7 +619,11 @@ Index `struct X: View` and `@ViewBuilder` declarations. Prefer module-qualified 
 
 Resolve registry first, local definitions second, unresolved UI-shaped invocations third. Modifier chains should not inflate invocation counts unless the modifier is itself a configured registry component.
 
-- [ ] **Step 4: Run focused checks**
+- [ ] **Step 4: Implement parent walk**
+
+Parent is the enclosing `View` type body or `@ViewBuilder` function containing the call. Calls inside builder closures passed to another view remain attributed to the caller view, not the slot host.
+
+- [ ] **Step 5: Run focused checks**
 
 Run:
 
@@ -523,20 +636,23 @@ cargo clippy -p wax-lang-swift --all-targets -- -D warnings
 
 Expected: all pass.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add engine/crates/wax-lang-swift
 git commit -m "feat: emit swiftui adoption metrics v2 facts"
 ```
 
-## Task 6: Update CLI and Scan Analytics Reporting
+## Task 7: Update CLI and Scan Analytics Reporting
 
 **Files:**
 - Modify: `engine/crates/wax-cli/src/commands/scan.rs`
+- Modify: `engine/crates/wax-cli/tests/scan_command.rs`
+- Modify: `skills/wax-scan/SKILL.md`
 - Modify: `skills/wax-scan/scripts/extract-insights.sh`
-- Modify: `skills/wax-scan/fixtures/scan-merged.sample.json`
-- Modify: `skills/wax-scan/fixtures/expected-insights.sample.json`
+- Modify: `scripts/fixtures/wax-scan/scan-merged.sample.json`
+- Modify: `scripts/fixtures/wax-scan/expected-insights.sample.json`
+- Modify: `scripts/fixtures/wax-scan/scan-merged.schema-v2.sample.json`
 - Modify: `skills/wax-scan/templates/report.html`
 - Modify: `skills/wax-scan/reference.md`
 - Modify: `docs/specs/2026-06-14-wax-scan-design.md`
@@ -578,7 +694,15 @@ Show hero cards in this order:
 
 Use `symbol_usage_summary[]` for top local/unresolved symbols.
 
-- [ ] **Step 4: Run focused checks**
+- [ ] **Step 4: Update skill instructions**
+
+Update `skills/wax-scan/SKILL.md` so the skill asks for UI invocation adoption, registry resolution, raw DS invocations, local definitions, and unresolved UI calls. Remove unqualified "coverage" language except when explaining old v1 limitations.
+
+- [ ] **Step 5: Version insights and baseline behavior**
+
+Bump the wax-scan extracted insights schema version. Baseline comparisons must support v2-to-v2 deltas for invocation adoption, registry resolution, raw invocations, and symbol summaries. If a supplied baseline is v1, emit a compatibility data gap rather than mixing v1 and v2 denominators.
+
+- [ ] **Step 6: Run focused checks**
 
 Run:
 
@@ -592,18 +716,20 @@ cargo clippy -p wax-cli --all-targets -- -D warnings
 
 Expected: all pass.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add engine/crates/wax-cli skills/wax-scan docs/specs/2026-06-14-wax-scan-design.md
+git add engine/crates/wax-cli skills/wax-scan scripts/fixtures/wax-scan docs/specs/2026-06-14-wax-scan-design.md
 git commit -m "feat: report adoption metrics v2"
 ```
 
-## Task 7: Cross-Crate Verification and Migration Docs
+## Task 8: Cross-Crate Verification and Cutover Docs
 
 **Files:**
 - Modify: `README.md`
 - Modify: `CHANGELOG.md`
+- Create: `docs/adr/2026-06-20-adoption-metrics-v2.md`
+- Modify: `docs/adr/README.md`
 - Modify: `docs/plans/2026-06-20-adoption-metrics-v2-plan.md`
 - Modify: `docs/plans/README.md`
 
@@ -619,6 +745,7 @@ Document:
 - `symbol_usage_summary[]`.
 - Parent scope limit config.
 - Alpha cutover from `adoption_coverage_ratio` to explicit v2 counters and metrics.
+- Roadmap active-plan status in `docs/plans/README.md`.
 
 - [ ] **Step 2: Run workspace checks**
 
@@ -640,7 +767,7 @@ Tick completed task checkboxes and verification steps in this plan before openin
 - [ ] **Step 4: Commit**
 
 ```bash
-git add README.md CHANGELOG.md docs/plans/2026-06-20-adoption-metrics-v2-plan.md docs/plans/README.md
+git add README.md CHANGELOG.md docs/adr/2026-06-20-adoption-metrics-v2.md docs/adr/README.md docs/plans/2026-06-20-adoption-metrics-v2-plan.md docs/plans/README.md
 git commit -m "docs: document adoption metrics v2 rollout"
 ```
 
@@ -652,4 +779,10 @@ git commit -m "docs: document adoption metrics v2 rollout"
 - [ ] Merged scans sum counters and recompute ratios.
 - [ ] CLI and HTML reports distinguish invocation adoption from registry resolution.
 - [ ] v2 uses the new scan format directly without v1 compatibility aliases.
+- [ ] `wax-lang-basic` emits schema v2 registry-only facts and capability gaps.
+- [ ] `wax-lang-compose`, `wax-lang-react`, and `wax-lang-swift` all emit local/unresolved invocation facts and parent attribution.
+- [ ] Subprocess protocol and CLI scan fixtures use schema v2 facts.
+- [ ] `engine/crates/wax-contract/schemas/scan-facts.schema.json` and `waxrc.schema.json` document v2 fields and config.
+- [ ] `skills/wax-scan/SKILL.md`, extractor fixtures, and baseline behavior are v2-aware.
+- [ ] Adoption Metrics v2 ADR is added and indexed.
 - [ ] Workspace fmt, tests, and clippy pass.
