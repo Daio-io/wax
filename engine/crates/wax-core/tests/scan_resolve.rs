@@ -76,15 +76,11 @@ fn build_scan_facts(language: &str, version: &str) -> ScanFacts {
         metrics: Metrics {
             parse_extract_ms: 0,
             files_scanned: 0,
-            adoption_coverage_ratio: None,
+            invocation_adoption_ratio: None,
+            registry_resolution_ratio: None,
         },
-        counts: CountSummary {
-            design_system_component_count: 0,
-            local_component_count: 0,
-            usage_site_count: 0,
-            resolved_count: 0,
-            candidate_count: 0,
-        },
+        counts: CountSummary::default(),
+        symbol_usage_summary: vec![],
     }
 }
 
