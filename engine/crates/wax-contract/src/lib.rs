@@ -205,7 +205,7 @@ pub enum ScanStatus {
 }
 
 /// Resolution status for a UI invocation usage site.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum MatchStatus {
     /// The invocation resolved to a configured design-system registry component.
