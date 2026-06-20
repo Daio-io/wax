@@ -4,13 +4,14 @@
 
 **Goal:** Replace misleading registry-only adoption reporting with schema v2 invocation facts, raw counters, per-symbol summaries, parent attribution, and honest reporting labels.
 
-**Architecture:** Extend `wax-contract` first, then update `wax-core` merge/count logic, then update parser-backed language packs to emit local/unresolved invocation facts and parent attribution using the same semantics. Reporting and scan analytics consume the new counters and summaries while v1 aliases remain available for one release cycle.
+**Architecture:** Extend `wax-contract` first, then update `wax-core` merge/count logic, then update parser-backed language packs to emit local/unresolved invocation facts and parent attribution using the same semantics. Because Wax is alpha, v2 is a direct schema cutover: reporting and scan analytics move to the new counters and summaries without v1 compatibility aliases.
 
 **Tech Stack:** Rust workspace under `engine/`, `serde` JSON contracts, tree-sitter Kotlin/Swift scanners, SWC React scanner, existing golden fixtures, `.wax` JSON config, scan analytics skill scripts/templates.
 
 ## Global Constraints
 
 - Language packs emit facts only; `wax-core` owns merged summaries and reporting semantics.
+- Prefer raw typed facts and explicit counters over early derived opinions; future fact families should be additive and easy to aggregate.
 - Parser-backed packs must stay aligned on scan semantics for `usage_sites`, `match_status`, local invocations, parent attribution, and registry package resolution.
 - `.waxrc`, `.wax/wax.config.json`, `wax.lock.json`, scan output JSON, and schema files are user-facing contracts; update schemas, fixtures, docs, and tests when changing them.
 - `wax validate` must remain repo-local and CI-friendly; it must not depend on global `~/.wax/` install state.
@@ -31,7 +32,7 @@
 - Modify `engine/crates/wax-contract/src/lib.rs` — add v2 contract fields and validation.
 - Modify `engine/crates/wax-contract/tests/schema_roundtrip.rs` — add schema v2 round-trip and validation tests.
 - Modify `engine/crates/wax-core/src/lib.rs` — aggregate v2 counters and summaries across language scans.
-- Modify `engine/crates/wax-core/tests/scan_output.rs` — assert merged v2 output and backwards aliases.
+- Modify `engine/crates/wax-core/tests/scan_output.rs` — assert merged v2 output and direct schema cutover.
 - Modify `engine/crates/wax-cli/src/commands/scan.rs` — update terminal labels from coverage to invocation adoption/registry resolution.
 - Modify `engine/crates/wax-lang-compose/src/tree_sitter_scan.rs` — emit local/unresolved Compose invocations and parent attribution.
 - Modify `engine/crates/wax-lang-compose/tests/fixtures/small/` — add wrapper and slot examples.
@@ -41,7 +42,7 @@
 - Modify `engine/crates/wax-lang-swift/tests/fixtures/small/` — add wrapper and `@ViewBuilder` examples.
 - Modify `skills/wax-scan/scripts/extract-insights.sh` — prefer v2 counts and summaries when present.
 - Modify `skills/wax-scan/templates/report.html` and `skills/wax-scan/reference.md` — update labels and charts.
-- Modify `docs/specs/2026-05-16-language-packs-and-distribution.md` — link to the v2 contract and migration rules.
+- Modify `docs/specs/2026-05-16-language-packs-and-distribution.md` — link to the v2 contract and alpha cutover rules.
 - Modify `docs/plans/README.md` — track active adoption metrics v2 plan.
 
 ## Task 1: Extend the Shared Contract
@@ -190,7 +191,7 @@ to `LocalComponent`.
 
 - [ ] **Step 5: Add v2 counts and metrics**
 
-Add count groups from the spec while keeping v1 `CountSummary` fields for the migration window. Add explicit denominators for `invocation_adoption_ratio` and `registry_resolution_ratio`.
+Add count groups from the spec and remove v1-only metric fields from the schema v2 output shape. Add explicit denominators for `invocation_adoption_ratio` and `registry_resolution_ratio`.
 
 - [ ] **Step 6: Update validation**
 
@@ -264,9 +265,9 @@ Add an engine helper that groups `usage_sites[]` by normalized symbol identity a
 
 For each symbol summary, group parent rows by `parent_id`, count invocations, and sort by `invocation_count desc`, then `parent_id asc`. Apply `parent_scope_limit` after the full `parent_scope_count` is known.
 
-- [ ] **Step 4: Preserve aliases**
+- [ ] **Step 4: Enforce direct schema cutover**
 
-Emit deprecated `adoption_coverage_ratio` for one release cycle, but compute and label `registry_resolution_ratio` and `invocation_adoption_ratio` separately.
+Remove v1 compatibility aliases from v2 merged output. Compute and label `registry_resolution_ratio` and `invocation_adoption_ratio` directly from the new counter groups.
 
 - [ ] **Step 5: Run focused checks**
 
@@ -617,7 +618,7 @@ Document:
 - v2 facts-first adoption model.
 - `symbol_usage_summary[]`.
 - Parent scope limit config.
-- Migration labels for deprecated `adoption_coverage_ratio`.
+- Alpha cutover from `adoption_coverage_ratio` to explicit v2 counters and metrics.
 
 - [ ] **Step 2: Run workspace checks**
 
@@ -650,5 +651,5 @@ git commit -m "docs: document adoption metrics v2 rollout"
 - [ ] Parent scope rows are complete by default and respect `parent_scope_limit`.
 - [ ] Merged scans sum counters and recompute ratios.
 - [ ] CLI and HTML reports distinguish invocation adoption from registry resolution.
-- [ ] v1 aliases are present for one release cycle and documented as deprecated.
+- [ ] v2 uses the new scan format directly without v1 compatibility aliases.
 - [ ] Workspace fmt, tests, and clippy pass.

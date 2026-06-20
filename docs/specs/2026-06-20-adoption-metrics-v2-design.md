@@ -22,8 +22,8 @@ The core rule is:
 - Preserve raw repo-level counters, language-level counters, and per-symbol usage summaries in scan output.
 - Add parent-scope attribution so reports can identify which screens, views, or components invoke local UI.
 - Keep file and line locations for navigation while avoiding location-based trend identity where semantic identity is available.
-- Keep existing v1 adoption fields available for a one-release migration window with clearer labels.
 - Let reporting layers decide which derived metrics to display from raw facts and counters.
+- Treat alpha contract changes as breaking when that keeps the output simpler and more honest.
 
 ## Non-Goals
 
@@ -135,7 +135,7 @@ Every new enum-like field must be documented in schemas, Rust API docs, and repo
 |-------|-------------------|
 | `report_separately` | Default. Exclude candidates from the primary adoption numerator and denominator, and expose candidate counters separately. |
 | `count_as_non_adopted` | Include candidates in the primary denominator but not the numerator. Reserved for stricter teams. |
-| `count_as_adopted` | Include candidates in numerator and denominator. Reserved for compatibility only; reports must label the policy. |
+| `count_as_adopted` | Include candidates in numerator and denominator. Not recommended; reports must label the policy because this can overstate adoption. |
 
 ### `parent_scope_limit`
 
@@ -161,7 +161,7 @@ These fields are new or newly clarified in v2. Schemas and public Rust docs shou
 | `identity_basis` | Human-readable explanation of how an ID was built, such as `registry_id` or `package_qualified_symbol`. |
 | `registry.component_count` | Number of configured design-system registry components for the language or merged scan. |
 | `registry.used_component_count` | Number of distinct registry components with at least one resolved invocation. |
-| `registry.resolved_raw_invocation_count` | Raw count of resolved design-system invocations; continuity counter for v1 primitive usage. |
+| `registry.resolved_raw_invocation_count` | Raw count of resolved design-system invocations. |
 | `registry.candidate_raw_invocation_count` | Raw count of candidate design-system invocations. |
 | `definitions.local_definition_count` | Number of local UI definitions discovered in source. |
 | `definitions.invoked_local_definition_count` | Number of local definitions with at least one `local` invocation. |
@@ -180,7 +180,6 @@ These fields are new or newly clarified in v2. Schemas and public Rust docs shou
 | `parent_scopes.with_unresolved_invocations` | Number of parent scopes containing at least one unresolved invocation. |
 | `invocation_adoption_ratio` | Primary adoption ratio from explicit adoption numerator and denominator counters. |
 | `registry_resolution_ratio` | Resolved raw invocations divided by all raw invocations. |
-| `legacy_adoption_coverage_ratio` | Deprecated v1 ratio retained temporarily for migration comparisons. |
 | `symbol_usage_summary[]` | Derived per-callee summary rows grouped from `usage_sites[]`. |
 | `symbol_id` | Normalized callee grouping key for a symbol summary row. |
 | `raw_invocation_count` | Number of usage sites represented by a symbol summary row. |
@@ -372,7 +371,7 @@ Rules:
 - `raw_invocations.total = resolved + local + candidate + unresolved`.
 - `adoption.eligible_invocation_count = resolved + local + unresolved` by default.
 - `adoption.adopted_invocation_count = resolved`.
-- `registry.resolved_raw_invocation_count` is the v1 primitive/raw DS usage continuity counter.
+- `registry.resolved_raw_invocation_count` is the raw DS primitive invocation counter.
 - Merged scans sum counts across languages and recompute ratios. They must never average per-language percentages.
 
 ## Metrics
@@ -383,8 +382,7 @@ Metrics are derived conveniences over explicit counters:
 {
   "metrics": {
     "invocation_adoption_ratio": 0.791,
-    "registry_resolution_ratio": 0.787,
-    "legacy_adoption_coverage_ratio": 1.0
+    "registry_resolution_ratio": 0.787
   }
 }
 ```
@@ -397,9 +395,6 @@ invocation_adoption_ratio =
 
 registry_resolution_ratio =
   raw_invocations.resolved / raw_invocations.total
-
-legacy_adoption_coverage_ratio =
-  v1 resolved_count / v1 usage_site_count for migration only, when available
 ```
 
 When a denominator is zero, the ratio is `null`.
@@ -412,7 +407,7 @@ Reporting labels must distinguish:
 - Local definitions in repo
 - Unresolved UI calls
 
-Reports must not present registry resolution or legacy adoption coverage as unqualified "design system coverage."
+Reports must not present registry resolution as unqualified "design system coverage."
 
 ## Symbol Usage Summary
 
@@ -616,28 +611,41 @@ Counts:
 
 `invocation_adoption_ratio = 0.5`. The scan no longer reports 100% adoption just because local wrappers call DS primitives internally.
 
-## Migration
+## Fact Extensibility
 
-The first v2 release should emit deprecated aliases for one release cycle:
+v2 should make it cheap to collect more raw facts later. The guiding rule is to preserve evidence before deciding which product metric matters.
 
-```json
-{
-  "metrics": {
-    "adoption_coverage_ratio": 0.791,
-    "registry_resolution_ratio": 0.787,
-    "invocation_adoption_ratio": 0.791
-  }
-}
-```
+Future fact families should follow these rules:
 
-Alias rules:
+- Add typed fact arrays or typed count groups instead of hiding data in a generic JSON blob.
+- Keep raw facts lossless enough that reports can be recomputed without rescanning source.
+- Prefer explicit numerator and denominator counters for every derived ratio.
+- Keep derived metrics secondary to raw facts and summaries.
+- Use deterministic ordering so snapshots and diffs stay reviewable.
+- During alpha, prefer a clean schema bump over compatibility aliases when a simpler contract is clearer.
 
-- `adoption_coverage_ratio` is deprecated and should be labeled "legacy registry coverage" in reports.
-- `registry_resolution_ratio` replaces registry-backed raw primitive coverage.
-- `invocation_adoption_ratio` is the primary adoption metric.
-- Consumers should prefer explicit counts and denominators over aliases.
+Candidate future fact families include:
 
-v1 consumers should reject `schema_version: 2` unless they intentionally support downgrade behavior.
+| Future fact family | Examples of raw evidence |
+|--------------------|--------------------------|
+| Overrides | Prop/style/modifier override sites, overridden token or component slot, parent scope. |
+| Deprecations | Deprecated registry component invocations, replacement target, parent scope. |
+| Tokens | Token usage sites, hard-coded value candidates, token category. |
+| Variants | Component variant prop usage, unsupported variant candidates. |
+| Imports | Import source, alias, package/module evidence used for resolution. |
+| Ownership | File/module/team tags when configured by the repository. |
+
+## Alpha Cutover
+
+Wax is still alpha, so v2 should move directly to the new scan format instead of emitting v1 compatibility aliases.
+
+Cutover rules:
+
+- Bump `schema_version` for `ScanFacts` and `MergedScan`.
+- Remove `adoption_coverage_ratio` from the v2 metrics shape.
+- Emit `invocation_adoption_ratio` and `registry_resolution_ratio` from explicit counters.
+- Update CLI, reports, fixtures, and scan analytics to read v2 fields directly.
+- v1 consumers should reject `schema_version: 2` rather than silently interpreting it as v1.
 
 ## Reporting Contract
 
