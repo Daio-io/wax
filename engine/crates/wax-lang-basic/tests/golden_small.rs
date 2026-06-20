@@ -6,10 +6,12 @@ use wax_lang_basic::BasicLanguage;
 
 #[derive(Debug)]
 struct GoldenCounts {
-    usage_site_count: u32,
-    resolved_count: u32,
-    local_component_count: u32,
-    design_system_component_count: u32,
+    raw_invocations_total: u32,
+    raw_invocations_resolved: u32,
+    raw_invocations_local: u32,
+    registry_component_count: u32,
+    registry_used_component_count: u32,
+    definitions_local_definition_count: u32,
 }
 
 #[test]
@@ -39,20 +41,28 @@ fn small_fixture_matches_golden_counts() {
         .expect("basic scan should succeed for the small fixture");
 
     assert_eq!(
-        facts.counts.usage_site_count, golden.usage_site_count,
-        "usage_site_count drifted from golden"
+        facts.counts.raw_invocations.total, golden.raw_invocations_total,
+        "raw_invocations.total drifted from golden"
     );
     assert_eq!(
-        facts.counts.resolved_count, golden.resolved_count,
-        "resolved_count drifted from golden"
+        facts.counts.raw_invocations.resolved, golden.raw_invocations_resolved,
+        "raw_invocations.resolved drifted from golden"
     );
     assert_eq!(
-        facts.counts.local_component_count, golden.local_component_count,
-        "local_component_count drifted from golden"
+        facts.counts.raw_invocations.local, golden.raw_invocations_local,
+        "raw_invocations.local drifted from golden"
     );
     assert_eq!(
-        facts.counts.design_system_component_count, golden.design_system_component_count,
-        "design_system_component_count drifted from golden"
+        facts.counts.registry.component_count, golden.registry_component_count,
+        "registry.component_count drifted from golden"
+    );
+    assert_eq!(
+        facts.counts.registry.used_component_count, golden.registry_used_component_count,
+        "registry.used_component_count drifted from golden"
+    );
+    assert_eq!(
+        facts.counts.definitions.local_definition_count, golden.definitions_local_definition_count,
+        "definitions.local_definition_count drifted from golden"
     );
     let usage_columns = facts
         .usage_sites
@@ -71,6 +81,13 @@ fn small_fixture_matches_golden_counts() {
             .any(|diag| diag.code == "basic_text_scan"),
         "basic scan should emit a text-scanner diagnostic"
     );
+    assert!(
+        facts
+            .diagnostics
+            .iter()
+            .any(|diag| diag.code == "basic_capability_gap"),
+        "basic scan should emit capability gap diagnostics"
+    );
 }
 
 fn load_golden(path: &PathBuf) -> GoldenCounts {
@@ -78,19 +95,29 @@ fn load_golden(path: &PathBuf) -> GoldenCounts {
     let value: serde_json::Value =
         serde_json::from_str(&raw).expect("golden.json must be valid JSON");
     GoldenCounts {
-        usage_site_count: value["usage_site_count"]
+        raw_invocations_total: value["raw_invocations"]["total"]
             .as_u64()
-            .expect("golden.usage_site_count must be a number") as u32,
-        resolved_count: value["resolved_count"]
-            .as_u64()
-            .expect("golden.resolved_count must be a number") as u32,
-        local_component_count: value["local_component_count"]
-            .as_u64()
-            .expect("golden.local_component_count must be a number")
+            .expect("golden raw_invocations.total must be a number")
             as u32,
-        design_system_component_count: value["design_system_component_count"]
+        raw_invocations_resolved: value["raw_invocations"]["resolved"]
             .as_u64()
-            .expect("golden.design_system_component_count must be a number")
+            .expect("golden raw_invocations.resolved must be a number")
+            as u32,
+        raw_invocations_local: value["raw_invocations"]["local"]
+            .as_u64()
+            .expect("golden raw_invocations.local must be a number")
+            as u32,
+        registry_component_count: value["registry"]["component_count"]
+            .as_u64()
+            .expect("golden registry.component_count must be a number")
+            as u32,
+        registry_used_component_count: value["registry"]["used_component_count"]
+            .as_u64()
+            .expect("golden registry.used_component_count must be a number")
+            as u32,
+        definitions_local_definition_count: value["definitions"]["local_definition_count"]
+            .as_u64()
+            .expect("golden definitions.local_definition_count must be a number")
             as u32,
     }
 }
