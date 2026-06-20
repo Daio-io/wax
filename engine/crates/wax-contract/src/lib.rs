@@ -205,7 +205,7 @@ pub enum ScanStatus {
 }
 
 /// Resolution status for a UI invocation usage site.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum MatchStatus {
     /// The invocation resolved to a configured design-system registry component.
@@ -1076,7 +1076,8 @@ fn derive_counts_and_metrics(
         "counts.definitions.invoked_local_definition_count",
         invoked_local_ids.len(),
     )?;
-    let unused_local_definition_count = local_definition_count.saturating_sub(invoked_local_definition_count);
+    let unused_local_definition_count =
+        local_definition_count.saturating_sub(invoked_local_definition_count);
 
     let counts = CountSummary {
         registry: RegistryCounts {

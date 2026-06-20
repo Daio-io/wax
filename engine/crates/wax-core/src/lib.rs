@@ -2,6 +2,7 @@
 
 //! Core engine functionality for wax.
 
+pub mod adoption_merge;
 pub mod auto_install;
 pub mod config;
 pub mod defaults;
@@ -17,6 +18,7 @@ pub mod subprocess_discover;
 pub mod subprocess_lang;
 pub mod validate;
 
+use adoption_merge::merge_language_scans;
 use auto_install::{AutoInstallPolicyInput, InstalledManifest, PackIndexArtifact};
 use config::lockfile::{LockfileError, load_lockfile};
 use config::waxrc::{WaxRcError, load_waxrc};
@@ -41,7 +43,7 @@ use subprocess_lang::{
     SubprocessLanguageManifest,
 };
 use thiserror::Error;
-use wax_contract::{LanguageId, MergedScan, SCHEMA_VERSION, ScanFacts};
+use wax_contract::{LanguageId, MergedScan, ScanFacts};
 use wax_lang_api::{ScanConfig, ScanRequest, ScanRequestType, WIRE_API_VERSION};
 
 const DEFAULT_SCAN_TIMEOUT: Duration = Duration::from_secs(120);
@@ -206,6 +208,9 @@ pub enum EngineError {
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
     },
+    /// Scan facts failed contract validation during merge.
+    #[error(transparent)]
+    ScanFacts(#[from] wax_contract::ScanFactsError),
     /// A language scan worker thread panicked.
     #[error("language scan worker panicked")]
     ScanWorkerPanicked,
@@ -358,11 +363,7 @@ impl Engine {
             });
         }
         let languages = run_scan_jobs(repo_root, jobs, scan_concurrency, &progress)?;
-        let merged = MergedScan {
-            schema_version: SCHEMA_VERSION,
-            recorded_at: time::OffsetDateTime::now_utc(),
-            languages,
-        };
+        let merged = merge_language_scans(languages).map_err(EngineError::ScanFacts)?;
         progress.emit(ScanProgressEvent::WritingOutputs);
         write_scan_outputs(repo_root, &merged)?;
 
