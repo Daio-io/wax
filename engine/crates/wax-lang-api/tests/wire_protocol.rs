@@ -3,8 +3,8 @@ use std::str::FromStr;
 use time::macros::datetime;
 use wax_contract::{
     CountSummary, DesignSystemComponent, Diagnostic, DiagnosticSeverity, LanguageId,
-    LanguageMetadata, LocalComponent, MatchStatus, Metrics, ScanFacts, ScanStatus, SourceLocation,
-    UsageSite,
+    LanguageMetadata, LocalComponent, MatchStatus, Metrics, SCHEMA_VERSION, ScanFacts, ScanStatus,
+    SourceLocation, UsageSite,
 };
 use wax_lang_api::{
     ScanRequest, ScanRequestType, WIRE_API_VERSION, WireErrorCode, WireScanRequest,
@@ -96,7 +96,7 @@ fn wire_protocol_success_fixture_requires_scan_facts_type_tag() {
 #[test]
 fn wire_protocol_success_fixture_rejects_invalid_scan_facts() {
     let mut facts = sample_scan_facts();
-    facts.counts.usage_site_count = 2;
+    facts.counts.raw_invocations.total = 2;
 
     let response = json!({
         "type": "scan_facts",
@@ -310,8 +310,8 @@ fn assert_response_missing_field_fails(response: &Value, field: &str) {
 }
 
 fn sample_scan_facts() -> ScanFacts {
-    ScanFacts {
-        schema_version: 1,
+    let mut facts = ScanFacts {
+        schema_version: SCHEMA_VERSION,
         language: LanguageMetadata {
             id: LanguageId::from_str("compose").unwrap(),
             version: "1.0.0".to_owned(),
@@ -330,6 +330,9 @@ fn sample_scan_facts() -> ScanFacts {
         local_components: vec![LocalComponent {
             id: "local-card".to_owned(),
             symbol: "Card".to_owned(),
+            qualified_symbol: None,
+            identity_basis: None,
+            identity_stability: None,
             location: SourceLocation {
                 file: "src/Card.kt".to_owned(),
                 line: 10,
@@ -344,8 +347,11 @@ fn sample_scan_facts() -> ScanFacts {
                 column: Some(3),
             },
             symbol: "Button".to_owned(),
+            qualified_symbol: None,
             match_status: MatchStatus::Resolved,
             registry_symbol: Some("ds.Button".to_owned()),
+            local_definition_id: None,
+            parent: None,
         }],
         diagnostics: vec![Diagnostic {
             severity: DiagnosticSeverity::Warning,
@@ -354,16 +360,14 @@ fn sample_scan_facts() -> ScanFacts {
             location: None,
         }],
         metrics: Metrics {
-            adoption_coverage_ratio: Some(1.0),
+            invocation_adoption_ratio: None,
+            registry_resolution_ratio: None,
             parse_extract_ms: 12,
             files_scanned: 3,
         },
-        counts: CountSummary {
-            design_system_component_count: 1,
-            local_component_count: 1,
-            usage_site_count: 1,
-            resolved_count: 1,
-            candidate_count: 0,
-        },
-    }
+        counts: CountSummary::default(),
+        symbol_usage_summary: vec![],
+    };
+    facts.recompute_counts().unwrap();
+    facts
 }
