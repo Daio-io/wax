@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "components": [
+    { "id": "ds.tier", "symbol": "Tier" },
+    { "id": "ds.button", "symbol": "Button" }
+  ]
+}

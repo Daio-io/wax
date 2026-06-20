@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "components": [
+    { "id": "ds.tier", "symbol": "Tier" },
+    { "id": "ds.body-text", "symbol": "BodyText" }
+  ]
+}

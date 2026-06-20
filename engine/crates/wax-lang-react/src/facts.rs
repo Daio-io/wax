@@ -41,17 +41,13 @@ pub fn scaffold_facts(request: &ScanRequest, react_language_id: LanguageId) -> S
             location: None,
         }],
         metrics: Metrics {
-            adoption_coverage_ratio: None,
+            invocation_adoption_ratio: None,
+            registry_resolution_ratio: None,
             parse_extract_ms: 0,
             files_scanned: 0,
         },
-        counts: CountSummary {
-            design_system_component_count: 0,
-            local_component_count: 0,
-            usage_site_count: 0,
-            resolved_count: 0,
-            candidate_count: 0,
-        },
+        counts: CountSummary::default(),
+        symbol_usage_summary: vec![],
     }
 }
 
@@ -95,8 +91,13 @@ pub fn configured_scan_facts(
     diagnostics.extend(graph_build.diagnostics);
 
     let local_components = discover_local_components(&parsed_modules);
-    let usage_extraction =
-        collect_usage_sites(&parsed_modules, &graph_build.graph, config, &registry);
+    let usage_extraction = collect_usage_sites(
+        &parsed_modules,
+        &graph_build.graph,
+        config,
+        &registry,
+        &local_components,
+    );
     diagnostics.extend(usage_extraction.diagnostics);
 
     let status = scan_status(&diagnostics);
@@ -117,17 +118,13 @@ pub fn configured_scan_facts(
         usage_sites: usage_extraction.usage_sites,
         diagnostics,
         metrics: Metrics {
-            adoption_coverage_ratio: None,
+            invocation_adoption_ratio: None,
+            registry_resolution_ratio: None,
             parse_extract_ms,
             files_scanned,
         },
-        counts: CountSummary {
-            design_system_component_count: 0,
-            local_component_count: 0,
-            usage_site_count: 0,
-            resolved_count: 0,
-            candidate_count: 0,
-        },
+        counts: CountSummary::default(),
+        symbol_usage_summary: vec![],
     })
 }
 
