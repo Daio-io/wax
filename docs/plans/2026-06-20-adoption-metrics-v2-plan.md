@@ -158,7 +158,17 @@ pub struct SymbolUsageSummary {
 }
 ```
 
-- [ ] **Step 3: Extend `UsageSite` and `LocalComponent`**
+- [ ] **Step 3: Add Rust docs and schema descriptions**
+
+Mirror the design spec's Type and Resolution Dictionary in public Rust doc comments and schema descriptions. Each new enum value and output key needs a one-line description, including:
+
+- `resolved`, `local`, `candidate`, and `unresolved`
+- `registry`, `local`, `candidate`, and `unresolved` symbol kinds
+- `semantic`, `path_sensitive`, and `scan_local`
+- `parent_scope_limit: null | 0 | N`
+- every new count group under `registry`, `definitions`, `raw_invocations`, `adoption`, and `parent_scopes`
+
+- [ ] **Step 4: Extend `UsageSite` and `LocalComponent`**
 
 Add:
 
@@ -178,11 +188,11 @@ pub identity_stability: Option<IdentityStability>
 
 to `LocalComponent`.
 
-- [ ] **Step 4: Add v2 counts and metrics**
+- [ ] **Step 5: Add v2 counts and metrics**
 
 Add count groups from the spec while keeping v1 `CountSummary` fields for the migration window. Add explicit denominators for `invocation_adoption_ratio` and `registry_resolution_ratio`.
 
-- [ ] **Step 5: Update validation**
+- [ ] **Step 6: Update validation**
 
 Validation must enforce:
 
@@ -192,7 +202,7 @@ Validation must enforce:
 - `parent_scopes_truncated` is true when emitted rows are fewer than `parent_scope_count`.
 - Ratios match v2 count denominators within the existing floating-point tolerance.
 
-- [ ] **Step 6: Run focused checks**
+- [ ] **Step 7: Run focused checks**
 
 Run:
 
@@ -205,7 +215,7 @@ cargo clippy -p wax-contract --all-targets -- -D warnings
 
 Expected: all pass.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add engine/crates/wax-contract docs/specs/2026-05-16-language-packs-and-distribution.md

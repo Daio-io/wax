@@ -91,6 +91,105 @@ Every detected UI invocation must have exactly one `match_status`.
 
 Candidate policy is explicit. v2 defaults to reporting candidates separately rather than counting them as DS or non-DS adoption.
 
+## Type and Resolution Dictionary
+
+Every new enum-like field must be documented in schemas, Rust API docs, and report references with these meanings.
+
+### `match_status`
+
+`match_status` describes how one UI invocation resolved.
+
+| Value | Brief description |
+|-------|-------------------|
+| `resolved` | The invocation resolved to a configured design-system registry component. |
+| `local` | The invocation resolved to a UI definition declared in the scanned repository. |
+| `candidate` | The invocation may refer to a design-system component, but import/package/alias evidence is ambiguous and needs review. |
+| `unresolved` | The invocation has UI shape, but Wax could not match it to the registry or local definition catalog. |
+
+### `symbol_kind`
+
+`symbol_kind` describes what a `symbol_usage_summary[]` row represents after grouping usage sites.
+
+| Value | Brief description |
+|-------|-------------------|
+| `registry` | A grouped design-system registry symbol with resolved invocations. |
+| `local` | A grouped in-repository UI symbol with local invocations. |
+| `candidate` | A grouped symbol with candidate design-system invocations that should be reviewed separately. |
+| `unresolved` | A grouped UI-shaped symbol that remains unmatched after registry and local resolution. |
+
+### `identity_stability`
+
+`identity_stability` tells trend consumers how durable an ID is expected to be.
+
+| Value | Brief description |
+|-------|-------------------|
+| `semantic` | Based on language identity such as package/module plus declaration; file moves should usually preserve it. |
+| `path_sensitive` | Based partly or fully on file/module path; moving files may create remove/add trend churn. |
+| `scan_local` | Stable only inside one scan result; do not use as a long-term trend key. |
+
+### `candidate_policy`
+
+`candidate_policy` controls how candidate invocations affect primary adoption.
+
+| Value | Brief description |
+|-------|-------------------|
+| `report_separately` | Default. Exclude candidates from the primary adoption numerator and denominator, and expose candidate counters separately. |
+| `count_as_non_adopted` | Include candidates in the primary denominator but not the numerator. Reserved for stricter teams. |
+| `count_as_adopted` | Include candidates in numerator and denominator. Reserved for compatibility only; reports must label the policy. |
+
+### `parent_scope_limit`
+
+`parent_scope_limit` controls how many per-symbol parent rows are emitted.
+
+| Value | Brief description |
+|-------|-------------------|
+| `null` or omitted | Emit every discovered parent scope row. |
+| `0` | Emit no parent rows, but preserve aggregate `parent_scope_count`. |
+| Positive integer | Emit up to N parent rows per symbol, sorted by invocation count descending. |
+
+## New Output Key Dictionary
+
+These fields are new or newly clarified in v2. Schemas and public Rust docs should carry equivalent one-line descriptions.
+
+| Key | Brief description |
+|-----|-------------------|
+| `qualified_symbol` | Best-effort semantic symbol identity, such as package/module plus declaration name. |
+| `local_definition_id` | ID of the matching `local_components[]` definition for a `local` invocation. |
+| `parent` | Parent-scope object attached to a usage site when parent attribution is enabled. |
+| `parent_id` | Grouping key for a parent scope; prefer semantic identity over file path. |
+| `scope_kind` | Language-defined parent category such as `composable`, `view`, or `component`. |
+| `identity_basis` | Human-readable explanation of how an ID was built, such as `registry_id` or `package_qualified_symbol`. |
+| `registry.component_count` | Number of configured design-system registry components for the language or merged scan. |
+| `registry.used_component_count` | Number of distinct registry components with at least one resolved invocation. |
+| `registry.resolved_raw_invocation_count` | Raw count of resolved design-system invocations; continuity counter for v1 primitive usage. |
+| `registry.candidate_raw_invocation_count` | Raw count of candidate design-system invocations. |
+| `definitions.local_definition_count` | Number of local UI definitions discovered in source. |
+| `definitions.invoked_local_definition_count` | Number of local definitions with at least one `local` invocation. |
+| `definitions.unused_local_definition_count` | Number of local definitions with no local invocations. |
+| `raw_invocations.total` | Count of all detected UI invocations across statuses. |
+| `raw_invocations.resolved` | Count of invocations with `match_status: "resolved"`. |
+| `raw_invocations.local` | Count of invocations with `match_status: "local"`. |
+| `raw_invocations.candidate` | Count of invocations with `match_status: "candidate"`. |
+| `raw_invocations.unresolved` | Count of invocations with `match_status: "unresolved"`. |
+| `adoption.eligible_invocation_count` | Denominator for primary invocation adoption after candidate policy is applied. |
+| `adoption.adopted_invocation_count` | Numerator for primary invocation adoption; resolved invocations by default. |
+| `adoption.non_adopted_invocation_count` | Adoption-eligible invocations that are not counted as adopted. |
+| `parent_scopes.total` | Number of unique parent scopes found in attributed usage sites. |
+| `parent_scopes.with_resolved_invocations` | Number of parent scopes containing at least one resolved invocation. |
+| `parent_scopes.with_local_invocations` | Number of parent scopes containing at least one local invocation. |
+| `parent_scopes.with_unresolved_invocations` | Number of parent scopes containing at least one unresolved invocation. |
+| `invocation_adoption_ratio` | Primary adoption ratio from explicit adoption numerator and denominator counters. |
+| `registry_resolution_ratio` | Resolved raw invocations divided by all raw invocations. |
+| `legacy_adoption_coverage_ratio` | Deprecated v1 ratio retained temporarily for migration comparisons. |
+| `symbol_usage_summary[]` | Derived per-callee summary rows grouped from `usage_sites[]`. |
+| `symbol_id` | Normalized callee grouping key for a symbol summary row. |
+| `raw_invocation_count` | Number of usage sites represented by a symbol summary row. |
+| `parent_scope_count` | Number of unique parent scopes represented by a symbol summary row, regardless of row limit. |
+| `file_count` | Number of files containing invocations represented by a symbol summary row. |
+| `parent_scopes[]` | Complete or limited parent-scope rows for a symbol summary. |
+| `invocation_count` | Number of invocations for one parent scope inside a symbol summary. |
+| `parent_scopes_truncated` | Whether `parent_scopes[]` omits rows because a limit was applied. |
+
 ## UI Invocation Detection Boundary
 
 Parser-backed packs must define a conservative UI invocation detector for their ecosystem. This prevents unresolved counts from ballooning because ordinary helpers, constructors, modifiers, or test utilities were treated as UI.
