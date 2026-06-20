@@ -20,6 +20,59 @@
         }
       }
     },
+    "adoption": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Adoption Metrics v2 scan behavior and reporting limits.",
+      "properties": {
+        "track_local_invocations": {
+          "type": "boolean",
+          "description": "When true, parser-backed packs emit local invocation facts."
+        },
+        "track_unresolved_invocations": {
+          "type": "boolean",
+          "description": "When true, parser-backed packs emit unresolved UI invocation facts."
+        },
+        "parent_attribution": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "When true, usage sites include parent scope attribution."
+            },
+            "scope_visibility": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["public", "internal", "private"]
+              },
+              "description": "Which parent scope visibilities are included in attribution."
+            }
+          }
+        },
+        "candidate_policy": {
+          "type": "string",
+          "enum": ["report_separately", "count_as_non_adopted", "count_as_adopted"],
+          "description": "How candidate invocations affect primary adoption counters."
+        },
+        "symbol_usage_summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "When true, derived symbol_usage_summary rows are emitted."
+            },
+            "parent_scope_limit": {
+              "type": ["integer", "null"],
+              "minimum": 0,
+              "description": "null emits all parent rows; 0 emits none; N limits rows per symbol."
+            }
+          }
+        }
+      }
+    },
     "languages": {
       "type": "array",
       "items": {

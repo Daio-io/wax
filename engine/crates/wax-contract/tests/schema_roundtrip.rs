@@ -1,7 +1,8 @@
 use time::macros::datetime;
 use wax_contract::{
-    CountSummary, Diagnostic, DiagnosticSeverity, LanguageId, LanguageMetadata, MatchStatus,
-    Metrics, SCHEMA_VERSION, ScanFacts, ScanStatus, SourceLocation, UsageSite,
+    CountSummary, Diagnostic, DiagnosticSeverity, IdentityStability, LanguageId, LanguageMetadata,
+    MatchStatus, Metrics, ParentScope, SCHEMA_VERSION, ScanFacts, ScanStatus, SourceLocation,
+    SymbolKind, SymbolUsageSummary, UsageSite,
 };
 
 fn scan_facts_schema() -> jsonschema::Validator {
@@ -18,8 +19,12 @@ fn assert_schema_rejects(value: &serde_json::Value) {
         .collect::<Vec<_>>();
     assert!(
         !errors.is_empty(),
-        "expected schema rejection, but value was valid"
+        "expected schema rejection, but value was valid: {errors:?}"
     );
+}
+
+fn empty_counts() -> CountSummary {
+    CountSummary::default()
 }
 
 fn minimal_facts() -> ScanFacts {
@@ -46,8 +51,11 @@ fn minimal_facts() -> ScanFacts {
                     column: Some(5),
                 },
                 symbol: "Button".into(),
+                qualified_symbol: None,
                 match_status: MatchStatus::Resolved,
                 registry_symbol: Some("com.ds.Button".into()),
+                local_definition_id: None,
+                parent: None,
             },
             UsageSite {
                 id: "a:2:Card:candidate".into(),
@@ -57,8 +65,11 @@ fn minimal_facts() -> ScanFacts {
                     column: None,
                 },
                 symbol: "Card".into(),
+                qualified_symbol: None,
                 match_status: MatchStatus::Candidate,
                 registry_symbol: Some("com.ds.Card".into()),
+                local_definition_id: None,
+                parent: None,
             },
         ],
         diagnostics: vec![Diagnostic {
@@ -68,17 +79,13 @@ fn minimal_facts() -> ScanFacts {
             location: None,
         }],
         metrics: Metrics {
-            adoption_coverage_ratio: None,
+            invocation_adoption_ratio: None,
+            registry_resolution_ratio: None,
             parse_extract_ms: 12,
             files_scanned: 1,
         },
-        counts: CountSummary {
-            design_system_component_count: 0,
-            local_component_count: 0,
-            usage_site_count: 0,
-            resolved_count: 0,
-            candidate_count: 0,
-        },
+        counts: empty_counts(),
+        symbol_usage_summary: vec![],
     }
 }
 
@@ -89,7 +96,81 @@ fn scan_facts_roundtrip() {
     let json = serde_json::to_string(&facts).unwrap();
     let back = wax_contract::scan_facts_from_json(&json).unwrap();
     assert_eq!(facts, back);
-    assert_eq!(back.metrics.adoption_coverage_ratio, Some(0.5));
+    assert_eq!(back.metrics.invocation_adoption_ratio, Some(1.0));
+    assert_eq!(back.metrics.registry_resolution_ratio, Some(0.5));
+    assert_eq!(back.counts.raw_invocations.total, 2);
+    assert_eq!(back.counts.raw_invocations.resolved, 1);
+    assert_eq!(back.counts.raw_invocations.candidate, 1);
+}
+
+#[test]
+fn schema_v2_local_usage_and_symbol_summary_roundtrip() {
+    let mut facts = minimal_facts();
+    facts.local_components.push(wax_contract::LocalComponent {
+        id: "local.compose:com.example.EpisodeCard".into(),
+        symbol: "EpisodeCard".into(),
+        qualified_symbol: Some("com.example.EpisodeCard".into()),
+        identity_basis: Some("package_qualified_symbol".into()),
+        identity_stability: Some(IdentityStability::Semantic),
+        location: SourceLocation {
+            file: "src/EpisodeCard.kt".into(),
+            line: 1,
+            column: Some(1),
+        },
+    });
+    facts.usage_sites = vec![UsageSite {
+        id: "usage.compose:src/Discover.kt:4:5:EpisodeCard".into(),
+        location: SourceLocation {
+            file: "src/Discover.kt".into(),
+            line: 4,
+            column: Some(5),
+        },
+        symbol: "EpisodeCard".into(),
+        qualified_symbol: Some("com.example.EpisodeCard".into()),
+        match_status: MatchStatus::Local,
+        registry_symbol: None,
+        local_definition_id: Some("local.compose:com.example.EpisodeCard".into()),
+        parent: Some(ParentScope {
+            parent_id: "compose:composable:com.example.DiscoverScreen".into(),
+            symbol: "DiscoverScreen".into(),
+            qualified_symbol: Some("com.example.DiscoverScreen".into()),
+            scope_kind: "composable".into(),
+            identity_basis: "package_qualified_symbol".into(),
+            identity_stability: IdentityStability::Semantic,
+            location: Some(SourceLocation {
+                file: "src/Discover.kt".into(),
+                line: 2,
+                column: Some(1),
+            }),
+        }),
+    }];
+    facts.symbol_usage_summary = vec![SymbolUsageSummary {
+        symbol_id: "compose:local:com.example.EpisodeCard".into(),
+        symbol: "EpisodeCard".into(),
+        qualified_symbol: Some("com.example.EpisodeCard".into()),
+        symbol_kind: SymbolKind::Local,
+        match_status: MatchStatus::Local,
+        registry_symbol: None,
+        local_definition_id: Some("local.compose:com.example.EpisodeCard".into()),
+        identity_basis: "package_qualified_symbol".into(),
+        identity_stability: IdentityStability::Semantic,
+        raw_invocation_count: 1,
+        parent_scope_count: 1,
+        file_count: 1,
+        parent_scopes: vec![],
+        parent_scope_limit: Some(0),
+        parent_scopes_truncated: true,
+    }];
+    facts.recompute_counts().unwrap();
+
+    let json = serde_json::to_string(&facts).unwrap();
+    let back = wax_contract::scan_facts_from_json(&json).unwrap();
+    assert_eq!(back.usage_sites[0].match_status, MatchStatus::Local);
+    assert_eq!(back.symbol_usage_summary.len(), 1);
+    assert!(back.symbol_usage_summary[0].parent_scopes_truncated);
+
+    let value = serde_json::to_value(&back).unwrap();
+    assert!(scan_facts_schema().is_valid(&value));
 }
 
 #[test]
@@ -125,7 +206,7 @@ fn schema_rejects_values_outside_integer_bounds() {
     assert_schema_rejects(&value);
 
     let mut value = serde_json::to_value(&facts).unwrap();
-    value["counts"]["usage_site_count"] = serde_json::json!(4_294_967_296_u64);
+    value["counts"]["raw_invocations"]["total"] = serde_json::json!(4_294_967_296_u64);
     assert_schema_rejects(&value);
 }
 
@@ -163,6 +244,16 @@ fn rejects_unsupported_schema_version() {
             supported: SCHEMA_VERSION
         }
     ));
+}
+
+#[test]
+fn rejects_v1_schema_version() {
+    let mut facts = minimal_facts();
+    facts.recompute_counts().unwrap();
+    let mut value = serde_json::to_value(&facts).unwrap();
+    value["schema_version"] = serde_json::json!(1);
+
+    assert!(wax_contract::scan_facts_from_json(&value.to_string()).is_err());
 }
 
 #[test]
@@ -205,11 +296,11 @@ fn rejects_inconsistent_counts_and_metrics() {
     facts.recompute_counts().unwrap();
 
     let mut stale_counts = serde_json::to_value(&facts).unwrap();
-    stale_counts["counts"]["resolved_count"] = serde_json::json!(0);
+    stale_counts["counts"]["raw_invocations"]["resolved"] = serde_json::json!(0);
     assert!(wax_contract::scan_facts_from_json(&stale_counts.to_string()).is_err());
 
     let mut stale_ratio = serde_json::to_value(&facts).unwrap();
-    stale_ratio["metrics"]["adoption_coverage_ratio"] = serde_json::json!(1.0);
+    stale_ratio["metrics"]["invocation_adoption_ratio"] = serde_json::json!(0.25);
     assert!(wax_contract::scan_facts_from_json(&stale_ratio.to_string()).is_err());
 }
 
@@ -247,18 +338,67 @@ fn requires_registry_symbol_for_resolved_and_candidate_usage() {
 }
 
 #[test]
-fn rejects_registry_symbol_for_unresolved_usage() {
+fn requires_local_definition_id_for_local_usage() {
     let mut facts = minimal_facts();
-    facts.usage_sites[0].match_status = MatchStatus::Unresolved;
+    facts.usage_sites = vec![UsageSite {
+        id: "local:1".into(),
+        location: SourceLocation {
+            file: "a.kt".into(),
+            line: 1,
+            column: None,
+        },
+        symbol: "EpisodeCard".into(),
+        qualified_symbol: None,
+        match_status: MatchStatus::Local,
+        registry_symbol: None,
+        local_definition_id: None,
+        parent: None,
+    }];
     facts.recompute_counts().unwrap();
     let value = serde_json::to_value(&facts).unwrap();
 
+    assert!(wax_contract::scan_facts_from_json(&value.to_string()).is_err());
+}
+
+#[test]
+fn rejects_registry_symbol_for_unresolved_usage() {
+    let mut facts = minimal_facts();
+    facts.usage_sites[0].match_status = MatchStatus::Unresolved;
+    facts.usage_sites[0].registry_symbol = None;
+    facts.recompute_counts().unwrap();
+    let value = serde_json::to_value(&facts).unwrap();
+
+    assert!(wax_contract::scan_facts_from_json(&value.to_string()).is_ok());
+
+    facts.usage_sites[0].registry_symbol = Some("com.ds.Button".into());
+    let value = serde_json::to_value(&facts).unwrap();
     assert_schema_rejects(&value);
     assert!(wax_contract::scan_facts_from_json(&value.to_string()).is_err());
 }
 
 #[test]
-fn accepts_zero_usage_sites_with_null_coverage() {
+fn rejects_registry_symbol_for_local_usage() {
+    let mut facts = minimal_facts();
+    facts.usage_sites = vec![UsageSite {
+        id: "local:1".into(),
+        location: SourceLocation {
+            file: "a.kt".into(),
+            line: 1,
+            column: None,
+        },
+        symbol: "EpisodeCard".into(),
+        qualified_symbol: None,
+        match_status: MatchStatus::Local,
+        registry_symbol: Some("com.ds.EpisodeCard".into()),
+        local_definition_id: Some("local.compose:EpisodeCard".into()),
+        parent: None,
+    }];
+    facts.recompute_counts().unwrap();
+    assert!(wax_contract::scan_facts_from_json(&serde_json::to_string(&facts).unwrap()).is_err());
+}
+
+#[test]
+fn accepts_zero_usage_sites_with_null_ratios() {
     let mut facts = minimal_facts();
     facts.usage_sites.clear();
     facts.recompute_counts().unwrap();
@@ -266,12 +406,13 @@ fn accepts_zero_usage_sites_with_null_coverage() {
     let json = serde_json::to_string(&facts).unwrap();
     let back = wax_contract::scan_facts_from_json(&json).unwrap();
 
-    assert_eq!(back.metrics.adoption_coverage_ratio, None);
-    assert_eq!(back.counts.usage_site_count, 0);
+    assert_eq!(back.metrics.invocation_adoption_ratio, None);
+    assert_eq!(back.metrics.registry_resolution_ratio, None);
+    assert_eq!(back.counts.raw_invocations.total, 0);
 }
 
 #[test]
-fn rejects_missing_adoption_coverage_ratio() {
+fn rejects_missing_invocation_adoption_ratio() {
     let mut facts = minimal_facts();
     facts.usage_sites.clear();
     facts.recompute_counts().unwrap();
@@ -279,7 +420,7 @@ fn rejects_missing_adoption_coverage_ratio() {
     value["metrics"]
         .as_object_mut()
         .unwrap()
-        .remove("adoption_coverage_ratio");
+        .remove("invocation_adoption_ratio");
 
     assert_schema_rejects(&value);
     let err = wax_contract::scan_facts_from_json(&value.to_string()).unwrap_err();
@@ -287,12 +428,12 @@ fn rejects_missing_adoption_coverage_ratio() {
     assert!(matches!(
         err,
         wax_contract::ScanFactsError::ContractViolation { field, .. }
-            if field == "metrics.adoption_coverage_ratio"
+            if field == "metrics.invocation_adoption_ratio"
     ));
 }
 
 #[test]
-fn all_candidate_usage_has_zero_coverage() {
+fn all_candidate_usage_has_zero_adoption() {
     let mut facts = minimal_facts();
     facts.usage_sites[0].match_status = MatchStatus::Candidate;
     facts.recompute_counts().unwrap();
@@ -300,9 +441,10 @@ fn all_candidate_usage_has_zero_coverage() {
     let json = serde_json::to_string(&facts).unwrap();
     let back = wax_contract::scan_facts_from_json(&json).unwrap();
 
-    assert_eq!(back.metrics.adoption_coverage_ratio, Some(0.0));
-    assert_eq!(back.counts.resolved_count, 0);
-    assert_eq!(back.counts.candidate_count, 2);
+    assert_eq!(back.metrics.invocation_adoption_ratio, None);
+    assert_eq!(back.counts.raw_invocations.resolved, 0);
+    assert_eq!(back.counts.raw_invocations.candidate, 2);
+    assert_eq!(back.counts.adoption.eligible_invocation_count, 0);
 }
 
 #[test]
@@ -324,4 +466,29 @@ fn accepts_non_utc_rfc3339_timestamp() {
     let back = wax_contract::scan_facts_from_json(&value.to_string()).unwrap();
 
     assert_eq!(back.scanned_at, facts.scanned_at);
+}
+
+#[test]
+fn rejects_symbol_summary_kind_status_mismatch() {
+    let mut facts = minimal_facts();
+    facts.symbol_usage_summary = vec![SymbolUsageSummary {
+        symbol_id: "compose:local:EpisodeCard".into(),
+        symbol: "EpisodeCard".into(),
+        qualified_symbol: None,
+        symbol_kind: SymbolKind::Local,
+        match_status: MatchStatus::Resolved,
+        registry_symbol: None,
+        local_definition_id: Some("local.compose:EpisodeCard".into()),
+        identity_basis: "package_qualified_symbol".into(),
+        identity_stability: IdentityStability::Semantic,
+        raw_invocation_count: 1,
+        parent_scope_count: 0,
+        file_count: 1,
+        parent_scopes: vec![],
+        parent_scope_limit: None,
+        parent_scopes_truncated: false,
+    }];
+    facts.recompute_counts().unwrap();
+
+    assert!(wax_contract::scan_facts_from_json(&serde_json::to_string(&facts).unwrap()).is_err());
 }
