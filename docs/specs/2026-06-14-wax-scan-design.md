@@ -157,20 +157,25 @@ skills/wax-scan/
     └── test-extract-insights.sh
 ```
 
-### Deterministic metrics (current facts)
+### Deterministic metrics (Adoption Metrics v2)
 
-| Section | v1 availability | Source |
+| Section | v2 availability | Source |
 |---------|-----------------|--------|
-| Design system coverage | Partial | `resolved` / `candidate` / `unresolved` usage sites; adoption % per language |
-| Custom component analysis | Partial | `local_components` + symbol frequency from `usage_sites` |
-| Component health (basic) | Partial | Usage counts per DS symbol; most/least used |
+| UI invocation adoption | Yes | `repo_summary.metrics.invocation_adoption_ratio` and `counts.adoption` |
+| Registry resolution | Yes | `repo_summary.metrics.registry_resolution_ratio` |
+| Raw invocation breakdown | Yes | `counts.raw_invocations.{resolved,local,candidate,unresolved}` |
+| Local definition inventory | Yes | `counts.definitions` and `symbol_usage_summary[]` local rows |
+| Unresolved UI calls | Yes | `counts.raw_invocations.unresolved` and unresolved symbol rollups |
+| Parent-scope hotspots | Partial | `symbol_usage_summary[].parent_scopes` and `counts.parent_scopes` |
+| Custom component analysis | Partial | `local_components` + local invocation rollups |
+| Component health (basic) | Partial | DS symbol rollups and registry breadth |
 | Fragmentation (basic) | Partial | Local symbol grouping by naming patterns |
 | Feature/route/team coverage | No | `limits[]` data gap |
 | Override analysis | No | `limits[]` data gap |
 | Deprecated components | No | `limits[]` unless registry metadata expands |
 | Version adoption | No | `limits[]` unless pack/version facts expand |
 | Wrapper proliferation | No | `limits[]` — no composition edges in facts yet |
-| Trends | No by default | Only when `--baseline` supplied; deltas for coverage + counts |
+| Trends | Optional | `--baseline` with compatible v2 `scan-merged.json`; v1 baselines emit a compatibility gap |
 
 ### Hybrid labeling
 
@@ -182,10 +187,11 @@ skills/wax-scan/
 
 Executive summary scores (health, maturity, debt) are agent-synthesized composites of available metrics. When data is sparse, the report must explain weighting and uncertainty rather than imply false precision.
 
-### Trend analysis (v1)
+### Trend analysis (v2)
 
 - No automatic git-history baseline discovery.
-- When `--baseline <path>` is provided, the baseline must be a prior `scan-merged.json` with a compatible `schema_version`. Compute deltas for adoption coverage, resolved/candidate/unresolved counts, and per-language status when computable.
+- When `--baseline <path>` is provided, the baseline must be a prior v2 `scan-merged.json`. Compute deltas for UI invocation adoption, registry resolution, raw invocation counters, parent-scope totals, and per-language status when computable.
+- v1 baselines emit a compatibility data gap instead of mixing denominators.
 - Otherwise emit a single trends data-gap section.
 
 ## Analytics Spec

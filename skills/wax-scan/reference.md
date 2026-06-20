@@ -14,14 +14,17 @@ Output: versioned insights JSON consumed by the agent when rendering terminal an
 
 | Field | Description |
 |-------|-------------|
-| `schema_version` | Insights contract version |
+| `schema_version` | Insights contract version (`2` for Adoption Metrics v2) |
 | `generated_at` | RFC3339 timestamp |
 | `source_scan` | Path to merged scan input |
-| `repo_summary` | Repository-level usage and adoption totals (includes `local_definition_count`, `local_usage_site_count`, `ds_vs_local_ratio`) |
-| `per_language` | Per-language status, adoption %, counts |
+| `repo_summary` | Repository-level invocation adoption, registry resolution, raw invocation counters, local definitions, and parent-scope totals |
+| `per_language` | Per-language status, invocation adoption, registry resolution, and v2 count groups |
 | `symbol_rollups.design_system` | DS symbol usage frequency |
-| `symbol_rollups.local` | Local component symbol frequency |
-| `symbol_rollups.unresolved` | Unresolved usage symbol frequency |
+| `symbol_rollups.local` | Local invocation symbol frequency |
+| `symbol_rollups.unresolved` | Unresolved invocation symbol frequency |
+| `top_local_symbols` | Top local rows from `symbol_usage_summary[]` |
+| `top_unresolved_symbols` | Top unresolved rows from `symbol_usage_summary[]` |
+| `parent_scope_hotspots` | Parent scopes with the highest attributed invocation counts |
 | `fragmentation_candidates` | Symbol families suggesting duplication |
 | `limits[]` | Metrics unavailable from current facts |
 | `baseline_deltas` | Trend deltas when `--baseline` supplied |
@@ -56,13 +59,15 @@ Data gap: <metric> requires <missing capability>. Not computed in this scan.
 
 ## Baseline deltas (when `--baseline` provided)
 
-Compute when the baseline is a compatible `scan-merged.json`:
+Compute when the baseline is a compatible v2 `scan-merged.json`:
 
-- Adoption coverage ratio change
-- Resolved / candidate / unresolved count changes
-- Per-language adoption change when language sets match
+- UI invocation adoption ratio change
+- Registry resolution ratio change
+- Raw invocation count changes (`resolved`, `local`, `candidate`, `unresolved`)
+- Parent-scope total change
+- Per-language deltas when language sets match
 
-Otherwise emit a single limit entry explaining baseline incompatibility.
+If the baseline is schema v1, emit a single limit entry explaining the compatibility data gap instead of mixing v1 and v2 denominators.
 
 ## HTML escaping
 
