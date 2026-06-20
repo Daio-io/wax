@@ -1076,7 +1076,8 @@ fn derive_counts_and_metrics(
         "counts.definitions.invoked_local_definition_count",
         invoked_local_ids.len(),
     )?;
-    let unused_local_definition_count = local_definition_count.saturating_sub(invoked_local_definition_count);
+    let unused_local_definition_count =
+        local_definition_count.saturating_sub(invoked_local_definition_count);
 
     let counts = CountSummary {
         registry: RegistryCounts {
