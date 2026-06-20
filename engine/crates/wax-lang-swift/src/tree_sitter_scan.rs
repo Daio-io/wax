@@ -460,6 +460,13 @@ fn unresolved_symbol_is_swiftui_shaped(
     if is_framework_swiftui_symbol(&call_site.symbol) {
         return false;
     }
+    if !imports
+        .module_imports
+        .iter()
+        .any(|module| module == "SwiftUI")
+    {
+        return false;
+    }
     if imports
         .package_for_call(&call_site.symbol, call_site.qualifier.as_deref())
         .as_deref()
@@ -579,7 +586,8 @@ fn extract_usage_from_source(
                     local_definition_id: Some(local.id.clone()),
                     parent,
                 });
-            } else if unresolved_symbol_is_swiftui_shaped(&call_site, &imports) {
+            } else if parent.is_some() && unresolved_symbol_is_swiftui_shaped(&call_site, &imports)
+            {
                 usage_sites.push(UsageSite {
                     id: format!("usage.swift:{file}:{line}:{column}:{}", call_site.symbol),
                     location,
