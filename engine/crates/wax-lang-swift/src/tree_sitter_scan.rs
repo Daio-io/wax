@@ -5,11 +5,13 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use wax_contract::{
-    DesignSystemComponent, Diagnostic, DiagnosticSeverity, LocalComponent, MatchStatus, ScanStatus,
-    SourceLocation, UsageSite,
+    DesignSystemComponent, Diagnostic, DiagnosticSeverity, IdentityStability, LocalComponent,
+    MatchStatus, ParentScope, ScanStatus, SourceLocation, UsageSite,
 };
 
-use crate::component_detect::collect_component_declarations;
+use crate::component_detect::{
+    collect_component_declarations, is_pascal_case_symbol, nearest_enclosing_view,
+};
 use crate::swift_ast::{
     ImportBindings, ParseSwiftFileError, collect_import_bindings, collect_swift_files, new_parser,
     parse_swift_file_permissive, partial_tree_parse_diagnostic, tree_has_syntax_errors,
@@ -17,7 +19,7 @@ use crate::swift_ast::{
 };
 use wax_lang_api::{
     RootPatternKind, RootResolutionError, ScanConfig, resolve_import_aware_match,
-    resolve_source_roots,
+    resolve_source_roots, swift_module_from_source_path,
 };
 
 /// Parsed Swift scan configuration from the engine request payload.
@@ -339,56 +341,205 @@ fn resolve_registry_match(
     })
 }
 
-fn extract_from_source(
+fn module_identity_for_file(file: &str) -> (String, bool) {
+    if let Some(module) = swift_module_from_source_path(Path::new(file)) {
+        (module, true)
+    } else {
+        let stem = Path::new(file)
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or(file)
+            .to_owned();
+        (stem, false)
+    }
+}
+
+fn qualified_view_symbol(module_identity: &str, symbol: &str) -> String {
+    format!("{module_identity}.{symbol}")
+}
+
+fn local_definition_id(module_identity: &str, symbol: &str) -> String {
+    format!("local.swift:{module_identity}#{symbol}")
+}
+
+fn local_component_for_declaration(
+    file: &str,
+    module_identity: &str,
+    semantic_module: bool,
+    component: &crate::component_detect::DetectedComponent,
+) -> LocalComponent {
+    let qualified_symbol = qualified_view_symbol(module_identity, &component.symbol);
+    LocalComponent {
+        id: local_definition_id(module_identity, &component.symbol),
+        symbol: component.symbol.clone(),
+        qualified_symbol: Some(qualified_symbol),
+        identity_basis: Some(if semantic_module {
+            "module_qualified_symbol".to_owned()
+        } else {
+            "module_path_and_symbol".to_owned()
+        }),
+        identity_stability: Some(if semantic_module {
+            IdentityStability::Semantic
+        } else {
+            IdentityStability::PathSensitive
+        }),
+        location: SourceLocation {
+            file: file.to_owned(),
+            line: component.line,
+            column: Some(component.column),
+        },
+    }
+}
+
+fn parent_scope_for_view(
+    file: &str,
+    module_identity: &str,
+    semantic_module: bool,
+    view_name: &str,
+    pos: tree_sitter::Point,
+) -> ParentScope {
+    let qualified_symbol = qualified_view_symbol(module_identity, view_name);
+    ParentScope {
+        parent_id: format!("swiftui:view:{module_identity}#{view_name}"),
+        symbol: view_name.to_owned(),
+        qualified_symbol: Some(qualified_symbol),
+        scope_kind: "view".to_owned(),
+        identity_basis: if semantic_module {
+            "module_qualified_symbol".to_owned()
+        } else {
+            "module_path_and_symbol".to_owned()
+        },
+        identity_stability: if semantic_module {
+            IdentityStability::Semantic
+        } else {
+            IdentityStability::PathSensitive
+        },
+        location: Some(SourceLocation {
+            file: file.to_owned(),
+            line: pos.row as u32 + 1,
+            column: Some(pos.column as u32 + 1),
+        }),
+    }
+}
+
+#[derive(Debug, Default)]
+struct LocalViewIndex {
+    by_file_symbol: BTreeMap<(String, String), LocalComponent>,
+    by_qualified: BTreeMap<String, LocalComponent>,
+}
+
+impl LocalViewIndex {
+    fn insert(&mut self, file: &str, component: LocalComponent) {
+        if let Some(qualified) = &component.qualified_symbol {
+            self.by_qualified
+                .insert(qualified.clone(), component.clone());
+        }
+        self.by_file_symbol
+            .insert((file.to_owned(), component.symbol.clone()), component);
+    }
+
+    fn resolve(&self, file: &str, module_identity: &str, symbol: &str) -> Option<&LocalComponent> {
+        if let Some(component) = self
+            .by_file_symbol
+            .get(&(file.to_owned(), symbol.to_owned()))
+        {
+            return Some(component);
+        }
+        let qualified = qualified_view_symbol(module_identity, symbol);
+        self.by_qualified.get(&qualified)
+    }
+}
+
+fn unresolved_symbol_is_registry_shaped(symbol: &str, registry: &RegistryIndex) -> bool {
+    registry.resolve_targets.contains_key(symbol)
+}
+
+fn index_local_components_from_source(
+    root: tree_sitter::Node<'_>,
+    source: &[u8],
+    file: &str,
+) -> Vec<LocalComponent> {
+    let (module_identity, semantic_module) = module_identity_for_file(file);
+    collect_component_declarations(root, source, false)
+        .into_iter()
+        .map(|component| {
+            local_component_for_declaration(file, &module_identity, semantic_module, &component)
+        })
+        .collect()
+}
+
+fn extract_usage_from_source(
     root: tree_sitter::Node<'_>,
     source: &[u8],
     file: &str,
     registry: &RegistryIndex,
-    local_components: &mut Vec<LocalComponent>,
+    local_index: &LocalViewIndex,
     usage_sites: &mut Vec<UsageSite>,
 ) {
+    let (module_identity, semantic_module) = module_identity_for_file(file);
     let imports = collect_import_bindings(root, source);
-    for component in collect_component_declarations(root, source, false) {
-        local_components.push(LocalComponent {
-            id: format!("local.{file}:{}:{}", component.line, component.symbol),
-            symbol: component.symbol,
-            location: SourceLocation {
-                file: file.to_owned(),
-                line: component.line,
-                column: Some(component.column),
-            },
-        });
-    }
 
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
         if is_call_expression_node(node)
             && let Some(call_site) = resolve_call_site(node, source)
-            && let Some(registry_symbol) = registry.resolve_targets.get(&call_site.symbol)
+            && is_pascal_case_symbol(&call_site.symbol)
         {
-            let Some(match_status) = resolve_registry_match(
-                &call_site.symbol,
-                call_site.qualifier.as_deref(),
-                registry_symbol,
-                registry,
-                &imports,
-            ) else {
-                continue;
-            };
-
             let line = call_site.position.row as u32 + 1;
             let column = call_site.position.column as u32 + 1;
-            usage_sites.push(UsageSite {
-                id: format!("usage.{file}:{line}:{column}:{}", call_site.symbol),
-                location: SourceLocation {
-                    file: file.to_owned(),
-                    line,
-                    column: Some(column),
-                },
-                symbol: call_site.symbol.clone(),
-                match_status,
-                registry_symbol: Some(registry_symbol.clone()),
+            let location = SourceLocation {
+                file: file.to_owned(),
+                line,
+                column: Some(column),
+            };
+            let parent = nearest_enclosing_view(node, source).map(|(name, parent_pos)| {
+                parent_scope_for_view(file, &module_identity, semantic_module, &name, parent_pos)
             });
+
+            if let Some(registry_symbol) = registry.resolve_targets.get(&call_site.symbol) {
+                if let Some(match_status) = resolve_registry_match(
+                    &call_site.symbol,
+                    call_site.qualifier.as_deref(),
+                    registry_symbol,
+                    registry,
+                    &imports,
+                ) {
+                    usage_sites.push(UsageSite {
+                        id: format!("usage.swift:{file}:{line}:{column}:{}", call_site.symbol),
+                        location: location.clone(),
+                        symbol: call_site.symbol.clone(),
+                        qualified_symbol: None,
+                        match_status,
+                        registry_symbol: Some(registry_symbol.clone()),
+                        local_definition_id: None,
+                        parent,
+                    });
+                }
+            } else if let Some(local) =
+                local_index.resolve(file, &module_identity, &call_site.symbol)
+            {
+                usage_sites.push(UsageSite {
+                    id: format!("usage.swift:{file}:{line}:{column}:{}", call_site.symbol),
+                    location: location.clone(),
+                    symbol: call_site.symbol.clone(),
+                    qualified_symbol: local.qualified_symbol.clone(),
+                    match_status: MatchStatus::Local,
+                    registry_symbol: None,
+                    local_definition_id: Some(local.id.clone()),
+                    parent,
+                });
+            } else if unresolved_symbol_is_registry_shaped(&call_site.symbol, registry) {
+                usage_sites.push(UsageSite {
+                    id: format!("usage.swift:{file}:{line}:{column}:{}", call_site.symbol),
+                    location,
+                    symbol: call_site.symbol,
+                    qualified_symbol: None,
+                    match_status: MatchStatus::Unresolved,
+                    registry_symbol: None,
+                    local_definition_id: None,
+                    parent,
+                });
+            }
         }
 
         for index in (0..node.child_count()).rev() {
@@ -397,6 +548,22 @@ fn extract_from_source(
             }
         }
     }
+}
+
+#[allow(dead_code)]
+fn extract_from_source(
+    root: tree_sitter::Node<'_>,
+    source: &[u8],
+    file: &str,
+    registry: &RegistryIndex,
+    local_index: &LocalViewIndex,
+    local_components: &mut Vec<LocalComponent>,
+    usage_sites: &mut Vec<UsageSite>,
+) {
+    for local in index_local_components_from_source(root, source, file) {
+        local_components.push(local);
+    }
+    extract_usage_from_source(root, source, file, registry, local_index, usage_sites);
 }
 
 fn is_call_expression_node(node: tree_sitter::Node<'_>) -> bool {
@@ -511,6 +678,7 @@ pub fn scan_repository(
     let mut usage_sites = Vec::new();
     let mut files_scanned = 0_u32;
     let mut parse_failures = 0_u32;
+    let mut parsed_files = Vec::new();
     for file_path in &swift_files {
         files_scanned += 1;
         let relative_file = file_path
@@ -521,14 +689,6 @@ pub fn scan_repository(
 
         match parse_swift_file_permissive(&mut parser, file_path) {
             Ok(parsed) => {
-                extract_from_source(
-                    parsed.tree.root_node(),
-                    parsed.source.as_bytes(),
-                    &relative_file,
-                    &registry,
-                    &mut local_components,
-                    &mut usage_sites,
-                );
                 if tree_has_syntax_errors(&parsed.tree) {
                     parse_failures += 1;
                     diagnostics.push(partial_tree_parse_diagnostic(
@@ -536,6 +696,7 @@ pub fn scan_repository(
                         &relative_file,
                     ));
                 }
+                parsed_files.push((relative_file, parsed));
             }
             Err(ParseSwiftFileError::ParseFailed(_)) => {
                 parse_failures += 1;
@@ -545,6 +706,29 @@ pub fn scan_repository(
                 return Err(TreeSitterScanError::Io { context, source });
             }
         }
+    }
+
+    let mut local_index = LocalViewIndex::default();
+    for (relative_file, parsed) in &parsed_files {
+        for local in index_local_components_from_source(
+            parsed.tree.root_node(),
+            parsed.source.as_bytes(),
+            relative_file,
+        ) {
+            local_index.insert(relative_file, local.clone());
+            local_components.push(local);
+        }
+    }
+
+    for (relative_file, parsed) in &parsed_files {
+        extract_usage_from_source(
+            parsed.tree.root_node(),
+            parsed.source.as_bytes(),
+            relative_file,
+            &registry,
+            &local_index,
+            &mut usage_sites,
+        );
     }
 
     design_system_components.sort_by(|left, right| left.symbol.cmp(&right.symbol));
@@ -649,14 +833,21 @@ mod tests {
     ) -> (Vec<LocalComponent>, Vec<UsageSite>) {
         let mut parser = make_parser();
         let tree = parser.parse(source.as_bytes(), None).expect("parse");
+        let mut local_index = LocalViewIndex::default();
         let mut locals = Vec::new();
+        for local in
+            index_local_components_from_source(tree.root_node(), source.as_bytes(), "Test.swift")
+        {
+            local_index.insert("Test.swift", local.clone());
+            locals.push(local);
+        }
         let mut usages = Vec::new();
-        extract_from_source(
+        extract_usage_from_source(
             tree.root_node(),
             source.as_bytes(),
             "Test.swift",
             registry,
-            &mut locals,
+            &local_index,
             &mut usages,
         );
         (locals, usages)
