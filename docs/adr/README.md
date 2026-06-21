@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-ADRs record significant product and engineering decisions after implementation. Each ADR summarizes **what was decided**, **what shipped**, and **where to read more** (specs, archived plans).
+ADRs record significant product and engineering decisions after implementation. Each ADR summarizes **what was decided**, **what shipped**, and **where to read more** (specs, archived plans). A stacked docs PR may add a `Pending merge` ADR once implementation is complete in open PRs; update it to `Accepted` and point at the plan archive when the stack lands.
 
 | Date | ADR | Status | Implementation |
 |------|-----|--------|----------------|
@@ -14,5 +14,6 @@ ADRs record significant product and engineering decisions after implementation. 
 | 2026-06-13 | [SwiftUI language pack](./2026-06-13-swift-language-pack.md) | Accepted | [Plan archive](../plans/archive/2026-06-13-swift-language-pack-plan.md) |
 | 2026-06-13 | [Interactive init wizard](./2026-06-13-interactive-init.md) | Accepted | [Plan archive](../plans/archive/2026-06-13-interactive-init.md) |
 | 2026-06-14 | [Wax scan analytics skill](./2026-06-14-wax-scan-analytics-skill.md) | Accepted | [Plan archive](../plans/archive/2026-06-14-wax-scan-plan.md) |
+| 2026-06-20 | [Adoption Metrics v2](./2026-06-20-adoption-metrics-v2.md) | Pending merge | [Active implementation plan](../plans/2026-06-20-adoption-metrics-v2-plan.md) |
 
 **Active plans** (not yet implemented or deferred) remain in [`docs/plans/`](../plans/README.md).

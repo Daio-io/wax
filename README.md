@@ -151,7 +151,9 @@ Discover infers `package` per component from Kotlin package headers, the nearest
 wax scan
 ```
 
-6. Inspect outputs under `.wax/out/`, including `.wax/out/scan-merged.json`.
+6. Inspect outputs under `.wax/out/`, including `.wax/out/scan-merged.json` (`schema_version: 2`).
+
+Scan output reports **UI invocation adoption** (resolved design-system invocations divided by adoption-eligible invocations) and **registry resolution** (resolved divided by all detected UI invocations). Raw invocation counters distinguish `resolved`, `local`, `candidate`, and `unresolved` calls. See [Adoption Metrics v2](./docs/specs/2026-06-20-adoption-metrics-v2-design.md) for the full contract.
 
 ## Languages
 
@@ -355,7 +357,7 @@ The skill orchestrates:
 | *(none)* | Terminal report only |
 | `--html` | Also write `.wax/out/report/index.html` |
 | `--html-only` | Write HTML only; skip terminal output |
-| `--baseline <path>` | Compare against a prior `scan-merged.json` for limited trend deltas |
+| `--baseline <path>` | Compare against a prior v2 `scan-merged.json` for invocation adoption, registry resolution, and raw invocation deltas (v1 baselines report a compatibility gap) |
 | `--no-auto-install` | Pass through to `wax scan` for CI runs with committed lockfiles |
 
 **Output paths:**
