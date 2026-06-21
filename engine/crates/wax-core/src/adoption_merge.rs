@@ -234,12 +234,35 @@ fn build_symbol_id(language_id: &LanguageId, key: &SymbolGroupKey) -> String {
         return format!("{}:registry:{}", language_id.as_str(), registry_symbol);
     }
     if let Some(local_definition_id) = &key.local_definition_id {
-        return format!("{}:local:{}", language_id.as_str(), local_definition_id);
+        let local_identity = normalized_local_identity(language_id, local_definition_id)
+            .or(key.qualified_symbol.as_deref())
+            .unwrap_or(local_definition_id);
+        return format!("{}:local:{}", language_id.as_str(), local_identity);
     }
     if let Some(qualified_symbol) = &key.qualified_symbol {
         return format!("{}:symbol:{}", language_id.as_str(), qualified_symbol);
     }
     format!("{}:symbol:{}", language_id.as_str(), key.symbol)
+}
+
+fn normalized_local_identity<'a>(
+    language_id: &LanguageId,
+    local_definition_id: &'a str,
+) -> Option<&'a str> {
+    let language = language_id.as_str();
+    let local_language_prefix = format!("local.{language}:");
+    if let Some(identity) = local_definition_id.strip_prefix(&local_language_prefix) {
+        return Some(identity);
+    }
+
+    let language_prefix = format!("{language}:");
+    local_definition_id
+        .strip_prefix(&language_prefix)
+        .map(|identity| {
+            identity
+                .split_once(':')
+                .map_or(identity, |(_, semantic_tail)| semantic_tail)
+        })
 }
 
 fn identity_basis_for_key(key: &SymbolGroupKey) -> (&str, IdentityStability) {
@@ -276,6 +299,7 @@ pub(crate) fn build_symbol_usage_summaries(
         right
             .raw_invocation_count
             .cmp(&left.raw_invocation_count)
+            .then_with(|| left.symbol_kind.cmp(&right.symbol_kind))
             .then_with(|| left.symbol_id.cmp(&right.symbol_id))
     });
     Ok(summaries)
@@ -403,6 +427,7 @@ fn merge_symbol_usage_summaries(
         right
             .raw_invocation_count
             .cmp(&left.raw_invocation_count)
+            .then_with(|| left.symbol_kind.cmp(&right.symbol_kind))
             .then_with(|| left.symbol_id.cmp(&right.symbol_id))
     });
     merged
@@ -513,5 +538,42 @@ mod tests {
             .registry_resolution_ratio
             .unwrap();
         assert!((resolution - (800.0 / 1005.0)).abs() <= 1e-12);
+    }
+
+    #[test]
+    fn local_symbol_ids_use_normalized_semantic_identity() {
+        let compose = language_facts(
+            "compose",
+            vec![UsageSite {
+                match_status: MatchStatus::Local,
+                local_definition_id: Some("local.compose:com.example.Card".into()),
+                qualified_symbol: Some("com.example.Card".into()),
+                symbol: "Card".into(),
+                ..usage_site(MatchStatus::Local, "Card", None)
+            }],
+        );
+        let react = language_facts(
+            "react",
+            vec![UsageSite {
+                match_status: MatchStatus::Local,
+                local_definition_id: Some("react:component:src/App#Card".into()),
+                qualified_symbol: Some("src/App#Card".into()),
+                symbol: "Card".into(),
+                ..usage_site(MatchStatus::Local, "Card", None)
+            }],
+        );
+
+        let compose_summary =
+            build_symbol_usage_summaries(&compose, &LanguageId::try_from("compose").unwrap(), None)
+                .unwrap();
+        let react_summary =
+            build_symbol_usage_summaries(&react, &LanguageId::try_from("react").unwrap(), None)
+                .unwrap();
+
+        assert_eq!(
+            compose_summary[0].symbol_id,
+            "compose:local:com.example.Card"
+        );
+        assert_eq!(react_summary[0].symbol_id, "react:local:src/App#Card");
     }
 }

@@ -256,7 +256,57 @@
           "type": "boolean",
           "description": "True when parent_scopes omits rows because parent_scope_limit was applied."
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "symbol_kind": { "const": "registry" } },
+            "required": ["symbol_kind"]
+          },
+          "then": {
+            "properties": { "match_status": { "const": "resolved" } },
+            "required": ["registry_symbol"],
+            "not": { "required": ["local_definition_id"] }
+          }
+        },
+        {
+          "if": {
+            "properties": { "symbol_kind": { "const": "candidate" } },
+            "required": ["symbol_kind"]
+          },
+          "then": {
+            "properties": { "match_status": { "const": "candidate" } },
+            "required": ["registry_symbol"],
+            "not": { "required": ["local_definition_id"] }
+          }
+        },
+        {
+          "if": {
+            "properties": { "symbol_kind": { "const": "local" } },
+            "required": ["symbol_kind"]
+          },
+          "then": {
+            "properties": { "match_status": { "const": "local" } },
+            "required": ["local_definition_id"],
+            "not": { "required": ["registry_symbol"] }
+          }
+        },
+        {
+          "if": {
+            "properties": { "symbol_kind": { "const": "unresolved" } },
+            "required": ["symbol_kind"]
+          },
+          "then": {
+            "properties": { "match_status": { "const": "unresolved" } },
+            "not": {
+              "anyOf": [
+                { "required": ["registry_symbol"] },
+                { "required": ["local_definition_id"] }
+              ]
+            }
+          }
+        }
+      ]
     },
     "diagnostic": {
       "type": "object",

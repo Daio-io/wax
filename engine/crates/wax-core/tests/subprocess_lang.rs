@@ -286,7 +286,7 @@ impl Drop for TestDir {
 
 fn wait_for_file(path: &Path) {
     for _ in 0..500 {
-        if path.exists() {
+        if path.metadata().is_ok_and(|metadata| metadata.len() > 0) {
             return;
         }
         std::thread::sleep(Duration::from_millis(10));

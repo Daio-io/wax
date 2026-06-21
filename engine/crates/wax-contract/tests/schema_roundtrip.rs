@@ -1,8 +1,10 @@
+use std::collections::BTreeMap;
+
 use time::macros::datetime;
 use wax_contract::{
     CountSummary, Diagnostic, DiagnosticSeverity, IdentityStability, LanguageId, LanguageMetadata,
-    MatchStatus, Metrics, ParentScope, SCHEMA_VERSION, ScanFacts, ScanStatus, SourceLocation,
-    SymbolKind, SymbolUsageSummary, UsageSite,
+    MatchStatus, MergedScan, Metrics, ParentScope, RepoSummary, SCHEMA_VERSION, ScanFacts,
+    ScanStatus, SourceLocation, SymbolKind, SymbolUsageSummary, UsageSite,
 };
 
 fn scan_facts_schema() -> jsonschema::Validator {
@@ -395,6 +397,68 @@ fn rejects_registry_symbol_for_local_usage() {
     }];
     facts.recompute_counts().unwrap();
     assert!(wax_contract::scan_facts_from_json(&serde_json::to_string(&facts).unwrap()).is_err());
+}
+
+#[test]
+fn schema_rejects_invalid_symbol_summary_linkage() {
+    let mut facts = minimal_facts();
+    facts.symbol_usage_summary = vec![SymbolUsageSummary {
+        symbol_id: "compose:local:EpisodeCard".into(),
+        symbol: "EpisodeCard".into(),
+        qualified_symbol: None,
+        symbol_kind: SymbolKind::Local,
+        match_status: MatchStatus::Resolved,
+        registry_symbol: Some("com.ds.EpisodeCard".into()),
+        local_definition_id: None,
+        identity_basis: "local_definition_id".into(),
+        identity_stability: IdentityStability::Semantic,
+        raw_invocation_count: 1,
+        parent_scope_count: 0,
+        file_count: 1,
+        parent_scopes: vec![],
+        parent_scope_limit: None,
+        parent_scopes_truncated: false,
+    }];
+    facts.recompute_counts().unwrap();
+    let value = serde_json::to_value(&facts).unwrap();
+
+    assert_schema_rejects(&value);
+    assert!(wax_contract::scan_facts_from_json(&value.to_string()).is_err());
+}
+
+#[test]
+fn merged_scan_rejects_stale_repo_summary() {
+    let mut facts = minimal_facts();
+    facts.recompute_counts().unwrap();
+
+    let mut languages = BTreeMap::new();
+    languages.insert(LanguageId::try_from("compose").unwrap(), facts.clone());
+
+    let mut merged = MergedScan {
+        schema_version: SCHEMA_VERSION,
+        recorded_at: datetime!(2026-05-16 12:00 UTC),
+        repo_summary: RepoSummary {
+            languages: vec![LanguageId::try_from("compose").unwrap()],
+            counts: facts.counts.clone(),
+            metrics: Metrics {
+                invocation_adoption_ratio: facts.metrics.invocation_adoption_ratio,
+                registry_resolution_ratio: facts.metrics.registry_resolution_ratio,
+                parse_extract_ms: facts.metrics.parse_extract_ms,
+                files_scanned: facts.metrics.files_scanned,
+            },
+        },
+        symbol_usage_summary: vec![],
+        languages,
+    };
+
+    merged.validate().unwrap();
+
+    merged.repo_summary.counts.raw_invocations.resolved = 0;
+    assert!(merged.validate().is_err());
+
+    merged.repo_summary.counts = facts.counts.clone();
+    merged.repo_summary.languages = vec![LanguageId::try_from("react").unwrap()];
+    assert!(merged.validate().is_err());
 }
 
 #[test]

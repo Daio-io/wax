@@ -219,7 +219,7 @@ pub enum MatchStatus {
 }
 
 /// Kind of symbol represented by a [`SymbolUsageSummary`] row.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum SymbolKind {
     /// A grouped design-system registry symbol with resolved invocations.
@@ -687,8 +687,75 @@ impl MergedScan {
             validate_symbol_usage_summary(&format!("symbol_usage_summary[{index}]"), summary)?;
         }
 
+        validate_repo_summary(self)?;
+
         Ok(())
     }
+}
+
+fn validate_repo_summary(merged: &MergedScan) -> Result<(), ScanFactsError> {
+    let expected_languages = merged.languages.keys().cloned().collect::<Vec<_>>();
+    if merged.repo_summary.languages != expected_languages {
+        return Err(contract_violation(
+            "repo_summary.languages",
+            "languages must match merged scan language keys in deterministic order",
+        ));
+    }
+
+    let mut counts = CountSummary::default();
+    let mut parse_extract_ms = 0_u64;
+    let mut files_scanned = 0_u32;
+    for facts in merged.languages.values() {
+        counts = checked_add_count_summaries("repo_summary.counts", &counts, &facts.counts)?;
+        parse_extract_ms = parse_extract_ms
+            .checked_add(facts.metrics.parse_extract_ms)
+            .ok_or_else(|| {
+                contract_violation(
+                    "repo_summary.metrics.parse_extract_ms",
+                    "parse_extract_ms exceeds u64 maximum",
+                )
+            })?;
+        files_scanned = files_scanned
+            .checked_add(facts.metrics.files_scanned)
+            .ok_or_else(|| {
+                contract_violation(
+                    "repo_summary.metrics.files_scanned",
+                    "files_scanned exceeds u32 maximum",
+                )
+            })?;
+    }
+
+    if merged.repo_summary.counts != counts {
+        return Err(contract_violation(
+            "repo_summary.counts",
+            "repo counts must equal the sum of language counts",
+        ));
+    }
+
+    if merged.repo_summary.metrics.parse_extract_ms != parse_extract_ms {
+        return Err(contract_violation(
+            "repo_summary.metrics.parse_extract_ms",
+            "parse_extract_ms must equal the sum of language parse_extract_ms values",
+        ));
+    }
+    if merged.repo_summary.metrics.files_scanned != files_scanned {
+        return Err(contract_violation(
+            "repo_summary.metrics.files_scanned",
+            "files_scanned must equal the sum of language files_scanned values",
+        ));
+    }
+
+    let (expected_adoption, expected_resolution) = ratios_from_counts(&counts);
+    validate_ratio(
+        "repo_summary.metrics.invocation_adoption_ratio",
+        merged.repo_summary.metrics.invocation_adoption_ratio,
+        expected_adoption,
+    )?;
+    validate_ratio(
+        "repo_summary.metrics.registry_resolution_ratio",
+        merged.repo_summary.metrics.registry_resolution_ratio,
+        expected_resolution,
+    )
 }
 
 fn validate_parent_scope(field: &str, parent: &ParentScope) -> Result<(), ScanFactsError> {
@@ -753,6 +820,12 @@ fn validate_symbol_usage_summary(
                 &format!("{field}.registry_symbol"),
                 summary.registry_symbol.as_deref().unwrap_or(""),
             )?;
+            if summary.local_definition_id.is_some() {
+                return Err(contract_violation(
+                    &format!("{field}.local_definition_id"),
+                    "candidate symbol summaries must not carry local_definition_id",
+                ));
+            }
         }
         SymbolKind::Unresolved => {
             if summary.registry_symbol.is_some() || summary.local_definition_id.is_some() {
@@ -966,6 +1039,142 @@ fn validate_derived_values(facts: &ScanFacts) -> Result<(), ScanFactsError> {
         facts.metrics.registry_resolution_ratio,
         expected_resolution,
     )
+}
+
+fn checked_add_count_summaries(
+    field: &str,
+    left: &CountSummary,
+    right: &CountSummary,
+) -> Result<CountSummary, ScanFactsError> {
+    Ok(CountSummary {
+        registry: RegistryCounts {
+            component_count: checked_add_count(
+                &format!("{field}.registry.component_count"),
+                left.registry.component_count,
+                right.registry.component_count,
+            )?,
+            used_component_count: checked_add_count(
+                &format!("{field}.registry.used_component_count"),
+                left.registry.used_component_count,
+                right.registry.used_component_count,
+            )?,
+            resolved_raw_invocation_count: checked_add_count(
+                &format!("{field}.registry.resolved_raw_invocation_count"),
+                left.registry.resolved_raw_invocation_count,
+                right.registry.resolved_raw_invocation_count,
+            )?,
+            candidate_raw_invocation_count: checked_add_count(
+                &format!("{field}.registry.candidate_raw_invocation_count"),
+                left.registry.candidate_raw_invocation_count,
+                right.registry.candidate_raw_invocation_count,
+            )?,
+        },
+        definitions: DefinitionCounts {
+            local_definition_count: checked_add_count(
+                &format!("{field}.definitions.local_definition_count"),
+                left.definitions.local_definition_count,
+                right.definitions.local_definition_count,
+            )?,
+            invoked_local_definition_count: checked_add_count(
+                &format!("{field}.definitions.invoked_local_definition_count"),
+                left.definitions.invoked_local_definition_count,
+                right.definitions.invoked_local_definition_count,
+            )?,
+            unused_local_definition_count: checked_add_count(
+                &format!("{field}.definitions.unused_local_definition_count"),
+                left.definitions.unused_local_definition_count,
+                right.definitions.unused_local_definition_count,
+            )?,
+        },
+        raw_invocations: RawInvocationCounts {
+            total: checked_add_count(
+                &format!("{field}.raw_invocations.total"),
+                left.raw_invocations.total,
+                right.raw_invocations.total,
+            )?,
+            resolved: checked_add_count(
+                &format!("{field}.raw_invocations.resolved"),
+                left.raw_invocations.resolved,
+                right.raw_invocations.resolved,
+            )?,
+            local: checked_add_count(
+                &format!("{field}.raw_invocations.local"),
+                left.raw_invocations.local,
+                right.raw_invocations.local,
+            )?,
+            candidate: checked_add_count(
+                &format!("{field}.raw_invocations.candidate"),
+                left.raw_invocations.candidate,
+                right.raw_invocations.candidate,
+            )?,
+            unresolved: checked_add_count(
+                &format!("{field}.raw_invocations.unresolved"),
+                left.raw_invocations.unresolved,
+                right.raw_invocations.unresolved,
+            )?,
+        },
+        adoption: AdoptionCounts {
+            eligible_invocation_count: checked_add_count(
+                &format!("{field}.adoption.eligible_invocation_count"),
+                left.adoption.eligible_invocation_count,
+                right.adoption.eligible_invocation_count,
+            )?,
+            adopted_invocation_count: checked_add_count(
+                &format!("{field}.adoption.adopted_invocation_count"),
+                left.adoption.adopted_invocation_count,
+                right.adoption.adopted_invocation_count,
+            )?,
+            non_adopted_invocation_count: checked_add_count(
+                &format!("{field}.adoption.non_adopted_invocation_count"),
+                left.adoption.non_adopted_invocation_count,
+                right.adoption.non_adopted_invocation_count,
+            )?,
+        },
+        parent_scopes: ParentScopeCounts {
+            total: checked_add_count(
+                &format!("{field}.parent_scopes.total"),
+                left.parent_scopes.total,
+                right.parent_scopes.total,
+            )?,
+            with_resolved_invocations: checked_add_count(
+                &format!("{field}.parent_scopes.with_resolved_invocations"),
+                left.parent_scopes.with_resolved_invocations,
+                right.parent_scopes.with_resolved_invocations,
+            )?,
+            with_local_invocations: checked_add_count(
+                &format!("{field}.parent_scopes.with_local_invocations"),
+                left.parent_scopes.with_local_invocations,
+                right.parent_scopes.with_local_invocations,
+            )?,
+            with_unresolved_invocations: checked_add_count(
+                &format!("{field}.parent_scopes.with_unresolved_invocations"),
+                left.parent_scopes.with_unresolved_invocations,
+                right.parent_scopes.with_unresolved_invocations,
+            )?,
+        },
+    })
+}
+
+fn checked_add_count(field: &str, left: u32, right: u32) -> Result<u32, ScanFactsError> {
+    left.checked_add(right)
+        .ok_or_else(|| contract_violation(field, "count exceeds u32 maximum"))
+}
+
+fn ratios_from_counts(counts: &CountSummary) -> DerivedMetrics {
+    let invocation_adoption_ratio = if counts.adoption.eligible_invocation_count == 0 {
+        None
+    } else {
+        Some(
+            f64::from(counts.adoption.adopted_invocation_count)
+                / f64::from(counts.adoption.eligible_invocation_count),
+        )
+    };
+    let registry_resolution_ratio = if counts.raw_invocations.total == 0 {
+        None
+    } else {
+        Some(f64::from(counts.raw_invocations.resolved) / f64::from(counts.raw_invocations.total))
+    };
+    (invocation_adoption_ratio, registry_resolution_ratio)
 }
 
 fn validate_ratio(
