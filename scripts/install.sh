@@ -42,6 +42,27 @@ run() {
   fi
 }
 
+refresh_language_packs() {
+  local wax_path="$1"
+  local neutral_repo_root="$2"
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "[dry-run] (cd $neutral_repo_root && $wax_path language update --all --repo-root $neutral_repo_root)"
+    return
+  fi
+
+  local output
+  if output="$(
+    cd "$neutral_repo_root" &&
+    "$wax_path" language update --all --repo-root "$neutral_repo_root" 2>&1
+  )"; then
+    [[ -n "$output" ]] && printf '%s\n' "$output"
+    return
+  fi
+
+  log "Warning: unable to refresh installed wax language packs after install."
+  [[ -n "$output" ]] && printf '%s\n' "$output"
+}
+
 resolve_latest_tag() {
   local api_url="https://api.github.com/repos/${REPO}/releases"
   local response
@@ -167,6 +188,7 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   log "[dry-run] validate archive entries contain only: ${expected_dir}/ and ${expected_member}"
   log "[dry-run] tar -xzf $archive_path -C $extract_dir $expected_member"
   log "[dry-run] would install wax to $INSTALL_DIR/wax"
+  log "[dry-run] (cd $tmp_dir && $INSTALL_DIR/wax language update --all --repo-root $tmp_dir)"
   log ""
   log "Verify with: $INSTALL_DIR/wax --help"
   if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
@@ -199,6 +221,7 @@ wax_bin="$(find "$extract_dir" -type f -path "*/${expected_member}" -print -quit
 run install -m 0755 "$wax_bin" "$INSTALL_DIR/wax"
 
 log "Installed to $INSTALL_DIR/wax"
+refresh_language_packs "$INSTALL_DIR/wax" "$tmp_dir"
 log ""
 log "Verify with: $INSTALL_DIR/wax --help"
 if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then

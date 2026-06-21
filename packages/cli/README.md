@@ -11,7 +11,7 @@ wax --help
 npx @waxhq/wax@alpha --help
 ```
 
-During `postinstall`, this package downloads the host `wax` binary from the matching GitHub Release, verifies its `sha256`, validates the archive shape, and exposes `wax` through npm.
+During `postinstall`, this package downloads the host `wax` binary from the matching GitHub Release, verifies its `sha256`, validates the archive shape, and exposes `wax` through npm. After the binary is installed, the wrapper also runs `wax language update --all` as a best-effort refresh so any already-installed language packs can catch up to the new CLI. If the refresh cannot complete, npm install still succeeds and prints a warning instead.
 
 Supported hosts:
 
@@ -33,4 +33,4 @@ Local/test environment variables:
 - `WAX_CLI_RELEASE_BASE_URL`: override the release asset base URL, primarily for `file://` test mirrors.
 - `WAX_CLI_VERSION`: override the package version used to select release assets.
 - `WAX_CLI_REPO`: override the GitHub repository used for release downloads.
-- `WAX_CLI_SKIP_DOWNLOAD=1`: skip the postinstall binary download.
+- `WAX_CLI_SKIP_DOWNLOAD=1`: skip the postinstall binary download and the automatic language-pack refresh.

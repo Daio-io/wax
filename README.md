@@ -56,6 +56,8 @@ curl -fsSL https://raw.githubusercontent.com/Daio-io/wax/main/scripts/install.sh
 
 The installer downloads the matching GitHub Release archive for your OS and architecture, verifies `sha256`, and installs `wax` to `/usr/local/bin` or `~/.wax/bin` if the system location is not writable.
 
+After installing the binary, the script also makes a best-effort attempt to refresh any already-installed language packs with `wax language update --all`. If that refresh fails, the installer prints a warning but still leaves the `wax` binary installed.
+
 If it installs to `~/.wax/bin`, add that to your shell:
 
 ```bash

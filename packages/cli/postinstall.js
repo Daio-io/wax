@@ -200,6 +200,63 @@ function validateArchive(archivePath, cwd, expectedDir, expectedMember) {
   }
 }
 
+function refreshInstalledLanguages(
+  waxPath,
+  {
+    log = console.warn,
+    spawnSync: runSpawnSync = spawnSync,
+    makeTempDir = () => fs.mkdtempSync(path.join(os.tmpdir(), "wax-cli-refresh-")),
+    removeTempDir = (dir) => fs.rmSync(dir, { recursive: true, force: true }),
+  } = {}
+) {
+  let neutralRepoRoot;
+  try {
+    neutralRepoRoot = makeTempDir();
+  } catch (error) {
+    log(`Warning: unable to prepare neutral repo root for language refresh after install: ${error.message}`);
+    return;
+  }
+
+  let result;
+  try {
+    result = runSpawnSync(
+      waxPath,
+      ["language", "update", "--all", "--repo-root", neutralRepoRoot],
+      {
+        cwd: neutralRepoRoot,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }
+    );
+  } finally {
+    try {
+      removeTempDir(neutralRepoRoot);
+    } catch (error) {
+      log(`Warning: unable to clean up temporary repo root after language refresh: ${error.message}`);
+    }
+  }
+
+  if (result.error) {
+    log(
+      `Warning: unable to refresh installed wax language packs after install: ${result.error.message}`
+    );
+    return;
+  }
+
+  if (result.status !== 0) {
+    const detail = (result.stderr || result.stdout || `exit status ${result.status}`).trim();
+    log(
+      `Warning: unable to refresh installed wax language packs after install: ${detail}`
+    );
+    return;
+  }
+
+  const output = (result.stdout || result.stderr || "").trim();
+  if (output) {
+    console.log(output);
+  }
+}
+
 async function install() {
   if (process.env.WAX_CLI_SKIP_DOWNLOAD === "1") {
     console.log("Skipping wax binary download because WAX_CLI_SKIP_DOWNLOAD=1");
@@ -250,6 +307,7 @@ async function install() {
     fs.chmodSync(installPath, 0o755);
 
     console.log(`Installed wax to ${installPath}`);
+    refreshInstalledLanguages(installPath);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
@@ -262,5 +320,6 @@ if (require.main === module) {
 module.exports = {
   download,
   expectedSha256,
+  refreshInstalledLanguages,
   validateArchive,
 };

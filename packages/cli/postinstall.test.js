@@ -5,7 +5,7 @@ const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
 
-const { download, expectedSha256, validateArchive } = require("./postinstall");
+const { download, expectedSha256, refreshInstalledLanguages, validateArchive } = require("./postinstall");
 
 const digest = "a".repeat(64);
 const version = "0.1.0-alpha.1";
@@ -75,6 +75,66 @@ test("download copies file URLs", async () => {
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
+});
+
+test("refreshInstalledLanguages runs `wax language update --all` and warns on failure", () => {
+  const warnings = [];
+  const calls = [];
+  const createdDirs = [];
+  const removedDirs = [];
+
+  refreshInstalledLanguages("/tmp/wax", {
+    log: (message) => warnings.push(message),
+    makeTempDir() {
+      const dir = "/tmp/wax-neutral-repo-root";
+      createdDirs.push(dir);
+      return dir;
+    },
+    removeTempDir(dir) {
+      removedDirs.push(dir);
+    },
+    spawnSync(command, args, options) {
+      calls.push({ command, args, options });
+      return {
+        status: 23,
+        stderr: "network unavailable\n",
+      };
+    },
+  });
+
+  assert.deepEqual(calls, [
+    {
+      command: "/tmp/wax",
+      args: ["language", "update", "--all", "--repo-root", "/tmp/wax-neutral-repo-root"],
+      options: {
+        cwd: "/tmp/wax-neutral-repo-root",
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    },
+  ]);
+  assert.deepEqual(createdDirs, ["/tmp/wax-neutral-repo-root"]);
+  assert.deepEqual(removedDirs, ["/tmp/wax-neutral-repo-root"]);
+  assert.match(warnings[0], /Warning: unable to refresh installed wax language packs/);
+  assert.match(warnings[0], /network unavailable/);
+});
+
+test("postinstall skip download path exits before attempting refresh", () => {
+  const packageDir = __dirname;
+
+  const result = spawnSync(process.execPath, ["postinstall.js"], {
+    cwd: packageDir,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      WAX_CLI_SKIP_DOWNLOAD: "1",
+      WAX_CLI_RELEASE_BASE_URL: "http://127.0.0.1:9/should-not-be-used",
+    },
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Skipping wax binary download because WAX_CLI_SKIP_DOWNLOAD=1/);
+  assert.equal(result.stderr, "");
 });
 
 test("validateArchive accepts expected release archive shape", () => {
