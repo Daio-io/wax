@@ -20,6 +20,58 @@
         }
       }
     },
+    "adoption": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Adoption Metrics v2 scan behavior and reporting limits.",
+      "properties": {
+        "track_local_invocations": {
+          "const": true,
+          "description": "Parser-backed packs emit local invocation facts. false is reserved for a future reporting-gap mode."
+        },
+        "track_unresolved_invocations": {
+          "const": true,
+          "description": "Parser-backed packs emit unresolved UI invocation facts. false is reserved for a future reporting-gap mode."
+        },
+        "parent_attribution": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "const": true,
+              "description": "Usage sites include parent scope attribution. false is reserved for a future reporting-gap mode."
+            },
+            "scope_visibility": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["public", "internal", "private"]
+              },
+              "description": "Which parent scope visibilities are included in attribution."
+            }
+          }
+        },
+        "candidate_policy": {
+          "const": "report_separately",
+          "description": "Candidates are reported separately from the primary adoption numerator and denominator. Other policies are reserved."
+        },
+        "symbol_usage_summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "const": true,
+              "description": "Derived symbol_usage_summary rows are emitted. false is reserved for a future reporting-gap mode."
+            },
+            "parent_scope_limit": {
+              "type": ["integer", "null"],
+              "minimum": 0,
+              "description": "null emits all parent rows; 0 emits none; N limits rows per symbol."
+            }
+          }
+        }
+      }
+    },
     "languages": {
       "type": "array",
       "items": {

@@ -6,9 +6,10 @@ use std::path::{Component, Path, PathBuf};
 
 use crate::kotlin_ast::{
     ImportBindings, ParseKotlinFileError, call_simple_callee, collect_import_bindings,
-    collect_kotlin_files, function_name_from_decl, has_composable_annotation, new_parser,
-    parse_kotlin_file_permissive, partial_tree_parse_diagnostic, tree_has_syntax_errors,
-    unparseable_file_diagnostic,
+    collect_kotlin_files, function_name_from_decl, has_composable_annotation,
+    is_pascal_case_composable_symbol, nearest_enclosing_composable, new_parser,
+    package_name_from_source, parse_kotlin_file_permissive, partial_tree_parse_diagnostic,
+    tree_has_syntax_errors, unparseable_file_diagnostic,
 };
 
 /// Grammar version bundled via the `tree-sitter-kotlin-ng` crate dependency.
@@ -16,8 +17,8 @@ use crate::kotlin_ast::{
 pub const TREE_SITTER_KOTLIN_GRAMMAR_VERSION: &str = "1.1.0";
 
 use wax_contract::{
-    DesignSystemComponent, Diagnostic, DiagnosticSeverity, LocalComponent, MatchStatus, ScanStatus,
-    SourceLocation, UsageSite,
+    DesignSystemComponent, Diagnostic, DiagnosticSeverity, IdentityStability, LocalComponent,
+    MatchStatus, ParentScope, ScanStatus, SourceLocation, UsageSite,
 };
 use wax_lang_api::{
     RootPatternKind, RootResolutionError, ScanConfig, resolve_import_aware_match,
@@ -332,60 +333,97 @@ fn resolve_registry_match(
     })
 }
 
-fn extract_from_source(
+fn qualified_composable_symbol(package: Option<&str>, symbol: &str) -> String {
+    package
+        .map(|pkg| format!("{pkg}.{symbol}"))
+        .unwrap_or_else(|| symbol.to_owned())
+}
+
+fn local_definition_id(qualified_symbol: &str) -> String {
+    format!("local.compose:{qualified_symbol}")
+}
+
+fn parent_scope_for_composable(
+    file: &str,
+    package: Option<&str>,
+    composable_name: &str,
+    pos: tree_sitter::Point,
+) -> ParentScope {
+    let qualified_symbol = qualified_composable_symbol(package, composable_name);
+    ParentScope {
+        parent_id: format!("compose:composable:{qualified_symbol}"),
+        symbol: composable_name.to_owned(),
+        qualified_symbol: package.map(|_| qualified_symbol),
+        scope_kind: "composable".to_owned(),
+        identity_basis: "package_qualified_symbol".to_owned(),
+        identity_stability: IdentityStability::Semantic,
+        location: Some(SourceLocation {
+            file: file.to_owned(),
+            line: pos.row as u32 + 1,
+            column: Some(pos.column as u32 + 1),
+        }),
+    }
+}
+
+#[derive(Debug, Default)]
+struct LocalComposableIndex {
+    by_file_symbol: BTreeMap<(String, String), LocalComponent>,
+    by_qualified: BTreeMap<String, LocalComponent>,
+}
+
+impl LocalComposableIndex {
+    fn insert(&mut self, file: &str, component: LocalComponent) {
+        if let Some(qualified) = &component.qualified_symbol {
+            self.by_qualified
+                .insert(qualified.clone(), component.clone());
+        }
+        self.by_file_symbol
+            .insert((file.to_owned(), component.symbol.clone()), component);
+    }
+
+    fn resolve(&self, file: &str, package: Option<&str>, symbol: &str) -> Option<&LocalComponent> {
+        if let Some(component) = self
+            .by_file_symbol
+            .get(&(file.to_owned(), symbol.to_owned()))
+        {
+            return Some(component);
+        }
+        let qualified = qualified_composable_symbol(package, symbol);
+        self.by_qualified.get(&qualified)
+    }
+}
+
+fn index_local_components_from_source(
     root: tree_sitter::Node<'_>,
     source: &[u8],
     file: &str,
-    registry: &RegistryIndex,
-    local_components: &mut Vec<LocalComponent>,
-    usage_sites: &mut Vec<UsageSite>,
-) {
-    let imports = collect_import_bindings(root, source);
+) -> Vec<LocalComponent> {
+    let package = package_name_from_source(root, source);
+    let mut local_components = Vec::new();
+
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
-        let kind = node.kind();
-
-        if kind == "function_declaration"
+        if node.kind() == "function_declaration"
             && has_composable_annotation(node, source)
             && let Some((name, pos)) = function_name_from_decl(node, source)
-            && name.starts_with(|c: char| c.is_ascii_uppercase())
+            && is_pascal_case_composable_symbol(&name)
         {
             let line = pos.row as u32 + 1;
             let column = pos.column as u32 + 1;
-            local_components.push(LocalComponent {
-                id: format!("local.{file}:{line}:{name}"),
+            let qualified_symbol = qualified_composable_symbol(package.as_deref(), &name);
+            let component = LocalComponent {
+                id: local_definition_id(&qualified_symbol),
                 symbol: name,
+                qualified_symbol: Some(qualified_symbol),
+                identity_basis: Some("package_qualified_symbol".to_owned()),
+                identity_stability: Some(IdentityStability::Semantic),
                 location: SourceLocation {
                     file: file.to_owned(),
                     line,
                     column: Some(column),
                 },
-            });
-        }
-
-        if kind == "call_expression"
-            && let Some((call_symbol, pos)) = call_simple_callee(node, source)
-            && let Some(registry_symbol) = registry.resolve_targets.get(&call_symbol)
-        {
-            let Some(match_status) =
-                resolve_registry_match(&call_symbol, registry_symbol, registry, &imports)
-            else {
-                continue;
             };
-
-            let line = pos.row as u32 + 1;
-            let column = pos.column as u32 + 1;
-            usage_sites.push(UsageSite {
-                id: format!("usage.{file}:{line}:{column}:{call_symbol}"),
-                location: SourceLocation {
-                    file: file.to_owned(),
-                    line,
-                    column: Some(column),
-                },
-                symbol: call_symbol.clone(),
-                match_status,
-                registry_symbol: Some(registry_symbol.clone()),
-            });
+            local_components.push(component);
         }
 
         let child_count = node.child_count();
@@ -395,6 +433,102 @@ fn extract_from_source(
             }
         }
     }
+    local_components
+}
+
+fn extract_usage_from_source(
+    root: tree_sitter::Node<'_>,
+    source: &[u8],
+    file: &str,
+    registry: &RegistryIndex,
+    local_index: &LocalComposableIndex,
+    usage_sites: &mut Vec<UsageSite>,
+) {
+    let package = package_name_from_source(root, source);
+    let imports = collect_import_bindings(root, source);
+
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "call_expression"
+            && let Some((call_symbol, pos)) = call_simple_callee(node, source)
+            && is_pascal_case_composable_symbol(&call_symbol)
+        {
+            let line = pos.row as u32 + 1;
+            let column = pos.column as u32 + 1;
+            let location = SourceLocation {
+                file: file.to_owned(),
+                line,
+                column: Some(column),
+            };
+            let parent = nearest_enclosing_composable(node, source).map(|(name, parent_pos)| {
+                parent_scope_for_composable(file, package.as_deref(), &name, parent_pos)
+            });
+
+            if let Some(registry_symbol) = registry.resolve_targets.get(&call_symbol) {
+                if let Some(match_status) =
+                    resolve_registry_match(&call_symbol, registry_symbol, registry, &imports)
+                {
+                    usage_sites.push(UsageSite {
+                        id: format!("usage.compose:{file}:{line}:{column}:{call_symbol}"),
+                        location: location.clone(),
+                        symbol: call_symbol.clone(),
+                        qualified_symbol: None,
+                        match_status,
+                        registry_symbol: Some(registry_symbol.clone()),
+                        local_definition_id: None,
+                        parent,
+                    });
+                }
+            } else if let Some(local) = local_index.resolve(file, package.as_deref(), &call_symbol)
+            {
+                usage_sites.push(UsageSite {
+                    id: format!("usage.compose:{file}:{line}:{column}:{call_symbol}"),
+                    location: location.clone(),
+                    symbol: call_symbol.clone(),
+                    qualified_symbol: local.qualified_symbol.clone(),
+                    match_status: MatchStatus::Local,
+                    registry_symbol: None,
+                    local_definition_id: Some(local.id.clone()),
+                    parent,
+                });
+            } else {
+                usage_sites.push(UsageSite {
+                    id: format!("usage.compose:{file}:{line}:{column}:{call_symbol}"),
+                    location,
+                    symbol: call_symbol,
+                    qualified_symbol: None,
+                    match_status: MatchStatus::Unresolved,
+                    registry_symbol: None,
+                    local_definition_id: None,
+                    parent,
+                });
+            }
+        }
+
+        let child_count = node.child_count();
+        for i in (0..child_count).rev() {
+            if let Some(child) = node.child(i) {
+                stack.push(child);
+            }
+        }
+    }
+}
+
+#[allow(dead_code)]
+fn extract_from_source(
+    root: tree_sitter::Node<'_>,
+    source: &[u8],
+    file: &str,
+    registry: &RegistryIndex,
+    local_components: &mut Vec<LocalComponent>,
+    usage_sites: &mut Vec<UsageSite>,
+) {
+    let mut local_index = LocalComposableIndex::default();
+    for local in index_local_components_from_source(root, source, file) {
+        local_index.insert(file, local.clone());
+        local_components.push(local);
+    }
+    extract_usage_from_source(root, source, file, registry, &local_index, usage_sites);
 }
 
 // ── Public scan entry point ───────────────────────────────────────────────────
@@ -448,6 +582,7 @@ pub fn scan_repository(
     let mut usage_sites = Vec::new();
     let mut files_scanned = 0_u32;
     let mut parse_failures = 0_u32;
+    let mut parsed_files = Vec::new();
 
     for file_path in &kotlin_files {
         files_scanned += 1;
@@ -459,14 +594,6 @@ pub fn scan_repository(
 
         match parse_kotlin_file_permissive(&mut parser, file_path) {
             Ok(parsed) => {
-                extract_from_source(
-                    parsed.tree.root_node(),
-                    parsed.source.as_bytes(),
-                    &relative_file,
-                    &registry,
-                    &mut local_components,
-                    &mut usage_sites,
-                );
                 if tree_has_syntax_errors(&parsed.tree) {
                     parse_failures += 1;
                     diagnostics.push(partial_tree_parse_diagnostic(
@@ -474,6 +601,7 @@ pub fn scan_repository(
                         &relative_file,
                     ));
                 }
+                parsed_files.push((relative_file, parsed));
             }
             Err(ParseKotlinFileError::ParseFailed(_)) => {
                 parse_failures += 1;
@@ -483,6 +611,29 @@ pub fn scan_repository(
                 return Err(TreeSitterScanError::Io { context, source });
             }
         }
+    }
+
+    let mut local_index = LocalComposableIndex::default();
+    for (relative_file, parsed) in &parsed_files {
+        for local in index_local_components_from_source(
+            parsed.tree.root_node(),
+            parsed.source.as_bytes(),
+            relative_file,
+        ) {
+            local_index.insert(relative_file, local.clone());
+            local_components.push(local);
+        }
+    }
+
+    for (relative_file, parsed) in &parsed_files {
+        extract_usage_from_source(
+            parsed.tree.root_node(),
+            parsed.source.as_bytes(),
+            relative_file,
+            &registry,
+            &local_index,
+            &mut usage_sites,
+        );
     }
 
     design_system_components.sort_by(|l, r| l.symbol.cmp(&r.symbol));
@@ -719,12 +870,61 @@ mod tests {
     }
 
     #[test]
-    fn non_ds_composable_call_is_not_a_resolved_usage() {
+    fn non_ds_composable_call_becomes_local_usage() {
         let registry = registry_without_packages(&[("PrimaryButton", "PrimaryButton")]);
-        // LocalCard is not in the registry
-        let (_, usages) =
-            parse_and_extract("@Composable\nfun Screen() { LocalCard {} }", &registry);
-        assert_eq!(usages.len(), 0);
+        let (locals, usages) = parse_and_extract(
+            "@Composable\nfun LocalCard() {}\n@Composable\nfun Screen() { LocalCard() }",
+            &registry,
+        );
+        assert_eq!(locals.len(), 2);
+        let local_usage = usages
+            .iter()
+            .find(|site| site.symbol == "LocalCard")
+            .expect("LocalCard invocation must be present");
+        assert_eq!(local_usage.match_status, MatchStatus::Local);
+        assert!(local_usage.local_definition_id.is_some());
+    }
+
+    #[test]
+    fn same_package_local_composable_resolves_across_files() {
+        let config = ComposeScanConfig {
+            design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
+            roots: vec![std::path::PathBuf::from("app/src/main/kotlin")],
+        };
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let registry_dir = tmp.path().join("design-system");
+        std::fs::create_dir_all(&registry_dir).unwrap();
+        std::fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"PrimaryButton","targets":["compose"]}]}"#,
+        )
+        .unwrap();
+
+        let source_dir = tmp.path().join("app/src/main/kotlin/com/example");
+        std::fs::create_dir_all(&source_dir).unwrap();
+        std::fs::write(
+            source_dir.join("LocalCard.kt"),
+            "package com.example\n@Composable\nfun LocalCard() {}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            source_dir.join("Screen.kt"),
+            "package com.example\n@Composable\nfun Screen() { LocalCard() }\n",
+        )
+        .unwrap();
+
+        let result = scan_repository(tmp.path(), &config).unwrap();
+        let local_usage = result
+            .usage_sites
+            .iter()
+            .find(|site| site.symbol == "LocalCard")
+            .expect("LocalCard invocation must be emitted");
+        assert_eq!(local_usage.match_status, MatchStatus::Local);
+        assert_eq!(
+            local_usage.local_definition_id.as_deref(),
+            Some("local.compose:com.example.LocalCard")
+        );
     }
 
     #[test]

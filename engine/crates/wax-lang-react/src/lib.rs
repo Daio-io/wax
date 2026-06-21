@@ -325,8 +325,8 @@ mod tests {
         let facts = ReactLanguage::new().scan(&request).unwrap();
 
         assert_eq!(facts.status, ScanStatus::Complete);
-        assert_eq!(facts.counts.usage_site_count, 1);
-        assert_eq!(facts.counts.resolved_count, 1);
+        assert_eq!(facts.counts.raw_invocations.total, 1);
+        assert_eq!(facts.counts.raw_invocations.resolved, 1);
         assert_eq!(facts.language.parser_name, "swc");
     }
 

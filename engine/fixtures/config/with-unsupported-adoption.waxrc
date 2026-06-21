@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "adoption": {
+    "track_local_invocations": false
+  },
+  "languages": [
+    {
+      "id": "compose",
+      "enabled": true
+    }
+  ]
+}

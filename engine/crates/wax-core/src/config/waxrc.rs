@@ -19,6 +19,9 @@ pub struct WaxRc {
     /// Engine-owned configuration.
     #[serde(default)]
     pub engine: EngineConfig,
+    /// Adoption Metrics v2 scan behavior.
+    #[serde(default)]
+    pub adoption: AdoptionConfig,
     /// Language pack entries configured for this repository.
     pub languages: Vec<LanguageEntry>,
 }
@@ -36,6 +39,125 @@ impl Default for EngineConfig {
     fn default() -> Self {
         Self {
             scan_concurrency: default_scan_concurrency(),
+        }
+    }
+}
+
+/// Adoption Metrics v2 repository settings.
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct AdoptionConfig {
+    /// Whether parser-backed packs emit local invocation facts.
+    #[serde(default = "default_true")]
+    pub track_local_invocations: bool,
+    /// Whether parser-backed packs emit unresolved UI invocation facts.
+    #[serde(default = "default_true")]
+    pub track_unresolved_invocations: bool,
+    /// Parent-scope attribution settings.
+    #[serde(default)]
+    pub parent_attribution: ParentAttributionConfig,
+    /// Candidate counting policy for primary adoption metrics.
+    #[serde(default)]
+    pub candidate_policy: CandidatePolicy,
+    /// Derived symbol summary settings.
+    #[serde(default)]
+    pub symbol_usage_summary: SymbolUsageSummaryConfig,
+}
+
+impl Default for AdoptionConfig {
+    fn default() -> Self {
+        Self {
+            track_local_invocations: true,
+            track_unresolved_invocations: true,
+            parent_attribution: ParentAttributionConfig::default(),
+            candidate_policy: CandidatePolicy::ReportSeparately,
+            symbol_usage_summary: SymbolUsageSummaryConfig::default(),
+        }
+    }
+}
+
+impl AdoptionConfig {
+    fn validate_supported(&self) -> Result<(), serde_json::Error> {
+        if !self.track_local_invocations {
+            return Err(serde_json::Error::custom(
+                "adoption.track_local_invocations=false is not supported yet",
+            ));
+        }
+        if !self.track_unresolved_invocations {
+            return Err(serde_json::Error::custom(
+                "adoption.track_unresolved_invocations=false is not supported yet",
+            ));
+        }
+        if !self.parent_attribution.enabled {
+            return Err(serde_json::Error::custom(
+                "adoption.parent_attribution.enabled=false is not supported yet",
+            ));
+        }
+        if self.candidate_policy != CandidatePolicy::ReportSeparately {
+            return Err(serde_json::Error::custom(
+                "adoption.candidate_policy values other than report_separately are not supported yet",
+            ));
+        }
+        if !self.symbol_usage_summary.enabled {
+            return Err(serde_json::Error::custom(
+                "adoption.symbol_usage_summary.enabled=false is not supported yet",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Parent-scope attribution settings.
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ParentAttributionConfig {
+    /// Whether usage sites include parent attribution.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Parent visibility classes included by attribution.
+    #[serde(default = "default_scope_visibility")]
+    pub scope_visibility: Vec<String>,
+}
+
+impl Default for ParentAttributionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            scope_visibility: default_scope_visibility(),
+        }
+    }
+}
+
+/// Candidate counting policy for primary adoption metrics.
+#[derive(Debug, Default, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CandidatePolicy {
+    /// Exclude candidates from the primary numerator and denominator.
+    #[default]
+    ReportSeparately,
+    /// Include candidates in the denominator but not the numerator.
+    CountAsNonAdopted,
+    /// Include candidates in both numerator and denominator.
+    CountAsAdopted,
+}
+
+/// Derived symbol summary settings.
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SymbolUsageSummaryConfig {
+    /// Whether the engine emits derived symbol usage summaries.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Optional per-symbol parent row limit.
+    #[serde(default)]
+    pub parent_scope_limit: Option<u32>,
+}
+
+impl Default for SymbolUsageSummaryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            parent_scope_limit: None,
         }
     }
 }
@@ -219,10 +341,28 @@ pub fn load_waxrc(path: impl AsRef<Path>) -> Result<WaxRc, WaxRcError> {
                 source,
             })?;
     }
+    rc.adoption
+        .validate_supported()
+        .map_err(|source| WaxRcError::InvalidConfig {
+            path: path_display.clone(),
+            source,
+        })?;
 
     Ok(rc)
 }
 
 fn default_scan_concurrency() -> u32 {
     2
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_scope_visibility() -> Vec<String> {
+    vec![
+        "public".to_owned(),
+        "internal".to_owned(),
+        "private".to_owned(),
+    ]
 }

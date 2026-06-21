@@ -82,6 +82,7 @@ The production `wax-contract` crate is the stable boundary for language packs an
 - model language ids as a validated `LanguageId` newtype and use it across wax config, manifests, lockfiles, wire messages, and `ScanFacts`;
 - split parser metadata into `parser_name` and `parser_version` fields instead of a combined parser string;
 - define `adoption_coverage_ratio` as `resolved_count / usage_site_count`, excluding `candidate` matches from the numerator; when `usage_site_count == 0`, the ratio is `null`;
+- for **Adoption Metrics v2** (`ScanFacts.schema_version` 2), use explicit v2 counter groups and derived metrics instead of v1 `adoption_coverage_ratio`; see [Adoption Metrics v2 design](./2026-06-20-adoption-metrics-v2-design.md). Schema v2 outputs supersede v1 adoption coverage semantics during the alpha cutover;
 - reserve extension fields only where the engine has a known compatibility need.
 
 ### `ScanFacts` contract fields
@@ -98,7 +99,9 @@ The production `wax-contract` crate is the stable boundary for language packs an
 
 `ScanFacts.snapshot_id` is assigned by the engine and echoed by the language pack. `ScanFacts.scanned_at` is an RFC 3339 timestamp serialized from a typed timestamp. Source-bearing facts use `SourceLocation { file, line, column }`; `file` is repository-relative, `line` is one-based, and `column` is optional and one-based when present.
 
-`ScanFacts.metrics.adoption_coverage_ratio` is recomputed from usage facts as `resolved_count / usage_site_count`. Candidate matches are counted separately and are not included in `resolved_count`; when there are no usage sites, the ratio is `null`.
+`ScanFacts.metrics` for schema v1 recomputes `adoption_coverage_ratio` from usage facts as `resolved_count / usage_site_count`. Candidate matches are counted separately and are not included in `resolved_count`; when there are no usage sites, the ratio is `null`.
+
+For schema v2, `ScanFacts.metrics` exposes `invocation_adoption_ratio` and `registry_resolution_ratio` derived from explicit v2 counter groups under `counts.raw_invocations` and `counts.adoption`. See [Adoption Metrics v2 design](./2026-06-20-adoption-metrics-v2-design.md).
 
 ## Configuration
 

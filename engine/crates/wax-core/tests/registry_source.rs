@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -14,6 +14,7 @@ use wax_core::registry_source::{
 
 const REGISTRY_JSON: &str =
     r#"{"schema_version":1,"components":[{"id":"ds.primary-button","symbol":"PrimaryButton"}]}"#;
+static NEXT_REPO_ID: AtomicU64 = AtomicU64::new(0);
 
 struct TestRepo {
     path: PathBuf,
@@ -25,8 +26,9 @@ impl TestRepo {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
+        let sequence = NEXT_REPO_ID.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
-            "wax-core-registry-source-{}-{nonce}",
+            "wax-core-registry-source-{}-{nonce}-{sequence}",
             std::process::id()
         ));
         let _ = fs::remove_dir_all(&path);

@@ -1,6 +1,6 @@
 # Adoption Metrics v2 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Replace misleading registry-only adoption reporting with schema v2 invocation facts, raw counters, per-symbol summaries, parent attribution, and honest reporting labels.
 
@@ -74,7 +74,7 @@
 - Produces: `MatchStatus::Local`, `ParentScope`, `SymbolParentScopeSummary`, `IdentityStability`, `SymbolUsageSummary`, v2 count groups, and v2 metrics.
 - Consumes: existing `SourceLocation`, `UsageSite`, `LocalComponent`, `Metrics`, and `CountSummary`.
 
-- [ ] **Step 1: Write failing contract tests**
+- [x] **Step 1: Write failing contract tests**
 
 Add tests that deserialize schema v2 facts containing:
 
@@ -123,7 +123,7 @@ Add tests that deserialize schema v2 facts containing:
 
 Expected before implementation: deserialization or validation fails because v2 fields and `local` match status do not exist.
 
-- [ ] **Step 2: Add contract types**
+- [x] **Step 2: Add contract types**
 
 Add typed structs/enums rather than `serde_json::Value` extension blobs:
 
@@ -188,7 +188,7 @@ pub struct SymbolParentScopeSummary {
 }
 ```
 
-- [ ] **Step 3: Add Rust docs and schema descriptions**
+- [x] **Step 3: Add Rust docs and schema descriptions**
 
 Mirror the design spec's Type and Resolution Dictionary in public Rust doc comments and schema descriptions. Each new enum value and output key needs a one-line description, including:
 
@@ -198,7 +198,7 @@ Mirror the design spec's Type and Resolution Dictionary in public Rust doc comme
 - `parent_scope_limit: null | 0 | N`
 - every new count group under `registry`, `definitions`, `raw_invocations`, `adoption`, and `parent_scopes`
 
-- [ ] **Step 4: Update JSON schemas**
+- [x] **Step 4: Update JSON schemas**
 
 Update `engine/crates/wax-contract/schemas/scan-facts.schema.json` for schema v2 facts, including `MatchStatus::Local`, parent attribution, v2 count groups, metrics, and `symbol_usage_summary[]`.
 
@@ -214,7 +214,7 @@ Update `engine/crates/wax-contract/schemas/waxrc.schema.json` for the nested `ad
 }
 ```
 
-- [ ] **Step 5: Extend `UsageSite` and `LocalComponent`**
+- [x] **Step 5: Extend `UsageSite` and `LocalComponent`**
 
 Add:
 
@@ -234,11 +234,11 @@ pub identity_stability: Option<IdentityStability>
 
 to `LocalComponent`.
 
-- [ ] **Step 6: Add v2 counts and metrics**
+- [x] **Step 6: Add v2 counts and metrics**
 
 Add count groups from the spec and remove v1-only metric fields from the schema v2 output shape. Add explicit denominators for `invocation_adoption_ratio` and `registry_resolution_ratio`.
 
-- [ ] **Step 7: Update validation**
+- [x] **Step 7: Update validation**
 
 Validation must enforce:
 
@@ -252,7 +252,7 @@ Validation must enforce:
 - `parent_scopes_truncated` is true when emitted rows are fewer than `parent_scope_count`.
 - Ratios match v2 count denominators within the existing floating-point tolerance.
 
-- [ ] **Step 8: Run focused checks**
+- [x] **Step 8: Run focused checks**
 
 Run:
 
@@ -265,7 +265,7 @@ cargo clippy -p wax-contract --all-targets -- -D warnings
 
 Expected: all pass.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add engine/crates/wax-contract docs/specs/2026-05-16-language-packs-and-distribution.md
@@ -285,7 +285,7 @@ The language-pack distribution spec update must explicitly state that Adoption M
 - Consumes: v2 `ScanFacts` from Task 1.
 - Produces: per-language and root `MergedScan.repo_summary` counters plus `symbol_usage_summary[]` sorted deterministically.
 
-- [ ] **Step 1: Write failing merge tests**
+- [x] **Step 1: Write failing merge tests**
 
 Add a fixture with two language scans:
 
@@ -304,7 +304,7 @@ invocation_adoption_ratio = 800 / 1005
 
 Assert ratios are recomputed from summed counts, not averaged from per-language percentages.
 
-- [ ] **Step 2: Implement summary builder**
+- [x] **Step 2: Implement summary builder**
 
 Add an engine helper that groups `usage_sites[]` by normalized symbol identity and match status. The grouping order should be:
 
@@ -313,19 +313,19 @@ Add an engine helper that groups `usage_sites[]` by normalized symbol identity a
 3. `qualified_symbol` when present.
 4. language id plus `symbol` fallback.
 
-- [ ] **Step 3: Implement parent-scope aggregation**
+- [x] **Step 3: Implement parent-scope aggregation**
 
 For each symbol summary, group parent rows by `parent_id`, count invocations, and sort by `invocation_count desc`, then `parent_id asc`. Apply `parent_scope_limit` after the full `parent_scope_count` is known.
 
-- [ ] **Step 4: Enforce direct schema cutover**
+- [x] **Step 4: Enforce direct schema cutover**
 
 Remove v1 compatibility aliases from v2 merged output. Compute and label `registry_resolution_ratio` and `invocation_adoption_ratio` directly from the new counter groups.
 
-- [ ] **Step 5: Update subprocess fixtures**
+- [x] **Step 5: Update subprocess fixtures**
 
 Update canned subprocess facts in `engine/crates/wax-core/tests/subprocess_protocol.rs` to schema v2 so pack protocol tests cover the new shape.
 
-- [ ] **Step 6: Emit root repo summaries**
+- [x] **Step 6: Emit root repo summaries**
 
 Add root-level `repo_summary.counts`, `repo_summary.metrics`, and root `symbol_usage_summary[]` to `MergedScan`. Tests must assert repo-level ratios are recomputed from summed counters.
 
@@ -342,7 +342,7 @@ cargo clippy -p wax-core --all-targets -- -D warnings
 
 Expected: all pass.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add engine/crates/wax-core
@@ -362,15 +362,15 @@ git commit -m "feat: aggregate adoption metrics v2 summaries"
 - Consumes: v2 contract from Task 1.
 - Produces: schema v2 registry-only facts with explicit capability gaps.
 
-- [ ] **Step 1: Update golden expectations**
+- [x] **Step 1: Update golden expectations**
 
 Update basic-pack fixtures so output uses `schema_version: 2`, v2 counts, and v2 metrics. Local and unresolved invocation counters should be zero because the text scanner does not collect those facts.
 
-- [ ] **Step 2: Keep basic extraction registry-only**
+- [x] **Step 2: Keep basic extraction registry-only**
 
 Preserve existing registry text scanning behavior. Do not emit `local` or `unresolved` usage sites from `wax-lang-basic` until a future language-aware detector exists.
 
-- [ ] **Step 3: Emit capability diagnostics**
+- [x] **Step 3: Emit capability diagnostics**
 
 Emit informational diagnostics or capability flags that allow reporting to show data gaps for:
 
@@ -409,7 +409,7 @@ git commit -m "feat: emit basic schema v2 scan facts"
 - Consumes: v2 contract from Task 1.
 - Produces: Compose `local` and `unresolved` usage sites with parent attribution.
 
-- [ ] **Step 1: Add failing wrapper fixture**
+- [x] **Step 1: Add failing wrapper fixture**
 
 Add Kotlin fixture:
 
@@ -436,7 +436,7 @@ Expected:
 - `DiscoverScreen` parent for both `EpisodeCard` calls.
 - `EpisodeCard` parent for `Tier` and `BodyText`.
 
-- [ ] **Step 2: Add failing slot fixture**
+- [x] **Step 2: Add failing slot fixture**
 
 Add Kotlin fixture:
 
@@ -452,7 +452,7 @@ fun DiscoverScreen() {
 
 Expected: both `Button` calls and both `Tier` calls have parent `DiscoverScreen`.
 
-- [ ] **Step 3: Build local definition index**
+- [x] **Step 3: Build local definition index**
 
 Index composable local definitions by package-qualified symbol and source symbol. Use the semantic ID format:
 
@@ -460,7 +460,7 @@ Index composable local definitions by package-qualified symbol and source symbol
 local.compose:<package>.<symbol>
 ```
 
-- [ ] **Step 4: Emit local and unresolved invocations**
+- [x] **Step 4: Emit local and unresolved invocations**
 
 For each composable call expression:
 
@@ -468,7 +468,7 @@ For each composable call expression:
 2. Else resolve local definition.
 3. Else emit `unresolved` only when the call passes the Compose UI invocation detector.
 
-- [ ] **Step 5: Implement parent walk**
+- [x] **Step 5: Implement parent walk**
 
 Walk AST ancestors to the nearest `@Composable` function declaration. Calls inside trailing lambdas remain attributed to the enclosing composable declaration, not the slot callee.
 
@@ -504,7 +504,7 @@ git commit -m "feat: emit compose adoption metrics v2 facts"
 - Consumes: v2 contract from Task 1.
 - Produces: React `local` and `unresolved` JSX usage sites with parent attribution.
 
-- [ ] **Step 1: Add failing wrapper fixture**
+- [x] **Step 1: Add failing wrapper fixture**
 
 Add TSX fixture:
 
@@ -530,7 +530,7 @@ Expected:
 - `EpisodeCard` local invocations: `1`.
 - `<Button />` inside `<Tier>` has parent `DiscoverScreen`, not `Tier`.
 
-- [ ] **Step 2: Index local components by module identity**
+- [x] **Step 2: Index local components by module identity**
 
 Use export-aware semantic identity when available. Fall back to path-sensitive identity:
 
@@ -540,7 +540,7 @@ react:component:<module-identity>#<component-name>
 
 Emit `identity_stability: "path_sensitive"` for path-derived IDs.
 
-- [ ] **Step 3: Emit local and unresolved JSX usage**
+- [x] **Step 3: Emit local and unresolved JSX usage**
 
 For each PascalCase JSX element:
 
@@ -548,7 +548,7 @@ For each PascalCase JSX element:
 2. Else resolve local component through local component index.
 3. Else emit `unresolved` when the symbol is UI-shaped and not an intrinsic element.
 
-- [ ] **Step 4: Implement parent walk**
+- [x] **Step 4: Implement parent walk**
 
 Parent is the innermost enclosing React component function/class containing the JSX element. Children passed to another component remain attributed to the caller component.
 
@@ -583,7 +583,7 @@ git commit -m "feat: emit react adoption metrics v2 facts"
 - Consumes: v2 contract from Task 1.
 - Produces: SwiftUI `local` and `unresolved` usage sites with parent attribution.
 
-- [ ] **Step 1: Add failing SwiftUI fixture**
+- [x] **Step 1: Add failing SwiftUI fixture**
 
 Add Swift fixture:
 
@@ -611,15 +611,15 @@ Expected:
 - `EpisodeCardView` local invocations: `1`.
 - Parent for children inside `Tier` is `DiscoverView`.
 
-- [ ] **Step 2: Index local SwiftUI views**
+- [x] **Step 2: Index local SwiftUI views**
 
 Index `struct X: View` and `@ViewBuilder` declarations. Prefer module-qualified IDs when available.
 
-- [ ] **Step 3: Emit local and unresolved invocations**
+- [x] **Step 3: Emit local and unresolved invocations**
 
 Resolve registry first, local definitions second, unresolved UI-shaped invocations third. Modifier chains should not inflate invocation counts unless the modifier is itself a configured registry component.
 
-- [ ] **Step 4: Implement parent walk**
+- [x] **Step 4: Implement parent walk**
 
 Parent is the enclosing `View` type body or `@ViewBuilder` function containing the call. Calls inside builder closures passed to another view remain attributed to the caller view, not the slot host.
 
@@ -773,16 +773,16 @@ git commit -m "docs: document adoption metrics v2 rollout"
 
 ## Release Gate
 
-- [ ] Wrapper fixture reports local invocations and no false 100% adoption.
-- [ ] `symbol_usage_summary[]` includes registry, local, candidate, and unresolved rows.
-- [ ] Parent scope rows are complete by default and respect `parent_scope_limit`.
-- [ ] Merged scans sum counters and recompute ratios.
+- [x] Wrapper fixture reports local invocations and no false 100% adoption.
+- [x] `symbol_usage_summary[]` includes registry, local, candidate, and unresolved rows.
+- [x] Parent scope rows are complete by default and respect `parent_scope_limit`.
+- [x] Merged scans sum counters and recompute ratios.
 - [ ] CLI and HTML reports distinguish invocation adoption from registry resolution.
-- [ ] v2 uses the new scan format directly without v1 compatibility aliases.
-- [ ] `wax-lang-basic` emits schema v2 registry-only facts and capability gaps.
-- [ ] `wax-lang-compose`, `wax-lang-react`, and `wax-lang-swift` all emit local/unresolved invocation facts and parent attribution.
-- [ ] Subprocess protocol and CLI scan fixtures use schema v2 facts.
-- [ ] `engine/crates/wax-contract/schemas/scan-facts.schema.json` and `waxrc.schema.json` document v2 fields and config.
+- [x] v2 uses the new scan format directly without v1 compatibility aliases.
+- [x] `wax-lang-basic` emits schema v2 registry-only facts and capability gaps.
+- [x] `wax-lang-compose`, `wax-lang-react`, and `wax-lang-swift` all emit local/unresolved invocation facts and parent attribution.
+- [x] Subprocess protocol and CLI scan fixtures use schema v2 facts.
+- [x] `engine/crates/wax-contract/schemas/scan-facts.schema.json` and `waxrc.schema.json` document v2 fields and config.
 - [ ] `skills/wax-scan/SKILL.md`, extractor fixtures, and baseline behavior are v2-aware.
 - [ ] Adoption Metrics v2 ADR is added and indexed.
 - [ ] Workspace fmt, tests, and clippy pass.
