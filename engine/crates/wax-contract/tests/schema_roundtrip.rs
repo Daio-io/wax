@@ -176,6 +176,34 @@ fn schema_v2_local_usage_and_symbol_summary_roundtrip() {
 }
 
 #[test]
+fn accepts_explicit_null_parent_scope_limit() {
+    let mut facts = minimal_facts();
+    facts.symbol_usage_summary = vec![SymbolUsageSummary {
+        symbol_id: "compose:registry:com.ds.Button".into(),
+        symbol: "Button".into(),
+        qualified_symbol: None,
+        symbol_kind: SymbolKind::Registry,
+        match_status: MatchStatus::Resolved,
+        registry_symbol: Some("com.ds.Button".into()),
+        local_definition_id: None,
+        identity_basis: "registry_id".into(),
+        identity_stability: IdentityStability::Semantic,
+        raw_invocation_count: 1,
+        parent_scope_count: 0,
+        file_count: 1,
+        parent_scopes: vec![],
+        parent_scope_limit: None,
+        parent_scopes_truncated: false,
+    }];
+    facts.recompute_counts().unwrap();
+    let value = serde_json::to_value(&facts).unwrap();
+
+    assert!(scan_facts_schema().is_valid(&value));
+    let back = wax_contract::scan_facts_from_json(&value.to_string()).unwrap();
+    assert_eq!(back.symbol_usage_summary[0].parent_scope_limit, None);
+}
+
+#[test]
 fn serialized_scan_facts_validate_against_schema() {
     let mut facts = minimal_facts();
     facts.recompute_counts().unwrap();

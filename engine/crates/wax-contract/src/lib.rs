@@ -926,6 +926,13 @@ fn is_nullable_json_field(path: &[String]) -> bool {
     NULLABLE_JSON_FIELDS
         .iter()
         .any(|allowed| path.iter().map(String::as_str).eq(allowed.iter().copied()))
+        || matches!(
+            path,
+            [section, index, field]
+                if section == "symbol_usage_summary"
+                    && index.parse::<usize>().is_ok()
+                    && field == "parent_scope_limit"
+        )
 }
 
 fn json_path(path: &[String]) -> String {

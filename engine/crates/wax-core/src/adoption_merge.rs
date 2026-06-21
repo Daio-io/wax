@@ -231,7 +231,11 @@ fn symbol_kind_for_status(status: MatchStatus) -> SymbolKind {
 
 fn build_symbol_id(language_id: &LanguageId, key: &SymbolGroupKey) -> String {
     if let Some(registry_symbol) = &key.registry_symbol {
-        return format!("{}:registry:{}", language_id.as_str(), registry_symbol);
+        let kind = match key.match_status {
+            MatchStatus::Candidate => "candidate",
+            _ => "registry",
+        };
+        return format!("{}:{kind}:{}", language_id.as_str(), registry_symbol);
     }
     if let Some(local_definition_id) = &key.local_definition_id {
         let local_identity = normalized_local_identity(language_id, local_definition_id)
@@ -575,5 +579,27 @@ mod tests {
             "compose:local:com.example.Card"
         );
         assert_eq!(react_summary[0].symbol_id, "react:local:src/App#Card");
+    }
+
+    #[test]
+    fn candidate_and_resolved_registry_summaries_have_distinct_ids() {
+        let facts = language_facts(
+            "compose",
+            vec![
+                usage_site(MatchStatus::Resolved, "Button", Some("ds.button")),
+                usage_site(MatchStatus::Candidate, "Button", Some("ds.button")),
+            ],
+        );
+
+        let summaries =
+            build_symbol_usage_summaries(&facts, &LanguageId::try_from("compose").unwrap(), None)
+                .unwrap();
+        let ids = summaries
+            .iter()
+            .map(|summary| summary.symbol_id.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(ids.contains(&"compose:registry:ds.button"));
+        assert!(ids.contains(&"compose:candidate:ds.button"));
     }
 }
