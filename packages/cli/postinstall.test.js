@@ -5,7 +5,7 @@ const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
 
-const { download, expectedSha256, validateArchive } = require("./postinstall");
+const { download, expectedSha256, refreshInstalledLanguages, validateArchive } = require("./postinstall");
 
 const digest = "a".repeat(64);
 const version = "0.1.0-alpha.1";
@@ -75,6 +75,35 @@ test("download copies file URLs", async () => {
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
+});
+
+test("refreshInstalledLanguages runs `wax language update --all` and warns on failure", () => {
+  const warnings = [];
+  const calls = [];
+
+  refreshInstalledLanguages("/tmp/wax", {
+    log: (message) => warnings.push(message),
+    spawnSync(command, args, options) {
+      calls.push({ command, args, options });
+      return {
+        status: 23,
+        stderr: "network unavailable\n",
+      };
+    },
+  });
+
+  assert.deepEqual(calls, [
+    {
+      command: "/tmp/wax",
+      args: ["language", "update", "--all"],
+      options: {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    },
+  ]);
+  assert.match(warnings[0], /Warning: unable to refresh installed wax language packs/);
+  assert.match(warnings[0], /network unavailable/);
 });
 
 test("validateArchive accepts expected release archive shape", () => {
