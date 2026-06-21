@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - "engine/**"
+      - "scripts/install.sh"
+      - "scripts/test-install.sh"
       - "scripts/generate-pack-index.sh"
       - "scripts/test-generate-pack-index.sh"
       - "scripts/check-release-workflow.rb"
@@ -14,6 +16,8 @@ on:
       - main
     paths:
       - "engine/**"
+      - "scripts/install.sh"
+      - "scripts/test-install.sh"
       - "scripts/generate-pack-index.sh"
       - "scripts/test-generate-pack-index.sh"
       - "scripts/check-release-workflow.rb"
@@ -55,6 +59,9 @@ jobs:
 
       - name: Test pack index generator
         run: ../scripts/test-generate-pack-index.sh
+
+      - name: Test curl installer
+        run: ../scripts/test-install.sh
 
       - name: Check release workflow
         run: ruby ../scripts/check-release-workflow.rb
