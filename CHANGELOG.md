@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Breaking
+
+- **Adoption Metrics v2** — `scan-merged.json` and per-language scan facts use `schema_version: 2`. Legacy `adoption_coverage_ratio` and flat v1 count fields are replaced by grouped `counts` (`raw_invocations`, `definitions`, `adoption`, `registry`, `parent_scopes`), `metrics.invocation_adoption_ratio`, `metrics.registry_resolution_ratio`, and merged `symbol_usage_summary[]`. Parser-backed packs emit local and unresolved UI invocations with optional parent-scope attribution. The `wax-scan` insights extractor requires v2 scan input.
+
 ### Release
 
 - Promote `wax-lang-react` into alpha release artifacts and generated pack indexes alongside `compose` and `basic` (16 archives + checksums per tag). The default `gh-pages/index.json` updates when the next alpha tag publishes.
