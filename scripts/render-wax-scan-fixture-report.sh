@@ -88,15 +88,16 @@ mkdir -p "$(dirname "$OUTPUT")"
 generated_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 source_scan="$(jq -r '.source_scan' "$FIXTURE" | html_escape_stdin)"
 schema_version="$(jq -r '.schema_version' "$FIXTURE")"
-total="$(jq -r '.repo_summary.total_usage_sites' "$FIXTURE")"
-resolved="$(jq -r '.repo_summary.resolved_count' "$FIXTURE")"
-candidate="$(jq -r '.repo_summary.candidate_count' "$FIXTURE")"
-unresolved="$(jq -r '.repo_summary.unresolved_count' "$FIXTURE")"
-coverage_ratio="$(jq -r '.repo_summary.adoption_coverage_ratio' "$FIXTURE")"
+total="$(jq -r '.repo_summary.raw_invocations.total' "$FIXTURE")"
+eligible="$(jq -r '.repo_summary.adoption.eligible_invocation_count' "$FIXTURE")"
+resolved="$(jq -r '.repo_summary.raw_invocations.resolved' "$FIXTURE")"
+candidate="$(jq -r '.repo_summary.raw_invocations.candidate' "$FIXTURE")"
+unresolved="$(jq -r '.repo_summary.raw_invocations.unresolved' "$FIXTURE")"
+coverage_ratio="$(jq -r '.repo_summary.invocation_adoption_ratio // 0' "$FIXTURE")"
 coverage_pct="$(awk "BEGIN { printf \"%.1f%%\", $coverage_ratio * 100 }")"
 non_ds_pct="$(awk "BEGIN { printf \"%.1f%%\", (1 - $coverage_ratio) * 100 }")"
-local_defs="$(jq -r '.repo_summary.local_definition_count' "$FIXTURE")"
-ds_vs_local_ratio="$(jq -r '.repo_summary.ds_vs_local_ratio' "$FIXTURE")"
+local_defs="$(jq -r '.repo_summary.definitions.local_definition_count' "$FIXTURE")"
+ds_vs_local_ratio="$coverage_ratio"
 ds_vs_local_pct="$(awk "BEGIN { printf \"%.1f%%\", $ds_vs_local_ratio * 100 }")"
 adopted_components_count="$(jq -r '.symbol_rollups.design_system | length' "$FIXTURE")"
 total_registry_components="$adopted_components_count"
@@ -120,17 +121,17 @@ def esc(value):
 
 summary = data["repo_summary"]
 ds_count = len(data.get("symbol_rollups", {}).get("design_system", []))
-local_count = summary.get("local_definition_count", len(data.get("symbol_rollups", {}).get("local", [])))
-coverage = summary.get("adoption_coverage_ratio")
+local_count = summary.get("definitions", {}).get("local_definition_count", len(data.get("symbol_rollups", {}).get("local", [])))
+coverage = summary.get("invocation_adoption_ratio")
 coverage_pct = f"{coverage * 100:.1f}%" if coverage is not None else "n/a"
-ds_vs_local = summary.get("ds_vs_local_ratio")
+ds_vs_local = coverage
 ds_vs_local_pct = f"{ds_vs_local * 100:.1f}%" if ds_vs_local is not None else "n/a"
 
 kpis = [
-    (ds_vs_local_pct, "DS vs local"),
-    (esc(summary["total_usage_sites"]), "Usage sites"),
+    (ds_vs_local_pct, "Invocation adoption"),
+    (esc(summary["raw_invocations"]["total"]), "UI invocations"),
     (f"{ds_count}", "DS symbols"),
-    (esc(summary["unresolved_count"]), "Unresolved"),
+    (esc(summary["raw_invocations"]["unresolved"]), "Unresolved"),
 ]
 
 for num, label in kpis:
@@ -158,8 +159,8 @@ bar_h = int(sys.argv[5])
 row_h = int(sys.argv[6])
 value_gutter = int(sys.argv[7])
 summary = data["repo_summary"]
-resolved = summary.get("resolved_count", 0)
-local_defs = summary.get("local_definition_count", 0)
+resolved = summary.get("raw_invocations", {}).get("resolved", 0)
+local_defs = summary.get("definitions", {}).get("local_definition_count", 0)
 max_val = max(resolved, local_defs, 1)
 bar_max = chart_width - bar_x - value_gutter
 scale = bar_max / max_val
@@ -285,17 +286,18 @@ if not langs:
 def esc(value):
     return html.escape(str(value), quote=False)
 
-max_total = max(item.get("usage_site_count", 0) for item in langs) or 1
+max_total = max(item.get("raw_invocations", {}).get("total", 0) for item in langs) or 1
 bar_max = chart_width - bar_x - value_gutter
 height = len(langs) * row_h + 8
 parts = [f'<svg viewBox="0 0 {chart_width} {height}" role="img" aria-label="Adoption by language">']
 for i, item in enumerate(langs):
     y = i * row_h + row_h - 4
     lang = esc(item.get("language_id", ""))
-    resolved = item.get("resolved_count", 0)
-    candidate = item.get("candidate_count", 0)
-    unresolved = item.get("unresolved_count", 0)
-    total = item.get("usage_site_count", 0)
+    raw = item.get("raw_invocations", {})
+    resolved = raw.get("resolved", 0)
+    candidate = raw.get("candidate", 0)
+    unresolved = raw.get("unresolved", 0)
+    total = raw.get("total", 0)
     scale = bar_max / max_total
     r_w = max(int(resolved * scale), 1 if resolved else 0)
     c_w = max(int(candidate * scale), 1 if candidate else 0)
@@ -368,9 +370,9 @@ def esc(value):
 summary = data["repo_summary"]
 ds = data.get("symbol_rollups", {}).get("design_system", [])
 frag = data.get("fragmentation_candidates", [])
-coverage = summary.get("adoption_coverage_ratio")
+coverage = summary.get("invocation_adoption_ratio")
 coverage_pct = f"{coverage * 100:.1f}%" if coverage is not None else "n/a"
-ds_vs_local = summary.get("ds_vs_local_ratio")
+ds_vs_local = coverage
 ds_vs_local_pct = f"{ds_vs_local * 100:.1f}%" if ds_vs_local is not None else "n/a"
 top = ds[0] if ds else None
 findings = []
@@ -384,9 +386,10 @@ if frag:
         f"<li><strong>{esc(len(frag))} fragmentation families detected</strong> — "
         f"review {esc(frag[0]['pattern'])} and similar patterns for consolidation.</li>"
     )
-if summary.get("unresolved_count", 0) > 0:
+unresolved = summary.get("raw_invocations", {}).get("unresolved", 0)
+if unresolved > 0:
     findings.append(
-        f"<li><strong>{esc(summary['unresolved_count'])} unresolved sites</strong> — "
+        f"<li><strong>{esc(unresolved)} unresolved sites</strong> — "
         "investigate registry gaps or import resolution issues.</li>"
     )
 print(f"<ul>{''.join(findings)}</ul>")
@@ -620,9 +623,13 @@ replace generated_at "$generated_at"
 replace source_scan "$source_scan"
 replace schema_version "$schema_version"
 replace coverage_percent "$coverage_pct"
+replace invocation_adoption_percent "$coverage_pct"
 replace non_ds_percent "$non_ds_pct"
+replace non_adopted_percent "$non_ds_pct"
 replace resolved_count "$resolved"
 replace total_usage_sites "$total"
+replace eligible_invocation_count "$eligible"
+replace raw_invocation_total "$total"
 replace adopted_components_count "$adopted_components_count"
 replace total_registry_components "$total_registry_components"
 replace trend_delta "First scan"
@@ -675,7 +682,7 @@ if grep -q '{{' "$OUTPUT"; then
   exit 1
 fi
 
-for token in 'Current adoption' 'Adopted components' 'Adoption over time' 'Adoption by project/package' 'Top non-DS components to tackle' '<svg' 'Visible limits' 'Diagnostics'; do
+for token in 'UI invocation adoption' 'Adopted components' 'Resolved, local, candidate, and unresolved UI invocations' 'Adoption by project/package' '<svg' 'Visible limits' 'Diagnostics'; do
   if ! grep -q "$token" "$OUTPUT"; then
     echo "FAIL: missing expected token: $token" >&2
     exit 1

@@ -14,19 +14,23 @@ Output: versioned insights JSON consumed by the agent when rendering terminal an
 
 | Field | Description |
 |-------|-------------|
-| `schema_version` | Insights contract version |
+| `schema_version` | Insights contract version (`2` for Adoption Metrics v2) |
 | `generated_at` | RFC3339 timestamp |
 | `source_scan` | Path to merged scan input |
-| `repo_summary` | Repository-level usage and adoption totals (includes `local_definition_count`, `local_usage_site_count`, `ds_vs_local_ratio`) |
-| `per_language` | Per-language status, adoption %, counts |
+| `repo_summary` | Repository-level invocation adoption, registry resolution, raw invocation counters, local definitions, and parent-scope totals |
+| `per_language` | Per-language status, invocation adoption, registry resolution, and v2 count groups |
 | `symbol_rollups.design_system` | DS symbol usage frequency |
-| `symbol_rollups.local` | Local component symbol frequency |
-| `symbol_rollups.unresolved` | Unresolved usage symbol frequency |
+| `symbol_rollups.candidate` | Candidate design-system symbol frequency, reported separately from confirmed design-system usage |
+| `symbol_rollups.local` | Local invocation symbol frequency |
+| `symbol_rollups.unresolved` | Unresolved invocation symbol frequency |
+| `top_local_symbols` | Top local rows from `symbol_usage_summary[]` |
+| `top_unresolved_symbols` | Top unresolved rows from `symbol_usage_summary[]` |
+| `parent_scope_hotspots` | Parent scopes with the highest attributed invocation counts |
 | `fragmentation_candidates` | Symbol families suggesting duplication |
 | `limits[]` | Metrics unavailable from current facts |
 | `baseline_deltas` | Trend deltas when `--baseline` supplied |
 
-## Limits catalog (v1)
+## Limits catalog (v2)
 
 Emit a `limits[]` entry when the metric is not supported by current `ScanFacts`:
 
@@ -56,13 +60,16 @@ Data gap: <metric> requires <missing capability>. Not computed in this scan.
 
 ## Baseline deltas (when `--baseline` provided)
 
-Compute when the baseline is a compatible `scan-merged.json`:
+Compute when the baseline is a compatible v2 `scan-merged.json`:
 
-- Adoption coverage ratio change
-- Resolved / candidate / unresolved count changes
-- Per-language adoption change when language sets match
+- UI invocation adoption ratio change
+- Registry resolution ratio change
+- Raw invocation count changes (`resolved`, `local`, `candidate`, `unresolved`)
+- Symbol summary changes by `symbol_id` (`raw_invocation_count`, `file_count`, `parent_scope_count`)
+- Parent-scope total change
+- Per-language deltas when language sets match
 
-Otherwise emit a single limit entry explaining baseline incompatibility.
+If the baseline is schema v1, emit a single limit entry explaining the compatibility data gap instead of mixing v1 and v2 denominators.
 
 ## HTML escaping
 
@@ -97,18 +104,18 @@ The template is the approved visual source of truth for the report UI. It uses a
 | `{{repo_name}}` | Repository or project name | `my-app` |
 | `{{generated_at}}` | Insights JSON `generated_at` (RFC3339) | `2026-06-14T12:00:00Z` |
 | `{{source_scan}}` | Insights JSON `source_scan` | `.wax/out/scan-merged.json` |
-| `{{schema_version}}` | Insights JSON `schema_version` | `1` |
+| `{{schema_version}}` | Insights JSON `schema_version` | `2` |
 
 ### Opening adoption hero
 
 | Placeholder | Source | Notes |
 |-------------|--------|-------|
-| `{{coverage_percent}}` | Deterministic | `repo_summary.adoption_coverage_ratio` as formatted percent string |
+| `{{coverage_percent}}` | Deterministic | `repo_summary.invocation_adoption_ratio` as formatted percent string |
 | `{{non_ds_percent}}` | Deterministic | `100 - coverage_percent`, formatted as percent |
-| `{{resolved_count}}` | Deterministic | `repo_summary.resolved_count` |
-| `{{total_usage_sites}}` | Deterministic | `repo_summary.total_usage_sites` |
-| `{{adopted_components_count}}` | Deterministic | Registry components with observed DS usage |
-| `{{total_registry_components}}` | Deterministic | Total registry component count |
+| `{{resolved_count}}` | Deterministic | `repo_summary.raw_invocations.resolved` |
+| `{{total_usage_sites}}` | Deterministic | `repo_summary.adoption.eligible_invocation_count` |
+| `{{adopted_components_count}}` | Deterministic | `repo_summary.registry.used_component_count` |
+| `{{total_registry_components}}` | Deterministic | `repo_summary.registry.component_count` |
 | `{{trend_delta}}` | Baseline or fallback | e.g. `+8 pts`; use `First scan` when no baseline exists |
 | `{{trend_context}}` | Baseline or fallback | e.g. `Compared with previous baseline` |
 | `{{trend_status}}` | Baseline or fallback | e.g. `Steady improvement` or `History starts here` |

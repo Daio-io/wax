@@ -1,15 +1,138 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "recorded_at": "2026-06-14T12:00:00Z",
+  "repo_summary": {
+    "languages": [
+      "compose",
+      "react"
+    ],
+    "counts": {
+      "registry": {
+        "component_count": 4,
+        "used_component_count": 3,
+        "resolved_raw_invocation_count": 6,
+        "candidate_raw_invocation_count": 1
+      },
+      "definitions": {
+        "local_definition_count": 6,
+        "invoked_local_definition_count": 3,
+        "unused_local_definition_count": 3
+      },
+      "raw_invocations": {
+        "total": 11,
+        "resolved": 6,
+        "local": 3,
+        "candidate": 1,
+        "unresolved": 1
+      },
+      "adoption": {
+        "eligible_invocation_count": 10,
+        "adopted_invocation_count": 6,
+        "non_adopted_invocation_count": 4
+      },
+      "parent_scopes": {
+        "total": 0,
+        "with_resolved_invocations": 0,
+        "with_local_invocations": 0,
+        "with_unresolved_invocations": 0
+      }
+    },
+    "metrics": {
+      "invocation_adoption_ratio": 0.6,
+      "registry_resolution_ratio": 0.5454545454545454,
+      "parse_extract_ms": 180,
+      "files_scanned": 5
+    }
+  },
+  "symbol_usage_summary": [
+    {
+      "symbol_id": "compose:registry:com.ds.Modal",
+      "symbol": "Modal",
+      "qualified_symbol": null,
+      "symbol_kind": "candidate",
+      "match_status": "candidate",
+      "registry_symbol": "com.ds.Modal",
+      "local_definition_id": null,
+      "identity_basis": "registry_symbol",
+      "identity_stability": "semantic",
+      "raw_invocation_count": 1,
+      "parent_scope_count": 1,
+      "file_count": 1,
+      "parent_scopes": [],
+      "parent_scope_limit": null,
+      "parent_scopes_truncated": false
+    },
+    {
+      "symbol_id": "compose:registry:com.ds.Button",
+      "symbol": "Button",
+      "qualified_symbol": null,
+      "symbol_kind": "registry",
+      "match_status": "resolved",
+      "registry_symbol": "com.ds.Button",
+      "local_definition_id": null,
+      "identity_basis": "registry_symbol",
+      "identity_stability": "semantic",
+      "raw_invocation_count": 2,
+      "parent_scope_count": 1,
+      "file_count": 1,
+      "parent_scopes": [],
+      "parent_scope_limit": null,
+      "parent_scopes_truncated": false
+    },
+    {
+      "symbol_id": "react:local:IconButton",
+      "symbol": "IconButton",
+      "qualified_symbol": null,
+      "symbol_kind": "local",
+      "match_status": "local",
+      "registry_symbol": null,
+      "local_definition_id": "local.icon-button",
+      "identity_basis": "local_definition_id",
+      "identity_stability": "path_sensitive",
+      "raw_invocation_count": 1,
+      "parent_scope_count": 1,
+      "file_count": 1,
+      "parent_scopes": [
+        {
+          "parent_id": "react:component:src/App#App",
+          "symbol": "App",
+          "qualified_symbol": null,
+          "scope_kind": "component",
+          "identity_basis": "module_path_and_symbol",
+          "identity_stability": "path_sensitive",
+          "invocation_count": 1
+        }
+      ],
+      "parent_scope_limit": null,
+      "parent_scopes_truncated": false
+    },
+    {
+      "symbol_id": "compose:unresolved:UnknownWidget",
+      "symbol": "UnknownWidget",
+      "qualified_symbol": null,
+      "symbol_kind": "unresolved",
+      "match_status": "unresolved",
+      "registry_symbol": null,
+      "local_definition_id": null,
+      "identity_basis": "symbol",
+      "identity_stability": "scan_local",
+      "raw_invocation_count": 1,
+      "parent_scope_count": 1,
+      "file_count": 1,
+      "parent_scopes": [],
+      "parent_scope_limit": 0,
+      "parent_scopes_truncated": true
+    }
+  ],
   "languages": {
     "compose": {
-      "schema_version": 1,
+      "schema_version": 2,
       "language": {
         "id": "compose",
         "version": "0.1.0",
         "ecosystem": "jetpack-compose",
         "parser_name": "tree-sitter-kotlin",
-        "parser_version": "0.3.8"
+        "parser_version": "1.0.0"
       },
       "snapshot_id": "compose-snap",
       "scanned_at": "2026-06-14T12:00:00Z",
@@ -24,88 +147,150 @@
           "id": "ds.card",
           "symbol": "Card",
           "registry_symbol": "com.ds.Card"
+        },
+        {
+          "id": "ds.modal",
+          "symbol": "Modal",
+          "registry_symbol": "com.ds.Modal"
         }
       ],
       "local_components": [
         {
           "id": "local.primary-button",
           "symbol": "PrimaryButton",
-          "location": { "file": "src/Buttons.kt", "line": 10 }
+          "location": {
+            "file": "src/Buttons.kt",
+            "line": 10
+          }
         },
         {
           "id": "local.secondary-button",
           "symbol": "SecondaryButton",
-          "location": { "file": "src/Buttons.kt", "line": 30 }
+          "location": {
+            "file": "src/Buttons.kt",
+            "line": 30
+          }
         },
         {
           "id": "local.app-modal",
           "symbol": "AppModal",
-          "location": { "file": "src/Modal.kt", "line": 5 }
+          "location": {
+            "file": "src/Modal.kt",
+            "line": 5
+          }
         },
         {
           "id": "local.primary-button-alias",
           "symbol": "PrimaryButton",
-          "location": { "file": "src/Legacy.kt", "line": 8 }
+          "location": {
+            "file": "src/Legacy.kt",
+            "line": 8
+          }
         }
       ],
       "usage_sites": [
         {
           "id": "c:1:Button:resolved",
-          "location": { "file": "src/Home.kt", "line": 12 },
+          "location": {
+            "file": "src/Home.kt",
+            "line": 12
+          },
           "symbol": "Button",
           "match_status": "resolved",
           "registry_symbol": "com.ds.Button"
         },
         {
           "id": "c:2:Button:resolved",
-          "location": { "file": "src/Home.kt", "line": 18 },
+          "location": {
+            "file": "src/Home.kt",
+            "line": 18
+          },
           "symbol": "Button",
           "match_status": "resolved",
           "registry_symbol": "com.ds.Button"
         },
         {
           "id": "c:3:Card:resolved",
-          "location": { "file": "src/Home.kt", "line": 24 },
+          "location": {
+            "file": "src/Home.kt",
+            "line": 24
+          },
           "symbol": "Card",
           "match_status": "resolved",
           "registry_symbol": "com.ds.Card"
         },
         {
           "id": "c:4:Modal:candidate",
-          "location": { "file": "src/Home.kt", "line": 30 },
+          "location": {
+            "file": "src/Home.kt",
+            "line": 30
+          },
           "symbol": "Modal",
           "match_status": "candidate",
           "registry_symbol": "com.ds.Modal"
         },
         {
-          "id": "c:5:PrimaryButton:unresolved",
-          "location": { "file": "src/Home.kt", "line": 36 },
+          "id": "c:5:PrimaryButton:local",
+          "location": {
+            "file": "src/Home.kt",
+            "line": 36
+          },
           "symbol": "PrimaryButton",
-          "match_status": "unresolved"
+          "match_status": "local",
+          "local_definition_id": "local.primary-button"
         },
         {
           "id": "c:6:UnknownWidget:unresolved",
-          "location": { "file": "src/Home.kt", "line": 42 },
+          "location": {
+            "file": "src/Home.kt",
+            "line": 42
+          },
           "symbol": "UnknownWidget",
           "match_status": "unresolved"
         }
       ],
       "diagnostics": [],
       "metrics": {
-        "adoption_coverage_ratio": 0.5,
+        "invocation_adoption_ratio": 0.6,
+        "registry_resolution_ratio": 0.5,
         "parse_extract_ms": 100,
         "files_scanned": 3
       },
       "counts": {
-        "design_system_component_count": 2,
-        "local_component_count": 3,
-        "usage_site_count": 6,
-        "resolved_count": 3,
-        "candidate_count": 1
-      }
+        "registry": {
+          "component_count": 3,
+          "used_component_count": 2,
+          "resolved_raw_invocation_count": 3,
+          "candidate_raw_invocation_count": 1
+        },
+        "definitions": {
+          "local_definition_count": 4,
+          "invoked_local_definition_count": 1,
+          "unused_local_definition_count": 3
+        },
+        "raw_invocations": {
+          "total": 6,
+          "resolved": 3,
+          "local": 1,
+          "candidate": 1,
+          "unresolved": 1
+        },
+        "adoption": {
+          "eligible_invocation_count": 5,
+          "adopted_invocation_count": 3,
+          "non_adopted_invocation_count": 2
+        },
+        "parent_scopes": {
+          "total": 0,
+          "with_resolved_invocations": 0,
+          "with_local_invocations": 0,
+          "with_unresolved_invocations": 0
+        }
+      },
+      "symbol_usage_summary": []
     },
     "react": {
-      "schema_version": 1,
+      "schema_version": 2,
       "language": {
         "id": "react",
         "version": "0.1.0",
@@ -127,47 +312,70 @@
         {
           "id": "local.icon-button",
           "symbol": "IconButton",
-          "location": { "file": "src/IconButton.tsx", "line": 8 }
+          "location": {
+            "file": "src/IconButton.tsx",
+            "line": 8
+          }
         },
         {
           "id": "local.confirm-modal",
           "symbol": "ConfirmModal",
-          "location": { "file": "src/ConfirmModal.tsx", "line": 4 }
+          "location": {
+            "file": "src/ConfirmModal.tsx",
+            "line": 4
+          }
         }
       ],
       "usage_sites": [
         {
           "id": "r:1:Button:resolved",
-          "location": { "file": "src/App.tsx", "line": 10 },
+          "location": {
+            "file": "src/App.tsx",
+            "line": 10
+          },
           "symbol": "Button",
           "match_status": "resolved",
           "registry_symbol": "Button"
         },
         {
           "id": "r:2:Button:resolved",
-          "location": { "file": "src/App.tsx", "line": 16 },
+          "location": {
+            "file": "src/App.tsx",
+            "line": 16
+          },
           "symbol": "Button",
           "match_status": "resolved",
           "registry_symbol": "Button"
         },
         {
           "id": "r:3:Button:resolved",
-          "location": { "file": "src/App.tsx", "line": 22 },
+          "location": {
+            "file": "src/App.tsx",
+            "line": 22
+          },
           "symbol": "Button",
           "match_status": "resolved",
           "registry_symbol": "Button"
         },
         {
-          "id": "r:4:IconButton:unresolved",
-          "location": { "file": "src/App.tsx", "line": 28 },
+          "id": "r:4:IconButton:local",
+          "location": {
+            "file": "src/App.tsx",
+            "line": 28
+          },
           "symbol": "IconButton",
-          "match_status": "unresolved"
+          "match_status": "local",
+          "local_definition_id": "local.icon-button"
         },
         {
-          "id": "r:5:ConfirmModal:unresolved",
-          "location": { "file": "src/App.tsx", "line": 34 },
+          "id": "r:5:ConfirmModal:local",
+          "location": {
+            "file": "src/App.tsx",
+            "line": 34
+          },
           "symbol": "ConfirmModal",
-          "match_status": "unresolved"
+          "match_status": "local",
+          "local_definition_id": "local.confirm-modal"
         }
       ],
       "diagnostics": [
@@ -178,17 +386,43 @@
         }
       ],
       "metrics": {
-        "adoption_coverage_ratio": 0.6,
+        "invocation_adoption_ratio": 0.6,
+        "registry_resolution_ratio": 0.6,
         "parse_extract_ms": 80,
         "files_scanned": 2
       },
       "counts": {
-        "design_system_component_count": 1,
-        "local_component_count": 2,
-        "usage_site_count": 5,
-        "resolved_count": 3,
-        "candidate_count": 0
-      }
+        "registry": {
+          "component_count": 1,
+          "used_component_count": 1,
+          "resolved_raw_invocation_count": 3,
+          "candidate_raw_invocation_count": 0
+        },
+        "definitions": {
+          "local_definition_count": 2,
+          "invoked_local_definition_count": 2,
+          "unused_local_definition_count": 0
+        },
+        "raw_invocations": {
+          "total": 5,
+          "resolved": 3,
+          "local": 2,
+          "candidate": 0,
+          "unresolved": 0
+        },
+        "adoption": {
+          "eligible_invocation_count": 5,
+          "adopted_invocation_count": 3,
+          "non_adopted_invocation_count": 2
+        },
+        "parent_scopes": {
+          "total": 0,
+          "with_resolved_invocations": 0,
+          "with_local_invocations": 0,
+          "with_unresolved_invocations": 0
+        }
+      },
+      "symbol_usage_summary": []
     }
   }
 }
