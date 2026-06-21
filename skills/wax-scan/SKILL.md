@@ -67,12 +67,14 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
 
 7. When `--html` or `--html-only` is requested, render `.wax/out/report/index.html` using `skills/wax-scan/templates/report.html`.
    - Self-contained branded report: warm paper background, soft green adoption areas, beeswax yellow accent, large adoption hero, smooth 100% split-area trend, ranked project/package bars, ranked non-DS opportunity bars, and secondary diagnostics.
-   - Layout: header → current adoption hero → adoption over time → adoption by project/package → top non-DS components to tackle → visible limits + diagnostics.
+   - Layout: header → UI invocation adoption hero → invocation breakdown → adoption by project/package → top local/unresolved symbols → visible limits + diagnostics.
    - Prefer project/package breakdowns before language breakdowns unless the user explicitly asks for multi-language analysis.
    - Populate the agreed first-screen metrics:
-     - current adoption percentage from resolved design-system usage share
-     - design-system usage count and total tracked usage count
-     - adopted components count over total registry components
+     - UI invocation adoption from `repo_summary.metrics.invocation_adoption_ratio`
+     - registry resolution from `repo_summary.metrics.registry_resolution_ratio`
+     - raw DS invocations (`raw_invocations.resolved`, `raw_invocations.candidate`)
+     - local definitions (`definitions.local_definition_count`, `definitions.invoked_local_definition_count`)
+     - unresolved UI calls (`raw_invocations.unresolved`)
      - optional trend delta/status when a baseline exists, otherwise first-scan copy
      - 100% split-area trend points for design-system vs non-design-system share
      - ranked project/package adoption rows
@@ -114,8 +116,8 @@ For every insight:
 
 Analyze and report on:
 
-1. Design system adoption
-2. Design system coverage
+1. UI invocation adoption
+2. Registry resolution and raw invocation breakdown
 3. Design system debt
 4. Component health
 5. Version adoption
@@ -126,35 +128,38 @@ Analyze and report on:
 
 ---
 
-# DESIGN SYSTEM COVERAGE
+# UI INVOCATION ADOPTION
 
 Measure:
 
 - Total UI elements analyzed
-- Design system component instances
-- Custom component instances
-- Native element instances
-- Unknown component instances
+- Resolved design-system invocations
+- Local component invocations
+- Candidate design-system invocations that need review
+- Unresolved UI-shaped invocations
 
 Calculate:
 
-Coverage % =
-Design System Components /
-All UI Components
+UI invocation adoption =
+Resolved design-system invocations /
+Adoption-eligible invocations
+
+Registry resolution =
+Resolved design-system invocations /
+All detected UI invocations
 
 Report:
 
-- Overall coverage
-- Coverage by feature area
-- Coverage by screen
-- Coverage by route
-- Coverage by package/module
-- Coverage by team (if available)
+- Overall UI invocation adoption
+- Registry resolution
+- Raw invocation breakdown by `resolved`, `local`, `candidate`, and `unresolved`
+- Parent-scope hotspots when attribution is available
+- Adoption by feature area, screen, route, package/module, or team when those boundaries are available
 
 Identify:
 
-- Areas with low coverage
-- Areas with high coverage
+- Areas with low invocation adoption
+- Areas with high invocation adoption
 - Areas showing adoption growth
 - Areas showing adoption decline
 

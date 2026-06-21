@@ -1,5 +1,46 @@
 {
   "schema_version": 2,
-  "recorded_at": "2026-06-01T12:00:00Z",
+  "recorded_at": "2026-06-14T12:00:00Z",
+  "repo_summary": {
+    "languages": ["compose"],
+    "counts": {
+      "registry": {
+        "component_count": 1,
+        "used_component_count": 1,
+        "resolved_raw_invocation_count": 1,
+        "candidate_raw_invocation_count": 0
+      },
+      "definitions": {
+        "local_definition_count": 0,
+        "invoked_local_definition_count": 0,
+        "unused_local_definition_count": 0
+      },
+      "raw_invocations": {
+        "total": 1,
+        "resolved": 1,
+        "local": 0,
+        "candidate": 0,
+        "unresolved": 0
+      },
+      "adoption": {
+        "eligible_invocation_count": 1,
+        "adopted_invocation_count": 1,
+        "non_adopted_invocation_count": 0
+      },
+      "parent_scopes": {
+        "total": 0,
+        "with_resolved_invocations": 0,
+        "with_local_invocations": 0,
+        "with_unresolved_invocations": 0
+      }
+    },
+    "metrics": {
+      "invocation_adoption_ratio": 1.0,
+      "registry_resolution_ratio": 1.0,
+      "parse_extract_ms": 12,
+      "files_scanned": 1
+    }
+  },
+  "symbol_usage_summary": [],
   "languages": {}
 }

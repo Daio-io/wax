@@ -371,15 +371,15 @@
     <section class="hero">
       <div class="hero-grid">
         <div>
-          <div class="eyebrow">Current adoption</div>
+          <div class="eyebrow">UI invocation adoption</div>
           <div class="headline">
-            <div class="big">{{coverage_percent}}</div>
-            <div class="sub">design system coverage</div>
+            <div class="big">{{invocation_adoption_percent}}</div>
+            <div class="sub">eligible UI invocations adopted</div>
           </div>
-          <div class="lede">{{resolved_count}} design-system usages out of {{total_usage_sites}} total tracked component usages</div>
-          <div class="split-bar" style="--ds-share: {{coverage_percent}}; --non-ds-share: {{non_ds_percent}};">
-            <div class="ds">Design system {{coverage_percent}}</div>
-            <div class="non">Non-DS {{non_ds_percent}}</div>
+          <div class="lede">{{resolved_count}} design-system invocations out of {{eligible_invocation_count}} adoption-eligible UI invocations ({{raw_invocation_total}} raw invocations tracked)</div>
+          <div class="split-bar" style="--ds-share: {{invocation_adoption_percent}}; --non-ds-share: {{non_adopted_percent}};">
+            <div class="ds">Adopted {{invocation_adoption_percent}}</div>
+            <div class="non">Not adopted {{non_adopted_percent}}</div>
           </div>
         </div>
 
@@ -402,8 +402,8 @@
       <article class="card">
         <div class="card-head">
           <div>
-            <h2>Adoption over time</h2>
-            <p>100% split area of design system vs non-design system share</p>
+            <h2>Invocation breakdown</h2>
+            <p>Resolved, local, candidate, and unresolved UI invocations</p>
           </div>
           <div class="status" style="color:#5f8d4e;">{{trend_status}}</div>
         </div>
@@ -435,7 +435,7 @@
     <section class="card" style="margin-bottom:22px;">
       <div class="card-head">
         <div>
-          <h2>Top non-DS components to tackle</h2>
+          <h2>Top local and unresolved symbols</h2>
           <p>Highest migration opportunity based on repeated non-design-system usage</p>
         </div>
         <div class="status" style="color:#7a6520;">Action queue</div>

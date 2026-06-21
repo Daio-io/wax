@@ -38,7 +38,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 ## Which plan should I run?
 
 ```text
--> Merge Adoption Metrics v2 PRs (#165 → #171 → #172), then archive plan and update this README
+-> Merge Adoption Metrics v2 PRs (#165 -> #171 -> #172), then archive plan and update this README
 ```
 
 Orders 1-4, 6-10 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Adoption Metrics v2 (order 11) is the active implementation plan with stacked PRs for contract, engine, language packs, CLI reporting, and docs.

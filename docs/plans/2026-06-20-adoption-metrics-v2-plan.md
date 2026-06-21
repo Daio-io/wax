@@ -329,7 +329,7 @@ Update canned subprocess facts in `engine/crates/wax-core/tests/subprocess_proto
 
 Add root-level `repo_summary.counts`, `repo_summary.metrics`, and root `symbol_usage_summary[]` to `MergedScan`. Tests must assert repo-level ratios are recomputed from summed counters.
 
-- [ ] **Step 7: Run focused checks**
+- [x] **Step 7: Run focused checks**
 
 Run:
 
@@ -378,7 +378,7 @@ Emit informational diagnostics or capability flags that allow reporting to show 
 - unresolved UI invocation tracking
 - parent attribution
 
-- [ ] **Step 4: Run focused checks**
+- [x] **Step 4: Run focused checks**
 
 Run:
 
@@ -391,7 +391,7 @@ cargo clippy -p wax-lang-basic --all-targets -- -D warnings
 
 Expected: all pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add engine/crates/wax-lang-basic
@@ -472,7 +472,7 @@ For each composable call expression:
 
 Walk AST ancestors to the nearest `@Composable` function declaration. Calls inside trailing lambdas remain attributed to the enclosing composable declaration, not the slot callee.
 
-- [ ] **Step 6: Run focused checks**
+- [x] **Step 6: Run focused checks**
 
 Run:
 
@@ -485,7 +485,7 @@ cargo clippy -p wax-lang-compose --all-targets -- -D warnings
 
 Expected: all pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add engine/crates/wax-lang-compose
@@ -552,7 +552,7 @@ For each PascalCase JSX element:
 
 Parent is the innermost enclosing React component function/class containing the JSX element. Children passed to another component remain attributed to the caller component.
 
-- [ ] **Step 5: Run focused checks**
+- [x] **Step 5: Run focused checks**
 
 Run:
 
@@ -565,7 +565,7 @@ cargo clippy -p wax-lang-react --all-targets -- -D warnings
 
 Expected: all pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add engine/crates/wax-lang-react
@@ -623,7 +623,7 @@ Resolve registry first, local definitions second, unresolved UI-shaped invocatio
 
 Parent is the enclosing `View` type body or `@ViewBuilder` function containing the call. Calls inside builder closures passed to another view remain attributed to the caller view, not the slot host.
 
-- [ ] **Step 5: Run focused checks**
+- [x] **Step 5: Run focused checks**
 
 Run:
 
@@ -636,7 +636,7 @@ cargo clippy -p wax-lang-swift --all-targets -- -D warnings
 
 Expected: all pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add engine/crates/wax-lang-swift
@@ -661,7 +661,7 @@ git commit -m "feat: emit swiftui adoption metrics v2 facts"
 - Consumes: v2 merged output from Task 2.
 - Produces: honest labels and v2-aware terminal/HTML reports.
 
-- [ ] **Step 1: Add failing extractor fixture**
+- [x] **Step 1: Add failing extractor fixture**
 
 Update wax-scan fixtures so v2 output includes:
 
@@ -673,7 +673,7 @@ Update wax-scan fixtures so v2 output includes:
 
 Expected extractor output should include UI invocation adoption, registry resolution, top local symbols, and parent-scope hotspots.
 
-- [ ] **Step 2: Update CLI labels**
+- [x] **Step 2: Update CLI labels**
 
 Replace unqualified "coverage" copy with:
 
@@ -683,7 +683,7 @@ Replace unqualified "coverage" copy with:
 - `Local definitions`
 - `Unresolved UI calls`
 
-- [ ] **Step 3: Update HTML and terminal reporting**
+- [x] **Step 3: Update HTML and terminal reporting**
 
 Show hero cards in this order:
 
@@ -694,15 +694,15 @@ Show hero cards in this order:
 
 Use `symbol_usage_summary[]` for top local/unresolved symbols.
 
-- [ ] **Step 4: Update skill instructions**
+- [x] **Step 4: Update skill instructions**
 
 Update `skills/wax-scan/SKILL.md` so the skill asks for UI invocation adoption, registry resolution, raw DS invocations, local definitions, and unresolved UI calls. Remove unqualified "coverage" language except when explaining old v1 limitations.
 
-- [ ] **Step 5: Version insights and baseline behavior**
+- [x] **Step 5: Version insights and baseline behavior**
 
 Bump the wax-scan extracted insights schema version. Baseline comparisons must support v2-to-v2 deltas for invocation adoption, registry resolution, raw invocations, and symbol summaries. If a supplied baseline is v1, emit a compatibility data gap rather than mixing v1 and v2 denominators.
 
-- [ ] **Step 6: Run focused checks**
+- [x] **Step 6: Run focused checks**
 
 Run:
 
@@ -716,7 +716,7 @@ cargo clippy -p wax-cli --all-targets -- -D warnings
 
 Expected: all pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add engine/crates/wax-cli skills/wax-scan scripts/fixtures/wax-scan docs/specs/2026-06-14-wax-scan-design.md
@@ -777,12 +777,12 @@ git commit -m "docs: document adoption metrics v2 rollout"
 - [x] `symbol_usage_summary[]` includes registry, local, candidate, and unresolved rows.
 - [x] Parent scope rows are complete by default and respect `parent_scope_limit`.
 - [x] Merged scans sum counters and recompute ratios.
-- [ ] CLI and HTML reports distinguish invocation adoption from registry resolution.
+- [x] CLI and HTML reports distinguish invocation adoption from registry resolution.
 - [x] v2 uses the new scan format directly without v1 compatibility aliases.
 - [x] `wax-lang-basic` emits schema v2 registry-only facts and capability gaps.
 - [x] `wax-lang-compose`, `wax-lang-react`, and `wax-lang-swift` all emit local/unresolved invocation facts and parent attribution.
 - [x] Subprocess protocol and CLI scan fixtures use schema v2 facts.
 - [x] `engine/crates/wax-contract/schemas/scan-facts.schema.json` and `waxrc.schema.json` document v2 fields and config.
-- [ ] `skills/wax-scan/SKILL.md`, extractor fixtures, and baseline behavior are v2-aware.
+- [x] `skills/wax-scan/SKILL.md`, extractor fixtures, and baseline behavior are v2-aware.
 - [ ] Adoption Metrics v2 ADR is added and indexed.
 - [ ] Workspace fmt, tests, and clippy pass.
