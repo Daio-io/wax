@@ -254,6 +254,50 @@ fn path_like_ignore_escapes_are_config_errors() {
     assert_config_error(err, "ignore[0]");
 }
 
+#[test]
+fn excludes_alias_is_applied_as_ignore_patterns() {
+    let mut config = valid_config();
+    config.remove("ignore");
+    config.insert(
+        "excludes".to_owned(),
+        serde_json::json!(["src/generated/**"]),
+    );
+
+    let mode = parse_react_scan_config(&config).expect("excludes alias should parse");
+
+    let ReactConfigMode::Configured(config) = mode else {
+        panic!("expected configured mode");
+    };
+    assert_eq!(config.ignore, vec!["src/generated/**"]);
+}
+
+#[test]
+fn ignore_and_excludes_patterns_are_combined() {
+    let mut config = valid_config();
+    config.insert("excludes".to_owned(), serde_json::json!(["src/legacy/**"]));
+
+    let mode = parse_react_scan_config(&config).expect("ignore and excludes should parse");
+
+    let ReactConfigMode::Configured(config) = mode else {
+        panic!("expected configured mode");
+    };
+    assert_eq!(
+        config.ignore,
+        vec!["src/generated/**".to_owned(), "src/legacy/**".to_owned()]
+    );
+}
+
+#[test]
+fn path_like_excludes_escapes_are_config_errors() {
+    let mut config = valid_config();
+    config.insert("excludes".to_owned(), serde_json::json!(["../outside/**"]));
+
+    let err = scan_with_config(serde_json::Value::Object(config))
+        .expect_err("path-like excludes escape must fail");
+
+    assert_config_error(err, "excludes[0]");
+}
+
 fn scan_with_config(config: serde_json::Value) -> Result<wax_contract::ScanFacts, ReactScanError> {
     scan_with_repo_root("/tmp/repo", config)
 }

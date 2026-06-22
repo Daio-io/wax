@@ -174,6 +174,47 @@ fn invalid_include_glob_entry_is_config_error() {
     assert_config_error(err);
 }
 
+#[test]
+fn invalid_excludes_entry_is_config_error() {
+    let mut config = valid_config();
+    config.insert("excludes".to_owned(), serde_json::json!([""]));
+
+    let err = scan_with_config(config).expect_err("empty excludes entry must fail");
+    assert_config_error(err);
+}
+
+#[test]
+fn absolute_excludes_path_is_config_error() {
+    let mut config = valid_config();
+    config.insert("excludes".to_owned(), serde_json::json!(["/tmp/**"]));
+
+    let err = scan_with_config(config).expect_err("absolute excludes path must fail");
+    assert_config_error(err);
+}
+
+#[test]
+fn parent_dir_in_excludes_path_is_config_error() {
+    let mut config = valid_config();
+    config.insert("excludes".to_owned(), serde_json::json!(["../outside/**"]));
+
+    let err = scan_with_config(config).expect_err("parent-dir excludes path must fail");
+    assert_config_error(err);
+}
+
+#[test]
+fn tree_sitter_scan_excludes_basic_files_from_counts_and_facts() {
+    let mut config = valid_config();
+    config.insert(
+        "excludes".to_owned(),
+        serde_json::json!(["app/src/Sample.src"]),
+    );
+
+    let facts = scan_with_config(config).expect("scan with excludes should succeed");
+
+    assert_eq!(facts.metrics.files_scanned, 1);
+    assert!(facts.usage_sites.is_empty());
+}
+
 fn scan_with_config(
     config: serde_json::Map<String, serde_json::Value>,
 ) -> Result<ScanFacts, BasicScanError> {
@@ -196,6 +237,7 @@ fn assert_config_error(err: BasicScanError) {
             assert!(
                 message.contains("roots")
                     || message.contains("design_system_registry")
+                    || message.contains("excludes")
                     || message.contains("file_extensions")
                     || message.contains("include_globs")
                     || message.contains("registry"),

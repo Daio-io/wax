@@ -27,6 +27,8 @@ pub struct BasicScanConfig {
     /// Only `*suffix` wildcard patterns are supported (for example `*.src`).
     /// Full glob syntax such as `src/**/*.kt` or `*.{kt,kts}` is not supported.
     pub include_globs: Vec<String>,
+    /// Repo-relative file paths or glob patterns to exclude from scanning.
+    pub excludes: Vec<String>,
 }
 
 /// Whether the request should run the line scanner or return scaffold facts.
@@ -45,7 +47,8 @@ pub fn parse_basic_scan_config(config: &ScanConfig) -> Result<BasicConfigMode, L
     let has_roots = config.contains_key("roots");
     let has_extensions = config.contains_key("file_extensions");
     let has_globs = config.contains_key("include_globs");
-    if !has_registry && !has_roots && !has_extensions && !has_globs {
+    let has_excludes = config.contains_key("excludes");
+    if !has_registry && !has_roots && !has_extensions && !has_globs && !has_excludes {
         return Ok(BasicConfigMode::Scaffold);
     }
 
@@ -99,12 +102,17 @@ pub fn parse_basic_scan_config(config: &ScanConfig) -> Result<BasicConfigMode, L
 
     let file_extensions = parse_string_array(config, "file_extensions")?;
     let include_globs = parse_string_array(config, "include_globs")?;
+    let excludes = parse_string_array(config, "excludes")?;
+    for (index, exclude) in excludes.iter().enumerate() {
+        validate_repo_relative_path(exclude, &format!("excludes[{index}]"))?;
+    }
 
     Ok(BasicConfigMode::Configured(BasicScanConfig {
         design_system_registry: PathBuf::from(registry),
         roots,
         file_extensions,
         include_globs,
+        excludes,
     }))
 }
 
@@ -205,6 +213,11 @@ pub fn scan_repository(
         }
     }
     source_files.sort();
+    source_files.retain(|file_path| {
+        let relative_file = file_path.strip_prefix(repo_root).unwrap_or(file_path);
+        let relative_text = normalize_repo_relative_path(relative_file);
+        !path_matches_any(&relative_text, &config.excludes)
+    });
 
     let mut design_system_components = registry
         .canonical_symbols
@@ -478,6 +491,110 @@ fn glob_matches(file_name: &str, pattern: &str) -> bool {
     file_name == pattern
 }
 
+fn normalize_repo_relative_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn path_matches_any(path: &str, patterns: &[String]) -> bool {
+    patterns
+        .iter()
+        .any(|pattern| path_matches_glob(path, pattern))
+}
+
+fn path_matches_glob(path: &str, pattern: &str) -> bool {
+    expand_brace_groups(pattern)
+        .iter()
+        .any(|expanded| path_matches_glob_no_brace(path, expanded))
+}
+
+fn expand_brace_groups(pattern: &str) -> Vec<String> {
+    let Some(start) = pattern.find('{') else {
+        return vec![pattern.to_owned()];
+    };
+    let Some(end_offset) = pattern[start..].find('}') else {
+        return vec![pattern.to_owned()];
+    };
+    let end = start + end_offset;
+    let prefix = &pattern[..start];
+    let suffix = &pattern[end + 1..];
+    let alternatives = pattern[start + 1..end].split(',');
+    let mut expanded = Vec::new();
+    for alternative in alternatives {
+        expanded.extend(expand_brace_groups(&format!(
+            "{prefix}{alternative}{suffix}"
+        )));
+    }
+    expanded
+}
+
+fn path_matches_glob_no_brace(path: &str, pattern: &str) -> bool {
+    let path_segments = split_path_segments(path);
+    let pattern_segments = split_path_segments(pattern);
+    segments_match(&path_segments, &pattern_segments)
+}
+
+fn split_path_segments(path: &str) -> Vec<&str> {
+    path.split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect()
+}
+
+fn segments_match(path_segments: &[&str], pattern_segments: &[&str]) -> bool {
+    let mut path_idx = 0;
+    let mut pattern_idx = 0;
+
+    while pattern_idx < pattern_segments.len() {
+        if pattern_segments[pattern_idx] == "**" {
+            if pattern_idx == pattern_segments.len() - 1 {
+                return true;
+            }
+            for skip in 0..=(path_segments.len().saturating_sub(path_idx)) {
+                if segments_match(
+                    &path_segments[path_idx + skip..],
+                    &pattern_segments[pattern_idx + 1..],
+                ) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        if path_idx >= path_segments.len()
+            || !segment_matches(path_segments[path_idx], pattern_segments[pattern_idx])
+        {
+            return false;
+        }
+
+        path_idx += 1;
+        pattern_idx += 1;
+    }
+
+    path_idx == path_segments.len()
+}
+
+fn segment_matches(segment: &str, pattern: &str) -> bool {
+    if pattern == "*" {
+        return true;
+    }
+    glob_segment_match(segment.as_bytes(), pattern.as_bytes())
+}
+
+fn glob_segment_match(segment: &[u8], pattern: &[u8]) -> bool {
+    match (segment.first(), pattern.first()) {
+        (None, None) => true,
+        (Some(_), None) => false,
+        (None, Some(b'*')) => glob_segment_match(segment, &pattern[1..]),
+        (None, Some(_)) => false,
+        (Some(_), Some(b'*')) => {
+            glob_segment_match(&segment[1..], pattern) || glob_segment_match(segment, &pattern[1..])
+        }
+        (Some(segment_byte), Some(pattern_byte)) if segment_byte == pattern_byte => {
+            glob_segment_match(&segment[1..], &pattern[1..])
+        }
+        _ => false,
+    }
+}
+
 fn extract_usage_sites(
     source: &str,
     file: &str,
@@ -672,6 +789,7 @@ mod tests {
             roots: vec![PathBuf::from("*/src/main/kotlin")],
             file_extensions: vec!["kt".to_owned()],
             include_globs: Vec::new(),
+            excludes: Vec::new(),
         };
 
         let result =
@@ -720,6 +838,7 @@ mod tests {
             roots: vec![PathBuf::from("capsule/**/src/main/kotlin")],
             file_extensions: vec!["kt".to_owned()],
             include_globs: Vec::new(),
+            excludes: Vec::new(),
         };
 
         let result =
@@ -747,6 +866,7 @@ mod tests {
             roots: vec![PathBuf::from("app/src/main/kotlin")],
             file_extensions: vec!["kt".to_owned()],
             include_globs: Vec::new(),
+            excludes: Vec::new(),
         };
 
         let result = scan_repository(&repo_root, &config)
@@ -780,6 +900,7 @@ mod tests {
             roots: vec![PathBuf::from("*/src/main/kotlin")],
             file_extensions: vec!["kt".to_owned()],
             include_globs: Vec::new(),
+            excludes: Vec::new(),
         };
 
         let result =
