@@ -8,8 +8,9 @@ use wax_lang_api::DiscoveredRegistrySymbol;
 
 use crate::kotlin_ast::{
     ParseKotlinFileError, collect_kotlin_files, function_name_from_decl, has_composable_annotation,
-    new_parser, package_name_from_source, parse_kotlin_file_permissive,
-    partial_tree_parse_diagnostic, tree_has_syntax_errors, unparseable_file_diagnostic,
+    has_preview_annotation, is_non_ui_scaffolding_composable_symbol, new_parser,
+    package_name_from_source, parse_kotlin_file_permissive, partial_tree_parse_diagnostic,
+    tree_has_syntax_errors, unparseable_file_diagnostic,
 };
 
 /// Result of discovering Compose registry symbols from Kotlin source roots.
@@ -146,9 +147,11 @@ fn collect_symbols(
         if node.kind() == "function_declaration"
             && is_top_level_declaration(node)
             && has_composable_annotation(node, source)
+            && !has_preview_annotation(node, source)
             && is_public(node, source)
             && let Some((name, _)) = function_name_from_decl(node, source)
             && name.starts_with(|c: char| c.is_ascii_uppercase())
+            && !is_non_ui_scaffolding_composable_symbol(&name)
         {
             insert_discovered_symbol(components, diagnostics, name, package.clone());
         }

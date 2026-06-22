@@ -71,6 +71,35 @@ fn parse_failures_do_not_block_symbols_from_other_files() -> io::Result<()> {
 }
 
 #[test]
+fn skips_preview_provider_and_effect_composables() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let source_file = tempdir.path().join("Components.kt");
+    fs::write(
+        source_file,
+        r#"
+@Composable
+fun PrimaryButton() {}
+
+@Preview
+@Composable
+fun PrimaryButtonPreview() {}
+
+@Composable
+fun ProvideTheme() {}
+
+@Composable
+fun ScrollFrameDurationEffect() {}
+"#,
+    )?;
+
+    let result = discover_registry_symbols(tempdir.path(), &[tempdir.path().to_path_buf()])
+        .expect("discover symbols");
+
+    assert_eq!(result.symbols(), vec!["PrimaryButton"]);
+    Ok(())
+}
+
+#[test]
 fn parse_failures_are_skipped_with_diagnostics() -> io::Result<()> {
     let tempdir = tempfile::tempdir()?;
     let broken_file = tempdir.path().join("Broken.kt");
