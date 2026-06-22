@@ -34,6 +34,8 @@ pub struct ComposeScanConfig {
     pub design_system_registry: PathBuf,
     /// Repo-relative Kotlin source roots to scan.
     pub roots: Vec<PathBuf>,
+    /// Repo-relative file paths or glob patterns to exclude from scanning.
+    pub excludes: Vec<String>,
 }
 
 /// Whether the request should run the tree-sitter scanner or return scaffold facts.
@@ -52,7 +54,8 @@ pub fn parse_compose_scan_config(
     let has_registry =
         config.contains_key("registry") || config.contains_key("design_system_registry");
     let has_roots = config.contains_key("roots");
-    if !has_registry && !has_roots {
+    let has_excludes = config.contains_key("excludes");
+    if !has_registry && !has_roots && !has_excludes {
         return Ok(ComposeConfigMode::Scaffold);
     }
 
@@ -102,13 +105,43 @@ pub fn parse_compose_scan_config(
                 reason: format!("roots[{index}] must be a non-empty string"),
             });
         }
+        validate_repo_relative_path(root, &format!("roots[{index}]"))?;
         roots.push(PathBuf::from(root));
     }
+
+    let excludes = parse_excludes(config)?;
 
     Ok(ComposeConfigMode::Configured(ComposeScanConfig {
         design_system_registry: PathBuf::from(registry),
         roots,
+        excludes,
     }))
+}
+
+fn parse_excludes(config: &ScanConfig) -> Result<Vec<String>, TreeSitterScanError> {
+    let Some(excludes_value) = config.get("excludes") else {
+        return Ok(Vec::new());
+    };
+    let excludes_array =
+        excludes_value
+            .as_array()
+            .ok_or_else(|| TreeSitterScanError::ConfigInvalid {
+                reason: "excludes must be an array of non-empty strings".to_owned(),
+            })?;
+
+    let mut excludes = Vec::with_capacity(excludes_array.len());
+    for (index, entry) in excludes_array.iter().enumerate() {
+        let exclude = entry
+            .as_str()
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| TreeSitterScanError::ConfigInvalid {
+                reason: format!("excludes[{index}] must be a non-empty string"),
+            })?;
+        validate_repo_relative_path(exclude, &format!("excludes[{index}]"))?;
+        excludes.push(exclude.to_owned());
+    }
+
+    Ok(excludes)
 }
 
 fn validate_repo_relative_path(path: &str, field: &str) -> Result<(), TreeSitterScanError> {
@@ -567,6 +600,11 @@ pub fn scan_repository(
         }
     }
     kotlin_files.sort();
+    kotlin_files.retain(|file_path| {
+        let relative_file = file_path.strip_prefix(repo_root).unwrap_or(file_path);
+        let relative_text = normalize_repo_relative_path(relative_file);
+        !path_matches_any(&relative_text, &config.excludes)
+    });
 
     let mut design_system_components = registry
         .canonical_symbols
@@ -691,6 +729,110 @@ fn root_not_found_message(root: &Path, kind: RootPatternKind) -> String {
             "configured root pattern '{}' matched no directories under repo root; no files scanned from it",
             root.display()
         ),
+    }
+}
+
+fn normalize_repo_relative_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn path_matches_any(path: &str, patterns: &[String]) -> bool {
+    patterns
+        .iter()
+        .any(|pattern| path_matches_glob(path, pattern))
+}
+
+fn path_matches_glob(path: &str, pattern: &str) -> bool {
+    expand_brace_groups(pattern)
+        .iter()
+        .any(|expanded| path_matches_glob_no_brace(path, expanded))
+}
+
+fn expand_brace_groups(pattern: &str) -> Vec<String> {
+    let Some(start) = pattern.find('{') else {
+        return vec![pattern.to_owned()];
+    };
+    let Some(end_offset) = pattern[start..].find('}') else {
+        return vec![pattern.to_owned()];
+    };
+    let end = start + end_offset;
+    let prefix = &pattern[..start];
+    let suffix = &pattern[end + 1..];
+    let alternatives = pattern[start + 1..end].split(',');
+    let mut expanded = Vec::new();
+    for alternative in alternatives {
+        expanded.extend(expand_brace_groups(&format!(
+            "{prefix}{alternative}{suffix}"
+        )));
+    }
+    expanded
+}
+
+fn path_matches_glob_no_brace(path: &str, pattern: &str) -> bool {
+    let path_segments = split_path_segments(path);
+    let pattern_segments = split_path_segments(pattern);
+    segments_match(&path_segments, &pattern_segments)
+}
+
+fn split_path_segments(path: &str) -> Vec<&str> {
+    path.split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect()
+}
+
+fn segments_match(path_segments: &[&str], pattern_segments: &[&str]) -> bool {
+    let mut path_idx = 0;
+    let mut pattern_idx = 0;
+
+    while pattern_idx < pattern_segments.len() {
+        if pattern_segments[pattern_idx] == "**" {
+            if pattern_idx == pattern_segments.len() - 1 {
+                return true;
+            }
+            for skip in 0..=(path_segments.len().saturating_sub(path_idx)) {
+                if segments_match(
+                    &path_segments[path_idx + skip..],
+                    &pattern_segments[pattern_idx + 1..],
+                ) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        if path_idx >= path_segments.len()
+            || !segment_matches(path_segments[path_idx], pattern_segments[pattern_idx])
+        {
+            return false;
+        }
+
+        path_idx += 1;
+        pattern_idx += 1;
+    }
+
+    path_idx == path_segments.len()
+}
+
+fn segment_matches(segment: &str, pattern: &str) -> bool {
+    if pattern == "*" {
+        return true;
+    }
+    glob_segment_match(segment.as_bytes(), pattern.as_bytes())
+}
+
+fn glob_segment_match(segment: &[u8], pattern: &[u8]) -> bool {
+    match (segment.first(), pattern.first()) {
+        (None, None) => true,
+        (Some(_), None) => false,
+        (None, Some(b'*')) => glob_segment_match(segment, &pattern[1..]),
+        (None, Some(_)) => false,
+        (Some(_), Some(b'*')) => {
+            glob_segment_match(&segment[1..], pattern) || glob_segment_match(segment, &pattern[1..])
+        }
+        (Some(segment_byte), Some(pattern_byte)) if segment_byte == pattern_byte => {
+            glob_segment_match(&segment[1..], &pattern[1..])
+        }
+        _ => false,
     }
 }
 
@@ -890,6 +1032,7 @@ mod tests {
         let config = ComposeScanConfig {
             design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
             roots: vec![std::path::PathBuf::from("app/src/main/kotlin")],
+            excludes: vec![],
         };
 
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -1027,6 +1170,7 @@ fun Screen() { Button(onClick = {}) }
         let config = ComposeScanConfig {
             design_system_registry: std::path::PathBuf::from("does-not-exist/registry.json"),
             roots: vec![std::path::PathBuf::from("no-such-root")],
+            excludes: vec![],
         };
 
         // Create a temp dir with just a minimal registry file.
@@ -1060,6 +1204,7 @@ fun Screen() { Button(onClick = {}) }
         let config = ComposeScanConfig {
             design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
             roots: vec![std::path::PathBuf::from("app/src/main/kotlin")],
+            excludes: vec![],
         };
 
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -1100,6 +1245,7 @@ fun Screen() { Button(onClick = {}) }
         let config = ComposeScanConfig {
             design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
             roots: vec![std::path::PathBuf::from("*/src/main/kotlin")],
+            excludes: vec![],
         };
 
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -1130,6 +1276,7 @@ fun Screen() { Button(onClick = {}) }
         let config = ComposeScanConfig {
             design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
             roots: vec![std::path::PathBuf::from("*/src/main/kotlin")],
+            excludes: vec![],
         };
 
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -1171,6 +1318,7 @@ fun Screen() { Button(onClick = {}) }
         let config = ComposeScanConfig {
             design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
             roots: vec![std::path::PathBuf::from("capsule/**/src/main/kotlin")],
+            excludes: vec![],
         };
 
         let tmp = tempfile::tempdir().expect("tempdir");

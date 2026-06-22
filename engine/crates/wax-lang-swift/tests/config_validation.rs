@@ -171,6 +171,167 @@ fn absolute_registry_path_is_config_error() {
 }
 
 #[test]
+fn absolute_root_path_is_config_error() {
+    let mut config = valid_fixture_config();
+    config.insert("roots".to_owned(), serde_json::json!(["/tmp/Sources/App"]));
+
+    let err = scan_fixture_with_config(config).expect_err("absolute root path must fail");
+    assert_config_error(err, "repo-relative path");
+}
+
+#[test]
+fn parent_dir_in_root_path_is_config_error() {
+    let mut config = valid_fixture_config();
+    config.insert("roots".to_owned(), serde_json::json!(["../Sources/App"]));
+
+    let err = scan_fixture_with_config(config).expect_err("parent-dir root path must fail");
+    assert_config_error(err, "parent directory segments");
+}
+
+#[test]
+fn tree_sitter_scan_rejects_non_array_excludes() {
+    let mut config = valid_fixture_config();
+    config.insert("excludes".to_owned(), serde_json::json!(42));
+
+    let err = scan_fixture_with_config(config).expect_err("invalid excludes must fail");
+    assert_invalid_excludes(err, "excludes must be an array");
+}
+
+#[test]
+fn tree_sitter_scan_rejects_empty_excludes_entry() {
+    let mut config = valid_fixture_config();
+    config.insert("excludes".to_owned(), serde_json::json!([""]));
+
+    let err = scan_fixture_with_config(config).expect_err("invalid excludes must fail");
+    assert_invalid_excludes(err, "excludes[0]");
+}
+
+#[test]
+fn tree_sitter_scan_rejects_non_string_excludes_entry() {
+    let mut config = valid_fixture_config();
+    config.insert("excludes".to_owned(), serde_json::json!(["valid/**", 42]));
+
+    let err = scan_fixture_with_config(config).expect_err("invalid excludes must fail");
+    assert_invalid_excludes(err, "excludes[1]");
+}
+
+#[test]
+fn absolute_excludes_path_is_config_error() {
+    let mut config = valid_fixture_config();
+    config.insert("excludes".to_owned(), serde_json::json!(["/tmp/**"]));
+
+    let err = scan_fixture_with_config(config).expect_err("absolute excludes path must fail");
+    assert_invalid_excludes(err, "excludes[0]");
+}
+
+#[test]
+fn parent_dir_in_excludes_path_is_config_error() {
+    let mut config = valid_fixture_config();
+    config.insert("excludes".to_owned(), serde_json::json!(["../outside/**"]));
+
+    let err = scan_fixture_with_config(config).expect_err("parent-dir excludes path must fail");
+    assert_invalid_excludes(err, "excludes[0]");
+}
+
+#[test]
+fn tree_sitter_scan_excludes_repo_relative_swift_files_from_counts_and_facts() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let repo_root = tempdir.path();
+    fs::create_dir_all(repo_root.join("design-system")).expect("create registry dir");
+    fs::create_dir_all(repo_root.join("Sources/App")).expect("create source dir");
+    fs::write(
+        repo_root.join("design-system/registry.json"),
+        r#"{"schema_version":1,"components":[{"id":"ds.primary-button","symbol":"PrimaryButton","targets":["swift"]}]}"#,
+    )
+    .expect("write registry");
+    fs::write(
+        repo_root.join("Sources/App/Included.swift"),
+        "import SwiftUI\nstruct IncludedView: View { var body: some View { PrimaryButton(title: \"ok\") } }\n",
+    )
+    .expect("write included source");
+    fs::write(
+        repo_root.join("Sources/App/Excluded.swift"),
+        "import SwiftUI\nstruct ExcludedView: View { var body: some View { PrimaryButton(title: \"skip\") } }\n",
+    )
+    .expect("write excluded source");
+
+    let mut config = ScanConfig::new();
+    config.insert(
+        "registry".to_owned(),
+        serde_json::json!("design-system/registry.json"),
+    );
+    config.insert("roots".to_owned(), serde_json::json!(["Sources/App"]));
+    config.insert(
+        "excludes".to_owned(),
+        serde_json::json!(["Sources/App/Excluded.swift"]),
+    );
+
+    let facts = SwiftLanguage::new()
+        .scan(&request(repo_root, config))
+        .expect("scan with excludes should succeed");
+
+    assert_eq!(facts.metrics.files_scanned, 1);
+    assert_eq!(facts.local_components.len(), 1);
+    assert_eq!(facts.local_components[0].symbol, "IncludedView");
+    assert_eq!(facts.usage_sites.len(), 1);
+    assert!(
+        facts
+            .usage_sites
+            .iter()
+            .all(|site| site.location.file == "Sources/App/Included.swift")
+    );
+}
+
+#[test]
+fn tree_sitter_scan_excludes_swift_files_matching_glob_patterns() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let repo_root = tempdir.path();
+    fs::create_dir_all(repo_root.join("design-system")).expect("create registry dir");
+    fs::create_dir_all(repo_root.join("Sources/App")).expect("create source dir");
+    fs::write(
+        repo_root.join("design-system/registry.json"),
+        r#"{"schema_version":1,"components":[{"id":"ds.primary-button","symbol":"PrimaryButton","targets":["swift"]}]}"#,
+    )
+    .expect("write registry");
+    fs::write(
+        repo_root.join("Sources/App/Included.swift"),
+        "import SwiftUI\nstruct IncludedView: View { var body: some View { PrimaryButton(title: \"ok\") } }\n",
+    )
+    .expect("write included source");
+    fs::write(
+        repo_root.join("Sources/App/Excluded.preview.swift"),
+        "import SwiftUI\nstruct ExcludedPreview: View { var body: some View { PrimaryButton(title: \"skip\") } }\n",
+    )
+    .expect("write excluded source");
+
+    let mut config = ScanConfig::new();
+    config.insert(
+        "registry".to_owned(),
+        serde_json::json!("design-system/registry.json"),
+    );
+    config.insert("roots".to_owned(), serde_json::json!(["Sources/App"]));
+    config.insert(
+        "excludes".to_owned(),
+        serde_json::json!(["**/*.preview.swift"]),
+    );
+
+    let facts = SwiftLanguage::new()
+        .scan(&request(repo_root, config))
+        .expect("scan with glob excludes should succeed");
+
+    assert_eq!(facts.metrics.files_scanned, 1);
+    assert_eq!(facts.local_components.len(), 1);
+    assert_eq!(facts.local_components[0].symbol, "IncludedView");
+    assert_eq!(facts.usage_sites.len(), 1);
+    assert!(
+        facts
+            .usage_sites
+            .iter()
+            .all(|site| site.location.file == "Sources/App/Included.swift")
+    );
+}
+
+#[test]
 fn configured_scan_reports_parse_failed_for_invalid_source() {
     let tempdir = tempfile::tempdir().expect("tempdir");
     let repo_root = tempdir.path();
@@ -228,6 +389,18 @@ fn assert_config_error(err: SwiftScanError, expected_substring: &str) {
             assert!(
                 message.contains(expected_substring),
                 "expected `{expected_substring}` in `{message}`"
+            );
+        }
+        other => panic!("expected InvalidConfig, got {other:?}"),
+    }
+}
+
+fn assert_invalid_excludes(err: SwiftScanError, expected: &str) {
+    match err {
+        SwiftScanError::InvalidConfig(message) => {
+            assert!(
+                message.contains(expected),
+                "expected validation message to contain {expected:?}, got: {message}"
             );
         }
         other => panic!("expected InvalidConfig, got {other:?}"),

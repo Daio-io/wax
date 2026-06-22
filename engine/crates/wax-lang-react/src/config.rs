@@ -44,6 +44,7 @@ pub fn parse_react_scan_config(config: &ScanConfig) -> Result<ReactConfigMode, C
         config.contains_key("registry") || config.contains_key("design_system_registry");
     let has_roots = config.contains_key("roots");
     let has_react_only_config = config.contains_key("ignore")
+        || config.contains_key("excludes")
         || config.contains_key("tsconfig")
         || config.contains_key("aliases")
         || config.contains_key("packages");
@@ -64,10 +65,15 @@ pub fn parse_react_scan_config(config: &ScanConfig) -> Result<ReactConfigMode, C
         validate_repo_relative_path(root, &format!("roots[{index}]"))?;
     }
 
-    let ignore = optional_string_array_field(config, "ignore")?;
+    let mut ignore = optional_string_array_field(config, "ignore")?;
     for (index, pattern) in ignore.iter().enumerate() {
         validate_repo_relative_path(pattern, &format!("ignore[{index}]"))?;
     }
+    let excludes = optional_string_array_field(config, "excludes")?;
+    for (index, pattern) in excludes.iter().enumerate() {
+        validate_repo_relative_path(pattern, &format!("excludes[{index}]"))?;
+    }
+    ignore.extend(excludes);
 
     let tsconfig = optional_string_field(config, "tsconfig")?
         .map(|path| {
