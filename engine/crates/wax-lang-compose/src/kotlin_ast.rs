@@ -214,14 +214,14 @@ fn last_type_name_segment(user_type: tree_sitter::Node<'_>, source: &[u8]) -> Op
     last_type_identifier
 }
 
-pub(crate) fn has_composable_annotation(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+fn has_annotation_named(node: tree_sitter::Node<'_>, source: &[u8], expected: &str) -> bool {
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
         if child.kind() == "modifiers" {
             let mut modifiers_cursor = child.walk();
             for modifier in child.named_children(&mut modifiers_cursor) {
                 if modifier.kind() == "annotation"
-                    && annotation_type_name(modifier, source).as_deref() == Some("Composable")
+                    && annotation_type_name(modifier, source).as_deref() == Some(expected)
                 {
                     return true;
                 }
@@ -229,6 +229,14 @@ pub(crate) fn has_composable_annotation(node: tree_sitter::Node<'_>, source: &[u
         }
     }
     false
+}
+
+pub(crate) fn has_composable_annotation(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    has_annotation_named(node, source, "Composable")
+}
+
+pub(crate) fn has_preview_annotation(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    has_annotation_named(node, source, "Preview")
 }
 
 pub(crate) fn function_name_from_decl(
@@ -388,11 +396,30 @@ pub(crate) fn nearest_enclosing_composable(
     None
 }
 
+pub(crate) fn is_within_preview_composable(mut node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    while let Some(parent) = node.parent() {
+        if parent.kind() == "function_declaration"
+            && has_composable_annotation(parent, source)
+            && has_preview_annotation(parent, source)
+        {
+            return true;
+        }
+        node = parent;
+    }
+
+    false
+}
+
 pub(crate) fn is_pascal_case_composable_symbol(symbol: &str) -> bool {
     symbol
         .chars()
         .next()
         .is_some_and(|ch| ch.is_ascii_uppercase())
+}
+
+pub(crate) fn is_non_ui_scaffolding_composable_symbol(symbol: &str) -> bool {
+    // Compose provider/effect naming convention marks dependency wiring or side effects, not UI.
+    symbol.starts_with("Provide") || symbol.ends_with("Effect")
 }
 
 pub(crate) fn call_simple_callee(

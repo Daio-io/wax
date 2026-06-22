@@ -7,9 +7,10 @@ use std::path::{Component, Path, PathBuf};
 use crate::kotlin_ast::{
     ImportBindings, ParseKotlinFileError, call_simple_callee, collect_import_bindings,
     collect_kotlin_files, function_name_from_decl, has_composable_annotation,
-    is_pascal_case_composable_symbol, nearest_enclosing_composable, new_parser,
-    package_name_from_source, parse_kotlin_file_permissive, partial_tree_parse_diagnostic,
-    tree_has_syntax_errors, unparseable_file_diagnostic,
+    has_preview_annotation, is_non_ui_scaffolding_composable_symbol,
+    is_pascal_case_composable_symbol, is_within_preview_composable, nearest_enclosing_composable,
+    new_parser, package_name_from_source, parse_kotlin_file_permissive,
+    partial_tree_parse_diagnostic, tree_has_syntax_errors, unparseable_file_diagnostic,
 };
 
 /// Grammar version bundled via the `tree-sitter-kotlin-ng` crate dependency.
@@ -438,8 +439,11 @@ fn index_local_components_from_source(
     while let Some(node) = stack.pop() {
         if node.kind() == "function_declaration"
             && has_composable_annotation(node, source)
+            && !has_preview_annotation(node, source)
+            && !is_within_preview_composable(node, source)
             && let Some((name, pos)) = function_name_from_decl(node, source)
             && is_pascal_case_composable_symbol(&name)
+            && !is_non_ui_scaffolding_composable_symbol(&name)
         {
             let line = pos.row as u32 + 1;
             let column = pos.column as u32 + 1;
@@ -486,55 +490,61 @@ fn extract_usage_from_source(
             && let Some((call_symbol, pos)) = call_simple_callee(node, source)
             && is_pascal_case_composable_symbol(&call_symbol)
         {
-            let line = pos.row as u32 + 1;
-            let column = pos.column as u32 + 1;
-            let location = SourceLocation {
-                file: file.to_owned(),
-                line,
-                column: Some(column),
-            };
-            let parent = nearest_enclosing_composable(node, source).map(|(name, parent_pos)| {
-                parent_scope_for_composable(file, package.as_deref(), &name, parent_pos)
-            });
+            let skip_current = is_within_preview_composable(node, source)
+                || is_non_ui_scaffolding_composable_symbol(&call_symbol);
+            if !skip_current {
+                let line = pos.row as u32 + 1;
+                let column = pos.column as u32 + 1;
+                let location = SourceLocation {
+                    file: file.to_owned(),
+                    line,
+                    column: Some(column),
+                };
+                let parent =
+                    nearest_enclosing_composable(node, source).map(|(name, parent_pos)| {
+                        parent_scope_for_composable(file, package.as_deref(), &name, parent_pos)
+                    });
 
-            if let Some(registry_symbol) = registry.resolve_targets.get(&call_symbol) {
-                if let Some(match_status) =
-                    resolve_registry_match(&call_symbol, registry_symbol, registry, &imports)
+                if let Some(registry_symbol) = registry.resolve_targets.get(&call_symbol) {
+                    if let Some(match_status) =
+                        resolve_registry_match(&call_symbol, registry_symbol, registry, &imports)
+                    {
+                        usage_sites.push(UsageSite {
+                            id: format!("usage.compose:{file}:{line}:{column}:{call_symbol}"),
+                            location: location.clone(),
+                            symbol: call_symbol.clone(),
+                            qualified_symbol: None,
+                            match_status,
+                            registry_symbol: Some(registry_symbol.clone()),
+                            local_definition_id: None,
+                            parent,
+                        });
+                    }
+                } else if let Some(local) =
+                    local_index.resolve(file, package.as_deref(), &call_symbol)
                 {
                     usage_sites.push(UsageSite {
                         id: format!("usage.compose:{file}:{line}:{column}:{call_symbol}"),
                         location: location.clone(),
                         symbol: call_symbol.clone(),
+                        qualified_symbol: local.qualified_symbol.clone(),
+                        match_status: MatchStatus::Local,
+                        registry_symbol: None,
+                        local_definition_id: Some(local.id.clone()),
+                        parent,
+                    });
+                } else {
+                    usage_sites.push(UsageSite {
+                        id: format!("usage.compose:{file}:{line}:{column}:{call_symbol}"),
+                        location,
+                        symbol: call_symbol,
                         qualified_symbol: None,
-                        match_status,
-                        registry_symbol: Some(registry_symbol.clone()),
+                        match_status: MatchStatus::Unresolved,
+                        registry_symbol: None,
                         local_definition_id: None,
                         parent,
                     });
                 }
-            } else if let Some(local) = local_index.resolve(file, package.as_deref(), &call_symbol)
-            {
-                usage_sites.push(UsageSite {
-                    id: format!("usage.compose:{file}:{line}:{column}:{call_symbol}"),
-                    location: location.clone(),
-                    symbol: call_symbol.clone(),
-                    qualified_symbol: local.qualified_symbol.clone(),
-                    match_status: MatchStatus::Local,
-                    registry_symbol: None,
-                    local_definition_id: Some(local.id.clone()),
-                    parent,
-                });
-            } else {
-                usage_sites.push(UsageSite {
-                    id: format!("usage.compose:{file}:{line}:{column}:{call_symbol}"),
-                    location,
-                    symbol: call_symbol,
-                    qualified_symbol: None,
-                    match_status: MatchStatus::Unresolved,
-                    registry_symbol: None,
-                    local_definition_id: None,
-                    parent,
-                });
             }
         }
 
@@ -1009,6 +1019,154 @@ mod tests {
         );
         assert_eq!(locals.len(), 1);
         assert_eq!(locals[0].symbol, "QualifiedCard");
+    }
+
+    #[test]
+    fn preview_composable_is_not_indexed_as_local_component() {
+        let registry = registry_without_packages(&[]);
+        let (locals, _) = parse_and_extract(
+            r#"
+@androidx.compose.ui.tooling.preview.Preview
+@Composable
+fun SamplePreview() {}
+
+@Composable
+@Preview
+fun AlternatePreview() {}
+"#,
+            &registry,
+        );
+        assert!(locals.is_empty());
+    }
+
+    #[test]
+    fn calls_inside_preview_composable_are_not_counted() {
+        let registry = registry_without_packages(&[
+            ("PrimaryButton", "PrimaryButton"),
+            ("ProvideTheme", "ProvideTheme"),
+        ]);
+        let source = r#"
+@Composable
+fun LocalCard() {}
+
+@Preview
+@Composable
+fun ExamplePreview() {
+    PrimaryButton(onClick = {})
+    LocalCard()
+    ProvideTheme()
+    UnknownCard()
+}
+"#;
+        let (_, usages) = parse_and_extract(source, &registry);
+        assert!(usages.is_empty());
+    }
+
+    #[test]
+    fn calls_inside_nested_composable_in_preview_are_not_counted() {
+        let registry = registry_without_packages(&[("PrimaryButton", "PrimaryButton")]);
+        let source = r#"
+@Preview
+@Composable
+fun ExamplePreview() {
+    @Composable
+    fun InnerCard() {
+        PrimaryButton(onClick = {})
+        UnknownCard()
+    }
+
+    InnerCard()
+}
+"#;
+        let (locals, usages) = parse_and_extract(source, &registry);
+        assert!(locals.is_empty());
+        assert!(usages.is_empty());
+    }
+
+    #[test]
+    fn production_composable_in_preview_file_is_still_scanned() {
+        let registry = registry_without_packages(&[("PrimaryButton", "PrimaryButton")]);
+        let source = r#"
+@Composable
+fun LocalCard() {}
+
+@Preview
+@Composable
+fun ExamplePreview() {
+    PrimaryButton(onClick = {})
+    LocalCard()
+}
+
+@Composable
+fun Screen() {
+    PrimaryButton(onClick = {})
+    LocalCard()
+}
+"#;
+        let (locals, usages) = parse_and_extract(source, &registry);
+        let local_symbols = locals
+            .iter()
+            .map(|local| local.symbol.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(local_symbols, vec!["LocalCard", "Screen"]);
+
+        let usage_symbols = usages
+            .iter()
+            .map(|usage| usage.symbol.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(usage_symbols, vec!["PrimaryButton", "LocalCard"]);
+        assert!(usages.iter().all(|usage| {
+            usage.parent.as_ref().map(|parent| parent.symbol.as_str()) == Some("Screen")
+        }));
+    }
+
+    #[test]
+    fn provider_and_effect_composables_are_not_indexed_as_local_components() {
+        let registry = registry_without_packages(&[]);
+        let source = r#"
+@Composable
+fun ProvideTheme() {}
+
+@Composable
+fun SideEffect() {}
+
+@Composable
+fun Screen() {}
+"#;
+        let (locals, _) = parse_and_extract(source, &registry);
+        let local_symbols = locals
+            .iter()
+            .map(|local| local.symbol.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(local_symbols, vec!["Screen"]);
+    }
+
+    #[test]
+    fn provider_and_effect_calls_are_not_counted_as_usage_sites() {
+        let registry = registry_without_packages(&[
+            ("PrimaryButton", "PrimaryButton"),
+            ("ProvideTheme", "ProvideTheme"),
+            ("LaunchEffect", "LaunchEffect"),
+        ]);
+        let source = r#"
+@Composable
+fun LocalCard() {}
+
+@Composable
+fun Screen() {
+    ProvideTheme()
+    LaunchEffect()
+    SideEffect()
+    PrimaryButton(onClick = {})
+    LocalCard()
+}
+"#;
+        let (_, usages) = parse_and_extract(source, &registry);
+        let usage_symbols = usages
+            .iter()
+            .map(|usage| usage.symbol.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(usage_symbols, vec!["PrimaryButton", "LocalCard"]);
     }
 
     #[test]
