@@ -426,22 +426,22 @@ boundary = round((1 - ratio) * height, 2)
 control = round(boundary + 8, 2)
 print(f'''<svg class="trend-svg" viewBox="0 0 {width} {height}" preserveAspectRatio="none" aria-label="Adoption trend">
   <defs>
-    <linearGradient id="waxGreenFill" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#8fb17d" stop-opacity="0.95"></stop>
-      <stop offset="100%" stop-color="#dbe8cf" stop-opacity="0.75"></stop>
+    <linearGradient id="waxAccentFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#d6a117" stop-opacity="0.95"></stop>
+      <stop offset="100%" stop-color="#f3dfa0" stop-opacity="0.78"></stop>
     </linearGradient>
     <linearGradient id="waxSandFill" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#f3dfa0" stop-opacity="0.95"></stop>
-      <stop offset="100%" stop-color="#f7f0d8" stop-opacity="0.75"></stop>
+      <stop offset="100%" stop-color="#f7f0d8" stop-opacity="0.55"></stop>
     </linearGradient>
   </defs>
   <path d="M0,0 H{width} V{height} H0 Z" fill="url(#waxSandFill)"></path>
-  <path d="M0,{boundary} C160,{control} 320,{control} {width},{boundary} L{width},{height} L0,{height} Z" fill="url(#waxGreenFill)"></path>
+  <path d="M0,{boundary} C160,{control} 320,{control} {width},{boundary} L{width},{height} L0,{height} Z" fill="url(#waxAccentFill)"></path>
   <path d="M0,{boundary} C160,{control} 320,{control} {width},{boundary}" fill="none" stroke="#d6a117" stroke-width="5" stroke-linecap="round"></path>
-  <path d="M0,{boundary} C160,{control} 320,{control} {width},{boundary}" fill="none" stroke="#5f8d4e" stroke-width="2.2" stroke-linecap="round"></path>
-  <line x1="0" y1="132" x2="{width}" y2="132" stroke="#efe6d0" stroke-width="1"></line>
-  <line x1="0" y1="86" x2="{width}" y2="86" stroke="#f3ecd8" stroke-width="1"></line>
-  <line x1="0" y1="40" x2="{width}" y2="40" stroke="#f6f1e1" stroke-width="1"></line>
+  <path d="M0,{boundary} C160,{control} 320,{control} {width},{boundary}" fill="none" stroke="#6f7f93" stroke-width="2.2" stroke-linecap="round"></path>
+  <line x1="0" y1="132" x2="{width}" y2="132" stroke="#d7dde6" stroke-width="1"></line>
+  <line x1="0" y1="86" x2="{width}" y2="86" stroke="#e6ebf1" stroke-width="1"></line>
+  <line x1="0" y1="40" x2="{width}" y2="40" stroke="#f2f5f8" stroke-width="1"></line>
 </svg>''')
 PY
 )"
@@ -456,8 +456,8 @@ width = coverage.rstrip("%")
 print(
     '<div class="mini-row">'
     '<div class="name">Repository</div>'
-    f'<div class="track" style="background:#e6efdd;"><div class="fill" style="width:{html.escape(width)}%;background:linear-gradient(90deg,#5f8d4e,#d6a117);"></div></div>'
-    f'<div style="text-align:right;font-weight:900;color:#5f8d4e;">{html.escape(coverage)}</div>'
+    f'<div class="track" style="background:#1b2430;"><div class="fill" style="width:{html.escape(width)}%;background:linear-gradient(90deg,#d6a117,#f3dfa0);"></div></div>'
+    f'<div style="text-align:right;font-weight:900;color:#d6a117;">{html.escape(coverage)}</div>'
     '</div>'
 )
 PY
@@ -488,7 +488,7 @@ for item in items:
     print(
         '<div class="issue-row">'
         f'<div class="name">{symbol}</div>'
-        f'<div class="track"><div class="fill" style="width:{width}%;background:linear-gradient(90deg,#6b9658,#d6a117);"></div></div>'
+        f'<div class="track"><div class="fill" style="width:{width}%;background:linear-gradient(90deg,#6f7f93,#bec7d4);"></div></div>'
         f'<div class="score">{count}</div>'
         '</div>'
     )
