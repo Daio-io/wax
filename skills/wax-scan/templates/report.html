@@ -1,460 +1,219 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Wax Scan Report - {{repo_name}}</title>
-  <style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wax Scan Report - {{repo_name}}</title>
+<style>
+  :root {
+    --bg: #0f1419;
+    --panel: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #d6a117;
+    --wax: #d6a117;
+    --wax-soft: #f3dfa0;
+    --ds: #d6a117;
+    --local: #b78a1f;
+    --high: #d6a117;
+    --medium: #d6a117;
+    --low: #f3dfa0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  .container { max-width: 1400px; margin: 0 auto; padding: 32px 24px 64px; }
+  header {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 24px;
+    margin-bottom: 32px;
+  }
+  h1 { font-size: 32px; margin: 0 0 8px; }
+  h2 {
+    font-size: 22px;
+    margin: 48px 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  h3 { font-size: 17px; margin: 24px 0 12px; color: var(--accent); }
+  .subtitle { color: var(--muted); font-size: 14px; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
+  .kpi { text-align: center; }
+  .kpi .num { font-size: 28px; font-weight: 600; color: var(--accent); }
+  .kpi .label {
+    color: var(--muted);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 4px;
+  }
+  .chart-wrap { position: relative; height: 420px; margin: 16px 0; }
+  .chart-wrap.tall { height: 720px; }
+  .chart-wrap.short { height: 320px; }
+  .chart-wrap svg { width: 100%; height: 100%; display: block; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th {
+    color: var(--muted);
+    font-weight: 500;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+  }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  code {
+    background: rgba(255,255,255,0.06);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+    word-break: break-all;
+  }
+  .caveat {
+    background: rgba(214,161,23,0.08);
+    border-left: 3px solid var(--accent);
+    padding: 16px 20px;
+    border-radius: 4px;
+    margin: 16px 0;
+    font-size: 14px;
+  }
+  .pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    font-weight: 600;
+  }
+  .pill.high { background: rgba(214,161,23,0.15); color: var(--high); }
+  .pill.medium { background: rgba(214,161,23,0.15); color: var(--medium); }
+  .pill.low { background: rgba(243,223,160,0.15); color: var(--low); }
+  .red { color: var(--high); }
+  .amber { color: var(--medium); }
+  .green { color: var(--low); }
+  .muted { color: var(--muted); }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin: 8px 0 16px; font-size: 13px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot { width: 12px; height: 12px; border-radius: 50%; }
+  ul { padding-left: 20px; }
+  li { margin-bottom: 6px; }
+  .chart-label { fill: var(--muted); font-size: 12px; font-family: inherit; }
+  .chart-value { fill: var(--text); font-size: 12px; font-family: inherit; }
+  @media print {
     :root {
-      --bg: #f4efe9;
-      --panel: rgba(255, 255, 255, 0.9);
-      --panel-strong: #ffffff;
-      --line: #eadccf;
-      --text: #151515;
-      --muted: #667085;
-      --accent: #d6a117;
-      --accent-soft: #f3dfa0;
-      --green: #5f8d4e;
-      --green-2: #8fb17d;
-      --green-3: #dbe8cf;
-      --sand: #eadfb4;
-      --sand-2: #f5edd3;
-      --shadow: 0 20px 50px rgba(35, 24, 14, 0.08);
-      --radius: 24px;
+      --bg: #fff; --panel: #fff; --border: #d0d7de; --text: #1f2328; --muted: #6e7781;
     }
-
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: "Helvetica Neue", Arial, sans-serif;
-      color: var(--text);
-      background:
-        radial-gradient(circle at top left, #fff7f0 0, transparent 28%),
-        linear-gradient(180deg, #f8f2ec 0%, #f4efe9 100%);
-    }
-
-    .page {
-      max-width: 1320px;
-      margin: 0 auto;
-      padding: 28px 28px 48px;
-    }
-
-    .topbar {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      background: rgba(255,255,255,0.78);
-      backdrop-filter: blur(18px);
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      padding: 16px 22px;
-      box-shadow: var(--shadow);
-      margin-bottom: 22px;
-    }
-
-    .topbar .title {
-      font-size: 18px;
-      font-weight: 700;
-      letter-spacing: 0.02em;
-      color: #5e6570;
-    }
-
-    .topbar .meta {
-      display: flex;
-      gap: 12px;
-      color: var(--muted);
-      font-size: 14px;
-    }
-
-    .hero {
-      background: linear-gradient(180deg, #fff8f2 0%, rgba(255,255,255,0.94) 74%);
-      border: 1px solid var(--line);
-      border-radius: 30px;
-      padding: 30px;
-      box-shadow: var(--shadow);
-      margin-bottom: 22px;
-    }
-
-    .hero-grid {
-      display: grid;
-      grid-template-columns: 1.4fr 0.8fr;
-      gap: 22px;
-      align-items: start;
-    }
-
-    .eyebrow {
-      text-transform: uppercase;
-      letter-spacing: 0.16em;
-      font-size: 12px;
-      font-weight: 800;
-      color: #8b5e34;
-      margin-bottom: 12px;
-    }
-
-    .headline {
-      display: flex;
-      align-items: baseline;
-      gap: 14px;
-      flex-wrap: wrap;
-      margin-bottom: 8px;
-    }
-
-    .headline .big {
-      font-size: 84px;
-      line-height: 0.95;
-      font-weight: 900;
-    }
-
-    .headline .sub {
-      font-size: 24px;
-      color: #5f6773;
-      font-weight: 700;
-    }
-
-    .lede {
-      font-size: 18px;
-      color: #707887;
-      margin-bottom: 24px;
-    }
-
-    .split-bar {
-      display: flex;
-      height: 32px;
-      border-radius: 999px;
-      overflow: hidden;
-      background: #f3e8df;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);
-    }
-
-    .split-bar .ds,
-    .split-bar .non {
-      display: flex;
-      align-items: center;
-      color: white;
-      font-size: 14px;
-      font-weight: 800;
-      white-space: nowrap;
-    }
-
-    .split-bar .ds {
-      width: var(--ds-share, 62%);
-      background: linear-gradient(90deg, #334a2b 0%, var(--green) 60%, var(--accent) 100%);
-      padding-left: 16px;
-    }
-
-    .split-bar .non {
-      width: var(--non-ds-share, 38%);
-      background: linear-gradient(90deg, #d9c98a 0%, #bca458 100%);
-      justify-content: flex-end;
-      padding-right: 16px;
-      color: #5e4b1b;
-    }
-
-    .hero-side {
-      display: grid;
-      gap: 12px;
-    }
-
-    .metric-tile {
-      background: var(--panel-strong);
-      border: 1px solid var(--line);
-      border-radius: 22px;
-      padding: 16px 18px;
-      box-shadow: 0 8px 20px rgba(250, 120, 60, 0.06);
-    }
-
-    .metric-tile .label {
-      text-transform: uppercase;
-      letter-spacing: 0.14em;
-      font-size: 11px;
-      font-weight: 800;
-      color: #9a6a42;
-      margin-bottom: 8px;
-    }
-
-    .metric-tile .value {
-      font-size: 38px;
-      font-weight: 900;
-    }
-
-    .metric-tile .context {
-      color: var(--muted);
-      font-size: 14px;
-      margin-top: 4px;
-    }
-
-    .grid {
-      display: grid;
-      grid-template-columns: 1.2fr 0.8fr;
-      gap: 22px;
-      margin-bottom: 22px;
-    }
-
-    .card {
-      background: rgba(255,255,255,0.92);
-      border: 1px solid var(--line);
-      border-radius: var(--radius);
-      padding: 22px;
-      box-shadow: var(--shadow);
-    }
-
-    .card-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: end;
-      gap: 12px;
-      margin-bottom: 18px;
-    }
-
-    .card-head h2 {
-      margin: 0;
-      font-size: 13px;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      color: #7b8796;
-    }
-
-    .card-head p {
-      margin: 4px 0 0;
-      color: #667085;
-      font-size: 15px;
-    }
-
-    .card-head .status {
-      font-size: 14px;
-      font-weight: 800;
-      color: var(--blue);
-    }
-
-    .bars {
-      position: relative;
-      height: 220px;
-      padding: 10px 12px 36px;
-      border-radius: 20px;
-      background: linear-gradient(180deg, #fcf9f1 0%, #ffffff 100%);
-      border: 1px solid #edf2f7;
-      overflow: hidden;
-    }
-
-    .trend-svg {
-      width: 100%;
-      height: 170px;
-      display: block;
-    }
-
-    .trend-axis {
-      position: absolute;
-      left: 18px;
-      right: 18px;
-      bottom: 12px;
-      display: flex;
-      justify-content: space-between;
-      color: #8b95a5;
-      font-size: 12px;
-      font-weight: 700;
-    }
-
-    .trend-note {
-      display: flex;
-      justify-content: space-between;
-      margin-top: 12px;
-      color: #667085;
-      font-size: 13px;
-    }
-
-    .mini-list {
-      display: grid;
-      gap: 16px;
-      margin-top: 6px;
-    }
-
-    .mini-row {
-      display: grid;
-      grid-template-columns: 76px 1fr 40px;
-      gap: 12px;
-      align-items: center;
-    }
-
-    .mini-row .name,
-    .issue-row .name {
-      font-weight: 800;
-    }
-
-    .track {
-      height: 12px;
-      border-radius: 999px;
-      overflow: hidden;
-      background: #eceef2;
-    }
-
-    .fill {
-      height: 100%;
-      border-radius: 999px;
-    }
-
-    .issues {
-      display: grid;
-      gap: 16px;
-    }
-
-    .issue-row {
-      display: grid;
-      grid-template-columns: 124px 1fr 58px;
-      gap: 12px;
-      align-items: center;
-    }
-
-    .issue-row .track {
-      height: 18px;
-      background: #ece7d6;
-    }
-
-    .issue-row .score {
-      text-align: right;
-      font-weight: 900;
-      font-size: 24px;
-      color: #7a6520;
-    }
-
-    .footer-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 22px;
-    }
-
-    .note {
-      background: rgba(255,255,255,0.92);
-      border: 1px solid var(--line);
-      border-radius: 22px;
-      padding: 18px 20px;
-      box-shadow: var(--shadow);
-    }
-
-    .note h3 {
-      margin: 0 0 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.14em;
-      font-size: 12px;
-      color: #7b8796;
-    }
-
-    .note p {
-      margin: 0;
-      color: #667085;
-      font-size: 15px;
-      line-height: 1.5;
-    }
-
-    @media (max-width: 980px) {
-      .hero-grid,
-      .grid,
-      .footer-grid {
-        grid-template-columns: 1fr;
-      }
-
-      .headline .big {
-        font-size: 64px;
-      }
-    }
-  </style>
+    .chart-wrap { break-inside: avoid; }
+  }
+</style>
 </head>
 <body>
-  <div class="page">
-    <div class="topbar">
-      <div class="title">wax report / adoption + migration opportunities</div>
-      <div class="meta">
-        <span>repo: {{repo_name}}</span>
-        <span>scan: {{generated_at}}</span>
+<div class="container">
+  <header>
+    <h1>Design System Adoption</h1>
+    <p class="subtitle">
+      {{repo_name}} workspace · Source: <code>{{source_scan}}</code> ·
+      Generated: {{generated_at}} · Schema v{{schema_version}}
+    </p>
+  </header>
+
+  <section>
+    <div class="grid">
+      <div class="panel kpi">
+        <div class="num">{{resolved_count}}</div>
+        <div class="label">Design system usage sites</div>
+      </div>
+      <div class="panel kpi">
+        <div class="num">{{adopted_components_count}}/{{total_registry_components}}</div>
+        <div class="label">Registry components used</div>
+      </div>
+      <div class="panel kpi">
+        <div class="num">{{invocation_adoption_percent}}</div>
+        <div class="label">Design system invocation adoption</div>
+      </div>
+      <div class="panel kpi">
+        <div class="num">{{raw_invocation_total}}</div>
+        <div class="label">UI invocations tracked</div>
+      </div>
+      <div class="panel kpi">
+        <div class="num">{{local_definition_count}}</div>
+        <div class="label">Local UI definitions</div>
+      </div>
+      <div class="panel kpi">
+        <div class="num">{{unresolved_count}}</div>
+        <div class="label">Unresolved invocations</div>
       </div>
     </div>
 
-    <section class="hero">
-      <div class="hero-grid">
-        <div>
-          <div class="eyebrow">UI invocation adoption</div>
-          <div class="headline">
-            <div class="big">{{invocation_adoption_percent}}</div>
-            <div class="sub">eligible UI invocations adopted</div>
-          </div>
-          <div class="lede">{{resolved_count}} design-system invocations out of {{eligible_invocation_count}} adoption-eligible UI invocations ({{raw_invocation_total}} raw invocations tracked)</div>
-          <div class="split-bar" style="--ds-share: {{invocation_adoption_percent}}; --non-ds-share: {{non_adopted_percent}};">
-            <div class="ds">Adopted {{invocation_adoption_percent}}</div>
-            <div class="non">Not adopted {{non_adopted_percent}}</div>
-          </div>
-        </div>
+    <div class="caveat">
+      {{caveat_html}}
+    </div>
+  </section>
 
-        <div class="hero-side">
-          <div class="metric-tile">
-            <div class="label">Adopted components</div>
-            <div class="value" style="color:#8a721f;">{{adopted_components_count}} / {{total_registry_components}}</div>
-            <div class="context">Registry components with observed usage</div>
-          </div>
-          <div class="metric-tile">
-            <div class="label" style="color:#6b7280;">Trend</div>
-            <div class="value" style="color:#5f8d4e;">{{trend_delta}}</div>
-            <div class="context">{{trend_context}}</div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="grid">
-      <article class="card">
-        <div class="card-head">
-          <div>
-            <h2>Invocation breakdown</h2>
-            <p>Resolved, local, candidate, and unresolved UI invocations</p>
-          </div>
-          <div class="status" style="color:#5f8d4e;">{{trend_status}}</div>
-        </div>
-        <div class="bars">
-          {{split_area_chart_svg}}
-          <div class="trend-axis">
-            {{trend_axis_html}}
-          </div>
-        </div>
-        <div class="trend-note">
-          <span>Green area = design-system share</span>
-          <span>Beeswax line = adoption boundary</span>
-        </div>
-      </article>
-
-      <article class="card">
-        <div class="card-head">
-          <div>
-            <h2>Adoption by project/package</h2>
-            <p>Where adoption is strongest and weakest across the repo</p>
-          </div>
-        </div>
-        <div class="mini-list">
-          {{project_package_rows_html}}
-        </div>
-      </article>
-    </section>
-
-    <section class="card" style="margin-bottom:22px;">
-      <div class="card-head">
-        <div>
-          <h2>Top local and unresolved symbols</h2>
-          <p>Highest migration opportunity based on repeated non-design-system usage</p>
-        </div>
-        <div class="status" style="color:#7a6520;">Action queue</div>
-      </div>
-      <div class="issues">
-        {{migration_opportunity_rows_html}}
-      </div>
-    </section>
-
-    <section class="footer-grid">
-      <div class="note">
-        <h3>Visible limits</h3>
-        {{visible_limits_html}}
-      </div>
-      <div class="note">
-        <h3>Diagnostics</h3>
-        {{diagnostics_summary_html}}
-      </div>
-    </section>
+  <h2>Design system component usage</h2>
+  <div class="panel">
+    <div class="legend">
+      <div class="legend-item"><span class="legend-dot" style="background:var(--wax)"></span> Resolved design system call sites</div>
+    </div>
+    <div class="chart-wrap tall">{{ds_usage_chart_svg}}</div>
   </div>
+
+  <div class="panel">
+    {{ds_symbols_table_html}}
+  </div>
+
+  <h2>Unused design system components</h2>
+  <p class="subtitle">{{unused_registry_count}} registry component(s) have no detected call sites in this repo.</p>
+  <div class="panel">
+    {{unused_components_table_html}}
+  </div>
+
+  <h2>Adoption by area</h2>
+  <p class="subtitle">Design system call sites vs non-adopted invocations, grouped by parent scope when attribution is available.</p>
+  <div class="panel">
+    <div class="legend">
+      <div class="legend-item"><span class="legend-dot" style="background:var(--wax)"></span> Resolved design system usages</div>
+      <div class="legend-item"><span class="legend-dot" style="background:var(--wax-soft)"></span> Remaining invocations</div>
+    </div>
+    <div class="chart-wrap">{{parent_scope_chart_svg}}</div>
+  </div>
+
+  <h2>Adoption gaps</h2>
+  <p class="subtitle">Languages with the lowest invocation adoption ratio — practical migration targets for the next pass.</p>
+  <div class="panel">
+    <div class="chart-wrap short">{{adoption_gaps_chart_svg}}</div>
+    {{adoption_gaps_table_html}}
+  </div>
+
+  <h2>Exact-name duplicates in shared UI</h2>
+  <p class="subtitle">Local symbols that reuse design system registry names or closely overlap them — likely migration debt.</p>
+  <div class="panel">
+    {{duplicate_components_table_html}}
+  </div>
+
+  <h2>Candidates to bring into the design system</h2>
+  <p class="subtitle">Repeated local and unresolved UI symbols that look most worth reviewing for design-system alignment.</p>
+  <div class="panel">
+    {{migration_candidates_table_html}}
+  </div>
+
+  <h2>Key findings</h2>
+  <div class="panel">
+    {{key_findings_html}}
+  </div>
+</div>
 </body>
 </html>
