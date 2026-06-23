@@ -6,285 +6,390 @@
   <title>Wax Scan Report - {{repo_name}}</title>
   <style>
     :root {
-      --bg: #f4efe9;
-      --panel: rgba(255, 255, 255, 0.9);
-      --panel-strong: #ffffff;
-      --line: #eadccf;
-      --text: #151515;
-      --muted: #667085;
+      --bg: #0f1318;
+      --bg-elevated: #131920;
+      --panel: #171f29;
+      --panel-strong: #1b2430;
+      --line: #273240;
+      --line-strong: #344253;
+      --text: #f4f6f8;
+      --muted: #98a3b3;
+      --muted-strong: #bec7d4;
       --accent: #d6a117;
       --accent-soft: #f3dfa0;
-      --green: #5f8d4e;
-      --green-2: #8fb17d;
-      --green-3: #dbe8cf;
-      --sand: #eadfb4;
-      --sand-2: #f5edd3;
-      --shadow: 0 20px 50px rgba(35, 24, 14, 0.08);
-      --radius: 24px;
+      --accent-ink: #1f1806;
+      --ds: #d6a117;
+      --local: #6f7f93;
+      --unresolved: #f3dfa0;
+      --good: #ecd48a;
+      --shadow: 0 28px 64px rgba(0, 0, 0, 0.34);
+      --radius: 8px;
     }
 
     * { box-sizing: border-box; }
+
     body {
       margin: 0;
-      font-family: "Helvetica Neue", Arial, sans-serif;
+      font-family: Inter, "Helvetica Neue", Arial, sans-serif;
       color: var(--text);
       background:
-        radial-gradient(circle at top left, #fff7f0 0, transparent 28%),
-        linear-gradient(180deg, #f8f2ec 0%, #f4efe9 100%);
+        radial-gradient(circle at top left, rgba(214, 161, 23, 0.12), transparent 28%),
+        linear-gradient(180deg, #0d1117 0%, #0f1318 100%);
+      line-height: 1.5;
     }
 
-    .page {
-      max-width: 1320px;
+    a { color: inherit; }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 4px;
+      padding: 1px 6px;
+      word-break: break-all;
+    }
+
+    .container {
+      max-width: 1380px;
       margin: 0 auto;
-      padding: 28px 28px 48px;
+      padding: 32px 24px 56px;
     }
 
-    .topbar {
+    .report-shell {
+      display: grid;
+      gap: 20px;
+    }
+
+    .masthead {
       display: flex;
       justify-content: space-between;
-      align-items: center;
-      background: rgba(255,255,255,0.78);
-      backdrop-filter: blur(18px);
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      padding: 16px 22px;
-      box-shadow: var(--shadow);
-      margin-bottom: 22px;
+      gap: 18px;
+      align-items: flex-start;
+      padding: 0 2px 6px;
+      border-bottom: 1px solid var(--line);
     }
 
-    .topbar .title {
-      font-size: 18px;
-      font-weight: 700;
-      letter-spacing: 0.02em;
-      color: #5e6570;
-    }
-
-    .topbar .meta {
-      display: flex;
-      gap: 12px;
-      color: var(--muted);
-      font-size: 14px;
-    }
-
-    .hero {
-      background: linear-gradient(180deg, #fff8f2 0%, rgba(255,255,255,0.94) 74%);
-      border: 1px solid var(--line);
-      border-radius: 30px;
-      padding: 30px;
-      box-shadow: var(--shadow);
-      margin-bottom: 22px;
-    }
-
-    .hero-grid {
+    .masthead-copy {
       display: grid;
-      grid-template-columns: 1.4fr 0.8fr;
-      gap: 22px;
-      align-items: start;
+      gap: 8px;
     }
 
     .eyebrow {
       text-transform: uppercase;
-      letter-spacing: 0.16em;
-      font-size: 12px;
-      font-weight: 800;
-      color: #8b5e34;
+      letter-spacing: 0.14em;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--accent-soft);
+    }
+
+    .masthead h1 {
+      margin: 0;
+      font-size: clamp(28px, 5vw, 42px);
+      line-height: 1.05;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .meta-list {
+      display: grid;
+      gap: 8px;
+      min-width: 220px;
+      color: var(--muted);
+      font-size: 13px;
+      justify-items: end;
+    }
+
+    .meta-chip {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 7px 12px;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .hero-panel,
+    .panel {
+      background: linear-gradient(180deg, rgba(27, 36, 48, 0.98) 0%, rgba(20, 27, 36, 0.98) 100%);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+
+    .hero-panel {
+      padding: 24px;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.95fr);
+      gap: 22px;
+      align-items: stretch;
+    }
+
+    .headline-row {
+      display: flex;
+      align-items: end;
+      gap: 16px;
+      flex-wrap: wrap;
       margin-bottom: 12px;
     }
 
-    .headline {
-      display: flex;
-      align-items: baseline;
-      gap: 14px;
-      flex-wrap: wrap;
-      margin-bottom: 8px;
+    .headline-value {
+      font-size: clamp(56px, 10vw, 88px);
+      line-height: 0.9;
+      font-weight: 800;
+      color: var(--accent);
     }
 
-    .headline .big {
-      font-size: 84px;
-      line-height: 0.95;
-      font-weight: 900;
-    }
-
-    .headline .sub {
-      font-size: 24px;
-      color: #5f6773;
-      font-weight: 700;
+    .headline-label {
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--muted-strong);
+      max-width: 18ch;
     }
 
     .lede {
-      font-size: 18px;
-      color: #707887;
-      margin-bottom: 24px;
+      margin: 0 0 18px;
+      color: var(--muted);
+      font-size: 16px;
+      max-width: 72ch;
+    }
+
+    .bar-labels {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
     }
 
     .split-bar {
       display: flex;
-      height: 32px;
-      border-radius: 999px;
+      height: 36px;
       overflow: hidden;
-      background: #f3e8df;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);
+      border: 1px solid var(--line-strong);
+      border-radius: 999px;
+      background: #0e141b;
     }
 
     .split-bar .ds,
     .split-bar .non {
       display: flex;
       align-items: center;
-      color: white;
-      font-size: 14px;
-      font-weight: 800;
+      min-width: 0;
+      font-size: 13px;
+      font-weight: 700;
       white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .split-bar .ds {
       width: var(--ds-share, 62%);
-      background: linear-gradient(90deg, #334a2b 0%, var(--green) 60%, var(--accent) 100%);
-      padding-left: 16px;
+      padding-left: 14px;
+      color: var(--accent-ink);
+      background: linear-gradient(90deg, #b78610 0%, var(--accent) 58%, var(--accent-soft) 100%);
     }
 
     .split-bar .non {
       width: var(--non-ds-share, 38%);
-      background: linear-gradient(90deg, #d9c98a 0%, #bca458 100%);
       justify-content: flex-end;
-      padding-right: 16px;
-      color: #5e4b1b;
+      padding-right: 14px;
+      color: var(--muted-strong);
+      background: linear-gradient(90deg, #24303d 0%, #303f50 100%);
     }
 
     .hero-side {
       display: grid;
-      gap: 12px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      align-content: start;
     }
 
-    .metric-tile {
-      background: var(--panel-strong);
-      border: 1px solid var(--line);
-      border-radius: 22px;
-      padding: 16px 18px;
-      box-shadow: 0 8px 20px rgba(250, 120, 60, 0.06);
-    }
-
-    .metric-tile .label {
-      text-transform: uppercase;
-      letter-spacing: 0.14em;
-      font-size: 11px;
-      font-weight: 800;
-      color: #9a6a42;
-      margin-bottom: 8px;
-    }
-
-    .metric-tile .value {
-      font-size: 38px;
-      font-weight: 900;
-    }
-
-    .metric-tile .context {
-      color: var(--muted);
-      font-size: 14px;
-      margin-top: 4px;
-    }
-
-    .grid {
-      display: grid;
-      grid-template-columns: 1.2fr 0.8fr;
-      gap: 22px;
-      margin-bottom: 22px;
-    }
-
-    .card {
-      background: rgba(255,255,255,0.92);
+    .metric-card {
+      background: rgba(255, 255, 255, 0.03);
       border: 1px solid var(--line);
       border-radius: var(--radius);
-      padding: 22px;
-      box-shadow: var(--shadow);
+      padding: 16px;
+      min-height: 132px;
+      display: grid;
+      align-content: space-between;
+      gap: 10px;
     }
 
-    .card-head {
+    .metric-card.full {
+      grid-column: 1 / -1;
+      min-height: 120px;
+    }
+
+    .metric-card .label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .metric-card .value {
+      font-size: clamp(28px, 4vw, 42px);
+      line-height: 1;
+      font-weight: 800;
+      color: var(--text);
+    }
+
+    .metric-card .value.accent {
+      color: var(--accent);
+    }
+
+    .metric-card .context {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.75fr);
+      gap: 20px;
+      align-items: start;
+    }
+
+    .panel {
+      padding: 20px;
+    }
+
+    .panel-head {
       display: flex;
       justify-content: space-between;
-      align-items: end;
+      align-items: flex-start;
       gap: 12px;
-      margin-bottom: 18px;
+      margin-bottom: 16px;
     }
 
-    .card-head h2 {
+    .panel-head h2 {
+      margin: 0 0 4px;
+      font-size: 20px;
+      line-height: 1.2;
+      font-weight: 650;
+    }
+
+    .panel-head p {
       margin: 0;
-      font-size: 13px;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      color: #7b8796;
-    }
-
-    .card-head p {
-      margin: 4px 0 0;
-      color: #667085;
-      font-size: 15px;
-    }
-
-    .card-head .status {
+      color: var(--muted);
       font-size: 14px;
-      font-weight: 800;
-      color: var(--blue);
     }
 
-    .bars {
-      position: relative;
-      height: 220px;
-      padding: 10px 12px 36px;
-      border-radius: 20px;
-      background: linear-gradient(180deg, #fcf9f1 0%, #ffffff 100%);
-      border: 1px solid #edf2f7;
+    .status-badge {
+      border-radius: 999px;
+      border: 1px solid rgba(214, 161, 23, 0.35);
+      background: rgba(214, 161, 23, 0.12);
+      color: var(--accent-soft);
+      padding: 6px 11px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .caveat {
+      padding: 18px 20px;
+      border-radius: var(--radius);
+      border: 1px solid rgba(214, 161, 23, 0.28);
+      background: linear-gradient(180deg, rgba(214, 161, 23, 0.12) 0%, rgba(214, 161, 23, 0.05) 100%);
+      color: var(--muted-strong);
+      font-size: 14px;
+    }
+
+    .caveat strong {
+      color: var(--text);
+    }
+
+    .chart-shell {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: linear-gradient(180deg, rgba(12, 17, 22, 0.72) 0%, rgba(15, 20, 26, 0.95) 100%);
+      padding: 16px;
       overflow: hidden;
     }
 
-    .trend-svg {
+    .trend-svg,
+    .chart-shell svg {
       width: 100%;
-      height: 170px;
+      height: auto;
       display: block;
     }
 
     .trend-axis {
-      position: absolute;
-      left: 18px;
-      right: 18px;
-      bottom: 12px;
+      margin-top: 12px;
       display: flex;
       justify-content: space-between;
-      color: #8b95a5;
+      gap: 12px;
+      color: var(--muted);
       font-size: 12px;
-      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
     }
 
     .trend-note {
+      margin-top: 12px;
       display: flex;
       justify-content: space-between;
-      margin-top: 12px;
-      color: #667085;
-      font-size: 13px;
-    }
-
-    .mini-list {
-      display: grid;
       gap: 16px;
-      margin-top: 6px;
+      color: var(--muted);
+      font-size: 13px;
+      flex-wrap: wrap;
     }
 
-    .mini-row {
+    .mini-list,
+    .issues {
       display: grid;
-      grid-template-columns: 76px 1fr 40px;
+      gap: 14px;
+    }
+
+    .mini-row,
+    .issue-row {
+      display: grid;
       gap: 12px;
       align-items: center;
     }
 
+    .mini-row {
+      grid-template-columns: minmax(96px, 0.9fr) minmax(0, 1fr) 54px;
+    }
+
+    .issue-row {
+      grid-template-columns: minmax(120px, 0.85fr) minmax(0, 1fr) 54px;
+    }
+
     .mini-row .name,
     .issue-row .name {
-      font-weight: 800;
+      font-weight: 700;
+      color: var(--text);
+      min-width: 0;
+      overflow-wrap: anywhere;
     }
 
     .track {
       height: 12px;
       border-radius: 999px;
       overflow: hidden;
-      background: #eceef2;
+      background: #0e141b;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .issue-row .track {
+      height: 16px;
     }
 
     .fill {
@@ -292,169 +397,217 @@
       border-radius: 999px;
     }
 
-    .issues {
-      display: grid;
-      gap: 16px;
-    }
-
-    .issue-row {
-      display: grid;
-      grid-template-columns: 124px 1fr 58px;
-      gap: 12px;
-      align-items: center;
-    }
-
-    .issue-row .track {
-      height: 18px;
-      background: #ece7d6;
-    }
-
     .issue-row .score {
       text-align: right;
-      font-weight: 900;
-      font-size: 24px;
-      color: #7a6520;
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--accent);
     }
 
     .footer-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 22px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 20px;
     }
 
     .note {
-      background: rgba(255,255,255,0.92);
+      background: rgba(255, 255, 255, 0.03);
       border: 1px solid var(--line);
-      border-radius: 22px;
-      padding: 18px 20px;
-      box-shadow: var(--shadow);
+      border-radius: var(--radius);
+      padding: 18px;
     }
 
     .note h3 {
       margin: 0 0 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.14em;
-      font-size: 12px;
-      color: #7b8796;
+      font-size: 16px;
+      line-height: 1.2;
+      font-weight: 650;
     }
 
-    .note p {
-      margin: 0;
-      color: #667085;
-      font-size: 15px;
-      line-height: 1.5;
+    .note p,
+    .note li,
+    .note div {
+      color: var(--muted);
+      font-size: 14px;
     }
 
-    @media (max-width: 980px) {
+    .note p:last-child {
+      margin-bottom: 0;
+    }
+
+    @media (max-width: 1080px) {
       .hero-grid,
-      .grid,
+      .dashboard-grid,
       .footer-grid {
         grid-template-columns: 1fr;
       }
 
-      .headline .big {
-        font-size: 64px;
+      .meta-list {
+        width: 100%;
+        justify-items: start;
+      }
+
+      .meta-chip {
+        text-align: left;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .container {
+        padding: 22px 14px 40px;
+      }
+
+      .masthead {
+        flex-direction: column;
+      }
+
+      .hero-panel,
+      .panel {
+        padding: 16px;
+      }
+
+      .hero-side {
+        grid-template-columns: 1fr;
+      }
+
+      .headline-label {
+        font-size: 17px;
+      }
+
+      .mini-row {
+        grid-template-columns: 84px minmax(0, 1fr) 48px;
+      }
+
+      .issue-row {
+        grid-template-columns: 96px minmax(0, 1fr) 48px;
       }
     }
   </style>
 </head>
 <body>
-  <div class="page">
-    <div class="topbar">
-      <div class="title">wax report / adoption + migration opportunities</div>
-      <div class="meta">
-        <span>repo: {{repo_name}}</span>
-        <span>scan: {{generated_at}}</span>
-      </div>
-    </div>
-
-    <section class="hero">
-      <div class="hero-grid">
-        <div>
-          <div class="eyebrow">UI invocation adoption</div>
-          <div class="headline">
-            <div class="big">{{invocation_adoption_percent}}</div>
-            <div class="sub">eligible UI invocations adopted</div>
-          </div>
-          <div class="lede">{{resolved_count}} design-system invocations out of {{eligible_invocation_count}} adoption-eligible UI invocations ({{raw_invocation_total}} raw invocations tracked)</div>
-          <div class="split-bar" style="--ds-share: {{invocation_adoption_percent}}; --non-ds-share: {{non_adopted_percent}};">
-            <div class="ds">Adopted {{invocation_adoption_percent}}</div>
-            <div class="non">Not adopted {{non_adopted_percent}}</div>
-          </div>
+  <div class="container">
+    <div class="report-shell">
+      <header class="masthead">
+        <div class="masthead-copy">
+          <div class="eyebrow">Wax scan report</div>
+          <h1>{{repo_name}}</h1>
+          <p class="subtitle">Adoption + migration opportunities dashboard</p>
         </div>
-
-        <div class="hero-side">
-          <div class="metric-tile">
-            <div class="label">Adopted components</div>
-            <div class="value" style="color:#8a721f;">{{adopted_components_count}} / {{total_registry_components}}</div>
-            <div class="context">Registry components with observed usage</div>
-          </div>
-          <div class="metric-tile">
-            <div class="label" style="color:#6b7280;">Trend</div>
-            <div class="value" style="color:#5f8d4e;">{{trend_delta}}</div>
-            <div class="context">{{trend_context}}</div>
-          </div>
+        <div class="meta-list">
+          <div class="meta-chip">Generated {{generated_at}}</div>
+          <div class="meta-chip">Offline, self-contained HTML artifact</div>
         </div>
-      </div>
-    </section>
+      </header>
 
-    <section class="grid">
-      <article class="card">
-        <div class="card-head">
+      <section class="hero-panel">
+        <div class="hero-grid">
           <div>
-            <h2>Invocation breakdown</h2>
-            <p>Resolved, local, candidate, and unresolved UI invocations</p>
+            <div class="eyebrow">UI invocation adoption</div>
+            <div class="headline-row">
+              <div class="headline-value">{{invocation_adoption_percent}}</div>
+              <div class="headline-label">eligible UI invocations adopted</div>
+            </div>
+            <p class="lede">{{resolved_count}} design-system invocations out of {{eligible_invocation_count}} adoption-eligible UI invocations ({{raw_invocation_total}} raw invocations tracked)</p>
+            <div class="bar-labels">
+              <span>Adopted share</span>
+              <span>Remaining share</span>
+            </div>
+            <div class="split-bar" style="--ds-share: {{invocation_adoption_percent}}; --non-ds-share: {{non_adopted_percent}};">
+              <div class="ds">Adopted {{invocation_adoption_percent}}</div>
+              <div class="non">Not adopted {{non_adopted_percent}}</div>
+            </div>
           </div>
-          <div class="status" style="color:#5f8d4e;">{{trend_status}}</div>
+
+          <div class="hero-side">
+            <div class="metric-card">
+              <div class="label">Adopted components</div>
+              <div class="value accent">{{adopted_components_count}} / {{total_registry_components}}</div>
+              <p class="context">Registry components with observed usage</p>
+            </div>
+            <div class="metric-card">
+              <div class="label">Trend</div>
+              <div class="value">{{trend_delta}}</div>
+              <p class="context">{{trend_context}}</p>
+            </div>
+            <div class="metric-card full">
+              <div class="label">Current report state</div>
+              <div class="value accent">{{trend_status}}</div>
+              <p class="context">Resolved, local, candidate, and unresolved UI invocations remain visible in the sections below.</p>
+            </div>
+          </div>
         </div>
-        <div class="bars">
-          {{split_area_chart_svg}}
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>How to read this report</h2>
+            <p>Directional signals, caveats, and reporting limits</p>
+          </div>
+        </div>
+        <div class="caveat">
+          <strong>How to read this report.</strong> Wax matches usage sites against the design system registry. <strong>DS vs local</strong> is resolved DS sites divided by resolved DS sites plus local component definitions — a directional signal, not strict UI coverage.
+        </div>
+      </section>
+
+      <section class="dashboard-grid">
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Invocation breakdown</h2>
+              <p>Resolved, local, candidate, and unresolved UI invocations</p>
+            </div>
+            <div class="status-badge">{{trend_status}}</div>
+          </div>
+          <div class="chart-shell">
+            {{split_area_chart_svg}}
+          </div>
           <div class="trend-axis">
             {{trend_axis_html}}
           </div>
-        </div>
-        <div class="trend-note">
-          <span>Green area = design-system share</span>
-          <span>Beeswax line = adoption boundary</span>
-        </div>
-      </article>
-
-      <article class="card">
-        <div class="card-head">
-          <div>
-            <h2>Adoption by project/package</h2>
-            <p>Where adoption is strongest and weakest across the repo</p>
+          <div class="trend-note">
+            <span>Design-system share is highlighted in beeswax.</span>
+            <span>Remaining space captures non-adopted volume.</span>
           </div>
-        </div>
-        <div class="mini-list">
-          {{project_package_rows_html}}
-        </div>
-      </article>
-    </section>
+        </article>
 
-    <section class="card" style="margin-bottom:22px;">
-      <div class="card-head">
-        <div>
-          <h2>Top local and unresolved symbols</h2>
-          <p>Highest migration opportunity based on repeated non-design-system usage</p>
-        </div>
-        <div class="status" style="color:#7a6520;">Action queue</div>
-      </div>
-      <div class="issues">
-        {{migration_opportunity_rows_html}}
-      </div>
-    </section>
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Adoption by project/package</h2>
+              <p>Where adoption is strongest and weakest across the repo</p>
+            </div>
+          </div>
+          <div class="mini-list">
+            {{project_package_rows_html}}
+          </div>
+        </article>
+      </section>
 
-    <section class="footer-grid">
-      <div class="note">
-        <h3>Visible limits</h3>
-        {{visible_limits_html}}
-      </div>
-      <div class="note">
-        <h3>Diagnostics</h3>
-        {{diagnostics_summary_html}}
-      </div>
-    </section>
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Top local and unresolved symbols</h2>
+            <p>Highest migration opportunity based on repeated non-design-system usage</p>
+          </div>
+          <div class="status-badge">Action queue</div>
+        </div>
+        <div class="issues">
+          {{migration_opportunity_rows_html}}
+        </div>
+      </section>
+
+      <section class="footer-grid">
+        <div class="note">
+          <h3>Visible limits</h3>
+          {{visible_limits_html}}
+        </div>
+        <div class="note">
+          <h3>Diagnostics</h3>
+          {{diagnostics_summary_html}}
+        </div>
+      </section>
+    </div>
   </div>
 </body>
 </html>
