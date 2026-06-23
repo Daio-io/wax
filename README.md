@@ -35,6 +35,8 @@ brew tap Daio-io/wax
 brew install wax
 ```
 
+After installing or upgrading the binary, the formula makes a best-effort attempt to refresh any already-installed language packs with `wax language update --all`. If that refresh fails, Homebrew prints a warning but still leaves the `wax` binary installed.
+
 ### npm wrapper
 
 ```bash
