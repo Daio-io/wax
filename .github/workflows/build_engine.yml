@@ -6,9 +6,11 @@ on:
       - "engine/**"
       - "scripts/install.sh"
       - "scripts/test-install.sh"
+      - "scripts/test-homebrew-formula.rb"
       - "scripts/generate-pack-index.sh"
       - "scripts/test-generate-pack-index.sh"
       - "scripts/check-release-workflow.rb"
+      - "homebrew/Formula/wax.rb"
       - ".github/workflows/release.yml"
       - ".github/workflows/build_engine.yml"
   push:
@@ -18,9 +20,11 @@ on:
       - "engine/**"
       - "scripts/install.sh"
       - "scripts/test-install.sh"
+      - "scripts/test-homebrew-formula.rb"
       - "scripts/generate-pack-index.sh"
       - "scripts/test-generate-pack-index.sh"
       - "scripts/check-release-workflow.rb"
+      - "homebrew/Formula/wax.rb"
       - ".github/workflows/release.yml"
       - ".github/workflows/build_engine.yml"
 
@@ -62,6 +66,9 @@ jobs:
 
       - name: Test curl installer
         run: ../scripts/test-install.sh
+
+      - name: Test Homebrew formula
+        run: ruby ../scripts/test-homebrew-formula.rb
 
       - name: Check release workflow
         run: ruby ../scripts/check-release-workflow.rb
