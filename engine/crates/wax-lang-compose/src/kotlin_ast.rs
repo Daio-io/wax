@@ -187,7 +187,10 @@ fn parameter_annotation_function_type_parens(
     colon_index: usize,
     parameter_list_open: Option<&usize>,
 ) -> Option<(usize, usize)> {
-    parameter_list_open?;
+    let parameter_list_open = *parameter_list_open?;
+    if !is_plain_parameter_type_annotation(bytes, parameter_list_open, colon_index) {
+        return None;
+    }
 
     let mut index = skip_ascii_whitespace(bytes, colon_index + 1);
     let mut saw_annotation = false;
@@ -207,6 +210,61 @@ fn parameter_annotation_function_type_parens(
         .then_some((index, outer_close))
 }
 
+fn is_plain_parameter_type_annotation(
+    bytes: &[u8],
+    parameter_list_open: usize,
+    colon_index: usize,
+) -> bool {
+    let segment_start = bytes[parameter_list_open + 1..colon_index]
+        .iter()
+        .rposition(|byte| *byte == b',')
+        .map_or(parameter_list_open + 1, |offset| {
+            parameter_list_open + 1 + offset + 1
+        });
+    let start = skip_ascii_whitespace(bytes, segment_start);
+    if starts_with_keyword(bytes, start, b"val") || starts_with_keyword(bytes, start, b"var") {
+        return false;
+    }
+
+    let Some(name_start) = previous_identifier_start(bytes, colon_index) else {
+        return false;
+    };
+    name_start >= start
+}
+
+fn starts_with_keyword(bytes: &[u8], start: usize, keyword: &[u8]) -> bool {
+    bytes
+        .get(start..start + keyword.len())
+        .is_some_and(|found| found == keyword)
+        && bytes
+            .get(start + keyword.len())
+            .is_none_or(|byte| !is_identifier_byte(*byte))
+}
+
+fn previous_identifier_start(bytes: &[u8], index: usize) -> Option<usize> {
+    let mut cursor = index.checked_sub(1)?;
+    while bytes
+        .get(cursor)
+        .is_some_and(|byte| byte.is_ascii_whitespace())
+    {
+        cursor = cursor.checked_sub(1)?;
+    }
+    if !bytes
+        .get(cursor)
+        .is_some_and(|byte| is_identifier_byte(*byte))
+    {
+        return None;
+    }
+    while cursor > 0
+        && bytes
+            .get(cursor - 1)
+            .is_some_and(|byte| is_identifier_byte(*byte))
+    {
+        cursor -= 1;
+    }
+    Some(cursor)
+}
+
 fn annotation_token_end(bytes: &[u8], start: usize) -> Option<usize> {
     let mut index = start.checked_add(1)?;
     while index < bytes.len() && is_annotation_token_byte(bytes[index]) {
@@ -218,6 +276,10 @@ fn annotation_token_end(bytes: &[u8], start: usize) -> Option<usize> {
 
 fn is_annotation_token_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b':')
+}
+
+fn is_identifier_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
 fn skip_ascii_whitespace(bytes: &[u8], mut index: usize) -> usize {
@@ -791,7 +853,7 @@ val handler: @Composable ((T) -> Unit) = {}
 fun factory(): @Composable ((T) -> Unit) = {}
 
 class Screen(
-    val content: @Composable  (T) -> Unit ,
+    val content: @Composable ((T) -> Unit),
 )
 "#
         );
