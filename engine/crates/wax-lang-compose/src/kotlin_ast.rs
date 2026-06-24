@@ -130,6 +130,7 @@ fn normalize_annotated_parenthesized_function_types_for_parse(source: &str) -> C
     let bytes = source.as_bytes();
     let mut normalized = None;
     let mut index = 0;
+    let mut paren_stack = Vec::new();
 
     while index < bytes.len() {
         match bytes[index] {
@@ -148,9 +149,17 @@ fn normalize_annotated_parenthesized_function_types_for_parse(source: &str) -> C
             b'\'' => {
                 index = skip_quoted_literal(bytes, index + 1, b'\'');
             }
+            b'(' => {
+                paren_stack.push(index);
+                index += 1;
+            }
+            b')' => {
+                paren_stack.pop();
+                index += 1;
+            }
             b':' => {
                 let Some((outer_open, outer_close)) =
-                    parameter_annotation_function_type_parens(bytes, index)
+                    parameter_annotation_function_type_parens(bytes, index, paren_stack.last())
                 else {
                     index += 1;
                     continue;
@@ -176,7 +185,10 @@ fn normalize_annotated_parenthesized_function_types_for_parse(source: &str) -> C
 fn parameter_annotation_function_type_parens(
     bytes: &[u8],
     colon_index: usize,
+    parameter_list_open: Option<&usize>,
 ) -> Option<(usize, usize)> {
+    parameter_list_open?;
+
     let mut index = skip_ascii_whitespace(bytes, colon_index + 1);
     let mut saw_annotation = false;
 
@@ -753,6 +765,34 @@ val label = "@Composable ((T) -> Unit)"
 fun Screen(
     content: @Composable  (T) -> Unit ,
 ) {}
+"#
+        );
+    }
+
+    #[test]
+    fn normalization_does_not_rewrite_property_or_return_type_annotations() {
+        let source = r#"
+val handler: @Composable ((T) -> Unit) = {}
+
+fun factory(): @Composable ((T) -> Unit) = {}
+
+class Screen(
+    val content: @Composable ((T) -> Unit),
+)
+"#;
+
+        let normalized = normalize_annotated_parenthesized_function_types_for_parse(source);
+
+        assert_eq!(
+            normalized.as_ref(),
+            r#"
+val handler: @Composable ((T) -> Unit) = {}
+
+fun factory(): @Composable ((T) -> Unit) = {}
+
+class Screen(
+    val content: @Composable  (T) -> Unit ,
+)
 "#
         );
     }
