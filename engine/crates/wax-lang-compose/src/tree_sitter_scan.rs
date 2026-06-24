@@ -1399,6 +1399,68 @@ fun Screen() { Button(onClick = {}) }
     }
 
     #[test]
+    fn annotated_parenthesized_generic_function_type_does_not_emit_parse_failed() {
+        let config = ComposeScanConfig {
+            design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
+            roots: vec![std::path::PathBuf::from("app/src/main/kotlin")],
+            excludes: vec![],
+        };
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let registry_dir = tmp.path().join("design-system");
+        std::fs::create_dir_all(&registry_dir).unwrap();
+        std::fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"PrimaryButton"}]}"#,
+        )
+        .unwrap();
+
+        let source_dir = tmp.path().join("app/src/main/kotlin");
+        std::fs::create_dir_all(&source_dir).unwrap();
+        std::fs::write(
+            source_dir.join("MainApp.kt"),
+            r#"
+import androidx.compose.runtime.Composable
+
+interface NavArgument
+interface NavDecoration
+
+private object CapsuleDecor : NavDecoration {
+    @Composable
+    override fun <T : NavArgument> DecoratedContent(
+        args: List<T>,
+        modifier: Modifier,
+        content: @Composable ((T) -> Unit),
+    ) {
+        PrimaryButton(onClick = {})
+        content.invoke(args.first())
+    }
+}
+"#,
+        )
+        .unwrap();
+
+        let result = scan_repository(tmp.path(), &config).expect("scan should succeed");
+
+        assert_eq!(result.status, ScanStatus::Complete);
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.code != "parse_failed"),
+            "valid annotated parenthesized function types must not emit parse_failed: {:?}",
+            result.diagnostics
+        );
+        assert!(
+            result
+                .usage_sites
+                .iter()
+                .any(|usage| usage.symbol == "PrimaryButton"),
+            "scanner should still extract calls from the file"
+        );
+    }
+
+    #[test]
     fn unmatched_wildcard_root_emits_glob_warning() {
         let config = ComposeScanConfig {
             design_system_registry: std::path::PathBuf::from("design-system/registry.json"),

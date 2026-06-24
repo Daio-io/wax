@@ -1,5 +1,6 @@
 //! Shared Kotlin tree-sitter helpers for Compose extraction.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -99,8 +100,9 @@ pub(crate) fn parse_kotlin_file_permissive(
         context: format!("read Kotlin source {}", path.display()),
         source,
     })?;
+    let normalized = normalize_annotated_parenthesized_function_types_for_parse(&source);
     let tree = parser
-        .parse(source.as_bytes(), None)
+        .parse(normalized.as_bytes(), None)
         .ok_or_else(|| ParseKotlinFileError::ParseFailed(path.to_path_buf()))?;
 
     Ok(ParsedKotlinFile { source, tree })
@@ -122,6 +124,112 @@ pub(crate) fn parse_kotlin_file_strict(
 /// Returns whether tree-sitter reported recoverable syntax errors in a parsed tree.
 pub(crate) fn tree_has_syntax_errors(tree: &tree_sitter::Tree) -> bool {
     tree.root_node().has_error()
+}
+
+fn normalize_annotated_parenthesized_function_types_for_parse(source: &str) -> Cow<'_, str> {
+    let bytes = source.as_bytes();
+    let mut normalized = None;
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if bytes[index] != b'@' {
+            index += 1;
+            continue;
+        }
+
+        let Some(annotation_end) = annotation_token_end(bytes, index) else {
+            index += 1;
+            continue;
+        };
+
+        let whitespace_end = skip_ascii_whitespace(bytes, annotation_end);
+        if whitespace_end == annotation_end
+            || whitespace_end + 1 >= bytes.len()
+            || bytes[whitespace_end] != b'('
+            || bytes[whitespace_end + 1] != b'('
+        {
+            index = annotation_end;
+            continue;
+        }
+
+        let Some(outer_close) = matching_paren_index(bytes, whitespace_end) else {
+            index = whitespace_end + 1;
+            continue;
+        };
+
+        if outer_close <= whitespace_end + 2
+            || !contains_function_arrow(bytes, whitespace_end + 1, outer_close)
+        {
+            index = outer_close.saturating_add(1);
+            continue;
+        }
+
+        let normalized_bytes = normalized.get_or_insert_with(|| bytes.to_vec());
+        normalized_bytes[whitespace_end] = b' ';
+        normalized_bytes[outer_close] = b' ';
+        index = outer_close + 1;
+    }
+
+    match normalized {
+        Some(bytes) => String::from_utf8(bytes)
+            .map(Cow::Owned)
+            .unwrap_or_else(|_| Cow::Borrowed(source)),
+        None => Cow::Borrowed(source),
+    }
+}
+
+fn annotation_token_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut index = start.checked_add(1)?;
+    while index < bytes.len() && is_annotation_token_byte(bytes[index]) {
+        index += 1;
+    }
+
+    (index > start + 1).then_some(index)
+}
+
+fn is_annotation_token_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b':')
+}
+
+fn skip_ascii_whitespace(bytes: &[u8], mut index: usize) -> usize {
+    while index < bytes.len() && bytes[index].is_ascii_whitespace() {
+        index += 1;
+    }
+    index
+}
+
+fn matching_paren_index(bytes: &[u8], open_index: usize) -> Option<usize> {
+    let mut depth = 0_u32;
+    for (index, byte) in bytes.iter().enumerate().skip(open_index) {
+        match byte {
+            b'(' => depth = depth.saturating_add(1),
+            b')' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
+fn contains_function_arrow(bytes: &[u8], start: usize, end: usize) -> bool {
+    if end <= start + 1 {
+        return false;
+    }
+
+    let mut index = start;
+    while index + 1 < end {
+        if bytes[index] == b'-' && bytes[index + 1] == b'>' {
+            return true;
+        }
+        index += 1;
+    }
+
+    false
 }
 
 /// Diagnostic emitted when tree-sitter returns no syntax tree for a source file.
