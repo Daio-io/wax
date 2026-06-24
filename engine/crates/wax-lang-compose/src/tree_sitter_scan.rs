@@ -1461,6 +1461,56 @@ private object CapsuleDecor : NavDecoration {
     }
 
     #[test]
+    fn malformed_annotated_parenthesized_function_type_still_emits_parse_failed() {
+        let config = ComposeScanConfig {
+            design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
+            roots: vec![std::path::PathBuf::from("app/src/main/kotlin")],
+            excludes: vec![],
+        };
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let registry_dir = tmp.path().join("design-system");
+        std::fs::create_dir_all(&registry_dir).unwrap();
+        std::fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"PrimaryButton"}]}"#,
+        )
+        .unwrap();
+
+        let source_dir = tmp.path().join("app/src/main/kotlin");
+        std::fs::create_dir_all(&source_dir).unwrap();
+        std::fs::write(
+            source_dir.join("BrokenMainApp.kt"),
+            r#"
+import androidx.compose.runtime.Composable
+
+interface NavArgument
+
+@Composable
+fun BrokenScreen(
+    content: @Composable ((NavArgument) -> Unit,
+) {
+    PrimaryButton(onClick = {})
+}
+"#,
+        )
+        .unwrap();
+
+        let result = scan_repository(tmp.path(), &config)
+            .expect("scan should keep extracting from malformed trees");
+
+        assert_eq!(result.files_scanned, 1);
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "parse_failed"),
+            "malformed annotated parenthesized function types must still emit parse_failed"
+        );
+        assert_eq!(result.status, ScanStatus::Partial);
+    }
+
+    #[test]
     fn unmatched_wildcard_root_emits_glob_warning() {
         let config = ComposeScanConfig {
             design_system_registry: std::path::PathBuf::from("design-system/registry.json"),

@@ -132,42 +132,37 @@ fn normalize_annotated_parenthesized_function_types_for_parse(source: &str) -> C
     let mut index = 0;
 
     while index < bytes.len() {
-        if bytes[index] != b'@' {
-            index += 1;
-            continue;
+        match bytes[index] {
+            b'/' if bytes.get(index + 1) == Some(&b'/') => {
+                index = skip_line_comment(bytes, index + 2);
+            }
+            b'/' if bytes.get(index + 1) == Some(&b'*') => {
+                index = skip_block_comment(bytes, index + 2);
+            }
+            b'"' if bytes.get(index + 1) == Some(&b'"') && bytes.get(index + 2) == Some(&b'"') => {
+                index = skip_triple_quoted_string(bytes, index + 3);
+            }
+            b'"' => {
+                index = skip_quoted_literal(bytes, index + 1, b'"');
+            }
+            b'\'' => {
+                index = skip_quoted_literal(bytes, index + 1, b'\'');
+            }
+            b':' => {
+                let Some((outer_open, outer_close)) =
+                    parameter_annotation_function_type_parens(bytes, index)
+                else {
+                    index += 1;
+                    continue;
+                };
+
+                let normalized_bytes = normalized.get_or_insert_with(|| bytes.to_vec());
+                normalized_bytes[outer_open] = b' ';
+                normalized_bytes[outer_close] = b' ';
+                index = outer_close + 1;
+            }
+            _ => index += 1,
         }
-
-        let Some(annotation_end) = annotation_token_end(bytes, index) else {
-            index += 1;
-            continue;
-        };
-
-        let whitespace_end = skip_ascii_whitespace(bytes, annotation_end);
-        if whitespace_end == annotation_end
-            || whitespace_end + 1 >= bytes.len()
-            || bytes[whitespace_end] != b'('
-            || bytes[whitespace_end + 1] != b'('
-        {
-            index = annotation_end;
-            continue;
-        }
-
-        let Some(outer_close) = matching_paren_index(bytes, whitespace_end) else {
-            index = whitespace_end + 1;
-            continue;
-        };
-
-        if outer_close <= whitespace_end + 2
-            || !contains_function_arrow(bytes, whitespace_end + 1, outer_close)
-        {
-            index = outer_close.saturating_add(1);
-            continue;
-        }
-
-        let normalized_bytes = normalized.get_or_insert_with(|| bytes.to_vec());
-        normalized_bytes[whitespace_end] = b' ';
-        normalized_bytes[outer_close] = b' ';
-        index = outer_close + 1;
     }
 
     match normalized {
@@ -176,6 +171,28 @@ fn normalize_annotated_parenthesized_function_types_for_parse(source: &str) -> C
             .unwrap_or_else(|_| Cow::Borrowed(source)),
         None => Cow::Borrowed(source),
     }
+}
+
+fn parameter_annotation_function_type_parens(
+    bytes: &[u8],
+    colon_index: usize,
+) -> Option<(usize, usize)> {
+    let mut index = skip_ascii_whitespace(bytes, colon_index + 1);
+    let mut saw_annotation = false;
+
+    while bytes.get(index) == Some(&b'@') {
+        let annotation_end = annotation_token_end(bytes, index)?;
+        saw_annotation = true;
+        index = skip_ascii_whitespace(bytes, annotation_end);
+    }
+
+    if !saw_annotation || bytes.get(index) != Some(&b'(') || bytes.get(index + 1) != Some(&b'(') {
+        return None;
+    }
+
+    let outer_close = matching_paren_index(bytes, index)?;
+    (outer_close > index + 2 && contains_function_arrow(bytes, index + 1, outer_close))
+        .then_some((index, outer_close))
 }
 
 fn annotation_token_end(bytes: &[u8], start: usize) -> Option<usize> {
@@ -196,6 +213,55 @@ fn skip_ascii_whitespace(bytes: &[u8], mut index: usize) -> usize {
         index += 1;
     }
     index
+}
+
+fn skip_line_comment(bytes: &[u8], mut index: usize) -> usize {
+    while index < bytes.len() && bytes[index] != b'\n' {
+        index += 1;
+    }
+    index
+}
+
+fn skip_block_comment(bytes: &[u8], mut index: usize) -> usize {
+    let mut depth = 1_u32;
+    while index < bytes.len() {
+        match (bytes.get(index), bytes.get(index + 1)) {
+            (Some(b'/'), Some(b'*')) => {
+                depth = depth.saturating_add(1);
+                index += 2;
+            }
+            (Some(b'*'), Some(b'/')) => {
+                depth = depth.saturating_sub(1);
+                index += 2;
+                if depth == 0 {
+                    break;
+                }
+            }
+            _ => index += 1,
+        }
+    }
+    index
+}
+
+fn skip_triple_quoted_string(bytes: &[u8], mut index: usize) -> usize {
+    while index + 2 < bytes.len() {
+        if bytes[index] == b'"' && bytes[index + 1] == b'"' && bytes[index + 2] == b'"' {
+            return index + 3;
+        }
+        index += 1;
+    }
+    bytes.len()
+}
+
+fn skip_quoted_literal(bytes: &[u8], mut index: usize, delimiter: u8) -> usize {
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\\' => index = index.saturating_add(2),
+            byte if byte == delimiter => return index + 1,
+            _ => index += 1,
+        }
+    }
+    bytes.len()
 }
 
 fn matching_paren_index(bytes: &[u8], open_index: usize) -> Option<usize> {
@@ -665,5 +731,29 @@ fun Screen() {}
             .expect("permissive parse should keep partial trees");
 
         assert!(parsed.tree.root_node().has_error());
+    }
+
+    #[test]
+    fn normalization_only_rewrites_parameter_type_annotations() {
+        let source = r#"
+val label = "@Composable ((T) -> Unit)"
+// @Composable ((T) -> Unit)
+fun Screen(
+    content: @Composable ((T) -> Unit),
+) {}
+"#;
+
+        let normalized = normalize_annotated_parenthesized_function_types_for_parse(source);
+
+        assert_eq!(
+            normalized.as_ref(),
+            r#"
+val label = "@Composable ((T) -> Unit)"
+// @Composable ((T) -> Unit)
+fun Screen(
+    content: @Composable  (T) -> Unit ,
+) {}
+"#
+        );
     }
 }
