@@ -8,6 +8,10 @@ use std::path::{Path, PathBuf};
 use wax_contract::{Diagnostic, DiagnosticSeverity, SourceLocation};
 
 /// Parsed Kotlin source and syntax tree.
+///
+/// `source` is always the original file text. `tree` may be parsed from a
+/// byte-preserving normalized buffer that works around a tree-sitter Kotlin
+/// grammar gap for annotated parenthesized function-type parameters.
 #[derive(Debug)]
 pub(crate) struct ParsedKotlinFile {
     pub(crate) source: String,
@@ -154,7 +158,7 @@ fn normalize_annotated_parenthesized_function_types_for_parse(source: &str) -> C
                 index += 1;
             }
             b')' => {
-                paren_stack.pop();
+                let _ = paren_stack.pop();
                 index += 1;
             }
             b':' => {
@@ -340,16 +344,36 @@ fn skip_quoted_literal(bytes: &[u8], mut index: usize, delimiter: u8) -> usize {
 
 fn matching_paren_index(bytes: &[u8], open_index: usize) -> Option<usize> {
     let mut depth = 0_u32;
-    for (index, byte) in bytes.iter().enumerate().skip(open_index) {
-        match byte {
-            b'(' => depth = depth.saturating_add(1),
+    let mut index = open_index;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'/' if bytes.get(index + 1) == Some(&b'/') => {
+                index = skip_line_comment(bytes, index + 2);
+            }
+            b'/' if bytes.get(index + 1) == Some(&b'*') => {
+                index = skip_block_comment(bytes, index + 2);
+            }
+            b'"' if bytes.get(index + 1) == Some(&b'"') && bytes.get(index + 2) == Some(&b'"') => {
+                index = skip_triple_quoted_string(bytes, index + 3);
+            }
+            b'"' => {
+                index = skip_quoted_literal(bytes, index + 1, b'"');
+            }
+            b'\'' => {
+                index = skip_quoted_literal(bytes, index + 1, b'\'');
+            }
+            b'(' => {
+                depth = depth.saturating_add(1);
+                index += 1;
+            }
             b')' => {
                 depth = depth.saturating_sub(1);
                 if depth == 0 {
                     return Some(index);
                 }
+                index += 1;
             }
-            _ => {}
+            _ => index += 1,
         }
     }
 
@@ -363,10 +387,27 @@ fn contains_function_arrow(bytes: &[u8], start: usize, end: usize) -> bool {
 
     let mut index = start;
     while index + 1 < end {
-        if bytes[index] == b'-' && bytes[index + 1] == b'>' {
-            return true;
+        match bytes[index] {
+            b'/' if bytes.get(index + 1) == Some(&b'/') => {
+                index = skip_line_comment(bytes, index + 2).min(end);
+            }
+            b'/' if bytes.get(index + 1) == Some(&b'*') => {
+                index = skip_block_comment(bytes, index + 2).min(end);
+            }
+            b'"' if bytes.get(index + 1) == Some(&b'"') && bytes.get(index + 2) == Some(&b'"') => {
+                index = skip_triple_quoted_string(bytes, index + 3).min(end);
+            }
+            b'"' => {
+                index = skip_quoted_literal(bytes, index + 1, b'"').min(end);
+            }
+            b'\'' => {
+                index = skip_quoted_literal(bytes, index + 1, b'\'').min(end);
+            }
+            b'-' if bytes.get(index + 1) == Some(&b'>') => {
+                return true;
+            }
+            _ => index += 1,
         }
-        index += 1;
     }
 
     false
@@ -808,6 +849,48 @@ fun Screen() {}
     }
 
     #[test]
+    fn permissive_parse_normalizes_parenthesized_composable_parameter_without_errors() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let source_file = tempdir.path().join("MainApp.kt");
+        fs::write(
+            &source_file,
+            r#"
+import androidx.compose.runtime.Composable
+
+interface NavArgument
+interface NavDecoration
+
+private object CapsuleDecor : NavDecoration {
+    @Composable
+    override fun <T : NavArgument> DecoratedContent(
+        args: List<T>,
+        modifier: Modifier,
+        content: @Composable ((T) -> Unit),
+    ) {
+        content.invoke(args.first())
+    }
+}
+"#,
+        )
+        .expect("write source");
+
+        let mut parser = new_parser().expect("parser");
+        let parsed = parse_kotlin_file_permissive(&mut parser, &source_file)
+            .expect("permissive parse should succeed");
+
+        assert!(
+            !parsed.tree.root_node().has_error(),
+            "valid parenthesized annotated function type should parse without tree-sitter errors"
+        );
+        assert!(
+            parsed
+                .source
+                .contains("content: @Composable ((T) -> Unit),"),
+            "parsed source must remain the original text"
+        );
+    }
+
+    #[test]
     fn normalization_only_rewrites_parameter_type_annotations() {
         let source = r#"
 val label = "@Composable ((T) -> Unit)"
@@ -826,6 +909,28 @@ val label = "@Composable ((T) -> Unit)"
 // @Composable ((T) -> Unit)
 fun Screen(
     content: @Composable  (T) -> Unit ,
+) {}
+"#
+        );
+    }
+
+    #[test]
+    fn normalization_ignores_parens_and_arrows_inside_literals() {
+        let source = r#"
+fun Screen(
+    content: @Composable ((@Label(")") T) -> Unit),
+    maybe: @Composable ((@Label("->") T)),
+) {}
+"#;
+
+        let normalized = normalize_annotated_parenthesized_function_types_for_parse(source);
+
+        assert_eq!(
+            normalized.as_ref(),
+            r#"
+fun Screen(
+    content: @Composable  (@Label(")") T) -> Unit ,
+    maybe: @Composable ((@Label("->") T)),
 ) {}
 "#
         );
