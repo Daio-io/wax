@@ -128,6 +128,11 @@ extract_core() {
 
     def repo_metrics_from_counts($counts):
       {
+        ds_vs_local_ratio: (
+          if (($counts.raw_invocations.resolved // 0) + ($counts.raw_invocations.local // 0)) == 0 then null
+          else (($counts.raw_invocations.resolved // 0) / (($counts.raw_invocations.resolved // 0) + ($counts.raw_invocations.local // 0)))
+          end
+        ),
         invocation_adoption_ratio: (
           if ($counts.adoption.eligible_invocation_count // 0) == 0 then null
           else (($counts.adoption.adopted_invocation_count // 0) / $counts.adoption.eligible_invocation_count)
@@ -142,20 +147,23 @@ extract_core() {
 
     def repo_summary_block:
       if .repo_summary? != null then
-        {
-          languages: (.repo_summary.languages | map(tostring)),
-          invocation_adoption_ratio: .repo_summary.metrics.invocation_adoption_ratio,
-          registry_resolution_ratio: .repo_summary.metrics.registry_resolution_ratio,
-          raw_invocations: .repo_summary.counts.raw_invocations,
-          definitions: .repo_summary.counts.definitions,
-          registry: .repo_summary.counts.registry,
-          adoption: .repo_summary.counts.adoption,
-          parent_scopes: .repo_summary.counts.parent_scopes
-        }
+        .repo_summary.counts as $counts
+        | {
+            languages: (.repo_summary.languages | map(tostring)),
+            ds_vs_local_ratio: (repo_metrics_from_counts($counts).ds_vs_local_ratio),
+            invocation_adoption_ratio: .repo_summary.metrics.invocation_adoption_ratio,
+            registry_resolution_ratio: .repo_summary.metrics.registry_resolution_ratio,
+            raw_invocations: $counts.raw_invocations,
+            definitions: $counts.definitions,
+            registry: $counts.registry,
+            adoption: $counts.adoption,
+            parent_scopes: $counts.parent_scopes
+          }
       else
         repo_counts_from_languages as $counts
         | {
             languages: lang_ids,
+            ds_vs_local_ratio: (repo_metrics_from_counts($counts).ds_vs_local_ratio),
             invocation_adoption_ratio: (repo_metrics_from_counts($counts).invocation_adoption_ratio),
             registry_resolution_ratio: (repo_metrics_from_counts($counts).registry_resolution_ratio),
             raw_invocations: $counts.raw_invocations,
@@ -170,6 +178,7 @@ extract_core() {
       {
         language_id: $lang_id,
         status: $facts.status,
+        ds_vs_local_ratio: (repo_metrics_from_counts($facts.counts).ds_vs_local_ratio),
         invocation_adoption_ratio: $facts.metrics.invocation_adoption_ratio,
         registry_resolution_ratio: $facts.metrics.registry_resolution_ratio,
         raw_invocations: $facts.counts.raw_invocations,
@@ -339,17 +348,28 @@ compute_baseline_deltas() {
 
     def repo_block($scan):
       if $scan.repo_summary? != null then
-        {
-          invocation_adoption_ratio: $scan.repo_summary.metrics.invocation_adoption_ratio,
-          registry_resolution_ratio: $scan.repo_summary.metrics.registry_resolution_ratio,
-          raw_invocations: $scan.repo_summary.counts.raw_invocations,
-          parent_scopes: $scan.repo_summary.counts.parent_scopes
-        }
+        $scan.repo_summary.counts as $counts
+        | {
+            ds_vs_local_ratio: (
+              if (($counts.raw_invocations.resolved // 0) + ($counts.raw_invocations.local // 0)) == 0 then null
+              else (($counts.raw_invocations.resolved // 0) / (($counts.raw_invocations.resolved // 0) + ($counts.raw_invocations.local // 0)))
+              end
+            ),
+            invocation_adoption_ratio: $scan.repo_summary.metrics.invocation_adoption_ratio,
+            registry_resolution_ratio: $scan.repo_summary.metrics.registry_resolution_ratio,
+            raw_invocations: $counts.raw_invocations,
+            parent_scopes: $counts.parent_scopes
+          }
       else
         (repo_counts_from_languages($scan)) as $counts
         | $counts.raw_invocations as $raw
         | $counts.adoption as $adoption
         | {
+            ds_vs_local_ratio: (
+              if (($raw.resolved // 0) + ($raw.local // 0)) == 0 then null
+              else (($raw.resolved // 0) / (($raw.resolved // 0) + ($raw.local // 0)))
+              end
+            ),
             invocation_adoption_ratio: (
               if ($adoption.eligible_invocation_count // 0) == 0 then null
               else (($adoption.adopted_invocation_count // 0) / $adoption.eligible_invocation_count)
@@ -366,6 +386,11 @@ compute_baseline_deltas() {
     def per_language_entry($lang_id; $facts):
       {
         language_id: $lang_id,
+        ds_vs_local_ratio: (
+          if (($facts.counts.raw_invocations.resolved // 0) + ($facts.counts.raw_invocations.local // 0)) == 0 then null
+          else (($facts.counts.raw_invocations.resolved // 0) / (($facts.counts.raw_invocations.resolved // 0) + ($facts.counts.raw_invocations.local // 0)))
+          end
+        ),
         invocation_adoption_ratio: $facts.metrics.invocation_adoption_ratio,
         registry_resolution_ratio: $facts.metrics.registry_resolution_ratio,
         raw_invocations: $facts.counts.raw_invocations
@@ -449,6 +474,7 @@ compute_baseline_deltas() {
     | ((($cur_symbols | keys) + ($base_symbols | keys)) | unique | sort) as $symbol_ids
     | $insights
     | .baseline_deltas = {
+        ds_vs_local_ratio: delta_num($cur_repo.ds_vs_local_ratio; $base_repo.ds_vs_local_ratio),
         invocation_adoption_ratio: delta_num($cur_repo.invocation_adoption_ratio; $base_repo.invocation_adoption_ratio),
         registry_resolution_ratio: delta_num($cur_repo.registry_resolution_ratio; $base_repo.registry_resolution_ratio),
         raw_invocations: {

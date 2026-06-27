@@ -161,6 +161,7 @@ skills/wax-scan/
 
 | Section | v2 availability | Source |
 |---------|-----------------|--------|
+| DS vs local UI coverage | Yes | `repo_summary.ds_vs_local_ratio` |
 | UI invocation adoption | Yes | `repo_summary.metrics.invocation_adoption_ratio` and `counts.adoption` |
 | Registry resolution | Yes | `repo_summary.metrics.registry_resolution_ratio` |
 | Raw invocation breakdown | Yes | `counts.raw_invocations.{resolved,local,candidate,unresolved}` |
@@ -190,7 +191,7 @@ Executive summary scores (health, maturity, debt) are agent-synthesized composit
 ### Trend analysis (v2)
 
 - No automatic git-history baseline discovery.
-- When `--baseline <path>` is provided, the baseline must be a prior v2 `scan-merged.json`. Compute deltas for UI invocation adoption, registry resolution, raw invocation counters, parent-scope totals, and per-language status when computable.
+- When `--baseline <path>` is provided, the baseline must be a prior v2 `scan-merged.json`. Compute deltas for DS-vs-local coverage, UI invocation adoption, registry resolution, raw invocation counters, parent-scope totals, and per-language status when computable.
 - v1 baselines emit a compatibility data gap instead of mixing denominators.
 - Otherwise emit a single trends data-gap section.
 

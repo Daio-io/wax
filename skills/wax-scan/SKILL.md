@@ -67,9 +67,10 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
 
 7. When `--html` or `--html-only` is requested, render `.wax/out/report/index.html` using `skills/wax-scan/templates/report.html`.
    - Self-contained branded report: warm paper background, soft green adoption areas, beeswax yellow accent, large adoption hero, smooth 100% split-area trend, ranked project/package bars, ranked non-DS opportunity bars, and secondary diagnostics.
-   - Layout: header → UI invocation adoption hero → invocation breakdown → adoption by project/package → top local/unresolved symbols → visible limits + diagnostics.
+   - Layout: header → DS vs local coverage hero → invocation breakdown → adoption by project/package → top local/unresolved symbols → visible limits + diagnostics.
    - Prefer project/package breakdowns before language breakdowns unless the user explicitly asks for multi-language analysis.
    - Populate the agreed first-screen metrics:
+     - DS vs local UI coverage from `repo_summary.ds_vs_local_ratio`
      - UI invocation adoption from `repo_summary.metrics.invocation_adoption_ratio`
      - registry resolution from `repo_summary.metrics.registry_resolution_ratio`
      - raw DS invocations (`raw_invocations.resolved`, `raw_invocations.candidate`)
@@ -116,8 +117,8 @@ For every insight:
 
 Analyze and report on:
 
-1. UI invocation adoption
-2. Registry resolution and raw invocation breakdown
+1. DS vs local UI coverage
+2. UI invocation adoption, registry resolution, and raw invocation breakdown
 3. Design system debt
 4. Component health
 5. Version adoption
@@ -128,7 +129,7 @@ Analyze and report on:
 
 ---
 
-# UI INVOCATION ADOPTION
+# DS VS LOCAL UI COVERAGE
 
 Measure:
 
@@ -140,6 +141,10 @@ Measure:
 
 Calculate:
 
+DS vs local UI coverage =
+Resolved design-system invocations /
+(Resolved design-system invocations + local component invocations)
+
 UI invocation adoption =
 Resolved design-system invocations /
 Adoption-eligible invocations
@@ -150,8 +155,9 @@ All detected UI invocations
 
 Report:
 
-- Overall UI invocation adoption
-- Registry resolution
+- DS vs local UI coverage as the primary headline
+- UI invocation adoption as a secondary adoption-eligible metric
+- Registry resolution as a secondary scanner/registry health metric
 - Raw invocation breakdown by `resolved`, `local`, `candidate`, and `unresolved`
 - Parent-scope hotspots when attribution is available
 - Adoption by feature area, screen, route, package/module, or team when those boundaries are available

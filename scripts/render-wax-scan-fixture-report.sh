@@ -100,10 +100,18 @@ candidate="$(jq -r '.repo_summary.raw_invocations.candidate' "$FIXTURE")"
 unresolved="$(jq -r '.repo_summary.raw_invocations.unresolved' "$FIXTURE")"
 coverage_ratio="$(jq -r '.repo_summary.invocation_adoption_ratio // 0' "$FIXTURE")"
 coverage_pct="$(awk "BEGIN { printf \"%.1f%%\", $coverage_ratio * 100 }")"
-non_ds_pct="$(awk "BEGIN { printf \"%.1f%%\", (1 - $coverage_ratio) * 100 }")"
+registry_resolution_ratio="$(jq -r '.repo_summary.registry_resolution_ratio // 0' "$FIXTURE")"
+registry_resolution_pct="$(awk "BEGIN { printf \"%.1f%%\", $registry_resolution_ratio * 100 }")"
 local_defs="$(jq -r '.repo_summary.definitions.local_definition_count' "$FIXTURE")"
-ds_vs_local_ratio="$coverage_ratio"
+ds_vs_local_ratio="$(jq -r '
+  .repo_summary.ds_vs_local_ratio //
+  (if ((.repo_summary.raw_invocations.resolved // 0) + (.repo_summary.raw_invocations.local // 0)) == 0
+   then 0
+   else (.repo_summary.raw_invocations.resolved // 0) / ((.repo_summary.raw_invocations.resolved // 0) + (.repo_summary.raw_invocations.local // 0))
+   end)
+' "$FIXTURE")"
 ds_vs_local_pct="$(awk "BEGIN { printf \"%.1f%%\", $ds_vs_local_ratio * 100 }")"
+non_ds_pct="$(awk "BEGIN { printf \"%.1f%%\", (1 - $ds_vs_local_ratio) * 100 }")"
 adopted_components_count="$(jq -r '.repo_summary.registry.used_component_count' "$FIXTURE")"
 total_registry_components="$(jq -r '.repo_summary.registry.component_count' "$FIXTURE")"
 unused_registry_count="$(awk "BEGIN { n=$total_registry_components-$adopted_components_count; if (n<0) n=0; print n }")"
@@ -130,11 +138,15 @@ ds_count = len(data.get("symbol_rollups", {}).get("design_system", []))
 local_count = summary.get("definitions", {}).get("local_definition_count", len(data.get("symbol_rollups", {}).get("local", [])))
 coverage = summary.get("invocation_adoption_ratio")
 coverage_pct = f"{coverage * 100:.1f}%" if coverage is not None else "n/a"
-ds_vs_local = coverage
+ds_vs_local = summary.get("ds_vs_local_ratio")
 ds_vs_local_pct = f"{ds_vs_local * 100:.1f}%" if ds_vs_local is not None else "n/a"
+registry_resolution = summary.get("registry_resolution_ratio")
+registry_resolution_pct = f"{registry_resolution * 100:.1f}%" if registry_resolution is not None else "n/a"
 
 kpis = [
-    (ds_vs_local_pct, "Invocation adoption"),
+    (ds_vs_local_pct, "DS vs local"),
+    (coverage_pct, "Invocation adoption"),
+    (registry_resolution_pct, "Registry resolution"),
     (esc(summary["raw_invocations"]["total"]), "UI invocations"),
     (f"{ds_count}", "DS symbols"),
     (esc(summary["raw_invocations"]["unresolved"]), "Unresolved"),
@@ -148,7 +160,7 @@ for num, label in kpis:
 PY
 )"
 
-caveat_html='<strong>How to read this report.</strong> Usage sites are matched against the design system registry. <strong>Invocation adoption</strong> tracks resolved design system invocations against all adoption-eligible UI invocations, so it is a directional signal rather than strict UI coverage.'
+caveat_html='<strong>How to read this report.</strong> <strong>DS vs local</strong> compares resolved design system invocations with local UI component invocations. <strong>Invocation adoption</strong> also includes unresolved UI-shaped calls in the denominator. <strong>Registry resolution</strong> is a secondary scanner health signal.'
 
 ds_vs_local_chart_svg="$(python3 - "$FIXTURE" "$CHART_WIDTH" "$LABEL_W" "$BAR_X" "$BAR_H" "$ROW_H" "$VALUE_GUTTER" <<'PY'
 import html
@@ -606,7 +618,7 @@ ds = data.get("symbol_rollups", {}).get("design_system", [])
 frag = data.get("fragmentation_candidates", [])
 coverage = summary.get("invocation_adoption_ratio")
 coverage_pct = f"{coverage * 100:.1f}%" if coverage is not None else "n/a"
-ds_vs_local = coverage
+ds_vs_local = summary.get("ds_vs_local_ratio")
 ds_vs_local_pct = f"{ds_vs_local * 100:.1f}%" if ds_vs_local is not None else "n/a"
 top = ds[0] if ds else None
 findings = []
@@ -856,8 +868,8 @@ replace repo_name "$repo_name"
 replace generated_at "$generated_at"
 replace source_scan "$source_scan"
 replace schema_version "$schema_version"
-replace coverage_percent "$coverage_pct"
-replace invocation_adoption_percent "$coverage_pct"
+replace coverage_percent "$ds_vs_local_pct"
+replace invocation_adoption_percent "$ds_vs_local_pct"
 replace non_ds_percent "$non_ds_pct"
 replace non_adopted_percent "$non_ds_pct"
 replace resolved_count "$resolved"
@@ -866,6 +878,7 @@ replace local_definition_count "$local_defs"
 replace total_usage_sites "$total"
 replace eligible_invocation_count "$eligible"
 replace raw_invocation_total "$total"
+replace registry_resolution_percent "$registry_resolution_pct"
 replace adopted_components_count "$adopted_components_count"
 replace total_registry_components "$total_registry_components"
 replace unused_registry_count "$unused_registry_count"
