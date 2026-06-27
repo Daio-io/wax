@@ -60,6 +60,19 @@ if [[ "$NORM_ACTUAL" != "$NORM_EXPECTED" ]]; then
 fi
 echo "PASS: default extraction matches expected key fields"
 
+assert_eq \
+  "repo summary exposes ds_vs_local_ratio" \
+  "$(jq -r '.repo_summary.ds_vs_local_ratio' <<<"$ACTUAL")" \
+  "0.6666666666666666"
+assert_eq \
+  "compose exposes ds_vs_local_ratio" \
+  "$(jq -r '.per_language[] | select(.language_id == "compose") | .ds_vs_local_ratio' <<<"$ACTUAL")" \
+  "0.75"
+assert_eq \
+  "react exposes ds_vs_local_ratio" \
+  "$(jq -r '.per_language[] | select(.language_id == "react") | .ds_vs_local_ratio' <<<"$ACTUAL")" \
+  "0.6"
+
 SAME_BASELINE="$("$SCRIPT" "$FIXTURE" --baseline "$FIXTURE")"
 assert_eq \
   "identical baseline yields zero repo deltas" \

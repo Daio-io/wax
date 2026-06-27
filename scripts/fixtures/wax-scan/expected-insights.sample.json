@@ -6,6 +6,7 @@
       "compose",
       "react"
     ],
+    "ds_vs_local_ratio": 0.6666666666666666,
     "invocation_adoption_ratio": 0.6,
     "registry_resolution_ratio": 0.5454545454545454,
     "raw_invocations": {
@@ -42,6 +43,7 @@
     {
       "language_id": "compose",
       "status": "complete",
+      "ds_vs_local_ratio": 0.75,
       "invocation_adoption_ratio": 0.6,
       "registry_resolution_ratio": 0.5,
       "raw_invocations": {
@@ -66,6 +68,7 @@
     {
       "language_id": "react",
       "status": "partial",
+      "ds_vs_local_ratio": 0.6,
       "invocation_adoption_ratio": 0.6,
       "registry_resolution_ratio": 0.6,
       "raw_invocations": {

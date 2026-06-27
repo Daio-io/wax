@@ -17,8 +17,8 @@ Output: versioned insights JSON consumed by the agent when rendering terminal an
 | `schema_version` | Insights contract version (`2` for Adoption Metrics v2) |
 | `generated_at` | RFC3339 timestamp |
 | `source_scan` | Path to merged scan input |
-| `repo_summary` | Repository-level invocation adoption, registry resolution, raw invocation counters, local definitions, and parent-scope totals |
-| `per_language` | Per-language status, invocation adoption, registry resolution, and v2 count groups |
+| `repo_summary` | Repository-level DS-vs-local coverage, invocation adoption, registry resolution, raw invocation counters, local definitions, and parent-scope totals |
+| `per_language` | Per-language status, DS-vs-local coverage, invocation adoption, registry resolution, and v2 count groups |
 | `symbol_rollups.design_system` | DS symbol usage frequency |
 | `symbol_rollups.candidate` | Candidate design-system symbol frequency, reported separately from confirmed design-system usage |
 | `symbol_rollups.local` | Local invocation symbol frequency |
@@ -63,6 +63,7 @@ Data gap: <metric> requires <missing capability>. Not computed in this scan.
 Compute when the baseline is a compatible v2 `scan-merged.json`:
 
 - UI invocation adoption ratio change
+- DS-vs-local ratio change
 - Registry resolution ratio change
 - Raw invocation count changes (`resolved`, `local`, `candidate`, `unresolved`)
 - Symbol summary changes by `symbol_id` (`raw_invocation_count`, `file_count`, `parent_scope_count`)
@@ -110,12 +111,13 @@ The template is the approved visual source of truth for the report UI. It uses a
 
 | Placeholder | Source | Notes |
 |-------------|--------|-------|
-| `{{coverage_percent}}` | Deterministic | `repo_summary.invocation_adoption_ratio` as formatted percent string |
+| `{{coverage_percent}}` | Deterministic | `repo_summary.ds_vs_local_ratio` as formatted percent string |
 | `{{non_ds_percent}}` | Deterministic | `100 - coverage_percent`, formatted as percent |
 | `{{resolved_count}}` | Deterministic | `repo_summary.raw_invocations.resolved` |
 | `{{total_usage_sites}}` | Deterministic | `repo_summary.adoption.eligible_invocation_count` |
 | `{{adopted_components_count}}` | Deterministic | `repo_summary.registry.used_component_count` |
 | `{{total_registry_components}}` | Deterministic | `repo_summary.registry.component_count` |
+| `{{registry_resolution_percent}}` | Deterministic | `repo_summary.registry_resolution_ratio` as formatted percent string |
 | `{{trend_delta}}` | Baseline or fallback | e.g. `+8 pts`; use `First scan` when no baseline exists |
 | `{{trend_context}}` | Baseline or fallback | e.g. `Compared with previous baseline` |
 | `{{trend_status}}` | Baseline or fallback | e.g. `Steady improvement` or `History starts here` |
