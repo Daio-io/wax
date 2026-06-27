@@ -1,6 +1,6 @@
 # wax
 
-[![Nice](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.nice.sbs%2Fapi%2Fv1%2Fnice%2Fn_c1qWdL8brn1s%2Fcount&query=%24.count&label=nice&color=fbbf24&labelColor=111827&style=for-the-badge)](https://nice.sbs/button?id=n_c1qWdL8brn1s)
+[![Nice](https://api.nice.sbs/badge/n_c1qWdL8brn1s.svg?theme=rich)](https://nice.sbs/button?id=n_c1qWdL8brn1s)
 [![Release](https://img.shields.io/github/v/release/Daio-io/wax?include_prereleases&label=release)](https://github.com/Daio-io/wax/releases)
 [![CI](https://github.com/Daio-io/wax/actions/workflows/build_engine.yml/badge.svg?branch=main)](https://github.com/Daio-io/wax/actions/workflows/build_engine.yml)
 
