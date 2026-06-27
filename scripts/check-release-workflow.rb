@@ -106,6 +106,30 @@ require_includes!(
 
 require_includes!(
   workflow,
+  "plugin_file=\".claude-plugin/plugin.json\"",
+  "Claude skills plugin manifest file path for release-time rewrite"
+)
+
+require_includes!(
+  workflow,
+  "plugin.version = process.env.WAX_RELEASE_TAG.replace(/^v/, \"\")",
+  "Claude skills plugin version derived from release tag"
+)
+
+require_includes!(
+  workflow,
+  "stamped_plugin_version=\"$(node -p 'require(\"./.claude-plugin/plugin.json\").version')\"",
+  "read-back stamped Claude skills plugin version"
+)
+
+require_includes!(
+  workflow,
+  'echo ".claude-plugin/plugin.json version ${stamped_plugin_version} does not match stamped release tag ${expected_version}" >&2',
+  "explicit stamped Claude skills plugin version mismatch failure"
+)
+
+require_includes!(
+  workflow,
   'echo "packages/cli/package.json version ${stamped_version} does not match stamped release tag ${expected_version}" >&2',
   "explicit stamped npm version mismatch failure"
 )
