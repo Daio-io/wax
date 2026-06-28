@@ -376,6 +376,27 @@ jobs:
             exit 1
           fi
 
+      - name: Stamp Claude skills plugin version from release tag
+        run: |
+          set -euo pipefail
+          plugin_file=".claude-plugin/plugin.json"
+          tmp_plugin_json="$(mktemp)"
+          WAX_RELEASE_TAG="${WAX_RELEASE_TAG}" node -e '
+            const fs = require("node:fs");
+            const pluginFile = process.argv[1];
+            const tempFile = process.argv[2];
+            const plugin = JSON.parse(fs.readFileSync(pluginFile, "utf8"));
+            plugin.version = process.env.WAX_RELEASE_TAG.replace(/^v/, "");
+            fs.writeFileSync(tempFile, `${JSON.stringify(plugin, null, 2)}\n`);
+          ' "$plugin_file" "$tmp_plugin_json"
+          mv "$tmp_plugin_json" "$plugin_file"
+          stamped_plugin_version="$(node -p 'require("./.claude-plugin/plugin.json").version')"
+          expected_version="${WAX_RELEASE_TAG#v}"
+          if [[ "$stamped_plugin_version" != "$expected_version" ]]; then
+            echo ".claude-plugin/plugin.json version ${stamped_plugin_version} does not match stamped release tag ${expected_version}" >&2
+            exit 1
+          fi
+
       - name: Publish package to npm
         working-directory: packages/cli
         run: |
