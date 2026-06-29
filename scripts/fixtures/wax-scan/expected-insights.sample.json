@@ -181,7 +181,45 @@
       "parent_scopes_truncated": true
     }
   ],
-  "parent_scope_hotspots": [],
+  "unused_registry_components": [
+    {
+      "symbol": "Modal",
+      "registry_symbol": "com.ds.Modal",
+      "package": null
+    }
+  ],
+  "parent_scope_hotspots": [
+    {
+      "parent_id": "react:component:src/App#App",
+      "symbol": "App",
+      "scope_kind": "component",
+      "raw_invocation_count": 5,
+      "resolved_raw_invocation_count": 3,
+      "local_raw_invocation_count": 2,
+      "candidate_raw_invocation_count": 0,
+      "unresolved_raw_invocation_count": 0
+    },
+    {
+      "parent_id": "compose:screen:src/Home#HomeScreen",
+      "symbol": "HomeScreen",
+      "scope_kind": "screen",
+      "raw_invocation_count": 4,
+      "resolved_raw_invocation_count": 2,
+      "local_raw_invocation_count": 1,
+      "candidate_raw_invocation_count": 0,
+      "unresolved_raw_invocation_count": 1
+    },
+    {
+      "parent_id": "compose:screen:src/Details#DetailsScreen",
+      "symbol": "DetailsScreen",
+      "scope_kind": "screen",
+      "raw_invocation_count": 1,
+      "resolved_raw_invocation_count": 1,
+      "local_raw_invocation_count": 0,
+      "candidate_raw_invocation_count": 0,
+      "unresolved_raw_invocation_count": 0
+    }
+  ],
   "fragmentation_candidates": [
     {
       "pattern": "*Button",

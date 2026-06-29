@@ -25,7 +25,8 @@ Output: versioned insights JSON consumed by the agent when rendering terminal an
 | `symbol_rollups.unresolved` | Unresolved invocation symbol frequency |
 | `top_local_symbols` | Top local rows from `symbol_usage_summary[]` |
 | `top_unresolved_symbols` | Top unresolved rows from `symbol_usage_summary[]` |
-| `parent_scope_hotspots` | Parent scopes with the highest attributed invocation counts |
+| `unused_registry_components` | Registry components with no resolved usage in the current scan |
+| `parent_scope_hotspots` | Parent scopes with raw, resolved, local, candidate, and unresolved invocation counts |
 | `fragmentation_candidates` | Symbol families suggesting duplication |
 | `limits[]` | Metrics unavailable from current facts |
 | `baseline_deltas` | Trend deltas when `--baseline` supplied |
@@ -94,9 +95,9 @@ Template: `skills/wax-scan/templates/report.html`
 
 Render helper: `scripts/render-wax-scan-fixture-report.sh [--insights PATH] [--repo-name NAME] [OUTPUT]`
 
-The agent copies the template to `.wax/out/report/index.html` and substitutes placeholders. Use deterministic values from extractor JSON where available; synthesize narrative fields with confidence labels.
+The renderer copies the template to `.wax/out/report/index.html` and substitutes a small set of top-level placeholders. Use deterministic values from extractor JSON where available and keep diagnostics secondary to the migration story.
 
-The template is the approved visual source of truth for the report UI. It uses a warm paper background, soft green adoption areas, beeswax yellow accents, a large adoption hero, a smooth 100% split-area trend chart, ranked project/package bars, ranked non-DS opportunity bars, and secondary diagnostics.
+The template is the approved visual source of truth for the report UI. It uses a warm paper background, soft green adoption hero, beeswax accents, compact ranked bars, inventory tables, and a diagnostics footer.
 
 ### Page metadata
 
@@ -112,28 +113,10 @@ The template is the approved visual source of truth for the report UI. It uses a
 | Placeholder | Source | Notes |
 |-------------|--------|-------|
 | `{{coverage_percent}}` | Deterministic | `repo_summary.ds_vs_local_ratio` as formatted percent string |
-| `{{non_ds_percent}}` | Deterministic | `100 - coverage_percent`, formatted as percent |
-| `{{resolved_count}}` | Deterministic | `repo_summary.raw_invocations.resolved` |
-| `{{total_usage_sites}}` | Deterministic | `repo_summary.adoption.eligible_invocation_count` |
-| `{{adopted_components_count}}` | Deterministic | `repo_summary.registry.used_component_count` |
-| `{{total_registry_components}}` | Deterministic | `repo_summary.registry.component_count` |
-| `{{registry_resolution_percent}}` | Deterministic | `repo_summary.registry_resolution_ratio` as formatted percent string |
-| `{{trend_delta}}` | Baseline or fallback | e.g. `+8 pts`; use `First scan` when no baseline exists |
-| `{{trend_context}}` | Baseline or fallback | e.g. `Compared with previous baseline` |
-| `{{trend_status}}` | Baseline or fallback | e.g. `Steady improvement` or `History starts here` |
+| `{{coverage_note}}` | Deterministic narrative | Explain DS invocations vs local invocations; unresolved calls are context, not debt |
+| `{{kpi_grid_html}}` | Renderer-built HTML | Secondary KPI cards for DS invocations, local invocations, local definitions, registry usage, unresolved count, and registry resolution |
 
-### Visual chart placeholders
-
-| Placeholder | Source | Notes |
-|-------------|--------|-------|
-| `{{split_area_chart_svg}}` | Deterministic + template | Smooth 100% split-area SVG. Green lower area = DS share; beeswax line = adoption boundary |
-| `{{trend_axis_html}}` | Deterministic + escaped labels | `<span>` labels for trend points |
-| `{{project_package_rows_html}}` | Deterministic or inferred | Ranked horizontal rows. Prefer project/package over language |
-| `{{migration_opportunity_rows_html}}` | Deterministic + agent | Ranked non-DS opportunities from local symbol usage, fragmentation, or AI-selected candidates |
-| `{{visible_limits_html}}` | Insights JSON `limits[]` | Keep visually secondary |
-| `{{diagnostics_summary_html}}` | Diagnostics summary | Keep visually secondary |
-
-Omit or render first-scan fallback states when data is missing. Keep charts inline; no external assets or CDN scripts.
+Do not render UI invocation adoption as a primary KPI in the HTML report. Keep unresolved counts and registry resolution in supporting or diagnostics areas.
 
 ### Visual theme
 
@@ -143,93 +126,28 @@ Omit or render first-scan fallback states when data is missing. Keep charts inli
 - Neutral comparison fill: warm sand `#f5edd3`
 - Red: reserved for true errors or severity states, not default chart language
 
-### Recommendations
+### Section placeholders
 
-| Placeholder | Source |
-|-------------|--------|
-| `{{recommendations_html}}` | Agent narrative |
+The renderer is responsible for building full HTML for these sections:
 
-Each item is a `<li>` with priority prefix:
-
-```html
-<li><span class="rec-priority">P0</span> Problem, impact, action, benefit.</li>
-```
-
-### Analytics section cards
-
-Replace each `{{section_<id>}}` placeholder with a full section card. Build card shells from the trusted patterns below; escape all scan-derived text inside `card-body` before insertion.
-
-| Placeholder | Section title |
-|-------------|---------------|
-| `{{section_design_system_coverage}}` | Design System Coverage |
-| `{{section_design_system_debt}}` | Design System Debt |
-| `{{section_custom_component_analysis}}` | Custom Component Analysis |
-| `{{section_component_health_analysis}}` | Component Health Analysis |
-| `{{section_override_analysis}}` | Override Analysis |
-| `{{section_deprecated_component_analysis}}` | Deprecated Component Analysis |
-| `{{section_version_adoption}}` | Version Adoption |
-| `{{section_fragmentation_analysis}}` | Fragmentation Analysis |
-| `{{section_wrapper_proliferation_analysis}}` | Wrapper Proliferation Analysis |
-| `{{section_feature_level_coverage}}` | Feature-Level Coverage |
-| `{{section_design_system_maturity}}` | Design System Maturity |
-| `{{section_missing_component_detection}}` | Missing Component Detection |
-| `{{section_missing_variant_detection}}` | Missing Variant Detection |
-| `{{section_component_api_pain_signals}}` | Component API Pain Signals |
-| `{{section_reuse_analysis}}` | Reuse Analysis |
-| `{{section_design_system_influence}}` | Design System Influence |
-| `{{section_migration_roi_analysis}}` | Migration ROI Analysis |
-| `{{section_migration_readiness}}` | Migration Readiness |
-| `{{section_trend_analysis}}` | Trend Analysis |
-
-Section card structure:
-
-```html
-<section class="card" id="design-system-coverage">
-  <div class="card-header">
-    <h2>Design System Coverage</h2>
-    <span class="badge badge-medium">medium</span>
-  </div>
-  <div class="card-body">
-    <p>Insight content with confidence labels.</p>
-  </div>
-</section>
-```
-
-For unsupported metrics, use `class="card data-gap"` and `badge-gap`:
-
-```html
-<section class="card data-gap" id="override-analysis">
-  <div class="card-header">
-    <h2>Override Analysis</h2>
-    <span class="badge badge-gap">gap</span>
-  </div>
-  <div class="card-body">
-    <p class="data-gap-notice">Data gap: Override rate requires override detection in language packs. Not computed in this scan.</p>
-  </div>
-</section>
-```
-
-Severity badges: `critical`, `high`, `medium`, `low`, or `gap` for data-gap sections.
-
-### Data gaps aggregate
-
-| Placeholder | Source |
-|-------------|--------|
-| `{{limits_html}}` | Insights JSON `limits[]` |
-
-Each limit as a list item:
-
-```html
-<li class="data-gap-notice">Data gap: &lt;metric&gt; requires &lt;missing_capability&gt;. Not computed in this scan.</li>
-```
+| Placeholder | Notes |
+|-------------|-------|
+| `{{usage_overview_section}}` | Compact top-N DS chart plus full DS usage table |
+| `{{unused_registry_section}}` | Hidden when `unused_registry_components` is empty |
+| `{{adoption_by_area_section}}` | Hidden when no parent-scope hotspots contain resolved/local counts |
+| `{{adoption_by_language_section}}` | Hidden when the scan covers one language only |
+| `{{fragmentation_section}}` | Fragmentation families table |
+| `{{migration_candidates_section}}` | Local-only migration queue; unresolved symbols stay out of the main table |
+| `{{action_queue_section}}` | Deterministic, ranked follow-up list |
+| `{{diagnostics_section}}` | Registry resolution, unresolved counts, and visible limits |
 
 ### Manual HTML smoke checklist
 
 After rendering `.wax/out/report/index.html`:
 
 1. Open in a browser with network disabled (offline).
-2. Verify warm paper theme, soft green adoption area, and beeswax yellow accent.
-3. Verify the hero shows current adoption, usage counts, adopted components, and trend status.
-4. Verify the trend chart is a smooth 100% split-area chart, not bars.
-5. Verify project/package and non-DS opportunity rows render as ranked horizontal bars.
-6. Verify visible limits and diagnostics stay secondary.
+2. Verify the hero headline is DS vs local UI coverage.
+3. Verify unused registry symbols are named when present.
+4. Verify migration candidates exclude unresolved symbols from the main table.
+5. Verify empty sections are hidden rather than replaced with placeholder copy.
+6. Verify unresolved template placeholders do not remain in the output.

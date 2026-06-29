@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Fixture test for wax-scan HTML rendering (repository maintainer verification).
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+RENDER="$ROOT/scripts/render-wax-scan-fixture-report.sh"
+FIXTURE="$ROOT/scripts/fixtures/wax-scan/expected-insights.sample.json"
+OUTPUT="$(mktemp "${TMPDIR:-/tmp}/wax-scan-render.XXXXXX.html")"
+trap 'rm -f "$OUTPUT"' EXIT
+
+cd "$ROOT"
+
+fail() {
+  echo "FAIL: $1" >&2
+  exit 1
+}
+
+assert_contains() {
+  local needle="$1"
+  if ! grep -Fq "$needle" "$OUTPUT"; then
+    fail "expected rendered report to contain: $needle"
+  fi
+}
+
+assert_not_contains() {
+  local needle="$1"
+  if grep -Fq "$needle" "$OUTPUT"; then
+    fail "expected rendered report to omit: $needle"
+  fi
+}
+
+"$RENDER" --insights "$FIXTURE" --repo-name "wax-render-test" "$OUTPUT" >/dev/null
+
+assert_contains "DS vs local UI coverage"
+assert_contains "Adoption by language"
+assert_contains "Action queue"
+assert_contains "Modal"
+assert_contains "PrimaryButton"
+assert_contains "IconButton"
+assert_not_contains "Invocation adoption"
+assert_not_contains "Adoption gaps"
+assert_not_contains "No exact-name duplicate detected"
+assert_not_contains "UnknownWidget"
+assert_not_contains "This fixture does not include the full registry symbol list"
+
+if grep -Fq "{{" "$OUTPUT"; then
+  fail "rendered report still contains unresolved template placeholders"
+fi
+
+echo "PASS: wax-scan HTML renderer emits the updated report contract"

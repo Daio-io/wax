@@ -209,6 +209,26 @@ extract_core() {
         unresolved: symbol_rollup(all_usage_sites; "unresolved"; "symbol")
       };
 
+    def unused_registry_components:
+      [
+        .languages[]
+        | .design_system_components[]?
+        | {
+            symbol: (.symbol // .registry_symbol),
+            registry_symbol: (.registry_symbol // .symbol),
+            package: (.package // null)
+          }
+      ] as $registry_components
+      | [
+          all_usage_sites[]
+          | select(.match_status == "resolved")
+          | (.registry_symbol // .symbol)
+        ] as $resolved_symbols
+      | $registry_components
+      | unique_by(.registry_symbol)
+      | map(select((.registry_symbol as $symbol | ($resolved_symbols | index($symbol))) == null))
+      | sort_by(.symbol, .registry_symbol);
+
     def symbol_usage_summary_rows:
       if (.symbol_usage_summary? | length) > 0 then
         .symbol_usage_summary
@@ -230,7 +250,11 @@ extract_core() {
             parent_id: .parent.parent_id,
             symbol: .parent.symbol,
             scope_kind: .parent.scope_kind,
-            invocation_count: 1
+            raw_invocation_count: 1,
+            resolved_raw_invocation_count: (if .match_status == "resolved" then 1 else 0 end),
+            local_raw_invocation_count: (if .match_status == "local" then 1 else 0 end),
+            candidate_raw_invocation_count: (if .match_status == "candidate" then 1 else 0 end),
+            unresolved_raw_invocation_count: (if .match_status == "unresolved" then 1 else 0 end)
           }
       ]
       | group_by(.parent_id)
@@ -238,9 +262,13 @@ extract_core() {
           parent_id: .[0].parent_id,
           symbol: .[0].symbol,
           scope_kind: .[0].scope_kind,
-          invocation_count: (map(.invocation_count) | add)
+          raw_invocation_count: (map(.raw_invocation_count) | add),
+          resolved_raw_invocation_count: (map(.resolved_raw_invocation_count) | add),
+          local_raw_invocation_count: (map(.local_raw_invocation_count) | add),
+          candidate_raw_invocation_count: (map(.candidate_raw_invocation_count) | add),
+          unresolved_raw_invocation_count: (map(.unresolved_raw_invocation_count) | add)
         })
-      | sort_by(-.invocation_count, .symbol)
+      | sort_by(-.raw_invocation_count, .symbol)
       | .[0:$limit];
 
     def suffix_families:
@@ -276,6 +304,7 @@ extract_core() {
       symbol_rollups: symbol_rollups_block,
       top_local_symbols: top_symbols_by_kind("local"; 5),
       top_unresolved_symbols: top_symbols_by_kind("unresolved"; 5),
+      unused_registry_components: unused_registry_components,
       parent_scope_hotspots: parent_scope_hotspots(5),
       fragmentation_candidates: suffix_families,
       limits: $limits,
