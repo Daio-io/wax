@@ -66,8 +66,8 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
      ```
 
 7. When `--html` or `--html-only` is requested, render `.wax/out/report/index.html` using `skills/wax-scan/templates/report.html`.
-   - Self-contained branded report: warm paper background, soft green adoption hero, beeswax yellow accents, ranked usage/migration sections, and secondary diagnostics.
-   - Layout: header → DS vs local coverage hero → DS usage inventory → unused registry components → adoption by area/language → fragmentation → migration candidates → action queue → diagnostics.
+   - Self-contained branded report: dark panel layout, wax-yellow accents, ranked usage/migration sections, and secondary diagnostics.
+   - Layout: header → KPI grid + caveat → DS usage inventory → unused registry components → adoption by area/language → migration candidates → key findings.
    - Populate the agreed first-screen metrics:
      - DS vs local UI coverage from `repo_summary.ds_vs_local_ratio`
      - raw DS invocations (`raw_invocations.resolved`)
@@ -79,7 +79,7 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
      - named unused registry components when available
      - parent-scope hotspots with resolved/local/unresolved counts when available
      - ranked local migration candidates and fragmentation families
-     - deterministic action queue and visible limits
+     - deterministic key findings driven by migration opportunity
    - No CDN or external assets — self-contained CSS and inline SVG only.
    - Escape all scan-derived text (symbols, limits, paths, narrative evidence) with `skills/wax-scan/scripts/html-escape.sh` before inserting into HTML or SVG. Only trusted template snippets (card shells, badges) may be raw HTML.
 

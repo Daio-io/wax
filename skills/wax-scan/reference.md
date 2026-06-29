@@ -81,7 +81,7 @@ Before substituting any value from `scan-merged.json` or insights JSON into HTML
 
 1. Run the value through `skills/wax-scan/scripts/html-escape.sh`.
 2. Treat only intentional template snippets (card shells, badge markup) as trusted raw HTML.
-3. Never concatenate unescaped JSON strings into `{{section_*}}`, `{{limits_html}}`, `{{fragmentation_chart_svg}}`, or narrative placeholders.
+3. Never concatenate unescaped JSON strings into chart/table placeholders or narrative placeholders.
 
 Helper:
 
@@ -95,9 +95,9 @@ Template: `skills/wax-scan/templates/report.html`
 
 Render helper: `scripts/render-wax-scan-fixture-report.sh [--insights PATH] [--repo-name NAME] [OUTPUT]`
 
-The renderer copies the template to `.wax/out/report/index.html` and substitutes a small set of top-level placeholders. Use deterministic values from extractor JSON where available and keep diagnostics secondary to the migration story.
+The renderer copies the template to `.wax/out/report/index.html` and substitutes the dark-template placeholders directly. Use deterministic values from extractor JSON where available and keep diagnostics secondary to the migration story.
 
-The template is the approved visual source of truth for the report UI. It uses a warm paper background, soft green adoption hero, beeswax accents, compact ranked bars, inventory tables, and a diagnostics footer.
+The template is the approved visual source of truth for the report UI. It uses the dark dashboard shell, wax-yellow accents, inline SVG charts, inventory tables, and a compact findings section.
 
 ### Page metadata
 
@@ -108,45 +108,51 @@ The template is the approved visual source of truth for the report UI. It uses a
 | `{{source_scan}}` | Insights JSON `source_scan` | `.wax/out/scan-merged.json` |
 | `{{schema_version}}` | Insights JSON `schema_version` | `2` |
 
-### Opening adoption hero
+### Opening KPI band
 
 | Placeholder | Source | Notes |
 |-------------|--------|-------|
-| `{{coverage_percent}}` | Deterministic | `repo_summary.ds_vs_local_ratio` as formatted percent string |
-| `{{coverage_note}}` | Deterministic narrative | Explain DS invocations vs local invocations; unresolved calls are context, not debt |
-| `{{kpi_grid_html}}` | Renderer-built HTML | Secondary KPI cards for DS invocations, local invocations, local definitions, registry usage, unresolved count, and registry resolution |
+| `{{resolved_count}}` | Deterministic | `repo_summary.raw_invocations.resolved` |
+| `{{adopted_components_count}}` | Deterministic | `repo_summary.registry.used_component_count` |
+| `{{total_registry_components}}` | Deterministic | `repo_summary.registry.component_count` |
+| `{{invocation_adoption_percent}}` | Deterministic | Still used as a template placeholder name, but populate it with `repo_summary.ds_vs_local_ratio` |
+| `{{raw_invocation_total}}` | Deterministic | `repo_summary.raw_invocations.total` |
+| `{{registry_resolution_percent}}` | Deterministic | `repo_summary.registry_resolution_ratio` |
+| `{{local_definition_count}}` | Deterministic | `repo_summary.definitions.local_definition_count` |
+| `{{unresolved_count}}` | Deterministic | `repo_summary.raw_invocations.unresolved` |
+| `{{caveat_html}}` | Renderer-built HTML | Explain DS-vs-local headline semantics and keep unresolved counts contextual |
 
-Do not render UI invocation adoption as a primary KPI in the HTML report. Keep unresolved counts and registry resolution in supporting or diagnostics areas.
+Do not render UI invocation adoption as a primary KPI in the HTML report. Keep unresolved counts and registry resolution as supporting context.
 
 ### Visual theme
 
-- Background: warm paper gradient using `#f4efe9`, `#f8f2ec`, and white panels
+- Background: dark shell using `#0f1419` and `#161b22`
 - Accent: beeswax yellow `#d6a117`
-- Adoption: soft green `#5f8d4e`, `#8fb17d`, `#dbe8cf`
-- Neutral comparison fill: warm sand `#f5edd3`
+- Adoption: wax yellow and warm contrast fills
+- Neutral comparison fill: dark panel borders and muted gray text
 - Red: reserved for true errors or severity states, not default chart language
 
 ### Section placeholders
 
-The renderer is responsible for building full HTML for these sections:
-
 | Placeholder | Notes |
 |-------------|-------|
-| `{{usage_overview_section}}` | Compact top-N DS chart plus full DS usage table |
-| `{{unused_registry_section}}` | Hidden when `unused_registry_components` is empty |
-| `{{adoption_by_area_section}}` | Hidden when no parent-scope hotspots contain resolved/local counts |
-| `{{adoption_by_language_section}}` | Hidden when the scan covers one language only |
-| `{{fragmentation_section}}` | Fragmentation families table |
-| `{{migration_candidates_section}}` | Local-only migration queue; unresolved symbols stay out of the main table |
-| `{{action_queue_section}}` | Deterministic, ranked follow-up list |
-| `{{diagnostics_section}}` | Registry resolution, unresolved counts, and visible limits |
+| `{{ds_usage_chart_svg}}` | Top DS usage chart |
+| `{{ds_symbols_table_html}}` | DS usage inventory table |
+| `{{unused_components_table_html}}` | Named unused registry components |
+| `{{parent_scope_chart_svg}}` | Parent-scope adoption chart |
+| `{{parent_scope_table_html}}` | Parent-scope counts table |
+| `{{adoption_gaps_chart_svg}}` | Multi-language DS-vs-local chart |
+| `{{adoption_gaps_table_html}}` | Multi-language DS-vs-local table |
+| `{{duplicate_components_table_html}}` | Exact-name duplicate table |
+| `{{migration_candidates_table_html}}` | Local-only migration queue |
+| `{{key_findings_html}}` | Deterministic findings list |
 
 ### Manual HTML smoke checklist
 
 After rendering `.wax/out/report/index.html`:
 
 1. Open in a browser with network disabled (offline).
-2. Verify the hero headline is DS vs local UI coverage.
+2. Verify the KPI band uses the dark shell and still labels DS vs local UI coverage correctly.
 3. Verify unused registry symbols are named when present.
 4. Verify migration candidates exclude unresolved symbols from the main table.
 5. Verify empty sections are hidden rather than replaced with placeholder copy.

@@ -66,6 +66,7 @@ python3 - "$FIXTURE" "$TEMPLATE" "$OUTPUT" "$REPO_NAME" <<'PY'
 import html
 import json
 import pathlib
+import re
 import sys
 
 fixture_path = pathlib.Path(sys.argv[1])
@@ -75,6 +76,12 @@ repo_name = sys.argv[4]
 
 data = json.loads(fixture_path.read_text(encoding="utf-8"))
 template = template_path.read_text(encoding="utf-8")
+
+CHART_WIDTH = 360
+ROW_H = 20
+BAR_H = 10
+BAR_X = 104
+VALUE_GUTTER = 28
 
 
 def esc(value):
@@ -93,33 +100,32 @@ def num(value):
     return f"{int(value):,}"
 
 
-def section(title, lead, body):
+def svg_message(label):
     return (
-        '<section class="section">'
-        f"<h2>{esc(title)}</h2>"
-        f'<p class="lead">{esc(lead)}</p>'
-        f"{body}"
-        "</section>"
+        '<svg viewBox="0 0 360 24" role="img" aria-label="No data">'
+        f'<text x="0" y="14" class="chart-label">{esc(label)}</text>'
+        "</svg>"
     )
 
 
-def bar_rows(items, value_key, fill_class, formatter=str, label_key="symbol", max_items=None):
-    rows = items[:max_items] if max_items else items
-    if not rows:
-        return '<p class="footer-note">No ranked data available for this scan.</p>'
-    max_value = max(max(float(item.get(value_key, 0) or 0), 0) for item in rows) or 1
-    parts = ['<div class="bars">']
-    for item in rows:
-        value = float(item.get(value_key, 0) or 0)
-        width = 0 if max_value == 0 else max(4, round(value / max_value * 100))
+def bar_chart(items, value_key, aria_label, fill_key, label_key="symbol"):
+    if not items:
+        return svg_message("No data available for this chart")
+    max_count = max(float(item.get(value_key, 0) or 0) for item in items) or 1
+    bar_max = CHART_WIDTH - BAR_X - VALUE_GUTTER
+    height = len(items) * ROW_H + 8
+    parts = [f'<svg viewBox="0 0 {CHART_WIDTH} {height}" role="img" aria-label="{esc(aria_label)}">']
+    for i, item in enumerate(items):
+        y = i * ROW_H + ROW_H - 4
+        count = float(item.get(value_key, 0) or 0)
+        bar_w = max(int(count / max_count * bar_max), 1 if count else 0)
+        label = esc(item.get(label_key, ""))[:28]
+        parts.append(f'<text x="0" y="{y}" class="chart-label">{label}</text>')
         parts.append(
-            '<div class="bar-row">'
-            f'<div class="bar-label">{esc(item.get(label_key, "Item"))}</div>'
-            f'<div class="track"><div class="{fill_class}" style="width:{width}%"></div></div>'
-            f'<div class="bar-value">{esc(formatter(item.get(value_key, 0)))}</div>'
-            '</div>'
+            f'<rect x="{BAR_X}" y="{y - BAR_H + 2}" width="{bar_w}" height="{BAR_H}" rx="2" fill="{fill_key}"/>'
         )
-    parts.append("</div>")
+        parts.append(f'<text x="{BAR_X + bar_w + 4}" y="{y}" class="chart-value">{esc(int(count))}</text>')
+    parts.append("</svg>")
     return "".join(parts)
 
 
@@ -128,266 +134,223 @@ raw = summary["raw_invocations"]
 definitions = summary["definitions"]
 registry = summary["registry"]
 
-coverage_percent = pct(summary.get("ds_vs_local_ratio"))
-coverage_note = (
-    f"{num(raw.get('resolved', 0))} design-system invocations versus "
-    f"{num(raw.get('local', 0))} local invocations. "
-    "Unresolved calls stay in diagnostics so the main score reflects real migration opportunity."
+ds_vs_local_pct = pct(summary.get("ds_vs_local_ratio"))
+registry_resolution_pct = pct(summary.get("registry_resolution_ratio"))
+
+ds_symbols = sorted(
+    data.get("symbol_rollups", {}).get("design_system", []),
+    key=lambda item: item.get("count", 0),
+    reverse=True,
+)
+ds_usage_chart_svg = bar_chart(
+    ds_symbols[:12],
+    "count",
+    "Design system component usage",
+    "var(--ds)",
 )
 
-kpis = [
-    (num(raw.get("resolved", 0)), "DS invocations"),
-    (num(raw.get("local", 0)), "Local invocations"),
-    (num(definitions.get("local_definition_count", 0)), "Local UI definitions"),
-    (f"{num(registry.get('used_component_count', 0))}/{num(registry.get('component_count', 0))}", "Registry components used"),
-    (num(raw.get("unresolved", 0)), "Unresolved invocations"),
-    (pct(summary.get("registry_resolution_ratio")), "Registry resolution"),
-]
-kpi_grid_html = "".join(
-    '<div class="kpi-card">'
-    f'<div class="value">{esc(value)}</div>'
-    f'<div class="label">{esc(label)}</div>'
-    '</div>'
-    for value, label in kpis
-)
-
-ds_symbols = data.get("symbol_rollups", {}).get("design_system", [])
-usage_chart = bar_rows(ds_symbols, "count", "fill-ds", formatter=lambda v: num(v), max_items=10)
-usage_rows = []
 total_ds = sum(int(item.get("count", 0) or 0) for item in ds_symbols) or 1
+ds_rows = []
 for item in ds_symbols:
     count = int(item.get("count", 0) or 0)
     share = f"{(count / total_ds) * 100:.1f}%"
-    usage_rows.append(
+    ds_rows.append(
         "<tr>"
         f"<td><code>{esc(item.get('symbol', ''))}</code></td>"
         f'<td class="num">{num(count)}</td>'
         f'<td class="num">{share}</td>'
         "</tr>"
     )
-usage_table_rows = "".join(usage_rows) or '<tr><td colspan="3">No design system symbols detected.</td></tr>'
-usage_table = (
+ds_table_rows = "".join(ds_rows) or '<tr><td colspan="3" class="muted">No design system symbols detected</td></tr>'
+ds_symbols_table_html = (
     "<table><thead><tr><th>Component</th><th>Usages</th><th>Share of DS sites</th></tr></thead>"
-    f"<tbody>{usage_table_rows}</tbody></table>"
-)
-usage_overview_section = section(
-    "Design system component usage",
-    "The table is the authoritative inventory. The compact chart above it is only for quick scanning.",
-    '<div class="split">'
-    f'<div class="mini-card"><h3>Top used DS symbols</h3>{usage_chart}</div>'
-    f'<div class="mini-card"><h3>Full usage table</h3>{usage_table}</div>'
-    "</div>",
+    f"<tbody>{ds_table_rows}</tbody></table>"
 )
 
 unused_registry_components = data.get("unused_registry_components", [])
-if unused_registry_components:
-    unused_rows = []
-    for item in unused_registry_components:
-        action = "Review for docs promotion or possible deprecation."
-        unused_rows.append(
-            "<tr>"
-            f"<td><code>{esc(item.get('symbol', ''))}</code></td>"
-            f"<td>{esc(item.get('package') or '—')}</td>"
-            f"<td>{esc(action)}</td>"
-            "</tr>"
-        )
-    unused_registry_section = section(
-        "Unused design system components",
-        f"{num(len(unused_registry_components))} registry component(s) have no resolved usage in this scan.",
-        "<table><thead><tr><th>Component</th><th>Package</th><th>Suggested action</th></tr></thead>"
-        f"<tbody>{''.join(unused_rows)}</tbody></table>",
+unused_registry_count = len(unused_registry_components)
+unused_rows = []
+for item in unused_registry_components:
+    action = "Review for docs promotion or possible deprecation."
+    unused_rows.append(
+        "<tr>"
+        f"<td><code>{esc(item.get('symbol', ''))}</code></td>"
+        f"<td>{esc(item.get('package') or '—')}</td>"
+        f"<td>{esc(action)}</td>"
+        "</tr>"
     )
-else:
-    unused_registry_section = ""
+unused_components_table_html = (
+    "<table><thead><tr><th>Component</th><th>Package</th><th>Suggested action</th></tr></thead>"
+    f"<tbody>{''.join(unused_rows)}</tbody></table>"
+)
 
-hotspots = data.get("parent_scope_hotspots", [])
 visible_hotspots = [
-    item for item in hotspots
+    item for item in data.get("parent_scope_hotspots", [])
     if int(item.get("resolved_raw_invocation_count", 0) or 0) > 0
     or int(item.get("local_raw_invocation_count", 0) or 0) > 0
 ]
+
 if visible_hotspots:
-    area_rows = []
-    table_rows = []
     max_total = max(int(item.get("raw_invocation_count", 0) or 0) for item in visible_hotspots) or 1
-    for item in visible_hotspots:
+    bar_max = CHART_WIDTH - BAR_X - VALUE_GUTTER
+    height = len(visible_hotspots) * ROW_H + 8
+    parts = [f'<svg viewBox="0 0 {CHART_WIDTH} {height}" role="img" aria-label="Adoption by area">']
+    hotspot_rows = []
+    for i, item in enumerate(visible_hotspots):
+        y = i * ROW_H + ROW_H - 4
+        label = esc(item.get("symbol") or item.get("parent_id") or "Scope")
         resolved = int(item.get("resolved_raw_invocation_count", 0) or 0)
         local = int(item.get("local_raw_invocation_count", 0) or 0)
         unresolved = int(item.get("unresolved_raw_invocation_count", 0) or 0)
         total = int(item.get("raw_invocation_count", 0) or 0)
-        ds_width = 0 if max_total == 0 else max(4, round(resolved / max_total * 100)) if resolved else 0
-        local_width = 0 if max_total == 0 else max(4, round(local / max_total * 100)) if local else 0
-        label = item.get("symbol") or item.get("parent_id") or "Scope"
-        area_rows.append(
-            '<div class="bar-row">'
-            f'<div class="bar-label">{esc(label)}</div>'
-            '<div class="track">'
-            f'<div class="fill-ds" style="width:{ds_width}%"></div>'
-            f'<div class="fill-local" style="width:{local_width}%"></div>'
-            "</div>"
-            f'<div class="bar-value">{num(total)}</div>'
-            "</div>"
+        resolved_w = max(int(resolved / max_total * bar_max), 1 if resolved else 0)
+        remaining = max(local + unresolved, 0)
+        remaining_w = max(int(remaining / max_total * bar_max), 1 if remaining else 0)
+        parts.append(f'<text x="0" y="{y}" class="chart-label">{label[:28]}</text>')
+        parts.append(
+            f'<rect x="{BAR_X}" y="{y - BAR_H + 2}" width="{resolved_w}" height="{BAR_H}" rx="2" fill="var(--wax)"/>'
         )
-        table_rows.append(
+        if remaining_w:
+            parts.append(
+                f'<rect x="{BAR_X + resolved_w + 1}" y="{y - BAR_H + 2}" width="{remaining_w}" height="{BAR_H}" rx="2" fill="var(--wax-soft)"/>'
+            )
+        parts.append(f'<text x="{BAR_X + resolved_w + remaining_w + 5}" y="{y}" class="chart-value">{num(total)}</text>')
+        hotspot_rows.append(
             "<tr>"
-            f"<td><code>{esc(label)}</code></td>"
+            f"<td><code>{label}</code></td>"
             f'<td class="num">{num(resolved)}</td>'
             f'<td class="num">{num(local)}</td>'
             f'<td class="num">{num(unresolved)}</td>'
             f'<td class="num">{num(total)}</td>'
             "</tr>"
         )
-    adoption_by_area_section = section(
-        "Adoption by area",
-        "Resolved versus local invocations by parent scope. Unresolved counts stay visible in the table as secondary context.",
-        '<div class="split">'
-        f'<div class="mini-card"><h3>Area hotspots</h3><div class="bars">{"".join(area_rows)}</div></div>'
-        f'<div class="mini-card"><h3>Scope counts</h3><table><thead><tr><th>Area</th><th>DS</th><th>Local</th><th>Unresolved</th><th>Total</th></tr></thead><tbody>{"".join(table_rows)}</tbody></table></div>'
-        "</div>",
+    parts.append("</svg>")
+    parent_scope_chart_svg = "".join(parts)
+    parent_scope_table_html = (
+        "<table><thead><tr><th>Area</th><th>DS</th><th>Local</th><th>Unresolved</th><th>Total</th></tr></thead>"
+        f"<tbody>{''.join(hotspot_rows)}</tbody></table>"
     )
 else:
-    adoption_by_area_section = ""
+    parent_scope_chart_svg = svg_message("No parent-scope adoption data in this scan")
+    parent_scope_table_html = ""
 
-per_language = data.get("per_language", [])
-if len(per_language) > 1:
-    language_rows = sorted(per_language, key=lambda item: item.get("ds_vs_local_ratio") or 0)
-    language_bars = bar_rows(
-        [{"symbol": item["language_id"], "ratio": (item.get("ds_vs_local_ratio") or 0) * 100} for item in language_rows],
-        "ratio",
-        "fill-ds",
-        formatter=lambda v: f"{float(v):.1f}%",
-    )
-    table_rows = []
-    for item in language_rows:
+per_language = sorted(data.get("per_language", []), key=lambda item: item.get("ds_vs_local_ratio") or 0)
+if per_language:
+    bar_max = CHART_WIDTH - BAR_X - VALUE_GUTTER
+    height = len(per_language) * ROW_H + 8
+    parts = [f'<svg viewBox="0 0 {CHART_WIDTH} {height}" role="img" aria-label="Adoption gaps">']
+    gap_rows = []
+    for i, item in enumerate(per_language):
+        y = i * ROW_H + ROW_H - 4
+        ratio = float(item.get("ds_vs_local_ratio", 0) or 0)
+        width = max(int(ratio * bar_max), 1 if ratio > 0 else 0)
+        label = esc(item.get("language_id", ""))
+        color = "var(--high)" if ratio < 0.34 else "var(--medium)" if ratio < 0.67 else "var(--low)"
         raw_invocations = item.get("raw_invocations", {})
-        table_rows.append(
+        parts.append(f'<text x="0" y="{y}" class="chart-label">{label}</text>')
+        parts.append(
+            f'<rect x="{BAR_X}" y="{y - BAR_H + 2}" width="{width}" height="{BAR_H}" rx="2" fill="{color}"/>'
+        )
+        parts.append(f'<text x="{BAR_X + width + 4}" y="{y}" class="chart-value">{ratio * 100:.1f}%</text>')
+        gap_rows.append(
             "<tr>"
-            f"<td><code>{esc(item.get('language_id', ''))}</code></td>"
-            f'<td class="num">{pct(item.get("ds_vs_local_ratio"))}</td>'
+            f"<td><code>{label}</code></td>"
             f'<td class="num">{num(raw_invocations.get("resolved", 0))}</td>'
             f'<td class="num">{num(raw_invocations.get("local", 0))}</td>'
+            f'<td class="num">{ratio * 100:.1f}%</td>'
             "</tr>"
         )
-    adoption_by_language_section = section(
-        "Adoption by language",
-        "Only shown for multi-language repositories so the report does not waste space on single-pack scans.",
-        '<div class="split">'
-        f'<div class="mini-card"><h3>Coverage ranking</h3>{language_bars}</div>'
-        f'<div class="mini-card"><h3>Language counts</h3><table><thead><tr><th>Language</th><th>Coverage</th><th>DS</th><th>Local</th></tr></thead><tbody>{"".join(table_rows)}</tbody></table></div>'
-        "</div>",
+    parts.append("</svg>")
+    adoption_gaps_chart_svg = "".join(parts)
+    adoption_gaps_table_html = (
+        "<table><thead><tr><th>Area</th><th>Design system</th><th>Local</th><th>Adoption</th></tr></thead>"
+        f"<tbody>{''.join(gap_rows)}</tbody></table>"
     )
 else:
-    adoption_by_language_section = ""
+    adoption_gaps_chart_svg = svg_message("No per-language adoption data")
+    adoption_gaps_table_html = ""
 
-fragmentation_candidates = data.get("fragmentation_candidates", [])
-if fragmentation_candidates:
-    frag_rows = []
-    for item in fragmentation_candidates:
-        frag_rows.append(
+ds_names = {item.get("symbol") for item in ds_symbols}
+duplicate_rows = []
+for item in data.get("top_local_symbols", []):
+    symbol = item.get("symbol", "")
+    if symbol in ds_names:
+        definition = item.get("local_definition_id") or item.get("symbol_id") or "local definition"
+        duplicate_rows.append(
             "<tr>"
-            f"<td><code>{esc(item.get('pattern', ''))}</code></td>"
-            f"<td>{esc(', '.join(item.get('symbols', [])))}</td>"
-            f'<td class="num">{num(item.get("count", 0))}</td>'
+            f"<td><code>{esc(symbol)}</code></td>"
+            f"<td><code>{esc(definition)}</code></td>"
             "</tr>"
         )
-    fragmentation_section = section(
-        "Fragmentation analysis",
-        "Families with repeated local variants are stronger consolidation signals than isolated one-off components.",
-        "<table><thead><tr><th>Pattern</th><th>Symbols</th><th>Count</th></tr></thead>"
-        f"<tbody>{''.join(frag_rows)}</tbody></table>",
-    )
-else:
-    fragmentation_section = ""
+duplicate_components_table_html = (
+    "<table><thead><tr><th>Symbol</th><th>Definition</th></tr></thead>"
+    f"<tbody>{''.join(duplicate_rows)}</tbody></table>"
+)
 
 fragmentation_lookup = {}
-for family in fragmentation_candidates:
+for family in data.get("fragmentation_candidates", []):
     for symbol in family.get("symbols", []):
         fragmentation_lookup[symbol] = family.get("pattern")
 
-local_rollups = data.get("symbol_rollups", {}).get("local", [])
-local_scope_lookup = {}
+scope_lookup = {}
 for item in data.get("top_local_symbols", []):
     scopes = item.get("parent_scopes") or []
     if scopes:
-        local_scope_lookup[item.get("symbol")] = scopes[0].get("symbol")
+        scope_lookup[item.get("symbol")] = scopes[0].get("symbol")
 
-if local_rollups:
-    candidate_rows = []
-    for item in local_rollups:
-        symbol = item.get("symbol", "")
-        target = fragmentation_lookup.get(symbol) or "Review registry fit"
-        scope = local_scope_lookup.get(symbol, "Scope unavailable")
-        rationale = (
-            f"Part of {fragmentation_lookup[symbol]} family." if symbol in fragmentation_lookup
-            else "Repeated local invocation in the current scan."
-        )
-        candidate_rows.append(
-            "<tr>"
-            f"<td><code>{esc(symbol)}</code></td>"
-            f"<td>{esc(scope)}</td>"
-            f"<td>{esc(target)}</td>"
-            f'<td class="num">{num(item.get("count", 0))}</td>'
-            f"<td>{esc(rationale)}</td>"
-            "</tr>"
-        )
-    migration_candidates_section = section(
-        "Candidates to bring into the design system",
-        "This queue stays focused on local symbols and fragmentation opportunities. Unresolved calls are tracked separately in diagnostics.",
-        "<table><thead><tr><th>Local component</th><th>Scope</th><th>Suggested target</th><th>Invocations</th><th>Why it matters</th></tr></thead>"
-        f"<tbody>{''.join(candidate_rows)}</tbody></table>",
+migration_rows = []
+for item in data.get("symbol_rollups", {}).get("local", []):
+    symbol = item.get("symbol", "")
+    scope = scope_lookup.get(symbol, "Scope unavailable")
+    priority = "medium" if int(item.get("count", 0) or 0) > 0 else "low"
+    target = fragmentation_lookup.get(symbol) or "Review registry fit"
+    rationale = "Repeated local invocation in the current scan."
+    if symbol in fragmentation_lookup:
+        priority = "high"
+        rationale = f"Appears in fragmentation family {fragmentation_lookup[symbol]}, suggesting consolidation opportunity."
+    migration_rows.append(
+        "<tr>"
+        f"<td><code>{esc(symbol)}</code></td>"
+        f"<td>{esc(scope)}</td>"
+        f"<td>{esc(target)}</td>"
+        f'<td><span class="pill {priority}">{priority}</span></td>'
+        f"<td>{esc(rationale)}</td>"
+        "</tr>"
     )
-else:
-    migration_candidates_section = ""
+migration_candidates_table_html = (
+    "<table><thead><tr><th>Local component</th><th>Module</th><th>Design system target</th><th>Priority</th><th>Rationale</th></tr></thead>"
+    f"<tbody>{''.join(migration_rows)}</tbody></table>"
+)
 
-actions = []
-if fragmentation_candidates:
-    family = fragmentation_candidates[0]
-    actions.append(
-        f'<li><span class="pill">P1</span> Consolidate {esc(family.get("pattern", "fragmented family"))} '
-        f'({num(family.get("count", 0))} symbols) into one clearer design-system path.</li>'
+top_ds = ds_symbols[0] if ds_symbols else None
+findings = []
+if top_ds:
+    findings.append(
+        f"<li><strong>{esc(top_ds.get('symbol'))} leads DS usage</strong> — {num(top_ds.get('count', 0))} resolved call sites.</li>"
     )
-if local_rollups:
-    top_local = max(local_rollups, key=lambda item: int(item.get("count", 0) or 0))
-    actions.append(
-        f'<li><span class="pill">P1</span> Review <code>{esc(top_local.get("symbol", ""))}</code> as a migration candidate '
-        f'because it still appears in local UI flows.</li>'
+if data.get("fragmentation_candidates"):
+    family = data["fragmentation_candidates"][0]
+    findings.append(
+        f"<li><strong>{esc(family.get('pattern'))} is the clearest consolidation target</strong> — {num(family.get('count', 0))} local symbols appear in that family.</li>"
     )
 if unused_registry_components:
-    names = ", ".join(item.get("symbol", "") for item in unused_registry_components[:3])
-    actions.append(
-        f'<li><span class="pill">P2</span> Revisit unused registry coverage for <code>{esc(names)}</code> '
-        'to decide whether docs or deprecation is the better move.</li>'
+    sample = ", ".join(item.get("symbol", "") for item in unused_registry_components[:3])
+    findings.append(
+        f"<li><strong>Unused registry components are now named</strong> — review <code>{esc(sample)}</code> for docs promotion or deprecation.</li>"
     )
 if visible_hotspots:
-    hotspot = max(
-        visible_hotspots,
-        key=lambda item: int(item.get("local_raw_invocation_count", 0) or 0),
-    )
+    hotspot = max(visible_hotspots, key=lambda item: int(item.get("local_raw_invocation_count", 0) or 0))
     if int(hotspot.get("local_raw_invocation_count", 0) or 0) > 0:
-        actions.append(
-            f'<li><span class="pill">P2</span> Start migration work in <code>{esc(hotspot.get("symbol") or hotspot.get("parent_id"))}</code>, '
-            f'which carries {num(hotspot.get("local_raw_invocation_count", 0))} local invocation(s).</li>'
+        findings.append(
+            f"<li><strong>{esc(hotspot.get('symbol') or hotspot.get('parent_id'))} is the best migration entry point</strong> — {num(hotspot.get('local_raw_invocation_count', 0))} local invocation(s) remain there.</li>"
         )
-action_queue_section = section(
-    "Action queue",
-    "Deterministic follow-up items ranked from clearest migration opportunity to softer cleanup work.",
-    f'<ol class="action-list">{"".join(actions) or "<li>No immediate actions identified from this fixture.</li>"}</ol>',
-)
+key_findings_html = f"<ul>{''.join(findings)}</ul>"
 
-limits = data.get("limits", [])
-limit_items = "".join(
-    f"<li>{esc(item.get('metric', 'Metric'))}: {esc(item.get('missing_capability', 'Not computed in this scan.'))}</li>"
-    for item in limits[:4]
-)
-diagnostics_section = section(
-    "Diagnostics and data gaps",
-    "Scanner-quality context stays here so the main report can stay focused on design-system rollout decisions.",
-    '<div class="stack">'
-    f'<div class="mini-card"><h3>Diagnostics</h3><p class="footer-note">{num(raw.get("unresolved", 0))} unresolved invocation(s), '
-    f'{pct(summary.get("registry_resolution_ratio"))} registry resolution, '
-    f'and {num(raw.get("candidate", 0))} candidate invocation(s) needing review.</p></div>'
-    f'<div class="mini-card"><h3>Visible limits</h3><ul class="footer-note">{limit_items}</ul></div>'
-    "</div>",
+caveat_html = (
+    "<strong>How to read this report.</strong> "
+    "<strong>DS vs local</strong> compares resolved design system invocations with local UI component invocations. "
+    "<strong>Registry resolution</strong> is secondary scanner-health context. "
+    "<strong>Unresolved</strong> counts are informational and are not treated as migration debt in the candidate table."
 )
 
 replacements = {
@@ -395,22 +358,44 @@ replacements = {
     "generated_at": esc(data.get("generated_at", "")),
     "source_scan": esc(data.get("source_scan", "")),
     "schema_version": esc(data.get("schema_version", "")),
-    "coverage_percent": esc(coverage_percent),
-    "coverage_note": esc(coverage_note),
-    "kpi_grid_html": kpi_grid_html,
-    "usage_overview_section": usage_overview_section,
-    "unused_registry_section": unused_registry_section,
-    "adoption_by_area_section": adoption_by_area_section,
-    "adoption_by_language_section": adoption_by_language_section,
-    "fragmentation_section": fragmentation_section,
-    "migration_candidates_section": migration_candidates_section,
-    "action_queue_section": action_queue_section,
-    "diagnostics_section": diagnostics_section,
+    "resolved_count": num(raw.get("resolved", 0)),
+    "adopted_components_count": num(registry.get("used_component_count", 0)),
+    "total_registry_components": num(registry.get("component_count", 0)),
+    "invocation_adoption_percent": ds_vs_local_pct,
+    "raw_invocation_total": num(raw.get("total", 0)),
+    "registry_resolution_percent": registry_resolution_pct,
+    "local_definition_count": num(definitions.get("local_definition_count", 0)),
+    "unresolved_count": num(raw.get("unresolved", 0)),
+    "caveat_html": caveat_html,
+    "ds_usage_chart_svg": ds_usage_chart_svg,
+    "ds_symbols_table_html": ds_symbols_table_html,
+    "unused_registry_count": num(unused_registry_count),
+    "unused_components_table_html": unused_components_table_html,
+    "parent_scope_chart_svg": parent_scope_chart_svg,
+    "parent_scope_table_html": parent_scope_table_html,
+    "adoption_gaps_chart_svg": adoption_gaps_chart_svg,
+    "adoption_gaps_table_html": adoption_gaps_table_html,
+    "duplicate_components_table_html": duplicate_components_table_html,
+    "migration_candidates_table_html": migration_candidates_table_html,
+    "key_findings_html": key_findings_html,
 }
 
 rendered = template
 for key, value in replacements.items():
     rendered = rendered.replace("{{" + key + "}}", value)
+
+def remove_section(text, heading):
+    pattern = rf'\s*<h2>{re.escape(heading)}</h2>.*?(?=\n\s*<h2>|\n</div>\n</body>)'
+    return re.sub(pattern, "", text, flags=re.S)
+
+if unused_registry_count == 0:
+    rendered = remove_section(rendered, "Unused design system components")
+if not visible_hotspots:
+    rendered = remove_section(rendered, "Adoption by area")
+if len(per_language) <= 1:
+    rendered = remove_section(rendered, "Adoption gaps")
+if not duplicate_rows:
+    rendered = remove_section(rendered, "Exact-name duplicates in shared UI")
 
 if "{{" in rendered:
     unresolved = sorted(set(part.split("}}", 1)[0] for part in rendered.split("{{")[1:]))
