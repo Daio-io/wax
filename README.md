@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./docs/assets/wax-full-logo.png" alt="wax logo" width="320" />
+</p>
+
 # wax
 
 [![Nice](https://api.nice.sbs/badge/n_c1qWdL8brn1s.svg?theme=rich)](https://nice.sbs/button?id=n_c1qWdL8brn1s)
