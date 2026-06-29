@@ -135,6 +135,33 @@
   },
   "top_local_symbols": [
     {
+      "symbol_id": "local:local.confirm-modal",
+      "symbol": "ConfirmModal",
+      "qualified_symbol": null,
+      "symbol_kind": "local",
+      "match_status": "local",
+      "registry_symbol": null,
+      "local_definition_id": "local.confirm-modal",
+      "identity_basis": "local_definition_id",
+      "identity_stability": "path_sensitive",
+      "raw_invocation_count": 1,
+      "parent_scope_count": 1,
+      "file_count": 1,
+      "parent_scopes": [
+        {
+          "parent_id": "react:component:src/App#App",
+          "symbol": "App",
+          "qualified_symbol": null,
+          "scope_kind": "component",
+          "identity_basis": null,
+          "identity_stability": null,
+          "invocation_count": 1
+        }
+      ],
+      "parent_scope_limit": null,
+      "parent_scopes_truncated": false
+    },
+    {
       "symbol_id": "react:local:IconButton",
       "symbol": "IconButton",
       "qualified_symbol": null,
@@ -155,6 +182,33 @@
           "scope_kind": "component",
           "identity_basis": "module_path_and_symbol",
           "identity_stability": "path_sensitive",
+          "invocation_count": 1
+        }
+      ],
+      "parent_scope_limit": null,
+      "parent_scopes_truncated": false
+    },
+    {
+      "symbol_id": "local:local.primary-button",
+      "symbol": "PrimaryButton",
+      "qualified_symbol": null,
+      "symbol_kind": "local",
+      "match_status": "local",
+      "registry_symbol": null,
+      "local_definition_id": "local.primary-button",
+      "identity_basis": "local_definition_id",
+      "identity_stability": "path_sensitive",
+      "raw_invocation_count": 1,
+      "parent_scope_count": 1,
+      "file_count": 1,
+      "parent_scopes": [
+        {
+          "parent_id": "compose:screen:src/Home#HomeScreen",
+          "symbol": "HomeScreen",
+          "qualified_symbol": null,
+          "scope_kind": "screen",
+          "identity_basis": null,
+          "identity_stability": null,
           "invocation_count": 1
         }
       ],
@@ -181,7 +235,45 @@
       "parent_scopes_truncated": true
     }
   ],
-  "parent_scope_hotspots": [],
+  "unused_registry_components": [
+    {
+      "symbol": "Modal",
+      "registry_symbol": "com.ds.Modal",
+      "package": null
+    }
+  ],
+  "parent_scope_hotspots": [
+    {
+      "parent_id": "react:component:src/App#App",
+      "symbol": "App",
+      "scope_kind": "component",
+      "raw_invocation_count": 5,
+      "resolved_raw_invocation_count": 3,
+      "local_raw_invocation_count": 2,
+      "candidate_raw_invocation_count": 0,
+      "unresolved_raw_invocation_count": 0
+    },
+    {
+      "parent_id": "compose:screen:src/Home#HomeScreen",
+      "symbol": "HomeScreen",
+      "scope_kind": "screen",
+      "raw_invocation_count": 4,
+      "resolved_raw_invocation_count": 2,
+      "local_raw_invocation_count": 1,
+      "candidate_raw_invocation_count": 0,
+      "unresolved_raw_invocation_count": 1
+    },
+    {
+      "parent_id": "compose:screen:src/Details#DetailsScreen",
+      "symbol": "DetailsScreen",
+      "scope_kind": "screen",
+      "raw_invocation_count": 1,
+      "resolved_raw_invocation_count": 1,
+      "local_raw_invocation_count": 0,
+      "candidate_raw_invocation_count": 0,
+      "unresolved_raw_invocation_count": 0
+    }
+  ],
   "fragmentation_candidates": [
     {
       "pattern": "*Button",

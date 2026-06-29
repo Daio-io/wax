@@ -209,12 +209,122 @@ extract_core() {
         unresolved: symbol_rollup(all_usage_sites; "unresolved"; "symbol")
       };
 
+    def unused_registry_components:
+      [
+        .languages[]
+        | .design_system_components[]?
+        | {
+            symbol: (.symbol // .registry_symbol),
+            registry_symbol: (.registry_symbol // .symbol),
+            package: (.package // null)
+          }
+      ] as $registry_components
+      | [
+          all_usage_sites[]
+          | select(.match_status == "resolved")
+          | (.registry_symbol // .symbol)
+        ] as $resolved_symbols
+      | $registry_components
+      | unique_by(.registry_symbol)
+      | map(select((.registry_symbol as $symbol | ($resolved_symbols | index($symbol))) == null))
+      | sort_by(.symbol, .registry_symbol);
+
+    def synthesized_symbol_usage_summary_rows:
+      [
+        all_usage_sites[]
+        | select(.match_status == "local" or .match_status == "unresolved")
+        | {
+            key: (
+              if .match_status == "local" then (.local_definition_id // .symbol)
+              else .symbol
+              end
+            ),
+            symbol_id: (
+              if .match_status == "local" then
+                ("local:" + (.local_definition_id // .symbol))
+              else
+                ("unresolved:" + .symbol)
+              end
+            ),
+            symbol: .symbol,
+            qualified_symbol: (.qualified_symbol // null),
+            symbol_kind: .match_status,
+            match_status: .match_status,
+            registry_symbol: (.registry_symbol // null),
+            local_definition_id: (.local_definition_id // null),
+            identity_basis: (
+              if .match_status == "local" and (.local_definition_id? != null) then
+                "local_definition_id"
+              else
+                "symbol"
+              end
+            ),
+            identity_stability: (
+              if .match_status == "local" and (.local_definition_id? != null) then
+                "path_sensitive"
+              else
+                "scan_local"
+              end
+            ),
+            location_file: (.location.file // null),
+            parent: (.parent // null)
+          }
+      ]
+      | group_by(.key)
+      | map({
+          symbol_id: .[0].symbol_id,
+          symbol: .[0].symbol,
+          qualified_symbol: .[0].qualified_symbol,
+          symbol_kind: .[0].symbol_kind,
+          match_status: .[0].match_status,
+          registry_symbol: .[0].registry_symbol,
+          local_definition_id: .[0].local_definition_id,
+          identity_basis: .[0].identity_basis,
+          identity_stability: .[0].identity_stability,
+          raw_invocation_count: length,
+          parent_scope_count: ([.[].parent.parent_id?] | map(select(. != null)) | unique | length),
+          file_count: ([.[].location_file] | map(select(. != null)) | unique | length),
+          parent_scopes: (
+            [.[]
+              | select(.parent != null)
+              | {
+                  parent_id: .parent.parent_id,
+                  symbol: .parent.symbol,
+                  qualified_symbol: (.parent.qualified_symbol // null),
+                  scope_kind: .parent.scope_kind,
+                  identity_basis: (.parent.identity_basis // null),
+                  identity_stability: (.parent.identity_stability // null),
+                  invocation_count: 1
+                }
+            ]
+            | group_by(.parent_id)
+            | map({
+                parent_id: .[0].parent_id,
+                symbol: .[0].symbol,
+                qualified_symbol: .[0].qualified_symbol,
+                scope_kind: .[0].scope_kind,
+                identity_basis: .[0].identity_basis,
+                identity_stability: .[0].identity_stability,
+                invocation_count: length
+              })
+            | sort_by(-.invocation_count, .symbol)
+          ),
+          parent_scope_limit: null,
+          parent_scopes_truncated: false
+        });
+
     def symbol_usage_summary_rows:
-      if (.symbol_usage_summary? | length) > 0 then
-        .symbol_usage_summary
-      else
-        [.languages[] | .symbol_usage_summary[]?]
-      end;
+      ((.symbol_usage_summary // []) + ([.languages[] | .symbol_usage_summary[]?])) as $reported_rows
+      | synthesized_symbol_usage_summary_rows as $synthetic_rows
+      | (($reported_rows + $synthetic_rows)
+        | unique_by(
+            [
+              .symbol_kind,
+              (.local_definition_id // ""),
+              .symbol,
+              (.registry_symbol // "")
+            ]
+          ));
 
     def top_symbols_by_kind($kind; $limit):
       [symbol_usage_summary_rows[]
@@ -230,7 +340,11 @@ extract_core() {
             parent_id: .parent.parent_id,
             symbol: .parent.symbol,
             scope_kind: .parent.scope_kind,
-            invocation_count: 1
+            raw_invocation_count: 1,
+            resolved_raw_invocation_count: (if .match_status == "resolved" then 1 else 0 end),
+            local_raw_invocation_count: (if .match_status == "local" then 1 else 0 end),
+            candidate_raw_invocation_count: (if .match_status == "candidate" then 1 else 0 end),
+            unresolved_raw_invocation_count: (if .match_status == "unresolved" then 1 else 0 end)
           }
       ]
       | group_by(.parent_id)
@@ -238,9 +352,13 @@ extract_core() {
           parent_id: .[0].parent_id,
           symbol: .[0].symbol,
           scope_kind: .[0].scope_kind,
-          invocation_count: (map(.invocation_count) | add)
+          raw_invocation_count: (map(.raw_invocation_count) | add),
+          resolved_raw_invocation_count: (map(.resolved_raw_invocation_count) | add),
+          local_raw_invocation_count: (map(.local_raw_invocation_count) | add),
+          candidate_raw_invocation_count: (map(.candidate_raw_invocation_count) | add),
+          unresolved_raw_invocation_count: (map(.unresolved_raw_invocation_count) | add)
         })
-      | sort_by(-.invocation_count, .symbol)
+      | sort_by(-.raw_invocation_count, .symbol)
       | .[0:$limit];
 
     def suffix_families:
@@ -276,6 +394,7 @@ extract_core() {
       symbol_rollups: symbol_rollups_block,
       top_local_symbols: top_symbols_by_kind("local"; 5),
       top_unresolved_symbols: top_symbols_by_kind("unresolved"; 5),
+      unused_registry_components: unused_registry_components,
       parent_scope_hotspots: parent_scope_hotspots(5),
       fragmentation_candidates: suffix_families,
       limits: $limits,

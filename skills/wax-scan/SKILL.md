@@ -66,21 +66,20 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
      ```
 
 7. When `--html` or `--html-only` is requested, render `.wax/out/report/index.html` using `skills/wax-scan/templates/report.html`.
-   - Self-contained branded report: warm paper background, soft green adoption areas, beeswax yellow accent, large adoption hero, smooth 100% split-area trend, ranked project/package bars, ranked non-DS opportunity bars, and secondary diagnostics.
-   - Layout: header → DS vs local coverage hero → invocation breakdown → adoption by project/package → top local/unresolved symbols → visible limits + diagnostics.
-   - Prefer project/package breakdowns before language breakdowns unless the user explicitly asks for multi-language analysis.
+   - Self-contained branded report: warm paper background, soft green adoption hero, beeswax yellow accents, ranked usage/migration sections, and secondary diagnostics.
+   - Layout: header → DS vs local coverage hero → DS usage inventory → unused registry components → adoption by area/language → fragmentation → migration candidates → action queue → diagnostics.
    - Populate the agreed first-screen metrics:
      - DS vs local UI coverage from `repo_summary.ds_vs_local_ratio`
-     - UI invocation adoption from `repo_summary.metrics.invocation_adoption_ratio`
-     - registry resolution from `repo_summary.metrics.registry_resolution_ratio`
-     - raw DS invocations (`raw_invocations.resolved`, `raw_invocations.candidate`)
-     - local definitions (`definitions.local_definition_count`, `definitions.invoked_local_definition_count`)
-     - unresolved UI calls (`raw_invocations.unresolved`)
-     - optional trend delta/status when a baseline exists, otherwise first-scan copy
-     - 100% split-area trend points for design-system vs non-design-system share
-     - ranked project/package adoption rows
-     - ranked non-DS component opportunity rows
-     - visible limits and diagnostics as secondary context
+     - raw DS invocations (`raw_invocations.resolved`)
+     - local invocations (`raw_invocations.local`)
+     - local definitions (`definitions.local_definition_count`)
+     - registry usage (`registry.used_component_count` / `registry.component_count`)
+     - unresolved UI calls (`raw_invocations.unresolved`) as diagnostics context, not migration debt
+     - registry resolution as diagnostics context, not a hero KPI
+     - named unused registry components when available
+     - parent-scope hotspots with resolved/local/unresolved counts when available
+     - ranked local migration candidates and fragmentation families
+     - deterministic action queue and visible limits
    - No CDN or external assets — self-contained CSS and inline SVG only.
    - Escape all scan-derived text (symbols, limits, paths, narrative evidence) with `skills/wax-scan/scripts/html-escape.sh` before inserting into HTML or SVG. Only trusted template snippets (card shells, badges) may be raw HTML.
 
@@ -118,7 +117,7 @@ For every insight:
 Analyze and report on:
 
 1. DS vs local UI coverage
-2. UI invocation adoption, registry resolution, and raw invocation breakdown
+2. Registry resolution and raw invocation breakdown as supporting diagnostics
 3. Design system debt
 4. Component health
 5. Version adoption
@@ -145,10 +144,6 @@ DS vs local UI coverage =
 Resolved design-system invocations /
 (Resolved design-system invocations + local component invocations)
 
-UI invocation adoption =
-Resolved design-system invocations /
-Adoption-eligible invocations
-
 Registry resolution =
 Resolved design-system invocations /
 All detected UI invocations
@@ -156,16 +151,17 @@ All detected UI invocations
 Report:
 
 - DS vs local UI coverage as the primary headline
-- UI invocation adoption as a secondary adoption-eligible metric
+- DS invocations, local invocations, and local definitions as supporting migration signals
 - Registry resolution as a secondary scanner/registry health metric
 - Raw invocation breakdown by `resolved`, `local`, `candidate`, and `unresolved`
+- Named unused registry components when they exist
 - Parent-scope hotspots when attribution is available
 - Adoption by feature area, screen, route, package/module, or team when those boundaries are available
 
 Identify:
 
-- Areas with low invocation adoption
-- Areas with high invocation adoption
+- Areas with low DS-vs-local coverage
+- Areas with high DS-vs-local coverage
 - Areas showing adoption growth
 - Areas showing adoption decline
 

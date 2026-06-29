@@ -73,6 +73,27 @@ assert_eq \
   "$(jq -r '.per_language[] | select(.language_id == "react") | .ds_vs_local_ratio' <<<"$ACTUAL")" \
   "0.6"
 
+assert_eq \
+  "unused registry components are enumerated by symbol" \
+  "$(jq -r '.unused_registry_components[0].symbol' <<<"$ACTUAL")" \
+  "Modal"
+assert_eq \
+  "unused registry components exclude candidate-only usage" \
+  "$(jq -r '.unused_registry_components | length' <<<"$ACTUAL")" \
+  "1"
+assert_eq \
+  "parent scope hotspots expose resolved counts" \
+  "$(jq -r '.parent_scope_hotspots[] | select(.symbol == "HomeScreen") | .resolved_raw_invocation_count' <<<"$ACTUAL")" \
+  "2"
+assert_eq \
+  "parent scope hotspots expose local counts" \
+  "$(jq -r '.parent_scope_hotspots[] | select(.symbol == "HomeScreen") | .local_raw_invocation_count' <<<"$ACTUAL")" \
+  "1"
+assert_eq \
+  "parent scope hotspots expose unresolved counts" \
+  "$(jq -r '.parent_scope_hotspots[] | select(.symbol == "HomeScreen") | .unresolved_raw_invocation_count' <<<"$ACTUAL")" \
+  "1"
+
 SAME_BASELINE="$("$SCRIPT" "$FIXTURE" --baseline "$FIXTURE")"
 assert_eq \
   "identical baseline yields zero repo deltas" \

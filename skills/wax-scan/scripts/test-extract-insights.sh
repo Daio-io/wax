@@ -51,7 +51,13 @@ jq '
 "$EXTRACTOR" "$HOTSPOT_SCAN" \
   | jq -e '
       .parent_scope_hotspots
-      | map(select(.parent_id == "react:component:src/App#App" and .invocation_count == 1))
+      | map(select(
+          .parent_id == "react:component:src/App#App"
+          and .raw_invocation_count == 5
+          and .resolved_raw_invocation_count == 3
+          and .local_raw_invocation_count == 2
+          and .unresolved_raw_invocation_count == 0
+        ))
       | length == 1
     ' >/dev/null
 
