@@ -4,6 +4,7 @@
 **Date:** 2026-07-03  
 **Audience:** Wax engine, contract, language-pack, and reporting implementers  
 **Related:** `docs/specs/2026-06-20-adoption-metrics-v2-design.md`, `docs/specs/2026-05-13-component-tracker-design.md`
+**Implementation plan:** [`docs/plans/2026-07-03-token-scanning-plan.md`](../plans/2026-07-03-token-scanning-plan.md)
 
 ## Summary
 

@@ -29,6 +29,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 | 10 | Wax scan analytics skill | [archive/2026-06-14-wax-scan-plan.md](./archive/2026-06-14-wax-scan-plan.md) | `merged` | `complete` | [ADR](../adr/2026-06-14-wax-scan-analytics-skill.md) |
 | 11 | Adoption Metrics v2 | [2026-06-20-adoption-metrics-v2-plan.md](./2026-06-20-adoption-metrics-v2-plan.md) | `pending` | `in-progress` | — |
 | 12 | Registry sync and config v2 | [archive/2026-07-04-registry-sync-config-plan.md](./archive/2026-07-04-registry-sync-config-plan.md) | `merged` | `complete` | [ADR](../adr/2026-07-04-registry-sync-config-v2.md) |
+| 13 | Token scanning | [2026-07-03-token-scanning-plan.md](./2026-07-03-token-scanning-plan.md) | `pending` | `not-started` | — |
 
 **Doc status:** `pending` -> plan PR open; `merged` -> plan doc on `main`; `planned` -> not yet drafted.
 
@@ -62,6 +63,7 @@ Orders 1-4, 6-10, and 12 are **complete**. Post-alpha UX (order 5) remains other
 | 10 | `docs/wax-scan-skill-plan` | #151 (merged) | Wax scan analytics skill design, implementation plan, and Task 1 scaffold |
 | 11 | `dai/adoption-metrics-v2-contract` | [#165](https://github.com/Daio-io/wax/pull/165) | Adoption Metrics v2 design and contract |
 | 12 | `dai/registry-sync-config-plan` | #195 (merged) | Registry sync and config v2 design and implementation plan |
+| 13 | `dai/token-scanning-plan` | [#194](https://github.com/Daio-io/wax/pull/194) | Token scanning design and implementation plan |
 
 ---
 
@@ -78,3 +80,4 @@ Orders 1-4, 6-10, and 12 are **complete**. Post-alpha UX (order 5) remains other
 - [Wax scan analytics skill design](../specs/2026-06-14-wax-scan-design.md) — scan orchestration and adoption reporting skill (order 10)
 - [Adoption Metrics v2 design](../specs/2026-06-20-adoption-metrics-v2-design.md) — facts-first invocation adoption contract (order 11 draft)
 - [Registry sync and config v2 design](../specs/2026-07-04-registry-sync-config-design.md) — clean alpha cutover for remembered design-system registries, no-config local scans, and explicit app sync (order 12, complete)
+- [Token scanning design](../specs/2026-07-03-token-scanning-design.md) — additive token references and hard-coded styling candidates (order 13 draft)
