@@ -26,6 +26,14 @@ Wax reports design-system adoption from source code usage. Scan output includes
 UI invocation adoption, registry resolution, and raw invocation counts for
 resolved, local, candidate, and unresolved calls.
 
+In practice, Wax helps you:
+
+- bootstrap repo-local scan config with `wax init`;
+- discover or maintain a registry of canonical design-system components;
+- scan app code with parser-backed language packs;
+- validate committed config and lockfiles in CI;
+- hand deterministic JSON outputs to dashboards, reports, or agent workflows.
+
 ## Install
 
 ### Homebrew
@@ -87,6 +95,10 @@ For local setup, the interactive wizard can guide the same choices:
 wax init
 ```
 
+`wax init` writes the repo-local config, lockfile, and per-language registry
+stubs under `.wax/`. The wizard asks which languages to enable, which source
+roots to scan, and whether your registry source lives in the current repo.
+
 Then validate the repo setup:
 
 ```bash
@@ -127,10 +139,22 @@ wax scan
 ```
 
 Inspect outputs under `.wax/out/`, especially `.wax/out/scan-merged.json`.
+For the full scan output contract, see
+[Adoption Metrics v2](docs/specs/2026-06-20-adoption-metrics-v2-design.md).
 
 ## Usage
 
 ### Language packs
+
+Wax uses installable language packs instead of baking every analyzer into the
+core binary.
+
+| Pack | Use for |
+| --- | --- |
+| `compose` | Jetpack Compose and Kotlin UI code |
+| `react` | React and JSX/TSX projects |
+| `swift` | SwiftUI projects |
+| `basic` | Text-based fallback scans and smoke tests |
 
 Install packs explicitly:
 
@@ -173,6 +197,15 @@ Typical workflow:
 5. After registry changes, run `wax language update --all` and commit the
    refreshed lockfile.
 
+When the design system lives in a separate repository, point discovery at that
+source tree and publish or copy the generated registry JSON into app repos:
+
+```bash
+wax language install react
+wax discover --language react --root packages/components/src --dry-run
+wax discover --language react --root packages/components/src --force
+```
+
 You can also point a language at a hosted registry source:
 
 ```json
@@ -191,6 +224,9 @@ You can also point a language at a hosted registry source:
 }
 ```
 
+After changing a hosted registry source, run `wax language update --all` so the
+lockfile pins the new digest.
+
 ### CI
 
 Commit `.wax/wax.lock.json`. In CI, install or restore pinned language packs
@@ -200,6 +236,23 @@ before scanning without auto-install:
 wax validate
 wax language install compose
 wax scan --no-auto-install
+```
+
+### Config notes
+
+Preferred paths:
+
+- config: `.wax/wax.config.json`
+- lockfile: `.wax/wax.lock.json`
+- per-language registry: `.wax/<language-id>.registry.json`
+
+Legacy `.waxrc` is still supported when the preferred config file is absent.
+For editor validation, add the published schema to `.wax/wax.config.json`:
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/Daio-io/wax/main/engine/crates/wax-contract/schemas/waxrc.schema.json"
+}
 ```
 
 ### AI skills
