@@ -37,6 +37,36 @@ pub struct SyncUpdate {
     pub source: String,
 }
 
+#[derive(Debug, Clone)]
+struct RegistryCopyPlan {
+    remembered: crate::registry_memory::RememberedDesignSystemSummary,
+    design_system_local_source: String,
+    app_registry_relative: String,
+}
+
+#[derive(Debug, Clone)]
+struct PreparedUpstreamSync {
+    update: SyncUpdate,
+    registry_copy: Option<RegistryCopyPlan>,
+}
+
+#[derive(Debug, Clone)]
+struct RegistryFileBackup {
+    path: PathBuf,
+    previous: Option<Vec<u8>>,
+}
+
+struct PersistSyncInput<'a> {
+    options: &'a SyncOptions,
+    repo_files: &'a crate::config::repo_files::RepoFileSet,
+    config_path_display: &'a str,
+    config_json: &'a Value,
+    config_changed: bool,
+    original_config_json: &'a Value,
+    lockfile: &'a mut WaxLock,
+    prepared_updates: &'a [PreparedUpstreamSync],
+}
+
 type BestEffortSyncResult = Result<(Vec<SyncUpdate>, Vec<(String, SyncError)>), SyncError>;
 
 /// Errors returned while syncing app registries.
@@ -114,30 +144,33 @@ pub fn sync_app_registries(options: &SyncOptions) -> Result<Vec<SyncUpdate>, Syn
     let config_path_display = repo_files.config_path.display().to_string();
     let original_config_json = read_config_json(&repo_files.config_path, &config_path_display)?;
     let mut config_json = original_config_json.clone();
-    let mut updates = Vec::new();
     let mut config_changed = false;
+    let mut prepared_updates = Vec::new();
 
     for entry in upstream_language_entries(&waxrc) {
-        let update = sync_language_upstream(options, entry, &mut config_json, &mut config_changed)?;
-        updates.push(update);
+        prepared_updates.push(prepare_language_upstream_sync(
+            options,
+            entry,
+            &mut config_json,
+            &mut config_changed,
+        )?);
     }
 
-    if let Err(error) = persist_sync_updates(
+    let updates: Vec<SyncUpdate> = prepared_updates
+        .iter()
+        .map(|prepared| prepared.update.clone())
+        .collect();
+
+    persist_sync_updates(&mut PersistSyncInput {
         options,
-        &repo_files,
-        &config_path_display,
-        &config_json,
+        repo_files: &repo_files,
+        config_path_display: &config_path_display,
+        config_json: &config_json,
         config_changed,
-        &mut lockfile,
-        &updates,
-    ) {
-        restore_config_json(
-            &repo_files.config_path,
-            &config_path_display,
-            &original_config_json,
-        )?;
-        return Err(error);
-    }
+        original_config_json: &original_config_json,
+        lockfile: &mut lockfile,
+        prepared_updates: &prepared_updates,
+    })?;
 
     Ok(updates)
 }
@@ -152,10 +185,9 @@ pub fn best_effort_sync_app_registries(options: &SyncOptions) -> BestEffortSyncR
     let config_path_display = repo_files.config_path.display().to_string();
     let original_config_json = read_config_json(&repo_files.config_path, &config_path_display)?;
     let mut config_json = original_config_json.clone();
-
-    let mut updates = Vec::new();
-    let mut failures = Vec::new();
     let mut config_changed = false;
+    let mut failures = Vec::new();
+    let mut prepared_updates = Vec::new();
 
     for entry in upstream_language_entries(&waxrc) {
         let upstream = entry
@@ -163,38 +195,41 @@ pub fn best_effort_sync_app_registries(options: &SyncOptions) -> BestEffortSyncR
             .as_ref()
             .and_then(|registry| registry.upstream.as_deref())
             .expect("upstream language entries always have upstream metadata");
-        match sync_language_upstream(options, entry, &mut config_json, &mut config_changed) {
-            Ok(update) => updates.push(update),
+        match prepare_language_upstream_sync(options, entry, &mut config_json, &mut config_changed)
+        {
+            Ok(prepared) => prepared_updates.push(prepared),
             Err(error) => failures.push((upstream.to_owned(), error)),
         }
     }
 
-    if updates.is_empty() {
-        return Ok((updates, failures));
+    if prepared_updates.is_empty() {
+        return Ok((Vec::new(), failures));
     }
 
-    match persist_sync_updates(
+    match persist_sync_updates(&mut PersistSyncInput {
         options,
-        &repo_files,
-        &config_path_display,
-        &config_json,
+        repo_files: &repo_files,
+        config_path_display: &config_path_display,
+        config_json: &config_json,
         config_changed,
-        &mut lockfile,
-        &updates,
-    ) {
-        Ok(()) => Ok((updates, failures)),
+        original_config_json: &original_config_json,
+        lockfile: &mut lockfile,
+        prepared_updates: &prepared_updates,
+    }) {
+        Ok(()) => Ok((
+            prepared_updates
+                .iter()
+                .map(|prepared| prepared.update.clone())
+                .collect(),
+            failures,
+        )),
         Err(error) => {
-            restore_config_json(
-                &repo_files.config_path,
-                &config_path_display,
-                &original_config_json,
-            )?;
             let message = error.to_string();
-            for update in updates {
+            for prepared in prepared_updates {
                 failures.push((
-                    update.upstream.clone(),
+                    prepared.update.upstream.clone(),
                     SyncError::LockRefreshFailed {
-                        upstream: update.upstream.clone(),
+                        upstream: prepared.update.upstream.clone(),
                         message: message.clone(),
                     },
                 ));
@@ -204,26 +239,116 @@ pub fn best_effort_sync_app_registries(options: &SyncOptions) -> BestEffortSyncR
     }
 }
 
-fn persist_sync_updates(
-    options: &SyncOptions,
-    repo_files: &crate::config::repo_files::RepoFileSet,
-    config_path_display: &str,
-    config_json: &Value,
-    config_changed: bool,
-    lockfile: &mut WaxLock,
-    updates: &[SyncUpdate],
-) -> Result<(), SyncError> {
-    if updates.is_empty() {
+fn persist_sync_updates(input: &mut PersistSyncInput<'_>) -> Result<(), SyncError> {
+    if input.prepared_updates.is_empty() {
         return Ok(());
     }
 
-    if config_changed {
-        write_config_json(&repo_files.config_path, config_path_display, config_json)?;
+    let mut registry_backups = Vec::new();
+    for prepared in input.prepared_updates {
+        if let Some(copy) = &prepared.registry_copy {
+            registry_backups.push(backup_registry_file(
+                &input.options.repo_root,
+                &copy.app_registry_relative,
+            )?);
+        }
     }
 
-    let waxrc = load_waxrc(&repo_files.config_path)?;
-    refresh_registry_locks(lockfile, &options.repo_root, &waxrc)?;
-    save_lockfile(&repo_files.lockfile_path, lockfile)
+    if input.config_changed {
+        write_config_json(
+            &input.repo_files.config_path,
+            input.config_path_display,
+            input.config_json,
+        )?;
+    }
+
+    for prepared in input.prepared_updates {
+        if let Some(copy) = &prepared.registry_copy {
+            copy_design_system_registry_to_app(
+                &copy.remembered,
+                &copy.design_system_local_source,
+                &input.options.repo_root,
+                &copy.app_registry_relative,
+            )?;
+        }
+    }
+
+    let waxrc = load_waxrc(&input.repo_files.config_path)?;
+    if let Err(error) = refresh_registry_locks(input.lockfile, &input.options.repo_root, &waxrc) {
+        restore_sync_rollback(
+            &input.repo_files.config_path,
+            input.config_path_display,
+            input.original_config_json,
+            input.config_changed,
+            &registry_backups,
+        )?;
+        return Err(error);
+    }
+
+    if let Err(error) = save_lockfile(&input.repo_files.lockfile_path, input.lockfile) {
+        restore_sync_rollback(
+            &input.repo_files.config_path,
+            input.config_path_display,
+            input.original_config_json,
+            input.config_changed,
+            &registry_backups,
+        )?;
+        return Err(error);
+    }
+
+    Ok(())
+}
+
+fn backup_registry_file(
+    repo_root: &Path,
+    app_registry_relative: &str,
+) -> Result<RegistryFileBackup, SyncError> {
+    let path = repo_root.join(app_registry_relative);
+    let path_display = path.display().to_string();
+    let previous = if path.is_file() {
+        Some(fs::read(&path).map_err(|source| SyncError::ConfigUpdate {
+            path: path_display.clone(),
+            source: Box::new(source),
+        })?)
+    } else {
+        None
+    };
+    Ok(RegistryFileBackup { path, previous })
+}
+
+fn restore_registry_backup(backup: &RegistryFileBackup) -> Result<(), SyncError> {
+    let path_display = backup.path.display().to_string();
+    match &backup.previous {
+        Some(contents) => {
+            fs::write(&backup.path, contents).map_err(|source| SyncError::ConfigUpdate {
+                path: path_display,
+                source: Box::new(source),
+            })
+        }
+        None if backup.path.exists() => {
+            fs::remove_file(&backup.path).map_err(|source| SyncError::ConfigUpdate {
+                path: path_display,
+                source: Box::new(source),
+            })
+        }
+        None => Ok(()),
+    }
+}
+
+fn restore_sync_rollback(
+    config_path: &Path,
+    config_path_display: &str,
+    original_config_json: &Value,
+    config_changed: bool,
+    registry_backups: &[RegistryFileBackup],
+) -> Result<(), SyncError> {
+    if config_changed {
+        restore_config_json(config_path, config_path_display, original_config_json)?;
+    }
+    for backup in registry_backups {
+        restore_registry_backup(backup)?;
+    }
+    Ok(())
 }
 
 fn restore_config_json(
@@ -260,12 +385,12 @@ fn upstream_language_entries(waxrc: &WaxRc) -> impl Iterator<Item = &LanguageEnt
     })
 }
 
-fn sync_language_upstream(
+fn prepare_language_upstream_sync(
     options: &SyncOptions,
     entry: &LanguageEntry,
     config_json: &mut Value,
     config_changed: &mut bool,
-) -> Result<SyncUpdate, SyncError> {
+) -> Result<PreparedUpstreamSync, SyncError> {
     let upstream = entry
         .registry_source
         .as_ref()
@@ -274,21 +399,24 @@ fn sync_language_upstream(
     let design_system_id = parse_upstream_design_system_id(upstream, &entry.id)?;
     let remembered = show_remembered_design_system(&options.state_path, design_system_id)?;
     let resolved = resolve_remembered_registry(&remembered, &entry.id)?;
-    if let Some(local_source) = resolved.design_system_local_source.as_deref() {
-        copy_design_system_registry_to_app(
-            &remembered,
-            local_source,
-            &options.repo_root,
-            &resolved.config_source,
-        )?;
-    }
+    let registry_copy = resolved
+        .design_system_local_source
+        .as_ref()
+        .map(|local_source| RegistryCopyPlan {
+            remembered: remembered.clone(),
+            design_system_local_source: local_source.clone(),
+            app_registry_relative: resolved.config_source.clone(),
+        });
     if update_config_registry_source(config_json, &entry.id, &resolved.config_source)? {
         *config_changed = true;
     }
-    Ok(SyncUpdate {
-        language_id: entry.id.clone(),
-        upstream: resolved.upstream,
-        source: resolved.config_source,
+    Ok(PreparedUpstreamSync {
+        update: SyncUpdate {
+            language_id: entry.id.clone(),
+            upstream: resolved.upstream,
+            source: resolved.config_source,
+        },
+        registry_copy,
     })
 }
 
@@ -648,6 +776,64 @@ mod sync_tests {
         .expect("parse config");
         let original_value: Value = serde_json::from_str(&original_config).expect("parse config");
         assert_eq!(config_after, original_value);
+    }
+
+    #[test]
+    fn best_effort_sync_restores_copied_registry_when_lock_refresh_fails() {
+        use sha2::{Digest, Sha256};
+
+        let _guard = env_lock();
+        let root = TestDir::new("restore-copied-registry");
+        let app_repo = root.path.join("app");
+        let original_registry = r#"{"schema_version":1,"components":[{"name":"Button"}]}"#;
+        write_app_repo(&app_repo, "acme/react", ".wax/registries/acme/react.json");
+        let registry_sha256 = Sha256::digest(original_registry.as_bytes()).iter().fold(
+            String::with_capacity(64),
+            |mut hex, byte| {
+                use std::fmt::Write;
+                let _ = write!(hex, "{byte:02x}");
+                hex
+            },
+        );
+        fs::write(
+            app_repo.join(".wax/wax.lock.json"),
+            format!(
+                r#"{{
+  "schema_version": 2,
+  "engine_api_version": 1,
+  "wax_version": "0.0.0-test",
+  "locked_at": null,
+  "registries": {{
+    "react": {{
+      "source": ".wax/registries/acme/react.json",
+      "sha256": "{registry_sha256}"
+    }}
+  }},
+  "languages": {{}}
+}}
+"#
+            ),
+        )
+        .expect("write lockfile with matching digest");
+
+        let (ds_repo, state_path) = setup_remembered_local_ds(&root.path);
+        fs::write(
+            ds_repo.join(".wax/registries/react.json"),
+            "{not valid registry json",
+        )
+        .expect("write malformed ds registry");
+
+        let result = best_effort_sync_app_registries(&SyncOptions {
+            repo_root: app_repo.clone(),
+            state_path,
+        })
+        .expect("best-effort sync should not abort");
+
+        assert!(result.0.is_empty());
+        assert_eq!(result.1.len(), 1);
+        let restored = fs::read_to_string(app_repo.join(".wax/registries/acme/react.json"))
+            .expect("read restored registry");
+        assert_eq!(restored.trim(), original_registry);
     }
 
     #[test]
