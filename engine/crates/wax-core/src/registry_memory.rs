@@ -251,12 +251,23 @@ pub fn ensure_design_system_registry_source(
                     "design_systems registries is not an object",
                 )),
             })?;
-    registries_object.insert(
-        language_id.as_str().to_owned(),
-        Value::Object(Map::from_iter([(
-            "source".to_owned(),
-            Value::String(registry_source.to_owned()),
-        )])),
+    let language_key = language_id.as_str().to_owned();
+    let registry_entry = registries_object
+        .entry(language_key)
+        .or_insert_with(|| Value::Object(Map::new()));
+    let registry_object =
+        registry_entry
+            .as_object_mut()
+            .ok_or_else(|| RegistryMemoryError::ConfigUpdate {
+                path: path_display.clone(),
+                source: Box::new(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "design_systems registry entry is not an object",
+                )),
+            })?;
+    registry_object.insert(
+        "source".to_owned(),
+        Value::String(registry_source.to_owned()),
     );
 
     write_config(&config_path, &path_display, &config)?;
@@ -509,6 +520,56 @@ mod registry_memory_tests {
         assert_eq!(
             config["design_systems"]["acme"]["registries"]["react"]["source"],
             ".wax/registries/react.json"
+        );
+    }
+
+    #[test]
+    fn ensure_design_system_registry_source_preserves_published_source() {
+        let _guard = env_lock();
+        let dir = TestDir::new("preserve-published-source");
+        let repo = dir.path.join("repo");
+        std::fs::create_dir_all(repo.join(".wax")).unwrap();
+        std::fs::write(
+            repo.join(".wax/wax.config.json"),
+            r#"{
+  "schema_version": 2,
+  "design_systems": {
+    "acme": {
+      "name": "Acme Design System",
+      "registries": {
+        "react": {
+          "source": ".wax/registries/react-old.json",
+          "published_source": "https://cdn.example.com/acme/react.registry.json"
+        }
+      }
+    }
+  }
+}
+"#,
+        )
+        .unwrap();
+        let react_id = LanguageId::try_from("react").unwrap();
+
+        ensure_design_system_registry_source(
+            &repo,
+            "acme",
+            "Acme Design System",
+            &react_id,
+            ".wax/registries/react.json",
+        )
+        .unwrap();
+
+        let config: Value = serde_json::from_str(
+            &std::fs::read_to_string(repo.join(".wax/wax.config.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            config["design_systems"]["acme"]["registries"]["react"]["source"],
+            ".wax/registries/react.json"
+        );
+        assert_eq!(
+            config["design_systems"]["acme"]["registries"]["react"]["published_source"],
+            "https://cdn.example.com/acme/react.registry.json"
         );
     }
 
