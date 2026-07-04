@@ -2,7 +2,7 @@
 name: wax-scan
 description: >-
   Use when running Wax scans and producing design system adoption analytics reports.
-  Validates config, runs a fresh scan, outputs a section-by-section terminal report by default.
+  Validates config, optionally runs wax sync, runs a fresh scan, outputs a section-by-section terminal report by default.
   Supports --html for branded HTML at .wax/out/report/index.html, --baseline for trend deltas,
   --no-auto-install for CI, and --html-only to skip terminal output.
 ---
@@ -33,15 +33,24 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
 
 ## Workflow
 
-1. Verify Wax config exists (`.wax/wax.config.json` or `.waxrc`).
-   - Missing: stop and guide the user to `wax init`.
-2. Run `wax validate`.
+1. Verify Wax config at `.wax/wax.config.json`.
+   - Missing + non-interactive stdin: stop and guide the user to `wax init` for CI/scripts.
+   - Missing + interactive TTY: `wax scan` can run an ephemeral prompt-driven scan without writing config; suggest `wax init` afterward to save the setup.
+2. When the repo has `registry.upstream` configured and the user wants explicit refresh before scanning, run:
+
+   ```bash
+   wax sync
+   wax validate
+   ```
+
+   Otherwise rely on scan-time best-effort sync. If sync warnings appear, mention that `wax sync` shows details and that the scan continued with current registry inputs.
+3. Run `wax validate`.
    - Failures: stop, show validation errors, do not scan.
-3. Run a fresh `wax scan`.
+4. Run a fresh `wax scan`.
    - Pass `--no-auto-install` when the user requests CI mode.
-4. Read `.wax/out/scan-merged.json`.
+5. Read `.wax/out/scan-merged.json`.
    - If `--baseline <path>` is provided, read the baseline file for trend deltas.
-5. Run the deterministic extractor:
+6. Run the deterministic extractor:
 
    ```bash
    skills/wax-scan/scripts/extract-insights.sh .wax/out/scan-merged.json
@@ -55,7 +64,7 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
 
    Use the extractor JSON for deterministic report sections. Fall back to reading `.wax/out/scan-merged.json` directly only if the script is missing or fails.
 
-6. Produce the terminal report unless `--html-only` was requested.
+7. Produce the terminal report unless `--html-only` was requested.
    - Walk sections in the analytics spec order below.
    - Use extractor JSON for **Deterministic** insights.
    - Use labeled inference for gaps: **Inferred (medium confidence)** or **Inferred (low confidence)**.
@@ -65,7 +74,7 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
      Data gap: <metric> requires <missing capability>. Not computed in this scan.
      ```
 
-7. When `--html` or `--html-only` is requested, render `.wax/out/report/index.html` using `skills/wax-scan/templates/report.html`.
+8. When `--html` or `--html-only` is requested, render `.wax/out/report/index.html` using `skills/wax-scan/templates/report.html`.
    - Self-contained branded report: dark panel layout, wax-yellow accents, ranked usage/migration sections, and secondary diagnostics.
    - Layout: header → KPI grid + caveat → DS usage inventory → unused registry components → adoption by area/language → migration candidates → key findings.
    - Populate the agreed first-screen metrics:
@@ -87,6 +96,7 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
 
 - Always run a fresh scan; do not analyze stale artifacts without scanning.
 - Stop on `wax validate` failure; do not scan until validation passes.
+- Treat scan-time registry sync warnings as non-fatal; the scan continues with current registry inputs.
 - Prefer deterministic metrics from the extractor over agent estimation.
 - Label every non-deterministic insight with confidence.
 - Do not invent precision for health, maturity, or debt scores when data is sparse; explain weighting and uncertainty.
