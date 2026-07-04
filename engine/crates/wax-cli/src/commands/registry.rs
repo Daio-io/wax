@@ -5,8 +5,13 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 use wax_contract::Diagnostic;
+use wax_core::paths::state_file;
 use wax_core::registry_discovery::{
     RegistryDiscoverError, RegistryDiscoverOptions, discover_registry,
+};
+use wax_core::registry_memory::{
+    RegistryMemoryError, delete_remembered_design_system, list_remembered_design_systems,
+    show_remembered_design_system, update_remembered_design_system_repo_root,
 };
 
 /// Options for `wax discover` and `wax registry discover`.
@@ -22,6 +27,28 @@ pub struct RegistryDiscoverCommandOptions {
     pub dry_run: bool,
     /// When true, replace an existing registry file.
     pub force: bool,
+    /// Design-system id to remember after discovery.
+    pub design_system_id: Option<String>,
+    /// Display name for the remembered design system.
+    pub design_system_name: Option<String>,
+}
+
+/// Options for registry memory management commands.
+#[derive(Debug, Clone)]
+pub struct RegistryMemoryCommandOptions {
+    /// Global state path override for tests.
+    pub state_path: Option<PathBuf>,
+}
+
+/// Options for `wax registry update`.
+#[derive(Debug, Clone)]
+pub struct RegistryUpdateCommandOptions {
+    /// Design-system id to update.
+    pub design_system_id: String,
+    /// New repository root for the remembered design system.
+    pub repo_root: PathBuf,
+    /// Global state path override for tests.
+    pub state_path: Option<PathBuf>,
 }
 
 /// Errors returned by registry discovery commands.
@@ -32,6 +59,24 @@ pub enum RegistryDiscoverCommandError {
     Discover(#[from] RegistryDiscoverError),
     /// Output writing failed.
     #[error("failed to write registry discover output: {source}")]
+    Io {
+        /// Underlying write error.
+        #[source]
+        source: io::Error,
+    },
+}
+
+/// Errors returned by registry memory management commands.
+#[derive(Debug, Error)]
+pub enum RegistryMemoryCommandError {
+    /// Remembered design-system state could not be read or updated.
+    #[error(transparent)]
+    Memory(#[from] RegistryMemoryError),
+    /// Global path resolution failed.
+    #[error(transparent)]
+    Paths(#[from] wax_core::paths::PathsError),
+    /// Output writing failed.
+    #[error("failed to write registry memory output: {source}")]
     Io {
         /// Underlying write error.
         #[source]
@@ -55,6 +100,8 @@ pub fn run_registry_discover(
         roots,
         dry_run: options.dry_run,
         force: options.force,
+        design_system_id: options.design_system_id.as_deref(),
+        design_system_name: options.design_system_name.as_deref(),
     })?;
 
     let root_count = result.root_count;
@@ -101,14 +148,20 @@ pub fn run_registry_discover(
         "Review before committing: deterministic discovery may include false positives."
     )
     .map_err(|source| RegistryDiscoverCommandError::Io { source })?;
-    if result.lockfile_present {
+    if result.remembered_design_system {
+        writeln!(
+            writer,
+            "Apps can use this registry with `wax init` or refresh existing setups with `wax sync`."
+        )
+        .map_err(|source| RegistryDiscoverCommandError::Io { source })?;
+    } else if result.lockfile_present {
         writeln!(
             writer,
             "Run `wax language update` to refresh registry locks."
         )
         .map_err(|source| RegistryDiscoverCommandError::Io { source })?;
     }
-    if result.wax_config_present {
+    if result.wax_config_present && !result.remembered_design_system {
         writeln!(
             writer,
             "Run `wax validate` to verify repository configuration."
@@ -119,6 +172,104 @@ pub fn run_registry_discover(
     write_pack_diagnostics(&result.diagnostics);
 
     Ok(())
+}
+
+/// Runs `wax registry list`.
+pub fn run_registry_list(
+    options: RegistryMemoryCommandOptions,
+    writer: &mut impl Write,
+) -> Result<(), RegistryMemoryCommandError> {
+    let state_path = resolve_state_path(options.state_path)?;
+    let entries = list_remembered_design_systems(&state_path)?;
+
+    writeln!(writer, "id\tname\trepo_root").map_err(write_memory_error)?;
+    for entry in entries {
+        writeln!(
+            writer,
+            "{}\t{}\t{}",
+            entry.id,
+            entry.name,
+            entry.repo_root.display()
+        )
+        .map_err(write_memory_error)?;
+    }
+
+    Ok(())
+}
+
+/// Runs `wax registry show`.
+pub fn run_registry_show(
+    design_system_id: &str,
+    options: RegistryMemoryCommandOptions,
+    writer: &mut impl Write,
+) -> Result<(), RegistryMemoryCommandError> {
+    let state_path = resolve_state_path(options.state_path)?;
+    let entry = show_remembered_design_system(&state_path, design_system_id)?;
+
+    writeln!(writer, "id: {}", entry.id).map_err(write_memory_error)?;
+    writeln!(writer, "name: {}", entry.name).map_err(write_memory_error)?;
+    writeln!(writer, "repo_root: {}", entry.repo_root.display()).map_err(write_memory_error)?;
+    writeln!(
+        writer,
+        "last_seen_config: {}",
+        entry.last_seen_config.display()
+    )
+    .map_err(write_memory_error)?;
+
+    Ok(())
+}
+
+/// Runs `wax registry update`.
+pub fn run_registry_update(
+    options: RegistryUpdateCommandOptions,
+    writer: &mut impl Write,
+) -> Result<(), RegistryMemoryCommandError> {
+    let state_path = resolve_state_path(options.state_path)?;
+    update_remembered_design_system_repo_root(
+        &state_path,
+        &options.design_system_id,
+        &options.repo_root,
+    )?;
+
+    writeln!(
+        writer,
+        "Updated design system `{}` repo root to {}.",
+        options.design_system_id,
+        options.repo_root.display()
+    )
+    .map_err(write_memory_error)?;
+
+    Ok(())
+}
+
+/// Runs `wax registry delete`.
+pub fn run_registry_delete(
+    design_system_id: &str,
+    options: RegistryMemoryCommandOptions,
+    writer: &mut impl Write,
+) -> Result<(), RegistryMemoryCommandError> {
+    let state_path = resolve_state_path(options.state_path)?;
+    delete_remembered_design_system(&state_path, design_system_id)?;
+
+    writeln!(
+        writer,
+        "Deleted remembered design system `{}`.",
+        design_system_id
+    )
+    .map_err(write_memory_error)?;
+
+    Ok(())
+}
+
+fn resolve_state_path(state_path: Option<PathBuf>) -> Result<PathBuf, RegistryMemoryCommandError> {
+    match state_path {
+        Some(path) => Ok(path),
+        None => Ok(state_file()?),
+    }
+}
+
+fn write_memory_error(source: io::Error) -> RegistryMemoryCommandError {
+    RegistryMemoryCommandError::Io { source }
 }
 
 fn resolve_cli_roots(repo_root: &Path, roots: Vec<PathBuf>) -> Vec<PathBuf> {

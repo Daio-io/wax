@@ -185,7 +185,7 @@ git commit -m "feat: cut over to wax config v2"
 - Produces: registry subcommands `list`, `show <id>`, `update <id> --repo-root <path>`, `delete <id>`
 - Consumes: Task 1 config v2 `design_systems` shape
 
-- [ ] **Step 1: Add failing global state tests**
+- [x] **Step 1: Add failing global state tests**
 
 Add tests for loading and saving:
 
@@ -211,7 +211,7 @@ cargo test -p wax-core global_state_design_systems
 
 Expected: FAIL because the field does not exist.
 
-- [ ] **Step 2: Extend global state**
+- [x] **Step 2: Extend global state**
 
 Add `design_systems` with `#[serde(default)]`, validated design-system ids, and path data. Keep existing installed-language behavior unchanged.
 
@@ -224,7 +224,7 @@ cargo test -p wax-core global_state_design_systems
 
 Expected: PASS.
 
-- [ ] **Step 3: Add registry memory helper**
+- [x] **Step 3: Add registry memory helper**
 
 Create `registry_memory.rs` to centralize list/show/update/delete behavior and validation. The helper should not copy registry JSON.
 
@@ -237,7 +237,7 @@ cargo test -p wax-core registry_memory
 
 Expected: PASS.
 
-- [ ] **Step 4: Extend `wax registry discover`**
+- [x] **Step 4: Extend `wax registry discover`**
 
 Add flags:
 
@@ -257,7 +257,7 @@ cargo test -p wax-cli registry_discover_design_system
 
 Expected: PASS.
 
-- [ ] **Step 5: Add memory management commands**
+- [x] **Step 5: Add memory management commands**
 
 Implement:
 
@@ -277,7 +277,7 @@ cargo test -p wax-cli registry_memory_commands
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add engine/crates/wax-core engine/crates/wax-cli

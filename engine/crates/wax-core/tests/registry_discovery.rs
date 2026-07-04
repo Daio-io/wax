@@ -348,6 +348,8 @@ fn discover_with_config_roots(
         roots: vec![],
         dry_run: true,
         force: false,
+        design_system_id: None,
+        design_system_name: None,
     })
 }
 
@@ -360,6 +362,8 @@ fn discover_with_config_roots_write(
         roots: vec![],
         dry_run: false,
         force: false,
+        design_system_id: None,
+        design_system_name: None,
     })
 }
 
@@ -423,6 +427,8 @@ fun XMLButton() {}
         roots: vec![source_root],
         dry_run: true,
         force: false,
+        design_system_id: None,
+        design_system_name: None,
     })
     .expect("dry run should succeed");
 
@@ -469,6 +475,8 @@ fun XmlButton() {}
         roots: vec![source_root],
         dry_run: true,
         force: false,
+        design_system_id: None,
+        design_system_name: None,
     })
     .expect_err("colliding generated ids should fail");
 
@@ -535,6 +543,8 @@ fn resolves_roots_from_wax_config_when_roots_omitted() {
         roots: vec![],
         dry_run: true,
         force: false,
+        design_system_id: None,
+        design_system_name: None,
     })
     .expect("config roots should resolve");
 
@@ -568,6 +578,8 @@ fn missing_configured_roots_fails_with_guidance() {
         roots: vec![],
         dry_run: true,
         force: false,
+        design_system_id: None,
+        design_system_name: None,
     })
     .expect_err("missing configured roots should fail");
 
@@ -729,6 +741,8 @@ fn discover_compose_then_react_writes_both_without_force() {
         roots: vec![repo.path().join("design-system/src/main/kotlin")],
         dry_run: false,
         force: false,
+        design_system_id: None,
+        design_system_name: None,
     })
     .expect("compose discover");
 
@@ -739,6 +753,8 @@ fn discover_compose_then_react_writes_both_without_force() {
         roots: vec![repo.path().join("design-system/src")],
         dry_run: false,
         force: false,
+        design_system_id: None,
+        design_system_name: None,
     })
     .expect("react discover via fixture pack");
 
@@ -900,6 +916,8 @@ fn dry_run_generates_registry_without_writing_output() {
         roots: vec![compose_fixture_root()],
         dry_run: true,
         force: false,
+        design_system_id: None,
+        design_system_name: None,
     })
     .expect("dry run should succeed");
 
@@ -923,6 +941,8 @@ fn default_write_targets_centralized_registry_path() {
         roots: vec![compose_fixture_root()],
         dry_run: false,
         force: false,
+        design_system_id: None,
+        design_system_name: None,
     })
     .expect("write should succeed");
 
@@ -948,6 +968,8 @@ fn existing_registry_refuses_overwrite_without_force() {
         roots: vec![compose_fixture_root()],
         dry_run: false,
         force: false,
+        design_system_id: None,
+        design_system_name: None,
     })
     .expect_err("existing registry should block overwrite");
 
@@ -986,6 +1008,8 @@ fn existing_registry_refuses_overwrite_before_temp_creation_failures() {
         roots: vec![compose_fixture_root()],
         dry_run: false,
         force: false,
+        design_system_id: None,
+        design_system_name: None,
     })
     .expect_err("existing registry should be refused before temp writes");
 
@@ -1013,6 +1037,8 @@ fn force_replaces_existing_registry() {
         roots: vec![compose_fixture_root()],
         dry_run: false,
         force: true,
+        design_system_id: None,
+        design_system_name: None,
     })
     .expect("force should replace existing registry");
 
@@ -1038,6 +1064,8 @@ fn configless_discover_without_lockfile_uses_global_install() {
         roots: vec![compose_fixture_root()],
         dry_run: false,
         force: false,
+        design_system_id: None,
+        design_system_name: None,
     })
     .expect("configless discover should succeed without lockfile");
 
@@ -1069,6 +1097,8 @@ fn discover_with_lockfile_does_not_fallback_to_latest_global_install() {
         roots: vec![compose_fixture_root()],
         dry_run: true,
         force: false,
+        design_system_id: None,
+        design_system_name: None,
     })
     .expect_err("lockfile pin should not fall back to a different global install");
 
@@ -1090,6 +1120,8 @@ fn dry_run_registry() -> serde_json::Value {
         roots: vec![compose_fixture_root()],
         dry_run: true,
         force: false,
+        design_system_id: None,
+        design_system_name: None,
     })
     .expect("dry run should succeed")
     .registry

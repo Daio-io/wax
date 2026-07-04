@@ -19,7 +19,11 @@ use commands::language::{
     DoctorOptions, InstallOptions, LanguageInstallSpec, ListOptions, UninstallOptions,
     UpdateOptions, run_doctor, run_install, run_list, run_uninstall, run_update,
 };
-use commands::registry::{RegistryDiscoverCommandOptions, run_registry_discover};
+use commands::registry::{
+    RegistryDiscoverCommandOptions, RegistryMemoryCommandOptions, RegistryUpdateCommandOptions,
+    run_registry_delete, run_registry_discover, run_registry_list, run_registry_show,
+    run_registry_update,
+};
 use commands::scan::{ScanCommandOptions, run_scan};
 use commands::uninstall::{UninstallCliOptions, run_uninstall_cli};
 use commands::validate::{ValidateCommandOptions, run_validate};
@@ -88,6 +92,38 @@ struct RegistryCli {
 enum RegistrySubcommand {
     /// Discover design-system registry components from source roots.
     Discover(DiscoverArgs),
+    /// List remembered design systems.
+    List(RegistryMemoryArgs),
+    /// Show one remembered design system.
+    Show(RegistryShowArgs),
+    /// Update the remembered repository root for a design system.
+    Update(RegistryUpdateArgs),
+    /// Delete a remembered design system.
+    Delete(RegistryDeleteArgs),
+}
+
+#[derive(Debug, Args)]
+struct RegistryMemoryArgs {}
+
+#[derive(Debug, Args)]
+struct RegistryShowArgs {
+    /// Design-system id to show.
+    design_system_id: String,
+}
+
+#[derive(Debug, Args)]
+struct RegistryUpdateArgs {
+    /// Design-system id to update.
+    design_system_id: String,
+    /// New repository root for the remembered design system.
+    #[arg(long)]
+    repo_root: PathBuf,
+}
+
+#[derive(Debug, Args)]
+struct RegistryDeleteArgs {
+    /// Design-system id to delete.
+    design_system_id: String,
 }
 
 #[derive(Debug, Args)]
@@ -104,6 +140,12 @@ struct DiscoverArgs {
     /// Replace an existing registry file.
     #[arg(long)]
     force: bool,
+    /// Design-system id to remember after discovery.
+    #[arg(long = "design-system", value_name = "ID")]
+    design_system: Option<String>,
+    /// Display name for the remembered design system.
+    #[arg(long)]
+    name: Option<String>,
     /// Repository root where the registry should be written.
     #[arg(long, default_value = ".")]
     repo_root: PathBuf,
@@ -285,7 +327,43 @@ fn main() {
                 roots: args.roots,
                 dry_run: args.dry_run,
                 force: args.force,
+                design_system_id: args.design_system,
+                design_system_name: args.name,
             },
+            &mut stdout,
+        )
+        .map_err(Into::into),
+        Commands::Registry(RegistryCli {
+            command: RegistrySubcommand::List(_),
+        }) => run_registry_list(
+            RegistryMemoryCommandOptions { state_path: None },
+            &mut stdout,
+        )
+        .map_err(Into::into),
+        Commands::Registry(RegistryCli {
+            command: RegistrySubcommand::Show(args),
+        }) => run_registry_show(
+            &args.design_system_id,
+            RegistryMemoryCommandOptions { state_path: None },
+            &mut stdout,
+        )
+        .map_err(Into::into),
+        Commands::Registry(RegistryCli {
+            command: RegistrySubcommand::Update(args),
+        }) => run_registry_update(
+            RegistryUpdateCommandOptions {
+                design_system_id: args.design_system_id,
+                repo_root: args.repo_root,
+                state_path: None,
+            },
+            &mut stdout,
+        )
+        .map_err(Into::into),
+        Commands::Registry(RegistryCli {
+            command: RegistrySubcommand::Delete(args),
+        }) => run_registry_delete(
+            &args.design_system_id,
+            RegistryMemoryCommandOptions { state_path: None },
             &mut stdout,
         )
         .map_err(Into::into),
