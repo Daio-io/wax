@@ -1,23 +1,62 @@
 ---
 name: wax-registry-discover
-description: Use when updating Wax design-system registries from source packages; auto-detects languages and roots when needed, runs deterministic discovery, reviews candidates, asks about ambiguous exports, writes the language registry, validates config, and refreshes locks.
+description: Use when updating Wax design-system registries from source packages; auto-detects languages and roots when needed, runs deterministic discovery, reviews candidates, asks about ambiguous exports, remembers design systems, writes registries, validates config, and refreshes app inputs with wax sync.
 ---
 
 # Wax Registry Discover
 
-Use this skill to help a project author update a Wax language registry, such as `.wax/react.registry.json` or a configured language-specific `registry` path, from source packages while keeping all runtime scan and validate behavior deterministic. AI review is an authoring aid only; do not make `wax scan` or `wax validate` depend on agent decisions.
+Use this skill to help design-system maintainers and app teams work with Wax registries while keeping runtime scan and validate behavior deterministic. AI review is an authoring aid only; do not make `wax scan` or `wax validate` depend on agent decisions.
+
+## Two repository roles
+
+| Role | Typical repo | Primary commands |
+|------|--------------|------------------|
+| Design-system publisher | DS package/monorepo | `wax registry discover` with `--design-system` |
+| App consumer | Product codebase | `wax init`, `wax sync`, `wax scan` |
+
+Repo config lives at `.wax/wax.config.json`. Lockfile lives at `.wax/wax.lock.json`.
 
 ## Command
 
-Prefer the top-level discover command:
+Prefer the registry subcommand:
 
 ```bash
-wax discover --language <id> [--root <path>...] [--dry-run] [--force]
+wax registry discover \
+  --design-system <id> \
+  --name "<Display Name>" \
+  --language <id> \
+  [--root <path>...] \
+  [--dry-run] \
+  [--force]
 ```
 
-`wax registry discover` remains valid for backward compatibility and accepts the same flags.
+`wax discover` remains a top-level alias with the same flags.
 
-Discovery writes `.wax/<language-id>.registry.json` by default unless the language config points at another repo-relative registry path.
+### Design-system discovery output
+
+In a design-system repo, discovery:
+
+1. Writes `.wax/registries/<language>.json`
+2. Ensures `design_systems.<id>.registries.<language>.source` in `.wax/wax.config.json`
+3. Remembers the design system in `~/.wax/state.json`
+
+Tell app teams they can onboard with:
+
+```bash
+wax init
+wax sync
+wax scan
+```
+
+### App registry layout
+
+After `wax init` selects a remembered design system, app repos copy or reference registries under:
+
+```text
+.wax/registries/<design-system>/<language>.json
+```
+
+App config stores `registry.source` and optional `registry.upstream` as `<design-system>/<language>`.
 
 ## Resolve language and roots first
 
@@ -25,12 +64,12 @@ Inspect the repository before running discover.
 
 ### When Wax config exists
 
-- Prefer `.wax/wax.config.json`, then fall back to `.waxrc`.
-- Use enabled language ids from config.
+- Read `.wax/wax.config.json` only.
+- Use language keys from the `languages` object or registry keys from `design_systems`.
 - Use configured `roots` for the selected language when `--root` is not passed.
-- Ask which language to discover when more than one enabled language could apply and the user did not specify one.
+- Ask which language to discover when more than one language could apply and the user did not specify one.
 
-### When Wax config is absent (no `wax init`)
+### When Wax config is absent
 
 Use configless discovery: **always pass `--root`** and do not assume configured roots exist.
 
@@ -58,23 +97,25 @@ Use configless discovery: **always pass `--root`** and do not assume configured 
 
 4. Ask which language to discover when auto-detection finds more than one plausible language and the user did not specify one.
 
-## Workflow
+## Design-system workflow
 
-1. Resolve `--language` and `--root` using the rules above.
+1. Resolve `--language`, `--root`, `--design-system`, and `--name`.
 2. Run discovery in preview mode first:
 
    ```bash
-   wax discover --language <id> --root <path> --dry-run
+   wax registry discover \
+     --design-system <id> \
+     --name "<Display Name>" \
+     --language <id> \
+     --root <path> \
+     --dry-run
    ```
 
-   Omit `--root` only when Wax config exists and configured roots clearly target the design-system package.
+3. Identify the target registry path:
 
-3. Identify the target registry path for the selected language:
+   - Design-system repos: `.wax/registries/<language>.json` unless config overrides `design_systems.<id>.registries.<language>.source`.
 
-   - Use the language entry's configured `registry` path when present.
-   - Otherwise expect the default `.wax/<language-id>.registry.json`.
-
-4. Compare the dry-run output with the existing target registry when it exists. Show the user a concise diff or summary of added, removed, and changed component ids/symbols. Discovered registries should include a `package` field per component when the language pack can infer it:
+4. Compare dry-run output with the existing registry. Show a concise diff or summary of added, removed, and changed component ids/symbols. Discovered registries should include a `package` field per component when the language pack can infer it:
 
    | Language | `package` inference |
    |----------|---------------------|
@@ -82,7 +123,7 @@ Use configless discovery: **always pass `--root`** and do not assume configured 
    | `react` | `package.json` `name` above the discovery root |
    | `swift` | Module name from `Sources/<Module>/` |
 
-   When `package` is present, parser-backed scans count only imports from that package as resolved design-system usage. If discover omits `package` for a symbol (for example after a `discover_package_conflict` warning), scans fall back to legacy name-only matching for that symbol.
+   When `package` is present, parser-backed scans count only imports from that package as resolved design-system usage.
 
 5. Review ambiguous candidates before writing:
 
@@ -93,39 +134,65 @@ Use configless discovery: **always pass `--root`** and do not assume configured 
 6. Write the registry only after review:
 
    ```bash
-   wax discover --language <id> --root <path>
+   wax registry discover \
+     --design-system <id> \
+     --name "<Display Name>" \
+     --language <id> \
+     --root <path>
    ```
 
-   In configless mode, keep `--root` on the write command as well.
+   If an existing registry blocks the write, show the diff or summary before `--force`, then run the forced write only after explicit user approval.
 
-   If an existing target registry blocks the write, do not blindly overwrite. Show the diff or summary before `--force`, then run the forced write only after explicit user approval:
-
-   ```bash
-   wax discover --language <id> --root <path> --force
-   ```
-
-7. When Wax config exists, validate after write:
+7. Validate after write when Wax config exists:
 
    ```bash
    wax validate
    ```
 
-   Skip this step when the repository has no Wax config yet. Tell the user that `wax validate` requires `wax init` in consuming app repositories.
+## App workflow
 
-8. When Wax config and lockfile exist, refresh locks when registry locks are stale or validation indicates stale language/registry state:
+For app repositories that consume a remembered design system:
+
+1. Run interactive init when no committed config exists:
 
    ```bash
-   wax language update
+   wax init
+   ```
+
+   For CI/scripts, use `wax init --non-interactive --language <id>` with explicit registry inputs.
+
+2. Refresh app registry inputs from the remembered design-system upstream before scanning or when DS registries change:
+
+   ```bash
+   wax sync
    wax validate
    ```
 
-   Skip lock refresh in configless repositories without `.wax/wax.lock.json`.
+   `wax sync` copies local DS registry updates or switches `registry.source` to a declared `published_source`, then refreshes `.wax/wax.lock.json`.
+
+3. Scan the app:
+
+   ```bash
+   wax scan
+   ```
+
+   When config contains `registry.upstream`, `wax scan` attempts the same best-effort sync first. Sync failures warn and the scan continues with current registry inputs.
+
+Manage remembered design systems with:
+
+```bash
+wax registry list
+wax registry show <id>
+wax registry update <id> --repo-root <path>
+wax registry delete <id>
+```
 
 ## Guardrails
 
 - dry-run before write
-- use `--root` in configless repositories
+- use `--root` when Wax config is absent
+- pass `--design-system` and `--name` when discovering in a design-system repo
 - do not blindly overwrite
-- show diff or summary before --force
+- show diff or summary before `--force`
 - validate after write when Wax config exists
-- refresh locks when a lockfile exists
+- use `wax sync` for app repos with `registry.upstream`; use `wax language update` for language-pack lock refresh
