@@ -12,6 +12,38 @@ use thiserror::Error;
 
 const HTTP_FETCH_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Rejects repo-relative registry source strings that are absolute or escape via `..`.
+pub fn reject_repo_relative_registry_path_escape(source: &str) -> Result<(), RegistrySourceError> {
+    let path = Path::new(source);
+    if path.is_absolute() {
+        return Err(RegistrySourceError::PlainAbsolutePath {
+            input: source.to_owned(),
+        });
+    }
+
+    if path.components().any(|component| {
+        matches!(
+            component,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        )
+    }) {
+        return Err(RegistrySourceError::PathEscapesRepo {
+            input: source.to_owned(),
+        });
+    }
+
+    Ok(())
+}
+
+/// Validates that a repo-relative registry source resolves within `repo_root`.
+pub fn validate_repo_relative_registry_path_within_repo(
+    repo_root: &Path,
+    source: &str,
+) -> Result<PathBuf, RegistrySourceError> {
+    reject_repo_relative_registry_path_escape(source)?;
+    resolve_repo_relative_path(repo_root, Path::new(source), source)
+}
+
 /// Returns true when a registry source is remote or uses an explicit URL scheme.
 pub fn is_external_registry_source(source: &str) -> bool {
     if source.contains("://") {

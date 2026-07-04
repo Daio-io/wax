@@ -12,7 +12,10 @@ use crate::config::repo_files::PREFERRED_CONFIG_RELATIVE_PATH;
 use crate::global_state::{
     GlobalStateError, RememberedDesignSystem, load_global_state, save_global_state,
 };
-use crate::registry_source::is_external_registry_source;
+use crate::registry_source::{
+    RegistrySourceError, is_external_registry_source, reject_repo_relative_registry_path_escape,
+    validate_repo_relative_registry_path_within_repo,
+};
 
 /// Repo-relative path recorded for remembered design systems.
 pub const LAST_SEEN_CONFIG_RELATIVE_PATH: &str = PREFERRED_CONFIG_RELATIVE_PATH;
@@ -80,6 +83,9 @@ pub enum RegistryMemoryError {
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
     },
+    /// Remembered registry source path is invalid or escapes the design-system repo.
+    #[error(transparent)]
+    RegistrySource(#[from] RegistrySourceError),
 }
 
 /// Summary of one remembered design system for list/show output.
@@ -281,6 +287,7 @@ pub fn resolve_remembered_registry(
             design_system_local_source: None,
         })
     } else {
+        reject_repo_relative_registry_path_escape(&local_source)?;
         Ok(ResolvedRememberedRegistry {
             config_source: app_registry_relative_path(&remembered.id, language_id),
             upstream,
@@ -296,7 +303,10 @@ pub fn copy_design_system_registry_to_app(
     app_repo_root: &Path,
     app_registry_relative: &str,
 ) -> Result<(), RegistryMemoryError> {
-    let source_path = remembered.repo_root.join(design_system_local_source);
+    let source_path = validate_repo_relative_registry_path_within_repo(
+        &remembered.repo_root,
+        design_system_local_source,
+    )?;
     let destination_path = app_repo_root.join(app_registry_relative);
     let destination_display = destination_path.display().to_string();
     let contents =
@@ -770,6 +780,76 @@ mod registry_memory_tests {
         );
         assert_eq!(resolved.upstream, "acme/react");
         assert!(resolved.design_system_local_source.is_none());
+    }
+
+    #[test]
+    fn resolve_remembered_registry_rejects_path_that_escapes_design_system_repo() {
+        let _guard = env_lock();
+        let dir = TestDir::new("remembered-path-escape");
+        let repo = dir.path.join("repo");
+        std::fs::create_dir_all(repo.join(".wax")).unwrap();
+        std::fs::write(
+            repo.join(".wax/wax.config.json"),
+            r#"{
+  "schema_version": 2,
+  "design_systems": {
+    "acme": {
+      "name": "Acme Design System",
+      "registries": {
+        "react": {
+          "source": "../outside.registry.json"
+        }
+      }
+    }
+  }
+}
+"#,
+        )
+        .unwrap();
+
+        let remembered = RememberedDesignSystemSummary {
+            id: "acme".to_owned(),
+            name: "Acme Design System".to_owned(),
+            repo_root: repo.clone(),
+            last_seen_config: PathBuf::from(LAST_SEEN_CONFIG_RELATIVE_PATH),
+        };
+        let language_id = LanguageId::try_from("react").unwrap();
+
+        let err = resolve_remembered_registry(&remembered, &language_id).unwrap_err();
+        assert!(matches!(
+            err,
+            RegistryMemoryError::RegistrySource(RegistrySourceError::PathEscapesRepo { .. })
+        ));
+    }
+
+    #[test]
+    fn copy_design_system_registry_rejects_path_that_escapes_design_system_repo() {
+        let _guard = env_lock();
+        let dir = TestDir::new("copy-path-escape");
+        let repo = dir.path.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let outside = dir.path.join("outside.registry.json");
+        std::fs::write(&outside, r#"{"schema_version":1,"components":[]}"#).unwrap();
+
+        let remembered = RememberedDesignSystemSummary {
+            id: "acme".to_owned(),
+            name: "Acme Design System".to_owned(),
+            repo_root: repo.clone(),
+            last_seen_config: PathBuf::from(LAST_SEEN_CONFIG_RELATIVE_PATH),
+        };
+        let language_id = LanguageId::try_from("react").unwrap();
+
+        let err = copy_design_system_registry_to_app(
+            &remembered,
+            "../outside.registry.json",
+            dir.path.join("app").as_path(),
+            &app_registry_relative_path("acme", &language_id),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            RegistryMemoryError::RegistrySource(RegistrySourceError::PathEscapesRepo { .. })
+        ));
     }
 
     #[test]

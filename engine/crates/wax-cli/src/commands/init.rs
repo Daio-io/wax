@@ -17,7 +17,7 @@ use wax_core::config::repo_files::{
     default_registry_path_for_language,
 };
 use wax_core::config::waxrc::WAXRC_SCHEMA_VERSION;
-use wax_core::paths::state_file;
+use wax_core::paths::{PathsError, state_file};
 use wax_core::registry::{
     RegistryArtifact, RegistryError, RegistryManifest, fetch_pack_index, select_target_artifact,
 };
@@ -150,6 +150,9 @@ pub enum InitCommandError {
     /// Remembered design-system memory failed.
     #[error(transparent)]
     RegistryMemory(#[from] RegistryMemoryError),
+    /// Global wax paths could not be resolved.
+    #[error(transparent)]
+    Paths(#[from] PathsError),
 }
 
 /// Runs `wax init`.
@@ -174,21 +177,22 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
         return Err(InitCommandError::WaxConfigAlreadyExists { path: config_path });
     }
 
-    let state_path = options
-        .state_path
-        .clone()
-        .unwrap_or_else(|| state_file().expect("resolve global state path"));
+    let state_path = if uses_remembered_design_system(selections.as_ref()) {
+        Some(resolve_init_state_path(&options)?)
+    } else {
+        None
+    };
 
-    let waxrc_contents = apply_remembered_registry_config(
-        build_waxrc_contents(
-            &languages,
-            options.scaffold_registries && !uses_remembered_design_system(selections.as_ref()),
-            selections.as_ref(),
-        )?,
-        selections.as_ref(),
+    let base_waxrc = build_waxrc_contents(
         &languages,
-        &state_path,
+        options.scaffold_registries && !uses_remembered_design_system(selections.as_ref()),
+        selections.as_ref(),
     )?;
+    let waxrc_contents = if let Some(state_path) = state_path.as_ref() {
+        apply_remembered_registry_config(base_waxrc, selections.as_ref(), &languages, state_path)?
+    } else {
+        base_waxrc
+    };
     let registry_url = resolve_registry_url(options.registry_url)?;
     let manifests = fetch_pack_index(&registry_url)?;
     let pending_registry_scaffolds = pending_registry_scaffolds(
@@ -212,12 +216,14 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
         resolved_languages.push(ResolvedInitLanguage { manifest, artifact });
     }
 
-    if let Some(selections) = selections.as_ref() {
+    if let Some(selections) = selections.as_ref()
+        && let Some(state_path) = state_path.as_ref()
+    {
         copy_remembered_design_system_registries(
             selections,
             &languages,
             &options.repo_root,
-            &state_path,
+            state_path,
         )?;
     }
 
@@ -241,7 +247,8 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
             && let RegistrySetup::RememberedDesignSystem { design_system_id } =
                 &selections.registry_setup
         {
-            let remembered = show_remembered_design_system(&state_path, design_system_id)?;
+            let state_path = state_path.as_ref().expect("remembered init state path");
+            let remembered = show_remembered_design_system(state_path, design_system_id)?;
             let remembered_registry =
                 resolve_remembered_registry(&remembered, &resolved.manifest.id)?;
             let registry_source = resolve_registry_source(RegistrySourceInput {
@@ -325,10 +332,7 @@ pub fn run_init_cli(options: InitOptions, writer: &mut impl Write) -> Result<(),
 
     let registry_url = resolve_registry_url(options.registry_url.clone())?;
     let manifests = fetch_pack_index(&registry_url)?;
-    let state_path = options
-        .state_path
-        .clone()
-        .unwrap_or_else(|| state_file().expect("resolve global state path"));
+    let state_path = resolve_init_state_path(&options)?;
     let mut prompts = DialoguerInitPrompts;
     let selections = collect_interactive_selections(&manifests, &mut prompts, &state_path)?;
     run_init(
@@ -386,6 +390,13 @@ fn uses_remembered_design_system(selections: Option<&InitSelections>) -> bool {
         selections.map(|selections| &selections.registry_setup),
         Some(RegistrySetup::RememberedDesignSystem { .. })
     )
+}
+
+fn resolve_init_state_path(options: &InitOptions) -> Result<PathBuf, InitCommandError> {
+    if let Some(path) = &options.state_path {
+        return Ok(path.clone());
+    }
+    state_file().map_err(InitCommandError::from)
 }
 
 fn apply_remembered_registry_config(
@@ -806,6 +817,14 @@ mod tests {
             let previous = std::env::var_os(key);
             unsafe {
                 std::env::set_var(key, value.as_ref());
+            }
+            Self { key, previous }
+        }
+
+        fn remove(key: &'static str) -> Self {
+            let previous = std::env::var_os(key);
+            unsafe {
+                std::env::remove_var(key);
             }
             Self { key, previous }
         }
@@ -1583,6 +1602,50 @@ mod tests {
             lock.registries[&lang("compose")].sha256,
             sha256_hex(&registry_bytes)
         );
+    }
+
+    #[test]
+    fn init_non_interactive_succeeds_without_global_state_when_not_using_remembered_design_system()
+    {
+        let _guard = env_lock();
+        let _home = EnvVarGuard::remove("HOME");
+        let _wax_home = EnvVarGuard::remove("WAX_HOME");
+
+        let temp = TestDir::new("no-global-state");
+        let artifact_path = temp.path.join("compose.tgz");
+        let digest = write_pack_artifact(&artifact_path, "wax-lang-compose");
+        let registry_path = temp.path.join("registry.json");
+        fs::write(
+            &registry_path,
+            format!(
+                r#"[{{"id":"compose","version":"0.4.2","api_version":1,"targets":{{"test-target":{{"url":"{}","sha256":"{}"}}}}}}]"#,
+                file_url(&artifact_path),
+                digest
+            ),
+        )
+        .unwrap();
+
+        let repo_root = temp.path.join("repo");
+        fs::create_dir_all(&repo_root).unwrap();
+        write_default_registry(&repo_root, &lang("compose"));
+
+        run_init(
+            InitOptions {
+                non_interactive: true,
+                languages: vec![lang("compose")],
+                no_install: true,
+                registry_url: Some(file_url(&registry_path)),
+                repo_root: repo_root.clone(),
+                target_triple: Some("test-target".to_owned()),
+                state_path: None,
+                scaffold_registries: false,
+                interactive: None,
+            },
+            &mut Vec::new(),
+        )
+        .expect("init should not require global state without remembered design system");
+
+        assert!(repo_root.join(PREFERRED_CONFIG_RELATIVE_PATH).is_file());
     }
 
     #[test]
