@@ -11,6 +11,7 @@ use wax_cli::commands::registry::{
     run_registry_update,
 };
 use wax_cli::commands::scan::{ScanCommandOptions, run_scan_cli};
+use wax_cli::commands::sync::{SyncCommandOptions, run_sync_cli};
 use wax_cli::commands::uninstall::{UninstallCliOptions, run_uninstall_cli};
 use wax_cli::commands::validate::{ValidateCommandOptions, run_validate};
 
@@ -138,6 +139,14 @@ fn main() {
                 pack_index_url: None,
                 target_triple: None,
                 ephemeral: None,
+            },
+            &mut stdout,
+        )
+        .map_err(Into::into),
+        Commands::Sync(args) => run_sync_cli(
+            SyncCommandOptions {
+                repo_root: args.repo_root,
+                state_path: None,
             },
             &mut stdout,
         )

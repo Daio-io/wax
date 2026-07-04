@@ -420,7 +420,7 @@ git commit -m "feat: support remembered registry init and ephemeral scans"
 - Produces: updated app registry source or copied app-local registry JSON
 - Produces: refreshed `.wax/wax.lock.json`
 
-- [ ] **Step 1: Add failing sync tests**
+- [x] **Step 1: Add failing sync tests**
 
 Add tests for:
 
@@ -437,7 +437,7 @@ cargo test -p wax-cli --test sync_command
 
 Expected: FAIL because `wax sync` does not exist.
 
-- [ ] **Step 2: Implement core sync orchestration**
+- [x] **Step 2: Implement core sync orchestration**
 
 Create `wax-core::sync` to resolve upstreams, read DS config, copy local registries, update hosted sources, and refresh registry lock entries.
 
@@ -450,7 +450,7 @@ cargo test -p wax-core sync
 
 Expected: PASS.
 
-- [ ] **Step 3: Add CLI command**
+- [x] **Step 3: Add CLI command**
 
 Add:
 
@@ -469,7 +469,7 @@ cargo test -p wax-cli --test sync_command
 
 Expected: PASS.
 
-- [ ] **Step 4: Add best-effort scan sync**
+- [x] **Step 4: Add best-effort scan sync**
 
 When config contains at least one `registry.upstream`, `wax scan` attempts the same sync refresh as `wax sync` before scanning. If sync fails, scan continues and prints:
 
@@ -487,7 +487,7 @@ cargo test -p wax-cli --test sync_command
 
 Expected: PASS, including coverage that a scan-time sync failure does not fail the scan.
 
-- [ ] **Step 5: Update docs**
+- [x] **Step 5: Update docs**
 
 Update README and specs so examples use:
 
@@ -500,7 +500,7 @@ wax scan
 
 Remove references to `.waxrc`, top-level `wax.lock.json`, and `design_system_registry`.
 
-- [ ] **Step 6: Final verification**
+- [x] **Step 6: Final verification**
 
 Run:
 
@@ -513,7 +513,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add engine README.md docs/specs

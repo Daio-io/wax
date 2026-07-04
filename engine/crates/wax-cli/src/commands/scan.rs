@@ -17,7 +17,7 @@ use wax_core::config::lockfile::{LockedRegistry, WAX_LOCK_SCHEMA_VERSION, WaxLoc
 use wax_core::config::repo_files::PREFERRED_CONFIG_RELATIVE_PATH;
 use wax_core::config::waxrc::{
     AdoptionConfig, EngineConfig, LanguageEntry, LanguageRegistrySource, WAXRC_SCHEMA_VERSION,
-    WaxRc,
+    WaxRc, WaxRcError, load_waxrc,
 };
 use wax_core::paths::state_file;
 use wax_core::registry::{fetch_pack_index, select_target_artifact};
@@ -26,6 +26,7 @@ use wax_core::registry_memory::{
     show_remembered_design_system,
 };
 use wax_core::registry_source::{RegistrySourceInput, resolve_registry_source};
+use wax_core::sync::{SyncError, SyncOptions, best_effort_sync_app_registries};
 use wax_core::{Engine, EngineError, EphemeralScanConfig, ScanOptions};
 use wax_lang_api::build_version;
 
@@ -78,6 +79,12 @@ pub enum ScanCommandError {
     /// Remembered design-system memory failed.
     #[error(transparent)]
     RegistryMemory(#[from] wax_core::registry_memory::RegistryMemoryError),
+    /// Registry sync failed before scan.
+    #[error(transparent)]
+    Sync(#[from] SyncError),
+    /// Wax config could not be loaded before scan sync.
+    #[error(transparent)]
+    Config(#[from] WaxRcError),
     /// Ephemeral scan requires an interactive terminal.
     #[error(
         "wax scan requires repository config at {config_path}; run `wax init` for CI or scripts"
@@ -133,6 +140,10 @@ pub fn run_scan(
     writer: &mut impl Write,
     ephemeral: bool,
 ) -> Result<(), ScanCommandError> {
+    if !ephemeral {
+        attempt_scan_time_registry_sync(&options, writer)?;
+    }
+
     let progress = Arc::new(CliProgress::new());
     let merged = Engine::scan_repo_with_options(
         &options.repo_root,
@@ -147,6 +158,56 @@ pub fn run_scan(
 
     let output_path = options.repo_root.join(SCAN_OUTPUT_RELATIVE_PATH);
     write_scan_summary(writer, &merged, &output_path, ephemeral)
+}
+
+fn attempt_scan_time_registry_sync(
+    options: &ScanCommandOptions,
+    writer: &mut impl Write,
+) -> Result<(), ScanCommandError> {
+    let config_path = options.repo_root.join(PREFERRED_CONFIG_RELATIVE_PATH);
+    if !config_path.is_file() {
+        return Ok(());
+    }
+
+    let waxrc = load_waxrc(&config_path)?;
+    let has_upstream = waxrc.languages.iter().any(|entry| {
+        entry
+            .registry_source
+            .as_ref()
+            .and_then(|registry| registry.upstream.as_ref())
+            .is_some_and(|upstream| !upstream.trim().is_empty())
+    });
+    if !has_upstream {
+        return Ok(());
+    }
+
+    let state_path = options
+        .state_path
+        .clone()
+        .unwrap_or_else(|| state_file().expect("resolve global state path"));
+    match best_effort_sync_app_registries(&SyncOptions {
+        repo_root: options.repo_root.clone(),
+        state_path,
+    }) {
+        Ok((_updates, failures)) => {
+            for (upstream, _error) in failures {
+                writeln!(
+                    writer,
+                    "warning: registry sync failed for {upstream}; scanning with current registry source. Run `wax sync` for details."
+                )
+                .map_err(|source| ScanCommandError::Io { source })?;
+            }
+        }
+        Err(error) => {
+            writeln!(
+                writer,
+                "warning: registry sync failed; scanning with current registry source. Run `wax sync` for details."
+            )
+            .map_err(|source| ScanCommandError::Io { source })?;
+            let _ = error;
+        }
+    }
+    Ok(())
 }
 
 fn run_ephemeral_scan(
@@ -591,6 +652,85 @@ mod tests {
         ));
         assert!(stdout.contains("PACK_CRASH: process exited"));
         assert!(!stdout.contains("PACK_WARN: warn"));
+    }
+
+    #[test]
+    fn scan_command_warns_when_registry_sync_fails() {
+        use super::{ScanCommandOptions, attempt_scan_time_registry_sync};
+        use std::fs;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("wax-cli-scan-sync-warning-{nonce}"));
+        let app_repo = root.join("app");
+        fs::create_dir_all(app_repo.join(".wax/registries/acme")).expect("create registries dir");
+        fs::write(
+            app_repo.join(".wax/registries/acme/react.json"),
+            r#"{"schema_version":1,"components":[{"name":"Button"}]}"#,
+        )
+        .expect("write app registry");
+        fs::write(
+            app_repo.join(".wax/wax.config.json"),
+            r#"{
+  "schema_version": 2,
+  "languages": {
+    "react": {
+      "roots": ["src"],
+      "registry": {
+        "source": ".wax/registries/acme/react.json",
+        "upstream": "acme/react"
+      }
+    }
+  }
+}
+"#,
+        )
+        .expect("write app config");
+        fs::write(
+            app_repo.join(".wax/wax.lock.json"),
+            r#"{
+  "schema_version": 2,
+  "engine_api_version": 1,
+  "wax_version": "0.0.0-test",
+  "locked_at": null,
+  "registries": {},
+  "languages": {}
+}
+"#,
+        )
+        .expect("write app lockfile");
+
+        let wax_home = root.join("wax-home");
+        fs::create_dir_all(&wax_home).expect("create wax home");
+        fs::write(
+            wax_home.join("state.json"),
+            r#"{"installed_languages":{},"design_systems":{}}"#,
+        )
+        .expect("write empty state");
+
+        let mut output = Vec::new();
+        attempt_scan_time_registry_sync(
+            &ScanCommandOptions {
+                repo_root: app_repo,
+                allow_auto_install: false,
+                scan_concurrency: None,
+                state_path: Some(wax_home.join("state.json")),
+                pack_index_url: None,
+                target_triple: None,
+                ephemeral: None,
+            },
+            &mut output,
+        )
+        .expect("scan-time sync warning should not fail scan");
+
+        let stdout = String::from_utf8(output).unwrap();
+        assert!(stdout.contains(
+            "warning: registry sync failed for acme/react; scanning with current registry source. Run `wax sync` for details."
+        ));
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

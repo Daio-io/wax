@@ -52,7 +52,19 @@ wax --help
 
 ### Register Your Design System
 
-Initialize Wax in the app repository and enable one or more languages:
+Discover and remember a design-system registry:
+
+```bash
+wax registry discover --design-system acme --name "Acme Design System" --language react --root src
+```
+
+Initialize an app from the remembered design system:
+
+```bash
+wax init
+```
+
+For scripts and CI, use the non-interactive path:
 
 ```bash
 wax init --non-interactive --language react
@@ -64,8 +76,8 @@ For multiple stacks:
 wax init --non-interactive --language react --language compose
 ```
 
-This creates `.wax/` files for config, language-pack locks, and per-language
-registries.
+This creates `.wax/wax.config.json`, `.wax/wax.lock.json`, and app-local registry
+files under `.wax/registries/`.
 
 Add components manually:
 
@@ -85,8 +97,8 @@ Add components manually:
 Or discover components from your design-system source:
 
 ```bash
-wax discover --language react --root ../design-system/src --dry-run
-wax discover --language react --root ../design-system/src --force
+wax registry discover --language react --root ../design-system/src --dry-run
+wax registry discover --language react --root ../design-system/src --force
 ```
 
 Review discovered entries before committing them.
@@ -97,6 +109,12 @@ Validate the setup:
 
 ```bash
 wax validate
+```
+
+Refresh app registry inputs from remembered design systems:
+
+```bash
+wax sync
 ```
 
 Run a scan:
@@ -165,7 +183,7 @@ You can also point a language at a hosted registry:
 After changing registry content or sources, refresh locks:
 
 ```bash
-wax language update --all
+wax sync
 wax validate
 ```
 

@@ -10,7 +10,7 @@
 
 **Plugins** (reserved for a later phase) are **small kernel hooks**—export formatters, custom rules, fact transforms—not full language pipelines.
 
-End users install a **`wax` binary** and download language packs globally. Each repository uses **`.wax/wax.config.json`** (legacy **`.waxrc`** still supported) to enable languages and hold per-language config. Language packs **do not communicate with each other**; only the engine talks to each pack.
+End users install a **`wax` binary** and download language packs globally. Each repository uses **`.wax/wax.config.json`** to enable languages and hold per-language config. Language packs **do not communicate with each other**; only the engine talks to each pack.
 
 ## Implementation plan roadmap
 
@@ -28,7 +28,7 @@ Plan order, doc/implementation status, gates, and agent rules live in **[`docs/p
 | **`scan`** | CLI command that runs all **enabled** language packs and produces merged artifacts |
 | **Plugin** (future) | Optional kernel extension; not used for language extraction in v1 |
 
-Avoid overloading **registry**: in wax config, use `registry` for the design-system registry source (repo-relative path, `file://`, or `https://` URL); legacy `design_system_registry` remains accepted during migration. Reserve **pack index** for language-pack install artifacts.
+Avoid overloading **registry**: in wax config, use `registry` for the design-system registry source (repo-relative path, `file://`, or `https://` URL). Reserve **pack index** for language-pack install artifacts.
 
 Production Rust code MUST model language ids as a validated `LanguageId` newtype, not raw `String`. Valid ids are lowercase ASCII slugs (`[a-z][a-z0-9-]*`) and the same type is used across wax config, manifests, lockfiles, wire messages, and `ScanFacts`.
 
@@ -107,7 +107,7 @@ For schema v2, `ScanFacts.metrics` exposes `invocation_adoption_ratio` and `regi
 
 ### `.wax/wax.config.json` (repository, committed)
 
-Primary project config. Canonical path: **`.wax/wax.config.json`**. Legacy **`.waxrc`** at the repository root is still read when the preferred file is absent. Format: **JSON** (v1).
+Primary project config. Canonical path: **`.wax/wax.config.json`**. Format: **JSON** (`schema_version: 2`).
 
 ```json
 {
@@ -145,7 +145,7 @@ Source `roots` are repo-relative directories. Language packs may also expand pat
 
 ### `.wax/wax.lock.json` (repository, committed)
 
-Pins resolved artifacts and design-system registry digests for reproducible local and CI scans. Canonical path: **`.wax/wax.lock.json`**. Legacy top-level **`wax.lock.json`** is still read when the preferred file is absent. **Required for repositories using language packs**; `wax init` writes it after resolving selected pack artifacts.
+Pins resolved artifacts and design-system registry digests for reproducible local and CI scans. Canonical path: **`.wax/wax.lock.json`**. **Required for repositories using language packs**; `wax init` writes it after resolving selected pack artifacts.
 
 Lockfile schema version **2** adds top-level `registries` entries keyed by language id (`source` + `sha256`). A published JSON Schema for the lockfile is tracked separately; this spec documents the shape only.
 
@@ -717,7 +717,7 @@ Phase 0 compared TS-core and Go-core spikes (fixtures, goldens, benchmarks). Pro
 
 ## Decisions from review
 
-1. **Wax config format:** JSON-only for v1 (`.wax/wax.config.json`, legacy `.waxrc`).
+1. **Wax config format:** JSON-only (`.wax/wax.config.json`, `schema_version: 2`).
 2. **Lockfile:** required for repositories using language packs.
 3. **Swift parser:** `wax-lang-swift` uses tree-sitter-swift; public alpha pack (see Swift correctness gate above).
 4. **Response size:** no fixed cap; engine implementation must handle large responses safely.

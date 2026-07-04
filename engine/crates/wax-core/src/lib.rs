@@ -17,6 +17,7 @@ pub mod registry_memory;
 pub mod registry_source;
 pub mod subprocess_discover;
 pub mod subprocess_lang;
+pub mod sync;
 pub mod validate;
 
 use adoption_merge::merge_language_scans_with_parent_scope_limit;
