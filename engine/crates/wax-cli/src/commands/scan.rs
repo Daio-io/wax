@@ -185,16 +185,27 @@ fn attempt_scan_time_registry_sync(
         .state_path
         .clone()
         .unwrap_or_else(|| state_file().expect("resolve global state path"));
-    let (_updates, failures) = best_effort_sync_app_registries(&SyncOptions {
+    match best_effort_sync_app_registries(&SyncOptions {
         repo_root: options.repo_root.clone(),
         state_path,
-    })?;
-    for (upstream, _error) in failures {
-        writeln!(
-            writer,
-            "warning: registry sync failed for {upstream}; scanning with current registry source. Run `wax sync` for details."
-        )
-        .map_err(|source| ScanCommandError::Io { source })?;
+    }) {
+        Ok((_updates, failures)) => {
+            for (upstream, _error) in failures {
+                writeln!(
+                    writer,
+                    "warning: registry sync failed for {upstream}; scanning with current registry source. Run `wax sync` for details."
+                )
+                .map_err(|source| ScanCommandError::Io { source })?;
+            }
+        }
+        Err(error) => {
+            writeln!(
+                writer,
+                "warning: registry sync failed; scanning with current registry source. Run `wax sync` for details."
+            )
+            .map_err(|source| ScanCommandError::Io { source })?;
+            let _ = error;
+        }
     }
     Ok(())
 }

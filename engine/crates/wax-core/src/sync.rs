@@ -94,6 +94,14 @@ pub enum SyncError {
         #[source]
         source: io::Error,
     },
+    /// Registry lock refresh failed after resolving upstream registry inputs.
+    #[error("failed to refresh registry lock for {upstream}: {message}")]
+    LockRefreshFailed {
+        /// Upstream reference that failed to refresh.
+        upstream: String,
+        /// Underlying failure summary.
+        message: String,
+    },
 }
 
 /// Refreshes app registry inputs for every configured upstream reference.
@@ -104,7 +112,8 @@ pub fn sync_app_registries(options: &SyncOptions) -> Result<Vec<SyncUpdate>, Syn
     let waxrc = load_waxrc(&repo_files.config_path)?;
     let mut lockfile = load_lockfile(&repo_files.lockfile_path)?;
     let config_path_display = repo_files.config_path.display().to_string();
-    let mut config_json = read_config_json(&repo_files.config_path, &config_path_display)?;
+    let original_config_json = read_config_json(&repo_files.config_path, &config_path_display)?;
+    let mut config_json = original_config_json.clone();
     let mut updates = Vec::new();
     let mut config_changed = false;
 
@@ -113,13 +122,22 @@ pub fn sync_app_registries(options: &SyncOptions) -> Result<Vec<SyncUpdate>, Syn
         updates.push(update);
     }
 
-    if config_changed {
-        write_config_json(&repo_files.config_path, &config_path_display, &config_json)?;
+    if let Err(error) = persist_sync_updates(
+        options,
+        &repo_files,
+        &config_path_display,
+        &config_json,
+        config_changed,
+        &mut lockfile,
+        &updates,
+    ) {
+        restore_config_json(
+            &repo_files.config_path,
+            &config_path_display,
+            &original_config_json,
+        )?;
+        return Err(error);
     }
-
-    let waxrc = load_waxrc(&repo_files.config_path)?;
-    refresh_registry_locks(&mut lockfile, &options.repo_root, &waxrc)?;
-    save_lockfile(&repo_files.lockfile_path, &lockfile)?;
 
     Ok(updates)
 }
@@ -132,7 +150,8 @@ pub fn best_effort_sync_app_registries(options: &SyncOptions) -> BestEffortSyncR
     let waxrc = load_waxrc(&repo_files.config_path)?;
     let mut lockfile = load_lockfile(&repo_files.lockfile_path)?;
     let config_path_display = repo_files.config_path.display().to_string();
-    let mut config_json = read_config_json(&repo_files.config_path, &config_path_display)?;
+    let original_config_json = read_config_json(&repo_files.config_path, &config_path_display)?;
+    let mut config_json = original_config_json.clone();
 
     let mut updates = Vec::new();
     let mut failures = Vec::new();
@@ -150,17 +169,69 @@ pub fn best_effort_sync_app_registries(options: &SyncOptions) -> BestEffortSyncR
         }
     }
 
+    if updates.is_empty() {
+        return Ok((updates, failures));
+    }
+
+    match persist_sync_updates(
+        options,
+        &repo_files,
+        &config_path_display,
+        &config_json,
+        config_changed,
+        &mut lockfile,
+        &updates,
+    ) {
+        Ok(()) => Ok((updates, failures)),
+        Err(error) => {
+            restore_config_json(
+                &repo_files.config_path,
+                &config_path_display,
+                &original_config_json,
+            )?;
+            let message = error.to_string();
+            for update in updates {
+                failures.push((
+                    update.upstream.clone(),
+                    SyncError::LockRefreshFailed {
+                        upstream: update.upstream.clone(),
+                        message: message.clone(),
+                    },
+                ));
+            }
+            Ok((Vec::new(), failures))
+        }
+    }
+}
+
+fn persist_sync_updates(
+    options: &SyncOptions,
+    repo_files: &crate::config::repo_files::RepoFileSet,
+    config_path_display: &str,
+    config_json: &Value,
+    config_changed: bool,
+    lockfile: &mut WaxLock,
+    updates: &[SyncUpdate],
+) -> Result<(), SyncError> {
+    if updates.is_empty() {
+        return Ok(());
+    }
+
     if config_changed {
-        write_config_json(&repo_files.config_path, &config_path_display, &config_json)?;
+        write_config_json(&repo_files.config_path, config_path_display, config_json)?;
     }
 
-    if !updates.is_empty() {
-        let waxrc = load_waxrc(&repo_files.config_path)?;
-        refresh_registry_locks(&mut lockfile, &options.repo_root, &waxrc)?;
-        save_lockfile(&repo_files.lockfile_path, &lockfile)?;
-    }
+    let waxrc = load_waxrc(&repo_files.config_path)?;
+    refresh_registry_locks(lockfile, &options.repo_root, &waxrc)?;
+    save_lockfile(&repo_files.lockfile_path, lockfile)
+}
 
-    Ok((updates, failures))
+fn restore_config_json(
+    config_path: &Path,
+    config_path_display: &str,
+    config_json: &Value,
+) -> Result<(), SyncError> {
+    write_config_json(config_path, config_path_display, config_json)
 }
 
 fn ensure_repo_files_exist(
@@ -531,6 +602,53 @@ mod sync_tests {
         let app_config =
             fs::read_to_string(app_repo.join(".wax/wax.config.json")).expect("read app config");
         assert!(app_config.contains(&published_source));
+    }
+
+    #[test]
+    fn best_effort_sync_leaves_config_unchanged_when_lock_refresh_fails() {
+        let _guard = env_lock();
+        let root = TestDir::new("best-effort-lock-failure");
+        let app_repo = root.path.join("app");
+        write_app_repo(&app_repo, "acme/react", ".wax/registries/acme/react.json");
+        let (ds_repo, state_path) = setup_remembered_local_ds(&root.path);
+        fs::write(
+            ds_repo.join(".wax/wax.config.json"),
+            r#"{
+  "schema_version": 2,
+  "design_systems": {
+    "acme": {
+      "name": "Acme Design System",
+      "registries": {
+        "react": {
+          "source": ".wax/registries/react.json",
+          "published_source": "https://cdn.example.invalid/acme/react.registry.json"
+        }
+      }
+    }
+  }
+}
+"#,
+        )
+        .expect("write ds config with unreachable published source");
+        let original_config =
+            fs::read_to_string(app_repo.join(".wax/wax.config.json")).expect("read config");
+
+        let result = best_effort_sync_app_registries(&SyncOptions {
+            repo_root: app_repo.clone(),
+            state_path,
+        })
+        .expect("best-effort sync should not abort");
+
+        assert!(result.0.is_empty());
+        assert_eq!(result.1.len(), 1);
+        assert_eq!(result.1[0].0, "acme/react");
+        let config_after: Value =
+            serde_json::from_str(&fs::read_to_string(app_repo.join(".wax/wax.config.json")).expect(
+                "read config",
+            ))
+            .expect("parse config");
+        let original_value: Value = serde_json::from_str(&original_config).expect("parse config");
+        assert_eq!(config_after, original_value);
     }
 
     #[test]
