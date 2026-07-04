@@ -24,6 +24,10 @@ use crate::config::repo_files::{default_registry_path_for_language, discover_rep
 use crate::config::waxrc::{LanguageEntry, WaxRc, WaxRcError, load_waxrc};
 use crate::global_state::{GlobalStateError, load_global_state};
 use crate::paths::{PathsError, state_file};
+use crate::registry_memory::{
+    RegistryMemoryError, design_system_registry_relative_path,
+    ensure_design_system_registry_source, remember_design_system,
+};
 use crate::subprocess_discover::{DiscoverError, SubprocessLanguageDiscoverer};
 use crate::subprocess_lang::SubprocessLanguageManifest;
 
@@ -56,6 +60,10 @@ pub struct RegistryDiscoverOptions<'a> {
     pub dry_run: bool,
     /// When true, replace an existing output file.
     pub force: bool,
+    /// Design-system id to remember after discovery.
+    pub design_system_id: Option<&'a str>,
+    /// Display name for the remembered design system.
+    pub design_system_name: Option<&'a str>,
 }
 
 /// Outputs returned after generating registry JSON.
@@ -75,6 +83,8 @@ pub struct RegistryDiscoverResult {
     pub lockfile_present: bool,
     /// Structured diagnostics returned by the language pack subprocess.
     pub diagnostics: Vec<Diagnostic>,
+    /// Whether the design system was remembered in global state.
+    pub remembered_design_system: bool,
 }
 
 /// Errors returned while discovering and optionally writing a registry file.
@@ -312,6 +322,12 @@ pub enum RegistryDiscoverError {
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
     },
+    /// Design-system remember/update failed after discovery.
+    #[error(transparent)]
+    RegistryMemory(#[from] RegistryMemoryError),
+    /// `--design-system` and `--name` must be provided together.
+    #[error("--design-system and --name must be provided together")]
+    IncompleteDesignSystemOptions,
 }
 
 #[derive(Debug, Serialize)]
@@ -332,6 +348,11 @@ struct DiscoveredComponent {
 pub fn discover_registry(
     options: RegistryDiscoverOptions<'_>,
 ) -> Result<RegistryDiscoverResult, RegistryDiscoverError> {
+    let remember_design_system_mode = match (options.design_system_id, options.design_system_name) {
+        (Some(_), Some(_)) => true,
+        (None, None) => false,
+        _ => return Err(RegistryDiscoverError::IncompleteDesignSystemOptions),
+    };
     let language_id = LanguageId::try_from(options.language_id).map_err(|_| {
         RegistryDiscoverError::InvalidLanguageId {
             language_id: options.language_id.to_owned(),
@@ -358,8 +379,13 @@ pub fn discover_registry(
     };
     let language_entry = configured_entry.unwrap_or(&fallback_entry);
 
-    let output_path =
-        resolve_discover_output_path(options.repo_root, &language_id, language_entry)?;
+    let output_path = if remember_design_system_mode {
+        let repo_relative = design_system_registry_relative_path(&language_id);
+        validate_repo_relative_registry_path(&language_id, &repo_relative)?;
+        options.repo_root.join(&repo_relative)
+    } else {
+        resolve_discover_output_path(options.repo_root, &language_id, language_entry)?
+    };
     let path_display = output_path.display().to_string();
     let output_source = repo_relative_output_source(options.repo_root, &output_path);
 
@@ -395,6 +421,7 @@ pub fn discover_registry(
             wax_config_present,
             lockfile_present,
             diagnostics,
+            remembered_design_system: false,
         });
     }
 
@@ -422,8 +449,29 @@ pub fn discover_registry(
         options.force,
     )?;
 
-    if configured_entry.is_some() && should_patch_config_registry(language_entry) {
+    if configured_entry.is_some()
+        && should_patch_config_registry(language_entry)
+        && !remember_design_system_mode
+    {
         patch_config_registry(&repo_files.config_path, &language_id, &output_source)?;
+    }
+
+    if remember_design_system_mode {
+        let design_system_id = options.design_system_id.expect("validated above");
+        let design_system_name = options.design_system_name.expect("validated above");
+        ensure_design_system_registry_source(
+            options.repo_root,
+            design_system_id,
+            design_system_name,
+            &language_id,
+            &output_source,
+        )?;
+        remember_design_system(
+            state_file()?,
+            design_system_id,
+            design_system_name,
+            options.repo_root,
+        )?;
     }
 
     if let Some(lockfile) = lockfile.as_ref() {
@@ -444,6 +492,7 @@ pub fn discover_registry(
         wax_config_present,
         lockfile_present,
         diagnostics,
+        remembered_design_system: remember_design_system_mode,
     })
 }
 

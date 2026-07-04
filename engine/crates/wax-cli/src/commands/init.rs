@@ -1214,6 +1214,7 @@ mod tests {
         let state =
             load_global_state(temp.path.join("home/state.json")).unwrap_or_else(|_| GlobalState {
                 installed_languages: BTreeMap::new(),
+                ..GlobalState::default()
             });
         assert!(state.installed_languages.is_empty());
         assert!(repo_root.join(PREFERRED_LOCKFILE_RELATIVE_PATH).is_file());

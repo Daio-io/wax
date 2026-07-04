@@ -214,6 +214,7 @@ fn save_global_state_creates_parent_dirs_and_loads_roundtrip() {
     );
     let state = GlobalState {
         installed_languages,
+        ..GlobalState::default()
     };
 
     save_global_state(&path, &state).unwrap();
@@ -242,6 +243,7 @@ fn save_global_state_replaces_existing_file() {
                 },
             )]),
         )]),
+        ..GlobalState::default()
     };
     let second = GlobalState {
         installed_languages: BTreeMap::from([(
@@ -253,6 +255,7 @@ fn save_global_state_replaces_existing_file() {
                 },
             )]),
         )]),
+        ..GlobalState::default()
     };
 
     save_global_state(&path, &first).unwrap();
@@ -279,6 +282,7 @@ fn save_global_state_rejects_invalid_version_keys() {
                 },
             )]),
         )]),
+        ..GlobalState::default()
     };
 
     let err = save_global_state(&path, &state).unwrap_err();

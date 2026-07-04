@@ -32,6 +32,21 @@ pub struct GlobalState {
     /// Installed language packs by language id and version.
     #[serde(default)]
     pub installed_languages: BTreeMap<LanguageId, BTreeMap<String, InstalledLanguagePack>>,
+    /// Remembered design-system repositories keyed by design-system id.
+    #[serde(default)]
+    pub design_systems: BTreeMap<String, RememberedDesignSystem>,
+}
+
+/// One remembered design-system repository location.
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RememberedDesignSystem {
+    /// Display name shown in prompts and lists.
+    pub name: String,
+    /// Canonical repository root for the design-system project.
+    pub repo_root: PathBuf,
+    /// Repo-relative path to the last seen wax config file.
+    pub last_seen_config: PathBuf,
 }
 
 /// Metadata for one installed language pack.
@@ -137,6 +152,16 @@ pub enum GlobalStateError {
         /// Invalid installed language pack version.
         version: String,
     },
+    /// A remembered design-system entry used an invalid id.
+    #[error(
+        "invalid wax global state in {path}: design system {design_system_id:?} is not a valid id; expected lowercase ASCII slug [a-z][a-z0-9-]*"
+    )]
+    InvalidDesignSystemId {
+        /// Path passed to [`load_global_state`] or [`save_global_state`].
+        path: String,
+        /// Invalid design-system id key.
+        design_system_id: String,
+    },
 }
 
 /// Loads global wax state from disk.
@@ -170,9 +195,15 @@ pub fn load_global_state(path: impl AsRef<Path>) -> Result<GlobalState, GlobalSt
             path: path_display.clone(),
             source,
         })?;
-    validate_global_state_versions(&state, &path_display)?;
+    validate_global_state(&state, &path_display)?;
 
     Ok(state)
+}
+
+fn validate_global_state(state: &GlobalState, path_display: &str) -> Result<(), GlobalStateError> {
+    validate_global_state_versions(state, path_display)?;
+    validate_global_state_design_systems(state, path_display)?;
+    Ok(())
 }
 
 fn validate_global_state_versions(
@@ -192,6 +223,22 @@ fn validate_global_state_versions(
     Ok(())
 }
 
+fn validate_global_state_design_systems(
+    state: &GlobalState,
+    path_display: &str,
+) -> Result<(), GlobalStateError> {
+    for design_system_id in state.design_systems.keys() {
+        if LanguageId::try_from(design_system_id.as_str()).is_err() {
+            return Err(GlobalStateError::InvalidDesignSystemId {
+                path: path_display.to_owned(),
+                design_system_id: design_system_id.clone(),
+            });
+        }
+    }
+
+    Ok(())
+}
+
 /// Saves global wax state to disk, creating parent directories when needed.
 pub fn save_global_state(
     path: impl AsRef<Path>,
@@ -199,7 +246,7 @@ pub fn save_global_state(
 ) -> Result<(), GlobalStateError> {
     let path = path.as_ref();
     let path_display = path.display().to_string();
-    validate_global_state_versions(state, &path_display)?;
+    validate_global_state(state, &path_display)?;
 
     if let Some(parent) = path
         .parent()
@@ -445,6 +492,133 @@ unsafe extern "system" {
         exclude: *mut std::ffi::c_void,
         reserved: *mut std::ffi::c_void,
     ) -> i32;
+}
+
+#[cfg(test)]
+mod global_state_design_systems_tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    fn temp_state_path(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "wax-core-global-state-design-systems-{name}-{}",
+            std::process::id()
+        ))
+    }
+
+    struct TestPath(PathBuf);
+
+    impl Drop for TestPath {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+
+    #[test]
+    fn loads_and_saves_remembered_design_systems() {
+        let path = TestPath(temp_state_path("roundtrip"));
+        let state = GlobalState {
+            installed_languages: BTreeMap::new(),
+            design_systems: BTreeMap::from([(
+                "acme".to_owned(),
+                RememberedDesignSystem {
+                    name: "Acme Design System".to_owned(),
+                    repo_root: PathBuf::from("/tmp/acme-ds"),
+                    last_seen_config: PathBuf::from(".wax/wax.config.json"),
+                },
+            )]),
+        };
+
+        save_global_state(&path.0, &state).unwrap();
+        let loaded = load_global_state(&path.0).unwrap();
+
+        assert_eq!(loaded, state);
+        assert_eq!(loaded.design_systems["acme"].name, "Acme Design System");
+        assert_eq!(
+            loaded.design_systems["acme"].repo_root,
+            PathBuf::from("/tmp/acme-ds")
+        );
+        assert_eq!(
+            loaded.design_systems["acme"].last_seen_config,
+            PathBuf::from(".wax/wax.config.json")
+        );
+    }
+
+    #[test]
+    fn loads_design_systems_from_json_fixture() {
+        let path = TestPath(temp_state_path("fixture"));
+        std::fs::write(
+            &path.0,
+            r#"{
+  "installed_languages": {},
+  "design_systems": {
+    "acme": {
+      "name": "Acme Design System",
+      "repo_root": "/tmp/acme-ds",
+      "last_seen_config": ".wax/wax.config.json"
+    }
+  }
+}"#,
+        )
+        .unwrap();
+
+        let loaded = load_global_state(&path.0).unwrap();
+
+        assert_eq!(loaded.installed_languages.len(), 0);
+        assert_eq!(loaded.design_systems.len(), 1);
+        assert_eq!(loaded.design_systems["acme"].name, "Acme Design System");
+    }
+
+    #[test]
+    fn rejects_invalid_design_system_ids() {
+        let path = TestPath(temp_state_path("invalid-id"));
+        std::fs::write(
+            &path.0,
+            r#"{
+  "installed_languages": {},
+  "design_systems": {
+    "Acme": {
+      "name": "Acme Design System",
+      "repo_root": "/tmp/acme-ds",
+      "last_seen_config": ".wax/wax.config.json"
+    }
+  }
+}"#,
+        )
+        .unwrap();
+
+        let err = load_global_state(&path.0).unwrap_err();
+
+        assert!(matches!(
+            err,
+            GlobalStateError::InvalidDesignSystemId { .. }
+        ));
+        assert!(err.to_string().contains("Acme"));
+    }
+
+    #[test]
+    fn missing_design_systems_defaults_to_empty() {
+        let path = TestPath(temp_state_path("default-empty"));
+        let language_id = LanguageId::try_from("compose").unwrap();
+        let state = GlobalState {
+            installed_languages: BTreeMap::from([(
+                language_id,
+                BTreeMap::from([(
+                    "0.1.0".to_owned(),
+                    InstalledLanguagePack {
+                        install_dir: PathBuf::from("/tmp/compose"),
+                    },
+                )]),
+            )]),
+            ..GlobalState::default()
+        };
+
+        save_global_state(&path.0, &state).unwrap();
+        let loaded = load_global_state(&path.0).unwrap();
+
+        assert_eq!(loaded.installed_languages, state.installed_languages);
+        assert!(loaded.design_systems.is_empty());
+    }
 }
 
 #[cfg(all(test, windows))]

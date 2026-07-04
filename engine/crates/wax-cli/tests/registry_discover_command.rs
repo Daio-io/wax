@@ -763,3 +763,115 @@ fn configless_discover_without_lockfile_writes_registry() {
     assert!(!stdout.contains("wax validate"));
     assert!(!stdout.contains("wax language update"));
 }
+
+#[test]
+fn registry_discover_design_system_writes_registry_config_and_remembers() {
+    let _guard = env_lock();
+    let root = TestDir::new("registry-discover-design-system");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    link_compose_fixture_into_repo(&repo);
+    let wax_home = root.path.join("wax-home");
+    fs::create_dir_all(&wax_home).unwrap();
+    install_compose_discover_fixture_pack(&wax_home);
+    let _wax_home_guard = EnvVarGuard::set("WAX_HOME", &wax_home);
+
+    let output = run_discover_command(
+        &repo,
+        &["registry", "discover"],
+        "compose",
+        &repo.join("design-system/src/main/kotlin"),
+        &["--design-system", "acme", "--name", "Acme Design System"],
+    );
+
+    assert!(
+        output.status.success(),
+        "design-system discover failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let registry_path = repo.join(".wax/registries/compose.json");
+    assert!(registry_path.is_file());
+    assert!(!repo.join(".wax/compose.registry.json").exists());
+
+    let config: Value = serde_json::from_str(
+        &fs::read_to_string(repo.join(".wax/wax.config.json")).expect("wax config"),
+    )
+    .unwrap();
+    assert_eq!(config["schema_version"], 2);
+    assert_eq!(
+        config["design_systems"]["acme"]["name"],
+        "Acme Design System"
+    );
+    assert_eq!(
+        config["design_systems"]["acme"]["registries"]["compose"]["source"],
+        ".wax/registries/compose.json"
+    );
+
+    let state: Value = serde_json::from_str(
+        &fs::read_to_string(wax_home.join("state.json")).expect("global state"),
+    )
+    .unwrap();
+    assert_eq!(
+        state["design_systems"]["acme"]["name"],
+        "Acme Design System"
+    );
+    assert!(state["design_systems"]["acme"]["repo_root"].is_string());
+    assert_eq!(
+        state["design_systems"]["acme"]["last_seen_config"],
+        ".wax/wax.config.json"
+    );
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("Wrote .wax/registries/compose.json"));
+    assert!(stdout.contains("`wax init`"));
+    assert!(stdout.contains("`wax sync`"));
+}
+
+#[test]
+fn registry_discover_design_system_dry_run_does_not_remember_or_write() {
+    let _guard = env_lock();
+    let root = TestDir::new("registry-discover-design-system-dry-run");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    let _harness = setup_compose_discover_repo(&repo, false);
+
+    let output = run_discover_command(
+        &repo,
+        &["registry", "discover"],
+        "compose",
+        &compose_fixture_root(),
+        &[
+            "--dry-run",
+            "--design-system",
+            "acme",
+            "--name",
+            "Acme Design System",
+        ],
+    );
+
+    assert!(output.status.success());
+    assert!(!repo.join(".wax/registries/compose.json").exists());
+    assert!(!repo.join(".wax/wax.config.json").exists());
+}
+
+#[test]
+fn registry_discover_rejects_partial_design_system_flags() {
+    let _guard = env_lock();
+    let root = TestDir::new("registry-discover-partial-design-system");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    let _harness = setup_compose_discover_repo(&repo, false);
+
+    let output = run_discover_command(
+        &repo,
+        &["registry", "discover"],
+        "compose",
+        &compose_fixture_root(),
+        &["--design-system", "acme"],
+    );
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("--design-system and --name must be provided together"));
+}
