@@ -1,8 +1,8 @@
 {
-  "schema_version": 1,
-  "languages": [
-    {
-      "enabled": true
+  "schema_version": 2,
+  "languages": {
+    "compose": {
+      "id": "compose"
     }
-  ]
+  }
 }

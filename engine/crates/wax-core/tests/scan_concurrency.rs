@@ -108,17 +108,18 @@ fn write_waxrc(repo: &Path, languages: &[&str], scan_concurrency: Option<u32>) {
         .unwrap_or_default();
     let languages = languages
         .iter()
-        .map(|language| format!(r#"    {{ "id": "{language}", "enabled": true }}"#))
+        .map(|language| format!(r#"    "{language}": {{}}"#))
         .collect::<Vec<_>>()
         .join(",\n");
+    fs::create_dir_all(repo.join(".wax")).unwrap();
     fs::write(
-        repo.join(".waxrc"),
+        repo.join(".wax/wax.config.json"),
         format!(
             r#"{{
-  "schema_version": 1{engine},
-  "languages": [
+  "schema_version": 2{engine},
+  "languages": {{
 {languages}
-  ]
+  }}
 }}"#
         ),
     )
@@ -160,7 +161,7 @@ fn write_lockfile(repo: &Path, languages: &[&str]) {
         .collect::<Vec<_>>()
         .join(",\n");
     fs::write(
-        repo.join("wax.lock.json"),
+        repo.join(".wax/wax.lock.json"),
         format!(
             r#"{{
   "schema_version": 2,

@@ -121,21 +121,18 @@ fn copy_dir_all(source: &Path, destination: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-fn compose_config_json(enabled: bool, roots: &[&str]) -> String {
+fn compose_config_json(roots: &[&str]) -> String {
     let roots_json: Vec<String> = roots.iter().map(|root| format!("\"{root}\"")).collect();
     format!(
         r#"{{
-  "schema_version": 1,
-  "languages": [
-    {{
-      "id": "compose",
-      "enabled": {enabled},
+  "schema_version": 2,
+  "languages": {{
+    "compose": {{
       "roots": [{roots}]
     }}
-  ]
+  }}
 }}
 "#,
-        enabled = enabled,
         roots = roots_json.join(", ")
     )
 }
@@ -143,15 +140,8 @@ fn compose_config_json(enabled: bool, roots: &[&str]) -> String {
 fn write_compose_config_with_roots(repo: &Path, roots: &[&str]) {
     let wax_dir = repo.join(".wax");
     fs::create_dir_all(&wax_dir).expect("create .wax directory");
-    fs::write(
-        wax_dir.join("wax.config.json"),
-        compose_config_json(true, roots),
-    )
-    .expect("write wax config");
-}
-
-fn write_legacy_waxrc_with_roots(repo: &Path, roots: &[&str]) {
-    fs::write(repo.join(".waxrc"), compose_config_json(true, roots)).expect("write legacy waxrc");
+    fs::write(wax_dir.join("wax.config.json"), compose_config_json(roots))
+        .expect("write wax config");
 }
 
 fn write_config_with_registry_object(repo: &Path, language_id: &str, registry_json: &str) {
@@ -160,15 +150,12 @@ fn write_config_with_registry_object(repo: &Path, language_id: &str, registry_js
         repo.join(".wax/wax.config.json"),
         format!(
             r#"{{
-  "schema_version": 1,
-  "languages": [
-    {{
-      "id": "{language_id}",
-      "enabled": true,
-      "registry": {registry_json},
-      "roots": ["design-system/src/main/kotlin"]
+  "schema_version": 2,
+  "languages": {{
+    "{language_id}": {{
+      "registry": {registry_json}
     }}
-  ]
+  }}
 }}
 "#
         ),
@@ -209,19 +196,15 @@ fn write_multi_language_config(repo: &Path) {
     fs::write(
         repo.join(".wax/wax.config.json"),
         r#"{
-  "schema_version": 1,
-  "languages": [
-    {
-      "id": "compose",
-      "enabled": true,
+  "schema_version": 2,
+  "languages": {
+    "compose": {
       "roots": ["design-system/src/main/kotlin"]
     },
-    {
-      "id": "react",
-      "enabled": true,
+    "react": {
       "roots": ["design-system/src"]
     }
-  ]
+  }
 }
 "#,
     )
@@ -572,13 +555,8 @@ fn missing_configured_roots_fails_with_guidance() {
     fs::write(
         repo.path().join(".wax/wax.config.json"),
         r#"{
-  "schema_version": 1,
-  "languages": [
-    {
-      "id": "compose",
-      "enabled": true
-    }
-  ]
+  "schema_version": 2,
+  "languages": {"compose": {}}
 }
 "#,
     )
@@ -598,41 +576,27 @@ fn missing_configured_roots_fails_with_guidance() {
 }
 
 #[test]
-fn resolves_roots_from_legacy_waxrc_when_preferred_config_missing() {
-    let _guard = env_lock();
-    let repo = TestRepo::new("registry-discovery-legacy-waxrc");
-    link_compose_fixture_into_repo(repo.path());
-    write_legacy_waxrc_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
-    write_compose_lockfile(repo.path());
-    let (_wax_home, _wax_home_guard) = install_compose_pack_fixture();
-
-    let result =
-        discover_with_config_roots(repo.path()).expect("legacy waxrc roots should resolve");
-
-    assert!(result.used_config_roots);
-    assert_eq!(
-        result.registry["components"]
-            .as_array()
-            .expect("components array")
-            .len(),
-        3
-    );
-}
-
-#[test]
-fn disabled_language_fails_with_guidance() {
-    let repo = TestRepo::new("registry-discovery-disabled-language");
+fn omitted_language_fails_with_guidance() {
+    let repo = TestRepo::new("registry-discovery-omitted-language");
     link_compose_fixture_into_repo(repo.path());
     let wax_dir = repo.path().join(".wax");
     fs::create_dir_all(&wax_dir).expect("create .wax directory");
     fs::write(
         wax_dir.join("wax.config.json"),
-        compose_config_json(false, &["design-system/src/main/kotlin"]),
+        r#"{
+  "schema_version": 2,
+  "languages": {
+    "react": {
+      "roots": ["design-system/src"]
+    }
+  }
+}
+"#,
     )
     .expect("write wax config");
 
     let err = discover_with_config_roots(repo.path())
-        .expect_err("disabled language should not resolve roots");
+        .expect_err("omitted language should not resolve roots");
 
     assert!(matches!(
         err,
@@ -731,13 +695,10 @@ fn discover_writes_language_specific_default_registry_path() {
         &fs::read_to_string(repo.path().join(".wax/wax.config.json")).unwrap(),
     )
     .unwrap();
-    let compose = config["languages"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|entry| entry["id"] == "compose")
-        .unwrap();
-    assert_eq!(compose["registry"], ".wax/compose.registry.json");
+    assert_eq!(
+        config["languages"]["compose"]["registry"],
+        ".wax/compose.registry.json"
+    );
 
     let lock: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(repo.path().join(".wax/wax.lock.json")).unwrap())
@@ -852,19 +813,20 @@ fn discover_rejects_uppercase_https_and_other_external_schemes() {
 }
 
 #[test]
-fn discover_writes_configured_legacy_design_system_registry_path() {
+fn discover_writes_configured_registry_path() {
     let _guard = env_lock();
-    let repo = TestRepo::new("discover-legacy-registry-key");
+    let repo = TestRepo::new("discover-registry-key");
+    fs::create_dir_all(repo.path().join(".wax")).unwrap();
     fs::write(
-        repo.path().join(".waxrc"),
+        repo.path().join(".wax/wax.config.json"),
         r#"{
-  "schema_version": 1,
-  "languages": [{
-    "id": "compose",
-    "enabled": true,
-    "design_system_registry": "design-system/registry.json",
-    "roots": ["design-system/src/main/kotlin"]
-  }]
+  "schema_version": 2,
+  "languages": {
+    "compose": {
+      "registry": "design-system/registry.json",
+      "roots": ["design-system/src/main/kotlin"]
+    }
+  }
 }"#,
     )
     .unwrap();
@@ -872,7 +834,7 @@ fn discover_writes_configured_legacy_design_system_registry_path() {
     write_compose_lockfile(repo.path());
     let (_wax_home, _wax_home_guard) = install_compose_pack_fixture();
 
-    let result = discover_with_config_roots_write(repo.path()).expect("legacy key discover");
+    let result = discover_with_config_roots_write(repo.path()).expect("registry path discover");
 
     assert_eq!(
         result.output_path,

@@ -116,7 +116,7 @@ pub enum InitCommandError {
         source: serde_json::Error,
     },
     /// Example onboarding template is missing a `languages` array.
-    #[error("example .waxrc template is missing languages array")]
+    #[error("example wax config template is missing languages object")]
     MissingExampleLanguages,
     /// Requested language id is not present in the example template.
     #[error("language {language_id} is not supported by the example .waxrc template")]
@@ -519,75 +519,56 @@ fn build_waxrc_contents(
         .map_err(|source| InitCommandError::InvalidExampleWaxRc { source })?;
     let Some(languages) = template
         .get_mut("languages")
-        .and_then(serde_json::Value::as_array_mut)
+        .and_then(serde_json::Value::as_object_mut)
     else {
         return Err(InitCommandError::MissingExampleLanguages);
     };
 
     let selected: BTreeMap<_, _> = selected.iter().map(|id| (id.as_str(), id)).collect();
-    let mut filtered = Vec::new();
-    for entry in languages.drain(..) {
-        let Some(id) = entry.get("id").and_then(serde_json::Value::as_str) else {
+    let template_ids: Vec<String> = languages.keys().cloned().collect();
+    for id in &template_ids {
+        if !selected.contains_key(id.as_str()) {
+            languages.remove(id);
+        }
+    }
+
+    for language_id in selected.values() {
+        if !languages.contains_key(language_id.as_str()) {
+            return Err(InitCommandError::UnknownExampleLanguage {
+                language_id: (*language_id).clone(),
+            });
+        }
+    }
+
+    for (id, entry) in languages.iter_mut() {
+        let Some(object) = entry.as_object_mut() else {
             continue;
         };
-        if selected.contains_key(id) {
-            filtered.push(entry);
+        let language_id =
+            LanguageId::try_from(id.as_str()).expect("example template language ids are validated");
+        if scaffold_registries {
+            object.insert(
+                "registry".to_owned(),
+                serde_json::json!(default_registry_path_for_language(&language_id)),
+            );
+        } else {
+            object.remove("registry");
+        }
+        if let Some(selections) = selections
+            && let Some(roots) = selections.scan_roots.get(&language_id)
+        {
+            object.insert(
+                "roots".to_owned(),
+                serde_json::Value::Array(
+                    roots
+                        .iter()
+                        .map(|root| serde_json::Value::String(root.to_string_lossy().to_string()))
+                        .collect(),
+                ),
+            );
         }
     }
 
-    if filtered.len() != selected.len() {
-        for language_id in selected.values() {
-            if !filtered.iter().any(|entry| {
-                entry
-                    .get("id")
-                    .and_then(serde_json::Value::as_str)
-                    .is_some_and(|id| id == language_id.as_str())
-            }) {
-                return Err(InitCommandError::UnknownExampleLanguage {
-                    language_id: (*language_id).clone(),
-                });
-            }
-        }
-    }
-
-    for entry in &mut filtered {
-        if let Some(object) = entry.as_object_mut() {
-            object.remove("design_system_registry");
-            if scaffold_registries {
-                if let Some(id) = object.get("id").and_then(serde_json::Value::as_str) {
-                    let language_id = LanguageId::try_from(id)
-                        .expect("example template language ids are validated");
-                    object.insert(
-                        "registry".to_owned(),
-                        serde_json::json!(default_registry_path_for_language(&language_id)),
-                    );
-                }
-            } else {
-                object.remove("registry");
-            }
-            if let Some(selections) = selections
-                && let Some(id) = object.get("id").and_then(serde_json::Value::as_str)
-            {
-                let language_id =
-                    LanguageId::try_from(id).expect("example template language ids are validated");
-                if let Some(roots) = selections.scan_roots.get(&language_id) {
-                    object.insert(
-                        "roots".to_owned(),
-                        serde_json::Value::Array(
-                            roots
-                                .iter()
-                                .map(|root| {
-                                    serde_json::Value::String(root.to_string_lossy().to_string())
-                                })
-                                .collect(),
-                        ),
-                    );
-                }
-            }
-        }
-    }
-
-    *languages = filtered;
     template["schema_version"] = serde_json::json!(WAXRC_SCHEMA_VERSION);
 
     serde_json::to_string_pretty(&template).map_err(|source| InitCommandError::Io {
@@ -879,15 +860,12 @@ mod tests {
             &fs::read_to_string(repo_root.join(".wax/wax.config.json")).unwrap(),
         )
         .unwrap();
-        let languages = config["languages"].as_array().unwrap();
-        assert_eq!(languages[0]["id"], "compose");
         assert_eq!(
-            languages[0]["roots"],
+            config["languages"]["compose"]["roots"],
             serde_json::json!(["android/app/src/main/kotlin"])
         );
-        assert_eq!(languages[1]["id"], "react");
         assert_eq!(
-            languages[1]["roots"],
+            config["languages"]["react"]["roots"],
             serde_json::json!(["apps/web/src", "packages/ui/src"])
         );
     }
@@ -942,7 +920,7 @@ mod tests {
             &fs::read_to_string(repo_root.join(".wax/wax.config.json")).unwrap(),
         )
         .unwrap();
-        let language = &config["languages"][0];
+        let language = &config["languages"]["compose"];
         assert_eq!(
             language["roots"],
             serde_json::json!(["app/src/main/kotlin"])
@@ -1162,12 +1140,12 @@ mod tests {
         let waxrc = load_waxrc(repo_root.join(PREFERRED_CONFIG_RELATIVE_PATH)).unwrap();
         assert_eq!(waxrc.languages.len(), 1);
         assert_eq!(waxrc.languages[0].id, lang("compose"));
-        assert!(waxrc.languages[0].enabled);
         assert_eq!(
             waxrc.languages[0]
-                .registry_source()
-                .map(|source| source.source),
-            Some(default_registry_path_for_language(&lang("compose")))
+                .registry_source
+                .as_ref()
+                .map(|source| source.source.as_str()),
+            Some(default_registry_path_for_language(&lang("compose")).as_str())
         );
 
         let lock = load_lockfile(repo_root.join(PREFERRED_LOCKFILE_RELATIVE_PATH)).unwrap();

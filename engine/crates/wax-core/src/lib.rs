@@ -102,7 +102,7 @@ pub struct Engine;
 /// Runtime options for repository scans.
 #[derive(Debug, Clone)]
 pub struct ScanOptions {
-    /// Overrides `.waxrc` `engine.scan_concurrency` when set.
+    /// Overrides `.wax/wax.config.json` `engine.scan_concurrency` when set.
     ///
     /// Values less than 1 are treated as serial execution.
     pub scan_concurrency: Option<u32>,
@@ -125,10 +125,10 @@ impl Default for ScanOptions {
 /// Typed failures while resolving and running repository scans.
 #[derive(Debug, Error)]
 pub enum EngineError {
-    /// `.waxrc` could not be loaded from the repository root.
+    /// `.wax/wax.config.json` could not be loaded from the repository root.
     #[error(transparent)]
     WaxRc(#[from] WaxRcError),
-    /// `wax.lock.json` could not be loaded from the repository root.
+    /// `.wax/wax.lock.json` could not be loaded from the repository root.
     #[error(transparent)]
     Lockfile(#[from] LockfileError),
     /// Global wax state could not be loaded.
@@ -250,27 +250,31 @@ impl Engine {
         let mut enabled_ids = BTreeSet::new();
         let mut language_configs = BTreeMap::new();
         for entry in waxrc.languages {
-            if !entry.enabled {
-                continue;
-            }
-            let registry_setting = entry.registry_source();
-            let resolved_registry = registry_source::resolve_registry_source_with_deprecation(
-                registry_source::RegistrySourceInput {
+            let resolved_registry =
+                registry_source::resolve_registry_source(registry_source::RegistrySourceInput {
                     repo_root,
                     language_id: entry.id.as_str(),
-                    source: registry_setting
+                    source: entry
+                        .registry_source
                         .as_ref()
                         .map(|setting| setting.source.as_str()),
-                },
-                registry_setting
-                    .as_ref()
-                    .is_some_and(|setting| setting.deprecated),
-            )?;
+                })?;
             registry_lock::verify_registry_lock(&entry.id, &resolved_registry, &lockfile)
                 .map_err(registry_lock_mismatch_to_engine_error)?;
 
             let mut config = entry.extra;
-            config.remove("design_system_registry");
+            if !entry.roots.is_empty() {
+                config.insert(
+                    "roots".to_owned(),
+                    serde_json::Value::Array(
+                        entry
+                            .roots
+                            .into_iter()
+                            .map(serde_json::Value::String)
+                            .collect(),
+                    ),
+                );
+            }
             config.insert(
                 "registry".to_owned(),
                 serde_json::Value::String(resolved_registry.repo_relative_path),

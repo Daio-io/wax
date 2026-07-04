@@ -15,7 +15,7 @@ const SCAN_OUTPUT_RELATIVE_PATH: &str = ".wax/out/scan-merged.json";
 /// Options for `wax scan`.
 #[derive(Debug, Clone)]
 pub struct ScanCommandOptions {
-    /// Repository root containing `.waxrc` and `wax.lock.json`.
+    /// Repository root containing `.wax/wax.config.json` and `.wax/wax.lock.json`.
     pub repo_root: PathBuf,
     /// Whether missing packs may be auto-installed.
     pub allow_auto_install: bool,

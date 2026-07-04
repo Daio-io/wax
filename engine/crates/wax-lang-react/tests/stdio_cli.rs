@@ -219,7 +219,7 @@ fn stdio_cli_emits_complete_scan_facts_for_small_fixture() {
             "repo_root": repo_root,
             "snapshot_id": "snap-cli",
             "config": {
-                "design_system_registry": "design-system/registry.json",
+                "registry": "design-system/registry.json",
                 "roots": ["src"],
                 "packages": {
                     "@acme/design-system": {
@@ -363,7 +363,7 @@ fn stdio_cli_returns_partial_scan_facts_for_parse_failures() {
         "repo_root": temp.path().to_string_lossy(),
         "snapshot_id": "snap-partial",
         "config": {
-            "design_system_registry": "design-system/registry.json",
+            "registry": "design-system/registry.json",
             "roots": ["src"]
         }
     });
@@ -437,7 +437,7 @@ fn stdio_cli_returns_registry_not_found_for_missing_registry() {
         "repo_root": temp.path().to_string_lossy(),
         "snapshot_id": "snap-missing-registry",
         "config": {
-            "design_system_registry": "design-system/registry.json",
+            "registry": "design-system/registry.json",
             "roots": ["src"]
         }
     });

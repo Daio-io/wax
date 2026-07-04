@@ -211,21 +211,21 @@ fn write_repo_files(repo: &Path, registry_file: &Path, languages: &[&str]) {
     write_default_registry(repo, languages);
     let languages_json = languages
         .iter()
-        .map(|language| format!(r#"    {{ "id": "{language}", "enabled": true }}"#))
+        .map(|language| format!(r#"    "{language}": {{}}"#))
         .collect::<Vec<_>>()
         .join(",\n");
     fs::write(
-        repo.join(".waxrc"),
+        repo.join(".wax/wax.config.json"),
         format!(
             r#"{{
-  "schema_version": 1,
-  "languages": [
+  "schema_version": 2,
+  "languages": {{
 {languages_json}
-  ]
+  }}
 }}"#
         ),
     )
-    .expect("write .waxrc");
+    .expect("write wax config");
 
     let registry_entries = registry_lock_entries(repo, languages);
     let lock_entries = languages
@@ -249,7 +249,7 @@ fn write_repo_files(repo: &Path, registry_file: &Path, languages: &[&str]) {
         .collect::<Vec<_>>()
         .join(",\n");
     fs::write(
-        repo.join("wax.lock.json"),
+        repo.join(".wax/wax.lock.json"),
         format!(
             r#"{{
   "schema_version": 2,
@@ -323,21 +323,21 @@ fn write_repo_files_with_resolved_artifacts(
     write_default_registry(repo, &languages);
     let languages_json = languages
         .iter()
-        .map(|language| format!(r#"    {{ "id": "{language}", "enabled": true }}"#))
+        .map(|language| format!(r#"    "{language}": {{}}"#))
         .collect::<Vec<_>>()
         .join(",\n");
     fs::write(
-        repo.join(".waxrc"),
+        repo.join(".wax/wax.config.json"),
         format!(
             r#"{{
-  "schema_version": 1,
-  "languages": [
+  "schema_version": 2,
+  "languages": {{
 {languages_json}
-  ]
+  }}
 }}"#
         ),
     )
-    .expect("write .waxrc");
+    .expect("write wax config");
 
     let registry_entries = registry_lock_entries(repo, &languages);
     let lock_entries = entries
@@ -361,7 +361,7 @@ fn write_repo_files_with_resolved_artifacts(
         .collect::<Vec<_>>()
         .join(",\n");
     fs::write(
-        repo.join("wax.lock.json"),
+        repo.join(".wax/wax.lock.json"),
         format!(
             r#"{{
   "schema_version": 2,

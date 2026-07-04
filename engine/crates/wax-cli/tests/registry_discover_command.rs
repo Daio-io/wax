@@ -105,14 +105,12 @@ fn write_compose_config_with_roots(repo: &Path, roots: &[&str]) {
     let roots_json: Vec<String> = roots.iter().map(|root| format!("\"{root}\"")).collect();
     let config = format!(
         r#"{{
-  "schema_version": 1,
-  "languages": [
-    {{
-      "id": "compose",
-      "enabled": true,
+  "schema_version": 2,
+  "languages": {{
+    "compose": {{
       "roots": [{roots}]
     }}
-  ]
+  }}
 }}
 "#,
         roots = roots_json.join(", ")
@@ -153,19 +151,15 @@ fn write_multi_language_config(repo: &Path) {
     fs::write(
         repo.join(".wax/wax.config.json"),
         r#"{
-  "schema_version": 1,
-  "languages": [
-    {
-      "id": "compose",
-      "enabled": true,
+  "schema_version": 2,
+  "languages": {
+    "compose": {
       "roots": ["design-system/src/main/kotlin"]
     },
-    {
-      "id": "react",
-      "enabled": true,
+    "react": {
       "roots": ["design-system/src"]
     }
-  ]
+  }
 }
 "#,
     )

@@ -1,29 +1,31 @@
 //! Repository wax config parsing.
 
 use serde::Deserialize;
-use serde::de::Error as _;
+use serde::de::{self, Error as _, Unexpected};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use thiserror::Error;
 use wax_contract::LanguageId;
 
 /// Current wax config schema version supported by this engine.
-pub const WAXRC_SCHEMA_VERSION: u32 = 1;
+pub const WAXRC_SCHEMA_VERSION: u32 = 2;
 
 /// Repository-level wax configuration loaded from a repo config file.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WaxRc {
     /// Version of the wax config JSON schema.
     pub schema_version: u32,
     /// Engine-owned configuration.
-    #[serde(default)]
     pub engine: EngineConfig,
     /// Adoption Metrics v2 scan behavior.
-    #[serde(default)]
     pub adoption: AdoptionConfig,
     /// Language pack entries configured for this repository.
+    ///
+    /// Presence of a language key means the language is enabled.
     pub languages: Vec<LanguageEntry>,
+    /// Design-system publication configuration keyed by design-system id.
+    pub design_systems: BTreeMap<String, DesignSystemConfig>,
 }
 
 /// Engine-owned wax config settings.
@@ -163,89 +165,166 @@ impl Default for SymbolUsageSummaryConfig {
 }
 
 /// Per-language wax config entry.
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 pub struct LanguageEntry {
-    /// Validated language pack identifier.
+    /// Validated language pack identifier, derived from the languages map key.
     pub id: LanguageId,
-    /// Whether this language pack should run.
-    pub enabled: bool,
+    /// Repo-relative scan roots for this language.
+    pub roots: Vec<String>,
+    /// Optional registry source configuration.
+    pub registry_source: Option<LanguageRegistrySource>,
     /// Pack-specific configuration kept opaque to the engine.
-    #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Parsed registry source setting from a language entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LanguageRegistrySource {
-    /// Raw source string from `registry`, `registry.source`, or legacy `design_system_registry`.
+    /// Registry source string used for scanning.
     pub source: String,
-    /// Field path source used for diagnostics.
-    pub field_name: &'static str,
-    /// Whether this came from deprecated `design_system_registry`.
-    pub deprecated: bool,
+    /// Optional upstream design-system reference (`<design-system-id>/<language-id>`).
+    pub upstream: Option<String>,
 }
 
-impl LanguageEntry {
-    /// Returns the configured registry source if one was declared.
-    ///
-    /// `registry` takes precedence over the deprecated `design_system_registry`
-    /// field. Returns `None` when neither field is present, or when `registry`
-    /// is present but not shaped as a supported string or object with a string
-    /// `source`.
-    pub fn registry_source(&self) -> Option<LanguageRegistrySource> {
-        if let Some(value) = self.extra.get("registry") {
-            match value {
-                serde_json::Value::String(source) => {
-                    return Some(LanguageRegistrySource {
-                        source: source.clone(),
-                        field_name: "registry",
-                        deprecated: false,
-                    });
-                }
-                serde_json::Value::Object(object) => {
-                    if let Some(source) = object.get("source").and_then(serde_json::Value::as_str) {
-                        return Some(LanguageRegistrySource {
-                            source: source.to_owned(),
-                            field_name: "registry.source",
-                            deprecated: false,
-                        });
-                    }
-                }
-                _ => {}
-            }
+/// Design-system publication configuration.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DesignSystemConfig {
+    /// Display name for prompts and lists.
+    pub name: String,
+    /// Published registries keyed by language id.
+    pub registries: BTreeMap<LanguageId, DesignSystemRegistry>,
+}
 
-            return None;
-        }
+/// One published registry for a design system.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DesignSystemRegistry {
+    /// Design-system-authored registry artifact path or URL.
+    pub source: String,
+    /// Optional hosted source preferred by app sync.
+    #[serde(default, deserialize_with = "deserialize_optional_published_source")]
+    pub published_source: Option<String>,
+}
 
-        self.extra
-            .get("design_system_registry")
-            .and_then(serde_json::Value::as_str)
-            .map(|source| LanguageRegistrySource {
-                source: source.to_owned(),
-                field_name: "design_system_registry",
-                deprecated: true,
-            })
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WaxRcRaw {
+    schema_version: u32,
+    #[serde(default)]
+    engine: EngineConfig,
+    #[serde(default)]
+    adoption: AdoptionConfig,
+    #[serde(default)]
+    languages: BTreeMap<LanguageId, LanguageEntryRaw>,
+    #[serde(default)]
+    design_systems: BTreeMap<String, DesignSystemConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LanguageEntryRaw {
+    #[serde(default)]
+    roots: Vec<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_registry")]
+    registry: Option<RegistryRaw>,
+    #[serde(flatten)]
+    extra: serde_json::Map<String, serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RegistryObjectRaw {
+    source: String,
+    #[serde(default, deserialize_with = "deserialize_optional_upstream")]
+    upstream: Option<String>,
+}
+
+fn deserialize_optional_registry<'de, D>(deserializer: D) -> Result<Option<RegistryRaw>, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    if value.is_null() {
+        return Err(de::Error::custom("languages.*.registry cannot be null"));
     }
+    RegistryRaw::deserialize(value)
+        .map(Some)
+        .map_err(D::Error::custom)
+}
 
-    fn validate_registry_source_config(&self) -> Result<(), serde_json::Error> {
-        let Some(value) = self.extra.get("registry") else {
-            return Ok(());
-        };
+fn deserialize_optional_upstream<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    deserialize_optional_non_null_string(
+        deserializer,
+        "languages.*.registry.upstream cannot be null",
+    )
+}
 
+fn deserialize_optional_published_source<'de, D>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    deserialize_optional_non_null_string(
+        deserializer,
+        "design_systems.*.registries.*.published_source cannot be null",
+    )
+}
+
+fn deserialize_optional_non_null_string<'de, D>(
+    deserializer: D,
+    null_error: &'static str,
+) -> Result<Option<String>, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    if value.is_null() {
+        return Err(de::Error::custom(null_error));
+    }
+    match value {
+        serde_json::Value::String(source) => Ok(Some(source)),
+        other => Err(de::Error::invalid_type(unexpected_value(&other), &"string")),
+    }
+}
+
+fn unexpected_value(value: &serde_json::Value) -> Unexpected<'_> {
+    match value {
+        serde_json::Value::Bool(boolean) => Unexpected::Bool(*boolean),
+        serde_json::Value::Number(_) => Unexpected::Other("number"),
+        serde_json::Value::Array(_) => Unexpected::Seq,
+        serde_json::Value::Object(_) => Unexpected::Map,
+        serde_json::Value::Null => Unexpected::Unit,
+        serde_json::Value::String(string) => Unexpected::Str(string),
+    }
+}
+
+#[derive(Debug)]
+enum RegistryRaw {
+    Source(String),
+    Object(RegistryObjectRaw),
+}
+
+impl<'de> Deserialize<'de> for RegistryRaw {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
         match value {
-            serde_json::Value::String(_) => Ok(()),
-            serde_json::Value::Object(object)
-                if object
-                    .get("source")
-                    .is_some_and(serde_json::Value::is_string) =>
-            {
-                Ok(())
+            serde_json::Value::String(source) => Ok(Self::Source(source)),
+            serde_json::Value::Object(map) => {
+                let object: RegistryObjectRaw =
+                    serde_json::from_value(serde_json::Value::Object(map))
+                        .map_err(D::Error::custom)?;
+                Ok(Self::Object(object))
             }
-            serde_json::Value::Object(_) => Err(serde_json::Error::custom(
-                "languages[].registry object must contain a string source field",
-            )),
-            _ => Err(serde_json::Error::custom(
-                "languages[].registry must be a string or object with string source",
+            serde_json::Value::Null => Err(D::Error::custom("languages.*.registry cannot be null")),
+            _ => Err(D::Error::custom(
+                "languages.*.registry must be a string or object with source",
             )),
         }
     }
@@ -328,10 +407,29 @@ pub fn load_waxrc(path: impl AsRef<Path>) -> Result<WaxRc, WaxRcError> {
         });
     }
 
-    let rc: WaxRc = serde_json::from_value(value).map_err(|source| WaxRcError::InvalidConfig {
-        path: path_display.clone(),
-        source,
-    })?;
+    let raw: WaxRcRaw =
+        serde_json::from_value(value).map_err(|source| WaxRcError::InvalidConfig {
+            path: path_display.clone(),
+            source,
+        })?;
+
+    let languages = raw
+        .languages
+        .into_iter()
+        .map(|(id, entry)| entry.into_language_entry(id))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|source| WaxRcError::InvalidConfig {
+            path: path_display.clone(),
+            source,
+        })?;
+
+    let rc = WaxRc {
+        schema_version: raw.schema_version,
+        engine: raw.engine,
+        adoption: raw.adoption,
+        languages,
+        design_systems: raw.design_systems,
+    };
 
     for language in &rc.languages {
         language
@@ -347,8 +445,112 @@ pub fn load_waxrc(path: impl AsRef<Path>) -> Result<WaxRc, WaxRcError> {
             path: path_display.clone(),
             source,
         })?;
+    validate_design_systems(&rc.design_systems).map_err(|source| WaxRcError::InvalidConfig {
+        path: path_display,
+        source,
+    })?;
 
     Ok(rc)
+}
+
+impl LanguageEntryRaw {
+    fn into_language_entry(self, id: LanguageId) -> Result<LanguageEntry, serde_json::Error> {
+        if self.extra.contains_key("design_system_registry") {
+            return Err(serde_json::Error::custom(
+                "languages.*.design_system_registry is not supported; use registry instead",
+            ));
+        }
+        if self.extra.contains_key("enabled") {
+            return Err(serde_json::Error::custom(
+                "languages.*.enabled is not supported; omit disabled languages instead",
+            ));
+        }
+        if self.extra.contains_key("id") {
+            return Err(serde_json::Error::custom(
+                "languages.*.id is not supported; language id is the languages map key",
+            ));
+        }
+
+        let registry_source = self.registry.map(|registry| match registry {
+            RegistryRaw::Source(source) => LanguageRegistrySource {
+                source,
+                upstream: None,
+            },
+            RegistryRaw::Object(registry) => LanguageRegistrySource {
+                source: registry.source,
+                upstream: registry.upstream,
+            },
+        });
+
+        Ok(LanguageEntry {
+            id,
+            roots: self.roots,
+            registry_source,
+            extra: self.extra,
+        })
+    }
+}
+
+fn validate_design_systems(
+    design_systems: &BTreeMap<String, DesignSystemConfig>,
+) -> Result<(), serde_json::Error> {
+    for (id, config) in design_systems {
+        if LanguageId::try_from(id.as_str()).is_err() {
+            return Err(serde_json::Error::custom(format!(
+                "design_systems.{id:?} is not a valid design-system id; expected lowercase ASCII slug [a-z][a-z0-9-]*"
+            )));
+        }
+
+        if config.name.trim().is_empty() {
+            return Err(serde_json::Error::custom(format!(
+                "design_systems.{id}.name must be a non-empty string"
+            )));
+        }
+
+        for (language_id, registry) in &config.registries {
+            if registry.source.trim().is_empty() {
+                return Err(serde_json::Error::custom(format!(
+                    "design_systems.{id}.registries.{}.source must be a non-empty string",
+                    language_id.as_str()
+                )));
+            }
+
+            if let Some(published_source) = &registry.published_source
+                && published_source.trim().is_empty()
+            {
+                return Err(serde_json::Error::custom(format!(
+                    "design_systems.{id}.registries.{}.published_source must be a non-empty string when set",
+                    language_id.as_str()
+                )));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+impl LanguageEntry {
+    fn validate_registry_source_config(&self) -> Result<(), serde_json::Error> {
+        let Some(registry) = &self.registry_source else {
+            return Ok(());
+        };
+
+        if registry.source.trim().is_empty() {
+            return Err(serde_json::Error::custom(
+                "languages.*.registry.source must be a non-empty string",
+            ));
+        }
+
+        if let Some(upstream) = &registry.upstream
+            && upstream.trim().is_empty()
+        {
+            return Err(serde_json::Error::custom(
+                "languages.*.registry.upstream must be a non-empty string when set",
+            ));
+        }
+
+        Ok(())
+    }
 }
 
 fn default_scan_concurrency() -> u32 {

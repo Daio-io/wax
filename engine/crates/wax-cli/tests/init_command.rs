@@ -385,12 +385,18 @@ fn init_scaffolds_per_language_registry_files_for_multi_language_repo() {
         .find(|language| language.id.as_str() == "react")
         .unwrap();
     assert_eq!(
-        compose.registry_source().map(|source| source.source),
-        Some(".wax/compose.registry.json".to_owned())
+        compose
+            .registry_source
+            .as_ref()
+            .map(|source| source.source.as_str()),
+        Some(".wax/compose.registry.json")
     );
     assert_eq!(
-        react.registry_source().map(|source| source.source),
-        Some(".wax/react.registry.json".to_owned())
+        react
+            .registry_source
+            .as_ref()
+            .map(|source| source.source.as_str()),
+        Some(".wax/react.registry.json")
     );
 
     let lock = load_lockfile(repo.join(".wax/wax.lock.json")).unwrap();
@@ -458,10 +464,13 @@ fn init_scaffolds_swift_per_language_registry_and_lock_entry() {
         .find(|language| language.id.as_str() == "swift")
         .expect("swift language entry");
     assert_eq!(
-        swift.registry_source().map(|source| source.source),
-        Some(".wax/swift.registry.json".to_owned())
+        swift
+            .registry_source
+            .as_ref()
+            .map(|source| source.source.as_str()),
+        Some(".wax/swift.registry.json")
     );
-    assert_eq!(swift.extra["roots"], serde_json::json!(["App/Sources"]));
+    assert_eq!(swift.roots, ["App/Sources"]);
 
     let lock = load_lockfile(repo.join(".wax/wax.lock.json")).unwrap();
     let swift_registry = lock.registries.get(&lang("swift")).unwrap();

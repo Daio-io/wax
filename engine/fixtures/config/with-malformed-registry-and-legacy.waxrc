@@ -1,12 +1,11 @@
 {
-  "schema_version": 1,
-  "languages": [
-    {
-      "id": "compose",
-      "enabled": true,
-      "registry": {},
-      "design_system_registry": "design-system/registry.json",
-      "roots": ["app/src/main/kotlin"]
+  "schema_version": 2,
+  "languages": {
+    "compose": {
+      "registry": 123,
+      "roots": [
+        "app/src/main/kotlin"
+      ]
     }
-  ]
+  }
 }

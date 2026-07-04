@@ -8,9 +8,9 @@ use wax_contract::LanguageId;
 /// Pure inputs required to evaluate language-pack auto-install policy.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AutoInstallPolicyInput {
-    /// Enabled language ids from `.waxrc`.
+    /// Enabled language ids from `.wax/wax.config.json`.
     pub enabled_language_ids: BTreeSet<LanguageId>,
-    /// Locked language-pack entries from `wax.lock.json`.
+    /// Locked language-pack entries from `.wax/wax.lock.json`.
     pub locked_languages: BTreeMap<LanguageId, LockedLanguage>,
     /// Locally installed manifests by language id.
     pub installed_manifests: BTreeMap<LanguageId, Vec<InstalledManifest>>,
@@ -67,7 +67,7 @@ pub struct InstallPlan {
 /// Typed policy failures produced while evaluating auto-install decisions.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum AutoInstallPolicyError {
-    /// Enabled language id is not present in `wax.lock.json`.
+    /// Enabled language id is not present in `.wax/wax.lock.json`.
     #[error("enabled language {language_id} is missing from wax.lock.json")]
     MissingLockfileEntry {
         /// Enabled language id.

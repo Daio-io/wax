@@ -52,8 +52,7 @@ pub enum ComposeConfigMode {
 pub fn parse_compose_scan_config(
     config: &ScanConfig,
 ) -> Result<ComposeConfigMode, TreeSitterScanError> {
-    let has_registry =
-        config.contains_key("registry") || config.contains_key("design_system_registry");
+    let has_registry = config.contains_key("registry");
     let has_roots = config.contains_key("roots");
     let has_excludes = config.contains_key("excludes");
     if !has_registry && !has_roots && !has_excludes {
@@ -62,7 +61,6 @@ pub fn parse_compose_scan_config(
 
     let registry = config
         .get("registry")
-        .or_else(|| config.get("design_system_registry"))
         .ok_or_else(|| TreeSitterScanError::ConfigInvalid {
             reason: "registry is required when compose scan config is present".to_owned(),
         })?;

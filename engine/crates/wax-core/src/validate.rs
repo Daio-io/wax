@@ -1,15 +1,14 @@
 //! Repository validation rules for `wax validate`.
 
 use crate::config::lockfile::{LockfileError, load_lockfile};
-use crate::config::repo_files::{RepoFileWarning, discover_repo_files};
+use crate::config::repo_files::discover_repo_files;
 use crate::config::waxrc::{WaxRcError, load_waxrc};
 use crate::progress::{ValidateProgress, ValidateProgressEvent};
 use crate::registry_lock::{self, RegistryLockMismatch};
 use crate::registry_source::{
-    RegistrySourceInput, resolve_registry_source_allowing_missing_components_with_deprecation,
+    RegistrySourceInput, resolve_registry_source_allowing_missing_components,
 };
 use serde_json::Value;
-use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 use thiserror::Error;
@@ -34,53 +33,21 @@ pub enum ValidateWarning {
         /// Registry path relative to repo root.
         registry_path: String,
     },
-    /// Deprecated `design_system_registry` key was used.
-    DeprecatedDesignSystemRegistry {
-        /// Language this registry belongs to.
-        language_id: LanguageId,
-        /// Field path.
-        field: String,
-    },
-    /// Legacy config was ignored in favor of centralized config.
-    IgnoredLegacyConfig {
-        /// Ignored legacy config path.
-        path: String,
-    },
-    /// Legacy lockfile was ignored in favor of centralized lockfile.
-    IgnoredLegacyLockfile {
-        /// Ignored legacy lockfile path.
-        path: String,
-    },
-    /// Centralized config is in use but the lockfile is still at the legacy path.
-    PreferredConfigWithLegacyLockfile {
-        /// Preferred config path.
-        config_path: String,
-        /// Legacy lockfile path in use.
-        lockfile_path: String,
-    },
 }
 
 /// Typed validation failures with machine-friendly field paths.
 #[derive(Debug, Error)]
 pub enum ValidateError {
-    /// `.waxrc` could not be loaded.
+    /// Wax config could not be loaded.
     #[error(transparent)]
     WaxRc(#[from] WaxRcError),
     /// `wax.lock.json` could not be loaded.
     #[error(transparent)]
     Lockfile(#[from] LockfileError),
-    /// Enabled language ids must be unique.
-    #[error("invalid .waxrc field {field}: duplicate enabled language id `{language_id}`")]
-    DuplicateEnabledLanguageId {
-        /// `.waxrc` field path.
-        field: String,
-        /// Duplicate language id.
-        language_id: LanguageId,
-    },
     /// Registry file could not be read.
     #[error("failed to read design-system registry for {field} from {path}: {source}")]
     RegistryRead {
-        /// `.waxrc` field path.
+        /// Config field path.
         field: String,
         /// Resolved filesystem path.
         path: String,
@@ -91,7 +58,7 @@ pub enum ValidateError {
     /// Registry JSON was malformed.
     #[error("malformed design-system registry JSON for {field} in {path}: {source}")]
     RegistryMalformedJson {
-        /// `.waxrc` field path.
+        /// Config field path.
         field: String,
         /// Resolved filesystem path.
         path: String,
@@ -104,7 +71,7 @@ pub enum ValidateError {
         "unsupported design-system registry schema_version {found} for {field} in {path}; engine supports {supported}"
     )]
     RegistryUnsupportedSchemaVersion {
-        /// `.waxrc` field path.
+        /// Config field path.
         field: String,
         /// Resolved filesystem path.
         path: String,
@@ -116,7 +83,7 @@ pub enum ValidateError {
     /// Registry JSON shape was invalid.
     #[error("invalid design-system registry for {field} in {path}: {reason}")]
     RegistryInvalidShape {
-        /// `.waxrc` field path.
+        /// Config field path.
         field: String,
         /// Resolved filesystem path.
         path: String,
@@ -132,13 +99,13 @@ pub enum ValidateError {
         #[source]
         source: crate::registry_source::RegistrySourceError,
     },
-    /// Enabled language registry is missing from lockfile.
+    /// Configured language registry is missing from lockfile.
     #[error("enabled language {language_id} registry is missing from wax lockfile")]
     MissingRegistryLock {
         /// Language id.
         language_id: LanguageId,
     },
-    /// Enabled language registry source differs from lockfile.
+    /// Configured language registry source differs from lockfile.
     #[error(
         "enabled language {language_id} registry source drift: lockfile={lockfile_source} resolved={resolved_source}"
     )]
@@ -150,7 +117,7 @@ pub enum ValidateError {
         /// Resolved source.
         resolved_source: String,
     },
-    /// Enabled language registry digest differs from lockfile.
+    /// Configured language registry digest differs from lockfile.
     #[error(
         "enabled language {language_id} registry digest drift: lockfile={lockfile_sha256} resolved={resolved_sha256}"
     )]
@@ -179,67 +146,31 @@ pub fn validate_repo_with_progress(
     let repo_files = discover_repo_files(repo_root);
     let waxrc = load_waxrc(&repo_files.config_path)?;
 
-    let enabled = waxrc
-        .languages
-        .iter()
-        .enumerate()
-        .filter(|(_, entry)| entry.enabled)
-        .collect::<Vec<_>>();
-
-    let lockfile = if enabled.is_empty() {
+    let lockfile = if waxrc.languages.is_empty() {
         None
     } else {
         Some(load_lockfile(&repo_files.lockfile_path)?)
     };
 
-    let mut seen_ids = BTreeSet::new();
     let mut warnings = Vec::new();
 
-    for (index, entry) in &enabled {
-        let field = format!("languages[{index}].id");
-        if !seen_ids.insert(entry.id.clone()) {
-            return Err(ValidateError::DuplicateEnabledLanguageId {
-                field,
-                language_id: entry.id.clone(),
-            });
-        }
-    }
-
-    for (index, entry) in enabled {
+    for entry in &waxrc.languages {
         progress.emit(ValidateProgressEvent::ValidatingLanguage {
             language_id: entry.id.clone(),
         });
-        let registry_setting = entry.registry_source();
-        let registry_field = format!(
-            "languages[{index}].{}",
-            registry_setting
+        let registry_field = format!("languages.{}.registry", entry.id.as_str());
+        let resolved = resolve_registry_source_allowing_missing_components(RegistrySourceInput {
+            repo_root,
+            language_id: entry.id.as_str(),
+            source: entry
+                .registry_source
                 .as_ref()
-                .map(|setting| setting.field_name)
-                .unwrap_or("registry")
-        );
-        let resolved = resolve_registry_source_allowing_missing_components_with_deprecation(
-            RegistrySourceInput {
-                repo_root,
-                language_id: entry.id.as_str(),
-                source: registry_setting
-                    .as_ref()
-                    .map(|setting| setting.source.as_str()),
-            },
-            registry_setting
-                .as_ref()
-                .is_some_and(|setting| setting.deprecated),
-        )
+                .map(|setting| setting.source.as_str()),
+        })
         .map_err(|source| ValidateError::RegistrySource {
             field: registry_field.clone(),
             source,
         })?;
-
-        if resolved.deprecated {
-            warnings.push(ValidateWarning::DeprecatedDesignSystemRegistry {
-                language_id: entry.id.clone(),
-                field: registry_field.clone(),
-            });
-        }
 
         if let Some(lockfile) = &lockfile {
             registry_lock::verify_registry_lock(&entry.id, &resolved, lockfile)
@@ -304,30 +235,6 @@ pub fn validate_repo_with_progress(
                 language_id: entry.id.clone(),
                 registry_path: resolved.repo_relative_path,
             });
-        }
-    }
-
-    for warning in repo_files.warnings {
-        match warning {
-            RepoFileWarning::IgnoredLegacyConfig { legacy, .. } => {
-                warnings.push(ValidateWarning::IgnoredLegacyConfig {
-                    path: legacy.display().to_string(),
-                });
-            }
-            RepoFileWarning::IgnoredLegacyLockfile { legacy, .. } => {
-                warnings.push(ValidateWarning::IgnoredLegacyLockfile {
-                    path: legacy.display().to_string(),
-                });
-            }
-            RepoFileWarning::PreferredConfigWithLegacyLockfile {
-                preferred_config,
-                legacy_lockfile,
-            } => {
-                warnings.push(ValidateWarning::PreferredConfigWithLegacyLockfile {
-                    config_path: preferred_config.display().to_string(),
-                    lockfile_path: legacy_lockfile.display().to_string(),
-                });
-            }
         }
     }
 

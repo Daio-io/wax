@@ -43,10 +43,11 @@ impl Drop for TestFile {
     }
 }
 
-fn language_entry(id: &str, enabled: bool) -> LanguageEntry {
+fn language_entry(id: &str) -> LanguageEntry {
     LanguageEntry {
         id: LanguageId::try_from(id).unwrap(),
-        enabled,
+        roots: Vec::new(),
+        registry_source: None,
         extra: serde_json::Map::new(),
     }
 }
@@ -211,14 +212,11 @@ fn lockfile_reports_missing_file_as_read_error() {
 #[test]
 fn lockfile_doctor_reports_missing_enabled_languages() {
     let rc = WaxRc {
-        schema_version: 1,
+        schema_version: 2,
         engine: Default::default(),
         adoption: Default::default(),
-        languages: vec![
-            language_entry("compose", true),
-            language_entry("react", true),
-            language_entry("swiftui", false),
-        ],
+        languages: vec![language_entry("compose"), language_entry("react")],
+        design_systems: Default::default(),
     };
     let lock = load_lockfile(fixture_path("minimal.wax.lock.json")).unwrap();
 
@@ -234,31 +232,15 @@ fn lockfile_doctor_reports_missing_enabled_languages() {
 }
 
 #[test]
-fn lockfile_doctor_reports_stale_entries_for_disabled_or_absent_languages() {
-    let disabled_rc = WaxRc {
-        schema_version: 1,
-        engine: Default::default(),
-        adoption: Default::default(),
-        languages: vec![language_entry("compose", false)],
-    };
-    let lock = load_lockfile(fixture_path("minimal.wax.lock.json")).unwrap();
-
-    let disabled_report = check_waxrc_lockfile_languages(&disabled_rc, &lock);
-
-    assert_eq!(
-        disabled_report,
-        WaxLockLanguageReport {
-            missing_enabled_languages: BTreeSet::new(),
-            stale_locked_languages: [LanguageId::try_from("compose").unwrap()].into(),
-        }
-    );
-
+fn lockfile_doctor_reports_stale_entries_for_absent_languages() {
     let absent_rc = WaxRc {
-        schema_version: 1,
+        schema_version: 2,
         engine: Default::default(),
         adoption: Default::default(),
         languages: Vec::new(),
+        design_systems: Default::default(),
     };
+    let lock = load_lockfile(fixture_path("minimal.wax.lock.json")).unwrap();
     let absent_report = check_waxrc_lockfile_languages(&absent_rc, &lock);
 
     assert_eq!(

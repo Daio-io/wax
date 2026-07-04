@@ -42,8 +42,7 @@ pub enum BasicConfigMode {
 
 /// Loads basic scan settings from the engine request payload.
 pub fn parse_basic_scan_config(config: &ScanConfig) -> Result<BasicConfigMode, LineScanError> {
-    let has_registry =
-        config.contains_key("registry") || config.contains_key("design_system_registry");
+    let has_registry = config.contains_key("registry");
     let has_roots = config.contains_key("roots");
     let has_extensions = config.contains_key("file_extensions");
     let has_globs = config.contains_key("include_globs");
@@ -54,7 +53,6 @@ pub fn parse_basic_scan_config(config: &ScanConfig) -> Result<BasicConfigMode, L
 
     let registry = config
         .get("registry")
-        .or_else(|| config.get("design_system_registry"))
         .ok_or_else(|| LineScanError::ConfigInvalid {
             reason: "registry is required when basic scan config is present".to_owned(),
         })?;

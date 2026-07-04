@@ -6,40 +6,16 @@ use wax_lang_compose::{ComposeLanguage, ComposeScanError};
 
 #[test]
 fn registry_key_is_accepted_as_canonical_registry_path() {
-    let mut config = valid_config();
-    let registry = config.remove("design_system_registry").unwrap();
-    config.insert("registry".to_owned(), registry);
-
-    let facts = scan_with_config(config).expect("registry key should scan");
+    let facts = scan_with_config(valid_config()).expect("registry key should scan");
 
     assert_eq!(facts.counts.registry.component_count, 2);
-}
-
-#[test]
-fn design_system_registry_key_still_scans() {
-    let facts = scan_with_config(valid_config()).expect("legacy registry key should still scan");
-
-    assert_eq!(facts.counts.registry.component_count, 2);
-}
-
-#[test]
-fn registry_key_wins_when_both_registry_keys_are_present() {
-    let mut config = valid_config();
-    config.insert(
-        "registry".to_owned(),
-        serde_json::Value::String("alt-design-system/registry.json".to_owned()),
-    );
-
-    let facts = scan_with_config(config).expect("canonical registry key should win");
-
-    assert_eq!(facts.counts.registry.component_count, 1);
 }
 
 #[test]
 fn empty_roots_array_is_config_error_not_scaffold() {
     let mut config = serde_json::Map::new();
     config.insert(
-        "design_system_registry".to_owned(),
+        "registry".to_owned(),
         serde_json::Value::String("design-system/registry.json".to_owned()),
     );
     config.insert("roots".to_owned(), serde_json::json!([]));
@@ -52,7 +28,7 @@ fn empty_roots_array_is_config_error_not_scaffold() {
 fn non_string_root_entry_is_config_error() {
     let mut config = serde_json::Map::new();
     config.insert(
-        "design_system_registry".to_owned(),
+        "registry".to_owned(),
         serde_json::Value::String("design-system/registry.json".to_owned()),
     );
     config.insert("roots".to_owned(), serde_json::json!([123]));
@@ -309,7 +285,7 @@ fn assert_config_error(err: ComposeScanError) {
         ComposeScanError::InvalidConfig(message) => {
             assert!(
                 message.contains("roots")
-                    || message.contains("design_system_registry")
+                    || message.contains("registry")
                     || message.contains("registry"),
                 "expected config validation message, got: {message}"
             );
@@ -333,7 +309,7 @@ fn assert_invalid_excludes(err: ComposeScanError, expected: &str) {
 fn valid_config() -> serde_json::Map<String, serde_json::Value> {
     let mut config = serde_json::Map::new();
     config.insert(
-        "design_system_registry".to_owned(),
+        "registry".to_owned(),
         serde_json::Value::String("design-system/registry.json".to_owned()),
     );
     config.insert(

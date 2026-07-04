@@ -10,11 +10,13 @@ fn fixture_path(name: &str) -> std::path::PathBuf {
 fn loads_minimal_waxrc() {
     let rc = load_waxrc(fixture_path("minimal.waxrc")).unwrap();
 
-    assert_eq!(rc.schema_version, 1);
+    assert_eq!(rc.schema_version, 2);
     assert_eq!(rc.engine.scan_concurrency, 2);
     assert_eq!(rc.languages.len(), 1);
     assert_eq!(rc.languages[0].id.as_str(), "compose");
-    assert!(rc.languages[0].enabled);
+    assert!(rc.languages[0].roots.is_empty());
+    assert!(rc.languages[0].registry_source.is_none());
+    assert!(rc.design_systems.is_empty());
 }
 
 #[test]
@@ -22,13 +24,10 @@ fn waxrc_preserves_language_extra_config() {
     let rc = load_waxrc(fixture_path("with-extra.waxrc")).unwrap();
 
     assert_eq!(rc.engine.scan_concurrency, 4);
+    assert_eq!(rc.languages[0].roots, ["app/src"]);
     assert_eq!(
-        rc.languages[0].extra["design_system_registry"],
+        rc.languages[0].registry_source.as_ref().unwrap().source,
         "design-system/registry.json"
-    );
-    assert_eq!(
-        rc.languages[0].extra["roots"],
-        serde_json::json!(["app/src"])
     );
 }
 
@@ -38,15 +37,9 @@ fn waxrc_loads_multiple_languages() {
 
     assert_eq!(rc.languages.len(), 2);
     assert_eq!(rc.languages[0].id.as_str(), "compose");
-    assert_eq!(
-        rc.languages[0].extra["roots"],
-        serde_json::json!(["app/src/main/kotlin"])
-    );
+    assert_eq!(rc.languages[0].roots, ["app/src/main/kotlin"]);
     assert_eq!(rc.languages[1].id.as_str(), "react");
-    assert_eq!(
-        rc.languages[1].extra["roots"],
-        serde_json::json!(["apps/web/src"])
-    );
+    assert_eq!(rc.languages[1].roots, ["apps/web/src"]);
 }
 
 #[test]
@@ -83,7 +76,7 @@ fn waxrc_rejects_unsupported_schema_version() {
         WaxRcError::UnsupportedSchemaVersion {
             path: _,
             found: 999,
-            supported: 1
+            supported: 2
         }
     ));
     assert!(
@@ -92,12 +85,12 @@ fn waxrc_rejects_unsupported_schema_version() {
     );
     assert!(
         err.to_string()
-            .contains("unsupported-schema.waxrc; this engine supports 1")
+            .contains("unsupported-schema.waxrc; this engine supports 2")
     );
 }
 
 #[test]
-fn waxrc_rejects_unsupported_schema_version_before_v1_shape() {
+fn waxrc_rejects_unsupported_schema_version_before_v2_shape() {
     let err = load_waxrc(fixture_path("unsupported-schema-missing-v1-fields.waxrc")).unwrap_err();
 
     assert!(matches!(
@@ -105,7 +98,7 @@ fn waxrc_rejects_unsupported_schema_version_before_v1_shape() {
         WaxRcError::UnsupportedSchemaVersion {
             path: _,
             found: 999,
-            supported: 1
+            supported: 2
         }
     ));
 }
@@ -138,17 +131,21 @@ fn waxrc_rejects_invalid_language_id() {
 }
 
 #[test]
-fn waxrc_rejects_missing_required_language_fields() {
-    let missing_id = load_waxrc(fixture_path("missing-language-id.waxrc")).unwrap_err();
-    let missing_enabled = load_waxrc(fixture_path("missing-language-enabled.waxrc")).unwrap_err();
+fn waxrc_rejects_legacy_language_fields() {
+    let legacy_id = load_waxrc(fixture_path("missing-language-id.waxrc")).unwrap_err();
+    let legacy_enabled = load_waxrc(fixture_path("missing-language-enabled.waxrc")).unwrap_err();
 
-    assert!(matches!(missing_id, WaxRcError::InvalidConfig { .. }));
-    assert!(missing_id.to_string().contains("missing field `id`"));
-    assert!(matches!(missing_enabled, WaxRcError::InvalidConfig { .. }));
+    assert!(matches!(legacy_id, WaxRcError::InvalidConfig { .. }));
     assert!(
-        missing_enabled
+        legacy_id
             .to_string()
-            .contains("missing field `enabled`")
+            .contains("languages.*.id is not supported")
+    );
+    assert!(matches!(legacy_enabled, WaxRcError::InvalidConfig { .. }));
+    assert!(
+        legacy_enabled
+            .to_string()
+            .contains("languages.*.enabled is not supported")
     );
 }
 
@@ -184,21 +181,14 @@ fn parses_registry_string_without_removing_pack_config() {
     let language = &rc.languages[0];
 
     assert_eq!(
-        language.registry_source().unwrap(),
-        LanguageRegistrySource {
+        language.registry_source.as_ref().unwrap(),
+        &LanguageRegistrySource {
             source: ".wax/compose.registry.json".to_owned(),
-            field_name: "registry",
-            deprecated: false,
+            upstream: None,
         }
     );
-    assert_eq!(
-        language.extra["registry"],
-        serde_json::Value::String(".wax/compose.registry.json".to_owned())
-    );
-    assert_eq!(
-        language.extra["roots"],
-        serde_json::json!(["app/src/main/kotlin"])
-    );
+    assert!(!language.extra.contains_key("registry"));
+    assert_eq!(language.roots, ["app/src/main/kotlin"]);
 }
 
 #[test]
@@ -207,46 +197,20 @@ fn parses_registry_source_object() {
     let language = &rc.languages[0];
 
     assert_eq!(
-        language.registry_source().unwrap(),
-        LanguageRegistrySource {
+        language.registry_source.as_ref().unwrap(),
+        &LanguageRegistrySource {
             source: "https://example.com/acme-ds/registry/v2.4.1/compose.json".to_owned(),
-            field_name: "registry.source",
-            deprecated: false,
+            upstream: None,
         }
     );
-    assert_eq!(
-        language.extra["registry"],
-        serde_json::json!({
-            "source": "https://example.com/acme-ds/registry/v2.4.1/compose.json"
-        })
-    );
-    assert_eq!(
-        language.extra["roots"],
-        serde_json::json!(["app/src/main/kotlin"])
-    );
+    assert!(!language.extra.contains_key("registry"));
+    assert_eq!(language.roots, ["app/src/main/kotlin"]);
 }
 
 #[test]
-fn parses_legacy_design_system_registry_source() {
-    let rc = load_waxrc(fixture_path("with-extra.waxrc")).unwrap();
-    let language = &rc.languages[0];
-
-    assert_eq!(
-        language.registry_source().unwrap(),
-        LanguageRegistrySource {
-            source: "design-system/registry.json".to_owned(),
-            field_name: "design_system_registry",
-            deprecated: true,
-        }
-    );
-}
-
-#[test]
-fn malformed_registry_is_reported_as_invalid_config_without_legacy_fallback() {
+fn malformed_registry_is_reported_as_invalid_config() {
     let err = load_waxrc(fixture_path("with-malformed-registry-and-legacy.waxrc")).unwrap_err();
 
     assert!(matches!(err, WaxRcError::InvalidConfig { .. }));
     assert!(err.to_string().contains("invalid wax config"));
-    assert!(err.to_string().contains("registry"));
-    assert!(err.to_string().contains("string"));
 }

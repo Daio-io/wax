@@ -98,11 +98,7 @@ fn validate_repo_warns_when_file_registry_components_key_missing() {
     .unwrap();
     let source = format!("file://{}", outside_registry.display());
     write_repo_with_registry_path(&root.path, &source);
-    write_legacy_lockfile_with_registry_and_sha256(
-        &root.path,
-        &source,
-        &file_sha256(&outside_registry),
-    );
+    write_lockfile_with_registry_and_sha256(&root.path, &source, &file_sha256(&outside_registry));
 
     let report = validate_repo(&root.path).expect("missing components should warn");
 
@@ -128,7 +124,7 @@ fn validate_repo_requires_lockfile_when_language_enabled() {
 "#,
     );
 
-    fs::remove_file(root.path.join("wax.lock.json")).expect("lockfile should exist");
+    fs::remove_file(root.path.join(".wax/wax.lock.json")).expect("lockfile should exist");
 
     let err = validate_repo(&root.path).expect_err("missing lockfile should fail");
     assert!(matches!(err, ValidateError::Lockfile(_)));
@@ -137,11 +133,12 @@ fn validate_repo_requires_lockfile_when_language_enabled() {
 #[test]
 fn validate_repo_rejects_missing_per_language_registry_file() {
     let root = TestDir::new("validate-repo-missing-default-registry");
+    fs::create_dir_all(root.path.join(".wax")).unwrap();
     fs::write(
-        root.path.join(".waxrc"),
+        root.path.join(".wax/wax.config.json"),
         r#"{
-  "schema_version": 1,
-  "languages": [{"id":"compose","enabled":true}]
+  "schema_version": 2,
+  "languages": {"compose": {}}
 }"#,
     )
     .unwrap();
@@ -154,38 +151,6 @@ fn validate_repo_rejects_missing_per_language_registry_file() {
             source: wax_core::registry_source::RegistrySourceError::Read { .. },
             ..
         }
-    ));
-}
-
-#[test]
-fn validate_repo_rejects_duplicate_enabled_language_ids() {
-    let root = TestDir::new("validate-repo-duplicate-language");
-    fs::create_dir_all(root.path.join("design-system")).unwrap();
-    fs::write(
-        root.path.join("design-system/registry.json"),
-        r#"{
-  "schema_version": 1,
-  "components": []
-}"#,
-    )
-    .unwrap();
-    fs::write(
-        root.path.join(".waxrc"),
-        r#"{
-  "schema_version": 1,
-  "languages": [
-    {"id":"compose","enabled":true,"design_system_registry":"design-system/registry.json"},
-    {"id":"compose","enabled":true,"design_system_registry":"design-system/registry.json"}
-  ]
-}"#,
-    )
-    .unwrap();
-    write_lockfile(&root.path);
-
-    let err = validate_repo(&root.path).expect_err("duplicate language ids should fail");
-    assert!(matches!(
-        err,
-        ValidateError::DuplicateEnabledLanguageId { .. }
     ));
 }
 
@@ -283,7 +248,7 @@ fn validate_repo_accepts_default_centralized_registry() {
     fs::create_dir_all(root.path.join(".wax")).unwrap();
     fs::write(
         root.path.join(".wax/wax.config.json"),
-        r#"{"schema_version":1,"languages":[{"id":"compose","enabled":true}]}"#,
+        r#"{"schema_version": 2,"languages":{"compose": {}}}"#,
     )
     .unwrap();
     fs::write(
@@ -296,63 +261,6 @@ fn validate_repo_accepts_default_centralized_registry() {
     let report = validate_repo(&root.path).unwrap();
 
     assert!(report.warnings.is_empty());
-}
-
-#[test]
-fn validate_repo_warns_for_legacy_design_system_registry() {
-    let root = TestDir::new("validate-repo-legacy-design-system-registry");
-    fs::write(
-        root.path.join(".waxrc"),
-        r#"{"schema_version":1,"languages":[{"id":"compose","enabled":true,"design_system_registry":"design-system/registry.json"}]}"#,
-    )
-    .unwrap();
-    fs::create_dir_all(root.path.join("design-system")).unwrap();
-    fs::write(
-        root.path.join("design-system/registry.json"),
-        r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
-    )
-    .unwrap();
-    write_legacy_lockfile_with_registry(&root.path, "design-system/registry.json");
-
-    let report = validate_repo(&root.path).unwrap();
-
-    assert!(report.warnings.iter().any(|warning| {
-        matches!(
-            warning,
-            ValidateWarning::DeprecatedDesignSystemRegistry { .. }
-        )
-    }));
-}
-
-#[test]
-fn validate_repo_warns_for_preferred_config_with_legacy_lockfile() {
-    let root = TestDir::new("validate-repo-partial-layout");
-    fs::create_dir_all(root.path.join(".wax")).unwrap();
-    fs::write(
-        root.path.join(".wax/wax.config.json"),
-        r#"{"schema_version":1,"languages":[{"id":"compose","enabled":true,"registry":"design-system/registry.json"}]}"#,
-    )
-    .unwrap();
-    fs::create_dir_all(root.path.join("design-system")).unwrap();
-    fs::write(
-        root.path.join("design-system/registry.json"),
-        r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
-    )
-    .unwrap();
-    write_legacy_lockfile_with_registry(&root.path, "design-system/registry.json");
-
-    let report = validate_repo(&root.path).unwrap();
-
-    assert!(report.warnings.iter().any(|warning| {
-        matches!(
-            warning,
-            ValidateWarning::PreferredConfigWithLegacyLockfile {
-                config_path,
-                lockfile_path,
-            } if config_path.ends_with(".wax/wax.config.json")
-                && lockfile_path.ends_with("wax.lock.json")
-        )
-    }));
 }
 
 #[test]
@@ -393,11 +301,7 @@ fn validate_repo_rejects_registry_source_drift() {
                 hex
             })
     };
-    write_legacy_lockfile_with_registry_and_sha256(
-        &root.path,
-        "legacy/registry.json",
-        &registry_sha256,
-    );
+    write_lockfile_with_registry_and_sha256(&root.path, "legacy/registry.json", &registry_sha256);
 
     let err = validate_repo(&root.path).expect_err("registry source drift should fail");
 
@@ -421,7 +325,7 @@ fn validate_repo_rejects_registry_digest_drift() {
         "design-system/registry.json",
         r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
     );
-    write_legacy_lockfile_with_registry_and_sha256(
+    write_lockfile_with_registry_and_sha256(
         &root.path,
         "design-system/registry.json",
         "2222222222222222222222222222222222222222222222222222222222222222",
@@ -457,26 +361,29 @@ fn write_repo_with_registry_json(repo_root: &Path, registry_path: &str, registry
     fs::write(&registry_abs, registry_json).unwrap();
 
     write_repo_with_registry_path(repo_root, registry_path);
-    write_legacy_lockfile_with_registry(repo_root, registry_path);
+    write_lockfile_with_registry(repo_root, registry_path);
 }
 
 fn write_repo_with_registry_path(repo_root: &Path, registry_path: &str) {
+    fs::create_dir_all(repo_root.join(".wax")).unwrap();
     fs::write(
-        repo_root.join(".waxrc"),
+        repo_root.join(".wax/wax.config.json"),
         format!(
-            "{{\n  \"schema_version\": 1,\n  \"languages\": [{{\"id\":\"compose\",\"enabled\":true,\"registry\":\"{registry_path}\"}}]\n}}\n"
+            "{{\n  \"schema_version\": 2,\n  \"languages\": {{\"compose\": {{\"registry\": \"{registry_path}\"}}}}\n}}\n"
         ),
     )
     .unwrap();
 }
 
 fn write_lockfile(repo_root: &Path) {
+    fs::create_dir_all(repo_root.join(".wax")).unwrap();
     fs::write(
-        repo_root.join("wax.lock.json"),
+        repo_root.join(".wax/wax.lock.json"),
         r#"{
-  "schema_version": 1,
+  "schema_version": 2,
   "engine_api_version": 1,
   "wax_version": "0.0.0",
+  "registries": {},
   "languages": {
     "compose": {
       "version": "0.1.0",
@@ -497,6 +404,7 @@ fn write_lockfile(repo_root: &Path) {
 }
 
 fn write_lockfile_with_registry(repo_root: &Path, source: &str) {
+    fs::create_dir_all(repo_root.join(".wax")).unwrap();
     fs::write(
         repo_root.join(".wax/wax.lock.json"),
         lockfile_json(repo_root, source),
@@ -504,17 +412,10 @@ fn write_lockfile_with_registry(repo_root: &Path, source: &str) {
     .unwrap();
 }
 
-fn write_legacy_lockfile_with_registry(repo_root: &Path, source: &str) {
+fn write_lockfile_with_registry_and_sha256(repo_root: &Path, source: &str, sha256: &str) {
+    fs::create_dir_all(repo_root.join(".wax")).unwrap();
     fs::write(
-        repo_root.join("wax.lock.json"),
-        lockfile_json(repo_root, source),
-    )
-    .unwrap();
-}
-
-fn write_legacy_lockfile_with_registry_and_sha256(repo_root: &Path, source: &str, sha256: &str) {
-    fs::write(
-        repo_root.join("wax.lock.json"),
+        repo_root.join(".wax/wax.lock.json"),
         lockfile_json_with_sha256(source, sha256),
     )
     .unwrap();
@@ -528,7 +429,7 @@ fn lockfile_json(repo_root: &Path, source: &str) -> String {
 fn lockfile_json_with_sha256(source: &str, sha256: &str) -> String {
     format!(
         r#"{{
-  "schema_version": 1,
+  "schema_version": 2,
   "engine_api_version": 1,
   "wax_version": "0.1.0",
   "locked_at": null,

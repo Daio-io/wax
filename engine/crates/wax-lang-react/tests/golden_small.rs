@@ -130,7 +130,7 @@ fn wrapper_fixture_reports_local_invocations_and_parent_attribution() {
 fn scan_request(fixture_root: &Path, snapshot_id: &str) -> ScanRequest {
     let mut config = serde_json::Map::new();
     config.insert(
-        "design_system_registry".to_owned(),
+        "registry".to_owned(),
         serde_json::Value::String("design-system/registry.json".to_owned()),
     );
     config.insert("roots".to_owned(), serde_json::json!(["src"]));

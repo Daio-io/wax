@@ -114,14 +114,14 @@ pub struct UpdateOptions {
     pub target_triple: Option<String>,
     /// State path override for tests.
     pub state_path: Option<PathBuf>,
-    /// Repository root; config and lock paths are discovered under `.wax/` or legacy paths.
+    /// Repository root; config and lock paths are discovered under `.wax/wax.config.json` and `.wax/wax.lock.json`.
     pub repo_root: PathBuf,
 }
 
 /// Options for `wax language doctor`.
 #[derive(Debug, Clone)]
 pub struct DoctorOptions {
-    /// Repository root; config and lock paths are discovered under `.wax/` or legacy paths.
+    /// Repository root; config and lock paths are discovered under `.wax/wax.config.json` and `.wax/wax.lock.json`.
     pub repo_root: PathBuf,
     /// State path override for tests.
     pub state_path: Option<PathBuf>,
@@ -168,7 +168,7 @@ pub enum LanguageCommandError {
     /// Global path resolution failed.
     #[error(transparent)]
     Paths(#[from] PathsError),
-    /// `.waxrc` loading failed.
+    /// `.wax/wax.config.json` loading failed.
     #[error(transparent)]
     WaxRc(#[from] WaxRcError),
     /// Lockfile loading failed.
@@ -348,10 +348,7 @@ pub fn run_doctor(
     let mut config_status = BTreeMap::new();
     for language in &waxrc.languages {
         language_ids.insert(language.id.clone());
-        config_status.insert(
-            language.id.clone(),
-            if language.enabled { "yes" } else { "no" },
-        );
+        config_status.insert(language.id.clone(), "yes");
     }
     if let Some(lockfile) = &lockfile {
         language_ids.extend(lockfile.languages.keys().cloned());
@@ -758,19 +755,16 @@ fn refresh_registry_locks_in_lockfile(
     repo_root: &Path,
     waxrc: &WaxRc,
 ) -> Result<(), LanguageCommandError> {
-    for entry in waxrc.languages.iter().filter(|entry| entry.enabled) {
-        let registry_setting = entry.registry_source();
-        let resolved = wax_core::registry_source::resolve_registry_source_with_deprecation(
+    for entry in &waxrc.languages {
+        let resolved = wax_core::registry_source::resolve_registry_source(
             wax_core::registry_source::RegistrySourceInput {
                 repo_root,
                 language_id: entry.id.as_str(),
-                source: registry_setting
+                source: entry
+                    .registry_source
                     .as_ref()
                     .map(|setting| setting.source.as_str()),
             },
-            registry_setting
-                .as_ref()
-                .is_some_and(|setting| setting.deprecated),
         )?;
         lockfile.registries.insert(
             entry.id.clone(),
@@ -1354,8 +1348,9 @@ mod tests {
             ),
         )
         .unwrap();
+        fs::create_dir_all(temp.path().join(".wax")).unwrap();
         fs::write(
-            temp.path().join("wax.lock.json"),
+            temp.path().join(".wax/wax.lock.json"),
             r#"{"schema_version":1,"engine_api_version":1,"wax_version":"0.0.0","locked_at":null,"languages":{"compose":{"version":"0.4.1","api_version":1,"source":"test","resolved":{"target":"test-target","url":"file:///tmp/old-pack.tgz","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","signature":null}}}}"#,
         )
         .unwrap();
@@ -1382,7 +1377,8 @@ mod tests {
         assert!(!old_dir.exists());
 
         let lockfile =
-            wax_core::config::lockfile::load_lockfile(temp.path().join("wax.lock.json")).unwrap();
+            wax_core::config::lockfile::load_lockfile(temp.path().join(".wax/wax.lock.json"))
+                .unwrap();
         assert_eq!(lockfile.schema_version, WAX_LOCK_SCHEMA_VERSION);
         assert!(lockfile.registries.is_empty());
         let locked = &lockfile.languages[&lang("compose")];
@@ -1403,7 +1399,7 @@ mod tests {
         fs::create_dir_all(temp.path().join(".wax")).unwrap();
         fs::write(
             temp.path().join(".wax/wax.config.json"),
-            r#"{"schema_version":1,"languages":[{"id":"compose","enabled":true}]}"#,
+            r#"{"schema_version": 2,"languages":{"compose": {}}}"#,
         )
         .unwrap();
         fs::write(
@@ -1560,13 +1556,14 @@ mod tests {
     #[test]
     fn doctor_reports_union_of_config_lock_and_installed_languages() {
         let temp = TestDir::new("doctor");
+        fs::create_dir_all(temp.path().join(".wax")).unwrap();
         fs::write(
-            temp.path().join(".waxrc"),
-            r#"{"schema_version":1,"languages":[{"id":"compose","enabled":true},{"id":"react","enabled":false}]}"#,
+            temp.path().join(".wax/wax.config.json"),
+            r#"{"schema_version": 2,"languages":{"compose": {}}}"#,
         )
         .unwrap();
         fs::write(
-            temp.path().join("wax.lock.json"),
+            temp.path().join(".wax/wax.lock.json"),
             r#"{"schema_version":1,"engine_api_version":1,"wax_version":"0.0.0","locked_at":null,"languages":{"compose":{"version":"0.4.2","api_version":1,"source":"test","resolved":{"target":"test-target","url":"file:///tmp/pack.tgz","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","signature":null}},"lock-only":{"version":"2.0.0","api_version":1,"source":"test","resolved":{"target":"test-target","url":"file:///tmp/lock-only.tgz","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","signature":null}}}}"#,
         )
         .unwrap();
@@ -1612,10 +1609,7 @@ mod tests {
         assert!(output.contains("lock: 0.4.2"));
         assert!(output.contains("missing binary: yes"));
 
-        assert!(output.contains("language: react"));
-        assert!(output.contains("enabled: no"));
-        assert!(output.contains("installed: missing"));
-        assert!(output.contains("lock: missing"));
+        assert!(!output.contains("language: react"));
 
         assert!(output.contains("language: lock-only"));
         assert!(output.contains("enabled: missing"));
@@ -1630,9 +1624,10 @@ mod tests {
     #[test]
     fn doctor_reports_present_binary_as_not_missing() {
         let temp = TestDir::new("doctor-present-binary");
+        fs::create_dir_all(temp.path().join(".wax")).unwrap();
         fs::write(
-            temp.path().join(".waxrc"),
-            r#"{"schema_version":1,"languages":[{"id":"compose","enabled":true}]}"#,
+            temp.path().join(".wax/wax.config.json"),
+            r#"{"schema_version": 2,"languages":{"compose": {}}}"#,
         )
         .unwrap();
         let install_dir = temp.path().join("langs/compose/0.4.2");
@@ -1693,7 +1688,7 @@ mod tests {
         fs::create_dir_all(temp.path().join(".wax")).unwrap();
         fs::write(
             temp.path().join(".wax/wax.config.json"),
-            r#"{"schema_version":1,"languages":[{"id":"compose","enabled":true}]}"#,
+            r#"{"schema_version": 2,"languages":{"compose": {}}}"#,
         )
         .unwrap();
         fs::write(
@@ -1725,7 +1720,7 @@ mod tests {
         fs::create_dir_all(temp.path().join(".wax")).unwrap();
         fs::write(
             temp.path().join(".wax/wax.config.json"),
-            r#"{"schema_version":1,"languages":[{"id":"compose","enabled":true}]}"#,
+            r#"{"schema_version": 2,"languages":{"compose": {}}}"#,
         )
         .unwrap();
         fs::write(
@@ -1762,9 +1757,10 @@ mod tests {
         let temp = TestDir::new("doctor-env-source");
         let _lang_index = EnvVarGuard::set("WAX_LANG_INDEX", "https://example.invalid/index.json");
 
+        fs::create_dir_all(temp.path().join(".wax")).unwrap();
         fs::write(
-            temp.path().join(".waxrc"),
-            r#"{"schema_version":1,"languages":[]}"#,
+            temp.path().join(".wax/wax.config.json"),
+            r#"{"schema_version": 2,"languages":{}}"#,
         )
         .unwrap();
 
@@ -1809,7 +1805,7 @@ mod tests {
 
     fn legacy_lockfile_json() -> String {
         r#"{
-  "schema_version": 1,
+  "schema_version": 2,
   "engine_api_version": 1,
   "wax_version": "0.0.0",
   "locked_at": null,

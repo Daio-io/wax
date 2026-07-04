@@ -86,40 +86,9 @@ fn configured_scan_loads_registry_and_reports_missing_root_as_partial() {
 
 #[test]
 fn registry_key_is_accepted_as_canonical_registry_path() {
-    let mut config = valid_fixture_config();
-    let registry = config
-        .remove("design_system_registry")
-        .expect("fixture key");
-    config.insert("registry".to_owned(), registry);
-
-    let facts = scan_fixture_with_config(config).expect("registry key should scan");
+    let facts = scan_fixture_with_config(valid_fixture_config()).expect("registry key should scan");
 
     assert_eq!(facts.status, ScanStatus::Complete);
-    assert_eq!(facts.counts.registry.component_count, 2);
-}
-
-#[test]
-fn design_system_registry_key_still_scans() {
-    let facts = scan_fixture_with_config(valid_fixture_config()).expect("legacy key should scan");
-
-    assert_eq!(facts.status, ScanStatus::Complete);
-    assert_eq!(facts.counts.registry.component_count, 2);
-}
-
-#[test]
-fn registry_key_wins_when_both_registry_keys_are_present() {
-    let mut config = valid_fixture_config();
-    config.insert(
-        "registry".to_owned(),
-        serde_json::Value::String("design-system/registry.json".to_owned()),
-    );
-    config.insert(
-        "design_system_registry".to_owned(),
-        serde_json::Value::String("alt-design-system/registry.json".to_owned()),
-    );
-
-    let facts = scan_fixture_with_config(config).expect("canonical registry key should win");
-
     assert_eq!(facts.counts.registry.component_count, 2);
 }
 
@@ -127,7 +96,7 @@ fn registry_key_wins_when_both_registry_keys_are_present() {
 fn empty_roots_array_is_config_error_not_scaffold() {
     let mut config = ScanConfig::new();
     config.insert(
-        "design_system_registry".to_owned(),
+        "registry".to_owned(),
         serde_json::Value::String("design-system/registry.json".to_owned()),
     );
     config.insert("roots".to_owned(), serde_json::json!([]));
@@ -140,7 +109,7 @@ fn empty_roots_array_is_config_error_not_scaffold() {
 fn non_string_root_entry_is_config_error() {
     let mut config = ScanConfig::new();
     config.insert(
-        "design_system_registry".to_owned(),
+        "registry".to_owned(),
         serde_json::Value::String("design-system/registry.json".to_owned()),
     );
     config.insert("roots".to_owned(), serde_json::json!([42]));
@@ -410,7 +379,7 @@ fn assert_invalid_excludes(err: SwiftScanError, expected: &str) {
 fn valid_fixture_config() -> ScanConfig {
     let mut config = ScanConfig::new();
     config.insert(
-        "design_system_registry".to_owned(),
+        "registry".to_owned(),
         serde_json::Value::String("design-system/registry.json".to_owned()),
     );
     config.insert("roots".to_owned(), serde_json::json!(["app/Sources/App"]));

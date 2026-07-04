@@ -91,18 +91,19 @@ fn write_default_registry(repo: &Path, languages: &[&str]) {
 fn write_waxrc(repo: &Path, languages: &[&str]) {
     let languages = languages
         .iter()
-        .map(|language| format!(r#"    {{ "id": "{language}", "enabled": true }}"#))
+        .map(|language| format!(r#"    "{language}": {{}}"#))
         .collect::<Vec<_>>()
         .join(",\n");
+    fs::create_dir_all(repo.join(".wax")).unwrap();
     fs::write(
-        repo.join(".waxrc"),
+        repo.join(".wax/wax.config.json"),
         format!(
             r#"{{
-  "schema_version": 1,
+  "schema_version": 2,
   "engine": {{ "scan_concurrency": 2 }},
-  "languages": [
+  "languages": {{
 {languages}
-  ]
+  }}
 }}"#
         ),
     )
@@ -144,7 +145,7 @@ fn write_lockfile(repo: &Path, languages: &[&str]) {
         .collect::<Vec<_>>()
         .join(",\n");
     fs::write(
-        repo.join("wax.lock.json"),
+        repo.join(".wax/wax.lock.json"),
         format!(
             r#"{{
   "schema_version": 2,

@@ -150,17 +150,15 @@ You can also point a language at a hosted registry:
 
 ```json
 {
-  "schema_version": 1,
-  "languages": [
-    {
-      "id": "react",
-      "enabled": true,
+  "schema_version": 2,
+  "languages": {
+    "react": {
+      "roots": ["src"],
       "registry": {
         "source": "https://example.com/acme-ds/v2.4.1/react.json"
-      },
-      "roots": ["src"]
+      }
     }
-  ]
+  }
 }
 ```
 

@@ -32,8 +32,6 @@ pub struct ResolvedRegistrySource {
     pub repo_relative_path: String,
     /// Lowercase hexadecimal SHA-256 digest of the registry bytes.
     pub sha256: String,
-    /// Whether this source came from a deprecated config field.
-    pub deprecated: bool,
 }
 
 /// Typed failures while resolving registry sources.
@@ -127,28 +125,18 @@ pub enum RegistrySourceError {
 pub fn resolve_registry_source(
     input: RegistrySourceInput<'_>,
 ) -> Result<ResolvedRegistrySource, RegistrySourceError> {
-    resolve_registry_source_with_deprecation(input, false)
-}
-
-/// Resolves a registry source and preserves whether it came from a deprecated field.
-pub fn resolve_registry_source_with_deprecation(
-    input: RegistrySourceInput<'_>,
-    deprecated: bool,
-) -> Result<ResolvedRegistrySource, RegistrySourceError> {
-    resolve_registry_source_with_options(input, deprecated, false)
+    resolve_registry_source_with_options(input, false)
 }
 
 /// Resolves a registry source for validate, allowing a missing `components` key to warn later.
-pub(crate) fn resolve_registry_source_allowing_missing_components_with_deprecation(
+pub(crate) fn resolve_registry_source_allowing_missing_components(
     input: RegistrySourceInput<'_>,
-    deprecated: bool,
 ) -> Result<ResolvedRegistrySource, RegistrySourceError> {
-    resolve_registry_source_with_options(input, deprecated, true)
+    resolve_registry_source_with_options(input, true)
 }
 
 fn resolve_registry_source_with_options(
     input: RegistrySourceInput<'_>,
-    deprecated: bool,
     allow_missing_components: bool,
 ) -> Result<ResolvedRegistrySource, RegistrySourceError> {
     let source = input
@@ -171,7 +159,6 @@ fn resolve_registry_source_with_options(
         source,
         repo_relative_path,
         sha256,
-        deprecated,
     })
 }
 

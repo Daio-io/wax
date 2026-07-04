@@ -4,40 +4,16 @@ use wax_lang_basic::{BasicLanguage, BasicScanError};
 
 #[test]
 fn registry_key_is_accepted_as_canonical_registry_path() {
-    let mut config = valid_config();
-    let registry = config.remove("design_system_registry").unwrap();
-    config.insert("registry".to_owned(), registry);
-
-    let facts = scan_with_config(config).expect("registry key should scan");
+    let facts = scan_with_config(valid_config()).expect("registry key should scan");
 
     assert_eq!(facts.counts.registry.component_count, 2);
-}
-
-#[test]
-fn design_system_registry_key_still_scans() {
-    let facts = scan_with_config(valid_config()).expect("legacy registry key should still scan");
-
-    assert_eq!(facts.counts.registry.component_count, 2);
-}
-
-#[test]
-fn registry_key_wins_when_both_registry_keys_are_present() {
-    let mut config = valid_config();
-    config.insert(
-        "registry".to_owned(),
-        serde_json::Value::String("alt-design-system/registry.json".to_owned()),
-    );
-
-    let facts = scan_with_config(config).expect("canonical registry key should win");
-
-    assert_eq!(facts.counts.registry.component_count, 1);
 }
 
 #[test]
 fn empty_roots_array_is_config_error_not_scaffold() {
     let mut config = serde_json::Map::new();
     config.insert(
-        "design_system_registry".to_owned(),
+        "registry".to_owned(),
         serde_json::Value::String("design-system/registry.json".to_owned()),
     );
     config.insert("roots".to_owned(), serde_json::json!([]));
@@ -50,7 +26,7 @@ fn empty_roots_array_is_config_error_not_scaffold() {
 fn non_string_root_entry_is_config_error() {
     let mut config = serde_json::Map::new();
     config.insert(
-        "design_system_registry".to_owned(),
+        "registry".to_owned(),
         serde_json::Value::String("design-system/registry.json".to_owned()),
     );
     config.insert("roots".to_owned(), serde_json::json!([123]));
@@ -72,7 +48,7 @@ fn roots_without_registry_is_config_error() {
 fn invalid_file_extension_entry_is_config_error() {
     let mut config = serde_json::Map::new();
     config.insert(
-        "design_system_registry".to_owned(),
+        "registry".to_owned(),
         serde_json::Value::String("design-system/registry.json".to_owned()),
     );
     config.insert("roots".to_owned(), serde_json::json!(["app/src"]));
@@ -86,7 +62,7 @@ fn invalid_file_extension_entry_is_config_error() {
 fn absolute_registry_path_is_config_error() {
     let mut config = serde_json::Map::new();
     config.insert(
-        "design_system_registry".to_owned(),
+        "registry".to_owned(),
         serde_json::Value::String("/etc/passwd".to_owned()),
     );
     config.insert("roots".to_owned(), serde_json::json!(["app/src"]));
@@ -99,7 +75,7 @@ fn absolute_registry_path_is_config_error() {
 fn absolute_root_path_is_config_error() {
     let mut config = serde_json::Map::new();
     config.insert(
-        "design_system_registry".to_owned(),
+        "registry".to_owned(),
         serde_json::Value::String("design-system/registry.json".to_owned()),
     );
     config.insert("roots".to_owned(), serde_json::json!(["/tmp/outside"]));
@@ -112,7 +88,7 @@ fn absolute_root_path_is_config_error() {
 fn parent_dir_in_root_is_config_error() {
     let mut config = serde_json::Map::new();
     config.insert(
-        "design_system_registry".to_owned(),
+        "registry".to_owned(),
         serde_json::Value::String("design-system/registry.json".to_owned()),
     );
     config.insert("roots".to_owned(), serde_json::json!(["../outside"]));
@@ -125,7 +101,7 @@ fn parent_dir_in_root_is_config_error() {
 fn parent_dir_in_registry_path_is_config_error() {
     let mut config = serde_json::Map::new();
     config.insert(
-        "design_system_registry".to_owned(),
+        "registry".to_owned(),
         serde_json::Value::String("../outside/registry.json".to_owned()),
     );
     config.insert("roots".to_owned(), serde_json::json!(["app/src"]));
@@ -140,7 +116,7 @@ fn malformed_registry_is_config_error() {
         .join("tests/fixtures/invalid-registry");
     let mut config = serde_json::Map::new();
     config.insert(
-        "design_system_registry".to_owned(),
+        "registry".to_owned(),
         serde_json::Value::String("design-system/registry.json".to_owned()),
     );
     config.insert("roots".to_owned(), serde_json::json!(["app/src"]));
@@ -164,7 +140,7 @@ fn malformed_registry_is_config_error() {
 fn invalid_include_glob_entry_is_config_error() {
     let mut config = serde_json::Map::new();
     config.insert(
-        "design_system_registry".to_owned(),
+        "registry".to_owned(),
         serde_json::Value::String("design-system/registry.json".to_owned()),
     );
     config.insert("roots".to_owned(), serde_json::json!(["app/src"]));
@@ -236,7 +212,7 @@ fn assert_config_error(err: BasicScanError) {
         BasicScanError::InvalidConfig(message) => {
             assert!(
                 message.contains("roots")
-                    || message.contains("design_system_registry")
+                    || message.contains("registry")
                     || message.contains("excludes")
                     || message.contains("file_extensions")
                     || message.contains("include_globs")
@@ -251,7 +227,7 @@ fn assert_config_error(err: BasicScanError) {
 fn valid_config() -> serde_json::Map<String, serde_json::Value> {
     let mut config = serde_json::Map::new();
     config.insert(
-        "design_system_registry".to_owned(),
+        "registry".to_owned(),
         serde_json::Value::String("design-system/registry.json".to_owned()),
     );
     config.insert("roots".to_owned(), serde_json::json!(["app/src"]));
