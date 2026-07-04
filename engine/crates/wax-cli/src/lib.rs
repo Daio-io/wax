@@ -7,6 +7,7 @@ pub mod commands {
     pub mod language;
     pub mod registry;
     pub mod scan;
+    pub mod sync;
     pub mod uninstall;
     pub mod validate;
 }

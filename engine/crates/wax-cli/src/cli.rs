@@ -28,6 +28,8 @@ pub enum Commands {
     Registry(RegistryCli),
     /// Scan repository source with enabled language packs.
     Scan(ScanArgs),
+    /// Refresh app registry inputs from remembered design systems.
+    Sync(SyncArgs),
     /// Discover design-system registry components from source roots.
     Discover(DiscoverArgs),
     /// Validate repository wax inputs for CI usage.
@@ -233,6 +235,14 @@ pub struct ScanArgs {
     /// Override scan worker concurrency.
     #[arg(long = "concurrency", value_parser = clap::value_parser!(u32).range(1..))]
     pub scan_concurrency: Option<u32>,
+}
+
+/// Arguments for `wax sync`.
+#[derive(Debug, Args)]
+pub struct SyncArgs {
+    /// Repository root containing wax config and lock files.
+    #[arg(long, default_value = ".")]
+    pub repo_root: PathBuf,
 }
 
 /// Arguments for `wax validate`.

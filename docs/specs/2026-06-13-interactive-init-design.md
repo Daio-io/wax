@@ -128,3 +128,16 @@ cargo fmt --all --check
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
+
+## Remembered Design Systems and Sync
+
+Interactive init now selects from remembered design systems discovered with:
+
+```bash
+wax registry discover --design-system acme --name "Acme Design System" --language react --root src
+wax init
+wax sync
+wax scan
+```
+
+`wax init` writes app config with `registry.source` and optional `registry.upstream`. After the design-system registry changes, app repositories refresh committed registry inputs with `wax sync` before scanning.
