@@ -12,6 +12,10 @@ use crate::config::repo_files::PREFERRED_CONFIG_RELATIVE_PATH;
 use crate::global_state::{
     GlobalStateError, RememberedDesignSystem, load_global_state, save_global_state,
 };
+use crate::registry_source::{
+    RegistrySourceError, is_external_registry_source, reject_repo_relative_registry_path_escape,
+    validate_repo_relative_registry_path_within_repo,
+};
 
 /// Repo-relative path recorded for remembered design systems.
 pub const LAST_SEEN_CONFIG_RELATIVE_PATH: &str = PREFERRED_CONFIG_RELATIVE_PATH;
@@ -19,6 +23,26 @@ pub const LAST_SEEN_CONFIG_RELATIVE_PATH: &str = PREFERRED_CONFIG_RELATIVE_PATH;
 /// Relative registry path for a design-system-authored language registry.
 pub fn design_system_registry_relative_path(language_id: &LanguageId) -> String {
     format!(".wax/registries/{}.json", language_id.as_str())
+}
+
+/// App-local registry path when copying from a remembered design system.
+pub fn app_registry_relative_path(design_system_id: &str, language_id: &LanguageId) -> String {
+    format!(
+        ".wax/registries/{}/{}.json",
+        design_system_id,
+        language_id.as_str()
+    )
+}
+
+/// Resolved registry inputs from a remembered design system.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedRememberedRegistry {
+    /// Source written to app config `registry.source`.
+    pub config_source: String,
+    /// Upstream id in `<design-system-id>/<language-id>` form.
+    pub upstream: String,
+    /// Local registry path relative to the design-system repo when copying is required.
+    pub design_system_local_source: Option<String>,
 }
 
 /// Errors returned while reading or updating remembered design systems.
@@ -59,6 +83,9 @@ pub enum RegistryMemoryError {
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
     },
+    /// Remembered registry source path is invalid or escapes the design-system repo.
+    #[error(transparent)]
+    RegistrySource(#[from] RegistrySourceError),
 }
 
 /// Summary of one remembered design system for list/show output.
@@ -168,6 +195,137 @@ pub fn delete_remembered_design_system(
         });
     };
     save_global_state(state_path, &state)?;
+    Ok(())
+}
+
+/// Resolves registry source and upstream metadata for one remembered design-system language.
+pub fn resolve_remembered_registry(
+    remembered: &RememberedDesignSystemSummary,
+    language_id: &LanguageId,
+) -> Result<ResolvedRememberedRegistry, RegistryMemoryError> {
+    validate_design_system_id(&remembered.id)?;
+    let config_path = remembered.repo_root.join(&remembered.last_seen_config);
+    let path_display = config_path.display().to_string();
+    let config = load_or_create_config(&config_path, &path_display)?;
+    let design_systems = config
+        .get("design_systems")
+        .and_then(Value::as_object)
+        .ok_or_else(|| RegistryMemoryError::ConfigUpdate {
+            path: path_display.clone(),
+            source: Box::new(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "wax config missing design_systems object",
+            )),
+        })?;
+    let entry =
+        design_systems
+            .get(&remembered.id)
+            .ok_or_else(|| RegistryMemoryError::ConfigUpdate {
+                path: path_display.clone(),
+                source: Box::new(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("design system `{}` missing from wax config", remembered.id),
+                )),
+            })?;
+    let registries = entry
+        .get("registries")
+        .and_then(Value::as_object)
+        .ok_or_else(|| RegistryMemoryError::ConfigUpdate {
+            path: path_display.clone(),
+            source: Box::new(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "design system `{}` missing registries object",
+                    remembered.id
+                ),
+            )),
+        })?;
+    let registry = registries
+        .get(language_id.as_str())
+        .and_then(Value::as_object)
+        .ok_or_else(|| RegistryMemoryError::ConfigUpdate {
+            path: path_display.clone(),
+            source: Box::new(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "design system `{}` missing registry for language `{}`",
+                    remembered.id,
+                    language_id.as_str()
+                ),
+            )),
+        })?;
+    let local_source = registry
+        .get("source")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RegistryMemoryError::ConfigUpdate {
+            path: path_display.clone(),
+            source: Box::new(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "design system `{}` registry for `{}` missing source",
+                    remembered.id,
+                    language_id.as_str()
+                ),
+            )),
+        })?
+        .to_owned();
+    let published_source = registry
+        .get("published_source")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let upstream = format!("{}/{}", remembered.id, language_id.as_str());
+    if let Some(published_source) = published_source.filter(|value| !value.trim().is_empty()) {
+        Ok(ResolvedRememberedRegistry {
+            config_source: published_source,
+            upstream,
+            design_system_local_source: None,
+        })
+    } else if is_external_registry_source(&local_source) {
+        Ok(ResolvedRememberedRegistry {
+            config_source: local_source,
+            upstream,
+            design_system_local_source: None,
+        })
+    } else {
+        reject_repo_relative_registry_path_escape(&local_source)?;
+        Ok(ResolvedRememberedRegistry {
+            config_source: app_registry_relative_path(&remembered.id, language_id),
+            upstream,
+            design_system_local_source: Some(local_source),
+        })
+    }
+}
+
+/// Copies a design-system registry artifact into an app repository.
+pub fn copy_design_system_registry_to_app(
+    remembered: &RememberedDesignSystemSummary,
+    design_system_local_source: &str,
+    app_repo_root: &Path,
+    app_registry_relative: &str,
+) -> Result<(), RegistryMemoryError> {
+    let source_path = validate_repo_relative_registry_path_within_repo(
+        &remembered.repo_root,
+        design_system_local_source,
+    )?;
+    let destination_path = app_repo_root.join(app_registry_relative);
+    let destination_display = destination_path.display().to_string();
+    let contents =
+        fs::read_to_string(&source_path).map_err(|source| RegistryMemoryError::ConfigUpdate {
+            path: source_path.display().to_string(),
+            source: Box::new(source),
+        })?;
+    if let Some(parent) = destination_path.parent() {
+        fs::create_dir_all(parent).map_err(|source| RegistryMemoryError::ConfigUpdate {
+            path: destination_display.clone(),
+            source: Box::new(source),
+        })?;
+    }
+    fs::write(&destination_path, format!("{contents}\n")).map_err(|source| {
+        RegistryMemoryError::ConfigUpdate {
+            path: destination_display,
+            source: Box::new(source),
+        }
+    })?;
     Ok(())
 }
 
@@ -580,6 +738,118 @@ mod registry_memory_tests {
             design_system_registry_relative_path(&language_id),
             ".wax/registries/react.json"
         );
+    }
+
+    #[test]
+    fn resolve_remembered_registry_uses_external_source_directly() {
+        let _guard = env_lock();
+        let dir = TestDir::new("remembered-external-source");
+        let repo = dir.path.join("repo");
+        std::fs::create_dir_all(repo.join(".wax")).unwrap();
+        std::fs::write(
+            repo.join(".wax/wax.config.json"),
+            r#"{
+  "schema_version": 2,
+  "design_systems": {
+    "acme": {
+      "name": "Acme Design System",
+      "registries": {
+        "react": {
+          "source": "file:///tmp/acme-react.registry.json"
+        }
+      }
+    }
+  }
+}
+"#,
+        )
+        .unwrap();
+
+        let remembered = RememberedDesignSystemSummary {
+            id: "acme".to_owned(),
+            name: "Acme Design System".to_owned(),
+            repo_root: repo.clone(),
+            last_seen_config: PathBuf::from(LAST_SEEN_CONFIG_RELATIVE_PATH),
+        };
+        let language_id = LanguageId::try_from("react").unwrap();
+
+        let resolved = resolve_remembered_registry(&remembered, &language_id).unwrap();
+        assert_eq!(
+            resolved.config_source,
+            "file:///tmp/acme-react.registry.json"
+        );
+        assert_eq!(resolved.upstream, "acme/react");
+        assert!(resolved.design_system_local_source.is_none());
+    }
+
+    #[test]
+    fn resolve_remembered_registry_rejects_path_that_escapes_design_system_repo() {
+        let _guard = env_lock();
+        let dir = TestDir::new("remembered-path-escape");
+        let repo = dir.path.join("repo");
+        std::fs::create_dir_all(repo.join(".wax")).unwrap();
+        std::fs::write(
+            repo.join(".wax/wax.config.json"),
+            r#"{
+  "schema_version": 2,
+  "design_systems": {
+    "acme": {
+      "name": "Acme Design System",
+      "registries": {
+        "react": {
+          "source": "../outside.registry.json"
+        }
+      }
+    }
+  }
+}
+"#,
+        )
+        .unwrap();
+
+        let remembered = RememberedDesignSystemSummary {
+            id: "acme".to_owned(),
+            name: "Acme Design System".to_owned(),
+            repo_root: repo.clone(),
+            last_seen_config: PathBuf::from(LAST_SEEN_CONFIG_RELATIVE_PATH),
+        };
+        let language_id = LanguageId::try_from("react").unwrap();
+
+        let err = resolve_remembered_registry(&remembered, &language_id).unwrap_err();
+        assert!(matches!(
+            err,
+            RegistryMemoryError::RegistrySource(RegistrySourceError::PathEscapesRepo { .. })
+        ));
+    }
+
+    #[test]
+    fn copy_design_system_registry_rejects_path_that_escapes_design_system_repo() {
+        let _guard = env_lock();
+        let dir = TestDir::new("copy-path-escape");
+        let repo = dir.path.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let outside = dir.path.join("outside.registry.json");
+        std::fs::write(&outside, r#"{"schema_version":1,"components":[]}"#).unwrap();
+
+        let remembered = RememberedDesignSystemSummary {
+            id: "acme".to_owned(),
+            name: "Acme Design System".to_owned(),
+            repo_root: repo.clone(),
+            last_seen_config: PathBuf::from(LAST_SEEN_CONFIG_RELATIVE_PATH),
+        };
+        let language_id = LanguageId::try_from("react").unwrap();
+
+        let err = copy_design_system_registry_to_app(
+            &remembered,
+            "../outside.registry.json",
+            dir.path.join("app").as_path(),
+            &app_registry_relative_path("acme", &language_id),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            RegistryMemoryError::RegistrySource(RegistrySourceError::PathEscapesRepo { .. })
+        ));
     }
 
     #[test]

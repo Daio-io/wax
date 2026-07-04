@@ -92,7 +92,7 @@ fn init_loads_file_copy_of_alpha_pack_index() {
             "--no-install",
             "--target",
             "x86_64-unknown-linux-gnu",
-            "--registry",
+            "--pack-index",
         ])
         .arg(&registry_url)
         .args(["--repo-root"])
@@ -191,7 +191,7 @@ fn init_writes_centralized_wax_layout_and_gitignore() {
             "--no-install",
             "--target",
             "x86_64-unknown-linux-gnu",
-            "--registry",
+            "--pack-index",
         ])
         .arg(&registry_url)
         .args(["--repo-root"])
@@ -250,7 +250,7 @@ fn init_does_not_duplicate_gitignore_entries() {
             "--no-install",
             "--target",
             "x86_64-unknown-linux-gnu",
-            "--registry",
+            "--pack-index",
         ])
         .arg(&registry_url)
         .args(["--repo-root"])
@@ -299,7 +299,7 @@ fn init_scaffolds_per_language_registry_for_single_language() {
             "--no-install",
             "--target",
             "x86_64-unknown-linux-gnu",
-            "--registry",
+            "--pack-index",
         ])
         .arg(&registry_url)
         .args(["--repo-root"])
@@ -354,7 +354,7 @@ fn init_scaffolds_per_language_registry_files_for_multi_language_repo() {
             "--no-install",
             "--target",
             "x86_64-unknown-linux-gnu",
-            "--registry",
+            "--pack-index",
         ])
         .arg(&registry_url)
         .args(["--repo-root"])
@@ -439,7 +439,7 @@ fn init_scaffolds_swift_per_language_registry_and_lock_entry() {
             "--no-install",
             "--target",
             "x86_64-unknown-linux-gnu",
-            "--registry",
+            "--pack-index",
         ])
         .arg(&registry_url)
         .args(["--repo-root"])
