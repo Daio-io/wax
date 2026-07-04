@@ -373,7 +373,7 @@ fn write_next_steps(
                     writer,
                     "Initialized registry sources from remembered design system `{design_system_id}`."
                 )?;
-                writeln!(writer, "Run `wax scan` or refresh upstream registries with `wax sync`.")?;
+                writeln!(writer, "Run `wax scan`.")?;
             }
         }
 
@@ -1089,7 +1089,7 @@ mod tests {
     }
 
     #[test]
-    fn remembered_design_system_guidance_mentions_sync() {
+    fn remembered_design_system_guidance_mentions_scan() {
         let selections = InitSelections {
             languages: vec![LanguageId::try_from("react").unwrap()],
             scan_roots: BTreeMap::from([(
@@ -1106,8 +1106,8 @@ mod tests {
         let output = String::from_utf8(output).unwrap();
 
         assert!(output.contains("remembered design system `acme`"));
-        assert!(output.contains("wax sync"));
         assert!(output.contains("wax scan"));
+        assert!(!output.contains("wax sync"));
     }
 
     #[test]
