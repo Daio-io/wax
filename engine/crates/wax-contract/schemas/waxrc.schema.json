@@ -1,14 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://wax.dev/schemas/waxrc.v1.schema.json",
-  "title": "wax config v1",
-  "description": "Repository wax configuration. Canonical path is .wax/wax.config.json; legacy .waxrc is still accepted. The $id remains waxrc.v1 for editor and tooling compatibility.",
+  "$id": "https://wax.dev/schemas/waxrc.v2.schema.json",
+  "title": "wax config v2",
+  "description": "Repository wax configuration. Canonical path is .wax/wax.config.json.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "languages"],
+  "required": ["schema_version"],
   "properties": {
     "schema_version": {
-      "const": 1
+      "const": 2
     },
     "engine": {
       "type": "object",
@@ -73,44 +73,86 @@
       }
     },
     "languages": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["id", "enabled"],
-        "properties": {
-          "id": {
-            "type": "string",
-            "pattern": "^[a-z][a-z0-9-]*$"
-          },
-          "enabled": {
-            "type": "boolean"
-          },
-          "registry": {
-            "oneOf": [
-              {
+      "type": "object",
+      "description": "Scan configuration keyed by language id. Presence of a key enables that language.",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[a-z][a-z0-9-]*$": {
+          "type": "object",
+          "properties": {
+            "roots": {
+              "type": "array",
+              "items": {
                 "type": "string",
                 "minLength": 1
-              },
-              {
-                "type": "object",
-                "additionalProperties": false,
-                "required": ["source"],
-                "properties": {
-                  "source": {
-                    "type": "string",
-                    "minLength": 1
+              }
+            },
+            "registry": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["source"],
+                  "properties": {
+                    "source": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "upstream": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Optional upstream design-system reference as <design-system-id>/<language-id>."
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "additionalProperties": true
+        }
+      }
+    },
+    "design_systems": {
+      "type": "object",
+      "description": "Design-system publication configuration keyed by design-system id.",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[a-z][a-z0-9-]*$": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "registries"],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "registries": {
+              "type": "object",
+              "additionalProperties": false,
+              "patternProperties": {
+                "^[a-z][a-z0-9-]*$": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["source"],
+                  "properties": {
+                    "source": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "published_source": {
+                      "type": "string",
+                      "minLength": 1
+                    }
                   }
                 }
               }
-            ]
-          },
-          "design_system_registry": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Deprecated. Use registry instead. When both registry and design_system_registry are set, registry wins at runtime."
+            }
           }
-        },
-        "additionalProperties": true
+        }
       }
     }
   }

@@ -1,11 +1,11 @@
 {
-  "schema_version": 1,
-  "languages": [
-    {
-      "id": "compose",
-      "enabled": true,
+  "schema_version": 2,
+  "languages": {
+    "compose": {
       "registry": ".wax/compose.registry.json",
-      "roots": ["app/src/main/kotlin"]
+      "roots": [
+        "app/src/main/kotlin"
+      ]
     }
-  ]
+  }
 }

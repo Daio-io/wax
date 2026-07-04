@@ -120,8 +120,7 @@ impl std::error::Error for TreeSitterScanError {
 pub fn parse_swift_scan_config(
     config: &ScanConfig,
 ) -> Result<SwiftConfigMode, TreeSitterScanError> {
-    let has_registry =
-        config.contains_key("registry") || config.contains_key("design_system_registry");
+    let has_registry = config.contains_key("registry");
     let has_roots = config.contains_key("roots");
     let has_excludes = config.contains_key("excludes");
     if !has_registry && !has_roots && !has_excludes {
@@ -130,7 +129,6 @@ pub fn parse_swift_scan_config(
 
     let registry = config
         .get("registry")
-        .or_else(|| config.get("design_system_registry"))
         .ok_or_else(|| TreeSitterScanError::ConfigInvalid {
             reason: "registry is required when swift scan config is present".to_owned(),
         })?;

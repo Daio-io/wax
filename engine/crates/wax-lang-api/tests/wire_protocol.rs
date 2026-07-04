@@ -20,7 +20,7 @@ fn wire_protocol_request_fixture_roundtrips_required_fields() {
         "repo_root": "/repo/root",
         "snapshot_id": "snap-123",
         "config": {
-            "design_system_registry": "./registry/components.json",
+            "registry": "./registry/components.json",
             "strict": true
         }
     });
@@ -55,7 +55,7 @@ fn wire_protocol_scan_request_and_wire_request_stay_in_sync() {
         repo_root: "/repo/root".to_owned(),
         snapshot_id: "snap-123".to_owned(),
         config: Map::from_iter([(
-            String::from("design_system_registry"),
+            String::from("registry"),
             Value::from("./registry/components.json"),
         )]),
     };

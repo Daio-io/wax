@@ -1,24 +1,24 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "engine": {
     "scan_concurrency": 2
   },
-  "languages": [
-    {
-      "id": "compose",
-      "enabled": true,
-      "roots": ["app/src/main/kotlin"]
+  "languages": {
+    "compose": {
+      "roots": [
+        "app/src/main/kotlin"
+      ]
     },
-    {
-      "id": "react",
-      "enabled": true,
-      "roots": ["apps/web/src"]
+    "react": {
+      "roots": [
+        "apps/web/src"
+      ]
     },
-    {
-      "id": "swift",
-      "enabled": true,
+    "swift": {
       "registry": ".wax/swift.registry.json",
-      "roots": ["App/Sources"]
+      "roots": [
+        "App/Sources"
+      ]
     }
-  ]
+  }
 }

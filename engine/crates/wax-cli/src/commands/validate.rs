@@ -10,7 +10,7 @@ use wax_core::validate::{ValidateError, ValidateWarning, validate_repo_with_prog
 /// Options for `wax validate`.
 #[derive(Debug, Clone)]
 pub struct ValidateCommandOptions {
-    /// Repository root containing `.wax/wax.config.json` (or legacy `.waxrc`) and lockfile inputs.
+    /// Repository root containing `.wax/wax.config.json` and lockfile inputs.
     pub repo_root: PathBuf,
 }
 
@@ -49,25 +49,6 @@ pub fn run_validate(
             } => {
                 eprintln!(
                     "warning: `{language_id}` registry `{registry_path}` has no components; adoption metrics stay empty until the registry is populated"
-                );
-            }
-            ValidateWarning::DeprecatedDesignSystemRegistry { language_id, field } => {
-                eprintln!(
-                    "warning: language {language_id} uses deprecated {field}; use registry instead"
-                );
-            }
-            ValidateWarning::IgnoredLegacyConfig { path } => {
-                eprintln!("warning: ignored legacy config {path}");
-            }
-            ValidateWarning::IgnoredLegacyLockfile { path } => {
-                eprintln!("warning: ignored legacy lockfile {path}");
-            }
-            ValidateWarning::PreferredConfigWithLegacyLockfile {
-                config_path,
-                lockfile_path,
-            } => {
-                eprintln!(
-                    "warning: using legacy lockfile {lockfile_path} with centralized config {config_path}; migrate lockfile to .wax/wax.lock.json"
                 );
             }
         }

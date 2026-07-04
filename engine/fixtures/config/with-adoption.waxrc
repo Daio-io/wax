@@ -1,11 +1,15 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "adoption": {
     "track_local_invocations": true,
     "track_unresolved_invocations": true,
     "parent_attribution": {
       "enabled": true,
-      "scope_visibility": ["public", "internal", "private"]
+      "scope_visibility": [
+        "public",
+        "internal",
+        "private"
+      ]
     },
     "candidate_policy": "report_separately",
     "symbol_usage_summary": {
@@ -13,12 +17,12 @@
       "parent_scope_limit": 0
     }
   },
-  "languages": [
-    {
-      "id": "compose",
-      "enabled": true,
+  "languages": {
+    "compose": {
       "registry": ".wax/compose.registry.json",
-      "roots": ["app/src/main/kotlin"]
+      "roots": [
+        "app/src/main/kotlin"
+      ]
     }
-  ]
+  }
 }

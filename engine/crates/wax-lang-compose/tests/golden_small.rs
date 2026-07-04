@@ -157,7 +157,7 @@ fn slot_fixture_attributes_calls_to_enclosing_composable() {
 fn scan_fixture(fixture_root: &Path, roots: &str, snapshot_id: &str) -> wax_contract::ScanFacts {
     let mut config = serde_json::Map::new();
     config.insert(
-        "design_system_registry".to_owned(),
+        "registry".to_owned(),
         serde_json::Value::String("design-system/registry.json".to_owned()),
     );
     config.insert("roots".to_owned(), serde_json::json!([roots]));

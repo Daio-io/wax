@@ -40,8 +40,7 @@ pub enum ReactConfigMode {
 
 /// Loads React scan settings from the engine request payload.
 pub fn parse_react_scan_config(config: &ScanConfig) -> Result<ReactConfigMode, ConfigError> {
-    let has_registry =
-        config.contains_key("registry") || config.contains_key("design_system_registry");
+    let has_registry = config.contains_key("registry");
     let has_roots = config.contains_key("roots");
     let has_react_only_config = config.contains_key("ignore")
         || config.contains_key("excludes")
@@ -54,7 +53,7 @@ pub fn parse_react_scan_config(config: &ScanConfig) -> Result<ReactConfigMode, C
 
     let registry = string_field(
         config,
-        &["registry", "design_system_registry"],
+        &["registry"],
         "registry is required when react scan config is present",
         "registry",
     )?;

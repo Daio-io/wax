@@ -277,7 +277,7 @@ mod tests {
         let fixture_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/invalid-registry");
         let request = format!(
-            "{{\"type\":\"scan\",\"api_version\":1,\"language_id\":\"basic\",\"repo_root\":\"{}\",\"snapshot_id\":\"snap-bad-registry\",\"config\":{{\"design_system_registry\":\"design-system/registry.json\",\"roots\":[\"app/src\"]}}}}",
+            "{{\"type\":\"scan\",\"api_version\":1,\"language_id\":\"basic\",\"repo_root\":\"{}\",\"snapshot_id\":\"snap-bad-registry\",\"config\":{{\"registry\":\"design-system/registry.json\",\"roots\":[\"app/src\"]}}}}",
             fixture_root.display()
         );
         let input = Cursor::new(format!("{request}\n"));

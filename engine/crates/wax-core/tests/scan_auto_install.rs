@@ -95,18 +95,16 @@ fn fixture_with_registry_url(name: &str, registry_artifact_url: Option<&str>) ->
     let design_registry_sha256 = sha256_hex(design_registry.as_bytes());
 
     fs::write(
-        repo.join(".waxrc"),
+        repo.join(".wax/wax.config.json"),
         r#"{
-  "schema_version": 1,
-  "languages": [
-    { "id": "compose", "enabled": true }
-  ]
+  "schema_version": 2,
+  "languages": {"compose": {}}
 }"#,
     )
     .unwrap();
 
     fs::write(
-        repo.join("wax.lock.json"),
+        repo.join(".wax/wax.lock.json"),
         format!(
             r#"{{
   "schema_version": 2,
@@ -246,7 +244,7 @@ fn scan_auto_install_disabled_does_not_fetch_registry_index() {
     let fixture = fixture("scan-auto-install-disabled-offline");
     let _wax_home = EnvVarGuard::set("WAX_HOME", &fixture.wax_home);
 
-    let lockfile_path = fixture.repo.join("wax.lock.json");
+    let lockfile_path = fixture.repo.join(".wax/wax.lock.json");
     let mut lockfile: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&lockfile_path).unwrap()).unwrap();
     lockfile["languages"]["compose"]["source"] =

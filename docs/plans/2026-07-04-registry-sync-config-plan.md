@@ -58,7 +58,7 @@
 - Produces: `DesignSystemConfig { name, registries }`
 - Consumes later: config loaders return only `.wax/wax.config.json` and `.wax/wax.lock.json`
 
-- [ ] **Step 1: Add failing config v2 parser tests**
+- [x] **Step 1: Add failing config v2 parser tests**
 
 Add tests that parse this shape:
 
@@ -97,7 +97,7 @@ cargo test -p wax-core config_v2
 
 Expected: FAIL because v2 parsing is not implemented.
 
-- [ ] **Step 2: Implement config v2 structs and parsing**
+- [x] **Step 2: Implement config v2 structs and parsing**
 
 Replace v1 language-array parsing with an object keyed by `LanguageId`. Keep pack-specific extra config flattened inside each language entry. Preserve existing `engine` and `adoption` defaults.
 
@@ -110,7 +110,7 @@ cargo test -p wax-core config_v2
 
 Expected: PASS.
 
-- [ ] **Step 3: Remove legacy repo file discovery**
+- [x] **Step 3: Remove legacy repo file discovery**
 
 Change repo file discovery so commands only select:
 
@@ -130,7 +130,7 @@ cargo test -p wax-core repo_files
 
 Expected: PASS with only preferred file paths.
 
-- [ ] **Step 4: Remove `design_system_registry` support**
+- [x] **Step 4: Remove `design_system_registry` support**
 
 Remove config parsing, schema support, validation warnings, and language-pack compatibility for `design_system_registry`. Engine-rewritten pack config should use only `registry`.
 
@@ -147,7 +147,7 @@ cargo test -p wax-lang-swift registry
 
 Expected: PASS after fixtures use `registry`.
 
-- [ ] **Step 5: Update schema and example config**
+- [x] **Step 5: Update schema and example config**
 
 Update `engine/crates/wax-contract/schemas/waxrc.schema.json` and `engine/fixtures/config/example.waxrc` to schema v2. Keep the fixture filename for now only if renaming causes broad unrelated test churn; otherwise rename it in this task.
 
@@ -160,7 +160,7 @@ cargo test -p wax-cli init_command validate_command
 
 Expected: PASS with v2 config snapshots.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add engine/crates/wax-core engine/crates/wax-contract engine/crates/wax-cli engine/crates/wax-lang-basic engine/crates/wax-lang-compose engine/crates/wax-lang-react engine/crates/wax-lang-swift engine/fixtures

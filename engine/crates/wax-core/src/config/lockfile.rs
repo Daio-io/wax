@@ -86,12 +86,12 @@ pub struct SignatureRef {
     pub bundle: serde_json::Value,
 }
 
-/// Mismatch report comparing enabled `.waxrc` languages with lockfile entries.
+/// Mismatch report comparing configured languages with lockfile entries.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WaxLockLanguageReport {
-    /// Enabled `.waxrc` language ids missing from `wax.lock.json`.
+    /// Configured language ids missing from `wax.lock.json`.
     pub missing_enabled_languages: BTreeSet<LanguageId>,
-    /// Lockfile language ids that are disabled or absent in `.waxrc`.
+    /// Lockfile language ids that are absent from config.
     pub stale_locked_languages: BTreeSet<LanguageId>,
 }
 
@@ -195,12 +195,11 @@ pub fn load_lockfile(path: impl AsRef<Path>) -> Result<WaxLock, LockfileError> {
     Ok(lock)
 }
 
-/// Compares enabled `.waxrc` language ids against the ids pinned in a lockfile.
+/// Compares configured language ids against the ids pinned in a lockfile.
 pub fn check_waxrc_lockfile_languages(waxrc: &WaxRc, lockfile: &WaxLock) -> WaxLockLanguageReport {
     let enabled: BTreeSet<LanguageId> = waxrc
         .languages
         .iter()
-        .filter(|language| language.enabled)
         .map(|language| language.id.clone())
         .collect();
     let locked: BTreeSet<LanguageId> = lockfile.languages.keys().cloned().collect();

@@ -9,7 +9,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use wax_core::registry_source::{
     RegistrySourceError, RegistrySourceInput, resolve_registry_source,
-    resolve_registry_source_with_deprecation,
 };
 
 const REGISTRY_JSON: &str =
@@ -149,7 +148,6 @@ fn missing_registry_defaults_to_per_language_registry() {
     assert_eq!(resolved.source, ".wax/compose.registry.json");
     assert_eq!(resolved.repo_relative_path, ".wax/compose.registry.json");
     assert_eq!(resolved.sha256.len(), 64);
-    assert!(!resolved.deprecated);
 }
 
 #[test]
@@ -265,29 +263,6 @@ fn malformed_registry_is_rejected() {
     .unwrap_err();
 
     assert!(matches!(err, RegistrySourceError::InvalidShape { .. }));
-}
-
-#[test]
-fn preserves_deprecated_source_marker() {
-    let repo = TestRepo::new();
-    fs::create_dir_all(repo.path().join(".wax")).unwrap();
-    fs::write(
-        repo.path().join(".wax/compose.registry.json"),
-        REGISTRY_JSON,
-    )
-    .unwrap();
-
-    let resolved = resolve_registry_source_with_deprecation(
-        RegistrySourceInput {
-            repo_root: repo.path(),
-            language_id: "compose",
-            source: None,
-        },
-        true,
-    )
-    .unwrap();
-
-    assert!(resolved.deprecated);
 }
 
 #[test]

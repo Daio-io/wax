@@ -92,24 +92,23 @@ fn validate_command_exits_non_zero_on_invalid_repo() {
     let _guard = env_lock();
     let root = TestDir::new("validate-command-fail");
     let repo = root.path.join("repo");
-    fs::create_dir_all(&repo).unwrap();
+    fs::create_dir_all(repo.join(".wax")).unwrap();
 
     fs::write(
-        repo.join(".waxrc"),
+        repo.join(".wax/wax.config.json"),
         r#"{
-  "schema_version": 1,
-  "languages": [
-    { "id": "compose", "enabled": true }
-  ]
+  "schema_version": 2,
+  "languages": {"compose": {}}
 }"#,
     )
     .unwrap();
     fs::write(
-        repo.join("wax.lock.json"),
+        repo.join(".wax/wax.lock.json"),
         r#"{
-  "schema_version": 1,
+  "schema_version": 2,
   "engine_api_version": 1,
   "wax_version": "0.0.0",
+  "registries": {},
   "languages": {
     "compose": {
       "version": "0.1.0",
@@ -136,99 +135,7 @@ fn validate_command_exits_non_zero_on_invalid_repo() {
 
     assert!(!output.status.success(), "expected validation failure");
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("invalid .wax config field languages[0].registry"));
-}
-
-#[test]
-fn validate_command_prints_deprecated_registry_warning() {
-    let _guard = env_lock();
-    let root = TestDir::new("validate-command-deprecated-registry-warning");
-    let repo = root.path.join("repo");
-    fs::create_dir_all(&repo).unwrap();
-
-    let registry_path = "design-system/registry.json";
-    let registry_abs = repo.join(registry_path);
-    fs::create_dir_all(registry_abs.parent().unwrap()).unwrap();
-    fs::write(
-        &registry_abs,
-        r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
-    )
-    .unwrap();
-    fs::write(
-        repo.join(".waxrc"),
-        format!(
-            "{{\n  \"schema_version\": 1,\n  \"languages\": [{{\"id\":\"compose\",\"enabled\":true,\"design_system_registry\":\"{registry_path}\"}}]\n}}\n"
-        ),
-    )
-    .unwrap();
-    write_legacy_lockfile_with_registry(&repo, registry_path);
-    let _wax_home = EnvVarGuard::set("WAX_HOME", root.path.join("wax-home"));
-
-    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
-        .args(["validate", "--repo-root"])
-        .arg(&repo)
-        .output()
-        .expect("spawn wax validate");
-
-    assert!(
-        output.status.success(),
-        "expected success, stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains(
-        "warning: language compose uses deprecated languages[0].design_system_registry; use registry instead"
-    ));
-}
-
-#[test]
-fn validate_command_prints_ignored_legacy_file_warnings() {
-    let _guard = env_lock();
-    let root = TestDir::new("validate-command-ignored-legacy-warnings");
-    let repo = root.path.join("repo");
-    fs::create_dir_all(repo.join(".wax")).unwrap();
-
-    fs::write(
-        repo.join(".wax/wax.config.json"),
-        r#"{"schema_version":1,"languages":[{"id":"compose","enabled":true}]}"#,
-    )
-    .unwrap();
-    fs::write(
-        repo.join(".wax/compose.registry.json"),
-        r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
-    )
-    .unwrap();
-    write_lockfile_with_registry(&repo, ".wax/compose.registry.json");
-    fs::write(
-        repo.join(".waxrc"),
-        r#"{"schema_version":1,"languages":[]}"#,
-    )
-    .unwrap();
-    fs::write(
-        repo.join("wax.lock.json"),
-        r#"{"schema_version":1,"engine_api_version":1,"wax_version":"0.0.0","languages":{}}"#,
-    )
-    .unwrap();
-    let _wax_home = EnvVarGuard::set("WAX_HOME", root.path.join("wax-home"));
-
-    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
-        .args(["validate", "--repo-root"])
-        .arg(&repo)
-        .output()
-        .expect("spawn wax validate");
-
-    assert!(
-        output.status.success(),
-        "expected success, stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("warning: ignored legacy config"));
-    assert!(stderr.contains(".waxrc"));
-    assert!(stderr.contains("warning: ignored legacy lockfile"));
-    assert!(stderr.contains("wax.lock.json"));
+    assert!(stderr.contains("invalid .wax config field languages.compose.registry"));
 }
 
 #[test]
@@ -251,7 +158,7 @@ fn validate_command_exits_non_zero_on_registry_source_drift() {
     .unwrap()
     .sha256;
     fs::write(
-        repo.join("wax.lock.json"),
+        repo.join(".wax/wax.lock.json"),
         lockfile_json_with_sha256("legacy/registry.json", &registry_sha256),
     )
     .unwrap();
@@ -267,44 +174,6 @@ fn validate_command_exits_non_zero_on_registry_source_drift() {
     assert!(stderr.contains("registry source drift"));
 }
 
-#[test]
-fn validate_command_prints_partial_layout_migration_warning() {
-    let _guard = env_lock();
-    let root = TestDir::new("validate-command-partial-layout");
-    let repo = root.path.join("repo");
-    fs::create_dir_all(repo.join(".wax")).unwrap();
-    fs::write(
-        repo.join(".wax/wax.config.json"),
-        r#"{"schema_version":1,"languages":[{"id":"compose","enabled":true,"registry":"design-system/registry.json"}]}"#,
-    )
-    .unwrap();
-    fs::create_dir_all(repo.join("design-system")).unwrap();
-    fs::write(
-        repo.join("design-system/registry.json"),
-        r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}]}"#,
-    )
-    .unwrap();
-    write_legacy_lockfile_with_registry(&repo, "design-system/registry.json");
-    let _wax_home = EnvVarGuard::set("WAX_HOME", root.path.join("wax-home"));
-
-    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
-        .args(["validate", "--repo-root"])
-        .arg(&repo)
-        .output()
-        .expect("spawn wax validate");
-
-    assert!(
-        output.status.success(),
-        "expected success, stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("warning: using legacy lockfile"));
-    assert!(stderr.contains("wax.lock.json"));
-    assert!(stderr.contains(".wax/wax.config.json"));
-}
-
 fn write_repo(repo: &Path, registry_path: &str, components: &str) {
     let registry_abs = repo.join(registry_path);
     if let Some(parent) = registry_abs.parent() {
@@ -316,28 +185,22 @@ fn write_repo(repo: &Path, registry_path: &str, components: &str) {
     )
     .unwrap();
 
+    fs::create_dir_all(repo.join(".wax")).unwrap();
     fs::write(
-        repo.join(".waxrc"),
+        repo.join(".wax/wax.config.json"),
         format!(
-            "{{\n  \"schema_version\": 1,\n  \"languages\": [{{\"id\":\"compose\",\"enabled\":true,\"registry\":\"{registry_path}\"}}]\n}}\n"
+            "{{\n  \"schema_version\": 2,\n  \"languages\": {{\"compose\": {{\"registry\": \"{registry_path}\"}}}}\n}}\n"
         ),
     )
     .unwrap();
 
-    write_legacy_lockfile_with_registry(repo, registry_path);
+    write_lockfile_with_registry(repo, registry_path);
 }
 
 fn write_lockfile_with_registry(repo_root: &Path, source: &str) {
+    fs::create_dir_all(repo_root.join(".wax")).unwrap();
     fs::write(
         repo_root.join(".wax/wax.lock.json"),
-        lockfile_json(repo_root, source),
-    )
-    .unwrap();
-}
-
-fn write_legacy_lockfile_with_registry(repo_root: &Path, source: &str) {
-    fs::write(
-        repo_root.join("wax.lock.json"),
         lockfile_json(repo_root, source),
     )
     .unwrap();
@@ -358,7 +221,7 @@ fn lockfile_json(repo_root: &Path, source: &str) -> String {
 fn lockfile_json_with_sha256(source: &str, sha256: &str) -> String {
     format!(
         r#"{{
-  "schema_version": 1,
+  "schema_version": 2,
   "engine_api_version": 1,
   "wax_version": "0.0.0",
   "locked_at": null,

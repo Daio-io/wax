@@ -76,10 +76,11 @@ fn write_repo(repo: &Path, registry_path: &str, components: &str) {
     )
     .unwrap();
 
+    fs::create_dir_all(repo.join(".wax")).unwrap();
     fs::write(
-        repo.join(".waxrc"),
+        repo.join(".wax/wax.config.json"),
         format!(
-            "{{\n  \"schema_version\": 1,\n  \"languages\": [{{\"id\":\"compose\",\"enabled\":true,\"registry\":\"{registry_path}\"}}]\n}}\n"
+            "{{\n  \"schema_version\": 2,\n  \"languages\": {{\"compose\": {{\"registry\": \"{registry_path}\"}}}}\n}}\n"
         ),
     )
     .unwrap();
@@ -93,10 +94,10 @@ fn write_repo(repo: &Path, registry_path: &str, components: &str) {
     )
     .unwrap();
     fs::write(
-        repo.join("wax.lock.json"),
+        repo.join(".wax/wax.lock.json"),
         format!(
             r#"{{
-  "schema_version": 1,
+  "schema_version": 2,
   "engine_api_version": 1,
   "wax_version": "0.0.0",
   "locked_at": null,

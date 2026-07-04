@@ -333,7 +333,7 @@ mod tests {
             "repo_root": temp.path().to_string_lossy(),
             "snapshot_id": "snap-invalid-registry",
             "config": {
-                "design_system_registry": "design-system/registry.json",
+                "registry": "design-system/registry.json",
                 "roots": ["src"]
             }
         });
@@ -367,7 +367,7 @@ mod tests {
             "repo_root": temp.path().to_string_lossy(),
             "snapshot_id": "snap-missing-registry",
             "config": {
-                "design_system_registry": "design-system/registry.json",
+                "registry": "design-system/registry.json",
                 "roots": ["src"]
             }
         });

@@ -1,17 +1,17 @@
 {
-  "schema_version": 1,
-  "languages": [
-    {
-      "id": "compose",
-      "enabled": true,
-      "design_system_registry": "design-system/registry.json",
-      "roots": ["app/src/main/kotlin"]
+  "schema_version": 2,
+  "languages": {
+    "compose": {
+      "roots": [
+        "app/src/main/kotlin"
+      ],
+      "registry": "design-system/registry.json"
     },
-    {
-      "id": "react",
-      "enabled": true,
-      "design_system_registry": "packages/ui/registry.json",
-      "roots": ["apps/web/src"]
+    "react": {
+      "roots": [
+        "apps/web/src"
+      ],
+      "registry": "packages/ui/registry.json"
     }
-  ]
+  }
 }

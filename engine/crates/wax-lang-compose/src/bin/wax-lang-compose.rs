@@ -261,7 +261,7 @@ mod tests {
     fn valid_scan_response_keeps_request_and_snapshot() {
         let repo_root = format!("{}/tests/fixtures/small", env!("CARGO_MANIFEST_DIR"));
         let input = Cursor::new(format!(
-            "{{\"type\":\"scan\",\"api_version\":1,\"language_id\":\"compose\",\"repo_root\":\"{repo_root}\",\"snapshot_id\":\"snap-42\",\"config\":{{\"design_system_registry\":\"design-system/registry.json\",\"roots\":[\"app/src/main/kotlin\"]}}}}\n"
+            "{{\"type\":\"scan\",\"api_version\":1,\"language_id\":\"compose\",\"repo_root\":\"{repo_root}\",\"snapshot_id\":\"snap-42\",\"config\":{{\"registry\":\"design-system/registry.json\",\"roots\":[\"app/src/main/kotlin\"]}}}}\n"
         ));
         let mut output = Vec::new();
 

@@ -69,9 +69,9 @@ pub struct RegistryDiscoverResult {
     pub used_config_roots: bool,
     /// Number of source roots scanned during discovery.
     pub root_count: usize,
-    /// Whether `.wax/wax.config.json` or legacy `.waxrc` was loaded.
+    /// Whether `.wax/wax.config.json` was loaded.
     pub wax_config_present: bool,
-    /// Whether `.wax/wax.lock.json` or legacy lockfile was loaded.
+    /// Whether `.wax/wax.lock.json` was loaded.
     pub lockfile_present: bool,
     /// Structured diagnostics returned by the language pack subprocess.
     pub diagnostics: Vec<Diagnostic>,
@@ -352,7 +352,8 @@ pub fn discover_registry(
     }
     let fallback_entry = LanguageEntry {
         id: language_id.clone(),
-        enabled: true,
+        roots: Vec::new(),
+        registry_source: None,
         extra: serde_json::Map::new(),
     };
     let language_entry = configured_entry.unwrap_or(&fallback_entry);
@@ -462,42 +463,21 @@ fn resolve_discovery_roots(
     let language = waxrc
         .languages
         .iter()
-        .find(|language| language.enabled && language.id.as_ref() == language_id)
+        .find(|language| language.id.as_ref() == language_id)
         .ok_or_else(|| RegistryDiscoverError::LanguageNotConfigured {
             language_id: language_id.to_owned(),
             config_path: config_path.to_owned(),
         })?;
 
-    let roots_value =
-        language
-            .extra
-            .get("roots")
-            .ok_or_else(|| RegistryDiscoverError::NoConfiguredRoots {
-                language_id: language_id.to_owned(),
-                config_path: config_path.to_owned(),
-            })?;
-    let roots_array =
-        roots_value
-            .as_array()
-            .ok_or_else(|| RegistryDiscoverError::InvalidRootsShape {
-                language_id: language_id.to_owned(),
-                config_path: config_path.to_owned(),
-            })?;
-    if roots_array.is_empty() {
+    if language.roots.is_empty() {
         return Err(RegistryDiscoverError::NoConfiguredRoots {
             language_id: language_id.to_owned(),
             config_path: config_path.to_owned(),
         });
     }
 
-    let mut resolved = Vec::with_capacity(roots_array.len());
-    for entry in roots_array {
-        let root = entry
-            .as_str()
-            .ok_or_else(|| RegistryDiscoverError::InvalidRootsShape {
-                language_id: language_id.to_owned(),
-                config_path: config_path.to_owned(),
-            })?;
+    let mut resolved = Vec::with_capacity(language.roots.len());
+    for root in &language.roots {
         resolved.push(resolve_configured_root(
             repo_root,
             language_id,
@@ -590,7 +570,7 @@ fn find_enabled_language<'a>(waxrc: &'a WaxRc, language_id: &str) -> Option<&'a 
     waxrc
         .languages
         .iter()
-        .find(|entry| entry.enabled && entry.id.as_ref() == language_id)
+        .find(|entry| entry.id.as_ref() == language_id)
 }
 
 fn resolve_discover_output_path(
@@ -598,14 +578,14 @@ fn resolve_discover_output_path(
     language_id: &LanguageId,
     entry: &LanguageEntry,
 ) -> Result<PathBuf, RegistryDiscoverError> {
-    let repo_relative = match entry.registry_source() {
+    let repo_relative = match &entry.registry_source {
         Some(source) if is_external_registry_source(&source.source) => {
             return Err(RegistryDiscoverError::RegistryExternalSource {
                 language_id: language_id.clone(),
-                registry_source: source.source,
+                registry_source: source.source.clone(),
             });
         }
-        Some(source) => source.source,
+        Some(source) => source.source.clone(),
         None => default_registry_path_for_language(language_id),
     };
     validate_repo_relative_registry_path(language_id, &repo_relative)?;
@@ -613,7 +593,7 @@ fn resolve_discover_output_path(
 }
 
 fn should_patch_config_registry(entry: &LanguageEntry) -> bool {
-    entry.registry_source().is_none()
+    entry.registry_source.is_none()
 }
 
 fn is_external_registry_source(source: &str) -> bool {
@@ -836,19 +816,16 @@ fn patch_config_registry(
             path: path_display.clone(),
             source: Box::new(source),
         })?;
-    let Some(languages) = config.get_mut("languages").and_then(Value::as_array_mut) else {
+    let Some(languages) = config.get_mut("languages").and_then(Value::as_object_mut) else {
         return Err(RegistryDiscoverError::ConfigPatch {
             path: path_display.clone(),
             source: Box::new(io::Error::new(
                 io::ErrorKind::InvalidData,
-                "wax config missing languages array",
+                "wax config missing languages object",
             )),
         });
     };
-    let Some(entry) = languages
-        .iter_mut()
-        .find(|entry| entry.get("id").and_then(Value::as_str) == Some(language_id.as_str()))
-    else {
+    let Some(entry) = languages.get_mut(language_id.as_str()) else {
         return Err(RegistryDiscoverError::ConfigPatch {
             path: path_display.clone(),
             source: Box::new(io::Error::new(

@@ -125,7 +125,7 @@ fn roots_without_registry_is_config_error() {
 #[test]
 fn empty_roots_array_is_config_error() {
     let err = scan_with_config(serde_json::json!({
-        "design_system_registry": "design-system/registry.json",
+        "registry": "design-system/registry.json",
         "roots": []
     }))
     .expect_err("empty roots must fail");
@@ -137,7 +137,7 @@ fn empty_roots_array_is_config_error() {
 fn absolute_paths_are_config_errors() {
     let mut config = valid_config();
     config.insert(
-        "design_system_registry".to_owned(),
+        "registry".to_owned(),
         serde_json::Value::String("/tmp/registry.json".to_owned()),
     );
 
@@ -332,7 +332,7 @@ fn assert_config_error(err: ReactScanError, expected_field: &str) {
 
 fn valid_config() -> serde_json::Map<String, serde_json::Value> {
     serde_json::json!({
-        "design_system_registry": "design-system/registry.json",
+        "registry": "design-system/registry.json",
         "roots": ["src"],
         "ignore": ["src/generated/**"],
         "tsconfig": "tsconfig.json",
