@@ -642,11 +642,10 @@ mod sync_tests {
         assert!(result.0.is_empty());
         assert_eq!(result.1.len(), 1);
         assert_eq!(result.1[0].0, "acme/react");
-        let config_after: Value =
-            serde_json::from_str(&fs::read_to_string(app_repo.join(".wax/wax.config.json")).expect(
-                "read config",
-            ))
-            .expect("parse config");
+        let config_after: Value = serde_json::from_str(
+            &fs::read_to_string(app_repo.join(".wax/wax.config.json")).expect("read config"),
+        )
+        .expect("parse config");
         let original_value: Value = serde_json::from_str(&original_config).expect("parse config");
         assert_eq!(config_after, original_value);
     }
