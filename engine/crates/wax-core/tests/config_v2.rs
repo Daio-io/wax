@@ -197,6 +197,105 @@ fn config_v2_rejects_schema_version_1() {
 }
 
 #[test]
+fn config_v2_rejects_invalid_design_system_id() {
+    let file = TestFile::new(
+        "invalid-design-system-id",
+        r#"{
+  "schema_version": 2,
+  "design_systems": {
+    "Acme": {
+      "name": "Acme Design System",
+      "registries": {
+        "react": {
+          "source": ".wax/registries/react.json"
+        }
+      }
+    }
+  }
+}"#,
+    );
+
+    let err = load_waxrc(file.path()).unwrap_err();
+    assert!(matches!(err, WaxRcError::InvalidConfig { .. }));
+    assert!(err.to_string().contains("design_systems"));
+}
+
+#[test]
+fn config_v2_rejects_empty_design_system_name() {
+    let file = TestFile::new(
+        "empty-design-system-name",
+        r#"{
+  "schema_version": 2,
+  "design_systems": {
+    "acme": {
+      "name": "",
+      "registries": {
+        "react": {
+          "source": ".wax/registries/react.json"
+        }
+      }
+    }
+  }
+}"#,
+    );
+
+    let err = load_waxrc(file.path()).unwrap_err();
+    assert!(matches!(err, WaxRcError::InvalidConfig { .. }));
+    assert!(err.to_string().contains("design_systems.acme.name"));
+}
+
+#[test]
+fn config_v2_rejects_empty_design_system_registry_source() {
+    let file = TestFile::new(
+        "empty-design-system-source",
+        r#"{
+  "schema_version": 2,
+  "design_systems": {
+    "acme": {
+      "name": "Acme Design System",
+      "registries": {
+        "react": {
+          "source": ""
+        }
+      }
+    }
+  }
+}"#,
+    );
+
+    let err = load_waxrc(file.path()).unwrap_err();
+    assert!(matches!(err, WaxRcError::InvalidConfig { .. }));
+    assert!(
+        err.to_string()
+            .contains("design_systems.acme.registries.react.source")
+    );
+}
+
+#[test]
+fn config_v2_rejects_unknown_registry_fields() {
+    let file = TestFile::new(
+        "unknown-registry-field",
+        r#"{
+  "schema_version": 2,
+  "languages": {
+    "react": {
+      "roots": ["src"],
+      "registry": {
+        "source": ".wax/registries/react.json",
+        "upsteam": "acme/react"
+      }
+    }
+  }
+}"#,
+    );
+
+    let err = load_waxrc(file.path()).unwrap_err();
+    assert!(matches!(err, WaxRcError::InvalidConfig { .. }));
+    assert!(err.to_string().contains("unknown field"));
+    assert!(err.to_string().contains("upsteam"));
+}
+
+#[test]
 fn config_v2_rejects_design_system_registry_field() {
     let file = TestFile::new(
         "legacy-registry",

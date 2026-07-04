@@ -232,14 +232,38 @@ struct LanguageEntryRaw {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(untagged)]
+#[serde(deny_unknown_fields)]
+struct RegistryObjectRaw {
+    source: String,
+    #[serde(default)]
+    upstream: Option<String>,
+}
+
+#[derive(Debug)]
 enum RegistryRaw {
     Source(String),
-    Object {
-        source: String,
-        #[serde(default)]
-        upstream: Option<String>,
-    },
+    Object(RegistryObjectRaw),
+}
+
+impl<'de> Deserialize<'de> for RegistryRaw {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        match value {
+            serde_json::Value::String(source) => Ok(Self::Source(source)),
+            serde_json::Value::Object(map) => {
+                let object: RegistryObjectRaw =
+                    serde_json::from_value(serde_json::Value::Object(map))
+                        .map_err(D::Error::custom)?;
+                Ok(Self::Object(object))
+            }
+            _ => Err(D::Error::custom(
+                "languages.*.registry must be a string or object with source",
+            )),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -357,6 +381,10 @@ pub fn load_waxrc(path: impl AsRef<Path>) -> Result<WaxRc, WaxRcError> {
             path: path_display.clone(),
             source,
         })?;
+    validate_design_systems(&rc.design_systems).map_err(|source| WaxRcError::InvalidConfig {
+        path: path_display,
+        source,
+    })?;
 
     Ok(rc)
 }
@@ -384,7 +412,10 @@ impl LanguageEntryRaw {
                 source,
                 upstream: None,
             },
-            RegistryRaw::Object { source, upstream } => LanguageRegistrySource { source, upstream },
+            RegistryRaw::Object(registry) => LanguageRegistrySource {
+                source: registry.source,
+                upstream: registry.upstream,
+            },
         });
 
         Ok(LanguageEntry {
@@ -394,6 +425,44 @@ impl LanguageEntryRaw {
             extra: self.extra,
         })
     }
+}
+
+fn validate_design_systems(
+    design_systems: &BTreeMap<String, DesignSystemConfig>,
+) -> Result<(), serde_json::Error> {
+    for (id, config) in design_systems {
+        if LanguageId::try_from(id.as_str()).is_err() {
+            return Err(serde_json::Error::custom(format!(
+                "design_systems.{id:?} is not a valid design-system id; expected lowercase ASCII slug [a-z][a-z0-9-]*"
+            )));
+        }
+
+        if config.name.trim().is_empty() {
+            return Err(serde_json::Error::custom(format!(
+                "design_systems.{id}.name must be a non-empty string"
+            )));
+        }
+
+        for (language_id, registry) in &config.registries {
+            if registry.source.trim().is_empty() {
+                return Err(serde_json::Error::custom(format!(
+                    "design_systems.{id}.registries.{}.source must be a non-empty string",
+                    language_id.as_str()
+                )));
+            }
+
+            if let Some(published_source) = &registry.published_source
+                && published_source.trim().is_empty()
+            {
+                return Err(serde_json::Error::custom(format!(
+                    "design_systems.{id}.registries.{}.published_source must be a non-empty string when set",
+                    language_id.as_str()
+                )));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 impl LanguageEntry {
