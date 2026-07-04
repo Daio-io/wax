@@ -296,6 +296,74 @@ fn config_v2_rejects_unknown_registry_fields() {
 }
 
 #[test]
+fn config_v2_rejects_null_registry() {
+    let file = TestFile::new(
+        "null-registry",
+        r#"{
+  "schema_version": 2,
+  "languages": {
+    "react": {
+      "roots": ["src"],
+      "registry": null
+    }
+  }
+}"#,
+    );
+
+    let err = load_waxrc(file.path()).unwrap_err();
+    assert!(matches!(err, WaxRcError::InvalidConfig { .. }));
+    assert!(err.to_string().contains("registry cannot be null"));
+}
+
+#[test]
+fn config_v2_rejects_null_registry_upstream() {
+    let file = TestFile::new(
+        "null-upstream",
+        r#"{
+  "schema_version": 2,
+  "languages": {
+    "react": {
+      "roots": ["src"],
+      "registry": {
+        "source": ".wax/registries/react.json",
+        "upstream": null
+      }
+    }
+  }
+}"#,
+    );
+
+    let err = load_waxrc(file.path()).unwrap_err();
+    assert!(matches!(err, WaxRcError::InvalidConfig { .. }));
+    assert!(err.to_string().contains("upstream cannot be null"));
+}
+
+#[test]
+fn config_v2_rejects_null_published_source() {
+    let file = TestFile::new(
+        "null-published-source",
+        r#"{
+  "schema_version": 2,
+  "design_systems": {
+    "acme": {
+      "name": "Acme Design System",
+      "registries": {
+        "react": {
+          "source": ".wax/registries/react.json",
+          "published_source": null
+        }
+      }
+    }
+  }
+}"#,
+    );
+
+    let err = load_waxrc(file.path()).unwrap_err();
+    assert!(matches!(err, WaxRcError::InvalidConfig { .. }));
+    assert!(err.to_string().contains("published_source cannot be null"));
+}
+
+#[test]
 fn config_v2_rejects_design_system_registry_field() {
     let file = TestFile::new(
         "legacy-registry",

@@ -79,6 +79,11 @@
       "patternProperties": {
         "^[a-z][a-z0-9-]*$": {
           "type": "object",
+          "propertyNames": {
+            "not": {
+              "enum": ["enabled", "id", "design_system_registry"]
+            }
+          },
           "properties": {
             "roots": {
               "type": "array",
@@ -110,7 +115,10 @@
                   }
                 }
               ]
-            }
+            },
+            "enabled": false,
+            "id": false,
+            "design_system_registry": false
           },
           "additionalProperties": true
         }

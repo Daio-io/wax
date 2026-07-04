@@ -1,7 +1,7 @@
 //! Repository wax config parsing.
 
 use serde::Deserialize;
-use serde::de::Error as _;
+use serde::de::{self, Error as _, Unexpected};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
@@ -203,7 +203,7 @@ pub struct DesignSystemRegistry {
     /// Design-system-authored registry artifact path or URL.
     pub source: String,
     /// Optional hosted source preferred by app sync.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_published_source")]
     pub published_source: Option<String>,
 }
 
@@ -225,7 +225,7 @@ struct WaxRcRaw {
 struct LanguageEntryRaw {
     #[serde(default)]
     roots: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_registry")]
     registry: Option<RegistryRaw>,
     #[serde(flatten)]
     extra: serde_json::Map<String, serde_json::Value>,
@@ -235,8 +235,71 @@ struct LanguageEntryRaw {
 #[serde(deny_unknown_fields)]
 struct RegistryObjectRaw {
     source: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_upstream")]
     upstream: Option<String>,
+}
+
+fn deserialize_optional_registry<'de, D>(deserializer: D) -> Result<Option<RegistryRaw>, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    if value.is_null() {
+        return Err(de::Error::custom("languages.*.registry cannot be null"));
+    }
+    RegistryRaw::deserialize(value)
+        .map(Some)
+        .map_err(D::Error::custom)
+}
+
+fn deserialize_optional_upstream<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    deserialize_optional_non_null_string(
+        deserializer,
+        "languages.*.registry.upstream cannot be null",
+    )
+}
+
+fn deserialize_optional_published_source<'de, D>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    deserialize_optional_non_null_string(
+        deserializer,
+        "design_systems.*.registries.*.published_source cannot be null",
+    )
+}
+
+fn deserialize_optional_non_null_string<'de, D>(
+    deserializer: D,
+    null_error: &'static str,
+) -> Result<Option<String>, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    if value.is_null() {
+        return Err(de::Error::custom(null_error));
+    }
+    match value {
+        serde_json::Value::String(source) => Ok(Some(source)),
+        other => Err(de::Error::invalid_type(unexpected_value(&other), &"string")),
+    }
+}
+
+fn unexpected_value(value: &serde_json::Value) -> Unexpected<'_> {
+    match value {
+        serde_json::Value::Bool(boolean) => Unexpected::Bool(*boolean),
+        serde_json::Value::Number(_) => Unexpected::Other("number"),
+        serde_json::Value::Array(_) => Unexpected::Seq,
+        serde_json::Value::Object(_) => Unexpected::Map,
+        serde_json::Value::Null => Unexpected::Unit,
+        serde_json::Value::String(string) => Unexpected::Str(string),
+    }
 }
 
 #[derive(Debug)]
@@ -259,6 +322,7 @@ impl<'de> Deserialize<'de> for RegistryRaw {
                         .map_err(D::Error::custom)?;
                 Ok(Self::Object(object))
             }
+            serde_json::Value::Null => Err(D::Error::custom("languages.*.registry cannot be null")),
             _ => Err(D::Error::custom(
                 "languages.*.registry must be a string or object with source",
             )),
