@@ -12,6 +12,16 @@ use thiserror::Error;
 
 const HTTP_FETCH_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Returns true when a registry source is remote or uses an explicit URL scheme.
+pub fn is_external_registry_source(source: &str) -> bool {
+    if source.contains("://") {
+        return true;
+    }
+
+    let lower = source.to_ascii_lowercase();
+    lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("file://")
+}
+
 /// Inputs for resolving one language registry source.
 #[derive(Debug, Clone, Copy)]
 pub struct RegistrySourceInput<'a> {

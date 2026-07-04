@@ -200,18 +200,6 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
         .iter()
         .map(|scaffold| (scaffold.language_id.clone(), scaffold))
         .collect::<BTreeMap<_, _>>();
-    if let Some(selections) = selections.as_ref() {
-        fs::create_dir_all(&wax_dir).map_err(|source| InitCommandError::Io {
-            context: format!("create {}", wax_dir.display()),
-            source,
-        })?;
-        copy_remembered_design_system_registries(
-            selections,
-            &languages,
-            &options.repo_root,
-            &state_path,
-        )?;
-    }
     let target = options
         .target_triple
         .clone()
@@ -222,6 +210,15 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
         let manifest = manifest_for_language(&manifests, language_id, None)?;
         let artifact = select_target_artifact(&manifest, &target)?.clone();
         resolved_languages.push(ResolvedInitLanguage { manifest, artifact });
+    }
+
+    if let Some(selections) = selections.as_ref() {
+        copy_remembered_design_system_registries(
+            selections,
+            &languages,
+            &options.repo_root,
+            &state_path,
+        )?;
     }
 
     let mut lockfile = WaxLock {
@@ -662,7 +659,9 @@ fn build_waxrc_contents(
         if scaffold_registries {
             object.insert(
                 "registry".to_owned(),
-                serde_json::json!(default_registry_path_for_language(&language_id)),
+                serde_json::json!({
+                    "source": default_registry_path_for_language(&language_id),
+                }),
             );
         } else {
             object.remove("registry");

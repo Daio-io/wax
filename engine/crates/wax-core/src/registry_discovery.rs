@@ -28,6 +28,7 @@ use crate::registry_memory::{
     RegistryMemoryError, design_system_registry_relative_path,
     ensure_design_system_registry_source, remember_design_system,
 };
+use crate::registry_source::is_external_registry_source;
 use crate::subprocess_discover::{DiscoverError, SubprocessLanguageDiscoverer};
 use crate::subprocess_lang::SubprocessLanguageManifest;
 
@@ -643,15 +644,6 @@ fn resolve_discover_output_path(
 
 fn should_patch_config_registry(entry: &LanguageEntry) -> bool {
     entry.registry_source.is_none()
-}
-
-fn is_external_registry_source(source: &str) -> bool {
-    if source.contains("://") {
-        return true;
-    }
-
-    let lower = source.to_ascii_lowercase();
-    lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("file://")
 }
 
 fn validate_repo_relative_registry_path(

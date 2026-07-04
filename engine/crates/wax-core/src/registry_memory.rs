@@ -12,6 +12,7 @@ use crate::config::repo_files::PREFERRED_CONFIG_RELATIVE_PATH;
 use crate::global_state::{
     GlobalStateError, RememberedDesignSystem, load_global_state, save_global_state,
 };
+use crate::registry_source::is_external_registry_source;
 
 /// Repo-relative path recorded for remembered design systems.
 pub const LAST_SEEN_CONFIG_RELATIVE_PATH: &str = PREFERRED_CONFIG_RELATIVE_PATH;
@@ -270,6 +271,12 @@ pub fn resolve_remembered_registry(
     if let Some(published_source) = published_source.filter(|value| !value.trim().is_empty()) {
         Ok(ResolvedRememberedRegistry {
             config_source: published_source,
+            upstream,
+            design_system_local_source: None,
+        })
+    } else if is_external_registry_source(&local_source) {
+        Ok(ResolvedRememberedRegistry {
+            config_source: local_source,
             upstream,
             design_system_local_source: None,
         })
@@ -721,6 +728,48 @@ mod registry_memory_tests {
             design_system_registry_relative_path(&language_id),
             ".wax/registries/react.json"
         );
+    }
+
+    #[test]
+    fn resolve_remembered_registry_uses_external_source_directly() {
+        let _guard = env_lock();
+        let dir = TestDir::new("remembered-external-source");
+        let repo = dir.path.join("repo");
+        std::fs::create_dir_all(repo.join(".wax")).unwrap();
+        std::fs::write(
+            repo.join(".wax/wax.config.json"),
+            r#"{
+  "schema_version": 2,
+  "design_systems": {
+    "acme": {
+      "name": "Acme Design System",
+      "registries": {
+        "react": {
+          "source": "file:///tmp/acme-react.registry.json"
+        }
+      }
+    }
+  }
+}
+"#,
+        )
+        .unwrap();
+
+        let remembered = RememberedDesignSystemSummary {
+            id: "acme".to_owned(),
+            name: "Acme Design System".to_owned(),
+            repo_root: repo.clone(),
+            last_seen_config: PathBuf::from(LAST_SEEN_CONFIG_RELATIVE_PATH),
+        };
+        let language_id = LanguageId::try_from("react").unwrap();
+
+        let resolved = resolve_remembered_registry(&remembered, &language_id).unwrap();
+        assert_eq!(
+            resolved.config_source,
+            "file:///tmp/acme-react.registry.json"
+        );
+        assert_eq!(resolved.upstream, "acme/react");
+        assert!(resolved.design_system_local_source.is_none());
     }
 
     #[test]
