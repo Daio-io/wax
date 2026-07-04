@@ -21,8 +21,8 @@ pub mod validate;
 
 use adoption_merge::merge_language_scans_with_parent_scope_limit;
 use auto_install::{AutoInstallPolicyInput, InstalledManifest, PackIndexArtifact};
-use config::lockfile::{LockfileError, load_lockfile};
-use config::waxrc::{WaxRcError, load_waxrc};
+use config::lockfile::{LockfileError, WaxLock, load_lockfile};
+use config::waxrc::{WaxRc, WaxRcError, load_waxrc};
 use global_state::{GlobalStateError, InstalledLanguagePack, load_global_state, save_global_state};
 use install::{InstallError, LanguagePackManifestSpec, install_language};
 use paths::{PathsError, state_file};
@@ -101,7 +101,7 @@ enum ScanWorkerMessage {
 pub struct Engine;
 
 /// Runtime options for repository scans.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ScanOptions {
     /// Overrides `.wax/wax.config.json` `engine.scan_concurrency` when set.
     ///
@@ -111,6 +111,17 @@ pub struct ScanOptions {
     pub allow_auto_install: bool,
     /// Optional progress callbacks for CLI or tooling.
     pub progress: ScanProgress,
+    /// In-memory config and lockfile for ephemeral scans that must not write repo files.
+    pub ephemeral: Option<EphemeralScanConfig>,
+}
+
+/// In-memory repository config used for ephemeral scans.
+#[derive(Debug)]
+pub struct EphemeralScanConfig {
+    /// Parsed wax config for the scan invocation.
+    pub waxrc: WaxRc,
+    /// Parsed lockfile for the scan invocation.
+    pub lockfile: WaxLock,
 }
 
 impl Default for ScanOptions {
@@ -119,6 +130,7 @@ impl Default for ScanOptions {
             scan_concurrency: None,
             allow_auto_install: true,
             progress: ScanProgress::default(),
+            ephemeral: None,
         }
     }
 }
@@ -235,16 +247,22 @@ impl Engine {
     /// write failures are returned as [`EngineError::ScanOutput`].
     pub fn scan_repo_with_options(
         repo_root: impl AsRef<Path>,
-        options: ScanOptions,
+        mut options: ScanOptions,
     ) -> Result<MergedScan, EngineError> {
         let repo_root = repo_root.as_ref();
         let progress = options.progress.clone();
         progress.emit(ScanProgressEvent::Preparing);
-        let repo_files = config::repo_files::discover_repo_files(repo_root);
-        let waxrc = load_waxrc(&repo_files.config_path)?;
+        let (waxrc, lockfile) = if let Some(ephemeral) = options.ephemeral.take() {
+            (ephemeral.waxrc, ephemeral.lockfile)
+        } else {
+            let repo_files = config::repo_files::discover_repo_files(repo_root);
+            (
+                load_waxrc(&repo_files.config_path)?,
+                load_lockfile(&repo_files.lockfile_path)?,
+            )
+        };
         let scan_concurrency = effective_scan_concurrency(&waxrc.engine, &options);
         let parent_scope_limit = waxrc.adoption.symbol_usage_summary.parent_scope_limit;
-        let lockfile = load_lockfile(&repo_files.lockfile_path)?;
         let state_path = state_file()?;
         let mut state = load_global_state(&state_path)?;
 

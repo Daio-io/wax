@@ -17,8 +17,13 @@ use wax_core::config::repo_files::{
     default_registry_path_for_language,
 };
 use wax_core::config::waxrc::WAXRC_SCHEMA_VERSION;
+use wax_core::paths::state_file;
 use wax_core::registry::{
     RegistryArtifact, RegistryError, RegistryManifest, fetch_pack_index, select_target_artifact,
+};
+use wax_core::registry_memory::{
+    RegistryMemoryError, RememberedDesignSystemSummary, copy_design_system_registry_to_app,
+    list_remembered_design_systems, resolve_remembered_registry, show_remembered_design_system,
 };
 use wax_core::registry_source::{
     RegistrySourceError, RegistrySourceInput, resolve_registry_source,
@@ -61,10 +66,10 @@ pub struct InitSelections {
 pub enum RegistrySetup {
     /// Registry definitions are managed outside this repository.
     External,
-    /// Registry source is in this repository. Roots are used only for printed follow-up commands.
-    InRepository {
-        /// Source roots for `wax registry discover`, keyed by language id.
-        roots: BTreeMap<LanguageId, Vec<PathBuf>>,
+    /// Use a remembered design-system registry for app setup.
+    RememberedDesignSystem {
+        /// Selected design-system id.
+        design_system_id: String,
     },
 }
 
@@ -77,7 +82,7 @@ pub struct InitOptions {
     pub languages: Vec<LanguageId>,
     /// Write config and lockfile without downloading language packs.
     pub no_install: bool,
-    /// Pack index URL. Resolution precedence: `--registry` > `WAX_LANG_INDEX` > built-in default.
+    /// Pack index URL. Resolution precedence: `--pack-index` > `WAX_PACK_INDEX` > built-in default.
     pub registry_url: Option<String>,
     /// Repository root that will receive `.wax/wax.config.json` and `.wax/wax.lock.json`.
     pub repo_root: PathBuf,
@@ -142,6 +147,9 @@ pub enum InitCommandError {
         #[source]
         source: io::Error,
     },
+    /// Remembered design-system memory failed.
+    #[error(transparent)]
+    RegistryMemory(#[from] RegistryMemoryError),
 }
 
 /// Runs `wax init`.
@@ -166,16 +174,44 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
         return Err(InitCommandError::WaxConfigAlreadyExists { path: config_path });
     }
 
-    let waxrc_contents =
-        build_waxrc_contents(&languages, options.scaffold_registries, selections.as_ref())?;
+    let state_path = options
+        .state_path
+        .clone()
+        .unwrap_or_else(|| state_file().expect("resolve global state path"));
+
+    let waxrc_contents = apply_remembered_registry_config(
+        build_waxrc_contents(
+            &languages,
+            options.scaffold_registries && !uses_remembered_design_system(selections.as_ref()),
+            selections.as_ref(),
+        )?,
+        selections.as_ref(),
+        &languages,
+        &state_path,
+    )?;
     let registry_url = resolve_registry_url(options.registry_url)?;
     let manifests = fetch_pack_index(&registry_url)?;
-    let pending_registry_scaffolds =
-        pending_registry_scaffolds(&options.repo_root, &languages, options.scaffold_registries);
+    let pending_registry_scaffolds = pending_registry_scaffolds(
+        &options.repo_root,
+        &languages,
+        options.scaffold_registries && !uses_remembered_design_system(selections.as_ref()),
+    );
     let scaffold_by_language = pending_registry_scaffolds
         .iter()
         .map(|scaffold| (scaffold.language_id.clone(), scaffold))
         .collect::<BTreeMap<_, _>>();
+    if let Some(selections) = selections.as_ref() {
+        fs::create_dir_all(&wax_dir).map_err(|source| InitCommandError::Io {
+            context: format!("create {}", wax_dir.display()),
+            source,
+        })?;
+        copy_remembered_design_system_registries(
+            selections,
+            &languages,
+            &options.repo_root,
+            &state_path,
+        )?;
+    }
     let target = options
         .target_triple
         .clone()
@@ -204,24 +240,39 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
             &target,
             &resolved.artifact,
         );
-        let registry_source =
-            if let Some(scaffold) = scaffold_by_language.get(&resolved.manifest.id) {
-                LockedRegistry {
-                    source: default_registry_path_for_language(&resolved.manifest.id),
-                    sha256: scaffold.sha256.clone(),
-                }
-            } else {
-                let repo_relative = default_registry_path_for_language(&resolved.manifest.id);
-                let registry_source = resolve_registry_source(RegistrySourceInput {
-                    repo_root: &options.repo_root,
-                    language_id: resolved.manifest.id.as_str(),
-                    source: Some(&repo_relative),
-                })?;
-                LockedRegistry {
-                    source: registry_source.source,
-                    sha256: registry_source.sha256,
-                }
-            };
+        let registry_source = if let Some(selections) = selections.as_ref()
+            && let RegistrySetup::RememberedDesignSystem { design_system_id } =
+                &selections.registry_setup
+        {
+            let remembered = show_remembered_design_system(&state_path, design_system_id)?;
+            let remembered_registry =
+                resolve_remembered_registry(&remembered, &resolved.manifest.id)?;
+            let registry_source = resolve_registry_source(RegistrySourceInput {
+                repo_root: &options.repo_root,
+                language_id: resolved.manifest.id.as_str(),
+                source: Some(&remembered_registry.config_source),
+            })?;
+            LockedRegistry {
+                source: registry_source.source,
+                sha256: registry_source.sha256,
+            }
+        } else if let Some(scaffold) = scaffold_by_language.get(&resolved.manifest.id) {
+            LockedRegistry {
+                source: default_registry_path_for_language(&resolved.manifest.id),
+                sha256: scaffold.sha256.clone(),
+            }
+        } else {
+            let repo_relative = default_registry_path_for_language(&resolved.manifest.id);
+            let registry_source = resolve_registry_source(RegistrySourceInput {
+                repo_root: &options.repo_root,
+                language_id: resolved.manifest.id.as_str(),
+                source: Some(&repo_relative),
+            })?;
+            LockedRegistry {
+                source: registry_source.source,
+                sha256: registry_source.sha256,
+            }
+        };
         lockfile
             .registries
             .insert(resolved.manifest.id.clone(), registry_source);
@@ -277,8 +328,12 @@ pub fn run_init_cli(options: InitOptions, writer: &mut impl Write) -> Result<(),
 
     let registry_url = resolve_registry_url(options.registry_url.clone())?;
     let manifests = fetch_pack_index(&registry_url)?;
+    let state_path = options
+        .state_path
+        .clone()
+        .unwrap_or_else(|| state_file().expect("resolve global state path"));
     let mut prompts = DialoguerInitPrompts;
-    let selections = collect_interactive_selections(&manifests, &mut prompts)?;
+    let selections = collect_interactive_selections(&manifests, &mut prompts, &state_path)?;
     run_init(
         InitOptions {
             interactive: Some(selections),
@@ -311,34 +366,13 @@ fn write_next_steps(
                 }
                 writeln!(writer, "Then run `wax scan`.")?;
             }
-            RegistrySetup::InRepository { roots } => {
+            RegistrySetup::RememberedDesignSystem { design_system_id } => {
                 writeln!(writer)?;
                 writeln!(
                     writer,
-                    "Next, populate registries from your design-system source:"
+                    "Initialized registry sources from remembered design system `{design_system_id}`."
                 )?;
-                for language_id in &selections.languages {
-                    if let Some(language_roots) = roots.get(language_id) {
-                        if language_roots.is_empty() {
-                            writeln!(
-                                writer,
-                                "No registry source roots were provided for {}; populate .wax/{}.registry.json or rerun wax registry discover with a source root.",
-                                language_id.as_str(),
-                                language_id.as_str()
-                            )?;
-                        } else {
-                            for root in language_roots {
-                                writeln!(
-                                    writer,
-                                    "wax registry discover --language {} --root {}",
-                                    language_id.as_str(),
-                                    root.display()
-                                )?;
-                            }
-                        }
-                    }
-                }
-                writeln!(writer, "Then run `wax scan`.")?;
+                writeln!(writer, "Run `wax scan` or refresh upstream registries with `wax sync`.")?;
             }
         }
 
@@ -348,6 +382,87 @@ fn write_next_steps(
         context: "write init guidance".to_owned(),
         source,
     })
+}
+
+fn uses_remembered_design_system(selections: Option<&InitSelections>) -> bool {
+    matches!(
+        selections.map(|selections| &selections.registry_setup),
+        Some(RegistrySetup::RememberedDesignSystem { .. })
+    )
+}
+
+fn apply_remembered_registry_config(
+    waxrc_contents: String,
+    selections: Option<&InitSelections>,
+    languages: &[LanguageId],
+    state_path: &Path,
+) -> Result<String, InitCommandError> {
+    let Some(selections) = selections else {
+        return Ok(waxrc_contents);
+    };
+    let RegistrySetup::RememberedDesignSystem { design_system_id } = &selections.registry_setup
+    else {
+        return Ok(waxrc_contents);
+    };
+
+    let remembered = show_remembered_design_system(state_path, design_system_id)?;
+    let mut config: serde_json::Value =
+        serde_json::from_str(&waxrc_contents).map_err(|source| InitCommandError::Io {
+            context: "parse generated wax config".to_owned(),
+            source: io::Error::new(io::ErrorKind::InvalidData, source),
+        })?;
+    let languages_object = config
+        .get_mut("languages")
+        .and_then(serde_json::Value::as_object_mut)
+        .ok_or_else(|| InitCommandError::MissingExampleLanguages)?;
+
+    for language_id in languages {
+        let resolved = resolve_remembered_registry(&remembered, language_id)?;
+        let entry = languages_object
+            .get_mut(language_id.as_str())
+            .and_then(serde_json::Value::as_object_mut)
+            .ok_or_else(|| InitCommandError::UnknownExampleLanguage {
+                language_id: language_id.clone(),
+            })?;
+        entry.insert(
+            "registry".to_owned(),
+            serde_json::json!({
+                "source": resolved.config_source,
+                "upstream": resolved.upstream,
+            }),
+        );
+    }
+
+    serde_json::to_string_pretty(&config).map_err(|source| InitCommandError::Io {
+        context: "serialize wax config".to_owned(),
+        source: io::Error::new(io::ErrorKind::InvalidData, source),
+    })
+}
+
+fn copy_remembered_design_system_registries(
+    selections: &InitSelections,
+    languages: &[LanguageId],
+    app_repo_root: &Path,
+    state_path: &Path,
+) -> Result<(), InitCommandError> {
+    let RegistrySetup::RememberedDesignSystem { design_system_id } = &selections.registry_setup
+    else {
+        return Ok(());
+    };
+
+    let remembered = show_remembered_design_system(state_path, design_system_id)?;
+    for language_id in languages {
+        let resolved = resolve_remembered_registry(&remembered, language_id)?;
+        if let Some(local_source) = resolved.design_system_local_source.as_deref() {
+            copy_design_system_registry_to_app(
+                &remembered,
+                local_source,
+                app_repo_root,
+                &resolved.config_source,
+            )?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -379,12 +494,10 @@ trait InitPrompts {
 
     fn scan_roots(&mut self, language_id: &LanguageId) -> Result<Vec<PathBuf>, InitCommandError>;
 
-    fn registry_in_repo(&mut self) -> Result<bool, InitCommandError>;
-
-    fn registry_roots(
+    fn select_remembered_design_system(
         &mut self,
-        language_id: &LanguageId,
-    ) -> Result<Vec<PathBuf>, InitCommandError>;
+        remembered: &[RememberedDesignSystemSummary],
+    ) -> Result<Option<String>, InitCommandError>;
 }
 
 struct DialoguerInitPrompts;
@@ -435,43 +548,45 @@ impl InitPrompts for DialoguerInitPrompts {
         Ok(parse_roots(&input))
     }
 
-    fn registry_in_repo(&mut self) -> Result<bool, InitCommandError> {
-        use dialoguer::Confirm;
+    fn select_remembered_design_system(
+        &mut self,
+        remembered: &[RememberedDesignSystemSummary],
+    ) -> Result<Option<String>, InitCommandError> {
+        use dialoguer::Select;
 
-        Confirm::new()
-            .with_prompt("Is your design-system registry source in this repository?")
-            .default(true)
+        if remembered.is_empty() {
+            return Ok(None);
+        }
+
+        let mut labels = vec!["Configure registry manually".to_owned()];
+        labels.extend(
+            remembered
+                .iter()
+                .map(|entry| format!("{} ({})", entry.name, entry.id)),
+        );
+        let label_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+        let selected = Select::new()
+            .with_prompt("Select a remembered design-system registry")
+            .items(&label_refs)
+            .default(1)
             .interact()
             .map_err(|source| InitCommandError::Io {
-                context: "registry source location".to_owned(),
-                source: io::Error::other(source),
-            })
-    }
-
-    fn registry_roots(
-        &mut self,
-        language_id: &LanguageId,
-    ) -> Result<Vec<PathBuf>, InitCommandError> {
-        use dialoguer::Input;
-
-        let input: String = Input::new()
-            .with_prompt(format!(
-                "Registry source roots for {} (comma-separated)",
-                language_id.as_str()
-            ))
-            .interact_text()
-            .map_err(|source| InitCommandError::Io {
-                context: format!("registry source roots for {}", language_id.as_str()),
+                context: "select remembered design system".to_owned(),
                 source: io::Error::other(source),
             })?;
 
-        Ok(parse_roots(&input))
+        if selected == 0 {
+            Ok(None)
+        } else {
+            Ok(Some(remembered[selected - 1].id.clone()))
+        }
     }
 }
 
 fn collect_interactive_selections(
     manifests: &[RegistryManifest],
     prompts: &mut impl InitPrompts,
+    state_path: &Path,
 ) -> Result<InitSelections, InitCommandError> {
     let languages = dedupe_languages(&prompts.select_languages(manifests)?);
     if languages.is_empty() {
@@ -483,15 +598,13 @@ fn collect_interactive_selections(
         scan_roots.insert(language_id.clone(), prompts.scan_roots(language_id)?);
     }
 
-    let registry_setup = if prompts.registry_in_repo()? {
-        let mut roots = BTreeMap::new();
-        for language_id in &languages {
-            roots.insert(language_id.clone(), prompts.registry_roots(language_id)?);
-        }
-        RegistrySetup::InRepository { roots }
-    } else {
-        RegistrySetup::External
-    };
+    let remembered = list_remembered_design_systems(state_path)?;
+    let registry_setup =
+        if let Some(design_system_id) = prompts.select_remembered_design_system(&remembered)? {
+            RegistrySetup::RememberedDesignSystem { design_system_id }
+        } else {
+            RegistrySetup::External
+        };
 
     Ok(InitSelections {
         languages,
@@ -871,8 +984,8 @@ mod tests {
     }
 
     #[test]
-    fn init_does_not_persist_registry_source_roots() {
-        let temp = TestDir::new("init-registry-roots-not-persisted");
+    fn init_does_not_persist_external_registry_setup_in_config() {
+        let temp = TestDir::new("init-external-registry");
         let artifact_path = temp.path.join("compose.tgz");
         let digest = write_pack_artifact(&artifact_path, "wax-lang-compose");
         let registry_path = temp.path.join("registry.json");
@@ -904,12 +1017,7 @@ mod tests {
                         LanguageId::try_from("compose").unwrap(),
                         vec![PathBuf::from("app/src/main/kotlin")],
                     )]),
-                    registry_setup: RegistrySetup::InRepository {
-                        roots: BTreeMap::from([(
-                            LanguageId::try_from("compose").unwrap(),
-                            vec![PathBuf::from("design-system/src/main/kotlin")],
-                        )]),
-                    },
+                    registry_setup: RegistrySetup::External,
                 }),
             },
             &mut Vec::new(),
@@ -925,18 +1033,14 @@ mod tests {
             language["roots"],
             serde_json::json!(["app/src/main/kotlin"])
         );
-        let serialized = serde_json::to_string(language).unwrap();
-        assert!(
-            !serialized.contains("design-system/src/main/kotlin"),
-            "registry source roots must only appear in next-step output"
-        );
+        assert_eq!(language["registry"]["source"], ".wax/compose.registry.json");
+        assert!(language.get("upstream").is_none());
     }
 
     struct MockInitPrompts {
         languages: Vec<LanguageId>,
         scan_roots: BTreeMap<LanguageId, Vec<PathBuf>>,
-        registry_in_repo: bool,
-        registry_roots: BTreeMap<LanguageId, Vec<PathBuf>>,
+        remembered_design_system: Option<String>,
     }
 
     impl InitPrompts for MockInitPrompts {
@@ -958,35 +1062,24 @@ mod tests {
                 .unwrap_or_default())
         }
 
-        fn registry_in_repo(&mut self) -> Result<bool, InitCommandError> {
-            Ok(self.registry_in_repo)
-        }
-
-        fn registry_roots(
+        fn select_remembered_design_system(
             &mut self,
-            language_id: &LanguageId,
-        ) -> Result<Vec<PathBuf>, InitCommandError> {
-            Ok(self
-                .registry_roots
-                .get(language_id)
-                .cloned()
-                .unwrap_or_default())
+            _remembered: &[RememberedDesignSystemSummary],
+        ) -> Result<Option<String>, InitCommandError> {
+            Ok(self.remembered_design_system.clone())
         }
     }
 
     #[test]
-    fn registry_discover_guidance_uses_interactive_roots() {
+    fn remembered_design_system_guidance_mentions_sync() {
         let selections = InitSelections {
-            languages: vec![LanguageId::try_from("compose").unwrap()],
+            languages: vec![LanguageId::try_from("react").unwrap()],
             scan_roots: BTreeMap::from([(
-                LanguageId::try_from("compose").unwrap(),
-                vec![PathBuf::from("app/src/main/kotlin")],
+                LanguageId::try_from("react").unwrap(),
+                vec![PathBuf::from("src")],
             )]),
-            registry_setup: RegistrySetup::InRepository {
-                roots: BTreeMap::from([(
-                    LanguageId::try_from("compose").unwrap(),
-                    vec![PathBuf::from("design-system/src/main/kotlin")],
-                )]),
+            registry_setup: RegistrySetup::RememberedDesignSystem {
+                design_system_id: "acme".to_owned(),
             },
         };
 
@@ -994,9 +1087,8 @@ mod tests {
         write_next_steps(Some(&selections), &mut output).unwrap();
         let output = String::from_utf8(output).unwrap();
 
-        assert!(output.contains(
-            "wax registry discover --language compose --root design-system/src/main/kotlin"
-        ));
+        assert!(output.contains("remembered design system `acme`"));
+        assert!(output.contains("wax sync"));
         assert!(output.contains("wax scan"));
     }
 
@@ -1021,28 +1113,6 @@ mod tests {
     }
 
     #[test]
-    fn empty_registry_source_roots_print_guidance_without_root_args() {
-        let selections = InitSelections {
-            languages: vec![LanguageId::try_from("compose").unwrap()],
-            scan_roots: BTreeMap::from([(
-                LanguageId::try_from("compose").unwrap(),
-                vec![PathBuf::from("app/src/main/kotlin")],
-            )]),
-            registry_setup: RegistrySetup::InRepository {
-                roots: BTreeMap::from([(LanguageId::try_from("compose").unwrap(), Vec::new())]),
-            },
-        };
-
-        let mut output = Vec::new();
-        write_next_steps(Some(&selections), &mut output).unwrap();
-        let output = String::from_utf8(output).unwrap();
-
-        assert!(output.contains("No registry source roots were provided for compose"));
-        assert!(!output.contains("--root"));
-        assert!(output.contains("wax scan"));
-    }
-
-    #[test]
     fn collect_interactive_selections_uses_mocked_prompt_answers() {
         let manifests = vec![
             RegistryManifest {
@@ -1064,14 +1134,13 @@ mod tests {
                 LanguageId::try_from("compose").unwrap(),
                 vec![PathBuf::from("app/src/main/kotlin")],
             )]),
-            registry_in_repo: true,
-            registry_roots: BTreeMap::from([(
-                LanguageId::try_from("compose").unwrap(),
-                vec![PathBuf::from("design-system/src/main/kotlin")],
-            )]),
+            remembered_design_system: Some("acme".to_owned()),
         };
+        let state_path =
+            std::env::temp_dir().join(format!("wax-init-mock-state-{}", std::process::id()));
 
-        let selections = collect_interactive_selections(&manifests, &mut prompts).unwrap();
+        let selections =
+            collect_interactive_selections(&manifests, &mut prompts, &state_path).unwrap();
 
         assert_eq!(
             selections.languages,
@@ -1083,7 +1152,7 @@ mod tests {
         );
         assert!(matches!(
             selections.registry_setup,
-            RegistrySetup::InRepository { .. }
+            RegistrySetup::RememberedDesignSystem { .. }
         ));
     }
 

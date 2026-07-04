@@ -390,7 +390,7 @@ mod tests {
     #[test]
     #[ignore = "post-release smoke hits the published default pack index"]
     fn fetches_published_default_pack_index() {
-        let manifests = fetch_pack_index(crate::defaults::DEFAULT_WAX_LANG_INDEX)
+        let manifests = fetch_pack_index(crate::defaults::DEFAULT_WAX_PACK_INDEX)
             .expect("default published pack index should fetch and parse");
         let expected_release_tag = std::env::var("WAX_EXPECTED_RELEASE_TAG").ok();
 

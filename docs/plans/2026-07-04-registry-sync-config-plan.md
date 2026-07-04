@@ -300,7 +300,7 @@ git commit -m "feat: remember discovered design systems"
 - Produces: init-selected app config with `registry.source` and `registry.upstream`
 - Produces: scan-only ephemeral selections that do not write repo files
 
-- [ ] **Step 1: Add failing `wax init` tests for remembered registry selection**
+- [x] **Step 1: Add failing `wax init` tests for remembered registry selection**
 
 Test that interactive selections can produce:
 
@@ -328,7 +328,7 @@ cargo test -p wax-cli --test init_interactive
 
 Expected: FAIL because init still writes the old language array and old registry paths.
 
-- [ ] **Step 2: Update init writes**
+- [x] **Step 2: Update init writes**
 
 Use remembered design systems in the prompt flow. Copy local DS registry sources into `.wax/registries/<design-system>/<language>.json` unless the DS declares `published_source`.
 
@@ -342,7 +342,7 @@ cargo test -p wax-cli --test init_command
 
 Expected: PASS.
 
-- [ ] **Step 3: Add failing no-config scan tests**
+- [x] **Step 3: Add failing no-config scan tests**
 
 Test that TTY-mode scan selections run without writing:
 
@@ -365,7 +365,7 @@ cargo test -p wax-cli --test scan_ephemeral
 
 Expected: FAIL because scan currently requires repo config.
 
-- [ ] **Step 4: Implement ephemeral scan selections**
+- [x] **Step 4: Implement ephemeral scan selections**
 
 Refactor scan orchestration enough to accept in-memory language selections when no config exists and stdin is a TTY. Do not write repo files.
 
@@ -378,7 +378,7 @@ cargo test -p wax-cli --test scan_ephemeral
 
 Expected: PASS.
 
-- [ ] **Step 5: Rename pack-index flags**
+- [x] **Step 5: Rename pack-index flags**
 
 Rename user-facing `--registry` pack-index flags to `--pack-index` and environment variable `WAX_LANG_INDEX` to `WAX_PACK_INDEX`. Update help text and tests.
 
@@ -391,7 +391,7 @@ cargo test -p wax-cli language
 
 Expected: PASS with updated flag names.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add engine/crates/wax-cli engine/crates/wax-core engine/fixtures

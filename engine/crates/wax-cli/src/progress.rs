@@ -13,6 +13,12 @@ pub struct CliProgress {
     bar: Option<ProgressBar>,
 }
 
+impl Default for CliProgress {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CliProgress {
     /// Starts a spinner when stderr is a TTY.
     pub fn new() -> Self {

@@ -5,6 +5,10 @@ edition.workspace = true
 description = "Command-line interface for the wax engine"
 default-run = "wax"
 
+[lib]
+name = "wax_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "wax"
 path = "src/main.rs"

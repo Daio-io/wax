@@ -21,6 +21,26 @@ pub fn design_system_registry_relative_path(language_id: &LanguageId) -> String 
     format!(".wax/registries/{}.json", language_id.as_str())
 }
 
+/// App-local registry path when copying from a remembered design system.
+pub fn app_registry_relative_path(design_system_id: &str, language_id: &LanguageId) -> String {
+    format!(
+        ".wax/registries/{}/{}.json",
+        design_system_id,
+        language_id.as_str()
+    )
+}
+
+/// Resolved registry inputs from a remembered design system.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedRememberedRegistry {
+    /// Source written to app config `registry.source`.
+    pub config_source: String,
+    /// Upstream id in `<design-system-id>/<language-id>` form.
+    pub upstream: String,
+    /// Local registry path relative to the design-system repo when copying is required.
+    pub design_system_local_source: Option<String>,
+}
+
 /// Errors returned while reading or updating remembered design systems.
 #[derive(Debug, Error)]
 pub enum RegistryMemoryError {
@@ -168,6 +188,127 @@ pub fn delete_remembered_design_system(
         });
     };
     save_global_state(state_path, &state)?;
+    Ok(())
+}
+
+/// Resolves registry source and upstream metadata for one remembered design-system language.
+pub fn resolve_remembered_registry(
+    remembered: &RememberedDesignSystemSummary,
+    language_id: &LanguageId,
+) -> Result<ResolvedRememberedRegistry, RegistryMemoryError> {
+    validate_design_system_id(&remembered.id)?;
+    let config_path = remembered.repo_root.join(&remembered.last_seen_config);
+    let path_display = config_path.display().to_string();
+    let config = load_or_create_config(&config_path, &path_display)?;
+    let design_systems = config
+        .get("design_systems")
+        .and_then(Value::as_object)
+        .ok_or_else(|| RegistryMemoryError::ConfigUpdate {
+            path: path_display.clone(),
+            source: Box::new(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "wax config missing design_systems object",
+            )),
+        })?;
+    let entry =
+        design_systems
+            .get(&remembered.id)
+            .ok_or_else(|| RegistryMemoryError::ConfigUpdate {
+                path: path_display.clone(),
+                source: Box::new(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("design system `{}` missing from wax config", remembered.id),
+                )),
+            })?;
+    let registries = entry
+        .get("registries")
+        .and_then(Value::as_object)
+        .ok_or_else(|| RegistryMemoryError::ConfigUpdate {
+            path: path_display.clone(),
+            source: Box::new(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "design system `{}` missing registries object",
+                    remembered.id
+                ),
+            )),
+        })?;
+    let registry = registries
+        .get(language_id.as_str())
+        .and_then(Value::as_object)
+        .ok_or_else(|| RegistryMemoryError::ConfigUpdate {
+            path: path_display.clone(),
+            source: Box::new(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "design system `{}` missing registry for language `{}`",
+                    remembered.id,
+                    language_id.as_str()
+                ),
+            )),
+        })?;
+    let local_source = registry
+        .get("source")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RegistryMemoryError::ConfigUpdate {
+            path: path_display.clone(),
+            source: Box::new(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "design system `{}` registry for `{}` missing source",
+                    remembered.id,
+                    language_id.as_str()
+                ),
+            )),
+        })?
+        .to_owned();
+    let published_source = registry
+        .get("published_source")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let upstream = format!("{}/{}", remembered.id, language_id.as_str());
+    if let Some(published_source) = published_source.filter(|value| !value.trim().is_empty()) {
+        Ok(ResolvedRememberedRegistry {
+            config_source: published_source,
+            upstream,
+            design_system_local_source: None,
+        })
+    } else {
+        Ok(ResolvedRememberedRegistry {
+            config_source: app_registry_relative_path(&remembered.id, language_id),
+            upstream,
+            design_system_local_source: Some(local_source),
+        })
+    }
+}
+
+/// Copies a design-system registry artifact into an app repository.
+pub fn copy_design_system_registry_to_app(
+    remembered: &RememberedDesignSystemSummary,
+    design_system_local_source: &str,
+    app_repo_root: &Path,
+    app_registry_relative: &str,
+) -> Result<(), RegistryMemoryError> {
+    let source_path = remembered.repo_root.join(design_system_local_source);
+    let destination_path = app_repo_root.join(app_registry_relative);
+    let destination_display = destination_path.display().to_string();
+    let contents =
+        fs::read_to_string(&source_path).map_err(|source| RegistryMemoryError::ConfigUpdate {
+            path: source_path.display().to_string(),
+            source: Box::new(source),
+        })?;
+    if let Some(parent) = destination_path.parent() {
+        fs::create_dir_all(parent).map_err(|source| RegistryMemoryError::ConfigUpdate {
+            path: destination_display.clone(),
+            source: Box::new(source),
+        })?;
+    }
+    fs::write(&destination_path, format!("{contents}\n")).map_err(|source| {
+        RegistryMemoryError::ConfigUpdate {
+            path: destination_display,
+            source: Box::new(source),
+        }
+    })?;
     Ok(())
 }
 

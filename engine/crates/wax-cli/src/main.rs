@@ -1,256 +1,18 @@
-mod commands {
-    pub mod diagnostic_output;
-    pub mod init;
-    pub mod language;
-    pub mod registry;
-    pub mod scan;
-    pub mod uninstall;
-    pub mod validate;
-}
-
-mod progress;
-
-#[cfg(test)]
-mod testing;
-
-use clap::{Args, Parser, Subcommand};
-use commands::init::{InitOptions, run_init_cli};
-use commands::language::{
-    DoctorOptions, InstallOptions, LanguageInstallSpec, ListOptions, UninstallOptions,
-    UpdateOptions, run_doctor, run_install, run_list, run_uninstall, run_update,
+use clap::Parser;
+use wax_cli::cli::{Cli, Commands, LanguageSubcommand, RegistrySubcommand};
+use wax_cli::commands::init::{InitOptions, run_init_cli};
+use wax_cli::commands::language::{
+    DoctorOptions, InstallOptions, ListOptions, UninstallOptions, UpdateOptions, run_doctor,
+    run_install, run_list, run_uninstall, run_update,
 };
-use commands::registry::{
+use wax_cli::commands::registry::{
     RegistryDiscoverCommandOptions, RegistryMemoryCommandOptions, RegistryUpdateCommandOptions,
     run_registry_delete, run_registry_discover, run_registry_list, run_registry_show,
     run_registry_update,
 };
-use commands::scan::{ScanCommandOptions, run_scan};
-use commands::uninstall::{UninstallCliOptions, run_uninstall_cli};
-use commands::validate::{ValidateCommandOptions, run_validate};
-use std::path::PathBuf;
-use wax_contract::LanguageId;
-use wax_lang_api::build_version;
-
-#[derive(Debug, Parser)]
-#[command(name = "wax")]
-#[command(version = build_version(), about = "Design-system analysis engine")]
-struct Cli {
-    #[command(subcommand)]
-    command: Commands,
-}
-
-#[derive(Debug, Subcommand)]
-enum Commands {
-    /// Manage language pack lifecycle.
-    Language(LanguageCli),
-    /// Initialize wax repository configuration.
-    Init(InitArgs),
-    /// Discover and manage design-system registries.
-    Registry(RegistryCli),
-    /// Scan repository source with enabled language packs.
-    Scan(ScanArgs),
-    /// Discover design-system registry components from source roots.
-    Discover(DiscoverArgs),
-    /// Validate repository wax inputs for CI usage.
-    Validate(ValidateArgs),
-    /// Uninstall wax global state and local binary paths.
-    Uninstall(GlobalUninstallArgs),
-}
-
-#[derive(Debug, Args)]
-struct InitArgs {
-    /// Run scriptable onboarding without prompts.
-    #[arg(long = "non-interactive")]
-    non_interactive: bool,
-    /// Language pack id to enable. Repeat for multiple languages.
-    #[arg(long = "language", value_name = "ID")]
-    languages: Vec<LanguageId>,
-    /// Write config and lockfile without downloading language packs.
-    #[arg(long)]
-    no_install: bool,
-    /// Pack index URL. Resolution precedence: --registry > WAX_LANG_INDEX > built-in default.
-    #[arg(long, env = "WAX_LANG_INDEX")]
-    registry: Option<String>,
-    /// Repository root that will receive `.wax/wax.config.json` and `.wax/wax.lock.json`.
-    #[arg(long, default_value = ".")]
-    repo_root: PathBuf,
-    /// Target triple override, primarily for tests and cross-install workflows.
-    #[arg(long)]
-    target: Option<String>,
-    /// Skip copying example design-system registry files.
-    #[arg(long)]
-    no_scaffold_registries: bool,
-}
-
-#[derive(Debug, Args)]
-struct RegistryCli {
-    #[command(subcommand)]
-    command: RegistrySubcommand,
-}
-
-#[derive(Debug, Subcommand)]
-enum RegistrySubcommand {
-    /// Discover design-system registry components from source roots.
-    Discover(DiscoverArgs),
-    /// List remembered design systems.
-    List(RegistryMemoryArgs),
-    /// Show one remembered design system.
-    Show(RegistryShowArgs),
-    /// Update the remembered repository root for a design system.
-    Update(RegistryUpdateArgs),
-    /// Delete a remembered design system.
-    Delete(RegistryDeleteArgs),
-}
-
-#[derive(Debug, Args)]
-struct RegistryMemoryArgs {}
-
-#[derive(Debug, Args)]
-struct RegistryShowArgs {
-    /// Design-system id to show.
-    design_system_id: String,
-}
-
-#[derive(Debug, Args)]
-struct RegistryUpdateArgs {
-    /// Design-system id to update.
-    design_system_id: String,
-    /// New repository root for the remembered design system.
-    #[arg(long)]
-    repo_root: PathBuf,
-}
-
-#[derive(Debug, Args)]
-struct RegistryDeleteArgs {
-    /// Design-system id to delete.
-    design_system_id: String,
-}
-
-#[derive(Debug, Args)]
-struct DiscoverArgs {
-    /// Language pack id to discover registry components for.
-    #[arg(long = "language", value_name = "ID")]
-    language: LanguageId,
-    /// Source root to inspect. Repeat for multiple roots.
-    #[arg(long = "root", value_name = "PATH")]
-    roots: Vec<PathBuf>,
-    /// Print generated registry JSON to stdout without writing a file.
-    #[arg(long)]
-    dry_run: bool,
-    /// Replace an existing registry file.
-    #[arg(long)]
-    force: bool,
-    /// Design-system id to remember after discovery.
-    #[arg(long = "design-system", value_name = "ID")]
-    design_system: Option<String>,
-    /// Display name for the remembered design system.
-    #[arg(long)]
-    name: Option<String>,
-    /// Repository root where the registry should be written.
-    #[arg(long, default_value = ".")]
-    repo_root: PathBuf,
-}
-
-#[derive(Debug, Args)]
-struct LanguageCli {
-    #[command(subcommand)]
-    command: LanguageSubcommand,
-}
-
-#[derive(Debug, Subcommand)]
-enum LanguageSubcommand {
-    /// List installed language packs.
-    List(RegistryArgs),
-    /// Install the latest registry version of a language pack.
-    Install(InstallArgs),
-    /// Uninstall one language pack version, or all versions when omitted.
-    Uninstall(UninstallArgs),
-    /// Install the latest registry version and remove older local versions.
-    Update(UpdateArgs),
-    /// Check repository language configuration, lock pins, and installed binaries.
-    Doctor(DoctorArgs),
-}
-
-#[derive(Debug, Args)]
-struct RegistryArgs {
-    /// Deprecated compatibility flag; installed-state listing ignores registry indexes.
-    #[arg(long, env = "WAX_LANG_INDEX")]
-    registry: Option<String>,
-}
-
-#[derive(Debug, Args)]
-struct InstallArgs {
-    /// Language id to install, optionally pinned as <id>@<version>.
-    language: LanguageInstallSpec,
-    /// Pack index URL. Resolution precedence: --registry > WAX_LANG_INDEX > built-in default.
-    #[arg(long, env = "WAX_LANG_INDEX")]
-    registry: Option<String>,
-    /// Target triple override, primarily for tests and cross-install workflows.
-    #[arg(long)]
-    target: Option<String>,
-}
-
-#[derive(Debug, Args)]
-struct UpdateArgs {
-    /// Language id to update. Omit only when using --all.
-    #[arg(required_unless_present = "all")]
-    language_id: Option<LanguageId>,
-    /// Update every installed language.
-    #[arg(long, conflicts_with = "language_id")]
-    all: bool,
-    /// Pack index URL. Resolution precedence: --registry > WAX_LANG_INDEX > built-in default.
-    #[arg(long, env = "WAX_LANG_INDEX")]
-    registry: Option<String>,
-    /// Target triple override, primarily for tests and cross-install workflows.
-    #[arg(long)]
-    target: Option<String>,
-    /// Repository root containing wax config and lock files.
-    #[arg(long, default_value = ".")]
-    repo_root: PathBuf,
-}
-
-#[derive(Debug, Args)]
-struct UninstallArgs {
-    /// Language id to uninstall.
-    language_id: LanguageId,
-    /// Specific version to uninstall. If omitted, all installed versions are removed.
-    #[arg(long)]
-    version: Option<String>,
-}
-
-#[derive(Debug, Args)]
-struct DoctorArgs {
-    /// Repository root containing wax config and optionally lock files.
-    #[arg(long, default_value = ".")]
-    repo_root: PathBuf,
-}
-
-#[derive(Debug, Args)]
-struct ScanArgs {
-    /// Repository root containing wax config and lock files.
-    #[arg(long, default_value = ".")]
-    repo_root: PathBuf,
-    /// Disable automatic install of missing language packs before scan.
-    #[arg(long)]
-    no_auto_install: bool,
-    /// Override scan worker concurrency.
-    #[arg(long = "concurrency", value_parser = clap::value_parser!(u32).range(1..))]
-    scan_concurrency: Option<u32>,
-}
-
-#[derive(Debug, Args)]
-struct ValidateArgs {
-    /// Repository root containing wax config and lock files.
-    #[arg(long, default_value = ".")]
-    repo_root: PathBuf,
-}
-
-#[derive(Debug, Args)]
-struct GlobalUninstallArgs {
-    /// Remove global state (`~/.wax`) and best-effort binary install paths.
-    #[arg(long)]
-    full: bool,
-}
+use wax_cli::commands::scan::{ScanCommandOptions, run_scan_cli};
+use wax_cli::commands::uninstall::{UninstallCliOptions, run_uninstall_cli};
+use wax_cli::commands::validate::{ValidateCommandOptions, run_validate};
 
 fn main() {
     let cli = Cli::parse();
@@ -259,7 +21,7 @@ fn main() {
         Commands::Language(language) => match language.command {
             LanguageSubcommand::List(args) => run_list(
                 ListOptions {
-                    registry_url: args.registry,
+                    registry_url: args.pack_index,
                     state_path: None,
                 },
                 &mut stdout,
@@ -268,7 +30,7 @@ fn main() {
                 InstallOptions {
                     language_id: args.language.language_id,
                     version: args.language.version,
-                    registry_url: args.registry,
+                    registry_url: args.pack_index,
                     target_triple: args.target,
                     state_path: None,
                 },
@@ -286,7 +48,7 @@ fn main() {
                 UpdateOptions {
                     language_id: args.language_id,
                     all: args.all,
-                    registry_url: args.registry,
+                    registry_url: args.pack_index,
                     target_triple: args.target,
                     state_path: None,
                     repo_root: args.repo_root,
@@ -307,7 +69,7 @@ fn main() {
                 non_interactive: args.non_interactive,
                 languages: args.languages,
                 no_install: args.no_install,
-                registry_url: args.registry,
+                registry_url: args.pack_index,
                 repo_root: args.repo_root,
                 target_triple: args.target,
                 state_path: None,
@@ -318,7 +80,7 @@ fn main() {
         )
         .map_err(Into::into),
         Commands::Discover(args)
-        | Commands::Registry(RegistryCli {
+        | Commands::Registry(wax_cli::cli::RegistryCli {
             command: RegistrySubcommand::Discover(args),
         }) => run_registry_discover(
             RegistryDiscoverCommandOptions {
@@ -333,14 +95,14 @@ fn main() {
             &mut stdout,
         )
         .map_err(Into::into),
-        Commands::Registry(RegistryCli {
+        Commands::Registry(wax_cli::cli::RegistryCli {
             command: RegistrySubcommand::List(_),
         }) => run_registry_list(
             RegistryMemoryCommandOptions { state_path: None },
             &mut stdout,
         )
         .map_err(Into::into),
-        Commands::Registry(RegistryCli {
+        Commands::Registry(wax_cli::cli::RegistryCli {
             command: RegistrySubcommand::Show(args),
         }) => run_registry_show(
             &args.design_system_id,
@@ -348,7 +110,7 @@ fn main() {
             &mut stdout,
         )
         .map_err(Into::into),
-        Commands::Registry(RegistryCli {
+        Commands::Registry(wax_cli::cli::RegistryCli {
             command: RegistrySubcommand::Update(args),
         }) => run_registry_update(
             RegistryUpdateCommandOptions {
@@ -359,7 +121,7 @@ fn main() {
             &mut stdout,
         )
         .map_err(Into::into),
-        Commands::Registry(RegistryCli {
+        Commands::Registry(wax_cli::cli::RegistryCli {
             command: RegistrySubcommand::Delete(args),
         }) => run_registry_delete(
             &args.design_system_id,
@@ -367,11 +129,15 @@ fn main() {
             &mut stdout,
         )
         .map_err(Into::into),
-        Commands::Scan(args) => run_scan(
+        Commands::Scan(args) => run_scan_cli(
             ScanCommandOptions {
                 repo_root: args.repo_root,
                 allow_auto_install: !args.no_auto_install,
                 scan_concurrency: args.scan_concurrency,
+                state_path: None,
+                pack_index_url: None,
+                target_triple: None,
+                ephemeral: None,
             },
             &mut stdout,
         )
