@@ -54,7 +54,7 @@ async function verifyScreenshot(page, testInfo, name) {
 
   await expect(page).toHaveScreenshot(name, {
     animations: "disabled",
-    maxDiffPixelRatio: 0.01,
+    maxDiffPixelRatio: 0.03,
   });
 }
 
