@@ -6,25 +6,28 @@
 <title>Wax Scan Report - {{repo_name}}</title>
 <style>
   :root {
-    --bg: #0f1419;
-    --panel: #161b22;
-    --border: #30363d;
-    --text: #e6edf3;
-    --muted: #8b949e;
-    --accent: #d6a117;
-    --wax: #d6a117;
-    --wax-soft: #f3dfa0;
-    --ds: #d6a117;
-    --local: #b78a1f;
-    --high: #d6a117;
-    --medium: #d6a117;
-    --low: #f3dfa0;
+    --bg: #000000;
+    --panel: #0d0d0d;
+    --panel-strong: #141006;
+    --border: #2d2514;
+    --text: #f7f2e6;
+    --muted: #a79a82;
+    --accent: #FCC457;
+    --wax: #FCC457;
+    --wax-soft: #ffe3a1;
+    --ds: #FCC457;
+    --local: #c99735;
+    --high: #FCC457;
+    --medium: #e4ad42;
+    --low: #ffe3a1;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: var(--bg);
+    background:
+      radial-gradient(circle at top right, rgba(252, 196, 87, 0.14), transparent 28rem),
+      linear-gradient(180deg, #050400 0%, var(--bg) 32rem);
     color: var(--text);
     line-height: 1.5;
   }
@@ -33,6 +36,10 @@
     border-bottom: 1px solid var(--border);
     padding-bottom: 24px;
     margin-bottom: 32px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
   }
   h1 { font-size: 32px; margin: 0 0 8px; }
   h2 {
@@ -44,11 +51,12 @@
   h3 { font-size: 17px; margin: 24px 0 12px; color: var(--accent); }
   .subtitle { color: var(--muted); font-size: 14px; }
   .panel {
-    background: var(--panel);
+    background: linear-gradient(180deg, var(--panel-strong), var(--panel));
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 20px;
     margin-bottom: 16px;
+    box-shadow: 0 0 0 1px rgba(252, 196, 87, 0.03);
   }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
   .kpi { text-align: center; }
@@ -82,7 +90,7 @@
     word-break: break-all;
   }
   .caveat {
-    background: rgba(214,161,23,0.08);
+    background: rgba(252,196,87,0.1);
     border-left: 3px solid var(--accent);
     padding: 16px 20px;
     border-radius: 4px;
@@ -98,9 +106,9 @@
     letter-spacing: 0.4px;
     font-weight: 600;
   }
-  .pill.high { background: rgba(214,161,23,0.15); color: var(--high); }
-  .pill.medium { background: rgba(214,161,23,0.15); color: var(--medium); }
-  .pill.low { background: rgba(243,223,160,0.15); color: var(--low); }
+  .pill.high { background: rgba(252,196,87,0.16); color: var(--high); }
+  .pill.medium { background: rgba(228,173,66,0.16); color: var(--medium); }
+  .pill.low { background: rgba(255,227,161,0.15); color: var(--low); }
   .red { color: var(--high); }
   .amber { color: var(--medium); }
   .green { color: var(--low); }
@@ -112,6 +120,27 @@
   li { margin-bottom: 6px; }
   .chart-label { fill: var(--muted); font-size: 12px; font-family: inherit; }
   .chart-value { fill: var(--text); font-size: 12px; font-family: inherit; }
+  .report-title { min-width: 0; }
+  .report-logo {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 72px;
+    height: 72px;
+    border-radius: 8px;
+    background: var(--accent);
+    box-shadow: 0 0 28px rgba(252, 196, 87, 0.2);
+  }
+  .report-logo svg {
+    display: block;
+    width: 58px;
+    height: 58px;
+  }
+  @media (max-width: 640px) {
+    header { align-items: center; }
+    .report-logo { width: 56px; height: 56px; }
+    .report-logo svg { width: 45px; height: 45px; }
+  }
   @media print {
     :root {
       --bg: #fff; --panel: #fff; --border: #d0d7de; --text: #1f2328; --muted: #6e7781;
@@ -123,11 +152,14 @@
 <body>
 <div class="container">
   <header>
-    <h1>Design System Adoption</h1>
-    <p class="subtitle">
-      {{repo_name}} workspace · Source: <code>{{source_scan}}</code> ·
-      Generated: {{generated_at}} · Schema v{{schema_version}}
-    </p>
+    <div class="report-title">
+      <h1>Design System Adoption</h1>
+      <p class="subtitle">
+        {{repo_name}} workspace · Source: <code>{{source_scan}}</code> ·
+        Generated: {{generated_at}} · Schema v{{schema_version}}
+      </p>
+    </div>
+    <div class="report-logo">{{logo_svg}}</div>
   </header>
 
   <section>

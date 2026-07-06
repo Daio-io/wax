@@ -31,7 +31,10 @@ assert_not_contains() {
 
 "$RENDER" --insights "$FIXTURE" --repo-name "wax-render-test" "$OUTPUT" >/dev/null
 
-assert_contains "--bg: #0f1419;"
+assert_contains "--bg: #000000;"
+assert_contains "--accent: #FCC457;"
+assert_contains "class=\"report-logo\""
+assert_contains "aria-label=\"Wax logo\""
 assert_contains "Design System Adoption"
 assert_contains "DS vs local UI coverage"
 assert_contains "Adoption gaps"

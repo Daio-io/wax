@@ -5,6 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEFAULT_FIXTURE="$ROOT/scripts/fixtures/wax-scan/expected-insights.sample.json"
 TEMPLATE="$ROOT/skills/wax-scan/templates/report.html"
+LOGO="$ROOT/skills/wax-scan/assets/wax-logo-icon.svg"
 REPO_ROOT="$(git -C "$ROOT" rev-parse --show-toplevel 2>/dev/null || echo "$ROOT")"
 
 FIXTURE="$DEFAULT_FIXTURE"
@@ -55,14 +56,14 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ ! -f "$FIXTURE" || ! -f "$TEMPLATE" ]]; then
-  echo "FAIL: missing fixture or template" >&2
+if [[ ! -f "$FIXTURE" || ! -f "$TEMPLATE" || ! -f "$LOGO" ]]; then
+  echo "FAIL: missing fixture, template, or logo" >&2
   exit 1
 fi
 
 mkdir -p "$(dirname "$OUTPUT")"
 
-python3 - "$FIXTURE" "$TEMPLATE" "$OUTPUT" "$REPO_NAME" <<'PY'
+python3 - "$FIXTURE" "$TEMPLATE" "$LOGO" "$OUTPUT" "$REPO_NAME" <<'PY'
 import html
 import json
 import pathlib
@@ -71,11 +72,13 @@ import sys
 
 fixture_path = pathlib.Path(sys.argv[1])
 template_path = pathlib.Path(sys.argv[2])
-output_path = pathlib.Path(sys.argv[3])
-repo_name = sys.argv[4]
+logo_path = pathlib.Path(sys.argv[3])
+output_path = pathlib.Path(sys.argv[4])
+repo_name = sys.argv[5]
 
 data = json.loads(fixture_path.read_text(encoding="utf-8"))
 template = template_path.read_text(encoding="utf-8")
+logo_svg = logo_path.read_text(encoding="utf-8").strip()
 
 CHART_WIDTH = 360
 ROW_H = 20
@@ -355,6 +358,7 @@ caveat_html = (
 
 replacements = {
     "repo_name": esc(repo_name),
+    "logo_svg": logo_svg,
     "generated_at": esc(data.get("generated_at", "")),
     "source_scan": esc(data.get("source_scan", "")),
     "schema_version": esc(data.get("schema_version", "")),
