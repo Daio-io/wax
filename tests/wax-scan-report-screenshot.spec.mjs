@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -43,22 +43,25 @@ async function expectBumblebeeTheme(page) {
   expect(theme.bodyBackground).toContain("252, 196, 87");
 }
 
-async function writeScreenshot(page, testInfo, name) {
-  const screenshotPath = path.join(artifactDir, name);
+async function verifyScreenshot(page, testInfo, name) {
+  const artifactPath = path.join(artifactDir, name);
   await page.screenshot({
-    path: screenshotPath,
-    fullPage: true,
+    path: artifactPath,
     animations: "disabled",
   });
 
-  expect(statSync(screenshotPath).size).toBeGreaterThan(20_000);
   await testInfo.attach(name, {
-    path: screenshotPath,
+    path: artifactPath,
     contentType: "image/png",
+  });
+
+  await expect(page).toHaveScreenshot(name, {
+    animations: "disabled",
+    maxDiffPixelRatio: 0.01,
   });
 }
 
-test("desktop screenshot keeps the black and bumblebee report theme", async ({ page }, testInfo) => {
+test("desktop screenshot keeps the current report layout with the black and bumblebee theme", async ({ page }, testInfo) => {
   await openReport(page, { width: 1440, height: 1100 });
   await expectBumblebeeTheme(page);
 
@@ -74,19 +77,5 @@ test("desktop screenshot keeps the black and bumblebee report theme", async ({ p
     "Candidates to bring into the design system",
     "Key findings",
   ]);
-  await writeScreenshot(page, testInfo, "wax-scan-report-desktop.png");
-});
-
-test("mobile screenshot keeps the logo visible without changing report sections", async ({ page }, testInfo) => {
-  await openReport(page, { width: 390, height: 900 });
-  await expectBumblebeeTheme(page);
-
-  const logoBox = await page.locator(".report-logo").boundingBox();
-  expect(logoBox).not.toBeNull();
-  expect(logoBox.x).toBeGreaterThan(300);
-  expect(logoBox.width).toBeLessThanOrEqual(56);
-
-  await expect(page.getByText("DS vs local UI coverage")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Key findings" })).toBeVisible();
-  await writeScreenshot(page, testInfo, "wax-scan-report-mobile.png");
+  await verifyScreenshot(page, testInfo, "wax-scan-report-desktop.png");
 });

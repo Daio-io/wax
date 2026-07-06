@@ -3,6 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "./tests",
   outputDir: ".wax/out/playwright-results",
+  snapshotPathTemplate: "{testDir}/goldens/{arg}{ext}",
   reporter: [
     ["list"],
     ["html", { outputFolder: ".wax/out/playwright-report", open: "never" }],
