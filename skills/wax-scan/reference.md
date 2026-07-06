@@ -95,7 +95,7 @@ Template: `skills/wax-scan/templates/report.html`
 
 Render helper: `scripts/render-wax-scan-fixture-report.sh [--insights PATH] [--repo-name NAME] [OUTPUT]`
 
-The renderer copies the template to `.wax/out/report/index.html` and substitutes the dark-template placeholders directly. Use deterministic values from extractor JSON where available and keep diagnostics secondary to the migration story.
+The renderer copies the template to `.wax/out/report/index.html`, inlines the Wax logo SVG into `{{logo_svg}}`, and substitutes the report placeholders directly. Use deterministic values from extractor JSON where available and keep diagnostics secondary to the migration story.
 
 The template is the approved visual source of truth for the report UI. It uses the dark dashboard shell, wax-yellow accents, inline SVG charts, inventory tables, and a compact findings section.
 
@@ -126,8 +126,8 @@ Do not render UI invocation adoption as a primary KPI in the HTML report. Keep u
 
 ### Visual theme
 
-- Background: dark shell using `#0f1419` and `#161b22`
-- Accent: beeswax yellow `#d6a117`
+- Background: black shell using `#000000` and `#0d0d0d`
+- Accent: bumblebee yellow `#FCC457`
 - Adoption: wax yellow and warm contrast fills
 - Neutral comparison fill: dark panel borders and muted gray text
 - Red: reserved for true errors or severity states, not default chart language
@@ -136,6 +136,7 @@ Do not render UI invocation adoption as a primary KPI in the HTML report. Keep u
 
 | Placeholder | Notes |
 |-------------|-------|
+| `{{logo_svg}}` | Trusted inline Wax logo SVG loaded from `skills/wax-scan/assets/wax-logo-icon.svg` |
 | `{{ds_usage_chart_svg}}` | Top DS usage chart |
 | `{{ds_symbols_table_html}}` | DS usage inventory table |
 | `{{unused_components_table_html}}` | Named unused registry components |

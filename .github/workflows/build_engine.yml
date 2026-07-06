@@ -96,18 +96,18 @@ jobs:
 
       - name: Install wax-scan report visual test dependencies
         run: npm install
-        working-directory: ..
+        working-directory: .
 
       - name: Install Chromium for wax-scan report screenshots
         run: npx playwright install --with-deps chromium
-        working-directory: ..
+        working-directory: .
 
       - name: Verify wax-scan report HTML contract
         run: ../scripts/test-wax-scan-render-report.sh
 
       - name: Verify wax-scan report screenshots
         run: npm run test:wax-scan-report
-        working-directory: ..
+        working-directory: .
 
       - name: Upload wax-scan report visual artifacts
         if: always()

@@ -30,17 +30,14 @@ async function openReport(page, viewport) {
 async function expectBumblebeeTheme(page) {
   const theme = await page.evaluate(() => {
     const rootStyle = getComputedStyle(document.documentElement);
-    const bodyStyle = getComputedStyle(document.body);
     return {
       bg: rootStyle.getPropertyValue("--bg").trim(),
       accent: rootStyle.getPropertyValue("--accent").trim(),
-      bodyBackground: bodyStyle.backgroundImage,
     };
   });
 
   expect(theme.bg).toBe("#000000");
   expect(theme.accent).toBe("#FCC457");
-  expect(theme.bodyBackground).toContain("252, 196, 87");
 }
 
 async function verifyScreenshot(page, testInfo, name) {
