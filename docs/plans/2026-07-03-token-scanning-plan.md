@@ -19,6 +19,9 @@
 - Parser-backed packs emit hard-coded styling candidates only in styling contexts and must stay conservative.
 - Reuse `ParentScope` for token facts when parent attribution is available.
 - `wax-core` owns derived token counts, token summaries, and token ratios.
+- v1 reporting is CLI-only (`wax scan` terminal summary). wax-scan HTML templates, baseline fixtures, and branded report updates are follow-on work.
+- `wax validate` registry token entry validation (duplicate ids, empty keys, bad categories) is follow-on work; scan-time contract validation covers emitted facts.
+- Registry discovery or skill-assisted population of `tokens[]` is out of scope for v1; token registries are authored or synced explicitly.
 - Run `cargo fmt --all` before committing Rust changes.
 
 ---
@@ -382,8 +385,11 @@ Modify `CountSummary`:
 
 ```rust
 /// Design-token scan counters.
+#[serde(default)]
 pub tokens: TokenCounts,
 ```
+
+When deserializing older scan JSON without `counts.tokens`, `TokenCounts::default()` must apply so additive fields remain backward-compatible at the contract boundary.
 
 Add summary struct:
 
@@ -723,6 +729,9 @@ pub fn token_index(tokens: &[DesignSystemToken]) -> Result<RegistryTokenIndex, T
 }
 
 /// Finds exact token key and alias references in source text.
+///
+/// Used by the basic pack only. Matching is naive substring search per line;
+/// false positives inside longer identifiers are a known v1 limitation.
 pub fn find_token_matches(
     source: &str,
     file: &str,
@@ -1044,6 +1053,8 @@ token_sites.extend(find_token_matches(
 ));
 ```
 
+The basic pack uses naive substring matching only; false positives inside longer identifiers are an accepted v1 limitation.
+
 Sort `token_sites` by file, line, column, and token id before returning.
 
 Return:
@@ -1108,6 +1119,8 @@ git commit -m "feat: scan basic token references"
 ---
 
 ### Task 4: Aggregate Tokens In Core And CLI
+
+**Scope note:** v1 stops at merged scan output and `wax scan` terminal summary. wax-scan skill HTML reporting and fixture updates are follow-on work tracked separately from this plan.
 
 **Files:**
 - Modify: `engine/crates/wax-core/src/adoption_merge.rs`
@@ -1601,24 +1614,20 @@ Use `node.utf8_text(source).ok()` to inspect the call expression text and select
 
 - [ ] **Step 5: Emit Compose token facts during scan**
 
-In the per-file scan loop, after reading `source`, extend:
-
-```rust
-token_sites.extend(find_token_matches(
-    source,
-    &relative_file,
-    &registry.token_index,
-    "token.compose",
-));
-```
-
-Then call:
+In the per-file scan loop, after reading `source` and obtaining `root`, call:
 
 ```rust
 extract_hardcoded_style_from_source(root, source.as_bytes(), &relative_file, &mut hardcoded_style_sites);
+extract_token_sites_from_source(
+    root,
+    source.as_bytes(),
+    &relative_file,
+    &registry.token_index,
+    &mut token_sites,
+);
 ```
 
-For token sites, implement a parser-backed helper instead of plain text matching so parent attribution is available:
+For token sites, implement a parser-backed helper so parent attribution is available:
 
 ```rust
 fn extract_token_sites_from_source(
@@ -1664,7 +1673,7 @@ fn extract_token_sites_from_source(
 }
 ```
 
-Call this helper for Compose instead of `find_token_matches` so the parent assertions from Step 1 pass.
+Do not call `find_token_matches` for Compose; parser-backed extraction is required so parent assertions from Step 1 pass.
 
 - [ ] **Step 6: Populate Compose `ScanFacts`**
 
@@ -1992,18 +2001,21 @@ When `extract_usage_from_source` visits call expressions, if `swift_style_catego
 
 - [ ] **Step 5: Emit Swift token facts during scan**
 
-During each source file scan, extend token sites:
+During each source file scan, after obtaining `root`, call:
 
 ```rust
-token_sites.extend(find_token_matches(
-    source,
+extract_token_sites_from_source(
+    root,
+    source.as_bytes(),
     &relative_file,
+    module_identity,
+    semantic_module.as_deref(),
     &registry.token_index,
-    "token.swift",
-));
+    &mut token_sites,
+);
 ```
 
-For token sites, implement a parser-backed helper instead of plain text matching so parent attribution is available:
+For token sites, implement a parser-backed helper so parent attribution is available:
 
 ```rust
 fn extract_token_sites_from_source(
@@ -2049,7 +2061,7 @@ fn extract_token_sites_from_source(
 }
 ```
 
-Call this helper for Swift instead of `find_token_matches` so the parent assertions from Step 1 pass.
+Do not call `find_token_matches` for Swift; parser-backed extraction is required so parent assertions from Step 1 pass.
 
 - [ ] **Step 6: Populate Swift `ScanFacts`**
 
@@ -2163,6 +2175,17 @@ Expected: only files intentionally modified by the token scanning work are liste
 git add docs/specs/2026-05-13-component-tracker-design.md docs/specs/2026-06-20-adoption-metrics-v2-design.md docs/specs/2026-07-03-token-scanning-design.md docs/plans/2026-07-03-token-scanning-plan.md
 git commit -m "docs: finalize token scanning plan"
 ```
+
+- [ ] **Step 6: Archive plan and add ADR when implementation completes**
+
+After all Tasks 1-8 implementation PRs merge:
+
+1. Move `docs/plans/2026-07-03-token-scanning-plan.md` to `docs/plans/archive/`.
+2. Add an ADR under `docs/adr/` describing the shipped token fact family.
+3. Update `docs/plans/README.md`:
+   - set Token Scanning doc status to `merged` and implementation status to `complete`
+   - add the ADR link in the roadmap row
+   - update the active plan pointer to the next roadmap item
 
 ---
 

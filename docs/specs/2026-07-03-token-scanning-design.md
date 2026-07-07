@@ -3,7 +3,7 @@
 **Status:** Draft approved for implementation planning  
 **Date:** 2026-07-03  
 **Audience:** Wax engine, contract, language-pack, and reporting implementers  
-**Related:** `docs/specs/2026-06-20-adoption-metrics-v2-design.md`, `docs/specs/2026-05-13-component-tracker-design.md`
+**Related:** `docs/specs/2026-06-20-adoption-metrics-v2-design.md`, `docs/specs/2026-05-13-component-tracker-design.md`, `docs/specs/2026-07-04-registry-sync-config-design.md`
 **Implementation plan:** [`docs/plans/2026-07-03-token-scanning-plan.md`](../plans/2026-07-03-token-scanning-plan.md)
 
 ## Summary
@@ -30,6 +30,7 @@ The design does not try to map hard-coded values to replacement tokens. That rem
 - A token `style_context` field.
 - Hard-coded styling candidates from the basic text scanner.
 - Runtime telemetry or production instrumentation.
+- Automated token discovery or population of registry `tokens[]` (for example via `wax-registry-discover`); token registries are authored or synced explicitly in v1.
 
 ## Approach
 
@@ -169,6 +170,8 @@ Candidate examples:
 
 The basic pack should emit only token references by exact string matching token `key` and `aliases` from its registry.
 
+Matching uses naive substring search per line. False positives inside longer identifiers (for example a key `primary` matching `primaryAction`) are a known v1 limitation and acceptable for the basic scanner's conservative role.
+
 It should not emit hard-coded styling candidates. Without language context, values like `8`, `primary`, or `#fff` are too ambiguous and would create noisy reports.
 
 ## Aggregation And Metrics
@@ -213,9 +216,13 @@ Contract validation should enforce:
 
 Registry validation should allow registries with no `tokens` key or an empty `tokens` array so existing component registries remain valid.
 
+`wax validate` should reject malformed token entries when a registry defines `tokens[]` (duplicate ids, empty keys or aliases, unsupported categories). Detailed registry token validation is follow-on work and is not required for the initial token scanning implementation plan.
+
 ## Reporting
 
-Initial CLI and report surfaces should be careful and factual:
+v1 reporting is CLI-only via `wax scan` terminal summary. The wax-scan HTML skill, baseline fixtures, and branded report templates are follow-on work after the contract, engine, language-pack, and CLI surfaces ship.
+
+Initial CLI output should be careful and factual:
 
 - show token reference counts
 - show hard-coded styling candidate counts
@@ -260,6 +267,6 @@ The implementation should follow the active roadmap discipline:
 2. Update registry loaders and fixtures.
 3. Update `wax-core` aggregation.
 4. Update language packs, keeping parser-backed semantics aligned.
-5. Update CLI/reporting surfaces and docs.
+5. Update CLI summary output and docs.
 
-This design is intended to become a follow-on implementation plan after Adoption Metrics v2 is in a stable state or explicitly allows the token fact family as the next active work item.
+Token Scanning is roadmap order 13. Registry Sync and Config v2 (order 12) is complete on `main`. Do not start token scanning implementation until Adoption Metrics v2 (order 11) is complete or the maintainer explicitly promotes this plan to active work.
