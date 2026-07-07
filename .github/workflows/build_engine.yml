@@ -10,6 +10,14 @@ on:
       - "scripts/generate-pack-index.sh"
       - "scripts/test-generate-pack-index.sh"
       - "scripts/check-release-workflow.rb"
+      - "scripts/render-wax-scan-fixture-report.sh"
+      - "scripts/test-wax-scan-render-report.sh"
+      - "scripts/fixtures/wax-scan/**"
+      - "skills/wax-scan/**"
+      - "tests/wax-scan-report-screenshot.spec.mjs"
+      - "tests/goldens/**"
+      - "package.json"
+      - "playwright.config.mjs"
       - "homebrew/Formula/wax.rb"
       - ".github/workflows/release.yml"
       - ".github/workflows/build_engine.yml"
@@ -24,6 +32,14 @@ on:
       - "scripts/generate-pack-index.sh"
       - "scripts/test-generate-pack-index.sh"
       - "scripts/check-release-workflow.rb"
+      - "scripts/render-wax-scan-fixture-report.sh"
+      - "scripts/test-wax-scan-render-report.sh"
+      - "scripts/fixtures/wax-scan/**"
+      - "skills/wax-scan/**"
+      - "tests/wax-scan-report-screenshot.spec.mjs"
+      - "tests/goldens/**"
+      - "package.json"
+      - "playwright.config.mjs"
       - "homebrew/Formula/wax.rb"
       - ".github/workflows/release.yml"
       - ".github/workflows/build_engine.yml"
@@ -72,6 +88,37 @@ jobs:
 
       - name: Check release workflow
         run: ruby ../scripts/check-release-workflow.rb
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Install wax-scan report visual test dependencies
+        run: npm install
+        working-directory: ${{ github.workspace }}
+
+      - name: Install Chromium for wax-scan report screenshots
+        run: npx playwright install --with-deps chromium
+        working-directory: ${{ github.workspace }}
+
+      - name: Verify wax-scan report HTML contract
+        run: ../scripts/test-wax-scan-render-report.sh
+
+      - name: Verify wax-scan report screenshots
+        run: npm run test:wax-scan-report
+        working-directory: ${{ github.workspace }}
+
+      - name: Upload wax-scan report visual artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wax-scan-report-visual-artifacts
+          path: |
+            .wax/out/report-screenshots
+            .wax/out/playwright-report
+            .wax/out/playwright-results
+          if-no-files-found: warn
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
