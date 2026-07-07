@@ -15,5 +15,6 @@ ADRs record significant product and engineering decisions after implementation. 
 | 2026-06-13 | [Interactive init wizard](./2026-06-13-interactive-init.md) | Accepted | [Plan archive](../plans/archive/2026-06-13-interactive-init.md) |
 | 2026-06-14 | [Wax scan analytics skill](./2026-06-14-wax-scan-analytics-skill.md) | Accepted | [Plan archive](../plans/archive/2026-06-14-wax-scan-plan.md) |
 | 2026-06-20 | [Adoption Metrics v2](./2026-06-20-adoption-metrics-v2.md) | Pending merge | [Active implementation plan](../plans/2026-06-20-adoption-metrics-v2-plan.md) |
+| 2026-07-04 | [Registry sync and config v2](./2026-07-04-registry-sync-config-v2.md) | Accepted | [Plan archive](../plans/archive/2026-07-04-registry-sync-config-plan.md) |
 
 **Active plans** (not yet implemented or deferred) remain in [`docs/plans/`](../plans/README.md).

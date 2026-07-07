@@ -9,7 +9,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 3. Each implementation task remains **one PR per task** inside the active plan, per that plan's execution model.
 4. Update the **Doc status** and **Implementation status** columns when a plan doc PR merges or when implementation of a plan finishes.
 
-**Active plan:** [Registry Sync and Config v2](./2026-07-04-registry-sync-config-plan.md) — implementation in progress. Adoption Metrics v2 (order 11) has open PRs (#165, #171, #172) to merge in stack order. Post-alpha UX (order 5) remains deferred.
+**Active plan:** [Adoption Metrics v2](./2026-06-20-adoption-metrics-v2-plan.md) — finish open stacked PRs (#165, #171, #172). Post-alpha UX (order 5) remains deferred.
 
 ---
 
@@ -28,7 +28,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 | 9 | Interactive init wizard | [archive/2026-06-13-interactive-init.md](./archive/2026-06-13-interactive-init.md) | `merged` | `complete` | [ADR](../adr/2026-06-13-interactive-init.md) |
 | 10 | Wax scan analytics skill | [archive/2026-06-14-wax-scan-plan.md](./archive/2026-06-14-wax-scan-plan.md) | `merged` | `complete` | [ADR](../adr/2026-06-14-wax-scan-analytics-skill.md) |
 | 11 | Adoption Metrics v2 | [2026-06-20-adoption-metrics-v2-plan.md](./2026-06-20-adoption-metrics-v2-plan.md) | `pending` | `in-progress` | — |
-| 12 | Registry sync and config v2 | [2026-07-04-registry-sync-config-plan.md](./2026-07-04-registry-sync-config-plan.md) | `merged` | `in-progress` | — |
+| 12 | Registry sync and config v2 | [archive/2026-07-04-registry-sync-config-plan.md](./archive/2026-07-04-registry-sync-config-plan.md) | `merged` | `complete` | [ADR](../adr/2026-07-04-registry-sync-config-v2.md) |
 
 **Doc status:** `pending` -> plan PR open; `merged` -> plan doc on `main`; `planned` -> not yet drafted.
 
@@ -39,10 +39,10 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 ## Which plan should I run?
 
 ```text
--> Implement Registry Sync and Config v2 (order 12), one PR per task
+-> Finish Adoption Metrics v2 stacked PRs (order 11), one PR per task
 ```
 
-Orders 1-4, 6-10 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Registry Sync and Config v2 (order 12) is the active implementation plan. Adoption Metrics v2 (order 11) still has open stacked PRs (#165, #171, #172) to merge separately.
+Orders 1-4, 6-10, and 12 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Adoption Metrics v2 (order 11) still has open stacked PRs (#165, #171, #172) to merge separately.
 
 ---
 
@@ -61,6 +61,7 @@ Orders 1-4, 6-10 are **complete**. Post-alpha UX (order 5) remains otherwise def
 | 9 | `dai/interactive-init-plan` | #142 (merged) | Interactive init design and implementation plan |
 | 10 | `docs/wax-scan-skill-plan` | #151 (merged) | Wax scan analytics skill design, implementation plan, and Task 1 scaffold |
 | 11 | `dai/adoption-metrics-v2-contract` | [#165](https://github.com/Daio-io/wax/pull/165) | Adoption Metrics v2 design and contract |
+| 12 | `dai/registry-sync-config-plan` | #195 (merged) | Registry sync and config v2 design and implementation plan |
 
 ---
 
@@ -76,4 +77,4 @@ Orders 1-4, 6-10 are **complete**. Post-alpha UX (order 5) remains otherwise def
 - [Interactive init design](../specs/2026-06-13-interactive-init-design.md) — extracted Post-alpha UX Task 1 plan
 - [Wax scan analytics skill design](../specs/2026-06-14-wax-scan-design.md) — scan orchestration and adoption reporting skill (order 10)
 - [Adoption Metrics v2 design](../specs/2026-06-20-adoption-metrics-v2-design.md) — facts-first invocation adoption contract (order 11 draft)
-- [Registry sync and config v2 design](../specs/2026-07-04-registry-sync-config-design.md) — clean alpha cutover for remembered design-system registries, no-config local scans, and explicit app sync (order 12, active)
+- [Registry sync and config v2 design](../specs/2026-07-04-registry-sync-config-design.md) — clean alpha cutover for remembered design-system registries, no-config local scans, and explicit app sync (order 12, complete)

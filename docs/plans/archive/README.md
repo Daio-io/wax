@@ -20,5 +20,6 @@ Completed implementation plans live here. Each plan has a corresponding **ADR** 
 | 9 | [Interactive init wizard](./2026-06-13-interactive-init.md) | [ADR](../../adr/2026-06-13-interactive-init.md) | Complete |
 | 9 (design) | [Interactive init design](../../specs/2026-06-13-interactive-init-design.md) | — | Reference |
 | 10 | [Wax scan analytics skill](./2026-06-14-wax-scan-plan.md) | [ADR](../../adr/2026-06-14-wax-scan-analytics-skill.md) | Complete |
+| 12 | [Registry sync and config v2](./2026-07-04-registry-sync-config-plan.md) | [ADR](../../adr/2026-07-04-registry-sync-config-v2.md) | Complete |
 
 **Active plans** remain in [`docs/plans/`](../README.md).
