@@ -65,7 +65,11 @@ For documentation-only changes, inspect the rendered Markdown when practical and
 - Use focused branches and PRs; keep unrelated local changes out of commits.
 - Use conventional commit messages such as `feat:`, `fix:`, `docs:`, `ci:`, `test:`, and `chore:`.
 - Prefer small commits that explain the intent of the change.
-- Do not include tool or assistant attribution in commits.
+- **No AI or tool attribution anywhere in git history.** Commits and PR titles must read as human-authored work only.
+- Do not add `Co-authored-by`, `Signed-off-by`, or any other trailer that credits an AI assistant, agent, or coding tool (Codex, Cursor, Claude, Copilot, etc.).
+- Do not prefix commit messages or PR titles with tool markers such as `[codex]`, `[cursor]`, `[claude]`, or similar tags.
+- Do not mention which tool drafted, reviewed, or generated the change in commit bodies, PR descriptions, or squash-merge messages unless a maintainer explicitly asks for that context outside git metadata.
+- If a tool auto-inserts attribution, remove it before committing or opening a PR. Squash merges must not reintroduce attribution from branch commits.
 
 ## Code Style
 
