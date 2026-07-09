@@ -27,6 +27,7 @@ pub const MAX_PARSE_EXTRACT_MS: u64 = u32::MAX as u64;
 const NULLABLE_JSON_FIELDS: &[&[&str]] = &[
     &["metrics", "invocation_adoption_ratio"],
     &["metrics", "registry_resolution_ratio"],
+    &["metrics", "token_reference_ratio"],
 ];
 
 /// Validated lowercase ASCII slug used to identify a language pack.
@@ -342,6 +343,93 @@ pub struct SymbolUsageSummary {
     pub parent_scopes_truncated: bool,
 }
 
+/// Design token category used for token references and hard-coded styling candidates.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum TokenCategory {
+    /// Color token or hard-coded color candidate.
+    Color,
+    /// Spacing, sizing, padding, margin, or gap token or candidate.
+    Spacing,
+    /// Typography token or hard-coded typography candidate.
+    Typography,
+    /// Radius or shape token or candidate.
+    Radius,
+    /// Elevation, shadow, or z-depth token or candidate.
+    Elevation,
+    /// Known token whose category is not classified.
+    Unknown,
+}
+
+/// Design-system token known to a language pack from its registry.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct DesignSystemToken {
+    /// Stable token id within the language registry.
+    pub id: String,
+    /// Exact source-facing token key.
+    pub key: String,
+    /// Token category.
+    pub category: TokenCategory,
+    /// Exact source-facing aliases for the same token.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
+}
+
+/// Source reference to a known design token.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TokenSite {
+    /// Stable token reference site id.
+    pub id: String,
+    /// Source location where the token reference appears.
+    pub location: SourceLocation,
+    /// Referenced token id from `design_system_tokens`.
+    pub token_id: String,
+    /// Exact key or alias matched in source.
+    pub key: String,
+    /// Token category copied from the matched token.
+    pub category: TokenCategory,
+    /// Parent scope attribution when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<ParentScope>,
+}
+
+/// Hard-coded styling literal detected in a styling context.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct HardcodedStyleSite {
+    /// Stable hard-coded style site id.
+    pub id: String,
+    /// Source location where the literal appears.
+    pub location: SourceLocation,
+    /// Source text for the hard-coded styling value.
+    pub value: String,
+    /// Styling category inferred from context.
+    pub category: TokenCategory,
+    /// Parent scope attribution when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<ParentScope>,
+}
+
+/// Derived per-token usage summary.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TokenUsageSummary {
+    /// Token id represented by this summary row.
+    pub token_id: String,
+    /// Exact registry key for the token.
+    pub key: String,
+    /// Token category.
+    pub category: TokenCategory,
+    /// Number of token references to this token.
+    pub reference_count: u32,
+    /// Number of files containing references to this token.
+    pub file_count: u32,
+    /// Number of parent scopes containing references to this token.
+    pub parent_scope_count: u32,
+}
+
 /// Normalized facts emitted by one language pack scan.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -372,6 +460,18 @@ pub struct ScanFacts {
     /// Derived per-callee summaries when emitted by the engine or pack.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub symbol_usage_summary: Vec<SymbolUsageSummary>,
+    /// Known design-system tokens loaded for this language.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub design_system_tokens: Vec<DesignSystemToken>,
+    /// Known token references discovered in source.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub token_sites: Vec<TokenSite>,
+    /// Hard-coded styling candidates discovered in source.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hardcoded_style_sites: Vec<HardcodedStyleSite>,
+    /// Derived per-token summaries when emitted by the engine or pack.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub token_usage_summary: Vec<TokenUsageSummary>,
 }
 
 /// Design-system component known to the language pack.
@@ -456,6 +556,8 @@ pub struct Metrics {
     pub invocation_adoption_ratio: Option<f64>,
     /// Resolved invocations divided by all raw invocations, or `None` when total is zero.
     pub registry_resolution_ratio: Option<f64>,
+    /// Known token references divided by token references plus hard-coded styling candidates.
+    pub token_reference_ratio: Option<f64>,
     /// Parser and extraction elapsed time in milliseconds.
     pub parse_extract_ms: u64,
     /// Number of files scanned by the language pack.
@@ -530,6 +632,46 @@ pub struct ParentScopeCounts {
     pub with_unresolved_invocations: u32,
 }
 
+/// Token counts grouped by category.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct TokenCategoryCounts {
+    /// Color token references or candidates.
+    pub color: u32,
+    /// Spacing token references or candidates.
+    pub spacing: u32,
+    /// Typography token references or candidates.
+    pub typography: u32,
+    /// Radius token references or candidates.
+    pub radius: u32,
+    /// Elevation token references or candidates.
+    pub elevation: u32,
+    /// Unknown-category token references or candidates.
+    pub unknown: u32,
+}
+
+/// Design-token scan counters.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct TokenCounts {
+    /// Number of configured design-system tokens.
+    pub configured_token_count: u32,
+    /// Number of distinct configured tokens with at least one reference.
+    pub used_token_count: u32,
+    /// Number of known token reference sites.
+    pub token_reference_site_count: u32,
+    /// Number of hard-coded styling candidates.
+    pub hardcoded_style_candidate_count: u32,
+    /// Token reference counts grouped by category.
+    pub token_references_by_category: TokenCategoryCounts,
+    /// Hard-coded styling candidate counts grouped by category.
+    pub hardcoded_by_category: TokenCategoryCounts,
+    /// Number of parent scopes containing at least one token reference.
+    pub parent_scopes_with_token_references: u32,
+    /// Number of parent scopes containing at least one hard-coded styling candidate.
+    pub parent_scopes_with_hardcoded_candidates: u32,
+}
+
 /// Count summary derived from scan facts.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(deny_unknown_fields)]
@@ -544,6 +686,9 @@ pub struct CountSummary {
     pub adoption: AdoptionCounts,
     /// Parent-scope aggregate counters.
     pub parent_scopes: ParentScopeCounts,
+    /// Design-token scan counters.
+    #[serde(default)]
+    pub tokens: TokenCounts,
 }
 
 /// Repo-level summary on a merged scan.
@@ -572,6 +717,9 @@ pub struct MergedScan {
     /// Root-level per-callee summaries grouped across languages.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub symbol_usage_summary: Vec<SymbolUsageSummary>,
+    /// Derived per-token summaries across merged languages.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub token_usage_summary: Vec<TokenUsageSummary>,
     /// Per-language scan facts.
     pub languages: BTreeMap<LanguageId, ScanFacts>,
 }
@@ -598,6 +746,7 @@ pub fn scan_facts_from_json(json: &str) -> Result<ScanFacts, ScanFactsError> {
     let value: serde_json::Value = serde_json::from_str(json)?;
     require_json_field(&value, &["metrics", "invocation_adoption_ratio"])?;
     require_json_field(&value, &["metrics", "registry_resolution_ratio"])?;
+    require_json_field(&value, &["metrics", "token_reference_ratio"])?;
     reject_disallowed_nulls(&value, &[])?;
     let facts: ScanFacts = serde_json::from_value(value)?;
     validate_schema_version(facts.schema_version)?;
@@ -655,6 +804,52 @@ impl ScanFacts {
             validate_symbol_usage_summary(&format!("symbol_usage_summary[{index}]"), summary)?;
         }
 
+        for (index, token) in self.design_system_tokens.iter().enumerate() {
+            let field = format!("design_system_tokens[{index}]");
+            require_non_empty(&format!("{field}.id"), &token.id)?;
+            require_non_empty(&format!("{field}.key"), &token.key)?;
+            for (alias_index, alias) in token.aliases.iter().enumerate() {
+                if alias.is_empty() {
+                    return Err(contract_violation(
+                        &format!("{field}.aliases[{alias_index}]"),
+                        "token alias must not be empty",
+                    ));
+                }
+            }
+        }
+
+        for (index, site) in self.token_sites.iter().enumerate() {
+            let field = format!("token_sites[{index}]");
+            require_non_empty(&format!("{field}.id"), &site.id)?;
+            validate_location(&format!("{field}.location"), &site.location)?;
+            require_non_empty(&format!("{field}.token_id"), &site.token_id)?;
+            require_non_empty(&format!("{field}.key"), &site.key)?;
+            if let Some(parent) = &site.parent {
+                validate_parent_scope(&format!("{field}.parent"), parent)?;
+            }
+        }
+
+        for (index, site) in self.hardcoded_style_sites.iter().enumerate() {
+            let field = format!("hardcoded_style_sites[{index}]");
+            require_non_empty(&format!("{field}.id"), &site.id)?;
+            validate_location(&format!("{field}.location"), &site.location)?;
+            if site.value.is_empty() {
+                return Err(contract_violation(
+                    &format!("{field}.value"),
+                    "value must not be empty",
+                ));
+            }
+            if let Some(parent) = &site.parent {
+                validate_parent_scope(&format!("{field}.parent"), parent)?;
+            }
+        }
+
+        for (index, summary) in self.token_usage_summary.iter().enumerate() {
+            let field = format!("token_usage_summary[{index}]");
+            require_non_empty(&format!("{field}.token_id"), &summary.token_id)?;
+            require_non_empty(&format!("{field}.key"), &summary.key)?;
+        }
+
         validate_derived_values(self)
     }
 
@@ -664,6 +859,7 @@ impl ScanFacts {
         self.counts = counts;
         self.metrics.invocation_adoption_ratio = metrics.0;
         self.metrics.registry_resolution_ratio = metrics.1;
+        self.metrics.token_reference_ratio = metrics.2;
         Ok(())
     }
 }
@@ -745,7 +941,8 @@ fn validate_repo_summary(merged: &MergedScan) -> Result<(), ScanFactsError> {
         ));
     }
 
-    let (expected_adoption, expected_resolution) = ratios_from_counts(&counts);
+    let (expected_adoption, expected_resolution, expected_token_ratio) =
+        ratios_from_counts(&counts);
     validate_ratio(
         "repo_summary.metrics.invocation_adoption_ratio",
         merged.repo_summary.metrics.invocation_adoption_ratio,
@@ -755,6 +952,11 @@ fn validate_repo_summary(merged: &MergedScan) -> Result<(), ScanFactsError> {
         "repo_summary.metrics.registry_resolution_ratio",
         merged.repo_summary.metrics.registry_resolution_ratio,
         expected_resolution,
+    )?;
+    validate_ratio(
+        "repo_summary.metrics.token_reference_ratio",
+        merged.repo_summary.metrics.token_reference_ratio,
+        expected_token_ratio,
     )
 }
 
@@ -1026,7 +1228,7 @@ fn validate_derived_values(facts: &ScanFacts) -> Result<(), ScanFactsError> {
         ));
     }
 
-    let (expected_counts, (expected_adoption, expected_resolution)) =
+    let (expected_counts, (expected_adoption, expected_resolution, expected_token_ratio)) =
         derive_counts_and_metrics(facts)?;
 
     if facts.counts != expected_counts {
@@ -1045,6 +1247,11 @@ fn validate_derived_values(facts: &ScanFacts) -> Result<(), ScanFactsError> {
         "metrics.registry_resolution_ratio",
         facts.metrics.registry_resolution_ratio,
         expected_resolution,
+    )?;
+    validate_ratio(
+        "metrics.token_reference_ratio",
+        facts.metrics.token_reference_ratio,
+        expected_token_ratio,
     )
 }
 
@@ -1159,7 +1366,61 @@ fn checked_add_count_summaries(
                 right.parent_scopes.with_unresolved_invocations,
             )?,
         },
+        tokens: TokenCounts {
+            configured_token_count: checked_add_count(
+                &format!("{field}.tokens.configured_token_count"),
+                left.tokens.configured_token_count,
+                right.tokens.configured_token_count,
+            )?,
+            used_token_count: checked_add_count(
+                &format!("{field}.tokens.used_token_count"),
+                left.tokens.used_token_count,
+                right.tokens.used_token_count,
+            )?,
+            token_reference_site_count: checked_add_count(
+                &format!("{field}.tokens.token_reference_site_count"),
+                left.tokens.token_reference_site_count,
+                right.tokens.token_reference_site_count,
+            )?,
+            hardcoded_style_candidate_count: checked_add_count(
+                &format!("{field}.tokens.hardcoded_style_candidate_count"),
+                left.tokens.hardcoded_style_candidate_count,
+                right.tokens.hardcoded_style_candidate_count,
+            )?,
+            token_references_by_category: add_token_category_counts(
+                &left.tokens.token_references_by_category,
+                &right.tokens.token_references_by_category,
+            ),
+            hardcoded_by_category: add_token_category_counts(
+                &left.tokens.hardcoded_by_category,
+                &right.tokens.hardcoded_by_category,
+            ),
+            parent_scopes_with_token_references: checked_add_count(
+                &format!("{field}.tokens.parent_scopes_with_token_references"),
+                left.tokens.parent_scopes_with_token_references,
+                right.tokens.parent_scopes_with_token_references,
+            )?,
+            parent_scopes_with_hardcoded_candidates: checked_add_count(
+                &format!("{field}.tokens.parent_scopes_with_hardcoded_candidates"),
+                left.tokens.parent_scopes_with_hardcoded_candidates,
+                right.tokens.parent_scopes_with_hardcoded_candidates,
+            )?,
+        },
     })
+}
+
+fn add_token_category_counts(
+    left: &TokenCategoryCounts,
+    right: &TokenCategoryCounts,
+) -> TokenCategoryCounts {
+    TokenCategoryCounts {
+        color: left.color.saturating_add(right.color),
+        spacing: left.spacing.saturating_add(right.spacing),
+        typography: left.typography.saturating_add(right.typography),
+        radius: left.radius.saturating_add(right.radius),
+        elevation: left.elevation.saturating_add(right.elevation),
+        unknown: left.unknown.saturating_add(right.unknown),
+    }
 }
 
 fn checked_add_count(field: &str, left: u32, right: u32) -> Result<u32, ScanFactsError> {
@@ -1181,7 +1442,20 @@ fn ratios_from_counts(counts: &CountSummary) -> DerivedMetrics {
     } else {
         Some(f64::from(counts.raw_invocations.resolved) / f64::from(counts.raw_invocations.total))
     };
-    (invocation_adoption_ratio, registry_resolution_ratio)
+    let token_denominator = counts
+        .tokens
+        .token_reference_site_count
+        .saturating_add(counts.tokens.hardcoded_style_candidate_count);
+    let token_reference_ratio = if token_denominator == 0 {
+        None
+    } else {
+        Some(f64::from(counts.tokens.token_reference_site_count) / f64::from(token_denominator))
+    };
+    (
+        invocation_adoption_ratio,
+        registry_resolution_ratio,
+        token_reference_ratio,
+    )
 }
 
 fn validate_ratio(
@@ -1213,7 +1487,23 @@ fn validate_ratio(
     }
 }
 
-type DerivedMetrics = (Option<f64>, Option<f64>);
+type DerivedMetrics = (Option<f64>, Option<f64>, Option<f64>);
+
+fn increment_token_category(
+    field: &str,
+    counts: &mut TokenCategoryCounts,
+    category: TokenCategory,
+) -> Result<(), ScanFactsError> {
+    let slot = match category {
+        TokenCategory::Color => &mut counts.color,
+        TokenCategory::Spacing => &mut counts.spacing,
+        TokenCategory::Typography => &mut counts.typography,
+        TokenCategory::Radius => &mut counts.radius,
+        TokenCategory::Elevation => &mut counts.elevation,
+        TokenCategory::Unknown => &mut counts.unknown,
+    };
+    increment_count(field, slot)
+}
 
 fn derive_counts_and_metrics(
     facts: &ScanFacts,
@@ -1228,6 +1518,105 @@ fn derive_counts_and_metrics(
     let mut parents_with_resolved = BTreeSet::new();
     let mut parents_with_local = BTreeSet::new();
     let mut parents_with_unresolved = BTreeSet::new();
+
+    let mut token_by_id = BTreeMap::new();
+    for (index, token) in facts.design_system_tokens.iter().enumerate() {
+        let field = format!("design_system_tokens[{index}]");
+        if token.id.is_empty() {
+            return Err(contract_violation(
+                &format!("{field}.id"),
+                "token id must not be empty",
+            ));
+        }
+        if token.key.is_empty() {
+            return Err(contract_violation(
+                &format!("{field}.key"),
+                "token key must not be empty",
+            ));
+        }
+        for (alias_index, alias) in token.aliases.iter().enumerate() {
+            if alias.is_empty() {
+                return Err(contract_violation(
+                    &format!("{field}.aliases[{alias_index}]"),
+                    "token alias must not be empty",
+                ));
+            }
+        }
+        if token_by_id
+            .insert(token.id.clone(), token.clone())
+            .is_some()
+        {
+            return Err(contract_violation(
+                &format!("{field}.id"),
+                "duplicate token id",
+            ));
+        }
+    }
+
+    let mut used_token_ids = BTreeSet::new();
+    let mut token_references_by_category = TokenCategoryCounts::default();
+    let mut hardcoded_by_category = TokenCategoryCounts::default();
+    let mut token_parent_ids = BTreeSet::new();
+    let mut hardcoded_parent_ids = BTreeSet::new();
+    let mut token_reference_site_count = 0_u32;
+    let mut hardcoded_style_candidate_count = 0_u32;
+
+    for (index, site) in facts.token_sites.iter().enumerate() {
+        let field = format!("token_sites[{index}]");
+        let Some(token) = token_by_id.get(&site.token_id) else {
+            return Err(contract_violation(
+                &format!("{field}.token_id"),
+                "token_id must reference design_system_tokens",
+            ));
+        };
+        if site.key != token.key && !token.aliases.contains(&site.key) {
+            return Err(contract_violation(
+                &format!("{field}.key"),
+                "key must match token key or alias",
+            ));
+        }
+        if site.category != token.category {
+            return Err(contract_violation(
+                &format!("{field}.category"),
+                "category must match referenced token category",
+            ));
+        }
+        used_token_ids.insert(site.token_id.clone());
+        increment_count(
+            "counts.tokens.token_reference_site_count",
+            &mut token_reference_site_count,
+        )?;
+        increment_token_category(
+            "counts.tokens.token_references_by_category",
+            &mut token_references_by_category,
+            site.category,
+        )?;
+        if let Some(parent) = &site.parent {
+            token_parent_ids.insert(parent.parent_id.clone());
+        }
+    }
+
+    for (index, site) in facts.hardcoded_style_sites.iter().enumerate() {
+        let field = format!("hardcoded_style_sites[{index}]");
+        if site.value.is_empty() {
+            return Err(contract_violation(
+                &format!("{field}.value"),
+                "value must not be empty",
+            ));
+        }
+        increment_count(
+            "counts.tokens.hardcoded_style_candidate_count",
+            &mut hardcoded_style_candidate_count,
+        )?;
+        increment_token_category(
+            "counts.tokens.hardcoded_by_category",
+            &mut hardcoded_by_category,
+            site.category,
+        )?;
+        if let Some(parent) = &site.parent {
+            hardcoded_parent_ids.insert(parent.parent_id.clone());
+        }
+    }
 
     for site in &facts.usage_sites {
         match site.match_status {
@@ -1340,6 +1729,25 @@ fn derive_counts_and_metrics(
                 parents_with_unresolved.len(),
             )?,
         },
+        tokens: TokenCounts {
+            configured_token_count: checked_len(
+                "counts.tokens.configured_token_count",
+                facts.design_system_tokens.len(),
+            )?,
+            used_token_count: checked_len("counts.tokens.used_token_count", used_token_ids.len())?,
+            token_reference_site_count,
+            hardcoded_style_candidate_count,
+            token_references_by_category,
+            hardcoded_by_category,
+            parent_scopes_with_token_references: checked_len(
+                "counts.tokens.parent_scopes_with_token_references",
+                token_parent_ids.len(),
+            )?,
+            parent_scopes_with_hardcoded_candidates: checked_len(
+                "counts.tokens.parent_scopes_with_hardcoded_candidates",
+                hardcoded_parent_ids.len(),
+            )?,
+        },
     };
 
     let invocation_adoption_ratio = if eligible == 0 {
@@ -1352,10 +1760,21 @@ fn derive_counts_and_metrics(
     } else {
         Some(f64::from(resolved) / f64::from(total))
     };
+    let token_denominator =
+        token_reference_site_count.saturating_add(hardcoded_style_candidate_count);
+    let token_reference_ratio = if token_denominator == 0 {
+        None
+    } else {
+        Some(f64::from(token_reference_site_count) / f64::from(token_denominator))
+    };
 
     Ok((
         counts,
-        (invocation_adoption_ratio, registry_resolution_ratio),
+        (
+            invocation_adoption_ratio,
+            registry_resolution_ratio,
+            token_reference_ratio,
+        ),
     ))
 }
 

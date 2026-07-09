@@ -44,6 +44,22 @@
     "symbol_usage_summary": {
       "type": "array",
       "items": { "$ref": "#/$defs/symbol_usage_summary" }
+    },
+    "design_system_tokens": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/design_system_token" }
+    },
+    "token_sites": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/token_site" }
+    },
+    "hardcoded_style_sites": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/hardcoded_style_site" }
+    },
+    "token_usage_summary": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/token_usage_summary" }
     }
   },
   "$defs": {
@@ -325,6 +341,7 @@
       "required": [
         "invocation_adoption_ratio",
         "registry_resolution_ratio",
+        "token_reference_ratio",
         "parse_extract_ms",
         "files_scanned"
       ],
@@ -340,6 +357,12 @@
           "minimum": 0,
           "maximum": 1,
           "description": "raw_invocations.resolved / raw_invocations.total; null when total is zero."
+        },
+        "token_reference_ratio": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1,
+          "description": "token_reference_site_count / (token_reference_site_count + hardcoded_style_candidate_count); null when denominator is zero."
         },
         "parse_extract_ms": {
           "type": "integer",
@@ -422,6 +445,106 @@
         "with_unresolved_invocations": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
       }
     },
+    "token_category": {
+      "type": "string",
+      "enum": ["color", "spacing", "typography", "radius", "elevation", "unknown"]
+    },
+    "design_system_token": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "key", "category"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "key": { "type": "string", "minLength": 1 },
+        "category": { "$ref": "#/$defs/token_category" },
+        "aliases": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "token_site": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "location", "token_id", "key", "category"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "location": { "$ref": "#/$defs/source_location" },
+        "token_id": { "type": "string", "minLength": 1 },
+        "key": { "type": "string", "minLength": 1 },
+        "category": { "$ref": "#/$defs/token_category" },
+        "parent": { "$ref": "#/$defs/parent_scope" }
+      }
+    },
+    "hardcoded_style_site": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "location", "value", "category"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "location": { "$ref": "#/$defs/source_location" },
+        "value": { "type": "string", "minLength": 1 },
+        "category": { "$ref": "#/$defs/token_category" },
+        "parent": { "$ref": "#/$defs/parent_scope" }
+      }
+    },
+    "token_category_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["color", "spacing", "typography", "radius", "elevation", "unknown"],
+      "properties": {
+        "color": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "spacing": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "typography": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "radius": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "elevation": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "unknown": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+      }
+    },
+    "token_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "configured_token_count",
+        "used_token_count",
+        "token_reference_site_count",
+        "hardcoded_style_candidate_count",
+        "token_references_by_category",
+        "hardcoded_by_category",
+        "parent_scopes_with_token_references",
+        "parent_scopes_with_hardcoded_candidates"
+      ],
+      "properties": {
+        "configured_token_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "used_token_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "token_reference_site_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "hardcoded_style_candidate_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "token_references_by_category": { "$ref": "#/$defs/token_category_counts" },
+        "hardcoded_by_category": { "$ref": "#/$defs/token_category_counts" },
+        "parent_scopes_with_token_references": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "parent_scopes_with_hardcoded_candidates": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+      }
+    },
+    "token_usage_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "token_id",
+        "key",
+        "category",
+        "reference_count",
+        "file_count",
+        "parent_scope_count"
+      ],
+      "properties": {
+        "token_id": { "type": "string", "minLength": 1 },
+        "key": { "type": "string", "minLength": 1 },
+        "category": { "$ref": "#/$defs/token_category" },
+        "reference_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "file_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "parent_scope_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+      }
+    },
     "count_summary": {
       "type": "object",
       "additionalProperties": false,
@@ -431,7 +554,8 @@
         "definitions": { "$ref": "#/$defs/definition_counts" },
         "raw_invocations": { "$ref": "#/$defs/raw_invocation_counts" },
         "adoption": { "$ref": "#/$defs/adoption_counts" },
-        "parent_scopes": { "$ref": "#/$defs/parent_scope_counts" }
+        "parent_scopes": { "$ref": "#/$defs/parent_scope_counts" },
+        "tokens": { "$ref": "#/$defs/token_counts" }
       }
     }
   }

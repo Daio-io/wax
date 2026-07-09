@@ -83,11 +83,16 @@ fn minimal_facts() -> ScanFacts {
         metrics: Metrics {
             invocation_adoption_ratio: None,
             registry_resolution_ratio: None,
+            token_reference_ratio: None,
             parse_extract_ms: 12,
             files_scanned: 1,
         },
         counts: empty_counts(),
         symbol_usage_summary: vec![],
+        design_system_tokens: vec![],
+        token_sites: vec![],
+        hardcoded_style_sites: vec![],
+        token_usage_summary: vec![],
     }
 }
 
@@ -428,6 +433,148 @@ fn rejects_registry_symbol_for_local_usage() {
 }
 
 #[test]
+fn token_facts_roundtrip_and_validate_against_schema() {
+    let mut facts = minimal_facts();
+    facts.design_system_tokens = vec![
+        wax_contract::DesignSystemToken {
+            id: "color.primary".into(),
+            key: "Theme.colors.primary".into(),
+            category: wax_contract::TokenCategory::Color,
+            aliases: vec!["AppColors.Primary".into()],
+        },
+        wax_contract::DesignSystemToken {
+            id: "space.medium".into(),
+            key: "Spacing.Medium".into(),
+            category: wax_contract::TokenCategory::Spacing,
+            aliases: vec![],
+        },
+    ];
+    facts.token_sites = vec![wax_contract::TokenSite {
+        id: "token.compose:src/Screen.kt:8:13:color.primary".into(),
+        location: SourceLocation {
+            file: "src/Screen.kt".into(),
+            line: 8,
+            column: Some(13),
+        },
+        token_id: "color.primary".into(),
+        key: "AppColors.Primary".into(),
+        category: wax_contract::TokenCategory::Color,
+        parent: Some(ParentScope {
+            parent_id: "compose:composable:com.example.Screen".into(),
+            symbol: "Screen".into(),
+            qualified_symbol: Some("com.example.Screen".into()),
+            scope_kind: "composable".into(),
+            identity_basis: "package_qualified_symbol".into(),
+            identity_stability: IdentityStability::Semantic,
+            location: Some(SourceLocation {
+                file: "src/Screen.kt".into(),
+                line: 4,
+                column: Some(1),
+            }),
+        }),
+    }];
+    facts.hardcoded_style_sites = vec![wax_contract::HardcodedStyleSite {
+        id: "hardcoded.compose:src/Screen.kt:9:22:spacing".into(),
+        location: SourceLocation {
+            file: "src/Screen.kt".into(),
+            line: 9,
+            column: Some(22),
+        },
+        value: "8.dp".into(),
+        category: wax_contract::TokenCategory::Spacing,
+        parent: None,
+    }];
+    facts.recompute_counts().unwrap();
+
+    let json = serde_json::to_string(&facts).unwrap();
+    let back = wax_contract::scan_facts_from_json(&json).unwrap();
+    assert_eq!(back.design_system_tokens.len(), 2);
+    assert_eq!(back.token_sites.len(), 1);
+    assert_eq!(back.hardcoded_style_sites.len(), 1);
+    assert_eq!(back.counts.tokens.configured_token_count, 2);
+    assert_eq!(back.counts.tokens.used_token_count, 1);
+    assert_eq!(back.counts.tokens.token_reference_site_count, 1);
+    assert_eq!(back.counts.tokens.hardcoded_style_candidate_count, 1);
+    assert_eq!(back.counts.tokens.token_references_by_category.color, 1);
+    assert_eq!(back.counts.tokens.hardcoded_by_category.spacing, 1);
+    assert_eq!(back.metrics.token_reference_ratio, Some(0.5));
+
+    let value = serde_json::to_value(&back).unwrap();
+    assert!(scan_facts_schema().is_valid(&value));
+}
+
+#[test]
+fn token_site_must_reference_known_token_id() {
+    let mut facts = minimal_facts();
+    facts.token_sites = vec![wax_contract::TokenSite {
+        id: "token.react:src/App.tsx:1:1:missing".into(),
+        location: SourceLocation {
+            file: "src/App.tsx".into(),
+            line: 1,
+            column: Some(1),
+        },
+        token_id: "missing".into(),
+        key: "theme.colors.missing".into(),
+        category: wax_contract::TokenCategory::Color,
+        parent: None,
+    }];
+
+    let err = facts
+        .recompute_counts()
+        .expect_err("unknown token id must fail");
+    assert!(err.to_string().contains("token_id"));
+}
+
+#[test]
+fn token_site_key_must_match_key_or_alias() {
+    let mut facts = minimal_facts();
+    facts.design_system_tokens = vec![wax_contract::DesignSystemToken {
+        id: "color.primary".into(),
+        key: "theme.colors.primary".into(),
+        category: wax_contract::TokenCategory::Color,
+        aliases: vec!["colors.primary".into()],
+    }];
+    facts.token_sites = vec![wax_contract::TokenSite {
+        id: "token.react:src/App.tsx:1:1:color.primary".into(),
+        location: SourceLocation {
+            file: "src/App.tsx".into(),
+            line: 1,
+            column: Some(1),
+        },
+        token_id: "color.primary".into(),
+        key: "wrong.primary".into(),
+        category: wax_contract::TokenCategory::Color,
+        parent: None,
+    }];
+
+    let err = facts
+        .recompute_counts()
+        .expect_err("wrong matched key must fail");
+    assert!(err.to_string().contains("key"));
+}
+
+#[test]
+fn hardcoded_style_site_requires_non_empty_value() {
+    let mut facts = minimal_facts();
+    facts.hardcoded_style_sites = vec![wax_contract::HardcodedStyleSite {
+        id: "hardcoded.react:src/App.tsx:1:1:color".into(),
+        location: SourceLocation {
+            file: "src/App.tsx".into(),
+            line: 1,
+            column: Some(1),
+        },
+        value: "".into(),
+        category: wax_contract::TokenCategory::Color,
+        parent: None,
+    }];
+
+    let err = facts
+        .recompute_counts()
+        .expect_err("empty hardcoded value must fail");
+    assert!(err.to_string().contains("value"));
+}
+
+#[test]
 fn schema_rejects_invalid_symbol_summary_linkage() {
     let mut facts = minimal_facts();
     facts.symbol_usage_summary = vec![SymbolUsageSummary {
@@ -471,11 +618,13 @@ fn merged_scan_rejects_stale_repo_summary() {
             metrics: Metrics {
                 invocation_adoption_ratio: facts.metrics.invocation_adoption_ratio,
                 registry_resolution_ratio: facts.metrics.registry_resolution_ratio,
+                token_reference_ratio: facts.metrics.token_reference_ratio,
                 parse_extract_ms: facts.metrics.parse_extract_ms,
                 files_scanned: facts.metrics.files_scanned,
             },
         },
         symbol_usage_summary: vec![],
+        token_usage_summary: vec![],
         languages,
     };
 
