@@ -7,6 +7,7 @@ pub mod discover;
 pub mod import_resolution;
 pub mod protocol;
 pub mod root_patterns;
+pub mod token_registry;
 
 pub use build_info::build_version;
 pub use wax_contract::Diagnostic;
@@ -26,4 +27,8 @@ pub use protocol::{
 pub use root_patterns::{
     RootPatternKind, RootResolution, RootResolutionError, has_wildcard_segment,
     resolve_source_roots,
+};
+pub use token_registry::{
+    RegistryTokenIndex, TokenMatch, TokenRegistryError, find_token_matches, parse_registry_tokens,
+    token_index,
 };
