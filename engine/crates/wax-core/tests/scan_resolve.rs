@@ -78,9 +78,14 @@ fn build_scan_facts(language: &str, version: &str) -> ScanFacts {
             files_scanned: 0,
             invocation_adoption_ratio: None,
             registry_resolution_ratio: None,
+            token_reference_ratio: None,
         },
         counts: CountSummary::default(),
         symbol_usage_summary: vec![],
+        design_system_tokens: vec![],
+        token_sites: vec![],
+        hardcoded_style_sites: vec![],
+        token_usage_summary: vec![],
     }
 }
 

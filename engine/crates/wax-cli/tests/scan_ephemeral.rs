@@ -139,11 +139,16 @@ fn install_basic_scan_fixture_pack(wax_home: &Path, sha256: &str) {
         metrics: Metrics {
             invocation_adoption_ratio: None,
             registry_resolution_ratio: None,
+            token_reference_ratio: None,
             parse_extract_ms: 0,
             files_scanned: 0,
         },
         counts: CountSummary::default(),
         symbol_usage_summary: vec![],
+        design_system_tokens: vec![],
+        token_sites: vec![],
+        hardcoded_style_sites: vec![],
+        token_usage_summary: vec![],
     };
     let response = serde_json::json!({
         "type": "scan_facts",

@@ -243,11 +243,16 @@ fn sample_scan_facts() -> ScanFacts {
         metrics: Metrics {
             invocation_adoption_ratio: None,
             registry_resolution_ratio: None,
+            token_reference_ratio: None,
             parse_extract_ms: 12,
             files_scanned: 1,
         },
         counts: CountSummary::default(),
         symbol_usage_summary: vec![],
+        design_system_tokens: vec![],
+        token_sites: vec![],
+        hardcoded_style_sites: vec![],
+        token_usage_summary: vec![],
     }
 }
 

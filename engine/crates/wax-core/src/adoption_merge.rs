@@ -72,6 +72,7 @@ pub fn merge_language_scans_with_parent_scope_limit(
             metrics: repo_metrics,
         },
         symbol_usage_summary,
+        token_usage_summary: vec![],
         languages: merged_languages,
     })
 }
@@ -104,10 +105,20 @@ fn metrics_from_counts(
     } else {
         Some(f64::from(counts.raw_invocations.resolved) / f64::from(counts.raw_invocations.total))
     };
+    let token_denominator = counts
+        .tokens
+        .token_reference_site_count
+        .saturating_add(counts.tokens.hardcoded_style_candidate_count);
+    let token_reference_ratio = if token_denominator == 0 {
+        None
+    } else {
+        Some(f64::from(counts.tokens.token_reference_site_count) / f64::from(token_denominator))
+    };
 
     Metrics {
         invocation_adoption_ratio,
         registry_resolution_ratio,
+        token_reference_ratio,
         parse_extract_ms,
         files_scanned,
     }
@@ -480,11 +491,16 @@ mod tests {
             metrics: Metrics {
                 invocation_adoption_ratio: None,
                 registry_resolution_ratio: None,
+                token_reference_ratio: None,
                 parse_extract_ms: 1,
                 files_scanned: 1,
             },
             counts: CountSummary::default(),
             symbol_usage_summary: vec![],
+            design_system_tokens: vec![],
+            token_sites: vec![],
+            hardcoded_style_sites: vec![],
+            token_usage_summary: vec![],
         }
     }
 
