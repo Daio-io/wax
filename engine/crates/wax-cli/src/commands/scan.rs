@@ -583,11 +583,13 @@ mod tests {
                 metrics: Metrics {
                     invocation_adoption_ratio: Some(0.875),
                     registry_resolution_ratio: Some(0.7),
+                    token_reference_ratio: None,
                     parse_extract_ms: 2,
                     files_scanned: 2,
                 },
             },
             symbol_usage_summary: vec![],
+            token_usage_summary: vec![],
             languages: BTreeMap::from([
                 (
                     LanguageId::from_str("compose").unwrap(),
@@ -745,11 +747,13 @@ mod tests {
                 metrics: Metrics {
                     invocation_adoption_ratio: None,
                     registry_resolution_ratio: None,
+                    token_reference_ratio: None,
                     parse_extract_ms: 0,
                     files_scanned: 0,
                 },
             },
             symbol_usage_summary: vec![],
+            token_usage_summary: vec![],
             languages: BTreeMap::new(),
         };
 
@@ -796,6 +800,7 @@ mod tests {
                 with_local_invocations: 0,
                 with_unresolved_invocations: 1,
             },
+            tokens: wax_contract::TokenCounts::default(),
         }
     }
 
@@ -823,11 +828,16 @@ mod tests {
             metrics: Metrics {
                 invocation_adoption_ratio,
                 registry_resolution_ratio: None,
+                token_reference_ratio: None,
                 parse_extract_ms: 1,
                 files_scanned: 1,
             },
             counts: CountSummary::default(),
             symbol_usage_summary: vec![],
+            design_system_tokens: vec![],
+            token_sites: vec![],
+            hardcoded_style_sites: vec![],
+            token_usage_summary: vec![],
         }
     }
 

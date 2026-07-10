@@ -36,12 +36,37 @@
       "with_resolved_invocations": 0,
       "with_local_invocations": 0,
       "with_unresolved_invocations": 0
+    },
+    "tokens": {
+      "configured_token_count": 0,
+      "used_token_count": 0,
+      "token_reference_site_count": 0,
+      "hardcoded_style_candidate_count": 0,
+      "token_references_by_category": {
+        "color": 0,
+        "spacing": 0,
+        "typography": 0,
+        "radius": 0,
+        "elevation": 0,
+        "unknown": 0
+      },
+      "hardcoded_by_category": {
+        "color": 0,
+        "spacing": 0,
+        "typography": 0,
+        "radius": 0,
+        "elevation": 0,
+        "unknown": 0
+      },
+      "parent_scopes_with_token_references": 0,
+      "parent_scopes_with_hardcoded_candidates": 0
     }
   },
   "metrics": {
     "files_scanned": 6,
     "invocation_adoption_ratio": 1.0,
-    "registry_resolution_ratio": 1.0
+    "registry_resolution_ratio": 1.0,
+    "token_reference_ratio": null
   },
   "design_system_components": [
     {

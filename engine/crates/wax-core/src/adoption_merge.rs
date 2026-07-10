@@ -4,9 +4,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use time::OffsetDateTime;
 use wax_contract::{
-    CountSummary, IdentityStability, LanguageId, MatchStatus, MergedScan, Metrics, RepoSummary,
-    SCHEMA_VERSION, ScanFacts, ScanFactsError, SymbolKind, SymbolParentScopeSummary,
-    SymbolUsageSummary,
+    CountSummary, DesignSystemToken, IdentityStability, LanguageId, MatchStatus, MergedScan,
+    Metrics, RepoSummary, SCHEMA_VERSION, ScanFacts, ScanFactsError, SymbolKind,
+    SymbolParentScopeSummary, SymbolUsageSummary, TokenCategoryCounts, TokenUsageSummary,
 };
 
 /// Default parent scope row limit when config omits an explicit value.
@@ -33,6 +33,7 @@ pub fn recompute_derived_scan_facts_with_parent_scope_limit(
     facts.recompute_counts()?;
     facts.symbol_usage_summary =
         build_symbol_usage_summaries(facts, language_id, parent_scope_limit)?;
+    facts.token_usage_summary = build_token_usage_summaries(facts);
     Ok(())
 }
 
@@ -62,6 +63,7 @@ pub fn merge_language_scans_with_parent_scope_limit(
     let repo_counts = sum_count_summaries(merged_languages.values().map(|facts| &facts.counts));
     let repo_metrics = metrics_from_counts(&repo_counts, merged_parse_metrics(&merged_languages));
     let symbol_usage_summary = merge_symbol_usage_summaries(&merged_languages);
+    let token_usage_summary = merge_token_usage_summaries(&merged_languages);
 
     Ok(MergedScan {
         schema_version: SCHEMA_VERSION,
@@ -72,6 +74,7 @@ pub fn merge_language_scans_with_parent_scope_limit(
             metrics: repo_metrics,
         },
         symbol_usage_summary,
+        token_usage_summary,
         languages: merged_languages,
     })
 }
@@ -104,10 +107,20 @@ fn metrics_from_counts(
     } else {
         Some(f64::from(counts.raw_invocations.resolved) / f64::from(counts.raw_invocations.total))
     };
+    let token_denominator = counts
+        .tokens
+        .token_reference_site_count
+        .saturating_add(counts.tokens.hardcoded_style_candidate_count);
+    let token_reference_ratio = if token_denominator == 0 {
+        None
+    } else {
+        Some(f64::from(counts.tokens.token_reference_site_count) / f64::from(token_denominator))
+    };
 
     Metrics {
         invocation_adoption_ratio,
         registry_resolution_ratio,
+        token_reference_ratio,
         parse_extract_ms,
         files_scanned,
     }
@@ -197,8 +210,51 @@ pub(crate) fn sum_count_summaries<'a>(
             .parent_scopes
             .with_unresolved_invocations
             .saturating_add(counts.parent_scopes.with_unresolved_invocations);
+
+        total.tokens.configured_token_count = total
+            .tokens
+            .configured_token_count
+            .saturating_add(counts.tokens.configured_token_count);
+        total.tokens.used_token_count = total
+            .tokens
+            .used_token_count
+            .saturating_add(counts.tokens.used_token_count);
+        total.tokens.token_reference_site_count = total
+            .tokens
+            .token_reference_site_count
+            .saturating_add(counts.tokens.token_reference_site_count);
+        total.tokens.hardcoded_style_candidate_count = total
+            .tokens
+            .hardcoded_style_candidate_count
+            .saturating_add(counts.tokens.hardcoded_style_candidate_count);
+        total.tokens.parent_scopes_with_token_references = total
+            .tokens
+            .parent_scopes_with_token_references
+            .saturating_add(counts.tokens.parent_scopes_with_token_references);
+        total.tokens.parent_scopes_with_hardcoded_candidates = total
+            .tokens
+            .parent_scopes_with_hardcoded_candidates
+            .saturating_add(counts.tokens.parent_scopes_with_hardcoded_candidates);
+        add_token_category_counts(
+            &mut total.tokens.token_references_by_category,
+            &counts.tokens.token_references_by_category,
+        );
+        add_token_category_counts(
+            &mut total.tokens.hardcoded_by_category,
+            &counts.tokens.hardcoded_by_category,
+        );
+
         total
     })
+}
+
+fn add_token_category_counts(total: &mut TokenCategoryCounts, counts: &TokenCategoryCounts) {
+    total.color = total.color.saturating_add(counts.color);
+    total.spacing = total.spacing.saturating_add(counts.spacing);
+    total.typography = total.typography.saturating_add(counts.typography);
+    total.radius = total.radius.saturating_add(counts.radius);
+    total.elevation = total.elevation.saturating_add(counts.elevation);
+    total.unknown = total.unknown.saturating_add(counts.unknown);
 }
 
 #[derive(Clone, Eq, PartialEq, Hash)]
@@ -437,11 +493,75 @@ fn merge_symbol_usage_summaries(
     merged
 }
 
+fn build_token_usage_summaries(facts: &ScanFacts) -> Vec<TokenUsageSummary> {
+    let tokens = facts
+        .design_system_tokens
+        .iter()
+        .map(|token| (token.id.clone(), token.clone()))
+        .collect::<BTreeMap<_, _>>();
+    let mut grouped =
+        BTreeMap::<String, (DesignSystemToken, u32, BTreeSet<String>, BTreeSet<String>)>::new();
+
+    for site in &facts.token_sites {
+        let Some(token) = tokens.get(&site.token_id) else {
+            continue;
+        };
+        let entry = grouped
+            .entry(site.token_id.clone())
+            .or_insert_with(|| (token.clone(), 0, BTreeSet::new(), BTreeSet::new()));
+        entry.1 = entry.1.saturating_add(1);
+        entry.2.insert(site.location.file.clone());
+        if let Some(parent) = &site.parent {
+            entry.3.insert(parent.parent_id.clone());
+        }
+    }
+
+    grouped
+        .into_values()
+        .map(
+            |(token, reference_count, files, parents)| TokenUsageSummary {
+                token_id: token.id,
+                key: token.key,
+                category: token.category,
+                reference_count,
+                file_count: u32::try_from(files.len()).unwrap_or(u32::MAX),
+                parent_scope_count: u32::try_from(parents.len()).unwrap_or(u32::MAX),
+            },
+        )
+        .collect()
+}
+
+fn merge_token_usage_summaries(
+    languages: &BTreeMap<LanguageId, ScanFacts>,
+) -> Vec<TokenUsageSummary> {
+    let mut rows = BTreeMap::<String, TokenUsageSummary>::new();
+    for (language_id, facts) in languages {
+        for summary in &facts.token_usage_summary {
+            let key = format!("{}:{}", language_id.as_str(), summary.token_id);
+            rows.entry(key)
+                .and_modify(|existing| {
+                    existing.reference_count = existing
+                        .reference_count
+                        .saturating_add(summary.reference_count);
+                    existing.file_count = existing.file_count.saturating_add(summary.file_count);
+                    existing.parent_scope_count = existing
+                        .parent_scope_count
+                        .saturating_add(summary.parent_scope_count);
+                })
+                .or_insert_with(|| summary.clone());
+        }
+    }
+    rows.into_values().collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use time::macros::datetime;
-    use wax_contract::{LanguageMetadata, ScanStatus, SourceLocation, UsageSite};
+    use wax_contract::{
+        DesignSystemToken, HardcodedStyleSite, LanguageMetadata, ParentScope, ScanStatus,
+        SourceLocation, TokenCategory, TokenSite, UsageSite,
+    };
 
     fn usage_site(status: MatchStatus, symbol: &str, registry: Option<&str>) -> UsageSite {
         UsageSite {
@@ -480,11 +600,16 @@ mod tests {
             metrics: Metrics {
                 invocation_adoption_ratio: None,
                 registry_resolution_ratio: None,
+                token_reference_ratio: None,
                 parse_extract_ms: 1,
                 files_scanned: 1,
             },
             counts: CountSummary::default(),
             symbol_usage_summary: vec![],
+            design_system_tokens: vec![],
+            token_sites: vec![],
+            hardcoded_style_sites: vec![],
+            token_usage_summary: vec![],
         }
     }
 
@@ -542,6 +667,94 @@ mod tests {
             .registry_resolution_ratio
             .unwrap();
         assert!((resolution - (800.0 / 1005.0)).abs() <= 1e-12);
+    }
+
+    #[test]
+    fn merged_counts_sum_token_facts_and_build_summaries() {
+        let mut compose = language_facts("compose", vec![]);
+        compose.design_system_tokens = vec![DesignSystemToken {
+            id: "color.primary".into(),
+            key: "Theme.colors.primary".into(),
+            category: TokenCategory::Color,
+            aliases: vec![],
+        }];
+        compose.token_sites = vec![
+            TokenSite {
+                id: "token.compose:src/Screen.kt:1:1:color.primary".into(),
+                location: SourceLocation {
+                    file: "src/Screen.kt".into(),
+                    line: 1,
+                    column: Some(1),
+                },
+                token_id: "color.primary".into(),
+                key: "Theme.colors.primary".into(),
+                category: TokenCategory::Color,
+                parent: Some(ParentScope {
+                    parent_id: "compose:composable:com.example.Screen".into(),
+                    symbol: "Screen".into(),
+                    qualified_symbol: Some("com.example.Screen".into()),
+                    scope_kind: "composable".into(),
+                    identity_basis: "package_qualified_symbol".into(),
+                    identity_stability: IdentityStability::Semantic,
+                    location: None,
+                }),
+            },
+            TokenSite {
+                id: "token.compose:src/Screen.kt:2:1:color.primary".into(),
+                location: SourceLocation {
+                    file: "src/Other.kt".into(),
+                    line: 2,
+                    column: Some(1),
+                },
+                token_id: "color.primary".into(),
+                key: "Theme.colors.primary".into(),
+                category: TokenCategory::Color,
+                parent: None,
+            },
+        ];
+        compose.hardcoded_style_sites = vec![HardcodedStyleSite {
+            id: "hardcoded.compose:src/Screen.kt:3:12:spacing".into(),
+            location: SourceLocation {
+                file: "src/Screen.kt".into(),
+                line: 3,
+                column: Some(12),
+            },
+            value: "8.dp".into(),
+            category: TokenCategory::Spacing,
+            parent: None,
+        }];
+
+        let mut languages = BTreeMap::new();
+        languages.insert(LanguageId::try_from("compose").unwrap(), compose);
+
+        let merged = merge_language_scans(languages).unwrap();
+        let tokens = &merged.repo_summary.counts.tokens;
+
+        assert_eq!(tokens.configured_token_count, 1);
+        assert_eq!(tokens.used_token_count, 1);
+        assert_eq!(tokens.token_reference_site_count, 2);
+        assert_eq!(tokens.hardcoded_style_candidate_count, 1);
+        assert_eq!(tokens.token_references_by_category.color, 2);
+        assert_eq!(tokens.hardcoded_by_category.spacing, 1);
+        assert_eq!(tokens.parent_scopes_with_token_references, 1);
+        assert_eq!(
+            merged.repo_summary.metrics.token_reference_ratio,
+            Some(2.0 / 3.0)
+        );
+
+        let compose_facts = merged
+            .languages
+            .get(&LanguageId::try_from("compose").unwrap())
+            .expect("compose facts");
+        assert_eq!(compose_facts.token_usage_summary.len(), 1);
+        let summary = &compose_facts.token_usage_summary[0];
+        assert_eq!(summary.token_id, "color.primary");
+        assert_eq!(summary.reference_count, 2);
+        assert_eq!(summary.file_count, 2);
+        assert_eq!(summary.parent_scope_count, 1);
+
+        assert_eq!(merged.token_usage_summary.len(), 1);
+        assert_eq!(merged.token_usage_summary[0].token_id, "color.primary");
     }
 
     #[test]
