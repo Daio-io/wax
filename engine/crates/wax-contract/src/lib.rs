@@ -557,6 +557,7 @@ pub struct Metrics {
     /// Resolved invocations divided by all raw invocations, or `None` when total is zero.
     pub registry_resolution_ratio: Option<f64>,
     /// Known token references divided by token references plus hard-coded styling candidates.
+    #[serde(default)]
     pub token_reference_ratio: Option<f64>,
     /// Parser and extraction elapsed time in milliseconds.
     pub parse_extract_ms: u64,
@@ -746,7 +747,6 @@ pub fn scan_facts_from_json(json: &str) -> Result<ScanFacts, ScanFactsError> {
     let value: serde_json::Value = serde_json::from_str(json)?;
     require_json_field(&value, &["metrics", "invocation_adoption_ratio"])?;
     require_json_field(&value, &["metrics", "registry_resolution_ratio"])?;
-    require_json_field(&value, &["metrics", "token_reference_ratio"])?;
     reject_disallowed_nulls(&value, &[])?;
     let facts: ScanFacts = serde_json::from_value(value)?;
     validate_schema_version(facts.schema_version)?;
@@ -845,9 +845,7 @@ impl ScanFacts {
         }
 
         for (index, summary) in self.token_usage_summary.iter().enumerate() {
-            let field = format!("token_usage_summary[{index}]");
-            require_non_empty(&format!("{field}.token_id"), &summary.token_id)?;
-            require_non_empty(&format!("{field}.key"), &summary.key)?;
+            validate_token_usage_summary(&format!("token_usage_summary[{index}]"), summary)?;
         }
 
         validate_derived_values(self)
@@ -881,6 +879,10 @@ impl MergedScan {
 
         for (index, summary) in self.symbol_usage_summary.iter().enumerate() {
             validate_symbol_usage_summary(&format!("symbol_usage_summary[{index}]"), summary)?;
+        }
+
+        for (index, summary) in self.token_usage_summary.iter().enumerate() {
+            validate_token_usage_summary(&format!("token_usage_summary[{index}]"), summary)?;
         }
 
         validate_repo_summary(self)?;
@@ -1081,6 +1083,15 @@ fn validate_symbol_usage_summary(
         }
     }
 
+    Ok(())
+}
+
+fn validate_token_usage_summary(
+    field: &str,
+    summary: &TokenUsageSummary,
+) -> Result<(), ScanFactsError> {
+    require_non_empty(&format!("{field}.token_id"), &summary.token_id)?;
+    require_non_empty(&format!("{field}.key"), &summary.key)?;
     Ok(())
 }
 

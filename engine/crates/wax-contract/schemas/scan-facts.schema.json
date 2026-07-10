@@ -341,7 +341,6 @@
       "required": [
         "invocation_adoption_ratio",
         "registry_resolution_ratio",
-        "token_reference_ratio",
         "parse_extract_ms",
         "files_scanned"
       ],

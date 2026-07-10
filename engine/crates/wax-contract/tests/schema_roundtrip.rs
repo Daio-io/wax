@@ -653,6 +653,20 @@ fn accepts_zero_usage_sites_with_null_ratios() {
 }
 
 #[test]
+fn accepts_v2_metrics_without_token_reference_ratio() {
+    let mut facts = minimal_facts();
+    facts.recompute_counts().unwrap();
+    let mut value = serde_json::to_value(&facts).unwrap();
+    value["metrics"]
+        .as_object_mut()
+        .unwrap()
+        .remove("token_reference_ratio");
+
+    let back = wax_contract::scan_facts_from_json(&value.to_string()).unwrap();
+    assert_eq!(back.metrics.token_reference_ratio, None);
+}
+
+#[test]
 fn rejects_missing_invocation_adoption_ratio() {
     let mut facts = minimal_facts();
     facts.usage_sites.clear();
@@ -732,4 +746,41 @@ fn rejects_symbol_summary_kind_status_mismatch() {
     facts.recompute_counts().unwrap();
 
     assert!(wax_contract::scan_facts_from_json(&serde_json::to_string(&facts).unwrap()).is_err());
+}
+
+#[test]
+fn merged_scan_rejects_malformed_token_usage_summary() {
+    let mut facts = minimal_facts();
+    facts.recompute_counts().unwrap();
+
+    let mut languages = BTreeMap::new();
+    languages.insert(LanguageId::try_from("compose").unwrap(), facts.clone());
+
+    let merged = MergedScan {
+        schema_version: SCHEMA_VERSION,
+        recorded_at: datetime!(2026-05-16 12:00 UTC),
+        repo_summary: RepoSummary {
+            languages: vec![LanguageId::try_from("compose").unwrap()],
+            counts: facts.counts.clone(),
+            metrics: Metrics {
+                invocation_adoption_ratio: facts.metrics.invocation_adoption_ratio,
+                registry_resolution_ratio: facts.metrics.registry_resolution_ratio,
+                token_reference_ratio: facts.metrics.token_reference_ratio,
+                parse_extract_ms: facts.metrics.parse_extract_ms,
+                files_scanned: facts.metrics.files_scanned,
+            },
+        },
+        symbol_usage_summary: vec![],
+        token_usage_summary: vec![wax_contract::TokenUsageSummary {
+            token_id: "".into(),
+            key: "Theme.colors.primary".into(),
+            category: wax_contract::TokenCategory::Color,
+            reference_count: 1,
+            file_count: 1,
+            parent_scope_count: 0,
+        }],
+        languages,
+    };
+
+    assert!(merged.validate().is_err());
 }
