@@ -32,6 +32,12 @@ pub enum TokenRegistryError {
         /// Duplicate key or alias.
         key: String,
     },
+    /// A token field is empty.
+    #[error("token {field} must not be empty")]
+    EmptyTokenField {
+        /// Invalid field name.
+        field: &'static str,
+    },
 }
 
 /// Exact token reference match found in source text.
@@ -92,8 +98,25 @@ pub fn parse_registry_tokens(
 
 /// Builds an exact key and alias lookup index.
 pub fn token_index(tokens: &[DesignSystemToken]) -> Result<RegistryTokenIndex, TokenRegistryError> {
+    let mut seen_ids = BTreeSet::new();
     let mut matches = BTreeMap::new();
     for token in tokens {
+        if token.id.is_empty() {
+            return Err(TokenRegistryError::EmptyTokenField { field: "id" });
+        }
+        if !seen_ids.insert(token.id.clone()) {
+            return Err(TokenRegistryError::DuplicateTokenId {
+                id: token.id.clone(),
+            });
+        }
+        if token.key.is_empty() {
+            return Err(TokenRegistryError::EmptyTokenField { field: "key" });
+        }
+        for alias in &token.aliases {
+            if alias.is_empty() {
+                return Err(TokenRegistryError::EmptyTokenField { field: "aliases" });
+            }
+        }
         insert_match(&mut matches, token, &token.key)?;
         for alias in &token.aliases {
             insert_match(&mut matches, token, alias)?;
@@ -115,31 +138,35 @@ pub fn find_token_matches(
     index: &RegistryTokenIndex,
     id_prefix: &str,
 ) -> Vec<TokenSite> {
+    let mut keys: Vec<&String> = index.matches.keys().collect();
+    keys.sort_by(|left, right| right.len().cmp(&left.len()).then_with(|| left.cmp(right)));
+
     let mut sites = Vec::new();
     for (line_index, line) in source.lines().enumerate() {
-        for (key, token_match) in &index.matches {
-            let mut search_from = 0;
-            while let Some(offset) = line[search_from..].find(key) {
-                let start = search_from + offset;
-                let line_number = u32::try_from(line_index + 1).unwrap_or(u32::MAX);
-                let column = u32::try_from(start + 1).unwrap_or(u32::MAX);
-                sites.push(TokenSite {
-                    id: format!(
-                        "{id_prefix}:{file}:{line_number}:{column}:{}",
-                        token_match.token_id
-                    ),
-                    location: SourceLocation {
-                        file: file.to_owned(),
-                        line: line_number,
-                        column: Some(column),
-                    },
-                    token_id: token_match.token_id.clone(),
-                    key: key.clone(),
-                    category: token_match.category,
-                    parent: None,
-                });
-                search_from = start + key.len();
-            }
+        let line_number = u32::try_from(line_index + 1).unwrap_or(u32::MAX);
+        let mut search_from = 0;
+        while search_from < line.len() {
+            let Some((key, token_match)) = longest_match_at(line, search_from, &keys, index) else {
+                search_from += 1;
+                continue;
+            };
+            let column = u32::try_from(search_from + 1).unwrap_or(u32::MAX);
+            sites.push(TokenSite {
+                id: format!(
+                    "{id_prefix}:{file}:{line_number}:{column}:{}",
+                    token_match.token_id
+                ),
+                location: SourceLocation {
+                    file: file.to_owned(),
+                    line: line_number,
+                    column: Some(column),
+                },
+                token_id: token_match.token_id.clone(),
+                key: key.clone(),
+                category: token_match.category,
+                parent: None,
+            });
+            search_from += key.len();
         }
     }
     sites.sort_by(|left, right| {
@@ -151,6 +178,24 @@ pub fn find_token_matches(
             .then(left.token_id.cmp(&right.token_id))
     });
     sites
+}
+
+fn longest_match_at<'a>(
+    line: &str,
+    start: usize,
+    keys: &[&'a String],
+    index: &'a RegistryTokenIndex,
+) -> Option<(&'a String, &'a TokenMatch)> {
+    let suffix = &line[start..];
+    for key in keys {
+        if suffix.starts_with(key.as_str()) {
+            return index
+                .matches
+                .get(key.as_str())
+                .map(|token_match| (*key, token_match));
+        }
+    }
+    None
 }
 
 fn required_non_empty_string<'a>(
@@ -229,6 +274,9 @@ fn insert_match(
     token: &DesignSystemToken,
     key: &str,
 ) -> Result<(), TokenRegistryError> {
+    if key.is_empty() {
+        return Err(TokenRegistryError::EmptyTokenField { field: "key" });
+    }
     if matches.contains_key(key) {
         return Err(TokenRegistryError::DuplicateMatchKey {
             key: key.to_owned(),
