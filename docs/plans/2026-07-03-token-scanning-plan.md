@@ -398,6 +398,8 @@ Add summary struct:
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct TokenUsageSummary {
+    /// Language pack that owns this token summary row.
+    pub language: String,
     /// Token id represented by this summary row.
     pub token_id: String,
     /// Exact registry key for the token.
@@ -1268,6 +1270,7 @@ Implement:
 
 ```rust
 fn build_token_usage_summaries(facts: &ScanFacts) -> Vec<wax_contract::TokenUsageSummary> {
+    let language = facts.language.id.as_str().to_owned();
     let tokens = facts
         .design_system_tokens
         .iter()
@@ -1292,6 +1295,7 @@ fn build_token_usage_summaries(facts: &ScanFacts) -> Vec<wax_contract::TokenUsag
     grouped
         .into_values()
         .map(|(token, reference_count, files, parents)| wax_contract::TokenUsageSummary {
+            language: language.clone(),
             token_id: token.id,
             key: token.key,
             category: token.category,
@@ -1317,25 +1321,23 @@ Implement:
 fn merge_token_usage_summaries(
     languages: &BTreeMap<LanguageId, ScanFacts>,
 ) -> Vec<wax_contract::TokenUsageSummary> {
-    let mut rows = BTreeMap::<String, wax_contract::TokenUsageSummary>::new();
-    for (language_id, facts) in languages {
-        for summary in &facts.token_usage_summary {
-            let key = format!("{}:{}", language_id.as_str(), summary.token_id);
-            rows.entry(key)
-                .and_modify(|existing| {
-                    existing.reference_count =
-                        existing.reference_count.saturating_add(summary.reference_count);
-                    existing.file_count = existing.file_count.saturating_add(summary.file_count);
-                    existing.parent_scope_count = existing
-                        .parent_scope_count
-                        .saturating_add(summary.parent_scope_count);
-                })
-                .or_insert_with(|| summary.clone());
-        }
+    // Token ids are language-local. Keep one row per language summary and do not
+    // collapse same-looking ids across packs (mirrors symbol summary merge).
+    let mut merged = Vec::new();
+    for facts in languages.values() {
+        merged.extend(facts.token_usage_summary.clone());
     }
-    rows.into_values().collect()
+    merged.sort_by(|left, right| {
+        left.language
+            .cmp(&right.language)
+            .then_with(|| left.token_id.cmp(&right.token_id))
+            .then_with(|| left.key.cmp(&right.key))
+    });
+    merged
 }
 ```
+
+Add a two-language unit test that asserts exact language identity, counts, and deterministic ordering when both packs emit the same local `token_id`.
 
 - [x] **Step 6: Print token metrics in CLI summary**
 

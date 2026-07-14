@@ -772,6 +772,7 @@ fn merged_scan_rejects_malformed_token_usage_summary() {
         },
         symbol_usage_summary: vec![],
         token_usage_summary: vec![wax_contract::TokenUsageSummary {
+            language: "compose".into(),
             token_id: "".into(),
             key: "Theme.colors.primary".into(),
             category: wax_contract::TokenCategory::Color,

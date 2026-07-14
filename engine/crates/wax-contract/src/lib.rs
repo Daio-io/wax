@@ -416,6 +416,11 @@ pub struct HardcodedStyleSite {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct TokenUsageSummary {
+    /// Language pack that owns this token summary row.
+    ///
+    /// Token ids are stable only within a language registry, so merged rows must
+    /// carry language identity to remain unambiguous across packs.
+    pub language: String,
     /// Token id represented by this summary row.
     pub token_id: String,
     /// Exact registry key for the token.
@@ -1090,6 +1095,7 @@ fn validate_token_usage_summary(
     field: &str,
     summary: &TokenUsageSummary,
 ) -> Result<(), ScanFactsError> {
+    require_non_empty(&format!("{field}.language"), &summary.language)?;
     require_non_empty(&format!("{field}.token_id"), &summary.token_id)?;
     require_non_empty(&format!("{field}.key"), &summary.key)?;
     Ok(())
