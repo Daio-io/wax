@@ -18,12 +18,13 @@ use crate::kotlin_ast::{
 pub const TREE_SITTER_KOTLIN_GRAMMAR_VERSION: &str = "1.1.0";
 
 use wax_contract::{
-    DesignSystemComponent, Diagnostic, DiagnosticSeverity, IdentityStability, LocalComponent,
-    MatchStatus, ParentScope, ScanStatus, SourceLocation, UsageSite,
+    DesignSystemComponent, DesignSystemToken, Diagnostic, DiagnosticSeverity, HardcodedStyleSite,
+    IdentityStability, LocalComponent, MatchStatus, ParentScope, ScanStatus, SourceLocation,
+    TokenCategory, TokenSite, UsageSite,
 };
 use wax_lang_api::{
-    RootPatternKind, RootResolutionError, ScanConfig, resolve_import_aware_match,
-    resolve_source_roots,
+    RegistryTokenIndex, RootPatternKind, RootResolutionError, ScanConfig, parse_registry_tokens,
+    resolve_import_aware_match, resolve_source_roots, token_index,
 };
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -233,6 +234,12 @@ pub struct TreeSitterScanResult {
     pub local_components: Vec<LocalComponent>,
     /// Usage sites matched against the registry.
     pub usage_sites: Vec<UsageSite>,
+    /// Known design-system tokens from the registry file.
+    pub design_system_tokens: Vec<DesignSystemToken>,
+    /// Known token references matched in source.
+    pub token_sites: Vec<TokenSite>,
+    /// Hard-coded styling candidates discovered in source.
+    pub hardcoded_style_sites: Vec<HardcodedStyleSite>,
     /// Number of Kotlin files scanned.
     pub files_scanned: u32,
     /// Diagnostics emitted during the scan.
@@ -247,6 +254,8 @@ struct RegistryIndex {
     canonical_symbols: Vec<String>,
     resolve_targets: BTreeMap<String, String>,
     component_packages: BTreeMap<String, Option<String>>,
+    tokens: Vec<DesignSystemToken>,
+    token_index: RegistryTokenIndex,
 }
 
 fn load_registry(path: &Path) -> Result<RegistryIndex, TreeSitterScanError> {
@@ -329,10 +338,23 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, TreeSitterScanError> {
     }
 
     canonical_symbols.sort();
+
+    let tokens =
+        parse_registry_tokens(&value).map_err(|err| TreeSitterScanError::RegistryInvalid {
+            path: path.to_path_buf(),
+            reason: err.to_string(),
+        })?;
+    let token_index = token_index(&tokens).map_err(|err| TreeSitterScanError::RegistryInvalid {
+        path: path.to_path_buf(),
+        reason: err.to_string(),
+    })?;
+
     Ok(RegistryIndex {
         canonical_symbols,
         resolve_targets,
         component_packages,
+        tokens,
+        token_index,
     })
 }
 
@@ -555,6 +577,172 @@ fn extract_usage_from_source(
     }
 }
 
+fn compose_style_category(call_symbol: &str) -> Option<TokenCategory> {
+    match call_symbol {
+        "Color" | "background" | "border" => Some(TokenCategory::Color),
+        "padding" | "size" | "width" | "height" | "spacedBy" => Some(TokenCategory::Spacing),
+        "fontSize" | "TextStyle" => Some(TokenCategory::Typography),
+        "clip" | "cornerRadius" | "RoundedCornerShape" => Some(TokenCategory::Radius),
+        "shadow" | "elevation" => Some(TokenCategory::Elevation),
+        _ => None,
+    }
+}
+
+/// Resolves the callee name for styling-candidate detection.
+///
+/// Unlike [`call_simple_callee`] (used for composable usage-site attribution, which
+/// intentionally ignores qualified calls), styling calls are almost always qualified
+/// member calls such as `Modifier.padding(...)` or `.background(...)`. This helper
+/// additionally resolves the trailing member name of a navigation-qualified callee.
+fn style_call_callee(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Option<(String, tree_sitter::Point)> {
+    if let Some(found) = call_simple_callee(node, source) {
+        return Some(found);
+    }
+    let mut cursor = node.walk();
+    let navigation = node
+        .named_children(&mut cursor)
+        .find(|child| child.kind() == "navigation_expression")?;
+    let mut inner_cursor = navigation.walk();
+    let member = navigation
+        .named_children(&mut inner_cursor)
+        .filter(|child| matches!(child.kind(), "simple_identifier" | "identifier"))
+        .last()?;
+    let name = member.utf8_text(source).ok()?.to_owned();
+    Some((name, member.start_position()))
+}
+
+/// Picks the first source token in a styling call's text that looks like a hard-coded
+/// literal for the given category (hex color, `.dp`/`.sp` literal, or a plain number).
+///
+/// This is a conservative, text-based heuristic over the call expression's own source
+/// span rather than a precise per-argument AST match.
+fn first_style_literal(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    category: TokenCategory,
+) -> Option<String> {
+    let text = node.utf8_text(source).ok()?;
+    tokenize_call_text(text)
+        .into_iter()
+        .find(|token| style_literal_token_matches(token, category))
+}
+
+fn tokenize_call_text(text: &str) -> Vec<String> {
+    text.split(|ch: char| ch.is_whitespace() || matches!(ch, '(' | ')' | ',' | '='))
+        .map(|token| {
+            token
+                .trim_matches(|ch: char| matches!(ch, '"' | '\''))
+                .to_owned()
+        })
+        .filter(|token| !token.is_empty())
+        .collect()
+}
+
+fn style_literal_token_matches(token: &str, category: TokenCategory) -> bool {
+    match category {
+        TokenCategory::Color => token.contains("0x"),
+        TokenCategory::Typography => token.ends_with(".sp") || is_plain_number(token),
+        TokenCategory::Spacing | TokenCategory::Radius | TokenCategory::Elevation => {
+            token.ends_with(".dp") || is_plain_number(token)
+        }
+        TokenCategory::Unknown => false,
+    }
+}
+
+fn is_plain_number(token: &str) -> bool {
+    !token.is_empty()
+        && token.chars().all(|ch| ch.is_ascii_digit() || ch == '.')
+        && token.parse::<f64>().is_ok()
+}
+
+fn extract_hardcoded_style_from_source(
+    root: tree_sitter::Node<'_>,
+    source: &[u8],
+    file: &str,
+    out: &mut Vec<HardcodedStyleSite>,
+) {
+    let package = package_name_from_source(root, source);
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "call_expression"
+            && let Some((call_symbol, pos)) = style_call_callee(node, source)
+            && let Some(category) = compose_style_category(&call_symbol)
+            && let Some(value) = first_style_literal(node, source, category)
+        {
+            let line = pos.row as u32 + 1;
+            let column = pos.column as u32 + 1;
+            let parent = nearest_enclosing_composable(node, source).map(|(name, parent_pos)| {
+                parent_scope_for_composable(file, package.as_deref(), &name, parent_pos)
+            });
+            out.push(HardcodedStyleSite {
+                id: format!("hardcoded.compose:{file}:{line}:{column}:{category:?}"),
+                location: SourceLocation {
+                    file: file.to_owned(),
+                    line,
+                    column: Some(column),
+                },
+                value,
+                category,
+                parent,
+            });
+        }
+        for i in (0..node.child_count()).rev() {
+            if let Some(child) = node.child(i) {
+                stack.push(child);
+            }
+        }
+    }
+}
+
+fn extract_token_sites_from_source(
+    root: tree_sitter::Node<'_>,
+    source: &[u8],
+    file: &str,
+    token_index: &RegistryTokenIndex,
+    out: &mut Vec<TokenSite>,
+) {
+    let package = package_name_from_source(root, source);
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if matches!(
+            node.kind(),
+            "identifier" | "navigation_expression" | "call_expression"
+        ) && let Ok(text) = node.utf8_text(source)
+            && let Some(token_match) = token_index.matches.get(text)
+        {
+            let pos = node.start_position();
+            let line = pos.row as u32 + 1;
+            let column = pos.column as u32 + 1;
+            let parent = nearest_enclosing_composable(node, source).map(|(name, parent_pos)| {
+                parent_scope_for_composable(file, package.as_deref(), &name, parent_pos)
+            });
+            out.push(TokenSite {
+                id: format!(
+                    "token.compose:{file}:{line}:{column}:{}",
+                    token_match.token_id
+                ),
+                location: SourceLocation {
+                    file: file.to_owned(),
+                    line,
+                    column: Some(column),
+                },
+                token_id: token_match.token_id.clone(),
+                key: text.to_owned(),
+                category: token_match.category,
+                parent,
+            });
+        }
+        for i in (0..node.child_count()).rev() {
+            if let Some(child) = node.child(i) {
+                stack.push(child);
+            }
+        }
+    }
+}
+
 #[allow(dead_code)]
 fn extract_from_source(
     root: tree_sitter::Node<'_>,
@@ -624,8 +812,11 @@ pub fn scan_repository(
         })
         .collect::<Vec<_>>();
 
+    let design_system_tokens = registry.tokens.clone();
     let mut local_components = Vec::new();
     let mut usage_sites = Vec::new();
+    let mut token_sites = Vec::new();
+    let mut hardcoded_style_sites = Vec::new();
     let mut files_scanned = 0_u32;
     let mut parse_failures = 0_u32;
     let mut parsed_files = Vec::new();
@@ -680,6 +871,19 @@ pub fn scan_repository(
             &local_index,
             &mut usage_sites,
         );
+        extract_hardcoded_style_from_source(
+            parsed.tree.root_node(),
+            parsed.source.as_bytes(),
+            relative_file,
+            &mut hardcoded_style_sites,
+        );
+        extract_token_sites_from_source(
+            parsed.tree.root_node(),
+            parsed.source.as_bytes(),
+            relative_file,
+            &registry.token_index,
+            &mut token_sites,
+        );
     }
 
     design_system_components.sort_by(|l, r| l.symbol.cmp(&r.symbol));
@@ -690,6 +894,21 @@ pub fn scan_repository(
             .cmp(&r.location.file)
             .then(l.location.line.cmp(&r.location.line))
             .then(l.symbol.cmp(&r.symbol))
+    });
+    token_sites.sort_by(|l, r| {
+        l.location
+            .file
+            .cmp(&r.location.file)
+            .then(l.location.line.cmp(&r.location.line))
+            .then(l.location.column.cmp(&r.location.column))
+            .then(l.token_id.cmp(&r.token_id))
+    });
+    hardcoded_style_sites.sort_by(|l, r| {
+        l.location
+            .file
+            .cmp(&r.location.file)
+            .then(l.location.line.cmp(&r.location.line))
+            .then(l.location.column.cmp(&r.location.column))
     });
 
     // Report Partial when any file was skipped (parse failure) or any root was missing,
@@ -708,6 +927,9 @@ pub fn scan_repository(
         design_system_components,
         local_components,
         usage_sites,
+        design_system_tokens,
+        token_sites,
+        hardcoded_style_sites,
         files_scanned,
         diagnostics,
         status,
@@ -878,6 +1100,8 @@ mod tests {
             canonical_symbols,
             resolve_targets,
             component_packages,
+            tokens: Vec::new(),
+            token_index: RegistryTokenIndex::default(),
         }
     }
 
@@ -1633,5 +1857,126 @@ fun BrokenScreen(
                 .all(|diagnostic| diagnostic.code != "root_not_found"),
             "matching recursive wildcard roots must not emit root_not_found diagnostics"
         );
+    }
+
+    fn extract_hardcoded_styles(source: &str) -> Vec<HardcodedStyleSite> {
+        let mut parser = make_parser();
+        let tree = parser.parse(source.as_bytes(), None).unwrap();
+        let mut sites = Vec::new();
+        extract_hardcoded_style_from_source(
+            tree.root_node(),
+            source.as_bytes(),
+            "Test.kt",
+            &mut sites,
+        );
+        sites
+    }
+
+    fn token_match_index(pairs: &[(&str, &str, TokenCategory)]) -> RegistryTokenIndex {
+        let mut tokens = Vec::new();
+        for (id, key, category) in pairs {
+            tokens.push(DesignSystemToken {
+                id: (*id).to_owned(),
+                key: (*key).to_owned(),
+                category: *category,
+                aliases: Vec::new(),
+            });
+        }
+        token_index(&tokens).expect("token index should build")
+    }
+
+    fn extract_token_sites(source: &str, index: &RegistryTokenIndex) -> Vec<TokenSite> {
+        let mut parser = make_parser();
+        let tree = parser.parse(source.as_bytes(), None).unwrap();
+        let mut sites = Vec::new();
+        extract_token_sites_from_source(
+            tree.root_node(),
+            source.as_bytes(),
+            "Test.kt",
+            index,
+            &mut sites,
+        );
+        sites
+    }
+
+    #[test]
+    fn qualified_padding_call_is_a_spacing_hardcoded_candidate() {
+        let source = "@Composable\nfun Screen() {\n    Box(Modifier.padding(8.dp))\n}\n";
+        let sites = extract_hardcoded_styles(source);
+        assert!(
+            sites
+                .iter()
+                .any(|site| site.category == TokenCategory::Spacing && site.value == "8.dp"),
+            "expected a spacing candidate with value 8.dp, got: {sites:?}"
+        );
+    }
+
+    #[test]
+    fn direct_color_call_is_a_color_hardcoded_candidate() {
+        let source =
+            "@Composable\nfun Screen() {\n    Box(Modifier.background(Color(0xFF336699)))\n}\n";
+        let sites = extract_hardcoded_styles(source);
+        assert!(
+            sites
+                .iter()
+                .any(|site| site.category == TokenCategory::Color && site.value.contains("0x")),
+            "expected a color candidate containing 0x, got: {sites:?}"
+        );
+    }
+
+    #[test]
+    fn non_style_call_does_not_emit_hardcoded_candidate() {
+        let source = "@Composable\nfun Screen() {\n    PrimaryButton(onClick = {})\n}\n";
+        let sites = extract_hardcoded_styles(source);
+        assert!(
+            sites.is_empty(),
+            "non-styling calls must not emit hard-coded candidates, got: {sites:?}"
+        );
+    }
+
+    #[test]
+    fn hardcoded_style_candidate_has_parent_attribution_inside_composable() {
+        let source = "@Composable\nfun Screen() {\n    Box(Modifier.padding(8.dp))\n}\n";
+        let sites = extract_hardcoded_styles(source);
+        assert!(
+            sites
+                .iter()
+                .all(|site| site.parent.as_ref().is_some_and(|p| p.symbol == "Screen")),
+            "hard-coded candidates inside a composable must carry parent attribution"
+        );
+    }
+
+    #[test]
+    fn token_reference_resolves_qualified_navigation_expression() {
+        let index = token_match_index(&[(
+            "color.primary",
+            "Theme.colors.primary",
+            TokenCategory::Color,
+        )]);
+        let source = "@Composable\nfun Screen() {\n    val primary = Theme.colors.primary\n}\n";
+        let sites = extract_token_sites(source, &index);
+        assert_eq!(sites.len(), 1);
+        assert_eq!(sites[0].token_id, "color.primary");
+        assert_eq!(sites[0].key, "Theme.colors.primary");
+        assert!(
+            sites[0]
+                .parent
+                .as_ref()
+                .is_some_and(|parent| parent.symbol == "Screen"),
+            "token reference inside a composable must carry parent attribution"
+        );
+    }
+
+    #[test]
+    fn token_reference_outside_composable_has_no_parent() {
+        let index = token_match_index(&[(
+            "color.primary",
+            "Theme.colors.primary",
+            TokenCategory::Color,
+        )]);
+        let source = "val primary = Theme.colors.primary\n";
+        let sites = extract_token_sites(source, &index);
+        assert_eq!(sites.len(), 1);
+        assert!(sites[0].parent.is_none());
     }
 }

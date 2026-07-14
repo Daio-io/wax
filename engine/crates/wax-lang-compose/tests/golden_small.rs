@@ -11,6 +11,10 @@ struct GoldenCounts {
     raw_invocations_local: u32,
     registry_component_count: u32,
     definitions_local_definition_count: u32,
+    configured_token_count: u32,
+    used_token_count: u32,
+    token_reference_site_count: u32,
+    hardcoded_style_candidate_count: u32,
 }
 
 #[test]
@@ -44,11 +48,49 @@ fn small_fixture_matches_golden_counts() {
     let usage_columns = facts
         .usage_sites
         .iter()
+        .filter(|site| site.match_status == MatchStatus::Resolved)
         .map(|site| site.location.column)
         .collect::<Vec<_>>();
     assert!(
         usage_columns.iter().all(|c| *c == Some(5)),
-        "expected all usage site columns to be Some(5) (one-based), got: {usage_columns:?}"
+        "expected all resolved usage site columns to be Some(5) (one-based), got: {usage_columns:?}"
+    );
+
+    assert_eq!(
+        facts.counts.tokens.configured_token_count, golden.configured_token_count,
+        "tokens.configured_token_count drifted from golden"
+    );
+    assert_eq!(
+        facts.counts.tokens.used_token_count, golden.used_token_count,
+        "tokens.used_token_count drifted from golden"
+    );
+    assert_eq!(
+        facts.counts.tokens.token_reference_site_count, golden.token_reference_site_count,
+        "tokens.token_reference_site_count drifted from golden"
+    );
+    assert_eq!(
+        facts.counts.tokens.hardcoded_style_candidate_count, golden.hardcoded_style_candidate_count,
+        "tokens.hardcoded_style_candidate_count drifted from golden"
+    );
+    assert_eq!(facts.design_system_tokens.len(), 2);
+    assert!(
+        facts
+            .token_sites
+            .iter()
+            .any(|site| site.token_id == "color.primary" && site.parent.is_some()),
+        "Compose token references should include parent attribution when inside a composable"
+    );
+    assert!(
+        facts.hardcoded_style_sites.iter().any(|site| {
+            site.category == wax_contract::TokenCategory::Spacing && site.value == "8.dp"
+        }),
+        "Modifier.padding(8.dp) should be a spacing hard-coded candidate"
+    );
+    assert!(
+        facts.hardcoded_style_sites.iter().any(|site| {
+            site.category == wax_contract::TokenCategory::Color && site.value.contains("0x")
+        }),
+        "Color(0x...) should be a color hard-coded candidate"
     );
 }
 
@@ -200,6 +242,22 @@ fn load_golden(path: &Path) -> GoldenCounts {
         definitions_local_definition_count: value["definitions"]["local_definition_count"]
             .as_u64()
             .expect("golden definitions.local_definition_count must be a number")
+            as u32,
+        configured_token_count: value["tokens"]["configured_token_count"]
+            .as_u64()
+            .expect("golden tokens.configured_token_count must be a number")
+            as u32,
+        used_token_count: value["tokens"]["used_token_count"]
+            .as_u64()
+            .expect("golden tokens.used_token_count must be a number")
+            as u32,
+        token_reference_site_count: value["tokens"]["token_reference_site_count"]
+            .as_u64()
+            .expect("golden tokens.token_reference_site_count must be a number")
+            as u32,
+        hardcoded_style_candidate_count: value["tokens"]["hardcoded_style_candidate_count"]
+            .as_u64()
+            .expect("golden tokens.hardcoded_style_candidate_count must be a number")
             as u32,
     }
 }
