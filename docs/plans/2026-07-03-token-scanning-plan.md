@@ -1133,7 +1133,7 @@ git commit -m "feat: scan basic token references"
 - Consumes: token fields and counts from Task 1
 - Produces: per-language token usage summaries, merged repo token counts, merged token usage summaries, CLI token summary lines
 
-- [ ] **Step 1: Write failing core merge test**
+- [x] **Step 1: Write failing core merge test**
 
 Add a test to `engine/crates/wax-core/tests/scan_output.rs` that runs a scan fixture with one language returning:
 
@@ -1179,7 +1179,7 @@ assert_eq!(
 
 Expected before implementation: merge does not expose token summaries or ratio.
 
-- [ ] **Step 2: Sum token counts in `sum_count_summaries`**
+- [x] **Step 2: Sum token counts in `sum_count_summaries`**
 
 In `engine/crates/wax-core/src/adoption_merge.rs`, add token count summing:
 
@@ -1228,7 +1228,7 @@ fn add_token_category_counts(
 
 Call it for `token_references_by_category` and `hardcoded_by_category`.
 
-- [ ] **Step 3: Compute token ratio in `metrics_from_counts`**
+- [x] **Step 3: Compute token ratio in `metrics_from_counts`**
 
 Add:
 
@@ -1256,7 +1256,7 @@ Metrics {
 }
 ```
 
-- [ ] **Step 4: Build per-language token summaries**
+- [x] **Step 4: Build per-language token summaries**
 
 In `recompute_derived_scan_facts_with_parent_scope_limit`, after `build_symbol_usage_summaries`, add:
 
@@ -1303,7 +1303,7 @@ fn build_token_usage_summaries(facts: &ScanFacts) -> Vec<wax_contract::TokenUsag
 }
 ```
 
-- [ ] **Step 5: Build merged token summaries**
+- [x] **Step 5: Build merged token summaries**
 
 Add a `token_usage_summary` field to merged scan construction:
 
@@ -1337,7 +1337,7 @@ fn merge_token_usage_summaries(
 }
 ```
 
-- [ ] **Step 6: Print token metrics in CLI summary**
+- [x] **Step 6: Print token metrics in CLI summary**
 
 Modify `engine/crates/wax-cli/src/commands/scan.rs` in `write_scan_summary` after invocation metrics:
 
@@ -1363,7 +1363,7 @@ writeln!(
 .map_err(write_error)?;
 ```
 
-- [ ] **Step 7: Update CLI tests**
+- [x] **Step 7: Update CLI tests**
 
 In `engine/crates/wax-cli/src/commands/scan.rs` test helper `sample_repo_counts`, set token counts to:
 
@@ -1396,7 +1396,7 @@ assert!(stdout.contains("Token references: 3"));
 assert!(stdout.contains("Hard-coded style candidates: 1"));
 ```
 
-- [ ] **Step 8: Run core and CLI checks**
+- [x] **Step 8: Run core and CLI checks**
 
 Run:
 
@@ -1409,7 +1409,7 @@ cargo test -p wax-cli
 
 Expected: both package test suites pass.
 
-- [ ] **Step 9: Commit Task 4**
+- [x] **Step 9: Commit Task 4**
 
 ```bash
 git add engine/crates/wax-core/src/adoption_merge.rs engine/crates/wax-core/tests/scan_output.rs engine/crates/wax-core/tests/subprocess_protocol.rs engine/crates/wax-cli/src/commands/scan.rs engine/crates/wax-cli/tests/scan_command.rs
