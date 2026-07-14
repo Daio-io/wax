@@ -84,7 +84,7 @@
   - `CountSummary.tokens`
 - Consumes: existing `SourceLocation`, `ParentScope`, `Metrics`, `CountSummary`, `ScanFacts::validate`, and `ScanFacts::recompute_counts`.
 
-- [ ] **Step 1: Add failing token contract tests**
+- [x] **Step 1: Add failing token contract tests**
 
 Add this test to `engine/crates/wax-contract/tests/schema_roundtrip.rs`:
 
@@ -163,7 +163,7 @@ fn token_facts_roundtrip_and_validate_against_schema() {
 
 Expected before implementation: compilation fails because the token types and fields do not exist.
 
-- [ ] **Step 2: Add invalid token validation tests**
+- [x] **Step 2: Add invalid token validation tests**
 
 Add these tests to `engine/crates/wax-contract/tests/schema_roundtrip.rs`:
 
@@ -236,7 +236,7 @@ fn hardcoded_style_site_requires_non_empty_value() {
 
 Expected before implementation: compilation fails because the token types and fields do not exist.
 
-- [ ] **Step 3: Add token contract types**
+- [x] **Step 3: Add token contract types**
 
 Modify `engine/crates/wax-contract/src/lib.rs` near the existing fact structs:
 
@@ -311,7 +311,7 @@ pub struct HardcodedStyleSite {
 }
 ```
 
-- [ ] **Step 4: Add token fields to `ScanFacts`, `Metrics`, and `CountSummary`**
+- [x] **Step 4: Add token fields to `ScanFacts`, `Metrics`, and `CountSummary`**
 
 Modify `ScanFacts`:
 
@@ -421,7 +421,7 @@ Modify `MergedScan`:
 pub token_usage_summary: Vec<TokenUsageSummary>,
 ```
 
-- [ ] **Step 5: Update null field handling and defaults**
+- [x] **Step 5: Update null field handling and defaults**
 
 Add `&["metrics", "token_reference_ratio"]` to `NULLABLE_JSON_FIELDS`.
 
@@ -440,7 +440,7 @@ hardcoded_style_sites: vec![],
 token_usage_summary: vec![],
 ```
 
-- [ ] **Step 6: Implement token validation and recomputation**
+- [x] **Step 6: Implement token validation and recomputation**
 
 In `engine/crates/wax-contract/src/lib.rs`, add helper functions:
 
@@ -487,7 +487,7 @@ Use these exact validation messages for stable tests:
 "value must not be empty"
 ```
 
-- [ ] **Step 7: Update JSON schema**
+- [x] **Step 7: Update JSON schema**
 
 Modify `engine/crates/wax-contract/schemas/scan-facts.schema.json` to include:
 
@@ -501,7 +501,7 @@ Modify `engine/crates/wax-contract/schemas/scan-facts.schema.json` to include:
 
 Keep token arrays default-empty from the Rust side but represented as arrays when present in JSON.
 
-- [ ] **Step 8: Run contract checks**
+- [x] **Step 8: Run contract checks**
 
 Run:
 
@@ -513,7 +513,7 @@ cargo test -p wax-contract
 
 Expected: `cargo test -p wax-contract` passes.
 
-- [ ] **Step 9: Commit Task 1**
+- [x] **Step 9: Commit Task 1**
 
 ```bash
 git add engine/crates/wax-contract/src/lib.rs engine/crates/wax-contract/schemas/scan-facts.schema.json engine/crates/wax-contract/tests/schema_roundtrip.rs
@@ -538,7 +538,7 @@ git commit -m "feat: add token scan contract"
   - `pub fn token_index(tokens: &[DesignSystemToken]) -> Result<RegistryTokenIndex, TokenRegistryError>`
   - `pub fn find_token_matches(source: &str, file: &str, index: &RegistryTokenIndex, id_prefix: &str) -> Vec<TokenSite>`
 
-- [ ] **Step 1: Write failing tests for token registry parsing**
+- [x] **Step 1: Write failing tests for token registry parsing**
 
 Create `engine/crates/wax-lang-api/tests/token_registry.rs`:
 
@@ -616,7 +616,7 @@ fn token_index_finds_key_and_alias_matches() {
 
 Expected before implementation: compilation fails because token registry helpers do not exist.
 
-- [ ] **Step 2: Implement shared parser and matcher**
+- [x] **Step 2: Implement shared parser and matcher**
 
 Create `engine/crates/wax-lang-api/src/token_registry.rs`:
 
@@ -868,7 +868,7 @@ fn insert_match(
 }
 ```
 
-- [ ] **Step 3: Export helper APIs**
+- [x] **Step 3: Export helper APIs**
 
 Modify `engine/crates/wax-lang-api/src/lib.rs`:
 
@@ -885,7 +885,7 @@ pub use token_registry::{
 };
 ```
 
-- [ ] **Step 4: Run shared helper tests**
+- [x] **Step 4: Run shared helper tests**
 
 Run:
 
@@ -897,7 +897,7 @@ cargo test -p wax-lang-api
 
 Expected: `cargo test -p wax-lang-api` passes.
 
-- [ ] **Step 5: Commit Task 2**
+- [x] **Step 5: Commit Task 2**
 
 ```bash
 git add engine/crates/wax-lang-api/src/lib.rs engine/crates/wax-lang-api/src/token_registry.rs engine/crates/wax-lang-api/tests/token_registry.rs
@@ -919,7 +919,7 @@ git commit -m "feat: parse registry tokens"
 - Consumes: `wax_lang_api::{find_token_matches, parse_registry_tokens, token_index, RegistryTokenIndex}`
 - Produces: `LineScanResult.design_system_tokens`, `LineScanResult.token_sites`, no `hardcoded_style_sites`
 
-- [ ] **Step 1: Write failing basic pack assertions**
+- [x] **Step 1: Write failing basic pack assertions**
 
 In `engine/crates/wax-lang-basic/tests/golden_small.rs`, add assertions after the scan result is loaded:
 
@@ -947,7 +947,7 @@ assert!(
 
 Expected before implementation: compilation fails or assertions fail because basic facts do not carry token data.
 
-- [ ] **Step 2: Add token fixtures**
+- [x] **Step 2: Add token fixtures**
 
 Modify `engine/crates/wax-lang-basic/tests/fixtures/small/design-system/registry.json` so the top-level object contains:
 
@@ -976,7 +976,7 @@ Spacing.Medium
 
 Do not add hard-coded color or spacing values to the basic golden fixture.
 
-- [ ] **Step 3: Extend `LineScanResult` and registry index**
+- [x] **Step 3: Extend `LineScanResult` and registry index**
 
 Modify imports in `engine/crates/wax-lang-basic/src/line_scan.rs`:
 
@@ -1007,7 +1007,7 @@ tokens: Vec<DesignSystemToken>,
 token_index: RegistryTokenIndex,
 ```
 
-- [ ] **Step 4: Parse tokens in `load_registry`**
+- [x] **Step 4: Parse tokens in `load_registry`**
 
 After parsing `value`, add:
 
@@ -1033,7 +1033,7 @@ Ok(RegistryIndex {
 })
 ```
 
-- [ ] **Step 5: Emit token sites during scan**
+- [x] **Step 5: Emit token sites during scan**
 
 In `scan_repository`, initialize:
 
@@ -1064,7 +1064,7 @@ design_system_tokens,
 token_sites,
 ```
 
-- [ ] **Step 6: Populate `ScanFacts` from basic scans**
+- [x] **Step 6: Populate `ScanFacts` from basic scans**
 
 Modify `engine/crates/wax-lang-basic/src/lib.rs` in `facts_from_scan`:
 
@@ -1084,7 +1084,7 @@ hardcoded_style_sites: Vec::new(),
 token_usage_summary: Vec::new(),
 ```
 
-- [ ] **Step 7: Update golden fixture**
+- [x] **Step 7: Update golden fixture**
 
 Run:
 
@@ -1097,7 +1097,7 @@ Expected: test fails with a golden diff that includes token fields.
 
 Update `engine/crates/wax-lang-basic/tests/fixtures/small/golden.json` with the new deterministic token fields from the failing output. Keep `hardcoded_style_sites` absent or empty according to the serializer behavior.
 
-- [ ] **Step 8: Run focused basic checks**
+- [x] **Step 8: Run focused basic checks**
 
 Run:
 
@@ -1109,7 +1109,7 @@ cargo test -p wax-lang-basic
 
 Expected: `cargo test -p wax-lang-basic` passes.
 
-- [ ] **Step 9: Commit Task 3**
+- [x] **Step 9: Commit Task 3**
 
 ```bash
 git add engine/crates/wax-lang-basic/src/line_scan.rs engine/crates/wax-lang-basic/src/lib.rs engine/crates/wax-lang-basic/tests/fixtures/small engine/crates/wax-lang-basic/tests/golden_small.rs
