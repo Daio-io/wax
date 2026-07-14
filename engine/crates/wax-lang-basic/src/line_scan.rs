@@ -6,10 +6,13 @@ use std::path::{Component, Path, PathBuf};
 
 use thiserror::Error;
 use wax_contract::{
-    DesignSystemComponent, Diagnostic, DiagnosticSeverity, MatchStatus, ScanStatus, SourceLocation,
-    UsageSite,
+    DesignSystemComponent, DesignSystemToken, Diagnostic, DiagnosticSeverity, MatchStatus,
+    ScanStatus, SourceLocation, TokenSite, UsageSite,
 };
-use wax_lang_api::{RootPatternKind, RootResolutionError, ScanConfig, resolve_source_roots};
+use wax_lang_api::{
+    RegistryTokenIndex, RootPatternKind, RootResolutionError, ScanConfig, find_token_matches,
+    parse_registry_tokens, resolve_source_roots, token_index,
+};
 
 const BASIC_TEXT_SCAN_DIAGNOSTIC: &str = "Basic text line scanner produced heuristic usage facts; parser-backed extraction is recommended for production. Heuristics strip // comments before matching (code after // inside strings or URLs may be missed).";
 
@@ -227,7 +230,9 @@ pub fn scan_repository(
         })
         .collect::<Vec<_>>();
 
+    let design_system_tokens = registry.tokens.clone();
     let mut usage_sites = Vec::new();
+    let mut token_sites = Vec::new();
     let mut files_scanned = 0_u32;
 
     for file_path in source_files {
@@ -248,6 +253,13 @@ pub fn scan_repository(
             &registry.resolve_targets,
             &mut usage_sites,
         );
+
+        token_sites.extend(find_token_matches(
+            &source,
+            &relative_file,
+            &registry.token_index,
+            "token.basic",
+        ));
     }
 
     design_system_components.sort_by(|left, right| left.symbol.cmp(&right.symbol));
@@ -258,11 +270,21 @@ pub fn scan_repository(
             .then(left.location.line.cmp(&right.location.line))
             .then(left.symbol.cmp(&right.symbol))
     });
+    token_sites.sort_by(|left, right| {
+        left.location
+            .file
+            .cmp(&right.location.file)
+            .then(left.location.line.cmp(&right.location.line))
+            .then(left.location.column.cmp(&right.location.column))
+            .then(left.token_id.cmp(&right.token_id))
+    });
 
     Ok(LineScanResult {
         design_system_components,
         local_components: Vec::new(),
         usage_sites,
+        design_system_tokens,
+        token_sites,
         files_scanned,
         diagnostics,
         status: ScanStatus::Partial,
@@ -304,6 +326,10 @@ pub struct LineScanResult {
     pub local_components: Vec<wax_contract::LocalComponent>,
     /// Usage sites matched against the registry.
     pub usage_sites: Vec<UsageSite>,
+    /// Known design-system tokens from the registry file.
+    pub design_system_tokens: Vec<DesignSystemToken>,
+    /// Known token references matched in source.
+    pub token_sites: Vec<TokenSite>,
     /// Number of source files scanned.
     pub files_scanned: u32,
     /// Diagnostics emitted by the line scan.
@@ -343,6 +369,8 @@ pub enum LineScanError {
 struct RegistryIndex {
     canonical_symbols: Vec<String>,
     resolve_targets: BTreeMap<String, String>,
+    tokens: Vec<DesignSystemToken>,
+    token_index: RegistryTokenIndex,
 }
 
 fn load_registry(path: &Path) -> Result<RegistryIndex, LineScanError> {
@@ -402,9 +430,21 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, LineScanError> {
     }
 
     canonical_symbols.sort();
+
+    let tokens = parse_registry_tokens(&value).map_err(|err| LineScanError::RegistryInvalid {
+        path: path.to_path_buf(),
+        reason: err.to_string(),
+    })?;
+    let token_index = token_index(&tokens).map_err(|err| LineScanError::RegistryInvalid {
+        path: path.to_path_buf(),
+        reason: err.to_string(),
+    })?;
+
     Ok(RegistryIndex {
         canonical_symbols,
         resolve_targets,
+        tokens,
+        token_index,
     })
 }
 

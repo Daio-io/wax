@@ -12,6 +12,10 @@ struct GoldenCounts {
     registry_component_count: u32,
     registry_used_component_count: u32,
     definitions_local_definition_count: u32,
+    configured_token_count: u32,
+    used_token_count: u32,
+    token_reference_site_count: u32,
+    hardcoded_style_candidate_count: u32,
 }
 
 #[test]
@@ -88,6 +92,41 @@ fn small_fixture_matches_golden_counts() {
             .any(|diag| diag.code == "basic_capability_gap"),
         "basic scan should emit capability gap diagnostics"
     );
+    assert_eq!(
+        facts.counts.tokens.configured_token_count, golden.configured_token_count,
+        "tokens.configured_token_count drifted from golden"
+    );
+    assert_eq!(
+        facts.counts.tokens.used_token_count, golden.used_token_count,
+        "tokens.used_token_count drifted from golden"
+    );
+    assert_eq!(
+        facts.counts.tokens.token_reference_site_count, golden.token_reference_site_count,
+        "tokens.token_reference_site_count drifted from golden"
+    );
+    assert_eq!(
+        facts.counts.tokens.hardcoded_style_candidate_count, golden.hardcoded_style_candidate_count,
+        "tokens.hardcoded_style_candidate_count drifted from golden"
+    );
+    assert_eq!(facts.design_system_tokens.len(), 2);
+    assert!(
+        facts
+            .token_sites
+            .iter()
+            .any(|site| site.token_id == "color.primary" && site.key == "Theme.colors.primary"),
+        "basic scanner should find exact token key references"
+    );
+    assert!(
+        facts
+            .token_sites
+            .iter()
+            .any(|site| site.token_id == "space.medium" && site.key == "Spacing.Medium"),
+        "basic scanner should find exact token references"
+    );
+    assert!(
+        facts.hardcoded_style_sites.is_empty(),
+        "basic scanner must not emit hard-coded styling candidates"
+    );
 }
 
 fn load_golden(path: &PathBuf) -> GoldenCounts {
@@ -118,6 +157,22 @@ fn load_golden(path: &PathBuf) -> GoldenCounts {
         definitions_local_definition_count: value["definitions"]["local_definition_count"]
             .as_u64()
             .expect("golden definitions.local_definition_count must be a number")
+            as u32,
+        configured_token_count: value["tokens"]["configured_token_count"]
+            .as_u64()
+            .expect("golden tokens.configured_token_count must be a number")
+            as u32,
+        used_token_count: value["tokens"]["used_token_count"]
+            .as_u64()
+            .expect("golden tokens.used_token_count must be a number")
+            as u32,
+        token_reference_site_count: value["tokens"]["token_reference_site_count"]
+            .as_u64()
+            .expect("golden tokens.token_reference_site_count must be a number")
+            as u32,
+        hardcoded_style_candidate_count: value["tokens"]["hardcoded_style_candidate_count"]
+            .as_u64()
+            .expect("golden tokens.hardcoded_style_candidate_count must be a number")
             as u32,
     }
 }
