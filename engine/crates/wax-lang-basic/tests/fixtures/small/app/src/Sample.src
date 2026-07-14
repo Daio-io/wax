@@ -6,3 +6,6 @@ function SampleScreen() {
     PrimaryButton()
     TextField()
 }
+
+Theme.colors.primary
+Spacing.Medium

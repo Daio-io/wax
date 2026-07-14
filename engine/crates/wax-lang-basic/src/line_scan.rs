@@ -6,10 +6,13 @@ use std::path::{Component, Path, PathBuf};
 
 use thiserror::Error;
 use wax_contract::{
-    DesignSystemComponent, Diagnostic, DiagnosticSeverity, MatchStatus, ScanStatus, SourceLocation,
-    UsageSite,
+    DesignSystemComponent, DesignSystemToken, Diagnostic, DiagnosticSeverity, MatchStatus,
+    ScanStatus, SourceLocation, TokenSite, UsageSite,
 };
-use wax_lang_api::{RootPatternKind, RootResolutionError, ScanConfig, resolve_source_roots};
+use wax_lang_api::{
+    RegistryTokenIndex, RootPatternKind, RootResolutionError, ScanConfig, find_token_matches,
+    parse_registry_tokens, resolve_source_roots, token_index,
+};
 
 const BASIC_TEXT_SCAN_DIAGNOSTIC: &str = "Basic text line scanner produced heuristic usage facts; parser-backed extraction is recommended for production. Heuristics strip // comments before matching (code after // inside strings or URLs may be missed).";
 
@@ -211,6 +214,9 @@ pub fn scan_repository(
         }
     }
     source_files.sort();
+    source_files.dedup();
+    // Never scan the registry itself — its keys/aliases would look like usage.
+    source_files.retain(|file_path| file_path != &registry_path);
     source_files.retain(|file_path| {
         let relative_file = file_path.strip_prefix(repo_root).unwrap_or(file_path);
         let relative_text = normalize_repo_relative_path(relative_file);
@@ -227,7 +233,9 @@ pub fn scan_repository(
         })
         .collect::<Vec<_>>();
 
+    let design_system_tokens = registry.tokens.clone();
     let mut usage_sites = Vec::new();
+    let mut token_sites = Vec::new();
     let mut files_scanned = 0_u32;
 
     for file_path in source_files {
@@ -248,6 +256,13 @@ pub fn scan_repository(
             &registry.resolve_targets,
             &mut usage_sites,
         );
+
+        token_sites.extend(find_token_matches(
+            &source,
+            &relative_file,
+            &registry.token_index,
+            "token.basic",
+        ));
     }
 
     design_system_components.sort_by(|left, right| left.symbol.cmp(&right.symbol));
@@ -258,11 +273,21 @@ pub fn scan_repository(
             .then(left.location.line.cmp(&right.location.line))
             .then(left.symbol.cmp(&right.symbol))
     });
+    token_sites.sort_by(|left, right| {
+        left.location
+            .file
+            .cmp(&right.location.file)
+            .then(left.location.line.cmp(&right.location.line))
+            .then(left.location.column.cmp(&right.location.column))
+            .then(left.token_id.cmp(&right.token_id))
+    });
 
     Ok(LineScanResult {
         design_system_components,
         local_components: Vec::new(),
         usage_sites,
+        design_system_tokens,
+        token_sites,
         files_scanned,
         diagnostics,
         status: ScanStatus::Partial,
@@ -304,6 +329,10 @@ pub struct LineScanResult {
     pub local_components: Vec<wax_contract::LocalComponent>,
     /// Usage sites matched against the registry.
     pub usage_sites: Vec<UsageSite>,
+    /// Known design-system tokens from the registry file.
+    pub design_system_tokens: Vec<DesignSystemToken>,
+    /// Known token references matched in source.
+    pub token_sites: Vec<TokenSite>,
     /// Number of source files scanned.
     pub files_scanned: u32,
     /// Diagnostics emitted by the line scan.
@@ -343,6 +372,8 @@ pub enum LineScanError {
 struct RegistryIndex {
     canonical_symbols: Vec<String>,
     resolve_targets: BTreeMap<String, String>,
+    tokens: Vec<DesignSystemToken>,
+    token_index: RegistryTokenIndex,
 }
 
 fn load_registry(path: &Path) -> Result<RegistryIndex, LineScanError> {
@@ -402,9 +433,21 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, LineScanError> {
     }
 
     canonical_symbols.sort();
+
+    let tokens = parse_registry_tokens(&value).map_err(|err| LineScanError::RegistryInvalid {
+        path: path.to_path_buf(),
+        reason: err.to_string(),
+    })?;
+    let token_index = token_index(&tokens).map_err(|err| LineScanError::RegistryInvalid {
+        path: path.to_path_buf(),
+        reason: err.to_string(),
+    })?;
+
     Ok(RegistryIndex {
         canonical_symbols,
         resolve_targets,
+        tokens,
+        token_index,
     })
 }
 
@@ -759,6 +802,72 @@ mod tests {
         let err = validate_repo_relative_path("../outside", "roots[0]")
             .expect_err("parent dir must fail");
         assert!(matches!(err, LineScanError::ConfigInvalid { .. }));
+    }
+
+    #[test]
+    fn overlapping_roots_dedupe_source_files_and_token_sites() {
+        let repo_root = temp_repo("basic-overlapping-roots");
+        let registry_dir = repo_root.join("design-system");
+        fs::create_dir_all(&registry_dir).unwrap();
+        fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"PrimaryButton"}],"tokens":[{"id":"color.primary","key":"Theme.colors.primary","category":"color"}]}"#,
+        )
+        .unwrap();
+
+        let source_dir = repo_root.join("app/src");
+        fs::create_dir_all(&source_dir).unwrap();
+        fs::write(
+            source_dir.join("Screen.src"),
+            "fun Screen() {\n    PrimaryButton()\n    Theme.colors.primary\n}\n",
+        )
+        .unwrap();
+
+        let config = BasicScanConfig {
+            design_system_registry: PathBuf::from("design-system/registry.json"),
+            roots: vec![PathBuf::from("app"), PathBuf::from("app/src")],
+            file_extensions: vec!["src".to_owned()],
+            include_globs: Vec::new(),
+            excludes: Vec::new(),
+        };
+
+        let result = scan_repository(&repo_root, &config).expect("overlapping roots should scan");
+
+        assert_eq!(result.files_scanned, 1);
+        assert_eq!(result.usage_sites.len(), 1);
+        assert_eq!(result.token_sites.len(), 1);
+        assert_eq!(result.token_sites[0].token_id, "color.primary");
+
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[test]
+    fn registry_file_is_excluded_from_token_matching() {
+        let repo_root = temp_repo("basic-registry-not-scanned");
+        let registry_dir = repo_root.join("design-system");
+        fs::create_dir_all(&registry_dir).unwrap();
+        fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"PrimaryButton"}],"tokens":[{"id":"color.primary","key":"Theme.colors.primary","category":"color","aliases":["AppColors.Primary"]}]}"#,
+        )
+        .unwrap();
+
+        let config = BasicScanConfig {
+            design_system_registry: PathBuf::from("design-system/registry.json"),
+            roots: vec![PathBuf::from(".")],
+            file_extensions: Vec::new(),
+            include_globs: Vec::new(),
+            excludes: Vec::new(),
+        };
+
+        let result =
+            scan_repository(&repo_root, &config).expect("repo-root scan should exclude registry");
+
+        assert_eq!(result.files_scanned, 0);
+        assert!(result.token_sites.is_empty());
+        assert_eq!(result.design_system_tokens.len(), 1);
+
+        fs::remove_dir_all(repo_root).unwrap();
     }
 
     #[test]

@@ -16,5 +16,11 @@
     "local_definition_count": 0,
     "invoked_local_definition_count": 0,
     "unused_local_definition_count": 0
+  },
+  "tokens": {
+    "configured_token_count": 2,
+    "used_token_count": 2,
+    "token_reference_site_count": 2,
+    "hardcoded_style_candidate_count": 0
   }
 }

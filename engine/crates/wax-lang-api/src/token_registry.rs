@@ -147,7 +147,12 @@ pub fn find_token_matches(
         let mut search_from = 0;
         while search_from < line.len() {
             let Some((key, token_match)) = longest_match_at(line, search_from, &keys, index) else {
-                search_from += 1;
+                // Advance by one Unicode scalar so slicing stays on a char boundary.
+                search_from += line[search_from..]
+                    .chars()
+                    .next()
+                    .map(char::len_utf8)
+                    .unwrap_or(1);
                 continue;
             };
             let column = u32::try_from(search_from + 1).unwrap_or(u32::MAX);

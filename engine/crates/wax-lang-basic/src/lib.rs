@@ -115,8 +115,8 @@ fn facts_from_scan(request: &ScanRequest, scan: LineScanResult) -> ScanFacts {
         },
         counts: CountSummary::default(),
         symbol_usage_summary: vec![],
-        design_system_tokens: vec![],
-        token_sites: vec![],
+        design_system_tokens: scan.design_system_tokens,
+        token_sites: scan.token_sites,
         hardcoded_style_sites: vec![],
         token_usage_summary: vec![],
     }
