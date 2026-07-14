@@ -214,6 +214,9 @@ pub fn scan_repository(
         }
     }
     source_files.sort();
+    source_files.dedup();
+    // Never scan the registry itself — its keys/aliases would look like usage.
+    source_files.retain(|file_path| file_path != &registry_path);
     source_files.retain(|file_path| {
         let relative_file = file_path.strip_prefix(repo_root).unwrap_or(file_path);
         let relative_text = normalize_repo_relative_path(relative_file);
@@ -799,6 +802,72 @@ mod tests {
         let err = validate_repo_relative_path("../outside", "roots[0]")
             .expect_err("parent dir must fail");
         assert!(matches!(err, LineScanError::ConfigInvalid { .. }));
+    }
+
+    #[test]
+    fn overlapping_roots_dedupe_source_files_and_token_sites() {
+        let repo_root = temp_repo("basic-overlapping-roots");
+        let registry_dir = repo_root.join("design-system");
+        fs::create_dir_all(&registry_dir).unwrap();
+        fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"PrimaryButton"}],"tokens":[{"id":"color.primary","key":"Theme.colors.primary","category":"color"}]}"#,
+        )
+        .unwrap();
+
+        let source_dir = repo_root.join("app/src");
+        fs::create_dir_all(&source_dir).unwrap();
+        fs::write(
+            source_dir.join("Screen.src"),
+            "fun Screen() {\n    PrimaryButton()\n    Theme.colors.primary\n}\n",
+        )
+        .unwrap();
+
+        let config = BasicScanConfig {
+            design_system_registry: PathBuf::from("design-system/registry.json"),
+            roots: vec![PathBuf::from("app"), PathBuf::from("app/src")],
+            file_extensions: vec!["src".to_owned()],
+            include_globs: Vec::new(),
+            excludes: Vec::new(),
+        };
+
+        let result = scan_repository(&repo_root, &config).expect("overlapping roots should scan");
+
+        assert_eq!(result.files_scanned, 1);
+        assert_eq!(result.usage_sites.len(), 1);
+        assert_eq!(result.token_sites.len(), 1);
+        assert_eq!(result.token_sites[0].token_id, "color.primary");
+
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[test]
+    fn registry_file_is_excluded_from_token_matching() {
+        let repo_root = temp_repo("basic-registry-not-scanned");
+        let registry_dir = repo_root.join("design-system");
+        fs::create_dir_all(&registry_dir).unwrap();
+        fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"PrimaryButton"}],"tokens":[{"id":"color.primary","key":"Theme.colors.primary","category":"color","aliases":["AppColors.Primary"]}]}"#,
+        )
+        .unwrap();
+
+        let config = BasicScanConfig {
+            design_system_registry: PathBuf::from("design-system/registry.json"),
+            roots: vec![PathBuf::from(".")],
+            file_extensions: Vec::new(),
+            include_globs: Vec::new(),
+            excludes: Vec::new(),
+        };
+
+        let result =
+            scan_repository(&repo_root, &config).expect("repo-root scan should exclude registry");
+
+        assert_eq!(result.files_scanned, 0);
+        assert!(result.token_sites.is_empty());
+        assert_eq!(result.design_system_tokens.len(), 1);
+
+        fs::remove_dir_all(repo_root).unwrap();
     }
 
     #[test]

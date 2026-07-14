@@ -69,6 +69,46 @@ fn token_index_finds_key_and_alias_matches() {
 }
 
 #[test]
+fn find_token_matches_handles_multibyte_utf8_without_panic() {
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "components": [{"symbol": "Button"}],
+        "tokens": [
+            {
+                "id": "color.primary",
+                "key": "Theme.colors.primary",
+                "category": "color"
+            }
+        ]
+    });
+    let tokens = parse_registry_tokens(&value).unwrap();
+    let index = token_index(&tokens).unwrap();
+
+    let sites = find_token_matches(
+        "let label = \"Café\"; Theme.colors.primary\n",
+        "src/Screen.kt",
+        &index,
+        "token.basic",
+    );
+
+    assert_eq!(sites.len(), 1);
+    assert_eq!(sites[0].token_id, "color.primary");
+    assert_eq!(sites[0].key, "Theme.colors.primary");
+}
+
+#[test]
+fn find_token_matches_empty_index_walks_utf8_safely() {
+    let index = token_index(&[]).unwrap();
+    let sites = find_token_matches(
+        "Café crème brûlée\n",
+        "src/Screen.kt",
+        &index,
+        "token.basic",
+    );
+    assert!(sites.is_empty());
+}
+
+#[test]
 fn longest_match_suppresses_overlapping_alias() {
     let value = serde_json::json!({
         "schema_version": 1,
