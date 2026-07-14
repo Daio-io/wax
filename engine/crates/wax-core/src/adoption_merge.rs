@@ -494,6 +494,7 @@ fn merge_symbol_usage_summaries(
 }
 
 fn build_token_usage_summaries(facts: &ScanFacts) -> Vec<TokenUsageSummary> {
+    let language = facts.language.id.as_str().to_owned();
     let tokens = facts
         .design_system_tokens
         .iter()
@@ -520,6 +521,7 @@ fn build_token_usage_summaries(facts: &ScanFacts) -> Vec<TokenUsageSummary> {
         .into_values()
         .map(
             |(token, reference_count, files, parents)| TokenUsageSummary {
+                language: language.clone(),
                 token_id: token.id,
                 key: token.key,
                 category: token.category,
@@ -534,24 +536,19 @@ fn build_token_usage_summaries(facts: &ScanFacts) -> Vec<TokenUsageSummary> {
 fn merge_token_usage_summaries(
     languages: &BTreeMap<LanguageId, ScanFacts>,
 ) -> Vec<TokenUsageSummary> {
-    let mut rows = BTreeMap::<String, TokenUsageSummary>::new();
-    for (language_id, facts) in languages {
-        for summary in &facts.token_usage_summary {
-            let key = format!("{}:{}", language_id.as_str(), summary.token_id);
-            rows.entry(key)
-                .and_modify(|existing| {
-                    existing.reference_count = existing
-                        .reference_count
-                        .saturating_add(summary.reference_count);
-                    existing.file_count = existing.file_count.saturating_add(summary.file_count);
-                    existing.parent_scope_count = existing
-                        .parent_scope_count
-                        .saturating_add(summary.parent_scope_count);
-                })
-                .or_insert_with(|| summary.clone());
-        }
+    // Token ids are language-local. Keep one row per language summary and do not
+    // collapse same-looking ids across packs (mirrors symbol summary merge).
+    let mut merged = Vec::new();
+    for facts in languages.values() {
+        merged.extend(facts.token_usage_summary.clone());
     }
-    rows.into_values().collect()
+    merged.sort_by(|left, right| {
+        left.language
+            .cmp(&right.language)
+            .then_with(|| left.token_id.cmp(&right.token_id))
+            .then_with(|| left.key.cmp(&right.key))
+    });
+    merged
 }
 
 #[cfg(test)]
@@ -748,13 +745,95 @@ mod tests {
             .expect("compose facts");
         assert_eq!(compose_facts.token_usage_summary.len(), 1);
         let summary = &compose_facts.token_usage_summary[0];
+        assert_eq!(summary.language, "compose");
         assert_eq!(summary.token_id, "color.primary");
         assert_eq!(summary.reference_count, 2);
         assert_eq!(summary.file_count, 2);
         assert_eq!(summary.parent_scope_count, 1);
 
         assert_eq!(merged.token_usage_summary.len(), 1);
+        assert_eq!(merged.token_usage_summary[0].language, "compose");
         assert_eq!(merged.token_usage_summary[0].token_id, "color.primary");
+    }
+
+    #[test]
+    fn merged_token_summaries_keep_language_identity_across_packs() {
+        let mut compose = language_facts("compose", vec![]);
+        compose.design_system_tokens = vec![DesignSystemToken {
+            id: "color.primary".into(),
+            key: "Theme.colors.primary".into(),
+            category: TokenCategory::Color,
+            aliases: vec![],
+        }];
+        compose.token_sites = vec![TokenSite {
+            id: "token.compose:src/Screen.kt:1:1:color.primary".into(),
+            location: SourceLocation {
+                file: "src/Screen.kt".into(),
+                line: 1,
+                column: Some(1),
+            },
+            token_id: "color.primary".into(),
+            key: "Theme.colors.primary".into(),
+            category: TokenCategory::Color,
+            parent: None,
+        }];
+
+        let mut react = language_facts("react", vec![]);
+        react.design_system_tokens = vec![DesignSystemToken {
+            id: "color.primary".into(),
+            key: "theme.colors.primary".into(),
+            category: TokenCategory::Color,
+            aliases: vec![],
+        }];
+        react.token_sites = vec![
+            TokenSite {
+                id: "token.react:src/App.tsx:1:1:color.primary".into(),
+                location: SourceLocation {
+                    file: "src/App.tsx".into(),
+                    line: 1,
+                    column: Some(1),
+                },
+                token_id: "color.primary".into(),
+                key: "theme.colors.primary".into(),
+                category: TokenCategory::Color,
+                parent: None,
+            },
+            TokenSite {
+                id: "token.react:src/Button.tsx:4:3:color.primary".into(),
+                location: SourceLocation {
+                    file: "src/Button.tsx".into(),
+                    line: 4,
+                    column: Some(3),
+                },
+                token_id: "color.primary".into(),
+                key: "theme.colors.primary".into(),
+                category: TokenCategory::Color,
+                parent: None,
+            },
+        ];
+
+        let mut languages = BTreeMap::new();
+        languages.insert(LanguageId::try_from("compose").unwrap(), compose);
+        languages.insert(LanguageId::try_from("react").unwrap(), react);
+
+        let merged = merge_language_scans(languages).unwrap();
+        assert_eq!(merged.token_usage_summary.len(), 2);
+        assert_eq!(merged.token_usage_summary[0].language, "compose");
+        assert_eq!(merged.token_usage_summary[0].token_id, "color.primary");
+        assert_eq!(merged.token_usage_summary[0].key, "Theme.colors.primary");
+        assert_eq!(merged.token_usage_summary[0].reference_count, 1);
+        assert_eq!(merged.token_usage_summary[0].file_count, 1);
+        assert_eq!(merged.token_usage_summary[1].language, "react");
+        assert_eq!(merged.token_usage_summary[1].token_id, "color.primary");
+        assert_eq!(merged.token_usage_summary[1].key, "theme.colors.primary");
+        assert_eq!(merged.token_usage_summary[1].reference_count, 2);
+        assert_eq!(merged.token_usage_summary[1].file_count, 2);
+        assert_eq!(
+            merged.repo_summary.counts.tokens.token_reference_site_count,
+            3
+        );
+        assert_eq!(merged.repo_summary.counts.tokens.configured_token_count, 2);
+        assert_eq!(merged.repo_summary.counts.tokens.used_token_count, 2);
     }
 
     #[test]

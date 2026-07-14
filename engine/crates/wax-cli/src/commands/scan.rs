@@ -492,6 +492,25 @@ fn write_scan_summary(
     .map_err(write_error)?;
     writeln!(writer, "  Unresolved UI calls: {}", raw.unresolved).map_err(write_error)?;
 
+    writeln!(writer, "token metrics:").map_err(write_error)?;
+    if let Some(ratio) = repo.metrics.token_reference_ratio {
+        writeln!(writer, "  Token reference ratio: {:.1}%", ratio * 100.0).map_err(write_error)?;
+    } else {
+        writeln!(writer, "  Token reference ratio: n/a").map_err(write_error)?;
+    }
+    writeln!(
+        writer,
+        "  Token references: {}",
+        repo.counts.tokens.token_reference_site_count
+    )
+    .map_err(write_error)?;
+    writeln!(
+        writer,
+        "  Hard-coded style candidates: {}",
+        repo.counts.tokens.hardcoded_style_candidate_count
+    )
+    .map_err(write_error)?;
+
     let diagnostics = merged
         .languages
         .values()
@@ -583,7 +602,7 @@ mod tests {
                 metrics: Metrics {
                     invocation_adoption_ratio: Some(0.875),
                     registry_resolution_ratio: Some(0.7),
-                    token_reference_ratio: None,
+                    token_reference_ratio: Some(0.75),
                     parse_extract_ms: 2,
                     files_scanned: 2,
                 },
@@ -648,6 +667,10 @@ mod tests {
         assert!(stdout.contains("Registry resolution: 70.0%"));
         assert!(stdout.contains("Raw DS invocations: 7 resolved, 1 candidate"));
         assert!(stdout.contains("Unresolved UI calls: 1"));
+        assert!(stdout.contains("token metrics:"));
+        assert!(stdout.contains("Token reference ratio: 75.0%"));
+        assert!(stdout.contains("Token references: 3"));
+        assert!(stdout.contains("Hard-coded style candidates: 1"));
         assert!(stdout.contains("PACK_TIMEOUT: timed out"));
         assert!(stdout.contains(
             "parse_failed (src/Broken.tsx:4:12): failed to parse source file; file skipped"
@@ -800,7 +823,23 @@ mod tests {
                 with_local_invocations: 0,
                 with_unresolved_invocations: 1,
             },
-            tokens: wax_contract::TokenCounts::default(),
+            tokens: wax_contract::TokenCounts {
+                configured_token_count: 2,
+                used_token_count: 1,
+                token_reference_site_count: 3,
+                hardcoded_style_candidate_count: 1,
+                token_references_by_category: wax_contract::TokenCategoryCounts {
+                    color: 2,
+                    spacing: 1,
+                    ..Default::default()
+                },
+                hardcoded_by_category: wax_contract::TokenCategoryCounts {
+                    spacing: 1,
+                    ..Default::default()
+                },
+                parent_scopes_with_token_references: 1,
+                parent_scopes_with_hardcoded_candidates: 1,
+            },
         }
     }
 

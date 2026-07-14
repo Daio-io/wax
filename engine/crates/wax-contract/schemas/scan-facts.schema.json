@@ -528,6 +528,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "language",
         "token_id",
         "key",
         "category",
@@ -536,6 +537,7 @@
         "parent_scope_count"
       ],
       "properties": {
+        "language": { "type": "string", "minLength": 1 },
         "token_id": { "type": "string", "minLength": 1 },
         "key": { "type": "string", "minLength": 1 },
         "category": { "$ref": "#/$defs/token_category" },
