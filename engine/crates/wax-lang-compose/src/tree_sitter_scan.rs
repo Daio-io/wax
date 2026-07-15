@@ -614,13 +614,16 @@ fn style_call_callee(
     Some((name, member.start_position()))
 }
 
-/// Picks the first source token that looks like a hard-coded literal for the given
-/// category among a styling call's *direct* value arguments.
+/// Picks the first hard-coded style literal among a styling call's *direct* value
+/// arguments by inspecting Kotlin AST literal / unit-navigation nodes.
 ///
-/// Scoping to direct value arguments (rather than the whole call expression's source
-/// span) keeps nested style calls — e.g. `background(Color(0xFF336699))` — from being
-/// double-counted: an argument that is itself a nested `call_expression` is skipped
-/// here so the nested call can be visited (and counted) on its own.
+/// Scoping to direct value arguments keeps nested style calls — e.g.
+/// `background(Color(0xFF336699))` — from being double-counted: an argument that is
+/// itself a nested `call_expression` is skipped here so the nested call can be visited
+/// (and counted) on its own.
+///
+/// `.dp` / `.sp` are accepted only when applied to a numeric literal receiver
+/// (`8.dp`), not when chained off an identifier (`Spacing.medium.dp`).
 fn first_style_literal(
     node: tree_sitter::Node<'_>,
     source: &[u8],
@@ -632,13 +635,7 @@ fn first_style_literal(
         if value_argument_contains_call_expression(value_argument) {
             continue;
         }
-        let Ok(text) = value_argument.utf8_text(source) else {
-            continue;
-        };
-        if let Some(found) = tokenize_call_text(text)
-            .into_iter()
-            .find(|token| style_literal_token_matches(token, category))
-        {
+        if let Some(found) = find_style_literal_in_argument(value_argument, source, category) {
             return Some(found);
         }
     }
@@ -665,32 +662,86 @@ fn value_argument_contains_call_expression(value_argument: tree_sitter::Node<'_>
     false
 }
 
-fn tokenize_call_text(text: &str) -> Vec<String> {
-    text.split(|ch: char| ch.is_whitespace() || matches!(ch, '(' | ')' | ',' | '='))
-        .map(|token| {
-            token
-                .trim_matches(|ch: char| matches!(ch, '"' | '\''))
-                .to_owned()
-        })
-        .filter(|token| !token.is_empty())
-        .collect()
+fn find_style_literal_in_argument(
+    value_argument: tree_sitter::Node<'_>,
+    source: &[u8],
+    category: TokenCategory,
+) -> Option<String> {
+    let mut stack = vec![value_argument];
+    while let Some(node) = stack.pop() {
+        if let Some(value) = style_literal_from_node(node, source, category) {
+            return Some(value);
+        }
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            if child.kind() == "call_expression" {
+                continue;
+            }
+            stack.push(child);
+        }
+    }
+    None
 }
 
-fn style_literal_token_matches(token: &str, category: TokenCategory) -> bool {
+fn style_literal_from_node(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    category: TokenCategory,
+) -> Option<String> {
     match category {
-        TokenCategory::Color => token.contains("0x"),
-        TokenCategory::Typography => token.ends_with(".sp") || is_plain_number(token),
-        TokenCategory::Spacing | TokenCategory::Radius | TokenCategory::Elevation => {
-            token.ends_with(".dp") || is_plain_number(token)
+        TokenCategory::Color => {
+            if is_numeric_literal_node(node) {
+                return Some(node.utf8_text(source).ok()?.to_owned());
+            }
+            None
         }
-        TokenCategory::Unknown => false,
+        TokenCategory::Typography => {
+            if is_numeric_unit_navigation(node, source, "sp") {
+                return Some(node.utf8_text(source).ok()?.to_owned());
+            }
+            if is_bare_numeric_literal(node) {
+                return Some(node.utf8_text(source).ok()?.to_owned());
+            }
+            None
+        }
+        TokenCategory::Spacing | TokenCategory::Radius | TokenCategory::Elevation => {
+            if is_numeric_unit_navigation(node, source, "dp") {
+                return Some(node.utf8_text(source).ok()?.to_owned());
+            }
+            if is_bare_numeric_literal(node) {
+                return Some(node.utf8_text(source).ok()?.to_owned());
+            }
+            None
+        }
+        TokenCategory::Unknown => None,
     }
 }
 
-fn is_plain_number(token: &str) -> bool {
-    !token.is_empty()
-        && token.chars().all(|ch| ch.is_ascii_digit() || ch == '.')
-        && token.parse::<f64>().is_ok()
+fn is_numeric_literal_node(node: tree_sitter::Node<'_>) -> bool {
+    matches!(node.kind(), "number_literal" | "float_literal")
+}
+
+fn is_bare_numeric_literal(node: tree_sitter::Node<'_>) -> bool {
+    if !is_numeric_literal_node(node) {
+        return false;
+    }
+    // Numeric receivers of `8.dp` / `14.sp` are handled by the navigation node itself.
+    node.parent()
+        .is_none_or(|parent| parent.kind() != "navigation_expression")
+}
+
+fn is_numeric_unit_navigation(node: tree_sitter::Node<'_>, source: &[u8], unit: &str) -> bool {
+    if node.kind() != "navigation_expression" {
+        return false;
+    }
+    let mut cursor = node.walk();
+    let children: Vec<_> = node.named_children(&mut cursor).collect();
+    let [receiver, member] = children.as_slice() else {
+        return false;
+    };
+    is_numeric_literal_node(*receiver)
+        && matches!(member.kind(), "simple_identifier" | "identifier")
+        && member.utf8_text(source).ok() == Some(unit)
 }
 
 fn extract_hardcoded_style_from_source(
@@ -743,10 +794,8 @@ fn extract_token_sites_from_source(
     let package = package_name_from_source(root, source);
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
-        if matches!(
-            node.kind(),
-            "identifier" | "navigation_expression" | "call_expression"
-        ) && !is_within_preview_composable(node, source)
+        if is_token_reference_node(node)
+            && !is_within_preview_composable(node, source)
             && let Ok(text) = node.utf8_text(source)
             && let Some(token_match) = token_index.matches.get(text)
         {
@@ -778,6 +827,32 @@ fn extract_token_sites_from_source(
             }
         }
     }
+}
+
+/// Token keys must match expression/reference nodes, not declaration bindings or types.
+fn is_token_reference_node(node: tree_sitter::Node<'_>) -> bool {
+    match node.kind() {
+        "navigation_expression" | "call_expression" => true,
+        "identifier" | "simple_identifier" => !is_declaration_or_type_identifier(node),
+        _ => false,
+    }
+}
+
+fn is_declaration_or_type_identifier(node: tree_sitter::Node<'_>) -> bool {
+    let Some(parent) = node.parent() else {
+        return false;
+    };
+    matches!(
+        parent.kind(),
+        "parameter"
+            | "variable_declaration"
+            | "function_declaration"
+            | "class_declaration"
+            | "object_declaration"
+            | "type_alias"
+            | "user_type"
+            | "enum_entry"
+    )
 }
 
 #[allow(dead_code)]
@@ -2068,5 +2143,70 @@ fun PreviewScreen() {
         let sites = extract_token_sites(source, &index);
         assert_eq!(sites.len(), 1);
         assert!(sites[0].parent.is_none());
+    }
+
+    #[test]
+    fn token_key_matching_parameter_declaration_is_not_usage() {
+        let index = token_match_index(&[("color.primary", "primary", TokenCategory::Color)]);
+        let source = "@Composable\nfun Screen(primary: Color) {}\n";
+        let sites = extract_token_sites(source, &index);
+        assert!(
+            sites.is_empty(),
+            "parameter declarations must not count as token usage, got: {sites:?}"
+        );
+    }
+
+    #[test]
+    fn token_key_matching_variable_declaration_is_not_usage() {
+        let index = token_match_index(&[("color.primary", "primary", TokenCategory::Color)]);
+        let source = "@Composable\nfun Screen() {\n    val primary = Color.Red\n}\n";
+        let sites = extract_token_sites(source, &index);
+        assert!(
+            sites.is_empty(),
+            "variable declarations must not count as token usage, got: {sites:?}"
+        );
+    }
+
+    #[test]
+    fn token_key_matching_identifier_reference_is_usage() {
+        let index = token_match_index(&[("color.primary", "primary", TokenCategory::Color)]);
+        let source = "@Composable\nfun Screen(primary: Color) {\n    val x = primary\n}\n";
+        let sites = extract_token_sites(source, &index);
+        assert_eq!(sites.len(), 1, "expected one reference use, got: {sites:?}");
+        assert_eq!(sites[0].key, "primary");
+    }
+
+    #[test]
+    fn color_int_and_float_literals_are_hardcoded_candidates() {
+        let int_sites =
+            extract_hardcoded_styles("@Composable\nfun Screen() {\n    Color(255)\n}\n");
+        assert!(
+            int_sites
+                .iter()
+                .any(|site| site.category == TokenCategory::Color && site.value == "255"),
+            "Color(255) should be a color candidate, got: {int_sites:?}"
+        );
+
+        let float_sites =
+            extract_hardcoded_styles("@Composable\nfun Screen() {\n    Color(0.5f)\n}\n");
+        assert!(
+            float_sites
+                .iter()
+                .any(|site| site.category == TokenCategory::Color && site.value == "0.5f"),
+            "Color(0.5f) should be a color candidate, got: {float_sites:?}"
+        );
+    }
+
+    #[test]
+    fn dp_chained_off_identifier_is_not_hardcoded_spacing() {
+        let source =
+            "@Composable\nfun Screen() {\n    Box(modifier.padding(Spacing.medium.dp))\n}\n";
+        let sites = extract_hardcoded_styles(source);
+        assert!(
+            sites
+                .iter()
+                .all(|site| site.category != TokenCategory::Spacing),
+            "Spacing.medium.dp must not be treated as a hard-coded spacing literal, got: {sites:?}"
+        );
     }
 }
