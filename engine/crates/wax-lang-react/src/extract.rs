@@ -7,14 +7,14 @@ use swc_ecma_ast::{
     AssignTarget, BlockStmt, BlockStmtOrExpr, Callee, Class, ClassMember, Decl, DefaultDecl,
     ExportSpecifier, Expr, ForHead, Function, JSXAttrName, JSXAttrOrSpread, JSXAttrValue,
     JSXElement, JSXElementChild, JSXElementName, JSXExpr, JSXFragment, JSXMemberExpr, JSXObject,
-    Key, Lit, MemberProp, ModuleDecl, ModuleItem, ObjectLit, Pat, Prop, PropName, PropOrSpread,
-    SimpleAssignTarget, Stmt, Tpl, VarDecl, VarDeclOrExpr, VarDeclarator,
+    Key, Lit, MemberProp, ModuleDecl, ModuleItem, ObjectLit, OptChainBase, Pat, Prop, PropName,
+    PropOrSpread, SimpleAssignTarget, Stmt, Tpl, VarDecl, VarDeclOrExpr, VarDeclarator,
 };
 use wax_contract::{
     Diagnostic, HardcodedStyleSite, IdentityStability, LocalComponent, MatchStatus, ParentScope,
     SourceLocation, TokenCategory, TokenSite, UsageSite,
 };
-use wax_lang_api::{find_token_matches, npm_import_package_root, resolve_import_aware_match};
+use wax_lang_api::{npm_import_package_root, resolve_import_aware_match};
 
 use crate::component_detect::{
     class_returns_jsx, expression_returns_jsx, function_returns_jsx, is_pascal_case,
@@ -265,19 +265,18 @@ pub fn collect_usage_sites(
             }
         }
 
-        let file = normalize_file(&parsed.file);
-        let mut token_sites =
-            find_token_matches(&parsed.source, &file, &registry.token_index, "token.react");
-        for site in &mut token_sites {
-            site.parent = parent_for_line(parsed, &candidates, site.location.line);
-        }
-        extraction.token_sites.extend(token_sites);
-
-        let style_before = extraction.hardcoded_style_sites.len();
-        collect_hardcoded_style_sites_from_module(parsed, &mut extraction.hardcoded_style_sites);
-        for site in &mut extraction.hardcoded_style_sites[style_before..] {
-            site.parent = parent_for_line(parsed, &candidates, site.location.line);
-        }
+        let component_spans = collect_component_spans(parsed);
+        collect_token_sites_from_module(
+            parsed,
+            &registry.token_index,
+            &component_spans,
+            &mut extraction.token_sites,
+        );
+        collect_hardcoded_style_sites_from_module(
+            parsed,
+            &component_spans,
+            &mut extraction.hardcoded_style_sites,
+        );
     }
 
     extraction.token_sites.sort_by(|left, right| {
@@ -300,46 +299,1298 @@ pub fn collect_usage_sites(
     extraction
 }
 
-fn parent_for_line(
-    parsed: &ParsedReactModule,
-    candidates: &[JsxUsageCandidate],
-    line: u32,
-) -> Option<ParentScope> {
-    candidates.iter().rev().find_map(|candidate| {
-        let (name, span) = candidate.parent_component.as_ref()?;
-        let parent = parent_scope_for_component(parsed, name, *span)?;
-        let start = parsed.source_location_from_span(*span)?.line;
-        (start <= line).then_some(parent)
-    })
-}
-
-fn collect_hardcoded_style_sites_from_module(
-    parsed: &ParsedReactModule,
-    out: &mut Vec<HardcodedStyleSite>,
-) {
+fn collect_component_spans(parsed: &ParsedReactModule) -> Vec<ComponentSpanEntry> {
+    let mut out = Vec::new();
     for item in &parsed.module.body {
         match item {
-            ModuleItem::Stmt(stmt) => {
-                collect_hardcoded_styles_from_stmt(parsed, stmt, out);
-            }
+            ModuleItem::Stmt(stmt) => collect_component_spans_from_stmt(stmt, &mut out),
             ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(export_decl)) => {
-                collect_hardcoded_styles_from_decl(parsed, &export_decl.decl, out);
+                collect_component_spans_from_decl(&export_decl.decl, &mut out);
             }
             ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultDecl(default_decl)) => {
                 match &default_decl.decl {
                     DefaultDecl::Fn(fn_expr) => {
+                        let name = fn_expr
+                            .ident
+                            .as_ref()
+                            .map(|ident| ident.sym.to_string())
+                            .unwrap_or_else(|| "default".to_owned());
+                        if is_pascal_case(&name) && function_returns_jsx(&fn_expr.function) {
+                            out.push(ComponentSpanEntry {
+                                name,
+                                span: fn_expr.function.span,
+                            });
+                        }
                         if let Some(body) = &fn_expr.function.body {
-                            collect_hardcoded_styles_from_block(parsed, body, out);
+                            collect_component_spans_from_block(body, &mut out);
                         }
                     }
                     DefaultDecl::Class(class_expr) => {
-                        collect_hardcoded_styles_from_class(parsed, &class_expr.class, out);
+                        let name = class_expr
+                            .ident
+                            .as_ref()
+                            .map(|ident| ident.sym.to_string())
+                            .unwrap_or_else(|| "default".to_owned());
+                        if is_pascal_case(&name) && class_returns_jsx(&class_expr.class) {
+                            out.push(ComponentSpanEntry {
+                                name,
+                                span: class_expr.class.span,
+                            });
+                        }
+                        collect_component_spans_from_class(&class_expr.class, &mut out);
                     }
                     _ => {}
                 }
             }
             ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultExpr(default_expr)) => {
-                collect_hardcoded_styles_from_expr(parsed, &default_expr.expr, out);
+                collect_component_spans_from_expr(&default_expr.expr, &mut out);
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+#[derive(Debug, Clone)]
+struct ComponentSpanEntry {
+    name: String,
+    span: Span,
+}
+
+fn collect_component_spans_from_decl(decl: &Decl, out: &mut Vec<ComponentSpanEntry>) {
+    match decl {
+        Decl::Fn(fn_decl) => {
+            let name = fn_decl.ident.sym.to_string();
+            if is_pascal_case(&name) && function_returns_jsx(&fn_decl.function) {
+                out.push(ComponentSpanEntry {
+                    name,
+                    span: fn_decl.function.span,
+                });
+            }
+            if let Some(body) = &fn_decl.function.body {
+                collect_component_spans_from_block(body, out);
+            }
+        }
+        Decl::Var(var_decl) => {
+            for declarator in &var_decl.decls {
+                if let Some((name, _)) = simple_binding_ident(declarator)
+                    && is_pascal_case(&name)
+                    && let Some(init) = declarator.init.as_deref()
+                    && expression_returns_jsx(init)
+                {
+                    out.push(ComponentSpanEntry {
+                        name,
+                        span: init.span(),
+                    });
+                }
+                if let Some(init) = declarator.init.as_deref() {
+                    collect_component_spans_from_expr(init, out);
+                }
+            }
+        }
+        Decl::Class(class_decl) => {
+            let name = class_decl.ident.sym.to_string();
+            if is_pascal_case(&name) && class_returns_jsx(&class_decl.class) {
+                out.push(ComponentSpanEntry {
+                    name,
+                    span: class_decl.class.span,
+                });
+            }
+            collect_component_spans_from_class(&class_decl.class, out);
+        }
+        _ => {}
+    }
+}
+
+fn collect_component_spans_from_class(class: &Class, out: &mut Vec<ComponentSpanEntry>) {
+    for member in &class.body {
+        match member {
+            ClassMember::Method(method) => {
+                if let Some(body) = &method.function.body {
+                    collect_component_spans_from_block(body, out);
+                }
+            }
+            ClassMember::Constructor(constructor) => {
+                if let Some(body) = &constructor.body {
+                    collect_component_spans_from_block(body, out);
+                }
+            }
+            ClassMember::PrivateMethod(method) => {
+                if let Some(body) = &method.function.body {
+                    collect_component_spans_from_block(body, out);
+                }
+            }
+            ClassMember::ClassProp(prop) => {
+                if let Some(value) = prop.value.as_deref() {
+                    collect_component_spans_from_expr(value, out);
+                }
+            }
+            ClassMember::PrivateProp(prop) => {
+                if let Some(value) = prop.value.as_deref() {
+                    collect_component_spans_from_expr(value, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_component_spans_from_block(block: &BlockStmt, out: &mut Vec<ComponentSpanEntry>) {
+    for stmt in &block.stmts {
+        collect_component_spans_from_stmt(stmt, out);
+    }
+}
+
+fn collect_component_spans_from_stmt(stmt: &Stmt, out: &mut Vec<ComponentSpanEntry>) {
+    match stmt {
+        Stmt::Decl(decl) => collect_component_spans_from_decl(decl, out),
+        Stmt::Block(block) => collect_component_spans_from_block(block, out),
+        Stmt::Return(return_stmt) => {
+            if let Some(arg) = return_stmt.arg.as_deref() {
+                collect_component_spans_from_expr(arg, out);
+            }
+        }
+        Stmt::Expr(expr_stmt) => collect_component_spans_from_expr(&expr_stmt.expr, out),
+        Stmt::If(if_stmt) => {
+            collect_component_spans_from_stmt(&if_stmt.cons, out);
+            if let Some(alt) = if_stmt.alt.as_deref() {
+                collect_component_spans_from_stmt(alt, out);
+            }
+        }
+        Stmt::For(for_stmt) => collect_component_spans_from_stmt(&for_stmt.body, out),
+        Stmt::ForIn(for_in) => collect_component_spans_from_stmt(&for_in.body, out),
+        Stmt::ForOf(for_of) => collect_component_spans_from_stmt(&for_of.body, out),
+        Stmt::While(while_stmt) => collect_component_spans_from_stmt(&while_stmt.body, out),
+        Stmt::DoWhile(do_while) => collect_component_spans_from_stmt(&do_while.body, out),
+        Stmt::Try(try_stmt) => {
+            collect_component_spans_from_block(&try_stmt.block, out);
+            if let Some(handler) = &try_stmt.handler {
+                collect_component_spans_from_block(&handler.body, out);
+            }
+            if let Some(finalizer) = &try_stmt.finalizer {
+                collect_component_spans_from_block(finalizer, out);
+            }
+        }
+        Stmt::Switch(switch_stmt) => {
+            for case in &switch_stmt.cases {
+                for cons in &case.cons {
+                    collect_component_spans_from_stmt(cons, out);
+                }
+            }
+        }
+        Stmt::Labeled(labeled) => collect_component_spans_from_stmt(&labeled.body, out),
+        _ => {}
+    }
+}
+
+fn collect_component_spans_from_expr(expr: &Expr, out: &mut Vec<ComponentSpanEntry>) {
+    match peel_expr(expr) {
+        Expr::Arrow(arrow) => match &*arrow.body {
+            BlockStmtOrExpr::BlockStmt(block) => collect_component_spans_from_block(block, out),
+            BlockStmtOrExpr::Expr(inner) => collect_component_spans_from_expr(inner, out),
+        },
+        Expr::Fn(fn_expr) => {
+            if let Some(body) = &fn_expr.function.body {
+                collect_component_spans_from_block(body, out);
+            }
+        }
+        Expr::Paren(paren) => collect_component_spans_from_expr(&paren.expr, out),
+        Expr::JSXElement(element) => {
+            for attr in &element.opening.attrs {
+                if let JSXAttrOrSpread::JSXAttr(attr) = attr
+                    && let Some(JSXAttrValue::JSXExprContainer(container)) = &attr.value
+                    && let JSXExpr::Expr(attr_expr) = &container.expr
+                {
+                    collect_component_spans_from_expr(attr_expr, out);
+                }
+            }
+            for child in &element.children {
+                if let JSXElementChild::JSXExprContainer(container) = child
+                    && let JSXExpr::Expr(child_expr) = &container.expr
+                {
+                    collect_component_spans_from_expr(child_expr, out);
+                } else if let JSXElementChild::JSXElement(nested) = child {
+                    collect_component_spans_from_expr(&Expr::JSXElement(nested.clone()), out);
+                }
+            }
+        }
+        Expr::JSXFragment(fragment) => {
+            for child in &fragment.children {
+                if let JSXElementChild::JSXExprContainer(container) = child
+                    && let JSXExpr::Expr(child_expr) = &container.expr
+                {
+                    collect_component_spans_from_expr(child_expr, out);
+                } else if let JSXElementChild::JSXElement(nested) = child {
+                    collect_component_spans_from_expr(&Expr::JSXElement(nested.clone()), out);
+                }
+            }
+        }
+        Expr::Call(call) => {
+            for arg in &call.args {
+                collect_component_spans_from_expr(&arg.expr, out);
+            }
+        }
+        Expr::Object(object) => {
+            for prop in &object.props {
+                if let PropOrSpread::Prop(prop) = prop
+                    && let Prop::KeyValue(key_value) = &**prop
+                {
+                    collect_component_spans_from_expr(&key_value.value, out);
+                }
+            }
+        }
+        Expr::Array(array) => {
+            for element in array.elems.iter().flatten() {
+                collect_component_spans_from_expr(&element.expr, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn parent_for_span(
+    parsed: &ParsedReactModule,
+    components: &[ComponentSpanEntry],
+    target: Span,
+) -> Option<ParentScope> {
+    components
+        .iter()
+        .filter(|component| span_contains(component.span, target))
+        .min_by_key(|component| span_byte_len(component.span))
+        .and_then(|component| parent_scope_for_component(parsed, &component.name, component.span))
+}
+
+fn span_contains(outer: Span, inner: Span) -> bool {
+    !outer.is_dummy() && !inner.is_dummy() && outer.lo() <= inner.lo() && inner.hi() <= outer.hi()
+}
+
+fn span_byte_len(span: Span) -> u32 {
+    span.hi().0.saturating_sub(span.lo().0)
+}
+
+fn peel_expr(expr: &Expr) -> &Expr {
+    match expr {
+        Expr::Paren(paren) => peel_expr(&paren.expr),
+        Expr::TsAs(ts_as) => peel_expr(&ts_as.expr),
+        Expr::TsSatisfies(ts_satisfies) => peel_expr(&ts_satisfies.expr),
+        Expr::TsConstAssertion(assertion) => peel_expr(&assertion.expr),
+        Expr::TsTypeAssertion(assertion) => peel_expr(&assertion.expr),
+        Expr::TsNonNull(non_null) => peel_expr(&non_null.expr),
+        Expr::TsInstantiation(instantiation) => peel_expr(&instantiation.expr),
+        other => other,
+    }
+}
+
+fn unwrap_style_object(expr: &Expr) -> Option<&ObjectLit> {
+    match peel_expr(expr) {
+        Expr::Object(object) => Some(object),
+        _ => None,
+    }
+}
+
+fn collect_token_sites_from_module(
+    parsed: &ParsedReactModule,
+    token_index: &wax_lang_api::RegistryTokenIndex,
+    component_spans: &[ComponentSpanEntry],
+    out: &mut Vec<TokenSite>,
+) {
+    for item in &parsed.module.body {
+        match item {
+            ModuleItem::Stmt(stmt) => {
+                collect_token_sites_from_stmt(parsed, stmt, token_index, component_spans, out);
+            }
+            ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(export_decl)) => {
+                collect_token_sites_from_decl(
+                    parsed,
+                    &export_decl.decl,
+                    token_index,
+                    component_spans,
+                    out,
+                );
+            }
+            ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultDecl(default_decl)) => {
+                match &default_decl.decl {
+                    DefaultDecl::Fn(fn_expr) => {
+                        if let Some(body) = &fn_expr.function.body {
+                            collect_token_sites_from_block(
+                                parsed,
+                                body,
+                                token_index,
+                                component_spans,
+                                out,
+                            );
+                        }
+                    }
+                    DefaultDecl::Class(class_expr) => {
+                        collect_token_sites_from_class(
+                            parsed,
+                            &class_expr.class,
+                            token_index,
+                            component_spans,
+                            out,
+                        );
+                    }
+                    _ => {}
+                }
+            }
+            ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultExpr(default_expr)) => {
+                collect_token_sites_from_expr(
+                    parsed,
+                    &default_expr.expr,
+                    token_index,
+                    component_spans,
+                    false,
+                    out,
+                );
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_token_sites_from_decl(
+    parsed: &ParsedReactModule,
+    decl: &Decl,
+    token_index: &wax_lang_api::RegistryTokenIndex,
+    component_spans: &[ComponentSpanEntry],
+    out: &mut Vec<TokenSite>,
+) {
+    match decl {
+        Decl::Fn(fn_decl) => {
+            if let Some(body) = &fn_decl.function.body {
+                collect_token_sites_from_block(parsed, body, token_index, component_spans, out);
+            }
+        }
+        Decl::Var(var_decl) => {
+            for declarator in &var_decl.decls {
+                if let Some(init) = declarator.init.as_deref() {
+                    collect_token_sites_from_expr(
+                        parsed,
+                        init,
+                        token_index,
+                        component_spans,
+                        false,
+                        out,
+                    );
+                }
+            }
+        }
+        Decl::Class(class_decl) => {
+            collect_token_sites_from_class(
+                parsed,
+                &class_decl.class,
+                token_index,
+                component_spans,
+                out,
+            );
+        }
+        _ => {}
+    }
+}
+
+fn collect_token_sites_from_class(
+    parsed: &ParsedReactModule,
+    class: &Class,
+    token_index: &wax_lang_api::RegistryTokenIndex,
+    component_spans: &[ComponentSpanEntry],
+    out: &mut Vec<TokenSite>,
+) {
+    if let Some(super_class) = class.super_class.as_deref() {
+        collect_token_sites_from_expr(
+            parsed,
+            super_class,
+            token_index,
+            component_spans,
+            false,
+            out,
+        );
+    }
+    for member in &class.body {
+        match member {
+            ClassMember::Method(method) => {
+                if let Some(body) = &method.function.body {
+                    collect_token_sites_from_block(parsed, body, token_index, component_spans, out);
+                }
+            }
+            ClassMember::Constructor(constructor) => {
+                if let Some(body) = &constructor.body {
+                    collect_token_sites_from_block(parsed, body, token_index, component_spans, out);
+                }
+            }
+            ClassMember::PrivateMethod(method) => {
+                if let Some(body) = &method.function.body {
+                    collect_token_sites_from_block(parsed, body, token_index, component_spans, out);
+                }
+            }
+            ClassMember::ClassProp(prop) => {
+                if let Some(value) = prop.value.as_deref() {
+                    collect_token_sites_from_expr(
+                        parsed,
+                        value,
+                        token_index,
+                        component_spans,
+                        false,
+                        out,
+                    );
+                }
+            }
+            ClassMember::PrivateProp(prop) => {
+                if let Some(value) = prop.value.as_deref() {
+                    collect_token_sites_from_expr(
+                        parsed,
+                        value,
+                        token_index,
+                        component_spans,
+                        false,
+                        out,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_token_sites_from_block(
+    parsed: &ParsedReactModule,
+    block: &BlockStmt,
+    token_index: &wax_lang_api::RegistryTokenIndex,
+    component_spans: &[ComponentSpanEntry],
+    out: &mut Vec<TokenSite>,
+) {
+    for stmt in &block.stmts {
+        collect_token_sites_from_stmt(parsed, stmt, token_index, component_spans, out);
+    }
+}
+
+fn collect_token_sites_from_stmt(
+    parsed: &ParsedReactModule,
+    stmt: &Stmt,
+    token_index: &wax_lang_api::RegistryTokenIndex,
+    component_spans: &[ComponentSpanEntry],
+    out: &mut Vec<TokenSite>,
+) {
+    match stmt {
+        Stmt::Block(block) => {
+            collect_token_sites_from_block(parsed, block, token_index, component_spans, out);
+        }
+        Stmt::Expr(expr_stmt) => {
+            collect_token_sites_from_expr(
+                parsed,
+                &expr_stmt.expr,
+                token_index,
+                component_spans,
+                false,
+                out,
+            );
+        }
+        Stmt::Decl(decl) => {
+            collect_token_sites_from_decl(parsed, decl, token_index, component_spans, out);
+        }
+        Stmt::Return(return_stmt) => {
+            if let Some(arg) = return_stmt.arg.as_deref() {
+                collect_token_sites_from_expr(
+                    parsed,
+                    arg,
+                    token_index,
+                    component_spans,
+                    false,
+                    out,
+                );
+            }
+        }
+        Stmt::If(if_stmt) => {
+            collect_token_sites_from_expr(
+                parsed,
+                &if_stmt.test,
+                token_index,
+                component_spans,
+                false,
+                out,
+            );
+            collect_token_sites_from_stmt(parsed, &if_stmt.cons, token_index, component_spans, out);
+            if let Some(alt) = if_stmt.alt.as_deref() {
+                collect_token_sites_from_stmt(parsed, alt, token_index, component_spans, out);
+            }
+        }
+        Stmt::While(while_stmt) => {
+            collect_token_sites_from_expr(
+                parsed,
+                &while_stmt.test,
+                token_index,
+                component_spans,
+                false,
+                out,
+            );
+            collect_token_sites_from_stmt(
+                parsed,
+                &while_stmt.body,
+                token_index,
+                component_spans,
+                out,
+            );
+        }
+        Stmt::DoWhile(do_while) => {
+            collect_token_sites_from_stmt(
+                parsed,
+                &do_while.body,
+                token_index,
+                component_spans,
+                out,
+            );
+            collect_token_sites_from_expr(
+                parsed,
+                &do_while.test,
+                token_index,
+                component_spans,
+                false,
+                out,
+            );
+        }
+        Stmt::For(for_stmt) => {
+            if let Some(init) = &for_stmt.init {
+                match init {
+                    VarDeclOrExpr::VarDecl(var_decl) => {
+                        for declarator in &var_decl.decls {
+                            if let Some(init) = declarator.init.as_deref() {
+                                collect_token_sites_from_expr(
+                                    parsed,
+                                    init,
+                                    token_index,
+                                    component_spans,
+                                    false,
+                                    out,
+                                );
+                            }
+                        }
+                    }
+                    VarDeclOrExpr::Expr(expr) => {
+                        collect_token_sites_from_expr(
+                            parsed,
+                            expr,
+                            token_index,
+                            component_spans,
+                            false,
+                            out,
+                        );
+                    }
+                }
+            }
+            if let Some(test) = for_stmt.test.as_deref() {
+                collect_token_sites_from_expr(
+                    parsed,
+                    test,
+                    token_index,
+                    component_spans,
+                    false,
+                    out,
+                );
+            }
+            if let Some(update) = for_stmt.update.as_deref() {
+                collect_token_sites_from_expr(
+                    parsed,
+                    update,
+                    token_index,
+                    component_spans,
+                    false,
+                    out,
+                );
+            }
+            collect_token_sites_from_stmt(
+                parsed,
+                &for_stmt.body,
+                token_index,
+                component_spans,
+                out,
+            );
+        }
+        Stmt::ForIn(for_in) => {
+            collect_token_sites_from_expr(
+                parsed,
+                &for_in.right,
+                token_index,
+                component_spans,
+                false,
+                out,
+            );
+            collect_token_sites_from_stmt(parsed, &for_in.body, token_index, component_spans, out);
+        }
+        Stmt::ForOf(for_of) => {
+            collect_token_sites_from_expr(
+                parsed,
+                &for_of.right,
+                token_index,
+                component_spans,
+                false,
+                out,
+            );
+            collect_token_sites_from_stmt(parsed, &for_of.body, token_index, component_spans, out);
+        }
+        Stmt::Switch(switch_stmt) => {
+            collect_token_sites_from_expr(
+                parsed,
+                &switch_stmt.discriminant,
+                token_index,
+                component_spans,
+                false,
+                out,
+            );
+            for case in &switch_stmt.cases {
+                if let Some(test) = case.test.as_deref() {
+                    collect_token_sites_from_expr(
+                        parsed,
+                        test,
+                        token_index,
+                        component_spans,
+                        false,
+                        out,
+                    );
+                }
+                for cons in &case.cons {
+                    collect_token_sites_from_stmt(parsed, cons, token_index, component_spans, out);
+                }
+            }
+        }
+        Stmt::Try(try_stmt) => {
+            collect_token_sites_from_block(
+                parsed,
+                &try_stmt.block,
+                token_index,
+                component_spans,
+                out,
+            );
+            if let Some(handler) = &try_stmt.handler {
+                collect_token_sites_from_block(
+                    parsed,
+                    &handler.body,
+                    token_index,
+                    component_spans,
+                    out,
+                );
+            }
+            if let Some(finalizer) = &try_stmt.finalizer {
+                collect_token_sites_from_block(
+                    parsed,
+                    finalizer,
+                    token_index,
+                    component_spans,
+                    out,
+                );
+            }
+        }
+        Stmt::Labeled(labeled) => {
+            collect_token_sites_from_stmt(parsed, &labeled.body, token_index, component_spans, out);
+        }
+        Stmt::With(with_stmt) => {
+            collect_token_sites_from_expr(
+                parsed,
+                &with_stmt.obj,
+                token_index,
+                component_spans,
+                false,
+                out,
+            );
+            collect_token_sites_from_stmt(
+                parsed,
+                &with_stmt.body,
+                token_index,
+                component_spans,
+                out,
+            );
+        }
+        Stmt::Throw(throw_stmt) => {
+            collect_token_sites_from_expr(
+                parsed,
+                &throw_stmt.arg,
+                token_index,
+                component_spans,
+                false,
+                out,
+            );
+        }
+        _ => {}
+    }
+}
+
+fn collect_token_sites_from_expr(
+    parsed: &ParsedReactModule,
+    expr: &Expr,
+    token_index: &wax_lang_api::RegistryTokenIndex,
+    component_spans: &[ComponentSpanEntry],
+    inside_member_object: bool,
+    out: &mut Vec<TokenSite>,
+) {
+    match peel_expr(expr) {
+        Expr::Member(member) => {
+            maybe_emit_token_site(parsed, expr, token_index, component_spans, out);
+            collect_token_sites_from_expr(
+                parsed,
+                &member.obj,
+                token_index,
+                component_spans,
+                true,
+                out,
+            );
+            if let MemberProp::Computed(computed) = &member.prop {
+                collect_token_sites_from_expr(
+                    parsed,
+                    &computed.expr,
+                    token_index,
+                    component_spans,
+                    false,
+                    out,
+                );
+            }
+        }
+        Expr::OptChain(opt_chain) => {
+            maybe_emit_token_site(parsed, expr, token_index, component_spans, out);
+            if let OptChainBase::Member(member) = &*opt_chain.base {
+                collect_token_sites_from_expr(
+                    parsed,
+                    &member.obj,
+                    token_index,
+                    component_spans,
+                    true,
+                    out,
+                );
+                if let MemberProp::Computed(computed) = &member.prop {
+                    collect_token_sites_from_expr(
+                        parsed,
+                        &computed.expr,
+                        token_index,
+                        component_spans,
+                        false,
+                        out,
+                    );
+                }
+            } else if let OptChainBase::Call(call) = &*opt_chain.base {
+                collect_token_sites_from_expr(
+                    parsed,
+                    &call.callee,
+                    token_index,
+                    component_spans,
+                    false,
+                    out,
+                );
+                for arg in &call.args {
+                    collect_token_sites_from_expr(
+                        parsed,
+                        &arg.expr,
+                        token_index,
+                        component_spans,
+                        false,
+                        out,
+                    );
+                }
+            }
+        }
+        Expr::Ident(_) if !inside_member_object => {
+            maybe_emit_token_site(parsed, expr, token_index, component_spans, out);
+        }
+        Expr::JSXElement(element) => {
+            for attr in &element.opening.attrs {
+                match attr {
+                    JSXAttrOrSpread::JSXAttr(attr) => match &attr.value {
+                        Some(JSXAttrValue::JSXExprContainer(container)) => {
+                            if let JSXExpr::Expr(attr_expr) = &container.expr {
+                                collect_token_sites_from_expr(
+                                    parsed,
+                                    attr_expr,
+                                    token_index,
+                                    component_spans,
+                                    false,
+                                    out,
+                                );
+                            }
+                        }
+                        Some(JSXAttrValue::JSXElement(nested)) => {
+                            collect_token_sites_from_expr(
+                                parsed,
+                                &Expr::JSXElement(nested.clone()),
+                                token_index,
+                                component_spans,
+                                false,
+                                out,
+                            );
+                        }
+                        Some(JSXAttrValue::JSXFragment(fragment)) => {
+                            for child in &fragment.children {
+                                collect_token_sites_from_jsx_child_tokens(
+                                    parsed,
+                                    child,
+                                    token_index,
+                                    component_spans,
+                                    out,
+                                );
+                            }
+                        }
+                        Some(JSXAttrValue::Str(_)) | None => {}
+                    },
+                    JSXAttrOrSpread::SpreadElement(spread) => {
+                        collect_token_sites_from_expr(
+                            parsed,
+                            &spread.expr,
+                            token_index,
+                            component_spans,
+                            false,
+                            out,
+                        );
+                    }
+                }
+            }
+            for child in &element.children {
+                collect_token_sites_from_jsx_child_tokens(
+                    parsed,
+                    child,
+                    token_index,
+                    component_spans,
+                    out,
+                );
+            }
+        }
+        Expr::JSXFragment(fragment) => {
+            for child in &fragment.children {
+                collect_token_sites_from_jsx_child_tokens(
+                    parsed,
+                    child,
+                    token_index,
+                    component_spans,
+                    out,
+                );
+            }
+        }
+        Expr::Arrow(arrow) => match &*arrow.body {
+            BlockStmtOrExpr::BlockStmt(block) => {
+                collect_token_sites_from_block(parsed, block, token_index, component_spans, out);
+            }
+            BlockStmtOrExpr::Expr(inner) => {
+                collect_token_sites_from_expr(
+                    parsed,
+                    inner,
+                    token_index,
+                    component_spans,
+                    false,
+                    out,
+                );
+            }
+        },
+        Expr::Fn(fn_expr) => {
+            if let Some(body) = &fn_expr.function.body {
+                collect_token_sites_from_block(parsed, body, token_index, component_spans, out);
+            }
+        }
+        Expr::Call(call) => {
+            if let Callee::Expr(callee) = &call.callee {
+                collect_token_sites_from_expr(
+                    parsed,
+                    callee,
+                    token_index,
+                    component_spans,
+                    false,
+                    out,
+                );
+            }
+            for arg in &call.args {
+                collect_token_sites_from_expr(
+                    parsed,
+                    &arg.expr,
+                    token_index,
+                    component_spans,
+                    false,
+                    out,
+                );
+            }
+        }
+        Expr::New(new_expr) => {
+            collect_token_sites_from_expr(
+                parsed,
+                &new_expr.callee,
+                token_index,
+                component_spans,
+                false,
+                out,
+            );
+            if let Some(args) = &new_expr.args {
+                for arg in args {
+                    collect_token_sites_from_expr(
+                        parsed,
+                        &arg.expr,
+                        token_index,
+                        component_spans,
+                        false,
+                        out,
+                    );
+                }
+            }
+        }
+        Expr::Object(object) => {
+            for prop in &object.props {
+                match prop {
+                    PropOrSpread::Spread(spread) => {
+                        collect_token_sites_from_expr(
+                            parsed,
+                            &spread.expr,
+                            token_index,
+                            component_spans,
+                            false,
+                            out,
+                        );
+                    }
+                    PropOrSpread::Prop(prop) => match &**prop {
+                        Prop::KeyValue(key_value) => {
+                            collect_token_sites_from_expr(
+                                parsed,
+                                &key_value.value,
+                                token_index,
+                                component_spans,
+                                false,
+                                out,
+                            );
+                        }
+                        Prop::Assign(assign) => {
+                            collect_token_sites_from_expr(
+                                parsed,
+                                &assign.value,
+                                token_index,
+                                component_spans,
+                                false,
+                                out,
+                            );
+                        }
+                        Prop::Method(method) => {
+                            if let Some(body) = &method.function.body {
+                                collect_token_sites_from_block(
+                                    parsed,
+                                    body,
+                                    token_index,
+                                    component_spans,
+                                    out,
+                                );
+                            }
+                        }
+                        Prop::Getter(getter) => {
+                            if let Some(body) = &getter.body {
+                                collect_token_sites_from_block(
+                                    parsed,
+                                    body,
+                                    token_index,
+                                    component_spans,
+                                    out,
+                                );
+                            }
+                        }
+                        Prop::Setter(setter) => {
+                            if let Some(body) = &setter.body {
+                                collect_token_sites_from_block(
+                                    parsed,
+                                    body,
+                                    token_index,
+                                    component_spans,
+                                    out,
+                                );
+                            }
+                        }
+                        Prop::Shorthand(_) => {}
+                    },
+                }
+            }
+        }
+        Expr::Array(array) => {
+            for element in array.elems.iter().flatten() {
+                collect_token_sites_from_expr(
+                    parsed,
+                    &element.expr,
+                    token_index,
+                    component_spans,
+                    false,
+                    out,
+                );
+            }
+        }
+        Expr::Bin(bin) => {
+            collect_token_sites_from_expr(
+                parsed,
+                &bin.left,
+                token_index,
+                component_spans,
+                false,
+                out,
+            );
+            collect_token_sites_from_expr(
+                parsed,
+                &bin.right,
+                token_index,
+                component_spans,
+                false,
+                out,
+            );
+        }
+        Expr::Cond(cond) => {
+            collect_token_sites_from_expr(
+                parsed,
+                &cond.test,
+                token_index,
+                component_spans,
+                false,
+                out,
+            );
+            collect_token_sites_from_expr(
+                parsed,
+                &cond.cons,
+                token_index,
+                component_spans,
+                false,
+                out,
+            );
+            collect_token_sites_from_expr(
+                parsed,
+                &cond.alt,
+                token_index,
+                component_spans,
+                false,
+                out,
+            );
+        }
+        Expr::Unary(unary) => {
+            collect_token_sites_from_expr(
+                parsed,
+                &unary.arg,
+                token_index,
+                component_spans,
+                false,
+                out,
+            );
+        }
+        Expr::Assign(assign) => {
+            collect_token_sites_from_expr(
+                parsed,
+                &assign.right,
+                token_index,
+                component_spans,
+                false,
+                out,
+            );
+        }
+        Expr::Seq(seq) => {
+            for inner in &seq.exprs {
+                collect_token_sites_from_expr(
+                    parsed,
+                    inner,
+                    token_index,
+                    component_spans,
+                    false,
+                    out,
+                );
+            }
+        }
+        Expr::Await(await_expr) => {
+            collect_token_sites_from_expr(
+                parsed,
+                &await_expr.arg,
+                token_index,
+                component_spans,
+                false,
+                out,
+            );
+        }
+        Expr::Yield(yield_expr) => {
+            if let Some(arg) = yield_expr.arg.as_deref() {
+                collect_token_sites_from_expr(
+                    parsed,
+                    arg,
+                    token_index,
+                    component_spans,
+                    false,
+                    out,
+                );
+            }
+        }
+        Expr::Tpl(tpl) => {
+            for inner in &tpl.exprs {
+                collect_token_sites_from_expr(
+                    parsed,
+                    inner,
+                    token_index,
+                    component_spans,
+                    false,
+                    out,
+                );
+            }
+        }
+        Expr::TaggedTpl(tagged) => {
+            collect_token_sites_from_expr(
+                parsed,
+                &tagged.tag,
+                token_index,
+                component_spans,
+                false,
+                out,
+            );
+            for inner in &tagged.tpl.exprs {
+                collect_token_sites_from_expr(
+                    parsed,
+                    inner,
+                    token_index,
+                    component_spans,
+                    false,
+                    out,
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_token_sites_from_jsx_child_tokens(
+    parsed: &ParsedReactModule,
+    child: &JSXElementChild,
+    token_index: &wax_lang_api::RegistryTokenIndex,
+    component_spans: &[ComponentSpanEntry],
+    out: &mut Vec<TokenSite>,
+) {
+    match child {
+        JSXElementChild::JSXElement(element) => {
+            collect_token_sites_from_expr(
+                parsed,
+                &Expr::JSXElement(element.clone()),
+                token_index,
+                component_spans,
+                false,
+                out,
+            );
+        }
+        JSXElementChild::JSXFragment(fragment) => {
+            for nested in &fragment.children {
+                collect_token_sites_from_jsx_child_tokens(
+                    parsed,
+                    nested,
+                    token_index,
+                    component_spans,
+                    out,
+                );
+            }
+        }
+        JSXElementChild::JSXExprContainer(container) => {
+            if let JSXExpr::Expr(expr) = &container.expr {
+                collect_token_sites_from_expr(
+                    parsed,
+                    expr,
+                    token_index,
+                    component_spans,
+                    false,
+                    out,
+                );
+            }
+        }
+        JSXElementChild::JSXSpreadChild(spread) => {
+            collect_token_sites_from_expr(
+                parsed,
+                &spread.expr,
+                token_index,
+                component_spans,
+                false,
+                out,
+            );
+        }
+        JSXElementChild::JSXText(_) => {}
+    }
+}
+
+fn maybe_emit_token_site(
+    parsed: &ParsedReactModule,
+    expr: &Expr,
+    token_index: &wax_lang_api::RegistryTokenIndex,
+    component_spans: &[ComponentSpanEntry],
+    out: &mut Vec<TokenSite>,
+) {
+    let Some(path) = member_access_path(expr) else {
+        return;
+    };
+    let Some(token_match) = token_index.matches.get(&path) else {
+        return;
+    };
+    let span = expr.span();
+    let Some(location) = parsed.source_location_from_span(span) else {
+        return;
+    };
+    out.push(TokenSite {
+        id: format!(
+            "token.react:{}:{}:{}:{}",
+            location.file,
+            location.line,
+            location.column.unwrap_or(0),
+            token_match.token_id
+        ),
+        location,
+        token_id: token_match.token_id.clone(),
+        key: path,
+        category: token_match.category,
+        parent: parent_for_span(parsed, component_spans, span),
+    });
+}
+
+fn member_access_path(expr: &Expr) -> Option<String> {
+    match peel_expr(expr) {
+        Expr::Ident(ident) => Some(ident.sym.to_string()),
+        Expr::Member(member) => {
+            let object = member_access_path(&member.obj)?;
+            let MemberProp::Ident(prop) = &member.prop else {
+                return None;
+            };
+            Some(format!("{object}.{}", prop.sym))
+        }
+        Expr::OptChain(opt_chain) => {
+            let OptChainBase::Member(member) = &*opt_chain.base else {
+                return None;
+            };
+            let object = member_access_path(&member.obj)?;
+            let MemberProp::Ident(prop) = &member.prop else {
+                return None;
+            };
+            Some(format!("{object}.{}", prop.sym))
+        }
+        _ => None,
+    }
+}
+
+fn collect_hardcoded_style_sites_from_module(
+    parsed: &ParsedReactModule,
+    component_spans: &[ComponentSpanEntry],
+    out: &mut Vec<HardcodedStyleSite>,
+) {
+    for item in &parsed.module.body {
+        match item {
+            ModuleItem::Stmt(stmt) => {
+                collect_hardcoded_styles_from_stmt(parsed, stmt, component_spans, out);
+            }
+            ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(export_decl)) => {
+                collect_hardcoded_styles_from_decl(parsed, &export_decl.decl, component_spans, out);
+            }
+            ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultDecl(default_decl)) => {
+                match &default_decl.decl {
+                    DefaultDecl::Fn(fn_expr) => {
+                        if let Some(body) = &fn_expr.function.body {
+                            collect_hardcoded_styles_from_block(parsed, body, component_spans, out);
+                        }
+                    }
+                    DefaultDecl::Class(class_expr) => {
+                        collect_hardcoded_styles_from_class(
+                            parsed,
+                            &class_expr.class,
+                            component_spans,
+                            out,
+                        );
+                    }
+                    _ => {}
+                }
+            }
+            ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultExpr(default_expr)) => {
+                collect_hardcoded_styles_from_expr(
+                    parsed,
+                    &default_expr.expr,
+                    component_spans,
+                    out,
+                );
             }
             _ => {}
         }
@@ -349,23 +1600,24 @@ fn collect_hardcoded_style_sites_from_module(
 fn collect_hardcoded_styles_from_decl(
     parsed: &ParsedReactModule,
     decl: &Decl,
+    component_spans: &[ComponentSpanEntry],
     out: &mut Vec<HardcodedStyleSite>,
 ) {
     match decl {
         Decl::Fn(fn_decl) => {
             if let Some(body) = &fn_decl.function.body {
-                collect_hardcoded_styles_from_block(parsed, body, out);
+                collect_hardcoded_styles_from_block(parsed, body, component_spans, out);
             }
         }
         Decl::Var(var_decl) => {
             for declarator in &var_decl.decls {
                 if let Some(init) = declarator.init.as_deref() {
-                    collect_hardcoded_styles_from_expr(parsed, init, out);
+                    collect_hardcoded_styles_from_expr(parsed, init, component_spans, out);
                 }
             }
         }
         Decl::Class(class_decl) => {
-            collect_hardcoded_styles_from_class(parsed, &class_decl.class, out);
+            collect_hardcoded_styles_from_class(parsed, &class_decl.class, component_spans, out);
         }
         _ => {}
     }
@@ -374,36 +1626,37 @@ fn collect_hardcoded_styles_from_decl(
 fn collect_hardcoded_styles_from_class(
     parsed: &ParsedReactModule,
     class: &Class,
+    component_spans: &[ComponentSpanEntry],
     out: &mut Vec<HardcodedStyleSite>,
 ) {
     if let Some(super_class) = class.super_class.as_deref() {
-        collect_hardcoded_styles_from_expr(parsed, super_class, out);
+        collect_hardcoded_styles_from_expr(parsed, super_class, component_spans, out);
     }
     for member in &class.body {
         match member {
             ClassMember::Method(method) => {
                 if let Some(body) = &method.function.body {
-                    collect_hardcoded_styles_from_block(parsed, body, out);
+                    collect_hardcoded_styles_from_block(parsed, body, component_spans, out);
                 }
             }
             ClassMember::Constructor(constructor) => {
                 if let Some(body) = &constructor.body {
-                    collect_hardcoded_styles_from_block(parsed, body, out);
+                    collect_hardcoded_styles_from_block(parsed, body, component_spans, out);
                 }
             }
             ClassMember::PrivateMethod(method) => {
                 if let Some(body) = &method.function.body {
-                    collect_hardcoded_styles_from_block(parsed, body, out);
+                    collect_hardcoded_styles_from_block(parsed, body, component_spans, out);
                 }
             }
             ClassMember::ClassProp(prop) => {
                 if let Some(value) = prop.value.as_deref() {
-                    collect_hardcoded_styles_from_expr(parsed, value, out);
+                    collect_hardcoded_styles_from_expr(parsed, value, component_spans, out);
                 }
             }
             ClassMember::PrivateProp(prop) => {
                 if let Some(value) = prop.value.as_deref() {
-                    collect_hardcoded_styles_from_expr(parsed, value, out);
+                    collect_hardcoded_styles_from_expr(parsed, value, component_spans, out);
                 }
             }
             _ => {}
@@ -414,41 +1667,47 @@ fn collect_hardcoded_styles_from_class(
 fn collect_hardcoded_styles_from_block(
     parsed: &ParsedReactModule,
     block: &BlockStmt,
+    component_spans: &[ComponentSpanEntry],
     out: &mut Vec<HardcodedStyleSite>,
 ) {
     for stmt in &block.stmts {
-        collect_hardcoded_styles_from_stmt(parsed, stmt, out);
+        collect_hardcoded_styles_from_stmt(parsed, stmt, component_spans, out);
     }
 }
 
 fn collect_hardcoded_styles_from_stmt(
     parsed: &ParsedReactModule,
     stmt: &Stmt,
+    component_spans: &[ComponentSpanEntry],
     out: &mut Vec<HardcodedStyleSite>,
 ) {
     match stmt {
-        Stmt::Block(block) => collect_hardcoded_styles_from_block(parsed, block, out),
-        Stmt::Expr(expr_stmt) => collect_hardcoded_styles_from_expr(parsed, &expr_stmt.expr, out),
-        Stmt::Decl(decl) => collect_hardcoded_styles_from_decl(parsed, decl, out),
+        Stmt::Block(block) => {
+            collect_hardcoded_styles_from_block(parsed, block, component_spans, out)
+        }
+        Stmt::Expr(expr_stmt) => {
+            collect_hardcoded_styles_from_expr(parsed, &expr_stmt.expr, component_spans, out)
+        }
+        Stmt::Decl(decl) => collect_hardcoded_styles_from_decl(parsed, decl, component_spans, out),
         Stmt::Return(return_stmt) => {
             if let Some(arg) = return_stmt.arg.as_deref() {
-                collect_hardcoded_styles_from_expr(parsed, arg, out);
+                collect_hardcoded_styles_from_expr(parsed, arg, component_spans, out);
             }
         }
         Stmt::If(if_stmt) => {
-            collect_hardcoded_styles_from_expr(parsed, &if_stmt.test, out);
-            collect_hardcoded_styles_from_stmt(parsed, &if_stmt.cons, out);
+            collect_hardcoded_styles_from_expr(parsed, &if_stmt.test, component_spans, out);
+            collect_hardcoded_styles_from_stmt(parsed, &if_stmt.cons, component_spans, out);
             if let Some(alt) = if_stmt.alt.as_deref() {
-                collect_hardcoded_styles_from_stmt(parsed, alt, out);
+                collect_hardcoded_styles_from_stmt(parsed, alt, component_spans, out);
             }
         }
         Stmt::While(while_stmt) => {
-            collect_hardcoded_styles_from_expr(parsed, &while_stmt.test, out);
-            collect_hardcoded_styles_from_stmt(parsed, &while_stmt.body, out);
+            collect_hardcoded_styles_from_expr(parsed, &while_stmt.test, component_spans, out);
+            collect_hardcoded_styles_from_stmt(parsed, &while_stmt.body, component_spans, out);
         }
         Stmt::DoWhile(do_while) => {
-            collect_hardcoded_styles_from_stmt(parsed, &do_while.body, out);
-            collect_hardcoded_styles_from_expr(parsed, &do_while.test, out);
+            collect_hardcoded_styles_from_stmt(parsed, &do_while.body, component_spans, out);
+            collect_hardcoded_styles_from_expr(parsed, &do_while.test, component_spans, out);
         }
         Stmt::For(for_stmt) => {
             if let Some(init) = &for_stmt.init {
@@ -456,74 +1715,84 @@ fn collect_hardcoded_styles_from_stmt(
                     VarDeclOrExpr::VarDecl(var_decl) => {
                         for declarator in &var_decl.decls {
                             if let Some(init) = declarator.init.as_deref() {
-                                collect_hardcoded_styles_from_expr(parsed, init, out);
+                                collect_hardcoded_styles_from_expr(
+                                    parsed,
+                                    init,
+                                    component_spans,
+                                    out,
+                                );
                             }
                         }
                     }
                     VarDeclOrExpr::Expr(expr) => {
-                        collect_hardcoded_styles_from_expr(parsed, expr, out);
+                        collect_hardcoded_styles_from_expr(parsed, expr, component_spans, out);
                     }
                 }
             }
             if let Some(test) = for_stmt.test.as_deref() {
-                collect_hardcoded_styles_from_expr(parsed, test, out);
+                collect_hardcoded_styles_from_expr(parsed, test, component_spans, out);
             }
             if let Some(update) = for_stmt.update.as_deref() {
-                collect_hardcoded_styles_from_expr(parsed, update, out);
+                collect_hardcoded_styles_from_expr(parsed, update, component_spans, out);
             }
-            collect_hardcoded_styles_from_stmt(parsed, &for_stmt.body, out);
+            collect_hardcoded_styles_from_stmt(parsed, &for_stmt.body, component_spans, out);
         }
         Stmt::ForIn(for_in) => {
             if let ForHead::VarDecl(var_decl) = &for_in.left {
                 for declarator in &var_decl.decls {
                     if let Some(init) = declarator.init.as_deref() {
-                        collect_hardcoded_styles_from_expr(parsed, init, out);
+                        collect_hardcoded_styles_from_expr(parsed, init, component_spans, out);
                     }
                 }
             }
-            collect_hardcoded_styles_from_expr(parsed, &for_in.right, out);
-            collect_hardcoded_styles_from_stmt(parsed, &for_in.body, out);
+            collect_hardcoded_styles_from_expr(parsed, &for_in.right, component_spans, out);
+            collect_hardcoded_styles_from_stmt(parsed, &for_in.body, component_spans, out);
         }
         Stmt::ForOf(for_of) => {
             if let ForHead::VarDecl(var_decl) = &for_of.left {
                 for declarator in &var_decl.decls {
                     if let Some(init) = declarator.init.as_deref() {
-                        collect_hardcoded_styles_from_expr(parsed, init, out);
+                        collect_hardcoded_styles_from_expr(parsed, init, component_spans, out);
                     }
                 }
             }
-            collect_hardcoded_styles_from_expr(parsed, &for_of.right, out);
-            collect_hardcoded_styles_from_stmt(parsed, &for_of.body, out);
+            collect_hardcoded_styles_from_expr(parsed, &for_of.right, component_spans, out);
+            collect_hardcoded_styles_from_stmt(parsed, &for_of.body, component_spans, out);
         }
         Stmt::Switch(switch_stmt) => {
-            collect_hardcoded_styles_from_expr(parsed, &switch_stmt.discriminant, out);
+            collect_hardcoded_styles_from_expr(
+                parsed,
+                &switch_stmt.discriminant,
+                component_spans,
+                out,
+            );
             for case in &switch_stmt.cases {
                 if let Some(test) = case.test.as_deref() {
-                    collect_hardcoded_styles_from_expr(parsed, test, out);
+                    collect_hardcoded_styles_from_expr(parsed, test, component_spans, out);
                 }
                 for cons in &case.cons {
-                    collect_hardcoded_styles_from_stmt(parsed, cons, out);
+                    collect_hardcoded_styles_from_stmt(parsed, cons, component_spans, out);
                 }
             }
         }
         Stmt::Try(try_stmt) => {
-            collect_hardcoded_styles_from_block(parsed, &try_stmt.block, out);
+            collect_hardcoded_styles_from_block(parsed, &try_stmt.block, component_spans, out);
             if let Some(handler) = &try_stmt.handler {
-                collect_hardcoded_styles_from_block(parsed, &handler.body, out);
+                collect_hardcoded_styles_from_block(parsed, &handler.body, component_spans, out);
             }
             if let Some(finalizer) = &try_stmt.finalizer {
-                collect_hardcoded_styles_from_block(parsed, finalizer, out);
+                collect_hardcoded_styles_from_block(parsed, finalizer, component_spans, out);
             }
         }
         Stmt::Labeled(labeled) => {
-            collect_hardcoded_styles_from_stmt(parsed, &labeled.body, out);
+            collect_hardcoded_styles_from_stmt(parsed, &labeled.body, component_spans, out);
         }
         Stmt::With(with_stmt) => {
-            collect_hardcoded_styles_from_expr(parsed, &with_stmt.obj, out);
-            collect_hardcoded_styles_from_stmt(parsed, &with_stmt.body, out);
+            collect_hardcoded_styles_from_expr(parsed, &with_stmt.obj, component_spans, out);
+            collect_hardcoded_styles_from_stmt(parsed, &with_stmt.body, component_spans, out);
         }
         Stmt::Throw(throw_stmt) => {
-            collect_hardcoded_styles_from_expr(parsed, &throw_stmt.arg, out);
+            collect_hardcoded_styles_from_expr(parsed, &throw_stmt.arg, component_spans, out);
         }
         _ => {}
     }
@@ -532,92 +1801,109 @@ fn collect_hardcoded_styles_from_stmt(
 fn collect_hardcoded_styles_from_expr(
     parsed: &ParsedReactModule,
     expr: &Expr,
+    component_spans: &[ComponentSpanEntry],
     out: &mut Vec<HardcodedStyleSite>,
 ) {
-    match expr {
+    match peel_expr(expr) {
         Expr::JSXElement(element) => {
-            collect_hardcoded_styles_from_jsx_element(parsed, element, out);
+            collect_hardcoded_styles_from_jsx_element(parsed, element, component_spans, out);
         }
         Expr::JSXFragment(fragment) => {
             for child in &fragment.children {
-                collect_hardcoded_styles_from_jsx_child(parsed, child, out);
+                collect_hardcoded_styles_from_jsx_child(parsed, child, component_spans, out);
             }
         }
         Expr::Arrow(arrow) => match &*arrow.body {
             BlockStmtOrExpr::BlockStmt(block) => {
-                collect_hardcoded_styles_from_block(parsed, block, out);
+                collect_hardcoded_styles_from_block(parsed, block, component_spans, out);
             }
-            BlockStmtOrExpr::Expr(expr) => {
-                collect_hardcoded_styles_from_expr(parsed, expr, out);
+            BlockStmtOrExpr::Expr(inner) => {
+                collect_hardcoded_styles_from_expr(parsed, inner, component_spans, out);
             }
         },
         Expr::Fn(fn_expr) => {
             if let Some(body) = &fn_expr.function.body {
-                collect_hardcoded_styles_from_block(parsed, body, out);
+                collect_hardcoded_styles_from_block(parsed, body, component_spans, out);
             }
-        }
-        Expr::Paren(paren) => collect_hardcoded_styles_from_expr(parsed, &paren.expr, out),
-        Expr::Cond(cond) => {
-            collect_hardcoded_styles_from_expr(parsed, &cond.test, out);
-            collect_hardcoded_styles_from_expr(parsed, &cond.cons, out);
-            collect_hardcoded_styles_from_expr(parsed, &cond.alt, out);
-        }
-        Expr::Bin(bin) => {
-            collect_hardcoded_styles_from_expr(parsed, &bin.left, out);
-            collect_hardcoded_styles_from_expr(parsed, &bin.right, out);
-        }
-        Expr::Unary(unary) => collect_hardcoded_styles_from_expr(parsed, &unary.arg, out),
-        Expr::Assign(assign) => {
-            collect_hardcoded_styles_from_expr(parsed, &assign.right, out);
         }
         Expr::Call(call) => {
             if let Callee::Expr(callee) = &call.callee {
-                collect_hardcoded_styles_from_expr(parsed, callee, out);
+                collect_hardcoded_styles_from_expr(parsed, callee, component_spans, out);
             }
             for arg in &call.args {
-                collect_hardcoded_styles_from_expr(parsed, &arg.expr, out);
+                collect_hardcoded_styles_from_expr(parsed, &arg.expr, component_spans, out);
             }
         }
         Expr::New(new_expr) => {
-            collect_hardcoded_styles_from_expr(parsed, &new_expr.callee, out);
+            collect_hardcoded_styles_from_expr(parsed, &new_expr.callee, component_spans, out);
             if let Some(args) = &new_expr.args {
                 for arg in args {
-                    collect_hardcoded_styles_from_expr(parsed, &arg.expr, out);
+                    collect_hardcoded_styles_from_expr(parsed, &arg.expr, component_spans, out);
                 }
             }
         }
         Expr::Member(member) => {
-            collect_hardcoded_styles_from_expr(parsed, &member.obj, out);
+            collect_hardcoded_styles_from_expr(parsed, &member.obj, component_spans, out);
             if let MemberProp::Computed(computed) = &member.prop {
-                collect_hardcoded_styles_from_expr(parsed, &computed.expr, out);
+                collect_hardcoded_styles_from_expr(parsed, &computed.expr, component_spans, out);
             }
         }
         Expr::Object(object) => {
             for prop in &object.props {
                 match prop {
                     PropOrSpread::Spread(spread) => {
-                        collect_hardcoded_styles_from_expr(parsed, &spread.expr, out);
+                        collect_hardcoded_styles_from_expr(
+                            parsed,
+                            &spread.expr,
+                            component_spans,
+                            out,
+                        );
                     }
                     PropOrSpread::Prop(prop) => match &**prop {
                         Prop::KeyValue(key_value) => {
-                            collect_hardcoded_styles_from_expr(parsed, &key_value.value, out);
+                            collect_hardcoded_styles_from_expr(
+                                parsed,
+                                &key_value.value,
+                                component_spans,
+                                out,
+                            );
                         }
                         Prop::Assign(assign) => {
-                            collect_hardcoded_styles_from_expr(parsed, &assign.value, out);
+                            collect_hardcoded_styles_from_expr(
+                                parsed,
+                                &assign.value,
+                                component_spans,
+                                out,
+                            );
                         }
                         Prop::Method(method) => {
                             if let Some(body) = &method.function.body {
-                                collect_hardcoded_styles_from_block(parsed, body, out);
+                                collect_hardcoded_styles_from_block(
+                                    parsed,
+                                    body,
+                                    component_spans,
+                                    out,
+                                );
                             }
                         }
                         Prop::Getter(getter) => {
                             if let Some(body) = &getter.body {
-                                collect_hardcoded_styles_from_block(parsed, body, out);
+                                collect_hardcoded_styles_from_block(
+                                    parsed,
+                                    body,
+                                    component_spans,
+                                    out,
+                                );
                             }
                         }
                         Prop::Setter(setter) => {
                             if let Some(body) = &setter.body {
-                                collect_hardcoded_styles_from_block(parsed, body, out);
+                                collect_hardcoded_styles_from_block(
+                                    parsed,
+                                    body,
+                                    component_spans,
+                                    out,
+                                );
                             }
                         }
                         Prop::Shorthand(_) => {}
@@ -627,31 +1913,46 @@ fn collect_hardcoded_styles_from_expr(
         }
         Expr::Array(array) => {
             for element in array.elems.iter().flatten() {
-                collect_hardcoded_styles_from_expr(parsed, &element.expr, out);
+                collect_hardcoded_styles_from_expr(parsed, &element.expr, component_spans, out);
             }
         }
+        Expr::Bin(bin) => {
+            collect_hardcoded_styles_from_expr(parsed, &bin.left, component_spans, out);
+            collect_hardcoded_styles_from_expr(parsed, &bin.right, component_spans, out);
+        }
+        Expr::Cond(cond) => {
+            collect_hardcoded_styles_from_expr(parsed, &cond.test, component_spans, out);
+            collect_hardcoded_styles_from_expr(parsed, &cond.cons, component_spans, out);
+            collect_hardcoded_styles_from_expr(parsed, &cond.alt, component_spans, out);
+        }
+        Expr::Unary(unary) => {
+            collect_hardcoded_styles_from_expr(parsed, &unary.arg, component_spans, out);
+        }
+        Expr::Assign(assign) => {
+            collect_hardcoded_styles_from_expr(parsed, &assign.right, component_spans, out);
+        }
         Expr::Seq(seq) => {
-            for expr in &seq.exprs {
-                collect_hardcoded_styles_from_expr(parsed, expr, out);
+            for inner in &seq.exprs {
+                collect_hardcoded_styles_from_expr(parsed, inner, component_spans, out);
             }
         }
         Expr::Await(await_expr) => {
-            collect_hardcoded_styles_from_expr(parsed, &await_expr.arg, out);
+            collect_hardcoded_styles_from_expr(parsed, &await_expr.arg, component_spans, out);
         }
         Expr::Yield(yield_expr) => {
             if let Some(arg) = yield_expr.arg.as_deref() {
-                collect_hardcoded_styles_from_expr(parsed, arg, out);
+                collect_hardcoded_styles_from_expr(parsed, arg, component_spans, out);
             }
         }
         Expr::Tpl(tpl) => {
-            for expr in &tpl.exprs {
-                collect_hardcoded_styles_from_expr(parsed, expr, out);
+            for inner in &tpl.exprs {
+                collect_hardcoded_styles_from_expr(parsed, inner, component_spans, out);
             }
         }
         Expr::TaggedTpl(tagged) => {
-            collect_hardcoded_styles_from_expr(parsed, &tagged.tag, out);
-            for expr in &tagged.tpl.exprs {
-                collect_hardcoded_styles_from_expr(parsed, expr, out);
+            collect_hardcoded_styles_from_expr(parsed, &tagged.tag, component_spans, out);
+            for inner in &tagged.tpl.exprs {
+                collect_hardcoded_styles_from_expr(parsed, inner, component_spans, out);
             }
         }
         _ => {}
@@ -661,6 +1962,7 @@ fn collect_hardcoded_styles_from_expr(
 fn collect_hardcoded_styles_from_jsx_element(
     parsed: &ParsedReactModule,
     element: &JSXElement,
+    component_spans: &[ComponentSpanEntry],
     out: &mut Vec<HardcodedStyleSite>,
 ) {
     for attr in &element.opening.attrs {
@@ -669,22 +1971,42 @@ fn collect_hardcoded_styles_from_jsx_element(
                 if jsx_attr_name_is_style(&attr.name)
                     && let Some(JSXAttrValue::JSXExprContainer(container)) = &attr.value
                     && let JSXExpr::Expr(expr) = &container.expr
-                    && let Expr::Object(object) = &**expr
+                    && let Some(object) = unwrap_style_object(expr)
                 {
-                    collect_hardcoded_styles_from_style_object(parsed, object, out);
+                    collect_hardcoded_styles_from_style_object(
+                        parsed,
+                        object,
+                        component_spans,
+                        out,
+                    );
                 } else {
                     match &attr.value {
                         Some(JSXAttrValue::JSXExprContainer(container)) => {
                             if let JSXExpr::Expr(expr) = &container.expr {
-                                collect_hardcoded_styles_from_expr(parsed, expr, out);
+                                collect_hardcoded_styles_from_expr(
+                                    parsed,
+                                    expr,
+                                    component_spans,
+                                    out,
+                                );
                             }
                         }
                         Some(JSXAttrValue::JSXElement(nested)) => {
-                            collect_hardcoded_styles_from_jsx_element(parsed, nested, out);
+                            collect_hardcoded_styles_from_jsx_element(
+                                parsed,
+                                nested,
+                                component_spans,
+                                out,
+                            );
                         }
                         Some(JSXAttrValue::JSXFragment(fragment)) => {
                             for child in &fragment.children {
-                                collect_hardcoded_styles_from_jsx_child(parsed, child, out);
+                                collect_hardcoded_styles_from_jsx_child(
+                                    parsed,
+                                    child,
+                                    component_spans,
+                                    out,
+                                );
                             }
                         }
                         Some(JSXAttrValue::Str(_)) | None => {}
@@ -692,36 +2014,37 @@ fn collect_hardcoded_styles_from_jsx_element(
                 }
             }
             JSXAttrOrSpread::SpreadElement(spread) => {
-                collect_hardcoded_styles_from_expr(parsed, &spread.expr, out);
+                collect_hardcoded_styles_from_expr(parsed, &spread.expr, component_spans, out);
             }
         }
     }
     for child in &element.children {
-        collect_hardcoded_styles_from_jsx_child(parsed, child, out);
+        collect_hardcoded_styles_from_jsx_child(parsed, child, component_spans, out);
     }
 }
 
 fn collect_hardcoded_styles_from_jsx_child(
     parsed: &ParsedReactModule,
     child: &JSXElementChild,
+    component_spans: &[ComponentSpanEntry],
     out: &mut Vec<HardcodedStyleSite>,
 ) {
     match child {
         JSXElementChild::JSXElement(element) => {
-            collect_hardcoded_styles_from_jsx_element(parsed, element, out);
+            collect_hardcoded_styles_from_jsx_element(parsed, element, component_spans, out);
         }
         JSXElementChild::JSXFragment(fragment) => {
             for nested in &fragment.children {
-                collect_hardcoded_styles_from_jsx_child(parsed, nested, out);
+                collect_hardcoded_styles_from_jsx_child(parsed, nested, component_spans, out);
             }
         }
         JSXElementChild::JSXExprContainer(container) => {
             if let JSXExpr::Expr(expr) = &container.expr {
-                collect_hardcoded_styles_from_expr(parsed, expr, out);
+                collect_hardcoded_styles_from_expr(parsed, expr, component_spans, out);
             }
         }
         JSXElementChild::JSXSpreadChild(spread) => {
-            collect_hardcoded_styles_from_expr(parsed, &spread.expr, out);
+            collect_hardcoded_styles_from_expr(parsed, &spread.expr, component_spans, out);
         }
         JSXElementChild::JSXText(_) => {}
     }
@@ -737,6 +2060,7 @@ fn jsx_attr_name_is_style(name: &JSXAttrName) -> bool {
 fn collect_hardcoded_styles_from_style_object(
     parsed: &ParsedReactModule,
     object: &ObjectLit,
+    component_spans: &[ComponentSpanEntry],
     out: &mut Vec<HardcodedStyleSite>,
 ) {
     for prop in &object.props {
@@ -755,7 +2079,8 @@ fn collect_hardcoded_styles_from_style_object(
         if !is_hardcoded_style_value(&key_value.value) {
             continue;
         }
-        let Some(location) = parsed.source_location_from_span(key_value.span()) else {
+        let prop_span = key_value.span();
+        let Some(location) = parsed.source_location_from_span(prop_span) else {
             continue;
         };
         let Some(value) = parsed.source_slice_from_span(key_value.value.span()) else {
@@ -771,7 +2096,7 @@ fn collect_hardcoded_styles_from_style_object(
             location,
             value,
             category,
-            parent: None,
+            parent: parent_for_span(parsed, component_spans, prop_span),
         });
     }
 }
@@ -779,7 +2104,8 @@ fn collect_hardcoded_styles_from_style_object(
 fn style_prop_name(name: &PropName) -> Option<&str> {
     match name {
         PropName::Ident(ident) => Some(ident.sym.as_ref()),
-        PropName::Str(_) | PropName::Num(_) | PropName::Computed(_) | PropName::BigInt(_) => None,
+        PropName::Str(s) => s.value.as_str(),
+        PropName::Num(_) | PropName::Computed(_) | PropName::BigInt(_) => None,
     }
 }
 
@@ -795,7 +2121,7 @@ fn react_style_category(prop_name: &str) -> Option<TokenCategory> {
 }
 
 fn is_hardcoded_style_value(expr: &Expr) -> bool {
-    match expr {
+    match peel_expr(expr) {
         Expr::Lit(Lit::Str(_) | Lit::Num(_)) => true,
         Expr::Tpl(Tpl { exprs, .. }) => exprs.is_empty(),
         Expr::Unary(unary) if matches!(unary.op, swc_ecma_ast::UnaryOp::Minus) => {
@@ -2921,6 +4247,182 @@ mod tests {
             design_system_tokens: Vec::new(),
             token_index: Default::default(),
         }
+    }
+
+    fn registry_with_primary_token() -> ReactRegistryIndex {
+        let tokens = vec![wax_contract::DesignSystemToken {
+            id: "color.primary".to_owned(),
+            key: "theme.colors.primary".to_owned(),
+            category: wax_contract::TokenCategory::Color,
+            aliases: vec!["tokens.color.primary".to_owned()],
+        }];
+        let token_index = wax_lang_api::token_index(&tokens).expect("token index");
+        ReactRegistryIndex {
+            design_system_components: Vec::new(),
+            resolve_targets: BTreeMap::new(),
+            component_packages: BTreeMap::new(),
+            design_system_tokens: tokens,
+            token_index,
+        }
+    }
+
+    #[test]
+    fn token_parent_uses_smallest_containing_component_span() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "src/Screen.tsx",
+            r#"
+            export const Outer = () => {
+                function Inner() {
+                    const color = theme.colors.primary;
+                    return <div style={{ padding: 8 }}>{color}</div>;
+                }
+                return <Inner />;
+            };
+            const after = theme.colors.primary;
+            "#,
+        );
+
+        let extraction = fixture.extract_usage(
+            vec!["src/Screen.tsx"],
+            base_config(),
+            registry_with_primary_token(),
+        );
+
+        let inner_token = extraction
+            .token_sites
+            .iter()
+            .find(|site| {
+                site.parent
+                    .as_ref()
+                    .is_some_and(|parent| parent.symbol == "Inner")
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected Inner token parent, got {:?}",
+                    extraction.token_sites
+                )
+            });
+        assert_eq!(
+            inner_token
+                .parent
+                .as_ref()
+                .map(|parent| parent.symbol.as_str()),
+            Some("Inner")
+        );
+        let style = extraction
+            .hardcoded_style_sites
+            .iter()
+            .find(|site| site.category == wax_contract::TokenCategory::Spacing)
+            .expect("padding style");
+        assert_eq!(
+            style.parent.as_ref().map(|parent| parent.symbol.as_str()),
+            Some("Inner")
+        );
+        let module_token = extraction
+            .token_sites
+            .iter()
+            .find(|site| site.parent.is_none())
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected module-level token without parent, got {:?}",
+                    extraction.token_sites
+                )
+            });
+        assert!(module_token.parent.is_none());
+        assert_eq!(extraction.token_sites.len(), 2);
+    }
+
+    #[test]
+    fn arrow_intrinsic_style_gets_component_parent() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "src/Card.tsx",
+            r##"
+            export const Card = () => <div style={{ color: "#336699" }} />;
+            "##,
+        );
+
+        let extraction = fixture.extract_usage(
+            vec!["src/Card.tsx"],
+            base_config(),
+            registry_with_primary_token(),
+        );
+
+        let color = extraction
+            .hardcoded_style_sites
+            .iter()
+            .find(|site| site.category == wax_contract::TokenCategory::Color)
+            .expect("color style");
+        assert_eq!(
+            color.parent.as_ref().map(|parent| parent.symbol.as_str()),
+            Some("Card")
+        );
+    }
+
+    #[test]
+    fn token_extraction_ignores_comments_and_partial_identifiers() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "src/Tokens.tsx",
+            r#"
+            // theme.colors.primary should not count
+            export const Screen = () => {
+                const action = theme.colors.primaryAction;
+                const color = theme.colors.primary;
+                return <span>{action}{color}</span>;
+            };
+            "#,
+        );
+
+        let extraction = fixture.extract_usage(
+            vec!["src/Tokens.tsx"],
+            base_config(),
+            registry_with_primary_token(),
+        );
+
+        assert_eq!(extraction.token_sites.len(), 1);
+        assert_eq!(extraction.token_sites[0].key, "theme.colors.primary");
+        assert!(extraction.token_sites[0].parent.is_some());
+    }
+
+    #[test]
+    fn ts_wrapped_and_quoted_style_keys_emit_candidates() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "src/Styled.tsx",
+            r##"
+            export const Styled = () => (
+                <div
+                    style={{ padding: 8 } as React.CSSProperties}
+                />
+            );
+            export const Quoted = () => (
+                <div style={{ "color": "#fff" }} />
+            );
+            "##,
+        );
+
+        let extraction = fixture.extract_usage(
+            vec!["src/Styled.tsx"],
+            base_config(),
+            registry_with_primary_token(),
+        );
+
+        assert!(
+            extraction
+                .hardcoded_style_sites
+                .iter()
+                .any(|site| site.category == wax_contract::TokenCategory::Spacing
+                    && site.value == "8")
+        );
+        assert!(
+            extraction
+                .hardcoded_style_sites
+                .iter()
+                .any(|site| site.category == wax_contract::TokenCategory::Color
+                    && site.value == "\"#fff\"")
+        );
     }
 
     #[test]

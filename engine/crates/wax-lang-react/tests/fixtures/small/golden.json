@@ -11,9 +11,9 @@
       "unused_local_definition_count": 4
     },
     "parent_scopes": {
-      "total": 1,
+      "total": 0,
       "with_local_invocations": 0,
-      "with_resolved_invocations": 1,
+      "with_resolved_invocations": 0,
       "with_unresolved_invocations": 0
     },
     "raw_invocations": {
@@ -95,7 +95,7 @@
         "identity_basis": "module_path_and_symbol",
         "identity_stability": "path_sensitive",
         "location": {
-          "column": 8,
+          "column": 29,
           "file": "src/Sample.tsx",
           "line": 10
         },
@@ -118,7 +118,7 @@
         "identity_basis": "module_path_and_symbol",
         "identity_stability": "path_sensitive",
         "location": {
-          "column": 8,
+          "column": 29,
           "file": "src/Sample.tsx",
           "line": 10
         },
@@ -141,7 +141,7 @@
         "identity_basis": "module_path_and_symbol",
         "identity_stability": "path_sensitive",
         "location": {
-          "column": 8,
+          "column": 29,
           "file": "src/Sample.tsx",
           "line": 10
         },
@@ -201,7 +201,7 @@
       "identity_basis": "module_path_and_symbol",
       "identity_stability": "path_sensitive",
       "location": {
-        "column": 17,
+        "column": 14,
         "file": "src/Sample.tsx",
         "line": 10
       },
@@ -231,7 +231,7 @@
         "identity_basis": "module_path_and_symbol",
         "identity_stability": "path_sensitive",
         "location": {
-          "column": 8,
+          "column": 29,
           "file": "src/Sample.tsx",
           "line": 10
         },
@@ -285,19 +285,6 @@
         "line": 14
       },
       "match_status": "resolved",
-      "parent": {
-        "identity_basis": "module_path_and_symbol",
-        "identity_stability": "path_sensitive",
-        "location": {
-          "column": 8,
-          "file": "src/Sample.tsx",
-          "line": 10
-        },
-        "parent_id": "react:component:src/Sample#SampleScreen",
-        "qualified_symbol": "src/Sample#SampleScreen",
-        "scope_kind": "component",
-        "symbol": "SampleScreen"
-      },
       "registry_symbol": "PrimaryButton",
       "symbol": "PrimaryButton"
     },
@@ -309,19 +296,6 @@
         "line": 15
       },
       "match_status": "resolved",
-      "parent": {
-        "identity_basis": "module_path_and_symbol",
-        "identity_stability": "path_sensitive",
-        "location": {
-          "column": 8,
-          "file": "src/Sample.tsx",
-          "line": 10
-        },
-        "parent_id": "react:component:src/Sample#SampleScreen",
-        "qualified_symbol": "src/Sample#SampleScreen",
-        "scope_kind": "component",
-        "symbol": "SampleScreen"
-      },
       "registry_symbol": "TextField",
       "symbol": "TextField"
     }
