@@ -614,20 +614,55 @@ fn style_call_callee(
     Some((name, member.start_position()))
 }
 
-/// Picks the first source token in a styling call's text that looks like a hard-coded
-/// literal for the given category (hex color, `.dp`/`.sp` literal, or a plain number).
+/// Picks the first source token that looks like a hard-coded literal for the given
+/// category among a styling call's *direct* value arguments.
 ///
-/// This is a conservative, text-based heuristic over the call expression's own source
-/// span rather than a precise per-argument AST match.
+/// Scoping to direct value arguments (rather than the whole call expression's source
+/// span) keeps nested style calls — e.g. `background(Color(0xFF336699))` — from being
+/// double-counted: an argument that is itself a nested `call_expression` is skipped
+/// here so the nested call can be visited (and counted) on its own.
 fn first_style_literal(
     node: tree_sitter::Node<'_>,
     source: &[u8],
     category: TokenCategory,
 ) -> Option<String> {
-    let text = node.utf8_text(source).ok()?;
-    tokenize_call_text(text)
-        .into_iter()
-        .find(|token| style_literal_token_matches(token, category))
+    let arguments = call_value_arguments(node)?;
+    let mut cursor = arguments.walk();
+    for value_argument in arguments.named_children(&mut cursor) {
+        if value_argument_contains_call_expression(value_argument) {
+            continue;
+        }
+        let Ok(text) = value_argument.utf8_text(source) else {
+            continue;
+        };
+        if let Some(found) = tokenize_call_text(text)
+            .into_iter()
+            .find(|token| style_literal_token_matches(token, category))
+        {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn call_value_arguments(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find(|child| child.kind() == "value_arguments")
+}
+
+fn value_argument_contains_call_expression(value_argument: tree_sitter::Node<'_>) -> bool {
+    let mut stack = vec![value_argument];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "call_expression" {
+            return true;
+        }
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            stack.push(child);
+        }
+    }
+    false
 }
 
 fn tokenize_call_text(text: &str) -> Vec<String> {
@@ -668,6 +703,7 @@ fn extract_hardcoded_style_from_source(
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
         if node.kind() == "call_expression"
+            && !is_within_preview_composable(node, source)
             && let Some((call_symbol, pos)) = style_call_callee(node, source)
             && let Some(category) = compose_style_category(&call_symbol)
             && let Some(value) = first_style_literal(node, source, category)
@@ -710,7 +746,8 @@ fn extract_token_sites_from_source(
         if matches!(
             node.kind(),
             "identifier" | "navigation_expression" | "call_expression"
-        ) && let Ok(text) = node.utf8_text(source)
+        ) && !is_within_preview_composable(node, source)
+            && let Ok(text) = node.utf8_text(source)
             && let Some(token_match) = token_index.matches.get(text)
         {
             let pos = node.start_position();
@@ -1921,6 +1958,59 @@ fun BrokenScreen(
                 .iter()
                 .any(|site| site.category == TokenCategory::Color && site.value.contains("0x")),
             "expected a color candidate containing 0x, got: {sites:?}"
+        );
+    }
+
+    #[test]
+    fn nested_background_color_emits_one_color_candidate() {
+        let source =
+            "@Composable\nfun Screen() {\n    Box(modifier.background(Color(0xFF336699)))\n}\n";
+        let sites = extract_hardcoded_styles(source);
+        let color_sites: Vec<_> = sites
+            .iter()
+            .filter(|site| site.category == TokenCategory::Color && site.value.contains("0x"))
+            .collect();
+        assert_eq!(
+            color_sites.len(),
+            1,
+            "nested background(Color(...)) must not double-count the same literal, got: {sites:?}"
+        );
+    }
+
+    #[test]
+    fn preview_composable_hardcoded_styles_are_skipped() {
+        let source = "\
+@Preview
+@Composable
+fun PreviewScreen() {
+    Box(modifier.padding(8.dp).background(Color(0xFF336699)))
+}
+";
+        let sites = extract_hardcoded_styles(source);
+        assert!(
+            sites.is_empty(),
+            "hard-coded styles inside @Preview must be skipped, got: {sites:?}"
+        );
+    }
+
+    #[test]
+    fn preview_composable_token_references_are_skipped() {
+        let index = token_match_index(&[(
+            "color.primary",
+            "Theme.colors.primary",
+            TokenCategory::Color,
+        )]);
+        let source = "\
+@Preview
+@Composable
+fun PreviewScreen() {
+    val primary = Theme.colors.primary
+}
+";
+        let sites = extract_token_sites(source, &index);
+        assert!(
+            sites.is_empty(),
+            "token references inside @Preview must be skipped, got: {sites:?}"
         );
     }
 
