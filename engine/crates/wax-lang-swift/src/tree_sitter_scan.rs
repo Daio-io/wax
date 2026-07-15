@@ -585,7 +585,6 @@ fn extract_usage_from_source(
     registry: &RegistryIndex,
     local_index: &LocalViewIndex,
     usage_sites: &mut Vec<UsageSite>,
-    hardcoded_style_sites: &mut Vec<HardcodedStyleSite>,
 ) {
     let (module_identity, semantic_module) = module_identity_for_file(file);
     let imports = collect_import_bindings(root, source);
@@ -594,98 +593,63 @@ fn extract_usage_from_source(
     while let Some(node) = stack.pop() {
         if is_call_expression_node(node)
             && let Some(call_site) = resolve_call_site(node, source)
+            && is_pascal_case_symbol(&call_site.symbol)
         {
-            if let Some(category) = swift_style_category(&call_site.symbol)
-                && let Some(value) = hardcoded_style_value_from_call(node, source, category)
-            {
-                let line = call_site.position.row as u32 + 1;
-                let column = call_site.position.column as u32 + 1;
-                let parent = nearest_enclosing_view(node, source).map(|(name, parent_pos)| {
-                    parent_scope_for_view(
-                        file,
-                        &module_identity,
-                        semantic_module,
-                        &name,
-                        parent_pos,
-                    )
-                });
-                hardcoded_style_sites.push(HardcodedStyleSite {
-                    id: format!("hardcoded.swift:{file}:{line}:{column}:{category:?}"),
-                    location: SourceLocation {
-                        file: file.to_owned(),
-                        line,
-                        column: Some(column),
-                    },
-                    value,
-                    category,
-                    parent,
-                });
-            }
+            let line = call_site.position.row as u32 + 1;
+            let column = call_site.position.column as u32 + 1;
+            let location = SourceLocation {
+                file: file.to_owned(),
+                line,
+                column: Some(column),
+            };
+            let parent = nearest_enclosing_view(node, source).map(|(name, parent_pos)| {
+                parent_scope_for_view(file, &module_identity, semantic_module, &name, parent_pos)
+            });
 
-            if is_pascal_case_symbol(&call_site.symbol) {
-                let line = call_site.position.row as u32 + 1;
-                let column = call_site.position.column as u32 + 1;
-                let location = SourceLocation {
-                    file: file.to_owned(),
-                    line,
-                    column: Some(column),
-                };
-                let parent = nearest_enclosing_view(node, source).map(|(name, parent_pos)| {
-                    parent_scope_for_view(
-                        file,
-                        &module_identity,
-                        semantic_module,
-                        &name,
-                        parent_pos,
-                    )
-                });
-
-                if let Some(registry_symbol) = registry.resolve_targets.get(&call_site.symbol) {
-                    if let Some(match_status) = resolve_registry_match(
-                        &call_site.symbol,
-                        call_site.qualifier.as_deref(),
-                        registry_symbol,
-                        registry,
-                        &imports,
-                    ) {
-                        usage_sites.push(UsageSite {
-                            id: format!("usage.swift:{file}:{line}:{column}:{}", call_site.symbol),
-                            location: location.clone(),
-                            symbol: call_site.symbol.clone(),
-                            qualified_symbol: None,
-                            match_status,
-                            registry_symbol: Some(registry_symbol.clone()),
-                            local_definition_id: None,
-                            parent,
-                        });
-                    }
-                } else if let Some(local) =
-                    local_index.resolve(file, &module_identity, &call_site.symbol)
-                {
+            if let Some(registry_symbol) = registry.resolve_targets.get(&call_site.symbol) {
+                if let Some(match_status) = resolve_registry_match(
+                    &call_site.symbol,
+                    call_site.qualifier.as_deref(),
+                    registry_symbol,
+                    registry,
+                    &imports,
+                ) {
                     usage_sites.push(UsageSite {
                         id: format!("usage.swift:{file}:{line}:{column}:{}", call_site.symbol),
                         location: location.clone(),
                         symbol: call_site.symbol.clone(),
-                        qualified_symbol: local.qualified_symbol.clone(),
-                        match_status: MatchStatus::Local,
-                        registry_symbol: None,
-                        local_definition_id: Some(local.id.clone()),
-                        parent,
-                    });
-                } else if parent.is_some()
-                    && unresolved_symbol_is_swiftui_shaped(&call_site, &imports)
-                {
-                    usage_sites.push(UsageSite {
-                        id: format!("usage.swift:{file}:{line}:{column}:{}", call_site.symbol),
-                        location,
-                        symbol: call_site.symbol,
                         qualified_symbol: None,
-                        match_status: MatchStatus::Unresolved,
-                        registry_symbol: None,
+                        match_status,
+                        registry_symbol: Some(registry_symbol.clone()),
                         local_definition_id: None,
                         parent,
                     });
                 }
+            } else if let Some(local) =
+                local_index.resolve(file, &module_identity, &call_site.symbol)
+            {
+                usage_sites.push(UsageSite {
+                    id: format!("usage.swift:{file}:{line}:{column}:{}", call_site.symbol),
+                    location: location.clone(),
+                    symbol: call_site.symbol.clone(),
+                    qualified_symbol: local.qualified_symbol.clone(),
+                    match_status: MatchStatus::Local,
+                    registry_symbol: None,
+                    local_definition_id: Some(local.id.clone()),
+                    parent,
+                });
+            } else if parent.is_some() && unresolved_symbol_is_swiftui_shaped(&call_site, &imports)
+            {
+                usage_sites.push(UsageSite {
+                    id: format!("usage.swift:{file}:{line}:{column}:{}", call_site.symbol),
+                    location,
+                    symbol: call_site.symbol,
+                    qualified_symbol: None,
+                    match_status: MatchStatus::Unresolved,
+                    registry_symbol: None,
+                    local_definition_id: None,
+                    parent,
+                });
             }
         }
 
@@ -710,42 +674,282 @@ fn swift_style_category(call_symbol: &str) -> Option<TokenCategory> {
     }
 }
 
-fn call_contains_hardcoded_literal(call_text: &str) -> bool {
-    call_text.contains("Color(")
-        || call_text.contains('"')
-        || call_text.chars().any(|ch| ch.is_ascii_digit())
+fn style_label_category(label: &str) -> Option<TokenCategory> {
+    match label {
+        "spacing" | "width" | "height" | "padding" | "leading" | "trailing" | "top" | "bottom"
+        | "horizontal" | "vertical" => Some(TokenCategory::Spacing),
+        "size" | "weight" | "pointSize" => Some(TokenCategory::Typography),
+        "cornerRadius" | "radius" => Some(TokenCategory::Radius),
+        "blur" => Some(TokenCategory::Elevation),
+        _ => None,
+    }
 }
 
-fn hardcoded_style_value_from_call(
+struct HardcodedLiteral {
+    value: String,
+    category: TokenCategory,
+    position: tree_sitter::Point,
+    start_byte: usize,
+    end_byte: usize,
+}
+
+fn extract_hardcoded_style_from_source(
+    root: tree_sitter::Node<'_>,
+    source: &[u8],
+    file: &str,
+    module_identity: &str,
+    semantic_module: bool,
+    out: &mut Vec<HardcodedStyleSite>,
+) {
+    let mut candidates = Vec::new();
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if is_call_expression_node(node) {
+            collect_hardcoded_literals_from_call(node, source, &mut candidates);
+        }
+        for index in (0..node.child_count()).rev() {
+            if let Some(child) = node.child(index) {
+                stack.push(child);
+            }
+        }
+    }
+
+    dedupe_hardcoded_literals_by_longest_range(&mut candidates);
+
+    for literal in candidates {
+        let line = literal.position.row as u32 + 1;
+        let column = literal.position.column as u32 + 1;
+        let parent = nearest_enclosing_view_at_byte(root, source, literal.start_byte).map(
+            |(name, parent_pos)| {
+                parent_scope_for_view(file, module_identity, semantic_module, &name, parent_pos)
+            },
+        );
+        out.push(HardcodedStyleSite {
+            id: format!(
+                "hardcoded.swift:{file}:{line}:{column}:{:?}",
+                literal.category
+            ),
+            location: SourceLocation {
+                file: file.to_owned(),
+                line,
+                column: Some(column),
+            },
+            value: literal.value,
+            category: literal.category,
+            parent,
+        });
+    }
+}
+
+fn nearest_enclosing_view_at_byte(
+    root: tree_sitter::Node<'_>,
+    source: &[u8],
+    start_byte: usize,
+) -> Option<(String, tree_sitter::Point)> {
+    find_node_covering_byte(root, start_byte).and_then(|node| nearest_enclosing_view(node, source))
+}
+
+fn find_node_covering_byte(
+    root: tree_sitter::Node<'_>,
+    start_byte: usize,
+) -> Option<tree_sitter::Node<'_>> {
+    let mut best = None;
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.start_byte() <= start_byte && start_byte < node.end_byte() {
+            best = Some(node);
+            for i in 0..node.child_count() {
+                if let Some(child) = node.child(i) {
+                    stack.push(child);
+                }
+            }
+        }
+    }
+    best
+}
+
+fn collect_hardcoded_literals_from_call(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    out: &mut Vec<HardcodedLiteral>,
+) {
+    let Some(call_site) = resolve_call_site(node, source) else {
+        return;
+    };
+
+    // Color(...) is reported as the whole call expression, never individual components.
+    if call_site.symbol == "Color" {
+        if let Ok(text) = node.utf8_text(source) {
+            out.push(HardcodedLiteral {
+                value: text.to_owned(),
+                category: TokenCategory::Color,
+                position: call_site.position,
+                start_byte: node.start_byte(),
+                end_byte: node.end_byte(),
+            });
+        }
+        return;
+    }
+
+    let callee_category = swift_style_category(&call_site.symbol);
+    if let Some(arguments) = call_argument_node(node) {
+        collect_style_literals_in_arguments(arguments, source, callee_category, out);
+    }
+}
+
+fn collect_style_literals_in_arguments(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    inherited_category: Option<TokenCategory>,
+    out: &mut Vec<HardcodedLiteral>,
+) {
+    let mut stack = vec![node];
+    while let Some(current) = stack.pop() {
+        // Nested Color(...) is emitted when that call is visited; skip diving into it here.
+        if current.kind() == "call_expression"
+            && resolve_call_site(current, source).is_some_and(|site| site.symbol == "Color")
+        {
+            continue;
+        }
+
+        if let Some((label, value_node)) = labeled_argument_parts(current, source) {
+            let category = style_label_category(&label).or(inherited_category);
+            if let Some(category) = category
+                && let Some(literal) = literal_from_style_value(value_node, source, category)
+            {
+                out.push(literal);
+            }
+            // Continue walking so nested calls inside labeled values are still explored.
+        } else if let Some(category) = inherited_category
+            && let Some(literal) = bare_literal_node(current, source, category)
+        {
+            out.push(literal);
+        }
+
+        for i in (0..current.child_count()).rev() {
+            if let Some(child) = current.child(i) {
+                stack.push(child);
+            }
+        }
+    }
+}
+
+fn labeled_argument_parts<'a>(
+    node: tree_sitter::Node<'a>,
+    source: &[u8],
+) -> Option<(String, tree_sitter::Node<'a>)> {
+    // Swift value arguments look like `label: expr` under value_argument / call_suffix.
+    if !matches!(node.kind(), "value_argument" | "labeled_expression") {
+        // Some grammars flatten label + colon + expr as siblings under call_suffix.
+        return labeled_argument_from_siblings(node, source);
+    }
+
+    let mut cursor = node.walk();
+    let children: Vec<_> = node.named_children(&mut cursor).collect();
+    let label = children.iter().find_map(|child| {
+        if matches!(child.kind(), "simple_identifier" | "value_argument_label") {
+            child.utf8_text(source).ok().map(str::to_owned)
+        } else {
+            None
+        }
+    })?;
+    let value = *children.last()?;
+    if value.kind() == "simple_identifier" && children.len() == 1 {
+        return None;
+    }
+    Some((label, value))
+}
+
+fn labeled_argument_from_siblings<'a>(
+    node: tree_sitter::Node<'a>,
+    source: &[u8],
+) -> Option<(String, tree_sitter::Node<'a>)> {
+    // Detect `identifier ':' expression` patterns among immediate children.
+    let mut cursor = node.walk();
+    let children: Vec<_> = node.children(&mut cursor).collect();
+    for window in children.windows(3) {
+        let (label_node, colon, value) = (window[0], window[1], window[2]);
+        if colon.kind() != ":" {
+            continue;
+        }
+        if !matches!(
+            label_node.kind(),
+            "simple_identifier" | "value_argument_label"
+        ) {
+            continue;
+        }
+        let label = label_node.utf8_text(source).ok()?.to_owned();
+        return Some((label, value));
+    }
+    None
+}
+
+fn literal_from_style_value(
     node: tree_sitter::Node<'_>,
     source: &[u8],
     category: TokenCategory,
-) -> Option<String> {
-    let Ok(call_text) = node.utf8_text(source) else {
-        return None;
-    };
-    if !call_contains_hardcoded_literal(call_text) {
-        return None;
+) -> Option<HardcodedLiteral> {
+    if let Some(literal) = bare_literal_node(node, source, category) {
+        return Some(literal);
     }
+    // Peel simple wrappers / member access off literals such as `.system(size: 14)` handled via labels.
+    let mut stack = vec![node];
+    while let Some(current) = stack.pop() {
+        if current.kind() == "call_expression"
+            && resolve_call_site(current, source).is_some_and(|site| site.symbol == "Color")
+        {
+            continue;
+        }
+        if let Some(literal) = bare_literal_node(current, source, category) {
+            return Some(literal);
+        }
+        for i in (0..current.child_count()).rev() {
+            if let Some(child) = current.child(i) {
+                stack.push(child);
+            }
+        }
+    }
+    None
+}
 
+fn bare_literal_node(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    category: TokenCategory,
+) -> Option<HardcodedLiteral> {
+    let kind = node.kind();
+    let is_number = matches!(
+        kind,
+        "integer_literal" | "float_literal" | "number" | "real_literal"
+    );
+    let is_string = matches!(
+        kind,
+        "line_string_literal" | "raw_string_literal" | "string_literal"
+    );
     match category {
         TokenCategory::Color => {
-            if call_site_is_color_constructor(node, source) {
-                return Some(call_text.to_owned());
+            if !is_string && !is_number {
+                return None;
             }
-            // Nested Color(...) calls are emitted when the Color constructor itself is visited.
-            first_direct_string_or_number_argument(node, source)
         }
         TokenCategory::Spacing
         | TokenCategory::Typography
         | TokenCategory::Radius
-        | TokenCategory::Elevation => first_direct_numeric_argument(node, source),
-        TokenCategory::Unknown => None,
+        | TokenCategory::Elevation => {
+            if !is_number {
+                return None;
+            }
+        }
+        TokenCategory::Unknown => return None,
     }
-}
-
-fn call_site_is_color_constructor(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
-    resolve_call_site(node, source).is_some_and(|site| site.symbol == "Color")
+    let text = node.utf8_text(source).ok()?.to_owned();
+    Some(HardcodedLiteral {
+        value: text,
+        category,
+        position: node.start_position(),
+        start_byte: node.start_byte(),
+        end_byte: node.end_byte(),
+    })
 }
 
 fn call_argument_node(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
@@ -758,59 +962,28 @@ fn call_argument_node(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'
     })
 }
 
-fn first_direct_numeric_argument(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let arguments = call_argument_node(node)?;
-    let mut stack = vec![arguments];
-    while let Some(current) = stack.pop() {
-        if current.kind() == "call_expression" {
+fn dedupe_hardcoded_literals_by_longest_range(candidates: &mut Vec<HardcodedLiteral>) {
+    candidates.sort_by(|left, right| {
+        let left_len = left.end_byte.saturating_sub(left.start_byte);
+        let right_len = right.end_byte.saturating_sub(right.start_byte);
+        right_len
+            .cmp(&left_len)
+            .then(left.start_byte.cmp(&right.start_byte))
+            .then(format!("{:?}", left.category).cmp(&format!("{:?}", right.category)))
+    });
+    let mut kept_ranges: Vec<(usize, usize)> = Vec::new();
+    let mut kept = Vec::new();
+    for candidate in candidates.drain(..) {
+        let contained = kept_ranges
+            .iter()
+            .any(|&(start, end)| start <= candidate.start_byte && candidate.end_byte <= end);
+        if contained {
             continue;
         }
-        if matches!(
-            current.kind(),
-            "integer_literal" | "float_literal" | "number" | "real_literal"
-        ) && let Ok(text) = current.utf8_text(source)
-        {
-            return Some(text.to_owned());
-        }
-        for i in (0..current.child_count()).rev() {
-            if let Some(child) = current.child(i) {
-                stack.push(child);
-            }
-        }
+        kept_ranges.push((candidate.start_byte, candidate.end_byte));
+        kept.push(candidate);
     }
-    None
-}
-
-fn first_direct_string_or_number_argument(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-) -> Option<String> {
-    let arguments = call_argument_node(node)?;
-    let mut stack = vec![arguments];
-    while let Some(current) = stack.pop() {
-        if current.kind() == "call_expression" {
-            continue;
-        }
-        if matches!(
-            current.kind(),
-            "line_string_literal"
-                | "raw_string_literal"
-                | "string_literal"
-                | "integer_literal"
-                | "float_literal"
-                | "number"
-                | "real_literal"
-        ) && let Ok(text) = current.utf8_text(source)
-        {
-            return Some(text.to_owned());
-        }
-        for i in (0..current.child_count()).rev() {
-            if let Some(child) = current.child(i) {
-                stack.push(child);
-            }
-        }
-    }
-    None
+    *candidates = kept;
 }
 
 fn extract_token_sites_from_source(
@@ -822,12 +995,17 @@ fn extract_token_sites_from_source(
     token_index: &RegistryTokenIndex,
     out: &mut Vec<TokenSite>,
 ) {
+    struct PendingToken {
+        start_byte: usize,
+        end_byte: usize,
+        site: TokenSite,
+    }
+
+    let mut candidates = Vec::new();
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
-        if matches!(
-            node.kind(),
-            "simple_identifier" | "navigation_expression" | "call_expression"
-        ) && let Ok(text) = node.utf8_text(source)
+        if is_token_reference_node(node)
+            && let Ok(text) = node.utf8_text(source)
             && let Some(token_match) = token_index.matches.get(text)
         {
             let pos = node.start_position();
@@ -836,20 +1014,24 @@ fn extract_token_sites_from_source(
             let parent = nearest_enclosing_view(node, source).map(|(name, parent_pos)| {
                 parent_scope_for_view(file, module_identity, semantic_module, &name, parent_pos)
             });
-            out.push(TokenSite {
-                id: format!(
-                    "token.swift:{file}:{line}:{column}:{}",
-                    token_match.token_id
-                ),
-                location: SourceLocation {
-                    file: file.to_owned(),
-                    line,
-                    column: Some(column),
+            candidates.push(PendingToken {
+                start_byte: node.start_byte(),
+                end_byte: node.end_byte(),
+                site: TokenSite {
+                    id: format!(
+                        "token.swift:{file}:{line}:{column}:{}",
+                        token_match.token_id
+                    ),
+                    location: SourceLocation {
+                        file: file.to_owned(),
+                        line,
+                        column: Some(column),
+                    },
+                    token_id: token_match.token_id.clone(),
+                    key: text.to_owned(),
+                    category: token_match.category,
+                    parent,
                 },
-                token_id: token_match.token_id.clone(),
-                key: text.to_owned(),
-                category: token_match.category,
-                parent,
             });
         }
         for i in (0..node.child_count()).rev() {
@@ -858,6 +1040,68 @@ fn extract_token_sites_from_source(
             }
         }
     }
+
+    candidates.sort_by(|left, right| {
+        let left_len = left.end_byte.saturating_sub(left.start_byte);
+        let right_len = right.end_byte.saturating_sub(right.start_byte);
+        right_len
+            .cmp(&left_len)
+            .then(left.start_byte.cmp(&right.start_byte))
+            .then(left.site.key.cmp(&right.site.key))
+    });
+
+    let mut kept_ranges: Vec<(usize, usize)> = Vec::new();
+    for candidate in candidates {
+        let contained = kept_ranges
+            .iter()
+            .any(|&(start, end)| start <= candidate.start_byte && candidate.end_byte <= end);
+        if contained {
+            continue;
+        }
+        kept_ranges.push((candidate.start_byte, candidate.end_byte));
+        out.push(candidate.site);
+    }
+}
+
+/// Token keys must match expression/reference nodes, not declaration bindings or types.
+fn is_token_reference_node(node: tree_sitter::Node<'_>) -> bool {
+    match node.kind() {
+        "navigation_expression" | "call_expression" => true,
+        "simple_identifier" => !is_declaration_or_type_identifier(node),
+        _ => false,
+    }
+}
+
+fn is_declaration_or_type_identifier(node: tree_sitter::Node<'_>) -> bool {
+    let Some(parent) = node.parent() else {
+        return false;
+    };
+    if parent.kind() == "pattern" {
+        return parent.parent().is_some_and(|grandparent| {
+            matches!(
+                grandparent.kind(),
+                "property_declaration"
+                    | "variable_declaration"
+                    | "for_statement"
+                    | "closure_parameter"
+                    | "parameter"
+            )
+        });
+    }
+    matches!(
+        parent.kind(),
+        "property_declaration"
+            | "function_declaration"
+            | "class_declaration"
+            | "struct_declaration"
+            | "enum_declaration"
+            | "protocol_declaration"
+            | "typealias_declaration"
+            | "type_identifier"
+            | "parameter"
+            | "value_parameter"
+            | "enum_entry"
+    )
 }
 
 #[allow(dead_code, clippy::too_many_arguments)]
@@ -869,20 +1113,11 @@ fn extract_from_source(
     local_index: &LocalViewIndex,
     local_components: &mut Vec<LocalComponent>,
     usage_sites: &mut Vec<UsageSite>,
-    hardcoded_style_sites: &mut Vec<HardcodedStyleSite>,
 ) {
     for local in index_local_components_from_source(root, source, file) {
         local_components.push(local);
     }
-    extract_usage_from_source(
-        root,
-        source,
-        file,
-        registry,
-        local_index,
-        usage_sites,
-        hardcoded_style_sites,
-    );
+    extract_usage_from_source(root, source, file, registry, local_index, usage_sites);
 }
 
 fn is_call_expression_node(node: tree_sitter::Node<'_>) -> bool {
@@ -1056,9 +1291,16 @@ pub fn scan_repository(
             &registry,
             &local_index,
             &mut usage_sites,
-            &mut hardcoded_style_sites,
         );
         let (module_identity, semantic_module) = module_identity_for_file(relative_file);
+        extract_hardcoded_style_from_source(
+            root,
+            source,
+            relative_file,
+            &module_identity,
+            semantic_module,
+            &mut hardcoded_style_sites,
+        );
         extract_token_sites_from_source(
             root,
             source,
@@ -1305,7 +1547,6 @@ mod tests {
             locals.push(local);
         }
         let mut usages = Vec::new();
-        let mut hardcoded_style_sites = Vec::new();
         extract_usage_from_source(
             tree.root_node(),
             source.as_bytes(),
@@ -1313,7 +1554,6 @@ mod tests {
             registry,
             &local_index,
             &mut usages,
-            &mut hardcoded_style_sites,
         );
         (locals, usages)
     }
@@ -1688,5 +1928,182 @@ struct Screen: View {
                 .all(|diagnostic| diagnostic.code != "root_not_found"),
             "matching recursive wildcard roots must not emit root_not_found diagnostics"
         );
+    }
+
+    fn token_index_from_json(tokens_json: &str) -> RegistryTokenIndex {
+        let value = serde_json::json!({ "tokens": serde_json::from_str::<serde_json::Value>(tokens_json).unwrap() });
+        let tokens = parse_registry_tokens(&value).expect("tokens");
+        token_index(&tokens).expect("index")
+    }
+
+    fn extract_tokens(source: &str, index: &RegistryTokenIndex) -> Vec<TokenSite> {
+        let mut parser = make_parser();
+        let tree = parser.parse(source.as_bytes(), None).expect("parse");
+        let mut out = Vec::new();
+        extract_token_sites_from_source(
+            tree.root_node(),
+            source.as_bytes(),
+            "Screen.swift",
+            "App",
+            true,
+            index,
+            &mut out,
+        );
+        out
+    }
+
+    fn extract_hardcoded(source: &str) -> Vec<HardcodedStyleSite> {
+        let mut parser = make_parser();
+        let tree = parser.parse(source.as_bytes(), None).expect("parse");
+        let mut out = Vec::new();
+        extract_hardcoded_style_from_source(
+            tree.root_node(),
+            source.as_bytes(),
+            "Screen.swift",
+            "App",
+            true,
+            &mut out,
+        );
+        out
+    }
+
+    #[test]
+    fn overlapping_token_alias_keeps_longest_match_only() {
+        let index = token_index_from_json(
+            r#"[
+              {
+                "id": "color.primary",
+                "key": "Theme.colors.primary",
+                "category": "color",
+                "aliases": ["primary"]
+              }
+            ]"#,
+        );
+        let source = r#"
+import SwiftUI
+struct Screen: View {
+    var body: some View {
+        let value = Theme.colors.primary
+        Text("x")
+    }
+}
+"#;
+        let sites = extract_tokens(source, &index);
+        assert_eq!(sites.len(), 1, "expected one longest match, got {sites:?}");
+        assert_eq!(sites[0].key, "Theme.colors.primary");
+        assert_eq!(sites[0].token_id, "color.primary");
+    }
+
+    #[test]
+    fn token_alias_does_not_match_declaration_bindings() {
+        let index = token_index_from_json(
+            r#"[
+              {
+                "id": "color.primary",
+                "key": "Theme.colors.primary",
+                "category": "color",
+                "aliases": ["primary"]
+              }
+            ]"#,
+        );
+        let source = r#"
+import SwiftUI
+struct Screen: View {
+    var body: some View {
+        let primary = Theme.colors.primary
+        Text("x")
+    }
+}
+"#;
+        let sites = extract_tokens(source, &index);
+        assert_eq!(
+            sites.len(),
+            1,
+            "binding name must not become a token site: {sites:?}"
+        );
+        assert_eq!(sites[0].key, "Theme.colors.primary");
+    }
+
+    #[test]
+    fn nested_and_labeled_swiftui_style_literals_are_detected() {
+        let source = r#"
+import SwiftUI
+struct Screen: View {
+    var body: some View {
+        VStack(spacing: 12) {
+            Text("Hi")
+                .font(.system(size: 14))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .cornerRadius(8)
+        }
+    }
+}
+"#;
+        let sites = extract_hardcoded(source);
+        assert!(
+            sites
+                .iter()
+                .any(|s| s.category == TokenCategory::Spacing && s.value == "12"),
+            "VStack(spacing: 12) missed: {sites:?}"
+        );
+        assert!(
+            sites
+                .iter()
+                .any(|s| s.category == TokenCategory::Typography && s.value == "14"),
+            ".font(.system(size: 14)) missed: {sites:?}"
+        );
+        assert!(
+            sites
+                .iter()
+                .any(|s| s.category == TokenCategory::Radius && s.value == "8"),
+            "radius literals missed: {sites:?}"
+        );
+        let eights = sites
+            .iter()
+            .filter(|s| s.category == TokenCategory::Radius && s.value == "8")
+            .count();
+        assert!(eights >= 1);
+        // Dedup: both clipShape labeled cornerRadius and cornerRadius(8) may share value but
+        // distinct ranges — both are legitimate. Ensure no identical range duplicates.
+        let mut ranges = sites
+            .iter()
+            .map(|s| (s.location.line, s.location.column, &s.value, s.category))
+            .collect::<Vec<_>>();
+        let before = ranges.len();
+        ranges.sort();
+        ranges.dedup();
+        assert_eq!(before, ranges.len(), "duplicate hardcoded sites: {sites:?}");
+    }
+
+    #[test]
+    fn hardcoded_location_points_at_literal_not_callee() {
+        let source = r#"
+import SwiftUI
+struct Screen: View {
+    var body: some View {
+        Text("Hi").cornerRadius(8)
+    }
+}
+"#;
+        let sites = extract_hardcoded(source);
+        let site = sites
+            .iter()
+            .find(|s| s.category == TokenCategory::Radius && s.value == "8")
+            .expect("cornerRadius literal");
+        // "8" appears after "cornerRadius(" — column should not be the 'c' of cornerRadius.
+        let corner_col = source
+            .lines()
+            .find(|l| l.contains("cornerRadius"))
+            .and_then(|l| l.find("cornerRadius"))
+            .map(|i| i as u32 + 1)
+            .unwrap();
+        let eight_col = source
+            .lines()
+            .find(|l| l.contains("cornerRadius"))
+            .and_then(|l| l.find('8'))
+            .map(|i| i as u32 + 1)
+            .unwrap();
+        assert_eq!(site.location.column, Some(eight_col));
+        assert_ne!(site.location.column, Some(corner_col));
     }
 }

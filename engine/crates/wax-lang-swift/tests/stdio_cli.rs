@@ -182,7 +182,7 @@ fn stdio_cli_emits_one_scan_facts_response() {
             assert_eq!(facts.snapshot_id, "snap-cli");
             assert_eq!(facts.status, ScanStatus::Complete);
             assert_eq!(facts.language.parser_name, "tree-sitter-swift");
-            assert_eq!(facts.counts.raw_invocations.total, 8);
+            assert_eq!(facts.counts.raw_invocations.total, 9);
             assert_eq!(facts.counts.raw_invocations.resolved, 6);
             assert_eq!(facts.counts.raw_invocations.local, 2);
             assert_eq!(facts.counts.registry.component_count, 2);

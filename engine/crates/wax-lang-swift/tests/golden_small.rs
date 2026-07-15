@@ -74,6 +74,28 @@ fn golden_small_swiftui_fixture_matches_counts() {
             .any(|site| site.category == wax_contract::TokenCategory::Radius && site.value == "8"),
         "cornerRadius(8) should be a radius hard-coded candidate"
     );
+    assert!(
+        facts
+            .hardcoded_style_sites
+            .iter()
+            .any(|site| site.category == wax_contract::TokenCategory::Spacing && site.value == "12"),
+        "VStack(spacing: 12) should be a spacing hard-coded candidate"
+    );
+    assert!(
+        facts.hardcoded_style_sites.iter().any(|site| {
+            site.category == wax_contract::TokenCategory::Typography && site.value == "14"
+        }),
+        ".font(.system(size: 14)) should be a typography hard-coded candidate"
+    );
+    assert_eq!(
+        facts
+            .token_sites
+            .iter()
+            .filter(|site| site.token_id == "color.primary")
+            .count(),
+        1,
+        "overlapping alias matches must collapse to one token site"
+    );
 }
 
 #[test]

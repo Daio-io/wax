@@ -16,7 +16,7 @@
       "id": "color.primary",
       "key": "Theme.colors.primary",
       "category": "color",
-      "aliases": ["Color.dsPrimary"]
+      "aliases": ["Color.dsPrimary", "primary"]
     },
     {
       "id": "space.medium",
