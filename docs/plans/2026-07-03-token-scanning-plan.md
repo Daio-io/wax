@@ -1739,7 +1739,7 @@ git commit -m "feat: scan compose token facts"
 - Consumes: shared token registry parser from Task 2 and React parent attribution helpers in `extract.rs`
 - Produces: React `design_system_tokens`, `token_sites`, and `hardcoded_style_sites`
 
-- [ ] **Step 1: Write failing React tests**
+- [x] **Step 1: Write failing React tests**
 
 Add assertions in `engine/crates/wax-lang-react/tests/golden_small.rs`:
 
@@ -1767,7 +1767,7 @@ assert!(
 );
 ```
 
-- [ ] **Step 2: Add React fixture registry tokens and source examples**
+- [x] **Step 2: Add React fixture registry tokens and source examples**
 
 Add to the React small registry:
 
@@ -1794,7 +1794,7 @@ const color = theme.colors.primary;
 return <div style={{ color: "#336699", padding: 8, borderRadius: 4 }}>{color}</div>;
 ```
 
-- [ ] **Step 3: Load tokens in React registry**
+- [x] **Step 3: Load tokens in React registry**
 
 Modify `ReactRegistryIndex` in `engine/crates/wax-lang-react/src/registry.rs`:
 
@@ -1805,7 +1805,7 @@ pub token_index: wax_lang_api::RegistryTokenIndex,
 
 In `load_react_registry`, after parsing `value`, call `parse_registry_tokens` and `token_index`, mapping errors into `RegistryError::invalid`.
 
-- [ ] **Step 4: Extend React extraction output**
+- [x] **Step 4: Extend React extraction output**
 
 Modify `ReactUsageExtraction`:
 
@@ -1834,7 +1834,7 @@ fn parent_for_line(
 }
 ```
 
-- [ ] **Step 5: Detect React hard-coded style candidates**
+- [x] **Step 5: Detect React hard-coded style candidates**
 
 In `engine/crates/wax-lang-react/src/extract.rs`, add extraction over JSX attributes named `style`. For object literal properties, emit:
 
@@ -1854,7 +1854,7 @@ Emit `HardcodedStyleSite` when the property value is:
 
 Use the property's span for location and source slice for `value`.
 
-- [ ] **Step 6: Populate React `ScanFacts`**
+- [x] **Step 6: Populate React `ScanFacts`**
 
 Modify the React language wrapper to include:
 
@@ -1867,7 +1867,7 @@ token_usage_summary: vec![],
 
 Modify scaffold facts to use empty token vectors.
 
-- [ ] **Step 7: Update React golden fixture**
+- [x] **Step 7: Update React golden fixture**
 
 Run:
 
@@ -1880,7 +1880,7 @@ Expected: golden diff includes React token fields.
 
 Update `engine/crates/wax-lang-react/tests/fixtures/small/golden.json`.
 
-- [ ] **Step 8: Run focused React checks**
+- [x] **Step 8: Run focused React checks**
 
 Run:
 
@@ -1892,7 +1892,7 @@ cargo test -p wax-lang-react
 
 Expected: `cargo test -p wax-lang-react` passes.
 
-- [ ] **Step 9: Commit Task 6**
+- [x] **Step 9: Commit Task 6**
 
 ```bash
 git add engine/crates/wax-lang-react/src/registry.rs engine/crates/wax-lang-react/src/extract.rs engine/crates/wax-lang-react/src/lib.rs engine/crates/wax-lang-react/tests/fixtures/small engine/crates/wax-lang-react/tests/golden_small.rs

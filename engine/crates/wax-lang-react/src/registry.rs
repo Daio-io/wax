@@ -5,7 +5,8 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use wax_contract::DesignSystemComponent;
+use wax_contract::{DesignSystemComponent, DesignSystemToken};
+use wax_lang_api::{RegistryTokenIndex, parse_registry_tokens, token_index};
 
 const REGISTRY_SCHEMA_VERSION: u64 = 1;
 
@@ -18,6 +19,10 @@ pub struct ReactRegistryIndex {
     pub resolve_targets: BTreeMap<String, String>,
     /// Optional import package per canonical registry symbol.
     pub component_packages: BTreeMap<String, Option<String>>,
+    /// Design-system tokens loaded from the registry.
+    pub design_system_tokens: Vec<DesignSystemToken>,
+    /// Exact key/alias lookup index for token references.
+    pub token_index: RegistryTokenIndex,
 }
 
 /// Kind of registry load failure.
@@ -149,10 +154,16 @@ pub fn load_react_registry(path: &Path) -> Result<ReactRegistryIndex, RegistryEr
     }
 
     design_system_components.sort_by(|left, right| left.symbol.cmp(&right.symbol));
+    let design_system_tokens =
+        parse_registry_tokens(&value).map_err(|err| RegistryError::invalid(err.to_string()))?;
+    let token_index = token_index(&design_system_tokens)
+        .map_err(|err| RegistryError::invalid(err.to_string()))?;
     Ok(ReactRegistryIndex {
         design_system_components,
         resolve_targets,
         component_packages,
+        design_system_tokens,
+        token_index,
     })
 }
 

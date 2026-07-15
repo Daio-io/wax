@@ -10,5 +10,18 @@
       "id": "ds.text-field",
       "symbol": "TextField"
     }
+  ],
+  "tokens": [
+    {
+      "id": "color.primary",
+      "key": "theme.colors.primary",
+      "category": "color",
+      "aliases": ["tokens.color.primary"]
+    },
+    {
+      "id": "space.medium",
+      "key": "theme.space.medium",
+      "category": "spacing"
+    }
   ]
 }

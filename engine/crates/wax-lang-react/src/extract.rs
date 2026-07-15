@@ -5,16 +5,16 @@ use std::collections::{BTreeMap, BTreeSet};
 use swc_common::{Span, Spanned};
 use swc_ecma_ast::{
     AssignTarget, BlockStmt, BlockStmtOrExpr, Callee, Class, ClassMember, Decl, DefaultDecl,
-    ExportSpecifier, Expr, ForHead, Function, JSXAttrOrSpread, JSXAttrValue, JSXElement,
-    JSXElementChild, JSXElementName, JSXExpr, JSXFragment, JSXMemberExpr, JSXObject, Key,
-    MemberProp, ModuleDecl, ModuleItem, Pat, Prop, PropName, PropOrSpread, SimpleAssignTarget,
-    Stmt, VarDecl, VarDeclOrExpr, VarDeclarator,
+    ExportSpecifier, Expr, ForHead, Function, JSXAttrName, JSXAttrOrSpread, JSXAttrValue,
+    JSXElement, JSXElementChild, JSXElementName, JSXExpr, JSXFragment, JSXMemberExpr, JSXObject,
+    Key, Lit, MemberProp, ModuleDecl, ModuleItem, ObjectLit, Pat, Prop, PropName, PropOrSpread,
+    SimpleAssignTarget, Stmt, Tpl, VarDecl, VarDeclOrExpr, VarDeclarator,
 };
 use wax_contract::{
-    Diagnostic, IdentityStability, LocalComponent, MatchStatus, ParentScope, SourceLocation,
-    UsageSite,
+    Diagnostic, HardcodedStyleSite, IdentityStability, LocalComponent, MatchStatus, ParentScope,
+    SourceLocation, TokenCategory, TokenSite, UsageSite,
 };
-use wax_lang_api::{npm_import_package_root, resolve_import_aware_match};
+use wax_lang_api::{find_token_matches, npm_import_package_root, resolve_import_aware_match};
 
 use crate::component_detect::{
     class_returns_jsx, expression_returns_jsx, function_returns_jsx, is_pascal_case,
@@ -30,6 +30,10 @@ use crate::swc_parse::ParsedReactModule;
 pub struct ReactUsageExtraction {
     /// Resolved registry-backed JSX usage sites.
     pub usage_sites: Vec<UsageSite>,
+    /// Exact token reference sites discovered in source.
+    pub token_sites: Vec<TokenSite>,
+    /// Hard-coded styling candidates discovered in JSX `style` props.
+    pub hardcoded_style_sites: Vec<HardcodedStyleSite>,
     /// Recoverable JSX usage diagnostics.
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -185,7 +189,7 @@ pub fn collect_usage_sites(
             collect_jsx_usage_candidates_from_module_item(parsed, item, &mut candidates);
         }
 
-        for candidate in candidates {
+        for candidate in &candidates {
             if candidate.shadowed {
                 continue;
             }
@@ -204,7 +208,7 @@ pub fn collect_usage_sites(
                 extraction.usage_sites.push(UsageSite {
                     id: usage_site_id(&location, &candidate.symbol),
                     location,
-                    symbol: candidate.symbol,
+                    symbol: candidate.symbol.clone(),
                     qualified_symbol: local.qualified_symbol.clone(),
                     match_status: MatchStatus::Local,
                     registry_symbol: None,
@@ -212,12 +216,12 @@ pub fn collect_usage_sites(
                     parent,
                 });
             } else if let Some((registry_symbol, match_status)) =
-                classify_jsx_usage(parsed, module_graph, config, registry, &candidate)
+                classify_jsx_usage(parsed, module_graph, config, registry, candidate)
             {
                 extraction.usage_sites.push(UsageSite {
                     id: usage_site_id(&location, &candidate.symbol),
                     location,
-                    symbol: candidate.symbol,
+                    symbol: candidate.symbol.clone(),
                     qualified_symbol: None,
                     match_status,
                     registry_symbol: Some(registry_symbol),
@@ -233,7 +237,7 @@ pub fn collect_usage_sites(
                 extraction.usage_sites.push(UsageSite {
                     id: usage_site_id(&location, &candidate.symbol),
                     location,
-                    symbol: candidate.symbol,
+                    symbol: candidate.symbol.clone(),
                     qualified_symbol: local.qualified_symbol.clone(),
                     match_status: MatchStatus::Local,
                     registry_symbol: None,
@@ -245,13 +249,13 @@ pub fn collect_usage_sites(
                 module_graph,
                 config,
                 registry,
-                &candidate,
+                candidate,
                 &local_declared_bindings(parsed),
             ) {
                 extraction.usage_sites.push(UsageSite {
                     id: usage_site_id(&location, &candidate.symbol),
                     location,
-                    symbol: candidate.symbol,
+                    symbol: candidate.symbol.clone(),
                     qualified_symbol: None,
                     match_status: MatchStatus::Unresolved,
                     registry_symbol: None,
@@ -260,9 +264,545 @@ pub fn collect_usage_sites(
                 });
             }
         }
+
+        let file = normalize_file(&parsed.file);
+        let mut token_sites =
+            find_token_matches(&parsed.source, &file, &registry.token_index, "token.react");
+        for site in &mut token_sites {
+            site.parent = parent_for_line(parsed, &candidates, site.location.line);
+        }
+        extraction.token_sites.extend(token_sites);
+
+        let style_before = extraction.hardcoded_style_sites.len();
+        collect_hardcoded_style_sites_from_module(parsed, &mut extraction.hardcoded_style_sites);
+        for site in &mut extraction.hardcoded_style_sites[style_before..] {
+            site.parent = parent_for_line(parsed, &candidates, site.location.line);
+        }
     }
 
+    extraction.token_sites.sort_by(|left, right| {
+        left.location
+            .file
+            .cmp(&right.location.file)
+            .then(left.location.line.cmp(&right.location.line))
+            .then(left.location.column.cmp(&right.location.column))
+            .then(left.token_id.cmp(&right.token_id))
+    });
+    extraction.hardcoded_style_sites.sort_by(|left, right| {
+        left.location
+            .file
+            .cmp(&right.location.file)
+            .then(left.location.line.cmp(&right.location.line))
+            .then(left.location.column.cmp(&right.location.column))
+            .then(left.value.cmp(&right.value))
+    });
+
     extraction
+}
+
+fn parent_for_line(
+    parsed: &ParsedReactModule,
+    candidates: &[JsxUsageCandidate],
+    line: u32,
+) -> Option<ParentScope> {
+    candidates.iter().rev().find_map(|candidate| {
+        let (name, span) = candidate.parent_component.as_ref()?;
+        let parent = parent_scope_for_component(parsed, name, *span)?;
+        let start = parsed.source_location_from_span(*span)?.line;
+        (start <= line).then_some(parent)
+    })
+}
+
+fn collect_hardcoded_style_sites_from_module(
+    parsed: &ParsedReactModule,
+    out: &mut Vec<HardcodedStyleSite>,
+) {
+    for item in &parsed.module.body {
+        match item {
+            ModuleItem::Stmt(stmt) => {
+                collect_hardcoded_styles_from_stmt(parsed, stmt, out);
+            }
+            ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(export_decl)) => {
+                collect_hardcoded_styles_from_decl(parsed, &export_decl.decl, out);
+            }
+            ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultDecl(default_decl)) => {
+                match &default_decl.decl {
+                    DefaultDecl::Fn(fn_expr) => {
+                        if let Some(body) = &fn_expr.function.body {
+                            collect_hardcoded_styles_from_block(parsed, body, out);
+                        }
+                    }
+                    DefaultDecl::Class(class_expr) => {
+                        collect_hardcoded_styles_from_class(parsed, &class_expr.class, out);
+                    }
+                    _ => {}
+                }
+            }
+            ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultExpr(default_expr)) => {
+                collect_hardcoded_styles_from_expr(parsed, &default_expr.expr, out);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_hardcoded_styles_from_decl(
+    parsed: &ParsedReactModule,
+    decl: &Decl,
+    out: &mut Vec<HardcodedStyleSite>,
+) {
+    match decl {
+        Decl::Fn(fn_decl) => {
+            if let Some(body) = &fn_decl.function.body {
+                collect_hardcoded_styles_from_block(parsed, body, out);
+            }
+        }
+        Decl::Var(var_decl) => {
+            for declarator in &var_decl.decls {
+                if let Some(init) = declarator.init.as_deref() {
+                    collect_hardcoded_styles_from_expr(parsed, init, out);
+                }
+            }
+        }
+        Decl::Class(class_decl) => {
+            collect_hardcoded_styles_from_class(parsed, &class_decl.class, out);
+        }
+        _ => {}
+    }
+}
+
+fn collect_hardcoded_styles_from_class(
+    parsed: &ParsedReactModule,
+    class: &Class,
+    out: &mut Vec<HardcodedStyleSite>,
+) {
+    if let Some(super_class) = class.super_class.as_deref() {
+        collect_hardcoded_styles_from_expr(parsed, super_class, out);
+    }
+    for member in &class.body {
+        match member {
+            ClassMember::Method(method) => {
+                if let Some(body) = &method.function.body {
+                    collect_hardcoded_styles_from_block(parsed, body, out);
+                }
+            }
+            ClassMember::Constructor(constructor) => {
+                if let Some(body) = &constructor.body {
+                    collect_hardcoded_styles_from_block(parsed, body, out);
+                }
+            }
+            ClassMember::PrivateMethod(method) => {
+                if let Some(body) = &method.function.body {
+                    collect_hardcoded_styles_from_block(parsed, body, out);
+                }
+            }
+            ClassMember::ClassProp(prop) => {
+                if let Some(value) = prop.value.as_deref() {
+                    collect_hardcoded_styles_from_expr(parsed, value, out);
+                }
+            }
+            ClassMember::PrivateProp(prop) => {
+                if let Some(value) = prop.value.as_deref() {
+                    collect_hardcoded_styles_from_expr(parsed, value, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_hardcoded_styles_from_block(
+    parsed: &ParsedReactModule,
+    block: &BlockStmt,
+    out: &mut Vec<HardcodedStyleSite>,
+) {
+    for stmt in &block.stmts {
+        collect_hardcoded_styles_from_stmt(parsed, stmt, out);
+    }
+}
+
+fn collect_hardcoded_styles_from_stmt(
+    parsed: &ParsedReactModule,
+    stmt: &Stmt,
+    out: &mut Vec<HardcodedStyleSite>,
+) {
+    match stmt {
+        Stmt::Block(block) => collect_hardcoded_styles_from_block(parsed, block, out),
+        Stmt::Expr(expr_stmt) => collect_hardcoded_styles_from_expr(parsed, &expr_stmt.expr, out),
+        Stmt::Decl(decl) => collect_hardcoded_styles_from_decl(parsed, decl, out),
+        Stmt::Return(return_stmt) => {
+            if let Some(arg) = return_stmt.arg.as_deref() {
+                collect_hardcoded_styles_from_expr(parsed, arg, out);
+            }
+        }
+        Stmt::If(if_stmt) => {
+            collect_hardcoded_styles_from_expr(parsed, &if_stmt.test, out);
+            collect_hardcoded_styles_from_stmt(parsed, &if_stmt.cons, out);
+            if let Some(alt) = if_stmt.alt.as_deref() {
+                collect_hardcoded_styles_from_stmt(parsed, alt, out);
+            }
+        }
+        Stmt::While(while_stmt) => {
+            collect_hardcoded_styles_from_expr(parsed, &while_stmt.test, out);
+            collect_hardcoded_styles_from_stmt(parsed, &while_stmt.body, out);
+        }
+        Stmt::DoWhile(do_while) => {
+            collect_hardcoded_styles_from_stmt(parsed, &do_while.body, out);
+            collect_hardcoded_styles_from_expr(parsed, &do_while.test, out);
+        }
+        Stmt::For(for_stmt) => {
+            if let Some(init) = &for_stmt.init {
+                match init {
+                    VarDeclOrExpr::VarDecl(var_decl) => {
+                        for declarator in &var_decl.decls {
+                            if let Some(init) = declarator.init.as_deref() {
+                                collect_hardcoded_styles_from_expr(parsed, init, out);
+                            }
+                        }
+                    }
+                    VarDeclOrExpr::Expr(expr) => {
+                        collect_hardcoded_styles_from_expr(parsed, expr, out);
+                    }
+                }
+            }
+            if let Some(test) = for_stmt.test.as_deref() {
+                collect_hardcoded_styles_from_expr(parsed, test, out);
+            }
+            if let Some(update) = for_stmt.update.as_deref() {
+                collect_hardcoded_styles_from_expr(parsed, update, out);
+            }
+            collect_hardcoded_styles_from_stmt(parsed, &for_stmt.body, out);
+        }
+        Stmt::ForIn(for_in) => {
+            if let ForHead::VarDecl(var_decl) = &for_in.left {
+                for declarator in &var_decl.decls {
+                    if let Some(init) = declarator.init.as_deref() {
+                        collect_hardcoded_styles_from_expr(parsed, init, out);
+                    }
+                }
+            }
+            collect_hardcoded_styles_from_expr(parsed, &for_in.right, out);
+            collect_hardcoded_styles_from_stmt(parsed, &for_in.body, out);
+        }
+        Stmt::ForOf(for_of) => {
+            if let ForHead::VarDecl(var_decl) = &for_of.left {
+                for declarator in &var_decl.decls {
+                    if let Some(init) = declarator.init.as_deref() {
+                        collect_hardcoded_styles_from_expr(parsed, init, out);
+                    }
+                }
+            }
+            collect_hardcoded_styles_from_expr(parsed, &for_of.right, out);
+            collect_hardcoded_styles_from_stmt(parsed, &for_of.body, out);
+        }
+        Stmt::Switch(switch_stmt) => {
+            collect_hardcoded_styles_from_expr(parsed, &switch_stmt.discriminant, out);
+            for case in &switch_stmt.cases {
+                if let Some(test) = case.test.as_deref() {
+                    collect_hardcoded_styles_from_expr(parsed, test, out);
+                }
+                for cons in &case.cons {
+                    collect_hardcoded_styles_from_stmt(parsed, cons, out);
+                }
+            }
+        }
+        Stmt::Try(try_stmt) => {
+            collect_hardcoded_styles_from_block(parsed, &try_stmt.block, out);
+            if let Some(handler) = &try_stmt.handler {
+                collect_hardcoded_styles_from_block(parsed, &handler.body, out);
+            }
+            if let Some(finalizer) = &try_stmt.finalizer {
+                collect_hardcoded_styles_from_block(parsed, finalizer, out);
+            }
+        }
+        Stmt::Labeled(labeled) => {
+            collect_hardcoded_styles_from_stmt(parsed, &labeled.body, out);
+        }
+        Stmt::With(with_stmt) => {
+            collect_hardcoded_styles_from_expr(parsed, &with_stmt.obj, out);
+            collect_hardcoded_styles_from_stmt(parsed, &with_stmt.body, out);
+        }
+        Stmt::Throw(throw_stmt) => {
+            collect_hardcoded_styles_from_expr(parsed, &throw_stmt.arg, out);
+        }
+        _ => {}
+    }
+}
+
+fn collect_hardcoded_styles_from_expr(
+    parsed: &ParsedReactModule,
+    expr: &Expr,
+    out: &mut Vec<HardcodedStyleSite>,
+) {
+    match expr {
+        Expr::JSXElement(element) => {
+            collect_hardcoded_styles_from_jsx_element(parsed, element, out);
+        }
+        Expr::JSXFragment(fragment) => {
+            for child in &fragment.children {
+                collect_hardcoded_styles_from_jsx_child(parsed, child, out);
+            }
+        }
+        Expr::Arrow(arrow) => match &*arrow.body {
+            BlockStmtOrExpr::BlockStmt(block) => {
+                collect_hardcoded_styles_from_block(parsed, block, out);
+            }
+            BlockStmtOrExpr::Expr(expr) => {
+                collect_hardcoded_styles_from_expr(parsed, expr, out);
+            }
+        },
+        Expr::Fn(fn_expr) => {
+            if let Some(body) = &fn_expr.function.body {
+                collect_hardcoded_styles_from_block(parsed, body, out);
+            }
+        }
+        Expr::Paren(paren) => collect_hardcoded_styles_from_expr(parsed, &paren.expr, out),
+        Expr::Cond(cond) => {
+            collect_hardcoded_styles_from_expr(parsed, &cond.test, out);
+            collect_hardcoded_styles_from_expr(parsed, &cond.cons, out);
+            collect_hardcoded_styles_from_expr(parsed, &cond.alt, out);
+        }
+        Expr::Bin(bin) => {
+            collect_hardcoded_styles_from_expr(parsed, &bin.left, out);
+            collect_hardcoded_styles_from_expr(parsed, &bin.right, out);
+        }
+        Expr::Unary(unary) => collect_hardcoded_styles_from_expr(parsed, &unary.arg, out),
+        Expr::Assign(assign) => {
+            collect_hardcoded_styles_from_expr(parsed, &assign.right, out);
+        }
+        Expr::Call(call) => {
+            if let Callee::Expr(callee) = &call.callee {
+                collect_hardcoded_styles_from_expr(parsed, callee, out);
+            }
+            for arg in &call.args {
+                collect_hardcoded_styles_from_expr(parsed, &arg.expr, out);
+            }
+        }
+        Expr::New(new_expr) => {
+            collect_hardcoded_styles_from_expr(parsed, &new_expr.callee, out);
+            if let Some(args) = &new_expr.args {
+                for arg in args {
+                    collect_hardcoded_styles_from_expr(parsed, &arg.expr, out);
+                }
+            }
+        }
+        Expr::Member(member) => {
+            collect_hardcoded_styles_from_expr(parsed, &member.obj, out);
+            if let MemberProp::Computed(computed) = &member.prop {
+                collect_hardcoded_styles_from_expr(parsed, &computed.expr, out);
+            }
+        }
+        Expr::Object(object) => {
+            for prop in &object.props {
+                match prop {
+                    PropOrSpread::Spread(spread) => {
+                        collect_hardcoded_styles_from_expr(parsed, &spread.expr, out);
+                    }
+                    PropOrSpread::Prop(prop) => match &**prop {
+                        Prop::KeyValue(key_value) => {
+                            collect_hardcoded_styles_from_expr(parsed, &key_value.value, out);
+                        }
+                        Prop::Assign(assign) => {
+                            collect_hardcoded_styles_from_expr(parsed, &assign.value, out);
+                        }
+                        Prop::Method(method) => {
+                            if let Some(body) = &method.function.body {
+                                collect_hardcoded_styles_from_block(parsed, body, out);
+                            }
+                        }
+                        Prop::Getter(getter) => {
+                            if let Some(body) = &getter.body {
+                                collect_hardcoded_styles_from_block(parsed, body, out);
+                            }
+                        }
+                        Prop::Setter(setter) => {
+                            if let Some(body) = &setter.body {
+                                collect_hardcoded_styles_from_block(parsed, body, out);
+                            }
+                        }
+                        Prop::Shorthand(_) => {}
+                    },
+                }
+            }
+        }
+        Expr::Array(array) => {
+            for element in array.elems.iter().flatten() {
+                collect_hardcoded_styles_from_expr(parsed, &element.expr, out);
+            }
+        }
+        Expr::Seq(seq) => {
+            for expr in &seq.exprs {
+                collect_hardcoded_styles_from_expr(parsed, expr, out);
+            }
+        }
+        Expr::Await(await_expr) => {
+            collect_hardcoded_styles_from_expr(parsed, &await_expr.arg, out);
+        }
+        Expr::Yield(yield_expr) => {
+            if let Some(arg) = yield_expr.arg.as_deref() {
+                collect_hardcoded_styles_from_expr(parsed, arg, out);
+            }
+        }
+        Expr::Tpl(tpl) => {
+            for expr in &tpl.exprs {
+                collect_hardcoded_styles_from_expr(parsed, expr, out);
+            }
+        }
+        Expr::TaggedTpl(tagged) => {
+            collect_hardcoded_styles_from_expr(parsed, &tagged.tag, out);
+            for expr in &tagged.tpl.exprs {
+                collect_hardcoded_styles_from_expr(parsed, expr, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_hardcoded_styles_from_jsx_element(
+    parsed: &ParsedReactModule,
+    element: &JSXElement,
+    out: &mut Vec<HardcodedStyleSite>,
+) {
+    for attr in &element.opening.attrs {
+        match attr {
+            JSXAttrOrSpread::JSXAttr(attr) => {
+                if jsx_attr_name_is_style(&attr.name)
+                    && let Some(JSXAttrValue::JSXExprContainer(container)) = &attr.value
+                    && let JSXExpr::Expr(expr) = &container.expr
+                    && let Expr::Object(object) = &**expr
+                {
+                    collect_hardcoded_styles_from_style_object(parsed, object, out);
+                } else {
+                    match &attr.value {
+                        Some(JSXAttrValue::JSXExprContainer(container)) => {
+                            if let JSXExpr::Expr(expr) = &container.expr {
+                                collect_hardcoded_styles_from_expr(parsed, expr, out);
+                            }
+                        }
+                        Some(JSXAttrValue::JSXElement(nested)) => {
+                            collect_hardcoded_styles_from_jsx_element(parsed, nested, out);
+                        }
+                        Some(JSXAttrValue::JSXFragment(fragment)) => {
+                            for child in &fragment.children {
+                                collect_hardcoded_styles_from_jsx_child(parsed, child, out);
+                            }
+                        }
+                        Some(JSXAttrValue::Str(_)) | None => {}
+                    }
+                }
+            }
+            JSXAttrOrSpread::SpreadElement(spread) => {
+                collect_hardcoded_styles_from_expr(parsed, &spread.expr, out);
+            }
+        }
+    }
+    for child in &element.children {
+        collect_hardcoded_styles_from_jsx_child(parsed, child, out);
+    }
+}
+
+fn collect_hardcoded_styles_from_jsx_child(
+    parsed: &ParsedReactModule,
+    child: &JSXElementChild,
+    out: &mut Vec<HardcodedStyleSite>,
+) {
+    match child {
+        JSXElementChild::JSXElement(element) => {
+            collect_hardcoded_styles_from_jsx_element(parsed, element, out);
+        }
+        JSXElementChild::JSXFragment(fragment) => {
+            for nested in &fragment.children {
+                collect_hardcoded_styles_from_jsx_child(parsed, nested, out);
+            }
+        }
+        JSXElementChild::JSXExprContainer(container) => {
+            if let JSXExpr::Expr(expr) = &container.expr {
+                collect_hardcoded_styles_from_expr(parsed, expr, out);
+            }
+        }
+        JSXElementChild::JSXSpreadChild(spread) => {
+            collect_hardcoded_styles_from_expr(parsed, &spread.expr, out);
+        }
+        JSXElementChild::JSXText(_) => {}
+    }
+}
+
+fn jsx_attr_name_is_style(name: &JSXAttrName) -> bool {
+    match name {
+        JSXAttrName::Ident(ident) => ident.sym.as_ref() == "style",
+        JSXAttrName::JSXNamespacedName(_) => false,
+    }
+}
+
+fn collect_hardcoded_styles_from_style_object(
+    parsed: &ParsedReactModule,
+    object: &ObjectLit,
+    out: &mut Vec<HardcodedStyleSite>,
+) {
+    for prop in &object.props {
+        let PropOrSpread::Prop(prop) = prop else {
+            continue;
+        };
+        let Prop::KeyValue(key_value) = &**prop else {
+            continue;
+        };
+        let Some(prop_name) = style_prop_name(&key_value.key) else {
+            continue;
+        };
+        let Some(category) = react_style_category(prop_name) else {
+            continue;
+        };
+        if !is_hardcoded_style_value(&key_value.value) {
+            continue;
+        }
+        let Some(location) = parsed.source_location_from_span(key_value.span()) else {
+            continue;
+        };
+        let Some(value) = parsed.source_slice_from_span(key_value.value.span()) else {
+            continue;
+        };
+        out.push(HardcodedStyleSite {
+            id: format!(
+                "hardcoded.react:{}:{}:{}:{category:?}",
+                location.file,
+                location.line,
+                location.column.unwrap_or(0)
+            ),
+            location,
+            value,
+            category,
+            parent: None,
+        });
+    }
+}
+
+fn style_prop_name(name: &PropName) -> Option<&str> {
+    match name {
+        PropName::Ident(ident) => Some(ident.sym.as_ref()),
+        PropName::Str(_) | PropName::Num(_) | PropName::Computed(_) | PropName::BigInt(_) => None,
+    }
+}
+
+fn react_style_category(prop_name: &str) -> Option<TokenCategory> {
+    match prop_name {
+        "color" | "backgroundColor" | "borderColor" => Some(TokenCategory::Color),
+        "padding" | "margin" | "gap" | "width" | "height" => Some(TokenCategory::Spacing),
+        "fontSize" | "fontWeight" | "lineHeight" => Some(TokenCategory::Typography),
+        "borderRadius" => Some(TokenCategory::Radius),
+        "boxShadow" | "shadow" => Some(TokenCategory::Elevation),
+        _ => None,
+    }
+}
+
+fn is_hardcoded_style_value(expr: &Expr) -> bool {
+    match expr {
+        Expr::Lit(Lit::Str(_) | Lit::Num(_)) => true,
+        Expr::Tpl(Tpl { exprs, .. }) => exprs.is_empty(),
+        Expr::Unary(unary) if matches!(unary.op, swc_ecma_ast::UnaryOp::Minus) => {
+            matches!(&*unary.arg, Expr::Lit(Lit::Num(_)))
+        }
+        _ => false,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2368,6 +2908,8 @@ mod tests {
             design_system_components: Vec::new(),
             resolve_targets,
             component_packages,
+            design_system_tokens: Vec::new(),
+            token_index: Default::default(),
         }
     }
 
@@ -2376,6 +2918,8 @@ mod tests {
             design_system_components: Vec::new(),
             resolve_targets: BTreeMap::from([(symbol.to_owned(), symbol.to_owned())]),
             component_packages: BTreeMap::from([(symbol.to_owned(), Some(package.to_owned()))]),
+            design_system_tokens: Vec::new(),
+            token_index: Default::default(),
         }
     }
 

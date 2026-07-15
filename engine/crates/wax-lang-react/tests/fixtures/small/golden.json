@@ -1,191 +1,329 @@
 {
-  "schema_version": 2,
-  "status": "complete",
-  "language": {
-    "id": "react",
-    "ecosystem": "react",
-    "parser_name": "swc",
-    "parser_version": "41.0.0"
-  },
   "counts": {
-    "registry": {
-      "component_count": 2,
-      "used_component_count": 2,
-      "resolved_raw_invocation_count": 5,
-      "candidate_raw_invocation_count": 0
-    },
-    "definitions": {
-      "local_definition_count": 4,
-      "invoked_local_definition_count": 0,
-      "unused_local_definition_count": 4
-    },
-    "raw_invocations": {
-      "total": 5,
-      "resolved": 5,
-      "local": 0,
-      "candidate": 0,
-      "unresolved": 0
-    },
     "adoption": {
-      "eligible_invocation_count": 5,
       "adopted_invocation_count": 5,
+      "eligible_invocation_count": 5,
       "non_adopted_invocation_count": 0
     },
+    "definitions": {
+      "invoked_local_definition_count": 0,
+      "local_definition_count": 4,
+      "unused_local_definition_count": 4
+    },
     "parent_scopes": {
-      "total": 0,
-      "with_resolved_invocations": 0,
+      "total": 1,
       "with_local_invocations": 0,
+      "with_resolved_invocations": 1,
       "with_unresolved_invocations": 0
     },
+    "raw_invocations": {
+      "candidate": 0,
+      "local": 0,
+      "resolved": 5,
+      "total": 5,
+      "unresolved": 0
+    },
+    "registry": {
+      "candidate_raw_invocation_count": 0,
+      "component_count": 2,
+      "resolved_raw_invocation_count": 5,
+      "used_component_count": 2
+    },
     "tokens": {
-      "configured_token_count": 0,
-      "used_token_count": 0,
-      "token_reference_site_count": 0,
-      "hardcoded_style_candidate_count": 0,
-      "token_references_by_category": {
-        "color": 0,
-        "spacing": 0,
-        "typography": 0,
-        "radius": 0,
-        "elevation": 0,
-        "unknown": 0
-      },
+      "configured_token_count": 2,
       "hardcoded_by_category": {
-        "color": 0,
-        "spacing": 0,
-        "typography": 0,
-        "radius": 0,
+        "color": 1,
         "elevation": 0,
+        "radius": 1,
+        "spacing": 1,
+        "typography": 0,
         "unknown": 0
       },
-      "parent_scopes_with_token_references": 0,
-      "parent_scopes_with_hardcoded_candidates": 0
+      "hardcoded_style_candidate_count": 3,
+      "parent_scopes_with_hardcoded_candidates": 1,
+      "parent_scopes_with_token_references": 1,
+      "token_reference_site_count": 1,
+      "token_references_by_category": {
+        "color": 1,
+        "elevation": 0,
+        "radius": 0,
+        "spacing": 0,
+        "typography": 0,
+        "unknown": 0
+      },
+      "used_token_count": 1
     }
-  },
-  "metrics": {
-    "files_scanned": 6,
-    "invocation_adoption_ratio": 1.0,
-    "registry_resolution_ratio": 1.0,
-    "token_reference_ratio": null
   },
   "design_system_components": [
     {
       "id": "ds.PrimaryButton",
-      "symbol": "PrimaryButton",
-      "registry_symbol": "PrimaryButton"
+      "registry_symbol": "PrimaryButton",
+      "symbol": "PrimaryButton"
     },
     {
       "id": "ds.TextField",
-      "symbol": "TextField",
-      "registry_symbol": "TextField"
+      "registry_symbol": "TextField",
+      "symbol": "TextField"
     }
   ],
+  "design_system_tokens": [
+    {
+      "aliases": [
+        "tokens.color.primary"
+      ],
+      "category": "color",
+      "id": "color.primary",
+      "key": "theme.colors.primary"
+    },
+    {
+      "category": "spacing",
+      "id": "space.medium",
+      "key": "theme.space.medium"
+    }
+  ],
+  "diagnostics": [],
+  "hardcoded_style_sites": [
+    {
+      "category": "color",
+      "id": "hardcoded.react:src/Sample.tsx:16:21:Color",
+      "location": {
+        "column": 21,
+        "file": "src/Sample.tsx",
+        "line": 16
+      },
+      "parent": {
+        "identity_basis": "module_path_and_symbol",
+        "identity_stability": "path_sensitive",
+        "location": {
+          "column": 8,
+          "file": "src/Sample.tsx",
+          "line": 10
+        },
+        "parent_id": "react:component:src/Sample#SampleScreen",
+        "qualified_symbol": "src/Sample#SampleScreen",
+        "scope_kind": "component",
+        "symbol": "SampleScreen"
+      },
+      "value": "\"#336699\""
+    },
+    {
+      "category": "spacing",
+      "id": "hardcoded.react:src/Sample.tsx:16:39:Spacing",
+      "location": {
+        "column": 39,
+        "file": "src/Sample.tsx",
+        "line": 16
+      },
+      "parent": {
+        "identity_basis": "module_path_and_symbol",
+        "identity_stability": "path_sensitive",
+        "location": {
+          "column": 8,
+          "file": "src/Sample.tsx",
+          "line": 10
+        },
+        "parent_id": "react:component:src/Sample#SampleScreen",
+        "qualified_symbol": "src/Sample#SampleScreen",
+        "scope_kind": "component",
+        "symbol": "SampleScreen"
+      },
+      "value": "8"
+    },
+    {
+      "category": "radius",
+      "id": "hardcoded.react:src/Sample.tsx:16:51:Radius",
+      "location": {
+        "column": 51,
+        "file": "src/Sample.tsx",
+        "line": 16
+      },
+      "parent": {
+        "identity_basis": "module_path_and_symbol",
+        "identity_stability": "path_sensitive",
+        "location": {
+          "column": 8,
+          "file": "src/Sample.tsx",
+          "line": 10
+        },
+        "parent_id": "react:component:src/Sample#SampleScreen",
+        "qualified_symbol": "src/Sample#SampleScreen",
+        "scope_kind": "component",
+        "symbol": "SampleScreen"
+      },
+      "value": "4"
+    }
+  ],
+  "language": {
+    "ecosystem": "react",
+    "id": "react",
+    "parser_name": "swc",
+    "parser_version": "41.0.0"
+  },
   "local_components": [
     {
       "id": "react:component:src/Extended#CustomCard",
-      "symbol": "CustomCard",
-      "qualified_symbol": "src/Extended#CustomCard",
       "identity_basis": "module_path_and_symbol",
       "identity_stability": "path_sensitive",
       "location": {
+        "column": 14,
         "file": "src/Extended.tsx",
-        "line": 12,
-        "column": 14
-      }
+        "line": 12
+      },
+      "qualified_symbol": "src/Extended#CustomCard",
+      "symbol": "CustomCard"
     },
     {
       "id": "react:component:src/Sample#LocalCard",
-      "symbol": "LocalCard",
-      "qualified_symbol": "src/Sample#LocalCard",
       "identity_basis": "module_path_and_symbol",
       "identity_stability": "path_sensitive",
       "location": {
+        "column": 14,
         "file": "src/Sample.tsx",
-        "line": 3,
-        "column": 14
-      }
+        "line": 3
+      },
+      "qualified_symbol": "src/Sample#LocalCard",
+      "symbol": "LocalCard"
     },
     {
       "id": "react:component:src/Extended#MultilineUsageScreen",
-      "symbol": "MultilineUsageScreen",
-      "qualified_symbol": "src/Extended#MultilineUsageScreen",
       "identity_basis": "module_path_and_symbol",
       "identity_stability": "path_sensitive",
       "location": {
+        "column": 14,
         "file": "src/Extended.tsx",
-        "line": 3,
-        "column": 14
-      }
+        "line": 3
+      },
+      "qualified_symbol": "src/Extended#MultilineUsageScreen",
+      "symbol": "MultilineUsageScreen"
     },
     {
       "id": "react:component:src/Sample#SampleScreen",
-      "symbol": "SampleScreen",
-      "qualified_symbol": "src/Sample#SampleScreen",
       "identity_basis": "module_path_and_symbol",
       "identity_stability": "path_sensitive",
       "location": {
+        "column": 17,
         "file": "src/Sample.tsx",
-        "line": 10,
-        "column": 14
-      }
+        "line": 10
+      },
+      "qualified_symbol": "src/Sample#SampleScreen",
+      "symbol": "SampleScreen"
+    }
+  ],
+  "metrics": {
+    "files_scanned": 6,
+    "invocation_adoption_ratio": 1.0,
+    "registry_resolution_ratio": 1.0,
+    "token_reference_ratio": 0.25
+  },
+  "schema_version": 2,
+  "status": "complete",
+  "token_sites": [
+    {
+      "category": "color",
+      "id": "token.react:src/Sample.tsx:11:17:color.primary",
+      "key": "theme.colors.primary",
+      "location": {
+        "column": 17,
+        "file": "src/Sample.tsx",
+        "line": 11
+      },
+      "parent": {
+        "identity_basis": "module_path_and_symbol",
+        "identity_stability": "path_sensitive",
+        "location": {
+          "column": 8,
+          "file": "src/Sample.tsx",
+          "line": 10
+        },
+        "parent_id": "react:component:src/Sample#SampleScreen",
+        "qualified_symbol": "src/Sample#SampleScreen",
+        "scope_kind": "component",
+        "symbol": "SampleScreen"
+      },
+      "token_id": "color.primary"
     }
   ],
   "usage_sites": [
     {
       "id": "usage.src/Extended.tsx:5:5:PrimaryButton",
       "location": {
+        "column": 5,
         "file": "src/Extended.tsx",
-        "line": 5,
-        "column": 5
+        "line": 5
       },
-      "symbol": "PrimaryButton",
       "match_status": "resolved",
-      "registry_symbol": "PrimaryButton"
+      "registry_symbol": "PrimaryButton",
+      "symbol": "PrimaryButton"
     },
     {
       "id": "usage.src/Extended.tsx:8:5:PrimaryBtn",
       "location": {
+        "column": 5,
         "file": "src/Extended.tsx",
-        "line": 8,
-        "column": 5
+        "line": 8
       },
-      "symbol": "PrimaryBtn",
       "match_status": "resolved",
-      "registry_symbol": "PrimaryButton"
+      "registry_symbol": "PrimaryButton",
+      "symbol": "PrimaryBtn"
     },
     {
       "id": "usage.src/Sample.tsx:5:5:PrimaryButton",
       "location": {
+        "column": 5,
         "file": "src/Sample.tsx",
-        "line": 5,
-        "column": 5
+        "line": 5
       },
-      "symbol": "PrimaryButton",
       "match_status": "resolved",
-      "registry_symbol": "PrimaryButton"
+      "registry_symbol": "PrimaryButton",
+      "symbol": "PrimaryButton"
     },
     {
-      "id": "usage.src/Sample.tsx:12:5:PrimaryButton",
+      "id": "usage.src/Sample.tsx:14:7:PrimaryButton",
       "location": {
+        "column": 7,
         "file": "src/Sample.tsx",
-        "line": 12,
-        "column": 5
+        "line": 14
       },
-      "symbol": "PrimaryButton",
       "match_status": "resolved",
-      "registry_symbol": "PrimaryButton"
+      "parent": {
+        "identity_basis": "module_path_and_symbol",
+        "identity_stability": "path_sensitive",
+        "location": {
+          "column": 8,
+          "file": "src/Sample.tsx",
+          "line": 10
+        },
+        "parent_id": "react:component:src/Sample#SampleScreen",
+        "qualified_symbol": "src/Sample#SampleScreen",
+        "scope_kind": "component",
+        "symbol": "SampleScreen"
+      },
+      "registry_symbol": "PrimaryButton",
+      "symbol": "PrimaryButton"
     },
     {
-      "id": "usage.src/Sample.tsx:13:5:TextField",
+      "id": "usage.src/Sample.tsx:15:7:TextField",
       "location": {
+        "column": 7,
         "file": "src/Sample.tsx",
-        "line": 13,
-        "column": 5
+        "line": 15
       },
-      "symbol": "TextField",
       "match_status": "resolved",
-      "registry_symbol": "TextField"
+      "parent": {
+        "identity_basis": "module_path_and_symbol",
+        "identity_stability": "path_sensitive",
+        "location": {
+          "column": 8,
+          "file": "src/Sample.tsx",
+          "line": 10
+        },
+        "parent_id": "react:component:src/Sample#SampleScreen",
+        "qualified_symbol": "src/Sample#SampleScreen",
+        "scope_kind": "component",
+        "symbol": "SampleScreen"
+      },
+      "registry_symbol": "TextField",
+      "symbol": "TextField"
     }
-  ],
-  "diagnostics": []
+  ]
 }

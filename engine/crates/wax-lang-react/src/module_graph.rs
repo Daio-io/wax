@@ -1333,6 +1333,8 @@ mod tests {
             design_system_components: Vec::new(),
             resolve_targets,
             component_packages,
+            design_system_tokens: Vec::new(),
+            token_index: Default::default(),
         }
     }
 

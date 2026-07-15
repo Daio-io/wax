@@ -47,6 +47,28 @@ fn scan_status_is_complete_when_configured() {
         facts.metrics.parse_extract_ms > 0,
         "configured scan should record parse/extract timing"
     );
+    assert!(
+        facts
+            .token_sites
+            .iter()
+            .any(|site| site.token_id == "color.primary" && site.parent.is_some()),
+        "React token references should include parent attribution inside components"
+    );
+    assert!(
+        facts
+            .hardcoded_style_sites
+            .iter()
+            .any(|site| site.category == wax_contract::TokenCategory::Color
+                && site.value == "\"#336699\""),
+        "inline style color hex should be a color hard-coded candidate"
+    );
+    assert!(
+        facts
+            .hardcoded_style_sites
+            .iter()
+            .any(|site| site.category == wax_contract::TokenCategory::Spacing && site.value == "8"),
+        "inline padding number should be a spacing hard-coded candidate"
+    );
 }
 
 #[test]

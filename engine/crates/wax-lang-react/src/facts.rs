@@ -131,9 +131,9 @@ pub fn configured_scan_facts(
         },
         counts: CountSummary::default(),
         symbol_usage_summary: vec![],
-        design_system_tokens: vec![],
-        token_sites: vec![],
-        hardcoded_style_sites: vec![],
+        design_system_tokens: registry.design_system_tokens,
+        token_sites: usage_extraction.token_sites,
+        hardcoded_style_sites: usage_extraction.hardcoded_style_sites,
         token_usage_summary: vec![],
     })
 }
