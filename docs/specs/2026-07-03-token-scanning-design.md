@@ -163,7 +163,7 @@ The scanners should be conservative. It is better to miss a hard-coded candidate
 Candidate examples:
 
 - Compose: color constructors, `Modifier.padding`, size APIs, shape or radius APIs, typography APIs, and elevation-like APIs.
-- React: JSX style props, CSS-in-JS object literals, clearly styled component props, and source expressions containing known token keys or aliases.
+- React: JSX inline `style={{ ... }}` object literals (v1). CSS-in-JS style objects and styled-component props are follow-on work after the inline-style baseline is stable.
 - SwiftUI: foreground/background color APIs, padding and spacing APIs, font sizing, corner radius, shadows, and source expressions containing known token keys or aliases.
 
 ### Basic Pack

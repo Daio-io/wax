@@ -11,8 +11,8 @@ use swc_ecma_ast::{
     Stmt, VarDecl, VarDeclOrExpr, VarDeclarator,
 };
 use wax_contract::{
-    Diagnostic, IdentityStability, LocalComponent, MatchStatus, ParentScope, SourceLocation,
-    UsageSite,
+    Diagnostic, HardcodedStyleSite, IdentityStability, LocalComponent, MatchStatus, ParentScope,
+    SourceLocation, TokenSite, UsageSite,
 };
 use wax_lang_api::{npm_import_package_root, resolve_import_aware_match};
 
@@ -20,16 +20,25 @@ use crate::component_detect::{
     class_returns_jsx, expression_returns_jsx, function_returns_jsx, is_pascal_case,
     module_export_name, simple_binding_ident,
 };
+use crate::component_scope::{
+    collect_component_definitions, parent_scope_for_component as parent_scope_for_component_def,
+};
 use crate::config::ReactScanConfig;
 use crate::module_graph::{ImportedSymbol, ReactModuleGraph};
 use crate::registry::ReactRegistryIndex;
+use crate::style_extract::collect_hardcoded_style_sites;
 use crate::swc_parse::ParsedReactModule;
+use crate::token_extract::collect_token_sites;
 
 /// JSX usage extraction output.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ReactUsageExtraction {
     /// Resolved registry-backed JSX usage sites.
     pub usage_sites: Vec<UsageSite>,
+    /// Exact token reference sites discovered in source.
+    pub token_sites: Vec<TokenSite>,
+    /// Hard-coded styling candidates discovered in JSX `style` props.
+    pub hardcoded_style_sites: Vec<HardcodedStyleSite>,
     /// Recoverable JSX usage diagnostics.
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -153,18 +162,7 @@ fn parent_scope_for_component(
     symbol: &str,
     span: Span,
 ) -> Option<ParentScope> {
-    let file = normalize_file(&parsed.file);
-    let module_identity = module_identity_for_file(&file);
-    let location = parsed.source_location_from_span(span)?;
-    Some(ParentScope {
-        parent_id: local_definition_id(&module_identity, symbol),
-        symbol: symbol.to_owned(),
-        qualified_symbol: Some(qualified_component_symbol(&module_identity, symbol)),
-        scope_kind: "component".to_owned(),
-        identity_basis: "module_path_and_symbol".to_owned(),
-        identity_stability: IdentityStability::PathSensitive,
-        location: Some(location),
-    })
+    parent_scope_for_component_def(parsed, symbol, span)
 }
 
 /// Collects registry-backed JSX usage sites from parsed modules.
@@ -185,7 +183,7 @@ pub fn collect_usage_sites(
             collect_jsx_usage_candidates_from_module_item(parsed, item, &mut candidates);
         }
 
-        for candidate in candidates {
+        for candidate in &candidates {
             if candidate.shadowed {
                 continue;
             }
@@ -204,7 +202,7 @@ pub fn collect_usage_sites(
                 extraction.usage_sites.push(UsageSite {
                     id: usage_site_id(&location, &candidate.symbol),
                     location,
-                    symbol: candidate.symbol,
+                    symbol: candidate.symbol.clone(),
                     qualified_symbol: local.qualified_symbol.clone(),
                     match_status: MatchStatus::Local,
                     registry_symbol: None,
@@ -212,12 +210,12 @@ pub fn collect_usage_sites(
                     parent,
                 });
             } else if let Some((registry_symbol, match_status)) =
-                classify_jsx_usage(parsed, module_graph, config, registry, &candidate)
+                classify_jsx_usage(parsed, module_graph, config, registry, candidate)
             {
                 extraction.usage_sites.push(UsageSite {
                     id: usage_site_id(&location, &candidate.symbol),
                     location,
-                    symbol: candidate.symbol,
+                    symbol: candidate.symbol.clone(),
                     qualified_symbol: None,
                     match_status,
                     registry_symbol: Some(registry_symbol),
@@ -233,7 +231,7 @@ pub fn collect_usage_sites(
                 extraction.usage_sites.push(UsageSite {
                     id: usage_site_id(&location, &candidate.symbol),
                     location,
-                    symbol: candidate.symbol,
+                    symbol: candidate.symbol.clone(),
                     qualified_symbol: local.qualified_symbol.clone(),
                     match_status: MatchStatus::Local,
                     registry_symbol: None,
@@ -245,13 +243,13 @@ pub fn collect_usage_sites(
                 module_graph,
                 config,
                 registry,
-                &candidate,
+                candidate,
                 &local_declared_bindings(parsed),
             ) {
                 extraction.usage_sites.push(UsageSite {
                     id: usage_site_id(&location, &candidate.symbol),
                     location,
-                    symbol: candidate.symbol,
+                    symbol: candidate.symbol.clone(),
                     qualified_symbol: None,
                     match_status: MatchStatus::Unresolved,
                     registry_symbol: None,
@@ -260,7 +258,34 @@ pub fn collect_usage_sites(
                 });
             }
         }
+
+        let components = collect_component_definitions(parsed);
+        extraction.token_sites.extend(collect_token_sites(
+            parsed,
+            &registry.token_index,
+            &components,
+        ));
+        extraction
+            .hardcoded_style_sites
+            .extend(collect_hardcoded_style_sites(parsed, &components));
     }
+
+    extraction.token_sites.sort_by(|left, right| {
+        left.location
+            .file
+            .cmp(&right.location.file)
+            .then(left.location.line.cmp(&right.location.line))
+            .then(left.location.column.cmp(&right.location.column))
+            .then(left.token_id.cmp(&right.token_id))
+    });
+    extraction.hardcoded_style_sites.sort_by(|left, right| {
+        left.location
+            .file
+            .cmp(&right.location.file)
+            .then(left.location.line.cmp(&right.location.line))
+            .then(left.location.column.cmp(&right.location.column))
+            .then(left.value.cmp(&right.value))
+    });
 
     extraction
 }
@@ -2368,6 +2393,8 @@ mod tests {
             design_system_components: Vec::new(),
             resolve_targets,
             component_packages,
+            design_system_tokens: Vec::new(),
+            token_index: Default::default(),
         }
     }
 
@@ -2376,7 +2403,185 @@ mod tests {
             design_system_components: Vec::new(),
             resolve_targets: BTreeMap::from([(symbol.to_owned(), symbol.to_owned())]),
             component_packages: BTreeMap::from([(symbol.to_owned(), Some(package.to_owned()))]),
+            design_system_tokens: Vec::new(),
+            token_index: Default::default(),
         }
+    }
+
+    fn registry_with_primary_token() -> ReactRegistryIndex {
+        let tokens = vec![wax_contract::DesignSystemToken {
+            id: "color.primary".to_owned(),
+            key: "theme.colors.primary".to_owned(),
+            category: wax_contract::TokenCategory::Color,
+            aliases: vec!["tokens.color.primary".to_owned()],
+        }];
+        let token_index = wax_lang_api::token_index(&tokens).expect("token index");
+        ReactRegistryIndex {
+            design_system_components: Vec::new(),
+            resolve_targets: BTreeMap::new(),
+            component_packages: BTreeMap::new(),
+            design_system_tokens: tokens,
+            token_index,
+        }
+    }
+
+    #[test]
+    fn token_parent_uses_smallest_containing_component_span() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "src/Screen.tsx",
+            r#"
+            export const Outer = () => {
+                function Inner() {
+                    const color = theme.colors.primary;
+                    return <div style={{ padding: 8 }}>{color}</div>;
+                }
+                return <Inner />;
+            };
+            const after = theme.colors.primary;
+            "#,
+        );
+
+        let extraction = fixture.extract_usage(
+            vec!["src/Screen.tsx"],
+            base_config(),
+            registry_with_primary_token(),
+        );
+
+        let inner_token = extraction
+            .token_sites
+            .iter()
+            .find(|site| {
+                site.parent
+                    .as_ref()
+                    .is_some_and(|parent| parent.symbol == "Inner")
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected Inner token parent, got {:?}",
+                    extraction.token_sites
+                )
+            });
+        assert_eq!(
+            inner_token
+                .parent
+                .as_ref()
+                .map(|parent| parent.symbol.as_str()),
+            Some("Inner")
+        );
+        let style = extraction
+            .hardcoded_style_sites
+            .iter()
+            .find(|site| site.category == wax_contract::TokenCategory::Spacing)
+            .expect("padding style");
+        assert_eq!(
+            style.parent.as_ref().map(|parent| parent.symbol.as_str()),
+            Some("Inner")
+        );
+        let module_token = extraction
+            .token_sites
+            .iter()
+            .find(|site| site.parent.is_none())
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected module-level token without parent, got {:?}",
+                    extraction.token_sites
+                )
+            });
+        assert!(module_token.parent.is_none());
+        assert_eq!(extraction.token_sites.len(), 2);
+    }
+
+    #[test]
+    fn arrow_intrinsic_style_gets_component_parent() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "src/Card.tsx",
+            r##"
+            export const Card = () => <div style={{ color: "#336699" }} />;
+            "##,
+        );
+
+        let extraction = fixture.extract_usage(
+            vec!["src/Card.tsx"],
+            base_config(),
+            registry_with_primary_token(),
+        );
+
+        let color = extraction
+            .hardcoded_style_sites
+            .iter()
+            .find(|site| site.category == wax_contract::TokenCategory::Color)
+            .expect("color style");
+        assert_eq!(
+            color.parent.as_ref().map(|parent| parent.symbol.as_str()),
+            Some("Card")
+        );
+    }
+
+    #[test]
+    fn token_extraction_ignores_comments_and_partial_identifiers() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "src/Tokens.tsx",
+            r#"
+            // theme.colors.primary should not count
+            export const Screen = () => {
+                const action = theme.colors.primaryAction;
+                const color = theme.colors.primary;
+                return <span>{action}{color}</span>;
+            };
+            "#,
+        );
+
+        let extraction = fixture.extract_usage(
+            vec!["src/Tokens.tsx"],
+            base_config(),
+            registry_with_primary_token(),
+        );
+
+        assert_eq!(extraction.token_sites.len(), 1);
+        assert_eq!(extraction.token_sites[0].key, "theme.colors.primary");
+        assert!(extraction.token_sites[0].parent.is_some());
+    }
+
+    #[test]
+    fn ts_wrapped_and_quoted_style_keys_emit_candidates() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "src/Styled.tsx",
+            r##"
+            export const Styled = () => (
+                <div
+                    style={{ padding: 8 } as React.CSSProperties}
+                />
+            );
+            export const Quoted = () => (
+                <div style={{ "color": "#fff" }} />
+            );
+            "##,
+        );
+
+        let extraction = fixture.extract_usage(
+            vec!["src/Styled.tsx"],
+            base_config(),
+            registry_with_primary_token(),
+        );
+
+        assert!(
+            extraction
+                .hardcoded_style_sites
+                .iter()
+                .any(|site| site.category == wax_contract::TokenCategory::Spacing
+                    && site.value == "8")
+        );
+        assert!(
+            extraction
+                .hardcoded_style_sites
+                .iter()
+                .any(|site| site.category == wax_contract::TokenCategory::Color
+                    && site.value == "\"#fff\"")
+        );
     }
 
     #[test]

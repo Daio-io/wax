@@ -1729,17 +1729,24 @@ git commit -m "feat: scan compose token facts"
 **Files:**
 - Modify: `engine/crates/wax-lang-react/src/registry.rs`
 - Modify: `engine/crates/wax-lang-react/src/extract.rs`
+- Modify: `engine/crates/wax-lang-react/src/facts.rs`
 - Modify: `engine/crates/wax-lang-react/src/lib.rs`
+- Modify: `engine/crates/wax-lang-react/src/swc_parse.rs`
+- Create: `engine/crates/wax-lang-react/src/component_scope.rs`
+- Create: `engine/crates/wax-lang-react/src/token_extract.rs`
+- Create: `engine/crates/wax-lang-react/src/style_extract.rs`
+- Modify: `engine/crates/wax-lang-react/Cargo.toml` (add `swc_ecma_visit`)
+- Modify: `engine/Cargo.toml` / `engine/Cargo.lock` (workspace `swc_ecma_visit`)
 - Modify: `engine/crates/wax-lang-react/tests/fixtures/small/design-system/registry.json`
 - Modify: `engine/crates/wax-lang-react/tests/fixtures/small/src/Sample.tsx`
 - Modify: `engine/crates/wax-lang-react/tests/fixtures/small/golden.json`
 - Modify: `engine/crates/wax-lang-react/tests/golden_small.rs`
 
 **Interfaces:**
-- Consumes: shared token registry parser from Task 2 and React parent attribution helpers in `extract.rs`
+- Consumes: shared token registry parser from Task 2 and React parent attribution via `component_scope`
 - Produces: React `design_system_tokens`, `token_sites`, and `hardcoded_style_sites`
 
-- [ ] **Step 1: Write failing React tests**
+- [x] **Step 1: Write failing React tests**
 
 Add assertions in `engine/crates/wax-lang-react/tests/golden_small.rs`:
 
@@ -1767,7 +1774,7 @@ assert!(
 );
 ```
 
-- [ ] **Step 2: Add React fixture registry tokens and source examples**
+- [x] **Step 2: Add React fixture registry tokens and source examples**
 
 Add to the React small registry:
 
@@ -1794,7 +1801,7 @@ const color = theme.colors.primary;
 return <div style={{ color: "#336699", padding: 8, borderRadius: 4 }}>{color}</div>;
 ```
 
-- [ ] **Step 3: Load tokens in React registry**
+- [x] **Step 3: Load tokens in React registry**
 
 Modify `ReactRegistryIndex` in `engine/crates/wax-lang-react/src/registry.rs`:
 
@@ -1805,7 +1812,7 @@ pub token_index: wax_lang_api::RegistryTokenIndex,
 
 In `load_react_registry`, after parsing `value`, call `parse_registry_tokens` and `token_index`, mapping errors into `RegistryError::invalid`.
 
-- [ ] **Step 4: Extend React extraction output**
+- [x] **Step 4: Extend React extraction output**
 
 Modify `ReactUsageExtraction`:
 
@@ -1814,29 +1821,17 @@ pub token_sites: Vec<wax_contract::TokenSite>,
 pub hardcoded_style_sites: Vec<wax_contract::HardcodedStyleSite>,
 ```
 
-In `collect_usage_sites`, for each `ParsedReactModule`, scan source text using `find_token_matches` and then attach parent attribution by comparing token site line ranges to collected component spans. Add helper:
+In `collect_usage_sites`, for each `ParsedReactModule`:
 
-```rust
-fn parent_for_line(
-    parsed: &ParsedReactModule,
-    candidates: &[ReactUsageCandidate],
-    line: u32,
-) -> Option<ParentScope> {
-    candidates
-        .iter()
-        .filter_map(|candidate| {
-            let (name, span) = candidate.parent_component.as_ref()?;
-            let parent = parent_scope_for_component(parsed, name, *span)?;
-            let start = parsed.source_location_from_span(*span)?.line;
-            (start <= line).then_some(parent)
-        })
-        .last()
-}
-```
+1. Build a component-definition span index (including `forwardRef` / `memo` wrappers) and attribute parents with the smallest span that fully contains each fact.
+2. Collect token sites with an SWC visitor that looks up the **exact source slice** of peeled member/ident expressions in the registry token index (not reconstructed dotted paths, and not the basic-pack `find_token_matches` helper).
+3. Collect hard-coded style sites with an SWC visitor over JSX `style` attributes whose value peels to an object literal.
 
-- [ ] **Step 5: Detect React hard-coded style candidates**
+Parent attribution and token/style extraction live in focused modules (`component_scope`, `token_extract`, `style_extract`) rather than additional hand-written walkers in `extract.rs`.
 
-In `engine/crates/wax-lang-react/src/extract.rs`, add extraction over JSX attributes named `style`. For object literal properties, emit:
+- [x] **Step 5: Detect React hard-coded style candidates**
+
+In React style extraction, scan JSX attributes named `style` whose expression peels to an object literal (including TypeScript assertion wrappers). For object literal properties, emit:
 
 ```rust
 color | backgroundColor | borderColor -> TokenCategory::Color
@@ -1854,7 +1849,7 @@ Emit `HardcodedStyleSite` when the property value is:
 
 Use the property's span for location and source slice for `value`.
 
-- [ ] **Step 6: Populate React `ScanFacts`**
+- [x] **Step 6: Populate React `ScanFacts`**
 
 Modify the React language wrapper to include:
 
@@ -1867,7 +1862,7 @@ token_usage_summary: vec![],
 
 Modify scaffold facts to use empty token vectors.
 
-- [ ] **Step 7: Update React golden fixture**
+- [x] **Step 7: Update React golden fixture**
 
 Run:
 
@@ -1880,7 +1875,7 @@ Expected: golden diff includes React token fields.
 
 Update `engine/crates/wax-lang-react/tests/fixtures/small/golden.json`.
 
-- [ ] **Step 8: Run focused React checks**
+- [x] **Step 8: Run focused React checks**
 
 Run:
 
@@ -1892,10 +1887,16 @@ cargo test -p wax-lang-react
 
 Expected: `cargo test -p wax-lang-react` passes.
 
-- [ ] **Step 9: Commit Task 6**
+- [x] **Step 9: Commit Task 6**
 
 ```bash
-git add engine/crates/wax-lang-react/src/registry.rs engine/crates/wax-lang-react/src/extract.rs engine/crates/wax-lang-react/src/lib.rs engine/crates/wax-lang-react/tests/fixtures/small engine/crates/wax-lang-react/tests/golden_small.rs
+git add engine/Cargo.toml engine/Cargo.lock \
+  engine/crates/wax-lang-react/Cargo.toml \
+  engine/crates/wax-lang-react/src \
+  engine/crates/wax-lang-react/tests/fixtures/small \
+  engine/crates/wax-lang-react/tests/golden_small.rs \
+  docs/plans/2026-07-03-token-scanning-plan.md \
+  docs/specs/2026-07-03-token-scanning-design.md
 git commit -m "feat: scan react token facts"
 ```
 

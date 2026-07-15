@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 /// SWC parser crate version from `workspace.dependencies.swc_ecma_parser` in `engine/Cargo.toml`.
 pub const SWC_PARSER_VERSION: &str = env!("SWC_PARSER_VERSION");
 
-use swc_common::{FileName, SourceMap, Span, Spanned, sync::Lrc};
+use swc_common::{FileName, SourceMap, SourceMapper, Span, Spanned, sync::Lrc};
 use swc_ecma_ast::{EsVersion, Module};
 use swc_ecma_parser::{
     EsSyntax, Parser, StringInput, Syntax, TsSyntax, error::SyntaxError, lexer::Lexer,
@@ -27,6 +27,8 @@ pub enum ReactParseOutcome {
 pub struct ParsedReactModule {
     /// Repo-relative file path for the parsed module.
     pub file: PathBuf,
+    /// Original source text for the module.
+    pub source: String,
     /// SWC module AST for the source file.
     pub module: Module,
     source_map: Lrc<SourceMap>,
@@ -37,6 +39,15 @@ impl ParsedReactModule {
     #[must_use]
     pub fn source_location_from_span(&self, span: Span) -> Option<SourceLocation> {
         source_location_from_span(&self.source_map, span, &self.file)
+    }
+
+    /// Returns the exact source slice covered by `span`, when available.
+    #[must_use]
+    pub fn source_slice_from_span(&self, span: Span) -> Option<String> {
+        if span.is_dummy() {
+            return None;
+        }
+        self.source_map.span_to_snippet(span).ok()
     }
 }
 
@@ -106,7 +117,7 @@ pub fn parse_react_source_file(
     let source_map: Lrc<SourceMap> = Default::default();
     let source_file = source_map.new_source_file(
         FileName::Custom(normalize_repo_relative_path(relative_path)).into(),
-        source,
+        source.clone(),
     );
 
     let lexer = Lexer::new(
@@ -128,6 +139,7 @@ pub fn parse_react_source_file(
 
             Ok(ReactParseOutcome::Parsed(ParsedReactModule {
                 file: relative_path.to_path_buf(),
+                source,
                 module,
                 source_map,
             }))
