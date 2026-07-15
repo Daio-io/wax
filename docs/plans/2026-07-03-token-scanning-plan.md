@@ -1433,7 +1433,7 @@ git commit -m "feat: report token scan metrics"
 - Consumes: shared token registry parser from Task 2 and token contract types from Task 1
 - Produces: Compose `design_system_tokens`, `token_sites`, and `hardcoded_style_sites`
 
-- [ ] **Step 1: Write failing Compose tests**
+- [x] **Step 1: Write failing Compose tests**
 
 Add assertions in `engine/crates/wax-lang-compose/tests/golden_small.rs`:
 
@@ -1463,7 +1463,7 @@ assert!(
 
 Expected before implementation: assertions fail because Compose does not emit token facts.
 
-- [ ] **Step 2: Add Compose fixture registry tokens**
+- [x] **Step 2: Add Compose fixture registry tokens**
 
 In `engine/crates/wax-lang-compose/tests/fixtures/small/design-system/registry.json`, add:
 
@@ -1490,7 +1490,7 @@ val primary = Theme.colors.primary
 Box(Modifier.padding(8.dp).background(Color(0xFF336699)))
 ```
 
-- [ ] **Step 3: Load tokens in Compose registry**
+- [x] **Step 3: Load tokens in Compose registry**
 
 Modify imports in `engine/crates/wax-lang-compose/src/tree_sitter_scan.rs` to include:
 
@@ -1544,7 +1544,7 @@ Ok(RegistryIndex {
 })
 ```
 
-- [ ] **Step 4: Add Compose hard-coded candidate extraction**
+- [x] **Step 4: Add Compose hard-coded candidate extraction**
 
 Add a helper:
 
@@ -1614,7 +1614,7 @@ fn compose_style_category(call_symbol: &str) -> Option<TokenCategory> {
 
 Use `node.utf8_text(source).ok()` to inspect the call expression text and select the first matching token by whitespace splitting and punctuation trimming.
 
-- [ ] **Step 5: Emit Compose token facts during scan**
+- [x] **Step 5: Emit Compose token facts during scan**
 
 In the per-file scan loop, after reading `source` and obtaining `root`, call:
 
@@ -1677,7 +1677,7 @@ fn extract_token_sites_from_source(
 
 Do not call `find_token_matches` for Compose; parser-backed extraction is required so parent assertions from Step 1 pass.
 
-- [ ] **Step 6: Populate Compose `ScanFacts`**
+- [x] **Step 6: Populate Compose `ScanFacts`**
 
 Modify the Compose language wrapper that turns `TreeSitterScanResult` into `ScanFacts` to include:
 
@@ -1690,7 +1690,7 @@ token_usage_summary: vec![],
 
 Modify scaffold facts to use empty token vectors.
 
-- [ ] **Step 7: Update Compose golden fixture**
+- [x] **Step 7: Update Compose golden fixture**
 
 Run:
 
@@ -1703,7 +1703,7 @@ Expected: test fails with a golden diff containing Compose token fields.
 
 Update `engine/crates/wax-lang-compose/tests/fixtures/small/golden.json` with deterministic output.
 
-- [ ] **Step 8: Run focused Compose checks**
+- [x] **Step 8: Run focused Compose checks**
 
 Run:
 
@@ -1715,7 +1715,7 @@ cargo test -p wax-lang-compose
 
 Expected: `cargo test -p wax-lang-compose` passes.
 
-- [ ] **Step 9: Commit Task 5**
+- [x] **Step 9: Commit Task 5**
 
 ```bash
 git add engine/crates/wax-lang-compose/src/tree_sitter_scan.rs engine/crates/wax-lang-compose/tests/fixtures/small engine/crates/wax-lang-compose/tests/golden_small.rs
