@@ -3,6 +3,7 @@
 #![deny(missing_docs)]
 
 mod component_detect;
+mod component_scope;
 mod config;
 mod diagnostics;
 mod discover;
@@ -11,7 +12,9 @@ mod facts;
 mod files;
 mod module_graph;
 mod registry;
+mod style_extract;
 mod swc_parse;
+mod token_extract;
 
 use std::path::Path;
 

@@ -1814,29 +1814,17 @@ pub token_sites: Vec<wax_contract::TokenSite>,
 pub hardcoded_style_sites: Vec<wax_contract::HardcodedStyleSite>,
 ```
 
-In `collect_usage_sites`, for each `ParsedReactModule`, scan source text using `find_token_matches` and then attach parent attribution by comparing token site line ranges to collected component spans. Add helper:
+In `collect_usage_sites`, for each `ParsedReactModule`:
 
-```rust
-fn parent_for_line(
-    parsed: &ParsedReactModule,
-    candidates: &[ReactUsageCandidate],
-    line: u32,
-) -> Option<ParentScope> {
-    candidates
-        .iter()
-        .filter_map(|candidate| {
-            let (name, span) = candidate.parent_component.as_ref()?;
-            let parent = parent_scope_for_component(parsed, name, *span)?;
-            let start = parsed.source_location_from_span(*span)?.line;
-            (start <= line).then_some(parent)
-        })
-        .last()
-}
-```
+1. Build a component-definition span index (including `forwardRef` / `memo` wrappers) and attribute parents with the smallest span that fully contains each fact.
+2. Collect token sites with an SWC visitor that looks up the **exact source slice** of peeled member/ident expressions in the registry token index (not reconstructed dotted paths, and not the basic-pack `find_token_matches` helper).
+3. Collect hard-coded style sites with an SWC visitor over JSX `style` attributes whose value peels to an object literal.
+
+Parent attribution and token/style extraction live in focused modules (`component_scope`, `token_extract`, `style_extract`) rather than additional hand-written walkers in `extract.rs`.
 
 - [x] **Step 5: Detect React hard-coded style candidates**
 
-In `engine/crates/wax-lang-react/src/extract.rs`, add extraction over JSX attributes named `style`. For object literal properties, emit:
+In React style extraction, scan JSX attributes named `style` whose expression peels to an object literal (including TypeScript assertion wrappers). For object literal properties, emit:
 
 ```rust
 color | backgroundColor | borderColor -> TokenCategory::Color
