@@ -534,8 +534,11 @@ fn is_framework_swiftui_symbol(symbol: &str) -> bool {
         symbol,
         "AnyView"
             | "Button"
+            | "Capsule"
+            | "Circle"
             | "Color"
             | "Divider"
+            | "Ellipse"
             | "EmptyView"
             | "ForEach"
             | "Form"
@@ -552,6 +555,8 @@ fn is_framework_swiftui_symbol(symbol: &str) -> bool {
             | "NavigationStack"
             | "Picker"
             | "ProgressView"
+            | "Rectangle"
+            | "RoundedRectangle"
             | "ScrollView"
             | "Section"
             | "Slider"
@@ -559,6 +564,7 @@ fn is_framework_swiftui_symbol(symbol: &str) -> bool {
             | "Text"
             | "TextField"
             | "Toggle"
+            | "UnevenRoundedRectangle"
             | "VStack"
             | "ZStack"
     )
@@ -792,34 +798,78 @@ fn collect_hardcoded_literals_from_call(
     }
 
     let callee_category = swift_style_category(&call_site.symbol);
-    if let Some(arguments) = call_argument_node(node) {
-        collect_style_literals_in_arguments(arguments, source, callee_category, out);
+    let allows_style_labels =
+        callee_category.is_some() || is_swiftui_style_label_callee(&call_site.symbol);
+    // Non-styling calls must not emit hard-coded style candidates from labeled args such as
+    // `analytics.record(size: 14)`.
+    if callee_category.is_none() && !allows_style_labels {
+        return;
     }
+
+    if let Some(arguments) = call_argument_node(node) {
+        collect_style_literals_in_arguments(
+            arguments,
+            source,
+            callee_category,
+            allows_style_labels,
+            out,
+        );
+    }
+}
+
+/// SwiftUI callees that accept layout/style labels even when they are not themselves style
+/// modifiers (e.g. `VStack(spacing:)`, `RoundedRectangle(cornerRadius:)`, `.system(size:)`).
+fn is_swiftui_style_label_callee(symbol: &str) -> bool {
+    matches!(
+        symbol,
+        "VStack"
+            | "HStack"
+            | "ZStack"
+            | "LazyVStack"
+            | "LazyHStack"
+            | "LazyVGrid"
+            | "LazyHGrid"
+            | "Grid"
+            | "GridRow"
+            | "RoundedRectangle"
+            | "UnevenRoundedRectangle"
+            | "Rectangle"
+            | "Circle"
+            | "Ellipse"
+            | "Capsule"
+            | "system"
+            | "custom"
+    )
 }
 
 fn collect_style_literals_in_arguments(
     node: tree_sitter::Node<'_>,
     source: &[u8],
     inherited_category: Option<TokenCategory>,
+    allows_style_labels: bool,
     out: &mut Vec<HardcodedLiteral>,
 ) {
     let mut stack = vec![node];
     while let Some(current) = stack.pop() {
-        // Nested Color(...) is emitted when that call is visited; skip diving into it here.
-        if current.kind() == "call_expression"
-            && resolve_call_site(current, source).is_some_and(|site| site.symbol == "Color")
-        {
+        // Nested calls establish their own style context and are visited independently.
+        if current.kind() == "call_expression" {
             continue;
         }
 
         if let Some((label, value_node)) = labeled_argument_parts(current, source) {
-            let category = style_label_category(&label).or(inherited_category);
-            if let Some(category) = category
-                && let Some(literal) = literal_from_style_value(value_node, source, category)
-            {
-                out.push(literal);
+            // Nested call values belong to the nested call, not this enclosing traversal.
+            if !value_contains_call_expression(value_node) {
+                let category = if allows_style_labels {
+                    style_label_category(&label).or(inherited_category)
+                } else {
+                    inherited_category
+                };
+                if let Some(category) = category
+                    && let Some(literal) = literal_from_style_value(value_node, source, category)
+                {
+                    out.push(literal);
+                }
             }
-            // Continue walking so nested calls inside labeled values are still explored.
         } else if let Some(category) = inherited_category
             && let Some(literal) = bare_literal_node(current, source, category)
         {
@@ -828,10 +878,28 @@ fn collect_style_literals_in_arguments(
 
         for i in (0..current.child_count()).rev() {
             if let Some(child) = current.child(i) {
+                if child.kind() == "call_expression" {
+                    continue;
+                }
                 stack.push(child);
             }
         }
     }
+}
+
+fn value_contains_call_expression(node: tree_sitter::Node<'_>) -> bool {
+    let mut stack = vec![node];
+    while let Some(current) = stack.pop() {
+        if current.kind() == "call_expression" {
+            return true;
+        }
+        for i in 0..current.child_count() {
+            if let Some(child) = current.child(i) {
+                stack.push(child);
+            }
+        }
+    }
+    false
 }
 
 fn labeled_argument_parts<'a>(
@@ -892,12 +960,10 @@ fn literal_from_style_value(
     if let Some(literal) = bare_literal_node(node, source, category) {
         return Some(literal);
     }
-    // Peel simple wrappers / member access off literals such as `.system(size: 14)` handled via labels.
+    // Peel non-call wrappers only; nested calls own their own literals.
     let mut stack = vec![node];
     while let Some(current) = stack.pop() {
-        if current.kind() == "call_expression"
-            && resolve_call_site(current, source).is_some_and(|site| site.symbol == "Color")
-        {
+        if current.kind() == "call_expression" {
             continue;
         }
         if let Some(literal) = bare_literal_node(current, source, category) {
@@ -905,6 +971,9 @@ fn literal_from_style_value(
         }
         for i in (0..current.child_count()).rev() {
             if let Some(child) = current.child(i) {
+                if child.kind() == "call_expression" {
+                    continue;
+                }
                 stack.push(child);
             }
         }
@@ -1147,6 +1216,19 @@ fn resolve_call_site_from_callee(
                 symbol: name,
                 qualifier: None,
                 position: node.start_position(),
+            })
+        }
+        "prefix_expression" => {
+            // Implicit member expressions such as `.system(size: 14)`.
+            let mut cursor = node.walk();
+            let member = node
+                .named_children(&mut cursor)
+                .find(|child| child.kind() == "simple_identifier")?;
+            let name = member.utf8_text(source).ok()?.to_owned();
+            Some(ResolvedCallSite {
+                symbol: name,
+                qualifier: None,
+                position: member.start_position(),
             })
         }
         "navigation_expression" => {
@@ -2073,6 +2155,53 @@ struct Screen: View {
         ranges.sort();
         ranges.dedup();
         assert_eq!(before, ranges.len(), "duplicate hardcoded sites: {sites:?}");
+    }
+
+    #[test]
+    fn non_style_callees_do_not_emit_from_style_shaped_labels() {
+        let source = r#"
+import SwiftUI
+struct Screen: View {
+    var body: some View {
+        Text("Hi")
+    }
+}
+func track() {
+    analytics.record(size: 14)
+}
+"#;
+        let sites = extract_hardcoded(source);
+        assert!(
+            sites
+                .iter()
+                .all(|s| !(s.category == TokenCategory::Typography && s.value == "14")),
+            "non-style callee labels must not emit style candidates: {sites:?}"
+        );
+    }
+
+    #[test]
+    fn nested_style_call_keeps_its_own_category() {
+        let source = r#"
+import SwiftUI
+struct Screen: View {
+    var body: some View {
+        Text("Hi").background(Rectangle().frame(width: 8))
+    }
+}
+"#;
+        let sites = extract_hardcoded(source);
+        assert!(
+            sites
+                .iter()
+                .any(|s| s.category == TokenCategory::Spacing && s.value == "8"),
+            "nested frame(width: 8) should remain Spacing: {sites:?}"
+        );
+        assert!(
+            sites
+                .iter()
+                .all(|s| !(s.value == "8" && s.category == TokenCategory::Color)),
+            "outer background must not reclassify nested spacing literal: {sites:?}"
+        );
     }
 
     #[test]
