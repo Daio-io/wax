@@ -1729,14 +1729,21 @@ git commit -m "feat: scan compose token facts"
 **Files:**
 - Modify: `engine/crates/wax-lang-react/src/registry.rs`
 - Modify: `engine/crates/wax-lang-react/src/extract.rs`
+- Modify: `engine/crates/wax-lang-react/src/facts.rs`
 - Modify: `engine/crates/wax-lang-react/src/lib.rs`
+- Modify: `engine/crates/wax-lang-react/src/swc_parse.rs`
+- Create: `engine/crates/wax-lang-react/src/component_scope.rs`
+- Create: `engine/crates/wax-lang-react/src/token_extract.rs`
+- Create: `engine/crates/wax-lang-react/src/style_extract.rs`
+- Modify: `engine/crates/wax-lang-react/Cargo.toml` (add `swc_ecma_visit`)
+- Modify: `engine/Cargo.toml` / `engine/Cargo.lock` (workspace `swc_ecma_visit`)
 - Modify: `engine/crates/wax-lang-react/tests/fixtures/small/design-system/registry.json`
 - Modify: `engine/crates/wax-lang-react/tests/fixtures/small/src/Sample.tsx`
 - Modify: `engine/crates/wax-lang-react/tests/fixtures/small/golden.json`
 - Modify: `engine/crates/wax-lang-react/tests/golden_small.rs`
 
 **Interfaces:**
-- Consumes: shared token registry parser from Task 2 and React parent attribution helpers in `extract.rs`
+- Consumes: shared token registry parser from Task 2 and React parent attribution via `component_scope`
 - Produces: React `design_system_tokens`, `token_sites`, and `hardcoded_style_sites`
 
 - [x] **Step 1: Write failing React tests**
@@ -1883,7 +1890,13 @@ Expected: `cargo test -p wax-lang-react` passes.
 - [x] **Step 9: Commit Task 6**
 
 ```bash
-git add engine/crates/wax-lang-react/src/registry.rs engine/crates/wax-lang-react/src/extract.rs engine/crates/wax-lang-react/src/lib.rs engine/crates/wax-lang-react/tests/fixtures/small engine/crates/wax-lang-react/tests/golden_small.rs
+git add engine/Cargo.toml engine/Cargo.lock \
+  engine/crates/wax-lang-react/Cargo.toml \
+  engine/crates/wax-lang-react/src \
+  engine/crates/wax-lang-react/tests/fixtures/small \
+  engine/crates/wax-lang-react/tests/golden_small.rs \
+  docs/plans/2026-07-03-token-scanning-plan.md \
+  docs/specs/2026-07-03-token-scanning-design.md
 git commit -m "feat: scan react token facts"
 ```
 

@@ -208,4 +208,51 @@ mod tests {
             Some("Card")
         );
     }
+
+    #[test]
+    fn default_exported_forward_ref_parents_token_and_style() {
+        let hold = parse(
+            r##"
+            import { forwardRef } from "react";
+            export default forwardRef(function Card() {
+                const color = theme.colors.primary;
+                return <div style={{ color: "#fff" }}>{color}</div>;
+            });
+            "##,
+        );
+        let components = collect_component_definitions(&hold.parsed);
+        let sites = collect_token_sites(&hold.parsed, &primary_registry().token_index, &components);
+        assert_eq!(sites.len(), 1);
+        assert_eq!(
+            sites[0]
+                .parent
+                .as_ref()
+                .map(|parent| parent.symbol.as_str()),
+            Some("Card")
+        );
+    }
+
+    #[test]
+    fn memo_comparator_token_is_not_attributed_to_card() {
+        let hold = parse(
+            r##"
+            import { memo } from "react";
+            export const Card = memo(
+                () => <div />,
+                () => {
+                    const auditColor = theme.colors.primary;
+                    return true;
+                },
+            );
+            "##,
+        );
+        let components = collect_component_definitions(&hold.parsed);
+        let sites = collect_token_sites(&hold.parsed, &primary_registry().token_index, &components);
+        assert_eq!(sites.len(), 1);
+        assert!(
+            sites[0].parent.is_none(),
+            "comparator token must not inherit Card parent: {:?}",
+            sites[0].parent
+        );
+    }
 }

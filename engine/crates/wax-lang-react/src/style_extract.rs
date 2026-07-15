@@ -244,4 +244,26 @@ mod tests {
             Some("Card")
         );
     }
+
+    #[test]
+    fn default_exported_forward_ref_styles_get_parent() {
+        let hold = parse(
+            r##"
+            import { forwardRef } from "react";
+            export default forwardRef(function Card() {
+                return <div style={{ color: "#fff" }} />;
+            });
+            "##,
+        );
+        let components = collect_component_definitions(&hold.parsed);
+        let sites = collect_hardcoded_style_sites(&hold.parsed, &components);
+        assert_eq!(sites.len(), 1);
+        assert_eq!(
+            sites[0]
+                .parent
+                .as_ref()
+                .map(|parent| parent.symbol.as_str()),
+            Some("Card")
+        );
+    }
 }

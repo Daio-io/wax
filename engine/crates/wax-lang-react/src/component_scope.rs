@@ -118,44 +118,77 @@ impl Visit for ComponentDefinitionCollector {
     }
 
     fn visit_module_item(&mut self, node: &ModuleItem) {
-        if let ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultDecl(default_decl)) = node {
-            match &default_decl.decl {
-                DefaultDecl::Fn(fn_expr) => {
-                    let name = fn_expr
-                        .ident
-                        .as_ref()
-                        .map(|ident| ident.sym.to_string())
-                        .unwrap_or_else(|| "default".to_owned());
-                    if is_pascal_case(&name) && function_returns_jsx(&fn_expr.function) {
-                        self.out.push(ComponentDefinition {
-                            name,
-                            span: fn_expr.function.span,
-                        });
+        match node {
+            ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultDecl(default_decl)) => {
+                match &default_decl.decl {
+                    DefaultDecl::Fn(fn_expr) => {
+                        let name = fn_expr
+                            .ident
+                            .as_ref()
+                            .map(|ident| ident.sym.to_string())
+                            .unwrap_or_else(|| "default".to_owned());
+                        if is_pascal_case(&name) && function_returns_jsx(&fn_expr.function) {
+                            self.out.push(ComponentDefinition {
+                                name,
+                                span: fn_expr.function.span,
+                            });
+                        }
                     }
-                }
-                DefaultDecl::Class(class_expr) => {
-                    let name = class_expr
-                        .ident
-                        .as_ref()
-                        .map(|ident| ident.sym.to_string())
-                        .unwrap_or_else(|| "default".to_owned());
-                    if is_pascal_case(&name) && class_returns_jsx(&class_expr.class) {
-                        self.out.push(ComponentDefinition {
-                            name,
-                            span: class_expr.class.span,
-                        });
+                    DefaultDecl::Class(class_expr) => {
+                        let name = class_expr
+                            .ident
+                            .as_ref()
+                            .map(|ident| ident.sym.to_string())
+                            .unwrap_or_else(|| "default".to_owned());
+                        if is_pascal_case(&name) && class_returns_jsx(&class_expr.class) {
+                            self.out.push(ComponentDefinition {
+                                name,
+                                span: class_expr.class.span,
+                            });
+                        }
                     }
+                    _ => {}
                 }
-                _ => {}
             }
+            ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultExpr(default_expr)) => {
+                if let Some(definition) = default_export_definition(&default_expr.expr) {
+                    self.out.push(definition);
+                }
+            }
+            _ => {}
         }
         node.visit_children_with(self);
+    }
+}
+
+fn default_export_definition(expr: &Expr) -> Option<ComponentDefinition> {
+    let span = component_initializer_span(expr)?;
+    let name = named_component_from_expr(expr).unwrap_or_else(|| "default".to_owned());
+    if name != "default" && !is_pascal_case(&name) {
+        return None;
+    }
+    Some(ComponentDefinition { name, span })
+}
+
+fn named_component_from_expr(expr: &Expr) -> Option<String> {
+    match peel_expr(expr) {
+        Expr::Fn(fn_expr) => {
+            let name = fn_expr.ident.as_ref()?.sym.to_string();
+            is_pascal_case(&name).then_some(name)
+        }
+        Expr::Call(call) if is_wrapper_callee(&call.callee) => {
+            named_component_from_expr(&call.args.first()?.expr)
+        }
+        _ => None,
     }
 }
 
 fn component_initializer_span(expr: &Expr) -> Option<Span> {
     let peeled = peel_expr(expr);
     if expression_returns_jsx(peeled) {
+        return Some(peeled.span());
+    }
+    if function_expr_returns_jsx(peeled) {
         return Some(peeled.span());
     }
     wrapper_component_span(peeled)
@@ -169,10 +202,9 @@ fn wrapper_component_span(expr: &Expr) -> Option<Span> {
         return None;
     }
     let arg = call.args.first()?;
-    if component_initializer_span(&arg.expr).is_some() || function_expr_returns_jsx(&arg.expr) {
-        return Some(call.span());
-    }
-    None
+    // Scope only the render/component argument — not memo comparators or other
+    // trailing callback arguments.
+    component_initializer_span(&arg.expr)
 }
 
 fn function_expr_returns_jsx(expr: &Expr) -> bool {
@@ -271,6 +303,55 @@ mod tests {
         assert!(
             components.iter().any(|component| component.name == "Card"),
             "{components:?}"
+        );
+    }
+
+    #[test]
+    fn default_exported_forward_ref_is_collected() {
+        let hold = parse(
+            r##"
+            import { forwardRef } from "react";
+            export default forwardRef(function Card() {
+                return <div />;
+            });
+            "##,
+        );
+        let components = collect_component_definitions(&hold.parsed);
+        assert!(
+            components.iter().any(|component| component.name == "Card"),
+            "{components:?}"
+        );
+    }
+
+    #[test]
+    fn memo_wrapper_span_excludes_comparator_argument() {
+        let hold = parse(
+            r##"
+            import { memo } from "react";
+            export const Card = memo(
+                () => <div />,
+                () => {
+                    const auditColor = theme.colors.primary;
+                    return true;
+                },
+            );
+            "##,
+        );
+        let components = collect_component_definitions(&hold.parsed);
+        let card = components
+            .iter()
+            .find(|component| component.name == "Card")
+            .expect("Card definition");
+        let comparator_token = hold
+            .parsed
+            .source
+            .find("theme.colors.primary")
+            .expect("comparator token text");
+        let token_lo = u32::try_from(comparator_token).unwrap();
+        assert!(
+            card.span.hi().0 <= token_lo || token_lo < card.span.lo().0,
+            "comparator body must fall outside Card span ({:?} vs token@{token_lo})",
+            card.span
         );
     }
 }
