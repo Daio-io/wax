@@ -2125,7 +2125,7 @@ git commit -m "feat: scan swift token facts"
 - Consumes: completed implementation from Tasks 1-7
 - Produces: plan checkboxes, design links, and broad verification evidence
 
-- [ ] **Step 1: Update design cross-links**
+- [x] **Step 1: Update design cross-links**
 
 In `docs/specs/2026-05-13-component-tracker-design.md`, add a sentence after the token definition paragraph:
 
@@ -2145,11 +2145,11 @@ In `docs/specs/2026-07-03-token-scanning-design.md`, keep this implementation pl
 **Implementation plan:** [`docs/plans/2026-07-03-token-scanning-plan.md`](../plans/2026-07-03-token-scanning-plan.md)
 ```
 
-- [ ] **Step 2: Tick completed plan checkboxes**
+- [x] **Step 2: Tick completed plan checkboxes**
 
 In `docs/plans/2026-07-03-token-scanning-plan.md`, change each completed implementation step from `- [ ]` to `- [x]`.
 
-- [ ] **Step 3: Run broad workspace verification**
+- [x] **Step 3: Run broad workspace verification**
 
 Run:
 
@@ -2162,7 +2162,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 Expected: all three commands pass.
 
-- [ ] **Step 4: Inspect git status**
+- [x] **Step 4: Inspect git status**
 
 Run:
 
@@ -2172,7 +2172,7 @@ git status --short
 
 Expected: only files intentionally modified by the token scanning work are listed. Existing unrelated untracked files such as `docs/icon-explorations/` must remain unstaged unless the user explicitly asks to include them.
 
-- [ ] **Step 5: Commit Task 8**
+- [x] **Step 5: Commit Task 8**
 
 ```bash
 git add docs/specs/2026-05-13-component-tracker-design.md docs/specs/2026-06-20-adoption-metrics-v2-design.md docs/specs/2026-07-03-token-scanning-design.md docs/plans/2026-07-03-token-scanning-plan.md
