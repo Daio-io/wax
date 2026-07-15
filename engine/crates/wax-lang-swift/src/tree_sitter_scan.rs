@@ -5,8 +5,9 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use wax_contract::{
-    DesignSystemComponent, Diagnostic, DiagnosticSeverity, IdentityStability, LocalComponent,
-    MatchStatus, ParentScope, ScanStatus, SourceLocation, UsageSite,
+    DesignSystemComponent, DesignSystemToken, Diagnostic, DiagnosticSeverity, HardcodedStyleSite,
+    IdentityStability, LocalComponent, MatchStatus, ParentScope, ScanStatus, SourceLocation,
+    TokenCategory, TokenSite, UsageSite,
 };
 
 use crate::component_detect::{
@@ -18,8 +19,8 @@ use crate::swift_ast::{
     unparseable_file_diagnostic,
 };
 use wax_lang_api::{
-    RootPatternKind, RootResolutionError, ScanConfig, resolve_import_aware_match,
-    resolve_source_roots, swift_module_from_source_path,
+    RegistryTokenIndex, RootPatternKind, RootResolutionError, ScanConfig, parse_registry_tokens,
+    resolve_import_aware_match, resolve_source_roots, swift_module_from_source_path, token_index,
 };
 
 /// Parsed Swift scan configuration from the engine request payload.
@@ -230,6 +231,12 @@ pub struct TreeSitterScanResult {
     pub local_components: Vec<LocalComponent>,
     /// Usage sites matched against the registry.
     pub usage_sites: Vec<UsageSite>,
+    /// Known design-system tokens from the registry file.
+    pub design_system_tokens: Vec<DesignSystemToken>,
+    /// Known token references matched in source.
+    pub token_sites: Vec<TokenSite>,
+    /// Hard-coded styling candidates discovered in source.
+    pub hardcoded_style_sites: Vec<HardcodedStyleSite>,
     /// Number of Swift files scanned.
     pub files_scanned: u32,
     /// Diagnostics emitted during the scan.
@@ -242,6 +249,8 @@ struct RegistryIndex {
     canonical_symbols: Vec<String>,
     resolve_targets: BTreeMap<String, String>,
     component_packages: BTreeMap<String, Option<String>>,
+    tokens: Vec<DesignSystemToken>,
+    token_index: RegistryTokenIndex,
 }
 
 fn load_registry(path: &Path) -> Result<RegistryIndex, TreeSitterScanError> {
@@ -334,10 +343,23 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, TreeSitterScanError> {
     }
 
     canonical_symbols.sort();
+
+    let tokens =
+        parse_registry_tokens(&value).map_err(|err| TreeSitterScanError::RegistryInvalid {
+            path: path.to_path_buf(),
+            reason: err.to_string(),
+        })?;
+    let token_index = token_index(&tokens).map_err(|err| TreeSitterScanError::RegistryInvalid {
+        path: path.to_path_buf(),
+        reason: err.to_string(),
+    })?;
+
     Ok(RegistryIndex {
         canonical_symbols,
         resolve_targets,
         component_packages,
+        tokens,
+        token_index,
     })
 }
 
@@ -563,6 +585,7 @@ fn extract_usage_from_source(
     registry: &RegistryIndex,
     local_index: &LocalViewIndex,
     usage_sites: &mut Vec<UsageSite>,
+    hardcoded_style_sites: &mut Vec<HardcodedStyleSite>,
 ) {
     let (module_identity, semantic_module) = module_identity_for_file(file);
     let imports = collect_import_bindings(root, source);
@@ -571,63 +594,98 @@ fn extract_usage_from_source(
     while let Some(node) = stack.pop() {
         if is_call_expression_node(node)
             && let Some(call_site) = resolve_call_site(node, source)
-            && is_pascal_case_symbol(&call_site.symbol)
         {
-            let line = call_site.position.row as u32 + 1;
-            let column = call_site.position.column as u32 + 1;
-            let location = SourceLocation {
-                file: file.to_owned(),
-                line,
-                column: Some(column),
-            };
-            let parent = nearest_enclosing_view(node, source).map(|(name, parent_pos)| {
-                parent_scope_for_view(file, &module_identity, semantic_module, &name, parent_pos)
-            });
+            if let Some(category) = swift_style_category(&call_site.symbol)
+                && let Some(value) = hardcoded_style_value_from_call(node, source, category)
+            {
+                let line = call_site.position.row as u32 + 1;
+                let column = call_site.position.column as u32 + 1;
+                let parent = nearest_enclosing_view(node, source).map(|(name, parent_pos)| {
+                    parent_scope_for_view(
+                        file,
+                        &module_identity,
+                        semantic_module,
+                        &name,
+                        parent_pos,
+                    )
+                });
+                hardcoded_style_sites.push(HardcodedStyleSite {
+                    id: format!("hardcoded.swift:{file}:{line}:{column}:{category:?}"),
+                    location: SourceLocation {
+                        file: file.to_owned(),
+                        line,
+                        column: Some(column),
+                    },
+                    value,
+                    category,
+                    parent,
+                });
+            }
 
-            if let Some(registry_symbol) = registry.resolve_targets.get(&call_site.symbol) {
-                if let Some(match_status) = resolve_registry_match(
-                    &call_site.symbol,
-                    call_site.qualifier.as_deref(),
-                    registry_symbol,
-                    registry,
-                    &imports,
-                ) {
+            if is_pascal_case_symbol(&call_site.symbol) {
+                let line = call_site.position.row as u32 + 1;
+                let column = call_site.position.column as u32 + 1;
+                let location = SourceLocation {
+                    file: file.to_owned(),
+                    line,
+                    column: Some(column),
+                };
+                let parent = nearest_enclosing_view(node, source).map(|(name, parent_pos)| {
+                    parent_scope_for_view(
+                        file,
+                        &module_identity,
+                        semantic_module,
+                        &name,
+                        parent_pos,
+                    )
+                });
+
+                if let Some(registry_symbol) = registry.resolve_targets.get(&call_site.symbol) {
+                    if let Some(match_status) = resolve_registry_match(
+                        &call_site.symbol,
+                        call_site.qualifier.as_deref(),
+                        registry_symbol,
+                        registry,
+                        &imports,
+                    ) {
+                        usage_sites.push(UsageSite {
+                            id: format!("usage.swift:{file}:{line}:{column}:{}", call_site.symbol),
+                            location: location.clone(),
+                            symbol: call_site.symbol.clone(),
+                            qualified_symbol: None,
+                            match_status,
+                            registry_symbol: Some(registry_symbol.clone()),
+                            local_definition_id: None,
+                            parent,
+                        });
+                    }
+                } else if let Some(local) =
+                    local_index.resolve(file, &module_identity, &call_site.symbol)
+                {
                     usage_sites.push(UsageSite {
                         id: format!("usage.swift:{file}:{line}:{column}:{}", call_site.symbol),
                         location: location.clone(),
                         symbol: call_site.symbol.clone(),
+                        qualified_symbol: local.qualified_symbol.clone(),
+                        match_status: MatchStatus::Local,
+                        registry_symbol: None,
+                        local_definition_id: Some(local.id.clone()),
+                        parent,
+                    });
+                } else if parent.is_some()
+                    && unresolved_symbol_is_swiftui_shaped(&call_site, &imports)
+                {
+                    usage_sites.push(UsageSite {
+                        id: format!("usage.swift:{file}:{line}:{column}:{}", call_site.symbol),
+                        location,
+                        symbol: call_site.symbol,
                         qualified_symbol: None,
-                        match_status,
-                        registry_symbol: Some(registry_symbol.clone()),
+                        match_status: MatchStatus::Unresolved,
+                        registry_symbol: None,
                         local_definition_id: None,
                         parent,
                     });
                 }
-            } else if let Some(local) =
-                local_index.resolve(file, &module_identity, &call_site.symbol)
-            {
-                usage_sites.push(UsageSite {
-                    id: format!("usage.swift:{file}:{line}:{column}:{}", call_site.symbol),
-                    location: location.clone(),
-                    symbol: call_site.symbol.clone(),
-                    qualified_symbol: local.qualified_symbol.clone(),
-                    match_status: MatchStatus::Local,
-                    registry_symbol: None,
-                    local_definition_id: Some(local.id.clone()),
-                    parent,
-                });
-            } else if parent.is_some() && unresolved_symbol_is_swiftui_shaped(&call_site, &imports)
-            {
-                usage_sites.push(UsageSite {
-                    id: format!("usage.swift:{file}:{line}:{column}:{}", call_site.symbol),
-                    location,
-                    symbol: call_site.symbol,
-                    qualified_symbol: None,
-                    match_status: MatchStatus::Unresolved,
-                    registry_symbol: None,
-                    local_definition_id: None,
-                    parent,
-                });
             }
         }
 
@@ -639,7 +697,170 @@ fn extract_usage_from_source(
     }
 }
 
-#[allow(dead_code)]
+fn swift_style_category(call_symbol: &str) -> Option<TokenCategory> {
+    match call_symbol {
+        "Color" | "foregroundStyle" | "foregroundColor" | "background" => {
+            Some(TokenCategory::Color)
+        }
+        "padding" | "frame" | "spacing" => Some(TokenCategory::Spacing),
+        "font" | "fontWeight" => Some(TokenCategory::Typography),
+        "cornerRadius" | "clipShape" => Some(TokenCategory::Radius),
+        "shadow" => Some(TokenCategory::Elevation),
+        _ => None,
+    }
+}
+
+fn call_contains_hardcoded_literal(call_text: &str) -> bool {
+    call_text.contains("Color(")
+        || call_text.contains('"')
+        || call_text.chars().any(|ch| ch.is_ascii_digit())
+}
+
+fn hardcoded_style_value_from_call(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    category: TokenCategory,
+) -> Option<String> {
+    let Ok(call_text) = node.utf8_text(source) else {
+        return None;
+    };
+    if !call_contains_hardcoded_literal(call_text) {
+        return None;
+    }
+
+    match category {
+        TokenCategory::Color => {
+            if call_site_is_color_constructor(node, source) {
+                return Some(call_text.to_owned());
+            }
+            // Nested Color(...) calls are emitted when the Color constructor itself is visited.
+            first_direct_string_or_number_argument(node, source)
+        }
+        TokenCategory::Spacing
+        | TokenCategory::Typography
+        | TokenCategory::Radius
+        | TokenCategory::Elevation => first_direct_numeric_argument(node, source),
+        TokenCategory::Unknown => None,
+    }
+}
+
+fn call_site_is_color_constructor(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    resolve_call_site(node, source).is_some_and(|site| site.symbol == "Color")
+}
+
+fn call_argument_node(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor).find(|child| {
+        matches!(
+            child.kind(),
+            "call_suffix" | "value_arguments" | "lambda_literal"
+        )
+    })
+}
+
+fn first_direct_numeric_argument(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let arguments = call_argument_node(node)?;
+    let mut stack = vec![arguments];
+    while let Some(current) = stack.pop() {
+        if current.kind() == "call_expression" {
+            continue;
+        }
+        if matches!(
+            current.kind(),
+            "integer_literal" | "float_literal" | "number" | "real_literal"
+        ) && let Ok(text) = current.utf8_text(source)
+        {
+            return Some(text.to_owned());
+        }
+        for i in (0..current.child_count()).rev() {
+            if let Some(child) = current.child(i) {
+                stack.push(child);
+            }
+        }
+    }
+    None
+}
+
+fn first_direct_string_or_number_argument(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Option<String> {
+    let arguments = call_argument_node(node)?;
+    let mut stack = vec![arguments];
+    while let Some(current) = stack.pop() {
+        if current.kind() == "call_expression" {
+            continue;
+        }
+        if matches!(
+            current.kind(),
+            "line_string_literal"
+                | "raw_string_literal"
+                | "string_literal"
+                | "integer_literal"
+                | "float_literal"
+                | "number"
+                | "real_literal"
+        ) && let Ok(text) = current.utf8_text(source)
+        {
+            return Some(text.to_owned());
+        }
+        for i in (0..current.child_count()).rev() {
+            if let Some(child) = current.child(i) {
+                stack.push(child);
+            }
+        }
+    }
+    None
+}
+
+fn extract_token_sites_from_source(
+    root: tree_sitter::Node<'_>,
+    source: &[u8],
+    file: &str,
+    module_identity: &str,
+    semantic_module: bool,
+    token_index: &RegistryTokenIndex,
+    out: &mut Vec<TokenSite>,
+) {
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if matches!(
+            node.kind(),
+            "simple_identifier" | "navigation_expression" | "call_expression"
+        ) && let Ok(text) = node.utf8_text(source)
+            && let Some(token_match) = token_index.matches.get(text)
+        {
+            let pos = node.start_position();
+            let line = pos.row as u32 + 1;
+            let column = pos.column as u32 + 1;
+            let parent = nearest_enclosing_view(node, source).map(|(name, parent_pos)| {
+                parent_scope_for_view(file, module_identity, semantic_module, &name, parent_pos)
+            });
+            out.push(TokenSite {
+                id: format!(
+                    "token.swift:{file}:{line}:{column}:{}",
+                    token_match.token_id
+                ),
+                location: SourceLocation {
+                    file: file.to_owned(),
+                    line,
+                    column: Some(column),
+                },
+                token_id: token_match.token_id.clone(),
+                key: text.to_owned(),
+                category: token_match.category,
+                parent,
+            });
+        }
+        for i in (0..node.child_count()).rev() {
+            if let Some(child) = node.child(i) {
+                stack.push(child);
+            }
+        }
+    }
+}
+
+#[allow(dead_code, clippy::too_many_arguments)]
 fn extract_from_source(
     root: tree_sitter::Node<'_>,
     source: &[u8],
@@ -648,11 +869,20 @@ fn extract_from_source(
     local_index: &LocalViewIndex,
     local_components: &mut Vec<LocalComponent>,
     usage_sites: &mut Vec<UsageSite>,
+    hardcoded_style_sites: &mut Vec<HardcodedStyleSite>,
 ) {
     for local in index_local_components_from_source(root, source, file) {
         local_components.push(local);
     }
-    extract_usage_from_source(root, source, file, registry, local_index, usage_sites);
+    extract_usage_from_source(
+        root,
+        source,
+        file,
+        registry,
+        local_index,
+        usage_sites,
+        hardcoded_style_sites,
+    );
 }
 
 fn is_call_expression_node(node: tree_sitter::Node<'_>) -> bool {
@@ -770,6 +1000,8 @@ pub fn scan_repository(
 
     let mut local_components = Vec::new();
     let mut usage_sites = Vec::new();
+    let mut token_sites = Vec::new();
+    let mut hardcoded_style_sites = Vec::new();
     let mut files_scanned = 0_u32;
     let mut parse_failures = 0_u32;
     let mut parsed_files = Vec::new();
@@ -815,13 +1047,26 @@ pub fn scan_repository(
     }
 
     for (relative_file, parsed) in &parsed_files {
+        let root = parsed.tree.root_node();
+        let source = parsed.source.as_bytes();
         extract_usage_from_source(
-            parsed.tree.root_node(),
-            parsed.source.as_bytes(),
+            root,
+            source,
             relative_file,
             &registry,
             &local_index,
             &mut usage_sites,
+            &mut hardcoded_style_sites,
+        );
+        let (module_identity, semantic_module) = module_identity_for_file(relative_file);
+        extract_token_sites_from_source(
+            root,
+            source,
+            relative_file,
+            &module_identity,
+            semantic_module,
+            &registry.token_index,
+            &mut token_sites,
         );
     }
 
@@ -834,6 +1079,21 @@ pub fn scan_repository(
             .then(left.location.line.cmp(&right.location.line))
             .then(left.symbol.cmp(&right.symbol))
     });
+    token_sites.sort_by(|left, right| {
+        left.location
+            .file
+            .cmp(&right.location.file)
+            .then(left.location.line.cmp(&right.location.line))
+            .then(left.location.column.cmp(&right.location.column))
+            .then(left.token_id.cmp(&right.token_id))
+    });
+    hardcoded_style_sites.sort_by(|left, right| {
+        left.location
+            .file
+            .cmp(&right.location.file)
+            .then(left.location.line.cmp(&right.location.line))
+            .then(left.location.column.cmp(&right.location.column))
+    });
 
     let has_gaps = parse_failures > 0
         || diagnostics.iter().any(|diagnostic| {
@@ -844,6 +1104,9 @@ pub fn scan_repository(
         design_system_components,
         local_components,
         usage_sites,
+        design_system_tokens: registry.tokens,
+        token_sites,
+        hardcoded_style_sites,
         files_scanned,
         diagnostics,
         status: if has_gaps {
@@ -1013,6 +1276,8 @@ mod tests {
             canonical_symbols,
             resolve_targets,
             component_packages,
+            tokens: Vec::new(),
+            token_index: RegistryTokenIndex::default(),
         }
     }
 
@@ -1040,6 +1305,7 @@ mod tests {
             locals.push(local);
         }
         let mut usages = Vec::new();
+        let mut hardcoded_style_sites = Vec::new();
         extract_usage_from_source(
             tree.root_node(),
             source.as_bytes(),
@@ -1047,6 +1313,7 @@ mod tests {
             registry,
             &local_index,
             &mut usages,
+            &mut hardcoded_style_sites,
         );
         (locals, usages)
     }

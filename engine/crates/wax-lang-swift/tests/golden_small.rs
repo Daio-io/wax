@@ -52,6 +52,28 @@ fn golden_small_swiftui_fixture_matches_counts() {
             .all(|site| site.registry_symbol.as_deref() == Some("PrimaryButton")),
         "all PrimaryCTA alias usages must resolve to PrimaryButton"
     );
+    assert!(
+        facts
+            .token_sites
+            .iter()
+            .any(|site| site.token_id == "color.primary" && site.parent.is_some()),
+        "SwiftUI token references should include parent attribution inside views"
+    );
+    assert!(
+        facts
+            .hardcoded_style_sites
+            .iter()
+            .any(|site| site.category == wax_contract::TokenCategory::Color
+                && site.value.contains("Color")),
+        "SwiftUI Color(...) should be a color hard-coded candidate"
+    );
+    assert!(
+        facts
+            .hardcoded_style_sites
+            .iter()
+            .any(|site| site.category == wax_contract::TokenCategory::Radius && site.value == "8"),
+        "cornerRadius(8) should be a radius hard-coded candidate"
+    );
 }
 
 #[test]

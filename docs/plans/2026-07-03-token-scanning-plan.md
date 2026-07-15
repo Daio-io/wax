@@ -1915,7 +1915,7 @@ git commit -m "feat: scan react token facts"
 - Consumes: shared token registry parser from Task 2 and SwiftUI parent attribution helpers in `tree_sitter_scan.rs`
 - Produces: Swift `design_system_tokens`, `token_sites`, and `hardcoded_style_sites`
 
-- [ ] **Step 1: Write failing Swift tests**
+- [x] **Step 1: Write failing Swift tests**
 
 Add assertions in `engine/crates/wax-lang-swift/tests/golden_small.rs`:
 
@@ -1943,7 +1943,7 @@ assert!(
 );
 ```
 
-- [ ] **Step 2: Add Swift fixture registry tokens and source examples**
+- [x] **Step 2: Add Swift fixture registry tokens and source examples**
 
 Add to the Swift small registry:
 
@@ -1972,7 +1972,7 @@ Text("Token")
   .cornerRadius(8)
 ```
 
-- [ ] **Step 3: Load tokens in Swift registry**
+- [x] **Step 3: Load tokens in Swift registry**
 
 Modify `RegistryIndex` in `engine/crates/wax-lang-swift/src/tree_sitter_scan.rs`:
 
@@ -1983,7 +1983,7 @@ token_index: RegistryTokenIndex,
 
 Parse tokens in `load_registry` with `parse_registry_tokens` and `token_index`, mapping errors into `TreeSitterScanError::RegistryInvalid`.
 
-- [ ] **Step 4: Add Swift hard-coded candidate extraction**
+- [x] **Step 4: Add Swift hard-coded candidate extraction**
 
 Add category mapping:
 
@@ -2002,7 +2002,7 @@ fn swift_style_category(call_symbol: &str) -> Option<TokenCategory> {
 
 When `extract_usage_from_source` visits call expressions, if `swift_style_category(&call_site.symbol)` returns a category and the call text contains a literal string, numeric literal, or `Color(...)`, emit `HardcodedStyleSite` with existing parent attribution.
 
-- [ ] **Step 5: Emit Swift token facts during scan**
+- [x] **Step 5: Emit Swift token facts during scan**
 
 During each source file scan, after obtaining `root`, call:
 
@@ -2066,7 +2066,7 @@ fn extract_token_sites_from_source(
 
 Do not call `find_token_matches` for Swift; parser-backed extraction is required so parent assertions from Step 1 pass.
 
-- [ ] **Step 6: Populate Swift `ScanFacts`**
+- [x] **Step 6: Populate Swift `ScanFacts`**
 
 Modify the Swift language wrapper to include:
 
@@ -2079,7 +2079,7 @@ token_usage_summary: vec![],
 
 Modify scaffold facts to use empty token vectors.
 
-- [ ] **Step 7: Update Swift golden fixture**
+- [x] **Step 7: Update Swift golden fixture**
 
 Run:
 
@@ -2092,7 +2092,7 @@ Expected: golden diff includes Swift token fields.
 
 Update `engine/crates/wax-lang-swift/tests/fixtures/small/golden.json`.
 
-- [ ] **Step 8: Run focused Swift checks**
+- [x] **Step 8: Run focused Swift checks**
 
 Run:
 
@@ -2104,7 +2104,7 @@ cargo test -p wax-lang-swift
 
 Expected: `cargo test -p wax-lang-swift` passes.
 
-- [ ] **Step 9: Commit Task 7**
+- [x] **Step 9: Commit Task 7**
 
 ```bash
 git add engine/crates/wax-lang-swift/src/tree_sitter_scan.rs engine/crates/wax-lang-swift/tests/fixtures/small engine/crates/wax-lang-swift/tests/golden_small.rs

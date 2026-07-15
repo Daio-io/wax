@@ -10,5 +10,18 @@
       "id": "ds.card",
       "symbol": "Card"
     }
+  ],
+  "tokens": [
+    {
+      "id": "color.primary",
+      "key": "Theme.colors.primary",
+      "category": "color",
+      "aliases": ["Color.dsPrimary"]
+    },
+    {
+      "id": "space.medium",
+      "key": "Theme.spacing.medium",
+      "category": "spacing"
+    }
   ]
 }

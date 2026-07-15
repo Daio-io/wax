@@ -197,9 +197,9 @@ fn facts_from_scan(
         },
         counts: CountSummary::default(),
         symbol_usage_summary: vec![],
-        design_system_tokens: vec![],
-        token_sites: vec![],
-        hardcoded_style_sites: vec![],
+        design_system_tokens: result.design_system_tokens,
+        token_sites: result.token_sites,
+        hardcoded_style_sites: result.hardcoded_style_sites,
         token_usage_summary: vec![],
     }
 }

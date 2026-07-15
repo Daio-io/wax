@@ -10,6 +10,10 @@ struct LocalScreen: View {
                 Text("Details")
             }
             LocalCard()
+            let primary = Theme.colors.primary
+            Text("Token")
+                .foregroundStyle(Color(red: 0.2, green: 0.3, blue: 0.4))
+                .cornerRadius(8)
         }
     }
 }
