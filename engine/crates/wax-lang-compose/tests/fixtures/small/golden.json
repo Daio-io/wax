@@ -1,10 +1,10 @@
 {
   "raw_invocations": {
-    "total": 5,
+    "total": 7,
     "resolved": 5,
     "local": 0,
     "candidate": 0,
-    "unresolved": 0
+    "unresolved": 2
   },
   "registry": {
     "component_count": 2,
@@ -16,5 +16,11 @@
     "local_definition_count": 4,
     "invoked_local_definition_count": 0,
     "unused_local_definition_count": 4
+  },
+  "tokens": {
+    "configured_token_count": 2,
+    "used_token_count": 1,
+    "token_reference_site_count": 1,
+    "hardcoded_style_candidate_count": 2
   }
 }

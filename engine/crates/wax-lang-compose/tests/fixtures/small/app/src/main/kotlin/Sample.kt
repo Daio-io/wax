@@ -13,4 +13,6 @@ fun LocalCard(content: @Composable () -> Unit) {
 fun SampleScreen() {
     PrimaryButton(onClick = {})
     TextField(value = "", onValueChange = {})
+    val primary = Theme.colors.primary
+    Box(Modifier.padding(8.dp).background(Color(0xFF336699)))
 }
