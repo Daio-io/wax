@@ -2179,7 +2179,7 @@ git add docs/specs/2026-05-13-component-tracker-design.md docs/specs/2026-06-20-
 git commit -m "docs: finalize token scanning plan"
 ```
 
-- [ ] **Step 6: Archive plan and add ADR when implementation completes**
+- [x] **Step 6: Archive plan and add ADR when implementation completes**
 
 After all Tasks 1-8 implementation PRs merge:
 

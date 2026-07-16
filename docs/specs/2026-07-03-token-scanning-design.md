@@ -1,10 +1,10 @@
 # Token Scanning Design
 
-**Status:** Draft approved for implementation planning  
+**Status:** Accepted (implemented)  
 **Date:** 2026-07-03  
 **Audience:** Wax engine, contract, language-pack, and reporting implementers  
 **Related:** `docs/specs/2026-06-20-adoption-metrics-v2-design.md`, `docs/specs/2026-05-13-component-tracker-design.md`, `docs/specs/2026-07-04-registry-sync-config-design.md`
-**Implementation plan:** [`docs/plans/2026-07-03-token-scanning-plan.md`](../plans/2026-07-03-token-scanning-plan.md)
+**Implementation plan:** [`docs/plans/archive/2026-07-03-token-scanning-plan.md`](../plans/archive/2026-07-03-token-scanning-plan.md) · [ADR](../adr/2026-07-03-token-scanning.md)
 
 ## Summary
 
