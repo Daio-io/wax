@@ -585,12 +585,12 @@ mod tests {
         EphemeralScanSelections, ScanCommandError, ScanCommandOptions,
         attempt_scan_time_registry_sync, run_scan_cli, write_scan_summary,
     };
+    use crate::testing::env_lock;
     use std::collections::BTreeMap;
     use std::ffi::OsString;
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::str::FromStr;
-    use std::sync::{Mutex, MutexGuard};
     use std::time::{SystemTime, UNIX_EPOCH};
     use time::OffsetDateTime;
     use wax_contract::{
@@ -599,12 +599,6 @@ mod tests {
         RegistryCounts, RepoSummary, SCHEMA_VERSION, ScanFacts, ScanStatus, SourceLocation,
     };
     use wax_core::paths::PathsError;
-
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-    fn env_lock() -> MutexGuard<'static, ()> {
-        ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
-    }
 
     struct EnvVarGuard {
         name: &'static str,

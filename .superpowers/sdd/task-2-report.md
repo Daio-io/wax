@@ -117,3 +117,70 @@ Observed results:
 ### Notes
 
 - Production semantics are unchanged in this follow-up. The committed-config unavailable-home regression now proves that best-effort sync warning behavior does not short-circuit the real scan entrypoint, while the later engine-level home-resolution failure remains intact.
+
+## Final review finding fix
+
+Date: 2026-07-16
+
+### Finding addressed
+
+The new `scan.rs` unit tests had introduced a private `ENV_LOCK` and local `env_lock()` helper inside `engine/crates/wax-cli/src/commands/scan.rs`. That bypassed the crate-wide environment mutex in `engine/crates/wax-cli/src/testing.rs`, so env-mutating unit tests in `scan.rs` could run concurrently with other `wax-cli` unit tests that were using the shared lock.
+
+### Fix details
+
+1. Removed the private `ENV_LOCK` and local `env_lock()` helper from `engine/crates/wax-cli/src/commands/scan.rs`.
+2. Switched the `scan.rs` test module to import `crate::testing::env_lock`.
+3. Kept the local `EnvVarGuard` restoration helper unchanged so the tests still restore `HOME` and `WAX_HOME` exactly as before.
+4. Did not change any production code paths or command behavior.
+
+### Files changed for this review fix
+
+- `engine/crates/wax-cli/src/commands/scan.rs`
+- `.superpowers/sdd/task-2-report.md`
+
+### Exact verification outputs
+
+Ran from `engine/`:
+
+```bash
+cargo fmt --all
+cargo test -p wax-cli --lib
+cargo test -p wax-cli sync_without_home_returns_typed_error_instead_of_panicking
+cargo test -p wax-cli scan
+cargo clippy -p wax-cli --all-targets -- -D warnings
+```
+
+`cargo fmt --all`
+
+```text
+[no output]
+```
+
+`cargo test -p wax-cli --lib`
+
+```text
+cargo test: 57 passed (1 suite, 0.23s)
+```
+
+`cargo test -p wax-cli sync_without_home_returns_typed_error_instead_of_panicking`
+
+```text
+cargo test: 1 passed, 102 filtered out (13 suites, 0.62s)
+```
+
+`cargo test -p wax-cli scan`
+
+```text
+cargo test: 15 passed, 1 ignored, 87 filtered out (13 suites, 2.13s)
+```
+
+`cargo clippy -p wax-cli --all-targets -- -D warnings`
+
+```text
+cargo clippy: No issues found
+```
+
+### Concerns
+
+- No known functional concerns from this review fix.
+- Remaining separate env locks still exist in several integration-test files under `engine/crates/wax-cli/tests/`, but this change intentionally stayed scoped to the reported `scan.rs` unit-test finding.
