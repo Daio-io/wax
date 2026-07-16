@@ -18,6 +18,7 @@ Use it to answer questions like:
 
 - Which design-system components are actually used?
 - Where are teams still using local or hard-coded UI?
+- Which design tokens show up in source, and where is styling still hard-coded?
 - Is design-system adoption improving over time?
 - Can an agent inspect coverage without guessing from source code alone?
 
@@ -103,6 +104,38 @@ wax registry discover --language react --root ../design-system/src --force
 
 Review discovered entries before committing them.
 
+Add design tokens to the same per-language registry files. Wax matches each token's
+`key` and optional `aliases` exactly in source:
+
+```json
+{
+  "schema_version": 1,
+  "components": [
+    {
+      "id": "ds.primary-button",
+      "symbol": "PrimaryButton",
+      "package": "@acme/design-system"
+    }
+  ],
+  "tokens": [
+    {
+      "id": "color.primary",
+      "key": "theme.colors.primary",
+      "category": "color",
+      "aliases": ["tokens.color.primary"]
+    },
+    {
+      "id": "space.medium",
+      "key": "theme.space.medium",
+      "category": "spacing"
+    }
+  ]
+}
+```
+
+Registries without `tokens` (or with an empty array) stay valid. Component-only
+coverage still works; token facts are additive.
+
 ### Scan Your App
 
 Validate the setup:
@@ -124,6 +157,20 @@ wax scan
 ```
 
 Wax writes results under `.wax/out/`, including `.wax/out/scan-merged.json`.
+
+The terminal summary includes token metrics when registry tokens are configured:
+
+```text
+token metrics:
+  Token reference ratio: 75.0%
+  Token references: 12
+  Hard-coded style candidates: 4
+```
+
+The token reference ratio is factual, not a compliance score: it compares known
+token references to hard-coded styling candidates. Parser-backed packs (`react`,
+`compose`, `swift`) can emit hard-coded styling candidates in styling contexts.
+The `basic` pack matches token references only.
 
 ## CLI Usage
 
@@ -187,6 +234,25 @@ wax sync
 wax validate
 ```
 
+### Tokens
+
+Token definitions live in each language registry (for example
+`.wax/react.registry.json`). Each entry needs an `id`, exact source `key`,
+`category`, and optional `aliases`.
+
+Supported categories: `color`, `spacing`, `typography`, `radius`, `elevation`,
+and `unknown`.
+
+Scan output adds token facts alongside component usage:
+
+- `design_system_tokens[]` — configured registry tokens
+- `token_sites[]` — exact matches for token keys or aliases in source
+- `hardcoded_style_sites[]` — conservative hard-coded styling candidates from
+  parser-backed packs
+
+Token registry discovery is not automated yet. Author or sync `tokens[]`
+explicitly, then run `wax sync` and `wax scan` as usual.
+
 ### CI
 
 Commit `.wax/wax.lock.json`. In CI, use committed locks and scan without
@@ -210,15 +276,19 @@ cargo build --release -p wax-cli
 
 Scan output reports design-system coverage using deterministic JSON. The merged
 scan file includes resolved design-system usages, local UI, candidate matches,
-and unresolved invocations.
+unresolved invocations, and additive token facts (references and hard-coded
+styling candidates).
 
 For the full output contract, see
 [Adoption Metrics v2](docs/specs/2026-06-20-adoption-metrics-v2-design.md).
+For token facts and CLI metrics, see
+[Token scanning](docs/specs/2026-07-03-token-scanning-design.md).
 
 ## More Docs
 
 - [Language packs and distribution](docs/specs/2026-05-16-language-packs-and-distribution.md)
 - [Component tracker design](docs/specs/2026-05-13-component-tracker-design.md)
+- [Token scanning](docs/specs/2026-07-03-token-scanning-design.md)
 - [Implementation plans](docs/plans/README.md)
 - [Architecture decision records](docs/adr/README.md)
 - [Contributing](CONTRIBUTING.md)
