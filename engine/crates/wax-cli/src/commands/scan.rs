@@ -588,7 +588,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::ffi::OsString;
     use std::fs;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::str::FromStr;
     use std::sync::{Mutex, MutexGuard};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -652,6 +652,45 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.path);
         }
+    }
+
+    fn write_committed_scan_repo_with_upstream(app_repo: &Path) {
+        fs::create_dir_all(app_repo.join(".wax/registries/acme")).expect("create registries dir");
+        fs::write(
+            app_repo.join(".wax/registries/acme/react.json"),
+            r#"{"schema_version":1,"components":[{"name":"Button"}]}"#,
+        )
+        .expect("write app registry");
+        fs::write(
+            app_repo.join(".wax/wax.config.json"),
+            r#"{
+  "schema_version": 2,
+  "languages": {
+    "react": {
+      "roots": ["src"],
+      "registry": {
+        "source": ".wax/registries/acme/react.json",
+        "upstream": "acme/react"
+      }
+    }
+  }
+}
+"#,
+        )
+        .expect("write app config");
+        fs::write(
+            app_repo.join(".wax/wax.lock.json"),
+            r#"{
+  "schema_version": 2,
+  "engine_api_version": 1,
+  "wax_version": "0.0.0-test",
+  "locked_at": null,
+  "registries": {},
+  "languages": {}
+}
+"#,
+        )
+        .expect("write app lockfile");
     }
 
     #[test]
@@ -751,42 +790,7 @@ mod tests {
     fn scan_command_warns_when_registry_sync_fails() {
         let root = TestDir::new("sync-warning");
         let app_repo = root.path.join("app");
-        fs::create_dir_all(app_repo.join(".wax/registries/acme")).expect("create registries dir");
-        fs::write(
-            app_repo.join(".wax/registries/acme/react.json"),
-            r#"{"schema_version":1,"components":[{"name":"Button"}]}"#,
-        )
-        .expect("write app registry");
-        fs::write(
-            app_repo.join(".wax/wax.config.json"),
-            r#"{
-  "schema_version": 2,
-  "languages": {
-    "react": {
-      "roots": ["src"],
-      "registry": {
-        "source": ".wax/registries/acme/react.json",
-        "upstream": "acme/react"
-      }
-    }
-  }
-}
-"#,
-        )
-        .expect("write app config");
-        fs::write(
-            app_repo.join(".wax/wax.lock.json"),
-            r#"{
-  "schema_version": 2,
-  "engine_api_version": 1,
-  "wax_version": "0.0.0-test",
-  "locked_at": null,
-  "registries": {},
-  "languages": {}
-}
-"#,
-        )
-        .expect("write app lockfile");
+        write_committed_scan_repo_with_upstream(&app_repo);
 
         let wax_home = root.path.join("wax-home");
         fs::create_dir_all(&wax_home).expect("create wax home");
@@ -859,46 +863,11 @@ mod tests {
         let _wax_home = EnvVarGuard::remove("WAX_HOME");
         let root = TestDir::new("sync-warning-no-home");
         let app_repo = root.path.join("app");
-        fs::create_dir_all(app_repo.join(".wax/registries/acme")).expect("create registries dir");
-        fs::write(
-            app_repo.join(".wax/registries/acme/react.json"),
-            r#"{"schema_version":1,"components":[{"name":"Button"}]}"#,
-        )
-        .expect("write app registry");
-        fs::write(
-            app_repo.join(".wax/wax.config.json"),
-            r#"{
-  "schema_version": 2,
-  "languages": {
-    "react": {
-      "roots": ["src"],
-      "registry": {
-        "source": ".wax/registries/acme/react.json",
-        "upstream": "acme/react"
-      }
-    }
-  }
-}
-"#,
-        )
-        .expect("write app config");
-        fs::write(
-            app_repo.join(".wax/wax.lock.json"),
-            r#"{
-  "schema_version": 2,
-  "engine_api_version": 1,
-  "wax_version": "0.0.0-test",
-  "locked_at": null,
-  "registries": {},
-  "languages": {}
-}
-"#,
-        )
-        .expect("write app lockfile");
+        write_committed_scan_repo_with_upstream(&app_repo);
 
         let mut output = Vec::new();
-        attempt_scan_time_registry_sync(
-            &ScanCommandOptions {
+        let err = run_scan_cli(
+            ScanCommandOptions {
                 repo_root: app_repo,
                 allow_auto_install: false,
                 scan_concurrency: None,
@@ -909,12 +878,19 @@ mod tests {
             },
             &mut output,
         )
-        .expect("scan-time sync warning should not fail scan");
+        .expect_err("missing wax home should fail after scan-time sync warning");
 
         let stdout = String::from_utf8(output).unwrap();
         assert!(stdout.contains(
             "warning: registry sync failed; scanning with current registry source. Run `wax sync` for details."
         ));
+        assert!(
+            matches!(
+                err,
+                ScanCommandError::Engine(wax_core::EngineError::Paths(PathsError::HomeUnavailable))
+            ),
+            "unexpected scan error: {err:?}"
+        );
     }
 
     #[test]

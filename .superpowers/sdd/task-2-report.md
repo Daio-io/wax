@@ -79,3 +79,41 @@ error: could not resolve wax home; set WAX_HOME or configure a user home directo
 
 - No known functional concerns after the required verification.
 - The new scan warning path intentionally reuses the existing generic warning text for state-path resolution failures, which keeps behavior stable but does not distinguish between sync failures and missing home configuration.
+
+## Review fix addendum
+
+Date: 2026-07-16
+
+### Review findings addressed
+
+1. Updated the committed-config unavailable-home regression so it no longer calls only the private `attempt_scan_time_registry_sync` helper. The test now goes through `run_scan_cli`, asserts the existing warning text, and verifies that execution continues into the real scan path before the engine returns `HomeUnavailable`.
+2. Extracted the duplicated committed-config upstream scan fixture setup into a shared test helper and reused it in both scan warning regressions.
+
+### Follow-up changed files
+
+- `engine/crates/wax-cli/src/commands/scan.rs`
+- `.superpowers/sdd/task-2-report.md`
+
+### Follow-up verification commands and output
+
+Ran from `engine/`:
+
+```bash
+cargo fmt --all
+cargo test -p wax-cli scan_command_warns_and_continues_when_home_is_unavailable_for_best_effort_sync --lib
+cargo test -p wax-cli sync_without_home_returns_typed_error_instead_of_panicking
+cargo test -p wax-cli scan
+cargo clippy -p wax-cli --all-targets -- -D warnings
+```
+
+Observed results:
+
+- `cargo fmt --all` → exit 0
+- `cargo test -p wax-cli scan_command_warns_and_continues_when_home_is_unavailable_for_best_effort_sync --lib` → `1 passed, 56 filtered out`
+- `cargo test -p wax-cli sync_without_home_returns_typed_error_instead_of_panicking` → `1 passed, 102 filtered out`
+- `cargo test -p wax-cli scan` → `15 passed, 1 ignored, 87 filtered out`
+- `cargo clippy -p wax-cli --all-targets -- -D warnings` → `No issues found`
+
+### Notes
+
+- Production semantics are unchanged in this follow-up. The committed-config unavailable-home regression now proves that best-effort sync warning behavior does not short-circuit the real scan entrypoint, while the later engine-level home-resolution failure remains intact.
