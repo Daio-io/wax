@@ -5,6 +5,7 @@ use super::language::{
     LanguageCommandError, default_target_triple, manifest_for_language, resolve_registry_url,
     update_lockfile_entry,
 };
+use super::state_path::resolve_state_path;
 use crate::progress::{CliProgress, optional_scan_progress_sink};
 use std::collections::BTreeMap;
 use std::fs;
@@ -19,7 +20,7 @@ use wax_core::config::waxrc::{
     AdoptionConfig, EngineConfig, LanguageEntry, LanguageRegistrySource, WAXRC_SCHEMA_VERSION,
     WaxRc, WaxRcError, load_waxrc,
 };
-use wax_core::paths::state_file;
+use wax_core::paths::PathsError;
 use wax_core::registry::{fetch_pack_index, select_target_artifact};
 use wax_core::registry_memory::{
     RememberedDesignSystemSummary, list_remembered_design_systems, resolve_remembered_registry,
@@ -85,6 +86,9 @@ pub enum ScanCommandError {
     /// Wax config could not be loaded before scan sync.
     #[error(transparent)]
     Config(#[from] WaxRcError),
+    /// Global path resolution failed.
+    #[error(transparent)]
+    Paths(#[from] PathsError),
     /// Ephemeral scan requires an interactive terminal.
     #[error(
         "wax scan requires repository config at {config_path}; run `wax init` for CI or scripts"
@@ -123,10 +127,7 @@ pub fn run_scan_cli(
         return Err(ScanCommandError::RequiresInit { config_path });
     }
 
-    let state_path = options
-        .state_path
-        .clone()
-        .unwrap_or_else(|| state_file().expect("resolve global state path"));
+    let state_path = resolve_state_path(options.state_path.as_deref())?;
     let registry_url = resolve_registry_url(options.pack_index_url.clone())?;
     let manifests = fetch_pack_index(&registry_url).map_err(LanguageCommandError::from)?;
     let mut prompts = DialoguerScanPrompts;
@@ -181,10 +182,13 @@ fn attempt_scan_time_registry_sync(
         return Ok(());
     }
 
-    let state_path = options
-        .state_path
-        .clone()
-        .unwrap_or_else(|| state_file().expect("resolve global state path"));
+    let state_path = match resolve_state_path(options.state_path.as_deref()) {
+        Ok(path) => path,
+        Err(_error) => {
+            write_scan_sync_warning(writer)?;
+            return Ok(());
+        }
+    };
     match best_effort_sync_app_registries(&SyncOptions {
         repo_root: options.repo_root.clone(),
         state_path,
@@ -199,11 +203,7 @@ fn attempt_scan_time_registry_sync(
             }
         }
         Err(error) => {
-            writeln!(
-                writer,
-                "warning: registry sync failed; scanning with current registry source. Run `wax sync` for details."
-            )
-            .map_err(|source| ScanCommandError::Io { source })?;
+            write_scan_sync_warning(writer)?;
             let _ = error;
         }
     }
@@ -215,10 +215,7 @@ fn run_ephemeral_scan(
     selections: EphemeralScanSelections,
     writer: &mut impl Write,
 ) -> Result<(), ScanCommandError> {
-    let state_path = options
-        .state_path
-        .clone()
-        .unwrap_or_else(|| state_file().expect("resolve global state path"));
+    let state_path = resolve_state_path(options.state_path.as_deref())?;
     let ephemeral = build_ephemeral_scan_config(&options, &selections, &state_path)?;
     let progress = Arc::new(CliProgress::new());
     let merged = Engine::scan_repo_with_options(
@@ -446,6 +443,14 @@ fn write_error(source: io::Error) -> ScanCommandError {
     ScanCommandError::Io { source }
 }
 
+fn write_scan_sync_warning(writer: &mut impl Write) -> Result<(), ScanCommandError> {
+    writeln!(
+        writer,
+        "warning: registry sync failed; scanning with current registry source. Run `wax sync` for details."
+    )
+    .map_err(write_error)
+}
+
 fn write_scan_summary(
     writer: &mut impl Write,
     merged: &MergedScan,
@@ -576,15 +581,78 @@ pub fn repo_relative_dir_has_entries(repo_root: &Path, relative: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::write_scan_summary;
+    use super::{
+        EphemeralScanSelections, ScanCommandError, ScanCommandOptions,
+        attempt_scan_time_registry_sync, run_scan_cli, write_scan_summary,
+    };
     use std::collections::BTreeMap;
+    use std::ffi::OsString;
+    use std::fs;
+    use std::path::PathBuf;
     use std::str::FromStr;
+    use std::sync::{Mutex, MutexGuard};
+    use std::time::{SystemTime, UNIX_EPOCH};
     use time::OffsetDateTime;
     use wax_contract::{
         AdoptionCounts, CountSummary, DefinitionCounts, Diagnostic, DiagnosticSeverity, LanguageId,
         LanguageMetadata, MergedScan, Metrics, ParentScopeCounts, RawInvocationCounts,
         RegistryCounts, RepoSummary, SCHEMA_VERSION, ScanFacts, ScanStatus, SourceLocation,
     };
+    use wax_core::paths::PathsError;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn env_lock() -> MutexGuard<'static, ()> {
+        ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
+    }
+
+    struct EnvVarGuard {
+        name: &'static str,
+        previous: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn remove(name: &'static str) -> Self {
+            let previous = std::env::var_os(name);
+            unsafe {
+                std::env::remove_var(name);
+            }
+            Self { name, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            unsafe {
+                match &self.previous {
+                    Some(value) => std::env::set_var(self.name, value),
+                    None => std::env::remove_var(self.name),
+                }
+            }
+        }
+    }
+
+    struct TestDir {
+        path: PathBuf,
+    }
+
+    impl TestDir {
+        fn new(name: &str) -> Self {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time should be after unix epoch")
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!("wax-cli-scan-{name}-{nonce}"));
+            fs::create_dir_all(&path).expect("create temp dir");
+            Self { path }
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
 
     #[test]
     fn summary_renders_status_adoption_and_failure_diagnostics() {
@@ -681,16 +749,8 @@ mod tests {
 
     #[test]
     fn scan_command_warns_when_registry_sync_fails() {
-        use super::{ScanCommandOptions, attempt_scan_time_registry_sync};
-        use std::fs;
-        use std::time::{SystemTime, UNIX_EPOCH};
-
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time should be after unix epoch")
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!("wax-cli-scan-sync-warning-{nonce}"));
-        let app_repo = root.join("app");
+        let root = TestDir::new("sync-warning");
+        let app_repo = root.path.join("app");
         fs::create_dir_all(app_repo.join(".wax/registries/acme")).expect("create registries dir");
         fs::write(
             app_repo.join(".wax/registries/acme/react.json"),
@@ -728,7 +788,7 @@ mod tests {
         )
         .expect("write app lockfile");
 
-        let wax_home = root.join("wax-home");
+        let wax_home = root.path.join("wax-home");
         fs::create_dir_all(&wax_home).expect("create wax home");
         fs::write(
             wax_home.join("state.json"),
@@ -755,7 +815,106 @@ mod tests {
         assert!(stdout.contains(
             "warning: registry sync failed for acme/react; scanning with current registry source. Run `wax sync` for details."
         ));
-        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn ephemeral_scan_without_home_returns_paths_error() {
+        let _guard = env_lock();
+        let _home = EnvVarGuard::remove("HOME");
+        let _wax_home = EnvVarGuard::remove("WAX_HOME");
+        let root = TestDir::new("ephemeral-no-home");
+        let mut output = Vec::new();
+
+        let err = run_scan_cli(
+            ScanCommandOptions {
+                repo_root: root.path.clone(),
+                allow_auto_install: false,
+                scan_concurrency: None,
+                state_path: None,
+                pack_index_url: None,
+                target_triple: None,
+                ephemeral: Some(EphemeralScanSelections {
+                    languages: vec![LanguageId::from_str("react").expect("valid language id")],
+                    scan_roots: BTreeMap::from([(
+                        LanguageId::from_str("react").expect("valid language id"),
+                        vec![PathBuf::from("src")],
+                    )]),
+                    design_system_id: "acme".to_owned(),
+                }),
+            },
+            &mut output,
+        )
+        .expect_err("missing wax home should fail");
+
+        assert!(matches!(
+            err,
+            ScanCommandError::Paths(PathsError::HomeUnavailable)
+        ));
+    }
+
+    #[test]
+    fn scan_command_warns_and_continues_when_home_is_unavailable_for_best_effort_sync() {
+        let _guard = env_lock();
+        let _home = EnvVarGuard::remove("HOME");
+        let _wax_home = EnvVarGuard::remove("WAX_HOME");
+        let root = TestDir::new("sync-warning-no-home");
+        let app_repo = root.path.join("app");
+        fs::create_dir_all(app_repo.join(".wax/registries/acme")).expect("create registries dir");
+        fs::write(
+            app_repo.join(".wax/registries/acme/react.json"),
+            r#"{"schema_version":1,"components":[{"name":"Button"}]}"#,
+        )
+        .expect("write app registry");
+        fs::write(
+            app_repo.join(".wax/wax.config.json"),
+            r#"{
+  "schema_version": 2,
+  "languages": {
+    "react": {
+      "roots": ["src"],
+      "registry": {
+        "source": ".wax/registries/acme/react.json",
+        "upstream": "acme/react"
+      }
+    }
+  }
+}
+"#,
+        )
+        .expect("write app config");
+        fs::write(
+            app_repo.join(".wax/wax.lock.json"),
+            r#"{
+  "schema_version": 2,
+  "engine_api_version": 1,
+  "wax_version": "0.0.0-test",
+  "locked_at": null,
+  "registries": {},
+  "languages": {}
+}
+"#,
+        )
+        .expect("write app lockfile");
+
+        let mut output = Vec::new();
+        attempt_scan_time_registry_sync(
+            &ScanCommandOptions {
+                repo_root: app_repo,
+                allow_auto_install: false,
+                scan_concurrency: None,
+                state_path: None,
+                pack_index_url: None,
+                target_triple: None,
+                ephemeral: None,
+            },
+            &mut output,
+        )
+        .expect("scan-time sync warning should not fail scan");
+
+        let stdout = String::from_utf8(output).unwrap();
+        assert!(stdout.contains(
+            "warning: registry sync failed; scanning with current registry source. Run `wax sync` for details."
+        ));
     }
 
     #[test]

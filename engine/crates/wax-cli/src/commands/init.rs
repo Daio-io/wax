@@ -4,6 +4,7 @@ use super::language::{
     LanguageCommandError, default_target_triple, install_pinned_manifest, manifest_for_language,
     resolve_registry_url, save_lockfile, update_lockfile_entry,
 };
+use super::state_path::resolve_state_path;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
@@ -17,7 +18,7 @@ use wax_core::config::repo_files::{
     default_registry_path_for_language,
 };
 use wax_core::config::waxrc::WAXRC_SCHEMA_VERSION;
-use wax_core::paths::{PathsError, state_file};
+use wax_core::paths::PathsError;
 use wax_core::registry::{
     RegistryArtifact, RegistryError, RegistryManifest, fetch_pack_index, select_target_artifact,
 };
@@ -178,7 +179,7 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
     }
 
     let state_path = if uses_remembered_design_system(selections.as_ref()) {
-        Some(resolve_init_state_path(&options)?)
+        Some(resolve_state_path(options.state_path.as_deref())?)
     } else {
         None
     };
@@ -332,7 +333,7 @@ pub fn run_init_cli(options: InitOptions, writer: &mut impl Write) -> Result<(),
 
     let registry_url = resolve_registry_url(options.registry_url.clone())?;
     let manifests = fetch_pack_index(&registry_url)?;
-    let state_path = resolve_init_state_path(&options)?;
+    let state_path = resolve_state_path(options.state_path.as_deref())?;
     let mut prompts = DialoguerInitPrompts;
     let selections = collect_interactive_selections(&manifests, &mut prompts, &state_path)?;
     run_init(
@@ -390,13 +391,6 @@ fn uses_remembered_design_system(selections: Option<&InitSelections>) -> bool {
         selections.map(|selections| &selections.registry_setup),
         Some(RegistrySetup::RememberedDesignSystem { .. })
     )
-}
-
-fn resolve_init_state_path(options: &InitOptions) -> Result<PathBuf, InitCommandError> {
-    if let Some(path) = &options.state_path {
-        return Ok(path.clone());
-    }
-    state_file().map_err(InitCommandError::from)
 }
 
 fn apply_remembered_registry_config(
