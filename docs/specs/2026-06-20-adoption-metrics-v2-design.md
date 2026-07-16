@@ -706,7 +706,7 @@ Candidate future fact families include:
 |--------------------|--------------------------|
 | Overrides | Prop/style/modifier override sites, overridden token or component slot, parent scope. |
 | Deprecations | Deprecated registry component invocations, replacement target, parent scope. |
-| Tokens | Token usage sites, hard-coded value candidates, token category. |
+| Tokens | Token usage sites, hard-coded value candidates, token category. See [Token Scanning Design](./2026-07-03-token-scanning-design.md). |
 | Variants | Component variant prop usage, unsupported variant candidates. |
 | Imports | Import source, alias, package/module evidence used for resolution. |
 | Ownership | File/module/team tags when configured by the repository. |

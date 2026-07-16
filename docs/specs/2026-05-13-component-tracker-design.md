@@ -248,6 +248,8 @@ Snapshot diffing is a first-class kernel capability in v1, not future work. The 
 
 A design token reference used to attribute styling decisions such as color, spacing, typography, shape, or elevation.
 
+The concrete alpha design for additive token facts is tracked in [Token Scanning Design](./2026-07-03-token-scanning-design.md).
+
 This is required in the schema from v1 even if token-focused reports arrive later. Hardcoded styling versus token usage is a primary drift signal.
 
 ### Core Relationships
