@@ -1,5 +1,6 @@
 //! `wax language` command implementations.
 
+use super::state_path::resolve_state_path;
 use crate::progress::CliProgress;
 use semver::Version;
 use serde::Deserialize;
@@ -21,7 +22,7 @@ use wax_core::global_state::{
     GlobalState, GlobalStateError, InstalledLanguagePack, load_global_state, save_global_state,
 };
 use wax_core::install::{InstallError, LanguagePackManifestSpec, install_language};
-use wax_core::paths::{PathsError, lang_install_dir, state_file};
+use wax_core::paths::{PathsError, lang_install_dir};
 use wax_core::registry::{
     RegistryArtifact, RegistryError, RegistryManifest, fetch_pack_index, select_target_artifact,
 };
@@ -195,7 +196,7 @@ pub fn run_list(options: ListOptions, writer: &mut impl Write) -> Result<(), Lan
         state_path,
     } = options;
     drop(registry_url);
-    let state = load_state(state_path)?;
+    let state = load_state(state_path.as_deref())?;
 
     writeln!(writer, "language\tversion\tstatus").map_err(write_error)?;
     for (language_id, versions) in state.installed_languages {
@@ -244,7 +245,7 @@ pub fn run_uninstall(
     options: UninstallOptions,
     writer: &mut impl Write,
 ) -> Result<(), LanguageCommandError> {
-    let state_path = resolved_state_path(options.state_path)?;
+    let state_path = resolve_state_path(options.state_path.as_deref())?;
     let mut state = load_global_state(&state_path)?;
     let removed = remove_installed_versions(
         &state_path,
@@ -268,7 +269,7 @@ pub fn run_update(
 ) -> Result<(), LanguageCommandError> {
     let registry_url = resolve_registry_url(options.registry_url)?;
     let manifests = fetch_pack_index(&registry_url)?;
-    let state_path = resolved_state_path(options.state_path)?;
+    let state_path = resolve_state_path(options.state_path.as_deref())?;
     let mut state = load_global_state(&state_path)?;
     let repo_files = wax_core::config::repo_files::discover_repo_files(&options.repo_root);
     let lockfile_path = repo_files.lockfile_path;
@@ -342,7 +343,7 @@ pub fn run_doctor(
     let repo_files = wax_core::config::repo_files::discover_repo_files(&options.repo_root);
     let waxrc = load_waxrc(&repo_files.config_path)?;
     let lockfile = load_optional_lockfile(&repo_files.lockfile_path)?;
-    let state = load_state(options.state_path)?;
+    let state = load_state(options.state_path.as_deref())?;
 
     let mut language_ids = BTreeSet::new();
     let mut config_status = BTreeMap::new();
@@ -442,15 +443,8 @@ struct EffectiveRegistryUrl {
     source: RegistryUrlSource,
 }
 
-fn load_state(state_path: Option<PathBuf>) -> Result<GlobalState, LanguageCommandError> {
-    Ok(load_global_state(resolved_state_path(state_path)?)?)
-}
-
-fn resolved_state_path(state_path: Option<PathBuf>) -> Result<PathBuf, LanguageCommandError> {
-    state_path
-        .map(Ok)
-        .unwrap_or_else(state_file)
-        .map_err(LanguageCommandError::from)
+fn load_state(state_path: Option<&Path>) -> Result<GlobalState, LanguageCommandError> {
+    Ok(load_global_state(&resolve_state_path(state_path)?)?)
 }
 
 pub(crate) fn manifest_for_language(
@@ -616,7 +610,7 @@ fn record_installed_language(
     version: &str,
     install_dir: PathBuf,
 ) -> Result<(), LanguageCommandError> {
-    let state_path = resolved_state_path(state_path)?;
+    let state_path = resolve_state_path(state_path.as_deref())?;
     let mut state = load_global_state(&state_path)?;
     state
         .installed_languages

@@ -1,10 +1,11 @@
 //! `wax sync` command implementation.
 
+use super::state_path::resolve_state_path;
 use std::io::Write;
 use std::path::PathBuf;
 
 use thiserror::Error;
-use wax_core::paths::state_file;
+use wax_core::paths::PathsError;
 use wax_core::sync::{SyncError, SyncOptions, sync_app_registries};
 
 /// Options for `wax sync`.
@@ -19,6 +20,9 @@ pub struct SyncCommandOptions {
 /// Errors returned by `wax sync`.
 #[derive(Debug, Error)]
 pub enum SyncCommandError {
+    /// Global path resolution failed.
+    #[error(transparent)]
+    Paths(#[from] PathsError),
     /// Registry sync orchestration failed.
     #[error(transparent)]
     Sync(#[from] SyncError),
@@ -36,9 +40,7 @@ pub fn run_sync_cli(
     options: SyncCommandOptions,
     writer: &mut impl Write,
 ) -> Result<(), SyncCommandError> {
-    let state_path = options
-        .state_path
-        .unwrap_or_else(|| state_file().expect("resolve global state path"));
+    let state_path = resolve_state_path(options.state_path.as_deref())?;
     let updates = sync_app_registries(&SyncOptions {
         repo_root: options.repo_root,
         state_path,

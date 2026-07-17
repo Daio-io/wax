@@ -1,11 +1,12 @@
 //! Registry discovery command implementations for `wax discover` and `wax registry discover`.
 
 use super::diagnostic_output::format_diagnostic_line;
+use super::state_path::resolve_state_path;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 use wax_contract::Diagnostic;
-use wax_core::paths::state_file;
+use wax_core::paths::PathsError;
 use wax_core::registry_discovery::{
     RegistryDiscoverError, RegistryDiscoverOptions, discover_registry,
 };
@@ -74,7 +75,7 @@ pub enum RegistryMemoryCommandError {
     Memory(#[from] RegistryMemoryError),
     /// Global path resolution failed.
     #[error(transparent)]
-    Paths(#[from] wax_core::paths::PathsError),
+    Paths(#[from] PathsError),
     /// Output writing failed.
     #[error("failed to write registry memory output: {source}")]
     Io {
@@ -179,7 +180,7 @@ pub fn run_registry_list(
     options: RegistryMemoryCommandOptions,
     writer: &mut impl Write,
 ) -> Result<(), RegistryMemoryCommandError> {
-    let state_path = resolve_state_path(options.state_path)?;
+    let state_path = resolve_state_path(options.state_path.as_deref())?;
     let entries = list_remembered_design_systems(&state_path)?;
 
     writeln!(writer, "id\tname\trepo_root").map_err(write_memory_error)?;
@@ -203,7 +204,7 @@ pub fn run_registry_show(
     options: RegistryMemoryCommandOptions,
     writer: &mut impl Write,
 ) -> Result<(), RegistryMemoryCommandError> {
-    let state_path = resolve_state_path(options.state_path)?;
+    let state_path = resolve_state_path(options.state_path.as_deref())?;
     let entry = show_remembered_design_system(&state_path, design_system_id)?;
 
     writeln!(writer, "id: {}", entry.id).map_err(write_memory_error)?;
@@ -224,7 +225,7 @@ pub fn run_registry_update(
     options: RegistryUpdateCommandOptions,
     writer: &mut impl Write,
 ) -> Result<(), RegistryMemoryCommandError> {
-    let state_path = resolve_state_path(options.state_path)?;
+    let state_path = resolve_state_path(options.state_path.as_deref())?;
     update_remembered_design_system_repo_root(
         &state_path,
         &options.design_system_id,
@@ -248,7 +249,7 @@ pub fn run_registry_delete(
     options: RegistryMemoryCommandOptions,
     writer: &mut impl Write,
 ) -> Result<(), RegistryMemoryCommandError> {
-    let state_path = resolve_state_path(options.state_path)?;
+    let state_path = resolve_state_path(options.state_path.as_deref())?;
     delete_remembered_design_system(&state_path, design_system_id)?;
 
     writeln!(
@@ -259,13 +260,6 @@ pub fn run_registry_delete(
     .map_err(write_memory_error)?;
 
     Ok(())
-}
-
-fn resolve_state_path(state_path: Option<PathBuf>) -> Result<PathBuf, RegistryMemoryCommandError> {
-    match state_path {
-        Some(path) => Ok(path),
-        None => Ok(state_file()?),
-    }
 }
 
 fn write_memory_error(source: io::Error) -> RegistryMemoryCommandError {

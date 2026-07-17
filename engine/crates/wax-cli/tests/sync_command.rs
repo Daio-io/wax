@@ -251,3 +251,24 @@ fn sync_command_fails_when_upstream_design_system_is_not_remembered() {
     let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
     assert!(stderr.contains("acme"));
 }
+
+#[test]
+fn sync_without_home_returns_typed_error_instead_of_panicking() {
+    let root = TestDir::new("sync-without-home");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .args(["sync", "--repo-root"])
+        .arg(&root.path)
+        .env_remove("HOME")
+        .env_remove("WAX_HOME")
+        .env_remove("USERPROFILE")
+        .env_remove("HOMEDRIVE")
+        .env_remove("HOMEPATH")
+        .output()
+        .expect("spawn wax sync");
+
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("could not resolve wax home"));
+    assert!(!stderr.contains("panicked at"));
+}
