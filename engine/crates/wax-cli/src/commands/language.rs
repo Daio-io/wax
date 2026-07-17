@@ -48,6 +48,12 @@ pub struct LanguageInstallSpec {
 
 impl LanguageInstallSpec {
     /// Parses a language install spec from `<id>` or `<id>@<version>`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LanguageCommandError::InvalidLanguageSpec`] for an empty or
+    /// malformed id/version pair, or [`LanguageCommandError::LanguageId`]
+    /// when the id is not a lowercase ASCII slug.
     pub fn parse(value: &str) -> Result<Self, LanguageCommandError> {
         let (language_id, version) = match value.split_once('@') {
             Some((id, version)) if !version.is_empty() => {
@@ -190,6 +196,11 @@ pub enum LanguageCommandError {
 }
 
 /// Runs `wax language list`.
+///
+/// # Errors
+///
+/// Returns [`LanguageCommandError`] when global paths/state cannot be loaded or
+/// formatted output cannot be written.
 pub fn run_list(options: ListOptions, writer: &mut impl Write) -> Result<(), LanguageCommandError> {
     let ListOptions {
         registry_url,
@@ -209,6 +220,11 @@ pub fn run_list(options: ListOptions, writer: &mut impl Write) -> Result<(), Lan
 }
 
 /// Runs `wax language install`.
+///
+/// # Errors
+///
+/// Returns [`LanguageCommandError`] for pack-index/manifest/artifact resolution,
+/// installation, state persistence, or output-write failures.
 pub fn run_install(
     options: InstallOptions,
     writer: &mut impl Write,
@@ -241,6 +257,11 @@ pub fn run_install(
 }
 
 /// Runs `wax language uninstall`.
+///
+/// # Errors
+///
+/// Returns [`LanguageCommandError`] when paths/state cannot be resolved, the
+/// requested install cannot be removed, or output cannot be written.
 pub fn run_uninstall(
     options: UninstallOptions,
     writer: &mut impl Write,
@@ -263,6 +284,11 @@ pub fn run_uninstall(
 }
 
 /// Runs `wax language update`.
+///
+/// # Errors
+///
+/// Returns [`LanguageCommandError`] for missing selections, config/lock/index
+/// resolution, installation/removal, state persistence, or output failures.
 pub fn run_update(
     options: UpdateOptions,
     writer: &mut impl Write,
@@ -336,6 +362,11 @@ pub fn run_update(
 }
 
 /// Runs `wax language doctor`.
+///
+/// # Errors
+///
+/// Returns [`LanguageCommandError`] when config, lockfile, paths, state, or
+/// installed manifests cannot be read, or report output cannot be written.
 pub fn run_doctor(
     options: DoctorOptions,
     writer: &mut impl Write,

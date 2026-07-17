@@ -61,6 +61,12 @@ pub struct RegistryTokenIndex {
 }
 
 /// Parses optional `tokens` from a registry JSON value.
+///
+/// # Errors
+///
+/// Returns [`TokenRegistryError::TokensNotArray`] when `tokens` is not an array,
+/// [`TokenRegistryError::InvalidTokenField`] for missing or malformed fields,
+/// or [`TokenRegistryError::DuplicateTokenId`] for repeated token ids.
 pub fn parse_registry_tokens(
     value: &serde_json::Value,
 ) -> Result<Vec<DesignSystemToken>, TokenRegistryError> {
@@ -97,6 +103,13 @@ pub fn parse_registry_tokens(
 }
 
 /// Builds an exact key and alias lookup index.
+///
+/// # Errors
+///
+/// Returns [`TokenRegistryError::EmptyTokenField`] for an empty id, key, or
+/// alias, [`TokenRegistryError::DuplicateTokenId`] for repeated ids, or
+/// [`TokenRegistryError::DuplicateMatchKey`] when one key or alias maps to
+/// different token ids.
 pub fn token_index(tokens: &[DesignSystemToken]) -> Result<RegistryTokenIndex, TokenRegistryError> {
     let mut seen_ids = BTreeSet::new();
     let mut matches = BTreeMap::new();

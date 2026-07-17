@@ -43,6 +43,11 @@ pub enum RootResolutionError {
 /// level and `**` expands zero or more directory levels. `?` and mixed wildcard
 /// segments such as `app-*` are treated literally. Prefer anchoring recursive
 /// roots behind a literal prefix to avoid walking the whole repository.
+///
+/// # Errors
+///
+/// Returns [`RootResolutionError::Io`] when a wildcard expansion cannot read a
+/// directory entry or its metadata.
 pub fn resolve_source_roots(
     repo_root: &Path,
     root: &Path,

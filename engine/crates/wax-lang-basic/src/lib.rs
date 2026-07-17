@@ -1,4 +1,27 @@
 //! Generic text line-scanner language pack.
+//!
+//! # Examples
+//!
+//! An empty config runs the pack in scaffold mode without reading repository files:
+//!
+//! ```
+//! use wax_contract::ScanStatus;
+//! use wax_lang_api::{ScanConfig, ScanRequest, ScanRequestType, WIRE_API_VERSION};
+//! use wax_lang_basic::BasicLanguage;
+//!
+//! let request = ScanRequest {
+//!     request_type: ScanRequestType::Scan,
+//!     api_version: WIRE_API_VERSION,
+//!     language_id: "basic".try_into()?,
+//!     repo_root: ".".to_owned(),
+//!     snapshot_id: "docs-basic".to_owned(),
+//!     config: ScanConfig::new(),
+//! };
+//! let facts = BasicLanguage::new().scan(&request)?;
+//!
+//! assert_eq!(facts.status, ScanStatus::Partial);
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
 
 #![deny(missing_docs)]
 
@@ -50,6 +73,13 @@ impl BasicLanguage {
     }
 
     /// Executes a basic scan for the provided request.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BasicScanError::InvalidLanguageId`] for a non-basic request,
+    /// [`BasicScanError::InvalidConfig`] for invalid config or registry data,
+    /// [`BasicScanError::LineScan`] for filesystem scan failures, or
+    /// [`BasicScanError::InvalidFacts`] when produced facts violate the contract.
     pub fn scan(&self, request: &ScanRequest) -> Result<ScanFacts, BasicScanError> {
         let basic_language_id = parse_basic_language_id(BASIC_LANGUAGE_ID)?;
 

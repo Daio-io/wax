@@ -236,6 +236,12 @@ impl Engine {
     /// On success, scan output is persisted under `.wax/out/` in the scanned
     /// repository. The merged scan is written to `.wax/out/scan-merged.json`,
     /// and per-language facts are written to `.wax/out/languages/`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EngineError`] when config, lockfile, state, registry, install,
+    /// subprocess, contract validation, worker execution, or output persistence
+    /// fails.
     pub fn scan_repo(repo_root: impl AsRef<Path>) -> Result<MergedScan, EngineError> {
         Self::scan_repo_with_options(repo_root, ScanOptions::default())
     }
@@ -246,6 +252,15 @@ impl Engine {
     /// repository. The merged scan is written to `.wax/out/scan-merged.json`,
     /// and per-language facts are written to `.wax/out/languages/`. Output
     /// write failures are returned as [`EngineError::ScanOutput`].
+    ///
+    /// # Errors
+    ///
+    /// Returns `WaxRc`, `Lockfile`, `GlobalState`, or `Paths` for input/state
+    /// failures; the installed-manifest, registry, policy, and install variants
+    /// for pack resolution failures; [`EngineError::Language`] for subprocess
+    /// failures; [`EngineError::ScanFacts`] for invalid facts;
+    /// [`EngineError::ScanWorkerPanicked`] for a failed worker; or
+    /// [`EngineError::ScanOutput`] when output cannot be persisted.
     pub fn scan_repo_with_options(
         repo_root: impl AsRef<Path>,
         mut options: ScanOptions,

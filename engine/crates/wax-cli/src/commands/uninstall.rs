@@ -42,6 +42,11 @@ pub enum UninstallCliError {
 }
 
 /// Runs `wax uninstall`.
+///
+/// # Errors
+///
+/// Returns [`UninstallCliError`] when global paths/state or executable paths
+/// cannot be resolved, files cannot be removed, or output cannot be written.
 pub fn run_uninstall_cli(
     options: UninstallCliOptions,
     writer: &mut impl Write,

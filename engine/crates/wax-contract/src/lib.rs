@@ -4,6 +4,17 @@
 //! serde deserialization only checks JSON shape and Rust integer widths; the
 //! ingest helper also rejects contract-invalid values and stale derived counts.
 //! In-process producers can call [`ScanFacts::validate`] before returning facts.
+//!
+//! # Examples
+//!
+//! ```
+//! use wax_contract::LanguageId;
+//!
+//! let language = LanguageId::try_from("swift")?;
+//! assert_eq!(language.as_str(), "swift");
+//! assert!(LanguageId::try_from("Swift UI").is_err());
+//! # Ok::<(), wax_contract::LanguageIdError>(())
+//! ```
 
 #![deny(missing_docs)]
 
@@ -731,6 +742,11 @@ pub struct MergedScan {
 }
 
 /// Validates a `ScanFacts.schema_version` value.
+///
+/// # Errors
+///
+/// Returns [`ScanFactsError::UnsupportedSchemaVersion`] when `version` differs
+/// from [`SCHEMA_VERSION`].
 pub fn validate_schema_version(version: u32) -> Result<(), ScanFactsError> {
     if version != SCHEMA_VERSION {
         Err(ScanFactsError::UnsupportedSchemaVersion {
@@ -748,6 +764,13 @@ pub fn validate_schema_version(version: u32) -> Result<(), ScanFactsError> {
 /// enforces schema version, unknown-field rejection, non-empty strings,
 /// source-location bounds, usage-site linkage invariants, and derived
 /// count/metric consistency.
+///
+/// # Errors
+///
+/// Returns [`ScanFactsError::InvalidJson`] for malformed JSON or JSON that does
+/// not match the serialized contract, [`ScanFactsError::UnsupportedSchemaVersion`]
+/// for an incompatible schema, or [`ScanFactsError::ContractViolation`] when a
+/// semantic invariant or derived value is invalid.
 pub fn scan_facts_from_json(json: &str) -> Result<ScanFacts, ScanFactsError> {
     let value: serde_json::Value = serde_json::from_str(json)?;
     require_json_field(&value, &["metrics", "invocation_adoption_ratio"])?;
@@ -761,6 +784,12 @@ pub fn scan_facts_from_json(json: &str) -> Result<ScanFacts, ScanFactsError> {
 
 impl ScanFacts {
     /// Validates non-derived fields and verifies counts/metrics match the facts.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ScanFactsError::UnsupportedSchemaVersion`] for an incompatible
+    /// schema or [`ScanFactsError::ContractViolation`] for invalid fields,
+    /// linkage, locations, summaries, counts, or metrics.
     pub fn validate(&self) -> Result<(), ScanFactsError> {
         validate_schema_version(self.schema_version)?;
         require_non_empty("language.version", &self.language.version)?;
@@ -857,6 +886,11 @@ impl ScanFacts {
     }
 
     /// Recomputes counts and adoption metrics from fact collections.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ScanFactsError::ContractViolation`] when a derived counter
+    /// would overflow its contract width.
     pub fn recompute_counts(&mut self) -> Result<(), ScanFactsError> {
         let (counts, metrics) = derive_counts_and_metrics(self)?;
         self.counts = counts;
@@ -869,6 +903,12 @@ impl ScanFacts {
 
 impl MergedScan {
     /// Validates merged scan shape and repo-level derived values.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ScanFactsError::UnsupportedSchemaVersion`] for an incompatible
+    /// schema or [`ScanFactsError::ContractViolation`] when language keys,
+    /// summaries, counts, or repo-level metrics are inconsistent.
     pub fn validate(&self) -> Result<(), ScanFactsError> {
         validate_schema_version(self.schema_version)?;
 

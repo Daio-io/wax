@@ -1,4 +1,27 @@
 //! React language pack implementation.
+//!
+//! # Examples
+//!
+//! An empty config runs the pack in scaffold mode without reading repository files:
+//!
+//! ```
+//! use wax_contract::ScanStatus;
+//! use wax_lang_api::{ScanConfig, ScanRequest, ScanRequestType, WIRE_API_VERSION};
+//! use wax_lang_react::ReactLanguage;
+//!
+//! let request = ScanRequest {
+//!     request_type: ScanRequestType::Scan,
+//!     api_version: WIRE_API_VERSION,
+//!     language_id: "react".try_into()?,
+//!     repo_root: ".".to_owned(),
+//!     snapshot_id: "docs-react".to_owned(),
+//!     config: ScanConfig::new(),
+//! };
+//! let facts = ReactLanguage::new().scan(&request)?;
+//!
+//! assert_eq!(facts.status, ScanStatus::Partial);
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
 
 #![deny(missing_docs)]
 
@@ -135,6 +158,14 @@ impl ReactLanguage {
     }
 
     /// Executes a react scan for the provided request.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReactScanError::InvalidLanguageId`] for a non-React request,
+    /// [`ReactScanError::InvalidConfig`] for invalid settings,
+    /// [`ReactScanError::Registry`] for missing or malformed registry data,
+    /// [`ReactScanError::Io`] or [`ReactScanError::Parse`] for source failures,
+    /// or [`ReactScanError::InvalidFacts`] for contract-invalid output.
     pub fn scan(&self, request: &ScanRequest) -> Result<ScanFacts, ReactScanError> {
         let react_language_id = parse_react_scan_language_id(REACT_LANGUAGE_ID)?;
 
@@ -176,6 +207,12 @@ impl ReactLanguage {
     }
 
     /// Discovers likely public React component symbols for the provided request.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReactDiscoverError::InvalidLanguageId`] for a non-React request,
+    /// or propagates [`ReactDiscoverError::MissingRoot`] and
+    /// [`ReactDiscoverError::Io`] from [`discover_registry_symbols`].
     pub fn discover(
         &self,
         request: &DiscoverRequest,

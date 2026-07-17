@@ -86,7 +86,7 @@ pub enum ScanCommandError {
     /// Wax config could not be loaded before scan sync.
     #[error(transparent)]
     Config(#[from] WaxRcError),
-    /// Global path resolution failed.
+    /// Global wax paths could not be resolved.
     #[error(transparent)]
     Paths(#[from] PathsError),
     /// Ephemeral scan requires an interactive terminal.
@@ -110,6 +110,13 @@ pub enum ScanCommandError {
 }
 
 /// Runs `wax scan`, prompting for ephemeral selections when config is missing in a TTY.
+///
+/// # Errors
+///
+/// Returns [`ScanCommandError::RequiresInit`] or
+/// [`ScanCommandError::RequiresInteractiveTerminal`] when setup is unavailable,
+/// or another [`ScanCommandError`] for paths, config, registry, engine, sync, or
+/// output failures.
 pub fn run_scan_cli(
     options: ScanCommandOptions,
     writer: &mut impl Write,
@@ -136,6 +143,12 @@ pub fn run_scan_cli(
 }
 
 /// Runs `wax scan` against committed repository config.
+///
+/// # Errors
+///
+/// Returns [`ScanCommandError::Engine`] when scanning fails,
+/// [`ScanCommandError::Sync`] or [`ScanCommandError::Config`] during pre-scan
+/// sync, or [`ScanCommandError::Io`] when summary output cannot be written.
 pub fn run_scan(
     options: ScanCommandOptions,
     writer: &mut impl Write,

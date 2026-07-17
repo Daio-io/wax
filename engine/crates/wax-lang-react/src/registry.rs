@@ -78,6 +78,12 @@ impl std::fmt::Display for RegistryError {
 impl std::error::Error for RegistryError {}
 
 /// Loads registry symbols and aliases into a React resolver index.
+///
+/// # Errors
+///
+/// Returns [`RegistryError`] with [`RegistryErrorKind::NotFound`] when the file
+/// is absent, or [`RegistryErrorKind::Invalid`] when JSON, schema, component,
+/// alias, package, or token definitions are invalid or ambiguous.
 pub fn load_react_registry(path: &Path) -> Result<ReactRegistryIndex, RegistryError> {
     let raw = fs::read_to_string(path).map_err(|err| registry_read_error(path, err))?;
     let value: serde_json::Value = serde_json::from_str(&raw).map_err(|err| {

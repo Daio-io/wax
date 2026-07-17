@@ -13,6 +13,11 @@ use wax_contract::{
 const DEFAULT_PARENT_SCOPE_LIMIT: Option<u32> = None;
 
 /// Recomputes derived counters, metrics, and symbol summaries for one language scan.
+///
+/// # Errors
+///
+/// Returns [`ScanFactsError::ContractViolation`] when counters overflow or a
+/// usage site lacks the identity required to build a summary.
 pub fn recompute_derived_scan_facts(
     facts: &mut ScanFacts,
     language_id: &LanguageId,
@@ -25,6 +30,11 @@ pub fn recompute_derived_scan_facts(
 }
 
 /// Recomputes derived scan facts using an explicit parent-scope row limit.
+///
+/// # Errors
+///
+/// Returns [`ScanFactsError::ContractViolation`] when counters overflow or a
+/// usage site lacks the identity required to build a summary.
 pub fn recompute_derived_scan_facts_with_parent_scope_limit(
     facts: &mut ScanFacts,
     language_id: &LanguageId,
@@ -38,6 +48,12 @@ pub fn recompute_derived_scan_facts_with_parent_scope_limit(
 }
 
 /// Builds a merged scan with repo-level counters and symbol summaries.
+///
+/// # Errors
+///
+/// Returns [`ScanFactsError::UnsupportedSchemaVersion`] for incompatible input
+/// facts or [`ScanFactsError::ContractViolation`] for overflow, inconsistent
+/// language ids, or invalid derived summaries and metrics.
 pub fn merge_language_scans(
     languages: BTreeMap<LanguageId, ScanFacts>,
 ) -> Result<MergedScan, ScanFactsError> {
@@ -45,6 +61,12 @@ pub fn merge_language_scans(
 }
 
 /// Builds a merged scan using an explicit parent-scope row limit.
+///
+/// # Errors
+///
+/// Returns [`ScanFactsError::UnsupportedSchemaVersion`] for incompatible input
+/// facts or [`ScanFactsError::ContractViolation`] for overflow, inconsistent
+/// language ids, or invalid derived summaries and metrics.
 pub fn merge_language_scans_with_parent_scope_limit(
     languages: BTreeMap<LanguageId, ScanFacts>,
     parent_scope_limit: Option<u32>,

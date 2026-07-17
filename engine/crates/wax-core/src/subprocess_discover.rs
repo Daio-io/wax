@@ -49,6 +49,12 @@ impl SubprocessLanguageDiscoverer {
     }
 
     /// Runs registry discovery for one request.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DiscoverError`] when the command is empty, process I/O or wire
+    /// decoding fails, the operation times out or is cancelled, the API version
+    /// is unsupported, or the pack returns an unsupported/error response.
     pub fn discover(
         &self,
         request: DiscoverRequest,
@@ -57,6 +63,11 @@ impl SubprocessLanguageDiscoverer {
     }
 
     /// Runs registry discovery unless cancellation is requested first.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DiscoverError::Cancelled`] when cancellation wins, or another
+    /// [`DiscoverError`] variant for command, process, timeout, or wire failures.
     pub fn discover_with_cancellation(
         &self,
         request: DiscoverRequest,

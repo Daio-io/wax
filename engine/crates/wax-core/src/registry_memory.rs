@@ -102,6 +102,13 @@ pub struct RememberedDesignSystemSummary {
 }
 
 /// Stores or refreshes a remembered design system in global state.
+///
+/// # Errors
+///
+/// Returns [`RegistryMemoryError::InvalidDesignSystemId`] for an invalid id,
+/// [`RegistryMemoryError::ResolveRepoRoot`] when the repository cannot be
+/// canonicalized, or [`RegistryMemoryError::GlobalState`] when state cannot be
+/// loaded or saved.
 pub fn remember_design_system(
     state_path: impl AsRef<Path>,
     design_system_id: &str,
@@ -125,6 +132,11 @@ pub fn remember_design_system(
 }
 
 /// Lists remembered design systems sorted by id.
+///
+/// # Errors
+///
+/// Returns [`RegistryMemoryError::GlobalState`] when global state cannot be
+/// loaded or validated.
 pub fn list_remembered_design_systems(
     state_path: impl AsRef<Path>,
 ) -> Result<Vec<RememberedDesignSystemSummary>, RegistryMemoryError> {
@@ -142,6 +154,12 @@ pub fn list_remembered_design_systems(
 }
 
 /// Returns one remembered design system by id.
+///
+/// # Errors
+///
+/// Returns [`RegistryMemoryError::InvalidDesignSystemId`] for an invalid id,
+/// [`RegistryMemoryError::NotFound`] when the id is not remembered, or
+/// [`RegistryMemoryError::GlobalState`] when state cannot be loaded.
 pub fn show_remembered_design_system(
     state_path: impl AsRef<Path>,
     design_system_id: &str,
@@ -162,6 +180,13 @@ pub fn show_remembered_design_system(
 }
 
 /// Updates the remembered repository root for a design system.
+///
+/// # Errors
+///
+/// Returns [`RegistryMemoryError::InvalidDesignSystemId`] for an invalid id,
+/// [`RegistryMemoryError::ResolveRepoRoot`] for an inaccessible repository,
+/// [`RegistryMemoryError::NotFound`] for an unknown id, or
+/// [`RegistryMemoryError::GlobalState`] when state cannot be loaded or saved.
 pub fn update_remembered_design_system_repo_root(
     state_path: impl AsRef<Path>,
     design_system_id: &str,
@@ -182,6 +207,12 @@ pub fn update_remembered_design_system_repo_root(
 }
 
 /// Removes a remembered design system from global state.
+///
+/// # Errors
+///
+/// Returns [`RegistryMemoryError::InvalidDesignSystemId`] for an invalid id,
+/// [`RegistryMemoryError::NotFound`] for an unknown id, or
+/// [`RegistryMemoryError::GlobalState`] when state cannot be loaded or saved.
 pub fn delete_remembered_design_system(
     state_path: impl AsRef<Path>,
     design_system_id: &str,
@@ -199,6 +230,13 @@ pub fn delete_remembered_design_system(
 }
 
 /// Resolves registry source and upstream metadata for one remembered design-system language.
+///
+/// # Errors
+///
+/// Returns [`RegistryMemoryError::InvalidDesignSystemId`] for an invalid
+/// remembered id, [`RegistryMemoryError::ConfigUpdate`] for missing or malformed
+/// publication config, or [`RegistryMemoryError::RegistrySource`] for an unsafe
+/// local registry source.
 pub fn resolve_remembered_registry(
     remembered: &RememberedDesignSystemSummary,
     language_id: &LanguageId,
@@ -297,6 +335,13 @@ pub fn resolve_remembered_registry(
 }
 
 /// Copies a design-system registry artifact into an app repository.
+///
+/// # Errors
+///
+/// Returns [`RegistryMemoryError::RegistrySource`] when the source path is
+/// unsafe or escapes the design-system repository, or
+/// [`RegistryMemoryError::ConfigUpdate`] when the source cannot be read or the
+/// app destination cannot be created or written.
 pub fn copy_design_system_registry_to_app(
     remembered: &RememberedDesignSystemSummary,
     design_system_local_source: &str,
@@ -332,6 +377,12 @@ pub fn copy_design_system_registry_to_app(
 /// Ensures a design-system registry source exists in `.wax/wax.config.json`.
 ///
 /// Creates the config file when missing and preserves unrelated fields.
+///
+/// # Errors
+///
+/// Returns [`RegistryMemoryError::InvalidDesignSystemId`] for an invalid id or
+/// [`RegistryMemoryError::ConfigUpdate`] when config JSON cannot be read,
+/// normalized, serialized, or written.
 pub fn ensure_design_system_registry_source(
     repo_root: impl AsRef<Path>,
     design_system_id: &str,

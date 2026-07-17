@@ -61,6 +61,11 @@ impl std::error::Error for ReactFileCollectionError {
 /// Supported extensions are `.js`, `.jsx`, `.ts`, and `.tsx`. Declaration files
 /// ending in `.d.ts` are always excluded. Documented default ignore patterns are
 /// applied first, then any configured `ignore` patterns.
+///
+/// # Errors
+///
+/// Returns [`ReactFileCollectionError::Io`] when a wildcard root, directory
+/// entry, or source-file metadata cannot be read.
 pub fn collect_react_source_files(
     repo_root: &Path,
     roots: &[PathBuf],

@@ -125,6 +125,15 @@ pub enum RegistryError {
 }
 
 /// Loads a pack-index manifest list from a `file://`, `http://`, or `https://` URL.
+///
+/// # Errors
+///
+/// Returns [`RegistryError::UnsupportedScheme`] or
+/// [`RegistryError::InvalidFileUrl`] for invalid URLs; [`RegistryError::Read`],
+/// [`RegistryError::Timeout`], [`RegistryError::HttpStatus`], or
+/// [`RegistryError::HttpRequest`] for transport failures; and
+/// [`RegistryError::MalformedJson`], [`RegistryError::MalformedRemoteJson`], or
+/// [`RegistryError::InvalidManifest`] for invalid index content.
 pub fn fetch_pack_index(url: &str) -> Result<Vec<RegistryManifest>, RegistryError> {
     if url.starts_with("file://") {
         return fetch_file_pack_index(url);
@@ -138,6 +147,11 @@ pub fn fetch_pack_index(url: &str) -> Result<Vec<RegistryManifest>, RegistryErro
 }
 
 /// Selects the target artifact for the current host triple.
+///
+/// # Errors
+///
+/// Returns [`RegistryError::MissingTarget`] when the manifest has no artifact
+/// for `host_target`.
 pub fn select_target_artifact<'a>(
     manifest: &'a RegistryManifest,
     host_target: &str,

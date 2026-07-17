@@ -24,12 +24,21 @@ static SPOOL_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// Extracts language scan facts for one request.
 pub trait LanguageExtractor {
     /// Runs the extractor and returns validated scan facts.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LanguageError`] for command, process I/O, timeout,
+    /// cancellation, wire decoding/API, or pack-reported failures.
     fn scan(&self, request: ScanRequest) -> Result<ScanFacts, LanguageError>;
 
     /// Runs the extractor unless cancellation is requested first.
     ///
     /// Extractors without cancellation support may use the default implementation,
     /// which ignores the token and delegates to [`LanguageExtractor::scan`].
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`LanguageError`] produced by [`LanguageExtractor::scan`].
     fn scan_with_cancellation(
         &self,
         request: ScanRequest,
@@ -87,6 +96,11 @@ impl SubprocessLanguageExtractor {
     }
 
     /// Runs the extractor unless cancellation is requested first.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LanguageError::Cancelled`] when cancellation wins, or another
+    /// [`LanguageError`] variant for command, process, timeout, or wire failures.
     pub fn scan_with_cancellation(
         &self,
         request: ScanRequest,

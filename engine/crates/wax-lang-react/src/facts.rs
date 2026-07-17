@@ -57,6 +57,10 @@ pub fn scaffold_facts(request: &ScanRequest, react_language_id: &LanguageId) -> 
 }
 
 /// Assembles configured React scan facts from registry, source files, and parsed modules.
+///
+/// # Errors
+///
+/// Returns [`ReactParseError::Io`] when a collected source file cannot be read.
 pub fn configured_scan_facts(
     request: &ScanRequest,
     react_language_id: &LanguageId,

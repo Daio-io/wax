@@ -147,6 +147,13 @@ pub enum LockfileError {
 }
 
 /// Loads and validates a `wax.lock.json` file from disk.
+///
+/// # Errors
+///
+/// Returns [`LockfileError::Read`] when the file cannot be read,
+/// [`LockfileError::MalformedJson`] for invalid JSON,
+/// [`LockfileError::InvalidConfig`] for an incompatible shape, or
+/// [`LockfileError::UnsupportedSchemaVersion`] for an unsupported version.
 pub fn load_lockfile(path: impl AsRef<Path>) -> Result<WaxLock, LockfileError> {
     let path = path.as_ref();
     let path_display = path.display().to_string();
@@ -178,10 +185,10 @@ pub fn load_lockfile(path: impl AsRef<Path>) -> Result<WaxLock, LockfileError> {
     }
 
     let mut value = value;
-    if version.schema_version == MIN_SUPPORTED_WAX_LOCK_SCHEMA_VERSION {
-        value
-            .as_object_mut()
-            .expect("lockfile root should stay an object after version decode")
+    if version.schema_version == MIN_SUPPORTED_WAX_LOCK_SCHEMA_VERSION
+        && let Some(object) = value.as_object_mut()
+    {
+        object
             .entry("registries")
             .or_insert_with(|| serde_json::Value::Object(Default::default()));
     }

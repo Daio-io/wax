@@ -103,6 +103,11 @@ impl std::error::Error for ReactParseError {
 /// Supported extensions are `.js`, `.jsx`, `.ts`, and `.tsx`.
 /// Parse failures are returned as [`ReactParseOutcome::Failed`] diagnostics so
 /// callers can continue scanning remaining files.
+///
+/// # Errors
+///
+/// Returns [`ReactParseError::Io`] when the source file cannot be read. JavaScript
+/// or TypeScript syntax failures are represented by [`ReactParseOutcome::Failed`].
 pub fn parse_react_source_file(
     repo_root: &Path,
     relative_path: &Path,

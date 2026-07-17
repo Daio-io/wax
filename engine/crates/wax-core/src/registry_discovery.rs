@@ -346,14 +346,26 @@ struct DiscoveredComponent {
 }
 
 /// Discovers a registry for a single language and optionally writes it to disk.
+///
+/// # Errors
+///
+/// Returns [`RegistryDiscoverError::IncompleteDesignSystemOptions`] for an
+/// incomplete remember request; the `Config`, `Lockfile`, `GlobalState`,
+/// `Paths`, `InvalidLanguageId`, `LanguageNotConfigured`, `NoConfiguredRoots`,
+/// `InvalidRootsShape`, `InvalidRootPath`, `RootEscapesRepo`, and `RootNotFound`
+/// variants for invalid inputs; `ResolveRoot`, `PackNotInstalled`,
+/// `DiscoverSubprocess`, `DiscoverUnsupported`, or `RegistryExternalSource`
+/// when discovery cannot run; and the serialization, output, atomic-write,
+/// config/lock patch, or registry-memory variants when persistence fails.
 pub fn discover_registry(
     options: RegistryDiscoverOptions<'_>,
 ) -> Result<RegistryDiscoverResult, RegistryDiscoverError> {
-    let remember_design_system_mode = match (options.design_system_id, options.design_system_name) {
-        (Some(_), Some(_)) => true,
-        (None, None) => false,
+    let remembered_design_system = match (options.design_system_id, options.design_system_name) {
+        (Some(id), Some(name)) => Some((id, name)),
+        (None, None) => None,
         _ => return Err(RegistryDiscoverError::IncompleteDesignSystemOptions),
     };
+    let remember_design_system_mode = remembered_design_system.is_some();
     let language_id = LanguageId::try_from(options.language_id).map_err(|_| {
         RegistryDiscoverError::InvalidLanguageId {
             language_id: options.language_id.to_owned(),
@@ -457,9 +469,7 @@ pub fn discover_registry(
         patch_config_registry(&repo_files.config_path, &language_id, &output_source)?;
     }
 
-    if remember_design_system_mode {
-        let design_system_id = options.design_system_id.expect("validated above");
-        let design_system_name = options.design_system_name.expect("validated above");
+    if let Some((design_system_id, design_system_name)) = remembered_design_system {
         ensure_design_system_registry_source(
             options.repo_root,
             design_system_id,

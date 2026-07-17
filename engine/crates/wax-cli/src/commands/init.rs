@@ -11,7 +11,7 @@ use std::fs;
 use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
-use wax_contract::LanguageId;
+use wax_contract::{LanguageId, LanguageIdError};
 use wax_core::config::lockfile::{LockedRegistry, WAX_LOCK_SCHEMA_VERSION, WaxLock};
 use wax_core::config::repo_files::{
     PREFERRED_CONFIG_RELATIVE_PATH, PREFERRED_LOCKFILE_RELATIVE_PATH,
@@ -121,6 +121,15 @@ pub enum InitCommandError {
         #[source]
         source: serde_json::Error,
     },
+    /// Example onboarding template contains an invalid language id.
+    #[error("invalid language id `{language_id}` in example .waxrc template: {source}")]
+    InvalidExampleLanguageId {
+        /// Invalid language id read from the bundled template.
+        language_id: String,
+        /// Language id validation failure.
+        #[source]
+        source: LanguageIdError,
+    },
     /// Example onboarding template is missing a `languages` array.
     #[error("example wax config template is missing languages object")]
     MissingExampleLanguages,
@@ -157,6 +166,12 @@ pub enum InitCommandError {
 }
 
 /// Runs `wax init`.
+///
+/// # Errors
+///
+/// Returns [`InitCommandError`] for invalid/non-interactive selections, existing
+/// config, malformed bundled templates, pack/registry/state/path failures, or
+/// filesystem and output-write failures.
 pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), InitCommandError> {
     let selections = options.interactive.clone();
     if !options.non_interactive && selections.is_none() {
@@ -178,18 +193,25 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
         return Err(InitCommandError::WaxConfigAlreadyExists { path: config_path });
     }
 
-    let state_path = if uses_remembered_design_system(selections.as_ref()) {
-        Some(resolve_state_path(options.state_path.as_deref())?)
-    } else {
-        None
-    };
+    let remembered_state = selections
+        .as_ref()
+        .and_then(|selections| match &selections.registry_setup {
+            RegistrySetup::RememberedDesignSystem { design_system_id } => {
+                Some(design_system_id.clone())
+            }
+            RegistrySetup::External => None,
+        })
+        .map(|design_system_id| {
+            resolve_state_path(options.state_path.as_deref()).map(|state_path| (design_system_id, state_path))
+        })
+        .transpose()?;
 
     let base_waxrc = build_waxrc_contents(
         &languages,
         options.scaffold_registries && !uses_remembered_design_system(selections.as_ref()),
         selections.as_ref(),
     )?;
-    let waxrc_contents = if let Some(state_path) = state_path.as_ref() {
+    let waxrc_contents = if let Some((_, state_path)) = remembered_state.as_ref() {
         apply_remembered_registry_config(base_waxrc, selections.as_ref(), &languages, state_path)?
     } else {
         base_waxrc
@@ -218,7 +240,7 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
     }
 
     if let Some(selections) = selections.as_ref()
-        && let Some(state_path) = state_path.as_ref()
+        && let Some((_, state_path)) = remembered_state.as_ref()
     {
         copy_remembered_design_system_registries(
             selections,
@@ -244,40 +266,37 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
             &target,
             &resolved.artifact,
         );
-        let registry_source = if let Some(selections) = selections.as_ref()
-            && let RegistrySetup::RememberedDesignSystem { design_system_id } =
-                &selections.registry_setup
-        {
-            let state_path = state_path.as_ref().expect("remembered init state path");
-            let remembered = show_remembered_design_system(state_path, design_system_id)?;
-            let remembered_registry =
-                resolve_remembered_registry(&remembered, &resolved.manifest.id)?;
-            let registry_source = resolve_registry_source(RegistrySourceInput {
-                repo_root: &options.repo_root,
-                language_id: resolved.manifest.id.as_str(),
-                source: Some(&remembered_registry.config_source),
-            })?;
-            LockedRegistry {
-                source: registry_source.source,
-                sha256: registry_source.sha256,
-            }
-        } else if let Some(scaffold) = scaffold_by_language.get(&resolved.manifest.id) {
-            LockedRegistry {
-                source: default_registry_path_for_language(&resolved.manifest.id),
-                sha256: scaffold.sha256.clone(),
-            }
-        } else {
-            let repo_relative = default_registry_path_for_language(&resolved.manifest.id);
-            let registry_source = resolve_registry_source(RegistrySourceInput {
-                repo_root: &options.repo_root,
-                language_id: resolved.manifest.id.as_str(),
-                source: Some(&repo_relative),
-            })?;
-            LockedRegistry {
-                source: registry_source.source,
-                sha256: registry_source.sha256,
-            }
-        };
+        let registry_source =
+            if let Some((design_system_id, state_path)) = remembered_state.as_ref() {
+                let remembered = show_remembered_design_system(state_path, design_system_id)?;
+                let remembered_registry =
+                    resolve_remembered_registry(&remembered, &resolved.manifest.id)?;
+                let registry_source = resolve_registry_source(RegistrySourceInput {
+                    repo_root: &options.repo_root,
+                    language_id: resolved.manifest.id.as_str(),
+                    source: Some(&remembered_registry.config_source),
+                })?;
+                LockedRegistry {
+                    source: registry_source.source,
+                    sha256: registry_source.sha256,
+                }
+            } else if let Some(scaffold) = scaffold_by_language.get(&resolved.manifest.id) {
+                LockedRegistry {
+                    source: default_registry_path_for_language(&resolved.manifest.id),
+                    sha256: scaffold.sha256.clone(),
+                }
+            } else {
+                let repo_relative = default_registry_path_for_language(&resolved.manifest.id);
+                let registry_source = resolve_registry_source(RegistrySourceInput {
+                    repo_root: &options.repo_root,
+                    language_id: resolved.manifest.id.as_str(),
+                    source: Some(&repo_relative),
+                })?;
+                LockedRegistry {
+                    source: registry_source.source,
+                    sha256: registry_source.sha256,
+                }
+            };
         lockfile
             .registries
             .insert(resolved.manifest.id.clone(), registry_source);
@@ -317,6 +336,12 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
 }
 
 /// Runs `wax init` using the process terminal for interactive prompts.
+///
+/// # Errors
+///
+/// Returns [`InitCommandError::RequiresInteractiveTerminal`] without a TTY,
+/// [`InitCommandError::WaxConfigAlreadyExists`] for an initialized repo, or
+/// another [`InitCommandError`] from prompts, resolution, or [`run_init`].
 pub fn run_init_cli(options: InitOptions, writer: &mut impl Write) -> Result<(), InitCommandError> {
     if options.non_interactive {
         return run_init(options, writer);
@@ -659,8 +684,12 @@ fn build_waxrc_contents(
         let Some(object) = entry.as_object_mut() else {
             continue;
         };
-        let language_id =
-            LanguageId::try_from(id.as_str()).expect("example template language ids are validated");
+        let language_id = LanguageId::try_from(id.as_str()).map_err(|source| {
+            InitCommandError::InvalidExampleLanguageId {
+                language_id: id.clone(),
+                source,
+            }
+        })?;
         if scaffold_registries {
             object.insert(
                 "registry".to_owned(),

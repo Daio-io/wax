@@ -44,6 +44,12 @@ pub enum BasicConfigMode {
 }
 
 /// Loads basic scan settings from the engine request payload.
+///
+/// # Errors
+///
+/// Returns [`LineScanError::ConfigInvalid`] when required registry or root
+/// fields are absent, values have the wrong shape, or a configured path is
+/// absolute or contains a parent-directory segment.
 pub fn parse_basic_scan_config(config: &ScanConfig) -> Result<BasicConfigMode, LineScanError> {
     let has_registry = config.contains_key("registry");
     let has_roots = config.contains_key("roots");
@@ -160,6 +166,12 @@ fn validate_repo_relative_path(path: &str, field: &str) -> Result<(), LineScanEr
 }
 
 /// Runs the text line scanner for a configured repository layout.
+///
+/// # Errors
+///
+/// Returns [`LineScanError::RegistryInvalid`] when registry JSON is malformed or
+/// incompatible, or [`LineScanError::Io`] when registry/source files or wildcard
+/// roots cannot be read.
 pub fn scan_repository(
     repo_root: &Path,
     config: &BasicScanConfig,

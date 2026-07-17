@@ -76,6 +76,11 @@ impl std::error::Error for ReactDiscoverError {
 ///
 /// Files that fail to parse are skipped and reported as diagnostics so discovery can
 /// continue with the remaining React sources.
+///
+/// # Errors
+///
+/// Returns [`ReactDiscoverError::MissingRoot`] for a nonexistent root or
+/// [`ReactDiscoverError::Io`] when source discovery or reading fails.
 pub fn discover_registry_symbols(
     parse_root: &Path,
     roots: &[PathBuf],

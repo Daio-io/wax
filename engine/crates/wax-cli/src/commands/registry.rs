@@ -86,6 +86,11 @@ pub enum RegistryMemoryCommandError {
 }
 
 /// Runs `wax discover` or `wax registry discover`.
+///
+/// # Errors
+///
+/// Returns [`RegistryDiscoverCommandError`] when discovery/configuration fails,
+/// generated JSON cannot be serialized, or command output cannot be written.
 pub fn run_registry_discover(
     options: RegistryDiscoverCommandOptions,
     writer: &mut impl Write,
@@ -176,6 +181,11 @@ pub fn run_registry_discover(
 }
 
 /// Runs `wax registry list`.
+///
+/// # Errors
+///
+/// Returns [`RegistryMemoryCommandError`] when state/path resolution or output
+/// writing fails.
 pub fn run_registry_list(
     options: RegistryMemoryCommandOptions,
     writer: &mut impl Write,
@@ -199,6 +209,11 @@ pub fn run_registry_list(
 }
 
 /// Runs `wax registry show`.
+///
+/// # Errors
+///
+/// Returns [`RegistryMemoryCommandError`] for an invalid or unknown id, state
+/// loading failures, or output-write failures.
 pub fn run_registry_show(
     design_system_id: &str,
     options: RegistryMemoryCommandOptions,
@@ -221,6 +236,11 @@ pub fn run_registry_show(
 }
 
 /// Runs `wax registry update`.
+///
+/// # Errors
+///
+/// Returns [`RegistryMemoryCommandError`] for an invalid/unknown id, inaccessible
+/// repository root, state persistence failure, or output-write failure.
 pub fn run_registry_update(
     options: RegistryUpdateCommandOptions,
     writer: &mut impl Write,
@@ -244,6 +264,11 @@ pub fn run_registry_update(
 }
 
 /// Runs `wax registry delete`.
+///
+/// # Errors
+///
+/// Returns [`RegistryMemoryCommandError`] for an invalid/unknown id, state
+/// persistence failure, or output-write failure.
 pub fn run_registry_delete(
     design_system_id: &str,
     options: RegistryMemoryCommandOptions,

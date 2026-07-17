@@ -73,6 +73,12 @@ impl std::error::Error for SwiftDiscoverError {
 ///
 /// Files that tree-sitter cannot parse at all are skipped and reported as diagnostics.
 /// Recoverable syntax errors still allow symbol extraction from the partial tree.
+///
+/// # Errors
+///
+/// Returns [`SwiftDiscoverError::MissingRoot`] for a nonexistent root,
+/// [`SwiftDiscoverError::ParserInitFailed`] when tree-sitter cannot initialize,
+/// or [`SwiftDiscoverError::Io`] when source discovery or reading fails.
 pub fn discover_registry_symbols(
     parse_root: &Path,
     roots: &[PathBuf],

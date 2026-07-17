@@ -175,7 +175,7 @@ pub struct PackIndexArgs {
 /// Arguments for `wax language install`.
 #[derive(Debug, Args)]
 pub struct InstallArgs {
-    /// Language id to install, optionally pinned as <id>@<version>.
+    /// Language id to install, optionally pinned as `<id>@<version>`.
     pub language: LanguageInstallSpec,
     /// Pack index URL. Resolution precedence: --pack-index > WAX_PACK_INDEX > built-in default.
     #[arg(long = "pack-index", env = "WAX_PACK_INDEX")]

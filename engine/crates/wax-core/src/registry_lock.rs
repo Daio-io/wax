@@ -33,6 +33,12 @@ pub enum RegistryLockMismatch {
 }
 
 /// Verifies that `lockfile` registry locks match `resolved` for `language_id`.
+///
+/// # Errors
+///
+/// Returns [`RegistryLockMismatch::Missing`] when no lock exists,
+/// [`RegistryLockMismatch::SourceDrift`] when source strings differ, or
+/// [`RegistryLockMismatch::DigestDrift`] when content digests differ.
 pub fn verify_registry_lock(
     language_id: &LanguageId,
     resolved: &ResolvedRegistrySource,

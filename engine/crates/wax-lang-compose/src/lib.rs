@@ -1,4 +1,27 @@
 //! Compose language pack implementation.
+//!
+//! # Examples
+//!
+//! An empty config runs the pack in scaffold mode without reading repository files:
+//!
+//! ```
+//! use wax_contract::ScanStatus;
+//! use wax_lang_api::{ScanConfig, ScanRequest, ScanRequestType, WIRE_API_VERSION};
+//! use wax_lang_compose::ComposeLanguage;
+//!
+//! let request = ScanRequest {
+//!     request_type: ScanRequestType::Scan,
+//!     api_version: WIRE_API_VERSION,
+//!     language_id: "compose".try_into()?,
+//!     repo_root: ".".to_owned(),
+//!     snapshot_id: "docs-compose".to_owned(),
+//!     config: ScanConfig::new(),
+//! };
+//! let facts = ComposeLanguage::new().scan(&request)?;
+//!
+//! assert_eq!(facts.status, ScanStatus::Partial);
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
 
 #![deny(missing_docs)]
 
@@ -87,6 +110,14 @@ impl ComposeLanguage {
     }
 
     /// Executes a Compose scan for the provided request.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ComposeScanError::InvalidLanguageId`] for a non-Compose request,
+    /// [`ComposeScanError::InvalidConfig`] for invalid scan settings,
+    /// [`ComposeScanError::ParserInitFailed`] when tree-sitter cannot initialize,
+    /// [`ComposeScanError::Scanner`] for registry/filesystem/parser failures, or
+    /// [`ComposeScanError::InvalidFacts`] for contract-invalid output.
     pub fn scan(&self, request: &ScanRequest) -> Result<ScanFacts, ComposeScanError> {
         let compose_language_id = parse_compose_scan_language_id(COMPOSE_LANGUAGE_ID)?;
 
@@ -117,6 +148,12 @@ impl ComposeLanguage {
     }
 
     /// Discovers likely public top-level Compose component symbols for the provided request.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ComposeDiscoverError::InvalidLanguageId`] for a non-Compose
+    /// request, or propagates missing-root, parser-initialization, and I/O
+    /// variants from [`discover_registry_symbols`].
     pub fn discover(
         &self,
         request: &DiscoverRequest,

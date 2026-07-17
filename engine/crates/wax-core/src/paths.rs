@@ -23,6 +23,11 @@ pub enum PathsError {
 ///
 /// `WAX_HOME` overrides the default. When the override is absent, the path is
 /// resolved as `~/.wax` using the current user's home directory environment.
+///
+/// # Errors
+///
+/// Returns [`PathsError::HomeUnavailable`] when neither `WAX_HOME` nor a user
+/// home directory can be resolved.
 pub fn wax_home() -> Result<PathBuf, PathsError> {
     match non_empty_os_var("WAX_HOME") {
         Some(path) => Ok(PathBuf::from(path)),
@@ -31,11 +36,20 @@ pub fn wax_home() -> Result<PathBuf, PathsError> {
 }
 
 /// Returns the global state file path.
+///
+/// # Errors
+///
+/// Returns [`PathsError::HomeUnavailable`] when the wax home cannot be resolved.
 pub fn state_file() -> Result<PathBuf, PathsError> {
     Ok(wax_home()?.join("state.json"))
 }
 
 /// Returns the install directory for one language pack version.
+///
+/// # Errors
+///
+/// Returns [`PathsError::InvalidVersion`] when `version` is not one normal path
+/// segment, or [`PathsError::HomeUnavailable`] when wax home cannot be resolved.
 pub fn lang_install_dir(id: &LanguageId, version: &str) -> Result<PathBuf, PathsError> {
     validate_version_segment(version)?;
     Ok(wax_home()?.join("langs").join(id.as_str()).join(version))

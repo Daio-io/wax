@@ -1,4 +1,27 @@
 //! SwiftUI language pack implementation.
+//!
+//! # Examples
+//!
+//! An empty config runs the pack in scaffold mode without reading repository files:
+//!
+//! ```
+//! use wax_contract::ScanStatus;
+//! use wax_lang_api::{ScanConfig, ScanRequest, ScanRequestType, WIRE_API_VERSION};
+//! use wax_lang_swift::SwiftLanguage;
+//!
+//! let request = ScanRequest {
+//!     request_type: ScanRequestType::Scan,
+//!     api_version: WIRE_API_VERSION,
+//!     language_id: "swift".try_into()?,
+//!     repo_root: ".".to_owned(),
+//!     snapshot_id: "docs-swift".to_owned(),
+//!     config: ScanConfig::new(),
+//! };
+//! let facts = SwiftLanguage::new().scan(&request)?;
+//!
+//! assert_eq!(facts.status, ScanStatus::Partial);
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
 
 #![deny(missing_docs)]
 
@@ -96,6 +119,15 @@ impl SwiftLanguage {
     }
 
     /// Executes a Swift scan for the provided request.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SwiftScanError::InvalidLanguageId`] for a non-Swift request,
+    /// [`SwiftScanError::InvalidConfig`] for invalid settings,
+    /// [`SwiftScanError::ParserInitFailed`] when tree-sitter cannot initialize,
+    /// [`SwiftScanError::RegistryNotFound`] for a missing registry,
+    /// [`SwiftScanError::Scanner`] for scan I/O or parse failures, or
+    /// [`SwiftScanError::InvalidFacts`] for contract-invalid output.
     pub fn scan(&self, request: &ScanRequest) -> Result<ScanFacts, SwiftScanError> {
         let swift_language_id = parse_swift_scan_language_id(SWIFT_LANGUAGE_ID)?;
 
@@ -124,6 +156,12 @@ impl SwiftLanguage {
     }
 
     /// Discovers likely public SwiftUI design-system component symbols.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SwiftDiscoverError::InvalidLanguageId`] for a non-Swift
+    /// request, or propagates missing-root, parser-initialization, and I/O
+    /// variants from [`discover_registry_symbols`].
     pub fn discover(
         &self,
         request: &DiscoverRequest,

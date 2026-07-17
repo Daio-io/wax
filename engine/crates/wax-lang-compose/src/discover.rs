@@ -74,6 +74,12 @@ impl std::error::Error for ComposeDiscoverError {
 ///
 /// Files that tree-sitter cannot parse at all are skipped and reported as diagnostics.
 /// Recoverable syntax errors still allow symbol extraction from the partial tree.
+///
+/// # Errors
+///
+/// Returns [`ComposeDiscoverError::MissingRoot`] for a nonexistent root,
+/// [`ComposeDiscoverError::ParserInitFailed`] when tree-sitter cannot initialize,
+/// or [`ComposeDiscoverError::Io`] when source discovery or reading fails.
 pub fn discover_registry_symbols(
     parse_root: &Path,
     roots: &[PathBuf],

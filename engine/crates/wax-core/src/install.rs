@@ -172,6 +172,20 @@ pub enum FetchError {
 /// When `pack_index_digest_hex` is `Some`, it must equal `expected_digest_hex`
 /// (after normalization); otherwise [`InstallError::DigestDrift`] is returned
 /// before any fetch so lockfile pins cannot silently track registry drift.
+///
+/// # Errors
+///
+/// Returns [`InstallError::Paths`] for unsafe versions or unresolved wax paths;
+/// [`InstallError::ManifestMismatch`], [`InstallError::MissingPrimaryBinary`],
+/// [`InstallError::InvalidPrimaryBinaryPath`], or
+/// [`InstallError::InvalidPrimaryBinary`] for invalid manifest contents;
+/// [`InstallError::InvalidDigestHex`], [`InstallError::DigestDrift`], or
+/// [`InstallError::ShaMismatch`] for integrity failures; and
+/// [`InstallError::UnsupportedScheme`], [`InstallError::InvalidFileUrl`], or
+/// [`InstallError::Fetch`] when the artifact cannot be fetched. Unsafe archive
+/// entries return [`InstallError::UnsupportedArchiveEntry`] or
+/// [`InstallError::PathTraversal`]; destination conflicts and filesystem
+/// failures return [`InstallError::AlreadyInstalled`] or [`InstallError::Io`].
 pub fn install_language(
     id: &LanguageId,
     version: &str,
