@@ -19,6 +19,8 @@ pub use discover::{ComposeDiscoverError, DiscoverRegistryResult, discover_regist
 use tree_sitter_scan::TreeSitterScanError;
 pub use tree_sitter_scan::{ComposeConfigMode, ComposeScanConfig};
 
+const COMPOSE_LANGUAGE_ID: &str = "compose";
+
 /// Result of a Compose registry symbol discovery request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscoverSymbolsResult {
@@ -86,8 +88,7 @@ impl ComposeLanguage {
 
     /// Executes a Compose scan for the provided request.
     pub fn scan(&self, request: &ScanRequest) -> Result<ScanFacts, ComposeScanError> {
-        let compose_language_id =
-            LanguageId::try_from("compose").expect("hardcoded compose id must be valid");
+        let compose_language_id = parse_compose_scan_language_id(COMPOSE_LANGUAGE_ID)?;
 
         if request.language_id != compose_language_id {
             return Err(ComposeScanError::InvalidLanguageId(
@@ -98,12 +99,12 @@ impl ComposeLanguage {
         let mut facts = match tree_sitter_scan::parse_compose_scan_config(&request.config)
             .map_err(map_scan_error)?
         {
-            ComposeConfigMode::Scaffold => scaffold_facts(request),
+            ComposeConfigMode::Scaffold => scaffold_facts(request, &compose_language_id),
             ComposeConfigMode::Configured(scan_config) => {
                 let repo_root = Path::new(&request.repo_root);
                 let result = tree_sitter_scan::scan_repository(repo_root, &scan_config)
                     .map_err(map_scan_error)?;
-                facts_from_scan(request, result)
+                facts_from_scan(request, result, &compose_language_id)
             }
         };
 
@@ -120,8 +121,7 @@ impl ComposeLanguage {
         &self,
         request: &DiscoverRequest,
     ) -> Result<DiscoverSymbolsResult, ComposeDiscoverError> {
-        let compose_language_id =
-            LanguageId::try_from("compose").expect("hardcoded compose id must be valid");
+        let compose_language_id = parse_compose_discover_language_id(COMPOSE_LANGUAGE_ID)?;
 
         if request.language_id != compose_language_id {
             return Err(ComposeDiscoverError::InvalidLanguageId(
@@ -145,6 +145,18 @@ impl ComposeLanguage {
     }
 }
 
+fn parse_compose_scan_language_id(language_id: &str) -> Result<LanguageId, ComposeScanError> {
+    LanguageId::try_from(language_id)
+        .map_err(|_| ComposeScanError::InvalidLanguageId(language_id.to_owned()))
+}
+
+fn parse_compose_discover_language_id(
+    language_id: &str,
+) -> Result<LanguageId, ComposeDiscoverError> {
+    LanguageId::try_from(language_id)
+        .map_err(|_| ComposeDiscoverError::InvalidLanguageId(language_id.to_owned()))
+}
+
 fn map_scan_error(err: TreeSitterScanError) -> ComposeScanError {
     match err {
         TreeSitterScanError::ConfigInvalid { reason } => ComposeScanError::InvalidConfig(reason),
@@ -158,11 +170,12 @@ fn map_scan_error(err: TreeSitterScanError) -> ComposeScanError {
 fn facts_from_scan(
     request: &ScanRequest,
     result: tree_sitter_scan::TreeSitterScanResult,
+    language_id: &LanguageId,
 ) -> ScanFacts {
     ScanFacts {
         schema_version: SCHEMA_VERSION,
         language: LanguageMetadata {
-            id: LanguageId::try_from("compose").expect("hardcoded compose id must be valid"),
+            id: language_id.clone(),
             version: build_version().to_owned(),
             ecosystem: "compose".to_owned(),
             parser_name: "tree-sitter-kotlin-ng".to_owned(),
@@ -191,11 +204,11 @@ fn facts_from_scan(
     }
 }
 
-fn scaffold_facts(request: &ScanRequest) -> ScanFacts {
+fn scaffold_facts(request: &ScanRequest, language_id: &LanguageId) -> ScanFacts {
     ScanFacts {
         schema_version: SCHEMA_VERSION,
         language: LanguageMetadata {
-            id: LanguageId::try_from("compose").expect("hardcoded compose id must be valid"),
+            id: language_id.clone(),
             version: build_version().to_owned(),
             ecosystem: "compose".to_owned(),
             parser_name: "tree-sitter-kotlin-ng".to_owned(),
@@ -232,4 +245,38 @@ fn scaffold_facts(request: &ScanRequest) -> ScanFacts {
 
 fn tree_sitter_kotlin_version() -> String {
     tree_sitter_scan::TREE_SITTER_KOTLIN_GRAMMAR_VERSION.to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        ComposeDiscoverError, ComposeScanError, parse_compose_discover_language_id,
+        parse_compose_scan_language_id,
+    };
+
+    #[test]
+    fn invalid_hardcoded_language_id_maps_to_typed_scan_error() {
+        let invalid_id = "Compose!";
+
+        let error =
+            parse_compose_scan_language_id(invalid_id).expect_err("language id should be invalid");
+
+        assert!(
+            matches!(error, ComposeScanError::InvalidLanguageId(ref id) if id == invalid_id),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn invalid_hardcoded_language_id_maps_to_typed_discover_error() {
+        let invalid_id = "Compose!";
+
+        let error = parse_compose_discover_language_id(invalid_id)
+            .expect_err("language id should be invalid");
+
+        assert!(
+            matches!(error, ComposeDiscoverError::InvalidLanguageId(ref id) if id == invalid_id),
+            "unexpected error: {error}"
+        );
+    }
 }

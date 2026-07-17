@@ -19,6 +19,8 @@ pub use line_scan::{
     scan_repository,
 };
 
+const BASIC_LANGUAGE_ID: &str = "basic";
+
 /// Errors returned by [`BasicLanguage::scan`].
 #[derive(Debug, Error)]
 pub enum BasicScanError {
@@ -49,8 +51,7 @@ impl BasicLanguage {
 
     /// Executes a basic scan for the provided request.
     pub fn scan(&self, request: &ScanRequest) -> Result<ScanFacts, BasicScanError> {
-        let basic_language_id =
-            LanguageId::try_from("basic").expect("hardcoded basic id must be valid");
+        let basic_language_id = parse_basic_language_id(BASIC_LANGUAGE_ID)?;
 
         if request.language_id != basic_language_id {
             return Err(BasicScanError::InvalidLanguageId(
@@ -61,11 +62,11 @@ impl BasicLanguage {
         let mut facts = match parse_basic_scan_config(&request.config)
             .map_err(map_line_scan_error)?
         {
-            BasicConfigMode::Scaffold => scaffold_facts(request),
+            BasicConfigMode::Scaffold => scaffold_facts(request, &basic_language_id),
             BasicConfigMode::Configured(scan_config) => {
                 let repo_root = Path::new(&request.repo_root);
                 let scan = scan_repository(repo_root, &scan_config).map_err(map_line_scan_error)?;
-                facts_from_scan(request, scan)
+                facts_from_scan(request, scan, &basic_language_id)
             }
         };
 
@@ -76,6 +77,11 @@ impl BasicLanguage {
 
         Ok(facts)
     }
+}
+
+fn parse_basic_language_id(language_id: &str) -> Result<LanguageId, BasicScanError> {
+    LanguageId::try_from(language_id)
+        .map_err(|_| BasicScanError::InvalidLanguageId(language_id.to_owned()))
 }
 
 fn map_line_scan_error(err: LineScanError) -> BasicScanError {
@@ -89,11 +95,15 @@ fn map_line_scan_error(err: LineScanError) -> BasicScanError {
     }
 }
 
-fn facts_from_scan(request: &ScanRequest, scan: LineScanResult) -> ScanFacts {
+fn facts_from_scan(
+    request: &ScanRequest,
+    scan: LineScanResult,
+    language_id: &LanguageId,
+) -> ScanFacts {
     ScanFacts {
         schema_version: SCHEMA_VERSION,
         language: LanguageMetadata {
-            id: LanguageId::try_from("basic").expect("hardcoded basic id must be valid"),
+            id: language_id.clone(),
             version: build_version().to_owned(),
             ecosystem: "basic".to_owned(),
             parser_name: "text-line-scanner".to_owned(),
@@ -122,11 +132,11 @@ fn facts_from_scan(request: &ScanRequest, scan: LineScanResult) -> ScanFacts {
     }
 }
 
-fn scaffold_facts(request: &ScanRequest) -> ScanFacts {
+fn scaffold_facts(request: &ScanRequest, language_id: &LanguageId) -> ScanFacts {
     ScanFacts {
         schema_version: SCHEMA_VERSION,
         language: LanguageMetadata {
-            id: LanguageId::try_from("basic").expect("hardcoded basic id must be valid"),
+            id: language_id.clone(),
             version: build_version().to_owned(),
             ecosystem: "basic".to_owned(),
             parser_name: "text-line-scanner".to_owned(),
@@ -158,5 +168,22 @@ fn scaffold_facts(request: &ScanRequest) -> ScanFacts {
         token_sites: vec![],
         hardcoded_style_sites: vec![],
         token_usage_summary: vec![],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BasicScanError, parse_basic_language_id};
+
+    #[test]
+    fn invalid_hardcoded_language_id_maps_to_typed_scan_error() {
+        let invalid_id = "Basic!";
+
+        let error = parse_basic_language_id(invalid_id).expect_err("language id should be invalid");
+
+        assert!(
+            matches!(error, BasicScanError::InvalidLanguageId(ref id) if id == invalid_id),
+            "unexpected error: {error}"
+        );
     }
 }
