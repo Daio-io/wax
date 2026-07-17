@@ -35,6 +35,10 @@ struct EnvVarGuard {
 }
 
 impl EnvVarGuard {
+    #[expect(
+        unsafe_code,
+        reason = "these tests hold ENV_LOCK while mutating process environment variables, which keeps env access serialized inside this test binary"
+    )]
     fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
         let previous = std::env::var_os(name);
         unsafe {
@@ -43,6 +47,10 @@ impl EnvVarGuard {
         Self { name, previous }
     }
 
+    #[expect(
+        unsafe_code,
+        reason = "these tests hold ENV_LOCK while mutating process environment variables, which keeps env access serialized inside this test binary"
+    )]
     fn remove(name: &'static str) -> Self {
         let previous = std::env::var_os(name);
         unsafe {
@@ -53,6 +61,10 @@ impl EnvVarGuard {
 }
 
 impl Drop for EnvVarGuard {
+    #[expect(
+        unsafe_code,
+        reason = "these tests hold ENV_LOCK while restoring process environment variables, which keeps env access serialized inside this test binary"
+    )]
     fn drop(&mut self) {
         unsafe {
             match &self.previous {

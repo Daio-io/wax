@@ -42,6 +42,13 @@ pub enum UninstallCliError {
 }
 
 /// Runs `wax uninstall`.
+///
+/// # Errors
+///
+/// Returns [`UninstallCliError::FullFlagRequired`] unless `--full` was supplied,
+/// [`UninstallCliError::Paths`] when the global wax home cannot be resolved,
+/// [`UninstallCliError::RemoveWaxHome`] when that directory cannot be removed, or
+/// [`UninstallCliError::Io`] when the removal report cannot be written.
 pub fn run_uninstall_cli(
     options: UninstallCliOptions,
     writer: &mut impl Write,
@@ -187,6 +194,10 @@ mod tests {
     }
 
     impl EnvVarGuard {
+        #[expect(
+            unsafe_code,
+            reason = "these tests hold ENV_LOCK while mutating process environment variables, which keeps env access serialized inside this test binary"
+        )]
         fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
             let previous = std::env::var_os(name);
             unsafe {
@@ -197,6 +208,10 @@ mod tests {
     }
 
     impl Drop for EnvVarGuard {
+        #[expect(
+            unsafe_code,
+            reason = "these tests hold ENV_LOCK while restoring process environment variables, which keeps env access serialized inside this test binary"
+        )]
         fn drop(&mut self) {
             unsafe {
                 match &self.previous {

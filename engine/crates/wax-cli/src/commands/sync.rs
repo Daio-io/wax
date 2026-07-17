@@ -20,7 +20,7 @@ pub struct SyncCommandOptions {
 /// Errors returned by `wax sync`.
 #[derive(Debug, Error)]
 pub enum SyncCommandError {
-    /// Global path resolution failed.
+    /// Global wax paths could not be resolved.
     #[error(transparent)]
     Paths(#[from] PathsError),
     /// Registry sync orchestration failed.
@@ -36,6 +36,12 @@ pub enum SyncCommandError {
 }
 
 /// Runs `wax sync` for the current repository.
+///
+/// # Errors
+///
+/// Returns [`SyncCommandError::Paths`] when global state cannot be located,
+/// [`SyncCommandError::Sync`] when registry sync fails, or
+/// [`SyncCommandError::Io`] when output cannot be written.
 pub fn run_sync_cli(
     options: SyncCommandOptions,
     writer: &mut impl Write,

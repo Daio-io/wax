@@ -1,4 +1,27 @@
 //! SwiftUI language pack implementation.
+//!
+//! # Examples
+//!
+//! An empty config runs the pack in scaffold mode without reading repository files:
+//!
+//! ```
+//! use wax_contract::ScanStatus;
+//! use wax_lang_api::{ScanConfig, ScanRequest, ScanRequestType, WIRE_API_VERSION};
+//! use wax_lang_swift::SwiftLanguage;
+//!
+//! let request = ScanRequest {
+//!     request_type: ScanRequestType::Scan,
+//!     api_version: WIRE_API_VERSION,
+//!     language_id: "swift".try_into()?,
+//!     repo_root: ".".to_owned(),
+//!     snapshot_id: "docs-swift".to_owned(),
+//!     config: ScanConfig::new(),
+//! };
+//! let facts = SwiftLanguage::new().scan(&request)?;
+//!
+//! assert_eq!(facts.status, ScanStatus::Partial);
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
 
 #![deny(missing_docs)]
 
@@ -21,6 +44,8 @@ use wax_lang_api::{DiscoverRequest, DiscoveredRegistrySymbol, ScanRequest, build
 pub const TREE_SITTER_SWIFT_GRAMMAR_VERSION: &str = "0.6.0";
 use tree_sitter_scan::TreeSitterScanError;
 pub use tree_sitter_scan::{SwiftConfigMode, SwiftScanConfig};
+
+const SWIFT_LANGUAGE_ID: &str = "swift";
 
 /// Result of a Swift registry symbol discovery request.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -94,9 +119,17 @@ impl SwiftLanguage {
     }
 
     /// Executes a Swift scan for the provided request.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SwiftScanError::InvalidLanguageId`] for a non-Swift request,
+    /// [`SwiftScanError::InvalidConfig`] for invalid settings,
+    /// [`SwiftScanError::ParserInitFailed`] when tree-sitter cannot initialize,
+    /// [`SwiftScanError::RegistryNotFound`] for a missing registry,
+    /// [`SwiftScanError::Scanner`] for scan I/O or parse failures, or
+    /// [`SwiftScanError::InvalidFacts`] for contract-invalid output.
     pub fn scan(&self, request: &ScanRequest) -> Result<ScanFacts, SwiftScanError> {
-        let swift_language_id =
-            LanguageId::try_from("swift").expect("hardcoded swift id must be valid");
+        let swift_language_id = parse_swift_scan_language_id(SWIFT_LANGUAGE_ID)?;
 
         if request.language_id != swift_language_id {
             return Err(SwiftScanError::InvalidLanguageId(
@@ -107,12 +140,12 @@ impl SwiftLanguage {
         let mut facts = match tree_sitter_scan::parse_swift_scan_config(&request.config)
             .map_err(map_scan_error)?
         {
-            SwiftConfigMode::Scaffold => scaffold_facts(request, swift_language_id),
+            SwiftConfigMode::Scaffold => scaffold_facts(request, &swift_language_id),
             SwiftConfigMode::Configured(scan_config) => {
                 let repo_root = Path::new(&request.repo_root);
                 let result = tree_sitter_scan::scan_repository(repo_root, &scan_config)
                     .map_err(map_scan_error)?;
-                facts_from_scan(request, result, swift_language_id)
+                facts_from_scan(request, result, &swift_language_id)
             }
         };
         facts
@@ -123,12 +156,17 @@ impl SwiftLanguage {
     }
 
     /// Discovers likely public SwiftUI design-system component symbols.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SwiftDiscoverError::InvalidLanguageId`] for a non-Swift
+    /// request, or propagates missing-root, parser-initialization, and I/O
+    /// variants from [`discover_registry_symbols`].
     pub fn discover(
         &self,
         request: &DiscoverRequest,
     ) -> Result<DiscoverSymbolsResult, SwiftDiscoverError> {
-        let swift_language_id =
-            LanguageId::try_from("swift").expect("hardcoded swift id must be valid");
+        let swift_language_id = parse_swift_discover_language_id(SWIFT_LANGUAGE_ID)?;
 
         if request.language_id != swift_language_id {
             return Err(SwiftDiscoverError::InvalidLanguageId(
@@ -151,6 +189,16 @@ impl SwiftLanguage {
     }
 }
 
+fn parse_swift_scan_language_id(language_id: &str) -> Result<LanguageId, SwiftScanError> {
+    LanguageId::try_from(language_id)
+        .map_err(|_| SwiftScanError::InvalidLanguageId(language_id.to_owned()))
+}
+
+fn parse_swift_discover_language_id(language_id: &str) -> Result<LanguageId, SwiftDiscoverError> {
+    LanguageId::try_from(language_id)
+        .map_err(|_| SwiftDiscoverError::InvalidLanguageId(language_id.to_owned()))
+}
+
 fn map_scan_error(err: TreeSitterScanError) -> SwiftScanError {
     match err {
         TreeSitterScanError::ConfigInvalid { reason } => SwiftScanError::InvalidConfig(reason),
@@ -170,12 +218,12 @@ fn map_scan_error(err: TreeSitterScanError) -> SwiftScanError {
 fn facts_from_scan(
     request: &ScanRequest,
     result: tree_sitter_scan::TreeSitterScanResult,
-    language_id: LanguageId,
+    language_id: &LanguageId,
 ) -> ScanFacts {
     ScanFacts {
         schema_version: SCHEMA_VERSION,
         language: LanguageMetadata {
-            id: language_id,
+            id: language_id.clone(),
             version: build_version().to_owned(),
             ecosystem: "swiftui".to_owned(),
             parser_name: "tree-sitter-swift".to_owned(),
@@ -204,11 +252,11 @@ fn facts_from_scan(
     }
 }
 
-fn scaffold_facts(request: &ScanRequest, language_id: LanguageId) -> ScanFacts {
+fn scaffold_facts(request: &ScanRequest, language_id: &LanguageId) -> ScanFacts {
     ScanFacts {
         schema_version: SCHEMA_VERSION,
         language: LanguageMetadata {
-            id: language_id,
+            id: language_id.clone(),
             version: build_version().to_owned(),
             ecosystem: "swiftui".to_owned(),
             parser_name: "tree-sitter-swift".to_owned(),
@@ -240,5 +288,39 @@ fn scaffold_facts(request: &ScanRequest, language_id: LanguageId) -> ScanFacts {
         token_sites: vec![],
         hardcoded_style_sites: vec![],
         token_usage_summary: vec![],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        SwiftDiscoverError, SwiftScanError, parse_swift_discover_language_id,
+        parse_swift_scan_language_id,
+    };
+
+    #[test]
+    fn invalid_hardcoded_language_id_maps_to_typed_scan_error() {
+        let invalid_id = "Swift!";
+
+        let error =
+            parse_swift_scan_language_id(invalid_id).expect_err("language id should be invalid");
+
+        assert!(
+            matches!(error, SwiftScanError::InvalidLanguageId(ref id) if id == invalid_id),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn invalid_hardcoded_language_id_maps_to_typed_discover_error() {
+        let invalid_id = "Swift!";
+
+        let error = parse_swift_discover_language_id(invalid_id)
+            .expect_err("language id should be invalid");
+
+        assert!(
+            matches!(error, SwiftDiscoverError::InvalidLanguageId(ref id) if id == invalid_id),
+            "unexpected error: {error}"
+        );
     }
 }

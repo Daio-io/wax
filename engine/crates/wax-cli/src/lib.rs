@@ -1,4 +1,20 @@
 //! Library surface for the wax CLI crate, used by integration tests and the binary.
+//!
+//! # Examples
+//!
+//! Parse arguments without allowing clap to exit the process:
+//!
+//! ```
+//! use clap::Parser;
+//! use wax_cli::cli::{Cli, Commands};
+//!
+//! let cli = Cli::try_parse_from(["wax", "scan", "--concurrency", "2"])?;
+//! let Commands::Scan(args) = cli.command else {
+//!     unreachable!("scan arguments produce the scan command");
+//! };
+//! assert_eq!(args.scan_concurrency, Some(2));
+//! # Ok::<(), clap::Error>(())
+//! ```
 
 pub mod cli;
 pub mod commands {

@@ -346,14 +346,46 @@ struct DiscoveredComponent {
 }
 
 /// Discovers a registry for a single language and optionally writes it to disk.
+///
+/// # Errors
+///
+/// Returns [`RegistryDiscoverError::IncompleteDesignSystemOptions`] for a
+/// partial remember request; [`RegistryDiscoverError::Config`],
+/// [`RegistryDiscoverError::Lockfile`], [`RegistryDiscoverError::GlobalState`],
+/// or [`RegistryDiscoverError::Paths`] when required state cannot be loaded;
+/// [`RegistryDiscoverError::InvalidLanguageId`],
+/// [`RegistryDiscoverError::MissingRoots`],
+/// [`RegistryDiscoverError::LanguageNotConfigured`],
+/// [`RegistryDiscoverError::NoConfiguredRoots`],
+/// [`RegistryDiscoverError::InvalidRootPath`],
+/// [`RegistryDiscoverError::RootEscapesRepo`],
+/// [`RegistryDiscoverError::RootNotFound`], or
+/// [`RegistryDiscoverError::ResolveRoot`] for invalid discovery inputs;
+/// [`RegistryDiscoverError::PackNotInstalled`],
+/// [`RegistryDiscoverError::DiscoverSubprocess`],
+/// [`RegistryDiscoverError::DiscoverUnsupported`], or
+/// [`RegistryDiscoverError::RegistryExternalSource`] when discovery cannot run;
+/// [`RegistryDiscoverError::Serialize`],
+/// [`RegistryDiscoverError::IdCollision`],
+/// [`RegistryDiscoverError::OutputExists`],
+/// [`RegistryDiscoverError::CreateDir`],
+/// [`RegistryDiscoverError::CreateTemp`],
+/// [`RegistryDiscoverError::WriteTemp`],
+/// [`RegistryDiscoverError::SyncTemp`], [`RegistryDiscoverError::Rename`], or
+/// [`RegistryDiscoverError::PublishNoClobber`] when output cannot be generated
+/// or published; and [`RegistryDiscoverError::ConfigPatch`],
+/// [`RegistryDiscoverError::LockfilePatch`], or
+/// [`RegistryDiscoverError::RegistryMemory`] when follow-up metadata cannot be
+/// persisted.
 pub fn discover_registry(
     options: RegistryDiscoverOptions<'_>,
 ) -> Result<RegistryDiscoverResult, RegistryDiscoverError> {
-    let remember_design_system_mode = match (options.design_system_id, options.design_system_name) {
-        (Some(_), Some(_)) => true,
-        (None, None) => false,
+    let remembered_design_system = match (options.design_system_id, options.design_system_name) {
+        (Some(id), Some(name)) => Some((id, name)),
+        (None, None) => None,
         _ => return Err(RegistryDiscoverError::IncompleteDesignSystemOptions),
     };
+    let remember_design_system_mode = remembered_design_system.is_some();
     let language_id = LanguageId::try_from(options.language_id).map_err(|_| {
         RegistryDiscoverError::InvalidLanguageId {
             language_id: options.language_id.to_owned(),
@@ -369,7 +401,7 @@ pub fn discover_registry(
     if waxrc.is_some() && configured_entry.is_none() && options.roots.is_empty() {
         return Err(RegistryDiscoverError::LanguageNotConfigured {
             language_id: options.language_id.to_owned(),
-            config_path: config_path_display.clone(),
+            config_path: config_path_display,
         });
     }
     let fallback_entry = LanguageEntry {
@@ -457,9 +489,7 @@ pub fn discover_registry(
         patch_config_registry(&repo_files.config_path, &language_id, &output_source)?;
     }
 
-    if remember_design_system_mode {
-        let design_system_id = options.design_system_id.expect("validated above");
-        let design_system_name = options.design_system_name.expect("validated above");
+    if let Some((design_system_id, design_system_name)) = remembered_design_system {
         ensure_design_system_registry_source(
             options.repo_root,
             design_system_id,
@@ -479,7 +509,7 @@ pub fn discover_registry(
         patch_lockfile_registry(
             &repo_files.lockfile_path,
             lockfile,
-            language_id.clone(),
+            language_id,
             output_source,
             sha256_hex(written_bytes.as_bytes()),
         )?;
@@ -859,7 +889,7 @@ fn patch_config_registry(
         })?;
     let Some(languages) = config.get_mut("languages").and_then(Value::as_object_mut) else {
         return Err(RegistryDiscoverError::ConfigPatch {
-            path: path_display.clone(),
+            path: path_display,
             source: Box::new(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "wax config missing languages object",
@@ -868,7 +898,7 @@ fn patch_config_registry(
     };
     let Some(entry) = languages.get_mut(language_id.as_str()) else {
         return Err(RegistryDiscoverError::ConfigPatch {
-            path: path_display.clone(),
+            path: path_display,
             source: Box::new(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "language entry missing from wax config",
@@ -877,7 +907,7 @@ fn patch_config_registry(
     };
     let Some(entry_object) = entry.as_object_mut() else {
         return Err(RegistryDiscoverError::ConfigPatch {
-            path: path_display.clone(),
+            path: path_display,
             source: Box::new(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "language entry is not an object",

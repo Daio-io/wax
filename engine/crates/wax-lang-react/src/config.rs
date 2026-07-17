@@ -39,6 +39,12 @@ pub enum ReactConfigMode {
 }
 
 /// Loads React scan settings from the engine request payload.
+///
+/// # Errors
+///
+/// Returns `ConfigError` when required registry/root fields are absent, a
+/// value has the wrong JSON shape, or a path is absolute or escapes through a
+/// parent-directory segment.
 pub fn parse_react_scan_config(config: &ScanConfig) -> Result<ReactConfigMode, ConfigError> {
     let has_registry = config.contains_key("registry");
     let has_roots = config.contains_key("roots");

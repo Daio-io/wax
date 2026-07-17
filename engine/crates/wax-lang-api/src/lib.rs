@@ -1,6 +1,24 @@
 #![deny(missing_docs)]
 
 //! Public language pack API for wax.
+//!
+//! # Examples
+//!
+//! ```
+//! use wax_lang_api::{ScanConfig, ScanRequest, ScanRequestType, WIRE_API_VERSION};
+//!
+//! let request = ScanRequest {
+//!     request_type: ScanRequestType::Scan,
+//!     api_version: WIRE_API_VERSION,
+//!     language_id: "react".try_into()?,
+//!     repo_root: ".".to_owned(),
+//!     snapshot_id: "snapshot-1".to_owned(),
+//!     config: ScanConfig::new(),
+//! };
+//!
+//! assert_eq!(request.language_id.as_str(), "react");
+//! # Ok::<(), wax_contract::LanguageIdError>(())
+//! ```
 
 pub mod build_info;
 pub mod discover;

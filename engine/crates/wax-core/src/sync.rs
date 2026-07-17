@@ -135,6 +135,15 @@ pub enum SyncError {
 }
 
 /// Refreshes app registry inputs for every configured upstream reference.
+///
+/// # Errors
+///
+/// Returns [`SyncError::MissingConfig`] or [`SyncError::MissingLockfile`] for
+/// missing inputs; [`SyncError::Config`], [`SyncError::Lockfile`],
+/// [`SyncError::RegistryMemory`], [`SyncError::RegistrySource`], or
+/// [`SyncError::InvalidUpstream`] while preparing updates; and
+/// [`SyncError::ConfigUpdate`], [`SyncError::LockfileWrite`], or
+/// [`SyncError::LockRefreshFailed`] when persistence or rollback fails.
 pub fn sync_app_registries(options: &SyncOptions) -> Result<Vec<SyncUpdate>, SyncError> {
     let repo_files = discover_repo_files(&options.repo_root);
     ensure_repo_files_exist(&repo_files)?;
@@ -147,10 +156,11 @@ pub fn sync_app_registries(options: &SyncOptions) -> Result<Vec<SyncUpdate>, Syn
     let mut config_changed = false;
     let mut prepared_updates = Vec::new();
 
-    for entry in upstream_language_entries(&waxrc) {
+    for (entry, upstream) in upstream_language_entries(&waxrc) {
         prepared_updates.push(prepare_language_upstream_sync(
             options,
             entry,
+            upstream,
             &mut config_json,
             &mut config_changed,
         )?);
@@ -176,6 +186,15 @@ pub fn sync_app_registries(options: &SyncOptions) -> Result<Vec<SyncUpdate>, Syn
 }
 
 /// Attempts sync for each configured upstream, applying successful updates.
+///
+/// # Errors
+///
+/// Returns [`SyncError::MissingConfig`] or [`SyncError::MissingLockfile`] when a
+/// required repository input is absent; [`SyncError::Config`] or
+/// [`SyncError::Lockfile`] when those inputs are invalid; or
+/// [`SyncError::ConfigUpdate`] when the original config JSON cannot be read.
+/// Per-upstream preparation and persistence failures are returned in the
+/// successful result's failure list.
 pub fn best_effort_sync_app_registries(options: &SyncOptions) -> BestEffortSyncResult {
     let repo_files = discover_repo_files(&options.repo_root);
     ensure_repo_files_exist(&repo_files)?;
@@ -189,14 +208,14 @@ pub fn best_effort_sync_app_registries(options: &SyncOptions) -> BestEffortSyncR
     let mut failures = Vec::new();
     let mut prepared_updates = Vec::new();
 
-    for entry in upstream_language_entries(&waxrc) {
-        let upstream = entry
-            .registry_source
-            .as_ref()
-            .and_then(|registry| registry.upstream.as_deref())
-            .expect("upstream language entries always have upstream metadata");
-        match prepare_language_upstream_sync(options, entry, &mut config_json, &mut config_changed)
-        {
+    for (entry, upstream) in upstream_language_entries(&waxrc) {
+        match prepare_language_upstream_sync(
+            options,
+            entry,
+            upstream,
+            &mut config_json,
+            &mut config_changed,
+        ) {
             Ok(prepared) => prepared_updates.push(prepared),
             Err(error) => failures.push((upstream.to_owned(), error)),
         }
@@ -375,27 +394,24 @@ fn ensure_repo_files_exist(
     Ok(())
 }
 
-fn upstream_language_entries(waxrc: &WaxRc) -> impl Iterator<Item = &LanguageEntry> {
-    waxrc.languages.iter().filter(|entry| {
+fn upstream_language_entries(waxrc: &WaxRc) -> impl Iterator<Item = (&LanguageEntry, &str)> {
+    waxrc.languages.iter().filter_map(|entry| {
         entry
             .registry_source
             .as_ref()
-            .and_then(|registry| registry.upstream.as_ref())
-            .is_some_and(|upstream| !upstream.trim().is_empty())
+            .and_then(|registry| registry.upstream.as_deref())
+            .filter(|upstream| !upstream.trim().is_empty())
+            .map(|upstream| (entry, upstream))
     })
 }
 
 fn prepare_language_upstream_sync(
     options: &SyncOptions,
     entry: &LanguageEntry,
+    upstream: &str,
     config_json: &mut Value,
     config_changed: &mut bool,
 ) -> Result<PreparedUpstreamSync, SyncError> {
-    let upstream = entry
-        .registry_source
-        .as_ref()
-        .and_then(|registry| registry.upstream.as_deref())
-        .expect("upstream language entries always have upstream metadata");
     let design_system_id = parse_upstream_design_system_id(upstream, &entry.id)?;
     let remembered = show_remembered_design_system(&options.state_path, design_system_id)?;
     let resolved = resolve_remembered_registry(&remembered, &entry.id)?;
@@ -407,7 +423,7 @@ fn prepare_language_upstream_sync(
             design_system_local_source: local_source.clone(),
             app_registry_relative: resolved.config_source.clone(),
         });
-    if update_config_registry_source(config_json, &entry.id, &resolved.config_source)? {
+    if update_config_registry_source(config_json, &entry.id, &resolved.config_source) {
         *config_changed = true;
     }
     Ok(PreparedUpstreamSync {
@@ -479,27 +495,27 @@ fn update_config_registry_source(
     config: &mut Value,
     language_id: &LanguageId,
     source: &str,
-) -> Result<bool, SyncError> {
+) -> bool {
     let Some(language) = config
         .get_mut("languages")
         .and_then(Value::as_object_mut)
         .and_then(|languages| languages.get_mut(language_id.as_str()))
         .and_then(Value::as_object_mut)
     else {
-        return Ok(false);
+        return false;
     };
     let Some(registry) = language.get_mut("registry").and_then(Value::as_object_mut) else {
-        return Ok(false);
+        return false;
     };
     let current = registry
         .get("source")
         .and_then(Value::as_str)
         .unwrap_or_default();
     if current == source {
-        return Ok(false);
+        return false;
     }
     registry.insert("source".to_owned(), Value::String(source.to_owned()));
-    Ok(true)
+    true
 }
 
 fn refresh_registry_locks(

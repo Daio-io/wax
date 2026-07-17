@@ -30,6 +30,11 @@ pub enum ValidateCommandError {
 }
 
 /// Runs `wax validate`.
+///
+/// # Errors
+///
+/// Returns [`ValidateCommandError::Validate`] when repository validation fails
+/// or [`ValidateCommandError::Io`] when diagnostics cannot be written.
 pub fn run_validate(
     options: ValidateCommandOptions,
     writer: &mut impl Write,

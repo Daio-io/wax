@@ -380,6 +380,33 @@ pub enum WaxRcError {
 }
 
 /// Loads and validates a wax config JSON file from disk.
+///
+/// # Examples
+///
+/// ```
+/// use std::fs;
+/// use std::time::{SystemTime, UNIX_EPOCH};
+/// use wax_core::config::waxrc::load_waxrc;
+///
+/// let unique = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+/// let path = std::env::temp_dir().join(format!("wax-config-doc-{unique}.json"));
+/// fs::write(
+///     &path,
+///     r#"{"schema_version":2,"engine":{"scan_concurrency":2},"languages":{"react":{"roots":["src"]}}}"#,
+/// )?;
+/// let config = load_waxrc(&path)?;
+/// fs::remove_file(path)?;
+///
+/// assert_eq!(config.languages[0].id.as_str(), "react");
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+///
+/// # Errors
+///
+/// Returns [`WaxRcError::Read`] when the file cannot be read,
+/// [`WaxRcError::MalformedJson`] for invalid JSON,
+/// [`WaxRcError::InvalidConfig`] for invalid fields or unsupported settings, or
+/// [`WaxRcError::UnsupportedSchemaVersion`] for an incompatible schema.
 pub fn load_waxrc(path: impl AsRef<Path>) -> Result<WaxRc, WaxRcError> {
     let path = path.as_ref();
     let path_display = path.display().to_string();

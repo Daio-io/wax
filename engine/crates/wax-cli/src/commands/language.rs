@@ -48,6 +48,12 @@ pub struct LanguageInstallSpec {
 
 impl LanguageInstallSpec {
     /// Parses a language install spec from `<id>` or `<id>@<version>`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LanguageCommandError::InvalidLanguageSpec`] when `@` is
+    /// present without a version, and [`LanguageCommandError::LanguageId`]
+    /// when the id is empty or not a lowercase ASCII slug.
     pub fn parse(value: &str) -> Result<Self, LanguageCommandError> {
         let (language_id, version) = match value.split_once('@') {
             Some((id, version)) if !version.is_empty() => {
@@ -190,6 +196,12 @@ pub enum LanguageCommandError {
 }
 
 /// Runs `wax language list`.
+///
+/// # Errors
+///
+/// Returns [`LanguageCommandError::Paths`] when no global state path can be
+/// resolved, [`LanguageCommandError::GlobalState`] when state cannot be loaded,
+/// or [`LanguageCommandError::Io`] when output cannot be written.
 pub fn run_list(options: ListOptions, writer: &mut impl Write) -> Result<(), LanguageCommandError> {
     let ListOptions {
         registry_url,
@@ -209,6 +221,16 @@ pub fn run_list(options: ListOptions, writer: &mut impl Write) -> Result<(), Lan
 }
 
 /// Runs `wax language install`.
+///
+/// # Errors
+///
+/// Returns [`LanguageCommandError::Registry`] when the pack index or target
+/// artifact cannot be loaded, [`LanguageCommandError::LanguageNotFound`] or
+/// [`LanguageCommandError::LanguageVersionNotFound`] when no requested manifest
+/// exists, [`LanguageCommandError::Install`] when installation fails,
+/// [`LanguageCommandError::Paths`] or [`LanguageCommandError::GlobalState`] when
+/// install state cannot be resolved or saved, and [`LanguageCommandError::Io`]
+/// when cleanup or output writing fails.
 pub fn run_install(
     options: InstallOptions,
     writer: &mut impl Write,
@@ -216,7 +238,7 @@ pub fn run_install(
     let progress = Arc::new(CliProgress::new());
     progress.set_message("Fetching pack index…");
 
-    let registry_url = resolve_registry_url(options.registry_url)?;
+    let registry_url = resolve_registry_url(options.registry_url);
     let manifests = fetch_pack_index(&registry_url)?;
     let manifest =
         manifest_for_language(&manifests, &options.language_id, options.version.as_deref())?;
@@ -241,6 +263,13 @@ pub fn run_install(
 }
 
 /// Runs `wax language uninstall`.
+///
+/// # Errors
+///
+/// Returns [`LanguageCommandError::Paths`] when state or install paths cannot be
+/// resolved, [`LanguageCommandError::GlobalState`] when state cannot be loaded or
+/// saved, or [`LanguageCommandError::Io`] when an install directory cannot be
+/// removed or output cannot be written.
 pub fn run_uninstall(
     options: UninstallOptions,
     writer: &mut impl Write,
@@ -263,11 +292,23 @@ pub fn run_uninstall(
 }
 
 /// Runs `wax language update`.
+///
+/// # Errors
+///
+/// Returns [`LanguageCommandError::MissingUpdateSelection`] when neither a
+/// language nor `--all` is selected; [`LanguageCommandError::Registry`] or
+/// [`LanguageCommandError::LanguageNotFound`] when the pack index cannot satisfy
+/// an update; [`LanguageCommandError::Paths`],
+/// [`LanguageCommandError::GlobalState`], [`LanguageCommandError::Install`], or
+/// [`LanguageCommandError::Io`] when an install, removal, state update, or output
+/// write fails; and [`LanguageCommandError::Lockfile`],
+/// [`LanguageCommandError::WaxRc`], or [`LanguageCommandError::RegistrySource`]
+/// when repository registry locks cannot be refreshed.
 pub fn run_update(
     options: UpdateOptions,
     writer: &mut impl Write,
 ) -> Result<(), LanguageCommandError> {
-    let registry_url = resolve_registry_url(options.registry_url)?;
+    let registry_url = resolve_registry_url(options.registry_url);
     let manifests = fetch_pack_index(&registry_url)?;
     let state_path = resolve_state_path(options.state_path.as_deref())?;
     let mut state = load_global_state(&state_path)?;
@@ -336,6 +377,14 @@ pub fn run_update(
 }
 
 /// Runs `wax language doctor`.
+///
+/// # Errors
+///
+/// Returns [`LanguageCommandError::WaxRc`] when config cannot be loaded,
+/// [`LanguageCommandError::Lockfile`] when the optional lockfile is invalid,
+/// [`LanguageCommandError::Paths`] or [`LanguageCommandError::GlobalState`] when
+/// installed state cannot be loaded, or [`LanguageCommandError::Io`] when
+/// lockfile metadata cannot be read or report output cannot be written.
 pub fn run_doctor(
     options: DoctorOptions,
     writer: &mut impl Write,
@@ -401,10 +450,8 @@ pub fn run_doctor(
     Ok(())
 }
 
-pub(crate) fn resolve_registry_url(
-    registry_url: Option<String>,
-) -> Result<String, LanguageCommandError> {
-    Ok(resolve_effective_registry_url(registry_url).url)
+pub(crate) fn resolve_registry_url(registry_url: Option<String>) -> String {
+    resolve_effective_registry_url(registry_url).url
 }
 
 fn resolve_effective_registry_url(registry_url: Option<String>) -> EffectiveRegistryUrl {
@@ -1018,7 +1065,7 @@ mod tests {
     fn resolve_registry_url_uses_default_when_cli_and_env_are_unset() {
         let _guard = env_lock();
         let _lang_index = EnvVarGuard::remove("WAX_PACK_INDEX");
-        let resolved = resolve_registry_url(None).unwrap();
+        let resolved = resolve_registry_url(None);
         assert_eq!(
             resolved,
             "https://raw.githubusercontent.com/Daio-io/wax/gh-pages/index.json"
@@ -1031,7 +1078,7 @@ mod tests {
         let _guard = env_lock();
         let expected = "https://example.invalid/index.json";
         let _lang_index = EnvVarGuard::set("WAX_PACK_INDEX", expected);
-        let resolved = resolve_registry_url(None).unwrap();
+        let resolved = resolve_registry_url(None);
         assert_eq!(resolved, expected);
     }
 
@@ -1039,8 +1086,7 @@ mod tests {
     fn resolve_registry_url_prefers_cli_over_env() {
         let _guard = env_lock();
         let _lang_index = EnvVarGuard::set("WAX_PACK_INDEX", "https://example.invalid/env.json");
-        let resolved =
-            resolve_registry_url(Some("https://example.invalid/cli.json".to_owned())).unwrap();
+        let resolved = resolve_registry_url(Some("https://example.invalid/cli.json".to_owned()));
         assert_eq!(resolved, "https://example.invalid/cli.json");
     }
 
@@ -1053,6 +1099,26 @@ mod tests {
         let pinned = LanguageInstallSpec::parse("compose@0.4.2").unwrap();
         assert_eq!(pinned.language_id, lang("compose"));
         assert_eq!(pinned.version.as_deref(), Some("0.4.2"));
+    }
+
+    #[test]
+    fn parse_language_install_spec_routes_empty_and_invalid_ids_to_language_id_errors() {
+        assert!(matches!(
+            LanguageInstallSpec::parse(""),
+            Err(LanguageCommandError::LanguageId(_))
+        ));
+        assert!(matches!(
+            LanguageInstallSpec::parse("@1"),
+            Err(LanguageCommandError::LanguageId(_))
+        ));
+    }
+
+    #[test]
+    fn parse_language_install_spec_routes_trailing_at_to_invalid_language_spec() {
+        assert!(matches!(
+            LanguageInstallSpec::parse("compose@"),
+            Err(LanguageCommandError::InvalidLanguageSpec { .. })
+        ));
     }
 
     #[test]
@@ -1921,6 +1987,10 @@ mod tests {
     }
 
     impl EnvVarGuard {
+        #[expect(
+            unsafe_code,
+            reason = "these tests hold ENV_LOCK while mutating process environment variables, which keeps env access serialized inside this test binary"
+        )]
         fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
             let previous = std::env::var_os(name);
             unsafe {
@@ -1929,6 +1999,10 @@ mod tests {
             Self { name, previous }
         }
 
+        #[expect(
+            unsafe_code,
+            reason = "these tests hold ENV_LOCK while mutating process environment variables, which keeps env access serialized inside this test binary"
+        )]
         fn remove(name: &'static str) -> Self {
             let previous = std::env::var_os(name);
             unsafe {
@@ -1939,6 +2013,10 @@ mod tests {
     }
 
     impl Drop for EnvVarGuard {
+        #[expect(
+            unsafe_code,
+            reason = "these tests hold ENV_LOCK while restoring process environment variables, which keeps env access serialized inside this test binary"
+        )]
         fn drop(&mut self) {
             unsafe {
                 match &self.previous {

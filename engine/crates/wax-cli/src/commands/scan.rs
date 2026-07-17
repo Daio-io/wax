@@ -80,16 +80,18 @@ pub enum ScanCommandError {
     /// Remembered design-system memory failed.
     #[error(transparent)]
     RegistryMemory(#[from] wax_core::registry_memory::RegistryMemoryError),
-    /// Registry sync failed before scan.
+    /// Legacy sync wrapper retained for API compatibility.
+    ///
+    /// Current scan entry points report best-effort sync failures as warnings.
     #[error(transparent)]
     Sync(#[from] SyncError),
     /// Wax config could not be loaded before scan sync.
     #[error(transparent)]
     Config(#[from] WaxRcError),
-    /// Global path resolution failed.
+    /// Global wax paths could not be resolved.
     #[error(transparent)]
     Paths(#[from] PathsError),
-    /// Ephemeral scan requires an interactive terminal.
+    /// Repository config or usable ephemeral selections are required.
     #[error(
         "wax scan requires repository config at {config_path}; run `wax init` for CI or scripts"
     )]
@@ -97,7 +99,7 @@ pub enum ScanCommandError {
         /// Missing config path.
         config_path: PathBuf,
     },
-    /// Ephemeral scan requires an interactive terminal.
+    /// Legacy interactive-terminal error retained for API compatibility.
     #[error("wax scan needs an interactive terminal when no wax config exists")]
     RequiresInteractiveTerminal,
     /// Summary writing failed.
@@ -110,6 +112,26 @@ pub enum ScanCommandError {
 }
 
 /// Runs `wax scan`, prompting for ephemeral selections when config is missing in a TTY.
+///
+/// # Errors
+///
+/// Returns [`ScanCommandError::RequiresInit`] when config and usable ephemeral
+/// selections are unavailable; [`ScanCommandError::Paths`] when ephemeral setup
+/// or pre-scan upstream sync needs an implicit global state path that cannot be
+/// resolved;
+/// `ScanCommandError::Engine(EngineError::RegistrySource(..))` when the
+/// no-config ephemeral flow resolves a remembered design-system registry source
+/// that cannot be read, fetched, validated, or materialized locally
+/// (`RegistrySourceError::UnsupportedScheme`, `PlainAbsolutePath`,
+/// `PathEscapesRepo`, `InvalidFileUrl`, `Read`, `Fetch`, `HttpStatus`,
+/// `MalformedJson`, `InvalidShape`, or `CacheWrite`);
+/// [`ScanCommandError::Config`] when configured pre-scan sync cannot load wax
+/// config; [`ScanCommandError::Language`] or [`ScanCommandError::Registry`] when
+/// ephemeral pack metadata cannot be resolved;
+/// [`ScanCommandError::RegistryMemory`] when remembered registry state cannot be
+/// listed or resolved; [`ScanCommandError::Engine`] when the scan fails; or
+/// [`ScanCommandError::Io`] when prompts, sync warnings, or summary output cannot
+/// be written.
 pub fn run_scan_cli(
     options: ScanCommandOptions,
     writer: &mut impl Write,
@@ -128,7 +150,7 @@ pub fn run_scan_cli(
     }
 
     let state_path = resolve_state_path(options.state_path.as_deref())?;
-    let registry_url = resolve_registry_url(options.pack_index_url.clone())?;
+    let registry_url = resolve_registry_url(options.pack_index_url.clone());
     let manifests = fetch_pack_index(&registry_url).map_err(LanguageCommandError::from)?;
     let mut prompts = DialoguerScanPrompts;
     let selections = collect_ephemeral_scan_selections(&manifests, &mut prompts, &state_path)?;
@@ -136,6 +158,15 @@ pub fn run_scan_cli(
 }
 
 /// Runs `wax scan` against committed repository config.
+///
+/// # Errors
+///
+/// Returns [`ScanCommandError::Config`] when pre-scan sync cannot load the wax
+/// config. If that config has a non-empty registry upstream and no state-path
+/// override, returns [`ScanCommandError::Paths`] when the global state path
+/// cannot be resolved. Returns [`ScanCommandError::Engine`] when scanning fails,
+/// or [`ScanCommandError::Io`] when a sync warning or scan summary cannot be
+/// written.
 pub fn run_scan(
     options: ScanCommandOptions,
     writer: &mut impl Write,
@@ -239,7 +270,7 @@ fn build_ephemeral_scan_config(
     state_path: &Path,
 ) -> Result<EphemeralScanConfig, ScanCommandError> {
     let remembered = show_remembered_design_system(state_path, &selections.design_system_id)?;
-    let registry_url = resolve_registry_url(options.pack_index_url.clone())?;
+    let registry_url = resolve_registry_url(options.pack_index_url.clone());
     let manifests = fetch_pack_index(&registry_url).map_err(LanguageCommandError::from)?;
     let target = options
         .target_triple
@@ -606,6 +637,10 @@ mod tests {
     }
 
     impl EnvVarGuard {
+        #[expect(
+            unsafe_code,
+            reason = "these tests hold env_lock while mutating process environment variables, which keeps env access serialized inside this test binary"
+        )]
         fn remove(name: &'static str) -> Self {
             let previous = std::env::var_os(name);
             unsafe {
@@ -616,6 +651,10 @@ mod tests {
     }
 
     impl Drop for EnvVarGuard {
+        #[expect(
+            unsafe_code,
+            reason = "these tests hold env_lock while restoring process environment variables, which keeps env access serialized inside this test binary"
+        )]
         fn drop(&mut self) {
             unsafe {
                 match &self.previous {

@@ -13,3 +13,6 @@ wax-contract = { path = "../wax-contract" }
 [dev-dependencies]
 tempfile = "3"
 time = { version = "0.3", features = ["macros"] }
+
+[lints]
+workspace = true

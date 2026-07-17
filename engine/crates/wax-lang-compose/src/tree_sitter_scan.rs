@@ -2041,12 +2041,13 @@ fun BrokenScreen(
         let source =
             "@Composable\nfun Screen() {\n    Box(modifier.background(Color(0xFF336699)))\n}\n";
         let sites = extract_hardcoded_styles(source);
-        let color_sites: Vec<_> = sites
-            .iter()
-            .filter(|site| site.category == TokenCategory::Color && site.value.contains("0x"))
-            .collect();
         assert_eq!(
-            color_sites.len(),
+            sites
+                .iter()
+                .filter(|site| {
+                    site.category == TokenCategory::Color && site.value.contains("0x")
+                })
+                .count(),
             1,
             "nested background(Color(...)) must not double-count the same literal, got: {sites:?}"
         );

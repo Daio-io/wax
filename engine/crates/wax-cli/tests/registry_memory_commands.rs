@@ -16,6 +16,10 @@ struct EnvVarGuard {
 }
 
 impl EnvVarGuard {
+    #[expect(
+        unsafe_code,
+        reason = "these tests hold ENV_LOCK while mutating process environment variables, which keeps env access serialized inside this test binary"
+    )]
     fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
         let previous = std::env::var_os(name);
         unsafe {
@@ -26,6 +30,10 @@ impl EnvVarGuard {
 }
 
 impl Drop for EnvVarGuard {
+    #[expect(
+        unsafe_code,
+        reason = "these tests hold ENV_LOCK while restoring process environment variables, which keeps env access serialized inside this test binary"
+    )]
     fn drop(&mut self) {
         unsafe {
             match &self.previous {
@@ -192,8 +200,7 @@ fn registry_memory_commands_delete() {
     let list = run_registry(&["list"]);
     assert!(list.status.success());
     let list_stdout = String::from_utf8(list.stdout).unwrap();
-    let lines: Vec<_> = list_stdout.lines().collect();
-    assert_eq!(lines.len(), 1, "expected header only");
+    assert_eq!(list_stdout.lines().count(), 1, "expected header only");
 
     let show = run_registry(&["show", "acme"]);
     assert!(!show.status.success());

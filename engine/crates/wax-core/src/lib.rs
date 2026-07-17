@@ -236,6 +236,21 @@ impl Engine {
     /// On success, scan output is persisted under `.wax/out/` in the scanned
     /// repository. The merged scan is written to `.wax/out/scan-merged.json`,
     /// and per-language facts are written to `.wax/out/languages/`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EngineError::WaxRc`] or [`EngineError::Lockfile`] for invalid
+    /// repository inputs; [`EngineError::GlobalState`] or [`EngineError::Paths`]
+    /// for unavailable global state; [`EngineError::RegistrySource`] or
+    /// [`EngineError::RegistryLock`] for invalid registry inputs;
+    /// [`EngineError::InstalledManifest`] or
+    /// [`EngineError::InstalledManifestMismatch`] for invalid installed packs;
+    /// [`EngineError::Registry`], [`EngineError::AutoInstallPolicyBlocked`],
+    /// [`EngineError::Install`], or [`EngineError::InstallCleanup`] when automatic
+    /// installation cannot complete; [`EngineError::Language`] or
+    /// [`EngineError::ScanWorkerPanicked`] when a scan worker fails; and
+    /// [`EngineError::ScanFacts`] or [`EngineError::ScanOutput`] when merged facts
+    /// are invalid or cannot be persisted.
     pub fn scan_repo(repo_root: impl AsRef<Path>) -> Result<MergedScan, EngineError> {
         Self::scan_repo_with_options(repo_root, ScanOptions::default())
     }
@@ -246,6 +261,28 @@ impl Engine {
     /// repository. The merged scan is written to `.wax/out/scan-merged.json`,
     /// and per-language facts are written to `.wax/out/languages/`. Output
     /// write failures are returned as [`EngineError::ScanOutput`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EngineError::WaxRc`] or [`EngineError::Lockfile`] for invalid
+    /// repository inputs; [`EngineError::GlobalState`] or [`EngineError::Paths`]
+    /// for unavailable global state; [`EngineError::RegistrySource`] or
+    /// [`EngineError::RegistryLock`] for invalid registry inputs;
+    /// [`EngineError::InstalledManifest`] or
+    /// [`EngineError::InstalledManifestMismatch`] for invalid installed packs;
+    /// [`EngineError::AutoInstallRequired`] when installation is disabled but
+    /// needed; [`EngineError::Registry`],
+    /// [`EngineError::AutoInstallPolicyBlocked`], [`EngineError::Install`], or
+    /// [`EngineError::InstallCleanup`] when automatic installation cannot
+    /// complete; [`EngineError::Language`] or
+    /// [`EngineError::ScanWorkerPanicked`] when a scan worker fails; and
+    /// [`EngineError::ScanFacts`] or [`EngineError::ScanOutput`] when merged facts
+    /// are invalid or cannot be persisted.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the callback configured in [`ScanOptions::progress`] panics
+    /// while handling a progress event.
     pub fn scan_repo_with_options(
         repo_root: impl AsRef<Path>,
         mut options: ScanOptions,

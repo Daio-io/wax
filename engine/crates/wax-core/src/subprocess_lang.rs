@@ -24,12 +24,38 @@ static SPOOL_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// Extracts language scan facts for one request.
 pub trait LanguageExtractor {
     /// Runs the extractor and returns validated scan facts.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LanguageError::EmptyCommand`] for an empty command;
+    /// [`LanguageError::Spawn`], [`LanguageError::WriteRequest`],
+    /// [`LanguageError::ReadStdout`], [`LanguageError::ReadStderr`], or
+    /// [`LanguageError::Wait`] for process I/O failures;
+    /// [`LanguageError::Timeout`] or [`LanguageError::WireTimeout`] for timeouts;
+    /// [`LanguageError::ProcessFailed`] for an unsuccessful process without a
+    /// usable response; [`LanguageError::InvalidResponse`] or
+    /// [`LanguageError::UnsupportedApiVersion`] for invalid wire responses; and
+    /// [`LanguageError::Wire`] for an error reported by the language pack.
     fn scan(&self, request: ScanRequest) -> Result<ScanFacts, LanguageError>;
 
     /// Runs the extractor unless cancellation is requested first.
     ///
     /// Extractors without cancellation support may use the default implementation,
     /// which ignores the token and delegates to [`LanguageExtractor::scan`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LanguageError::EmptyCommand`] for an empty command;
+    /// [`LanguageError::Spawn`], [`LanguageError::WriteRequest`],
+    /// [`LanguageError::ReadStdout`], [`LanguageError::ReadStderr`], or
+    /// [`LanguageError::Wait`] for process I/O failures;
+    /// [`LanguageError::Timeout`] or [`LanguageError::WireTimeout`] for timeouts;
+    /// [`LanguageError::ProcessFailed`] for an unsuccessful process without a
+    /// usable response; [`LanguageError::InvalidResponse`] or
+    /// [`LanguageError::UnsupportedApiVersion`] for invalid wire responses; and
+    /// [`LanguageError::Wire`] for an error reported by the language pack. The
+    /// default implementation ignores the cancellation token, so it does not
+    /// introduce [`LanguageError::Cancelled`].
     fn scan_with_cancellation(
         &self,
         request: ScanRequest,
@@ -87,6 +113,19 @@ impl SubprocessLanguageExtractor {
     }
 
     /// Runs the extractor unless cancellation is requested first.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LanguageError::Cancelled`] when cancellation wins;
+    /// [`LanguageError::EmptyCommand`] for an empty command;
+    /// [`LanguageError::Spawn`], [`LanguageError::WriteRequest`],
+    /// [`LanguageError::ReadStdout`], [`LanguageError::ReadStderr`], or
+    /// [`LanguageError::Wait`] for process I/O failures;
+    /// [`LanguageError::Timeout`] or [`LanguageError::WireTimeout`] for timeouts;
+    /// [`LanguageError::ProcessFailed`] for an unsuccessful process without a
+    /// usable response; [`LanguageError::InvalidResponse`] or
+    /// [`LanguageError::UnsupportedApiVersion`] for invalid wire responses; and
+    /// [`LanguageError::Wire`] for an error reported by the language pack.
     pub fn scan_with_cancellation(
         &self,
         request: ScanRequest,
@@ -472,9 +511,7 @@ fn cleanup_child(child: &mut std::process::Child, child_id: u32) {
         // NOTE: We apply the spec's SIGTERM grace window uniformly for every
         // cleanup path, including timeouts and pipe errors, so packs get one
         // consistent shutdown contract.
-        unsafe {
-            libc::kill(-process_group_id, libc::SIGTERM);
-        }
+        signal_process_group(process_group_id, libc::SIGTERM);
         let grace_started_at = Instant::now();
         loop {
             match child.try_wait() {
@@ -487,12 +524,24 @@ fn cleanup_child(child: &mut std::process::Child, child_id: u32) {
                 Err(_) => break,
             }
         }
-        unsafe {
-            libc::kill(-process_group_id, libc::SIGKILL);
-        }
+        signal_process_group(process_group_id, libc::SIGKILL);
     }
     let _ = child.kill();
     let _ = child.wait();
+}
+
+#[cfg(unix)]
+#[expect(
+    unsafe_code,
+    reason = "std cannot signal a Unix process group, so cleanup must call libc::kill with a negative pgid to terminate the spawned pack group"
+)]
+fn signal_process_group(process_group_id: i32, signal: libc::c_int) {
+    // SAFETY: `process_group_id` comes from a spawned child id that fit in `i32`.
+    // Passing its negated value asks `kill` to signal that process group; the
+    // signal constants are provided by libc for the current Unix target.
+    unsafe {
+        libc::kill(-process_group_id, signal);
+    }
 }
 
 #[cfg(not(unix))]

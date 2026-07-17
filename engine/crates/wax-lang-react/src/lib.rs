@@ -1,4 +1,27 @@
 //! React language pack implementation.
+//!
+//! # Examples
+//!
+//! An empty config runs the pack in scaffold mode without reading repository files:
+//!
+//! ```
+//! use wax_contract::ScanStatus;
+//! use wax_lang_api::{ScanConfig, ScanRequest, ScanRequestType, WIRE_API_VERSION};
+//! use wax_lang_react::ReactLanguage;
+//!
+//! let request = ScanRequest {
+//!     request_type: ScanRequestType::Scan,
+//!     api_version: WIRE_API_VERSION,
+//!     language_id: "react".try_into()?,
+//!     repo_root: ".".to_owned(),
+//!     snapshot_id: "docs-react".to_owned(),
+//!     config: ScanConfig::new(),
+//! };
+//! let facts = ReactLanguage::new().scan(&request)?;
+//!
+//! assert_eq!(facts.status, ScanStatus::Partial);
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
 
 #![deny(missing_docs)]
 
@@ -35,6 +58,8 @@ pub use swc_parse::{
     ParsedReactModule, ReactParseError, ReactParseOutcome, SWC_PARSER_VERSION,
     parse_react_source_file,
 };
+
+const REACT_LANGUAGE_ID: &str = "react";
 
 /// Result of a React registry symbol discovery request.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -133,9 +158,16 @@ impl ReactLanguage {
     }
 
     /// Executes a react scan for the provided request.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReactScanError::InvalidLanguageId`] for a non-React request,
+    /// [`ReactScanError::InvalidConfig`] for invalid settings,
+    /// [`ReactScanError::Registry`] for missing or malformed registry data,
+    /// [`ReactScanError::Io`] or [`ReactScanError::Parse`] for source failures,
+    /// or [`ReactScanError::InvalidFacts`] for contract-invalid output.
     pub fn scan(&self, request: &ScanRequest) -> Result<ScanFacts, ReactScanError> {
-        let react_language_id =
-            LanguageId::try_from("react").expect("hardcoded react id must be valid");
+        let react_language_id = parse_react_scan_language_id(REACT_LANGUAGE_ID)?;
 
         if request.language_id != react_language_id {
             return Err(ReactScanError::InvalidLanguageId(
@@ -147,7 +179,7 @@ impl ReactLanguage {
             .map_err(|err| ReactScanError::InvalidConfig(err.reason().to_owned()))?;
 
         let mut facts = match config_mode {
-            ReactConfigMode::Scaffold => scaffold_facts(request, react_language_id),
+            ReactConfigMode::Scaffold => scaffold_facts(request, &react_language_id),
             ReactConfigMode::Configured(config) => {
                 let repo_root = Path::new(&request.repo_root);
                 let registry_path = repo_root.join(&config.design_system_registry);
@@ -157,7 +189,7 @@ impl ReactLanguage {
                     collect_react_source_files(repo_root, &config.roots, &config.ignore)?;
                 configured_scan_facts(
                     request,
-                    react_language_id,
+                    &react_language_id,
                     registry,
                     collection,
                     repo_root,
@@ -175,12 +207,17 @@ impl ReactLanguage {
     }
 
     /// Discovers likely public React component symbols for the provided request.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReactDiscoverError::InvalidLanguageId`] for a non-React request,
+    /// or propagates [`ReactDiscoverError::MissingRoot`] and
+    /// [`ReactDiscoverError::Io`] from [`discover_registry_symbols`].
     pub fn discover(
         &self,
         request: &DiscoverRequest,
     ) -> Result<DiscoverSymbolsResult, ReactDiscoverError> {
-        let react_language_id =
-            LanguageId::try_from("react").expect("hardcoded react id must be valid");
+        let react_language_id = parse_react_discover_language_id(REACT_LANGUAGE_ID)?;
 
         if request.language_id != react_language_id {
             return Err(ReactDiscoverError::InvalidLanguageId(
@@ -204,12 +241,51 @@ impl ReactLanguage {
     }
 }
 
+fn parse_react_scan_language_id(language_id: &str) -> Result<LanguageId, ReactScanError> {
+    LanguageId::try_from(language_id)
+        .map_err(|_| ReactScanError::InvalidLanguageId(language_id.to_owned()))
+}
+
+fn parse_react_discover_language_id(language_id: &str) -> Result<LanguageId, ReactDiscoverError> {
+    LanguageId::try_from(language_id)
+        .map_err(|_| ReactDiscoverError::InvalidLanguageId(language_id.to_owned()))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::ReactLanguage;
+    use super::{
+        ReactDiscoverError, ReactLanguage, ReactScanError, parse_react_discover_language_id,
+        parse_react_scan_language_id,
+    };
     use std::fs;
     use wax_contract::{DiagnosticSeverity, ScanStatus};
     use wax_lang_api::{ScanConfig, ScanRequest, ScanRequestType};
+
+    #[test]
+    fn invalid_hardcoded_language_id_maps_to_typed_scan_error() {
+        let invalid_id = "React!";
+
+        let error =
+            parse_react_scan_language_id(invalid_id).expect_err("language id should be invalid");
+
+        assert!(
+            matches!(error, ReactScanError::InvalidLanguageId(ref id) if id == invalid_id),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn invalid_hardcoded_language_id_maps_to_typed_discover_error() {
+        let invalid_id = "React!";
+
+        let error = parse_react_discover_language_id(invalid_id)
+            .expect_err("language id should be invalid");
+
+        assert!(
+            matches!(error, ReactDiscoverError::InvalidLanguageId(ref id) if id == invalid_id),
+            "unexpected error: {error}"
+        );
+    }
 
     #[test]
     fn configured_scan_emits_module_graph_diagnostics() {

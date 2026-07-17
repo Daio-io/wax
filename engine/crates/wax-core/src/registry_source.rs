@@ -13,6 +13,11 @@ use thiserror::Error;
 const HTTP_FETCH_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Rejects repo-relative registry source strings that are absolute or escape via `..`.
+///
+/// # Errors
+///
+/// Returns [`RegistrySourceError::PlainAbsolutePath`] for an absolute path or
+/// [`RegistrySourceError::PathEscapesRepo`] for root, prefix, or parent segments.
 pub fn reject_repo_relative_registry_path_escape(source: &str) -> Result<(), RegistrySourceError> {
     let path = Path::new(source);
     if path.is_absolute() {
@@ -36,6 +41,13 @@ pub fn reject_repo_relative_registry_path_escape(source: &str) -> Result<(), Reg
 }
 
 /// Validates that a repo-relative registry source resolves within `repo_root`.
+///
+/// # Errors
+///
+/// Returns [`RegistrySourceError::PlainAbsolutePath`] or
+/// [`RegistrySourceError::PathEscapesRepo`] when the source is unsafe, or
+/// [`RegistrySourceError::Read`] when existing path components cannot be
+/// canonicalized.
 pub fn validate_repo_relative_registry_path_within_repo(
     repo_root: &Path,
     source: &str,
@@ -164,6 +176,18 @@ pub enum RegistrySourceError {
 }
 
 /// Resolves a registry source and returns the local repo-relative materialized path.
+///
+/// # Errors
+///
+/// Returns [`RegistrySourceError::UnsupportedScheme`],
+/// [`RegistrySourceError::PlainAbsolutePath`],
+/// [`RegistrySourceError::PathEscapesRepo`], or
+/// [`RegistrySourceError::InvalidFileUrl`] for invalid sources;
+/// [`RegistrySourceError::Read`], [`RegistrySourceError::Fetch`], or
+/// [`RegistrySourceError::HttpStatus`] for I/O and HTTP failures;
+/// [`RegistrySourceError::MalformedJson`] or [`RegistrySourceError::InvalidShape`]
+/// for invalid registry JSON; and [`RegistrySourceError::CacheWrite`] when an
+/// external registry cannot be materialized locally.
 pub fn resolve_registry_source(
     input: RegistrySourceInput<'_>,
 ) -> Result<ResolvedRegistrySource, RegistrySourceError> {

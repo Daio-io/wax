@@ -86,6 +86,12 @@ pub enum RegistryMemoryCommandError {
 }
 
 /// Runs `wax discover` or `wax registry discover`.
+///
+/// # Errors
+///
+/// Returns [`RegistryDiscoverCommandError::Discover`] when registry discovery or
+/// persistence fails, or [`RegistryDiscoverCommandError::Io`] when dry-run JSON
+/// cannot be serialized into command output or output cannot be written.
 pub fn run_registry_discover(
     options: RegistryDiscoverCommandOptions,
     writer: &mut impl Write,
@@ -176,6 +182,12 @@ pub fn run_registry_discover(
 }
 
 /// Runs `wax registry list`.
+///
+/// # Errors
+///
+/// Returns [`RegistryMemoryCommandError::Paths`] when no global state path can be
+/// resolved, [`RegistryMemoryCommandError::Memory`] when remembered state cannot
+/// be loaded, or [`RegistryMemoryCommandError::Io`] when output cannot be written.
 pub fn run_registry_list(
     options: RegistryMemoryCommandOptions,
     writer: &mut impl Write,
@@ -199,6 +211,13 @@ pub fn run_registry_list(
 }
 
 /// Runs `wax registry show`.
+///
+/// # Errors
+///
+/// Returns [`RegistryMemoryCommandError::Paths`] when no global state path can be
+/// resolved, [`RegistryMemoryCommandError::Memory`] when the id is invalid or
+/// unknown or state cannot be loaded, or [`RegistryMemoryCommandError::Io`] when
+/// output cannot be written.
 pub fn run_registry_show(
     design_system_id: &str,
     options: RegistryMemoryCommandOptions,
@@ -221,6 +240,13 @@ pub fn run_registry_show(
 }
 
 /// Runs `wax registry update`.
+///
+/// # Errors
+///
+/// Returns [`RegistryMemoryCommandError::Paths`] when no global state path can be
+/// resolved, [`RegistryMemoryCommandError::Memory`] when the id is invalid or
+/// unknown, the new repository root cannot be resolved, or state cannot be
+/// saved, and [`RegistryMemoryCommandError::Io`] when output cannot be written.
 pub fn run_registry_update(
     options: RegistryUpdateCommandOptions,
     writer: &mut impl Write,
@@ -244,6 +270,13 @@ pub fn run_registry_update(
 }
 
 /// Runs `wax registry delete`.
+///
+/// # Errors
+///
+/// Returns [`RegistryMemoryCommandError::Paths`] when no global state path can be
+/// resolved, [`RegistryMemoryCommandError::Memory`] when the id is invalid or
+/// unknown or state cannot be saved, and [`RegistryMemoryCommandError::Io`] when
+/// output cannot be written.
 pub fn run_registry_delete(
     design_system_id: &str,
     options: RegistryMemoryCommandOptions,

@@ -132,11 +132,40 @@ pub enum ValidateError {
 }
 
 /// Validates repository-local wax configuration for CI workflows.
+///
+/// # Errors
+///
+/// Returns [`ValidateError::WaxRc`] or [`ValidateError::Lockfile`] for invalid
+/// repository inputs; [`ValidateError::RegistrySource`] when a registry source
+/// cannot be resolved; [`ValidateError::RegistryRead`],
+/// [`ValidateError::RegistryMalformedJson`],
+/// [`ValidateError::RegistryUnsupportedSchemaVersion`], or
+/// [`ValidateError::RegistryInvalidShape`] for invalid registry content; and
+/// [`ValidateError::MissingRegistryLock`],
+/// [`ValidateError::RegistrySourceDrift`], or
+/// [`ValidateError::RegistryDigestDrift`] for a missing or stale registry lock.
 pub fn validate_repo(repo_root: impl AsRef<Path>) -> Result<ValidateReport, ValidateError> {
     validate_repo_with_progress(repo_root, ValidateProgress::default())
 }
 
 /// Validates repository-local wax configuration, emitting optional progress events.
+///
+/// # Errors
+///
+/// Returns [`ValidateError::WaxRc`] or [`ValidateError::Lockfile`] for invalid
+/// repository inputs, [`ValidateError::RegistrySource`] for registry resolution
+/// failures, and [`ValidateError::RegistryRead`],
+/// [`ValidateError::RegistryMalformedJson`],
+/// [`ValidateError::RegistryUnsupportedSchemaVersion`],
+/// [`ValidateError::RegistryInvalidShape`],
+/// [`ValidateError::MissingRegistryLock`],
+/// [`ValidateError::RegistrySourceDrift`], or
+/// [`ValidateError::RegistryDigestDrift`] for registry validation failures.
+///
+/// # Panics
+///
+/// Panics if the callback configured in `progress` panics while handling a
+/// validation progress event.
 pub fn validate_repo_with_progress(
     repo_root: impl AsRef<Path>,
     progress: ValidateProgress,

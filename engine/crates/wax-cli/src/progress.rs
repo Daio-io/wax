@@ -27,10 +27,9 @@ impl CliProgress {
         }
 
         let bar = ProgressBar::new_spinner();
-        bar.set_style(
-            ProgressStyle::with_template("{spinner:.green} {msg}")
-                .expect("progress template should be valid"),
-        );
+        let style = ProgressStyle::with_template("{spinner:.green} {msg}")
+            .unwrap_or_else(|_| ProgressStyle::default_spinner());
+        bar.set_style(style);
         bar.enable_steady_tick(Duration::from_millis(100));
         Self { bar: Some(bar) }
     }
@@ -138,7 +137,7 @@ mod tests {
         );
         assert_eq!(
             scan_progress_message(ScanProgressEvent::ScanComplete {
-                language_id: compose.clone(),
+                language_id: compose,
             }),
             "Finished compose scan…"
         );

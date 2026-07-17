@@ -168,6 +168,13 @@ pub enum GlobalStateError {
 ///
 /// A missing state file is treated as empty state so first-run callers can
 /// operate before `~/.wax/state.json` has been created.
+///
+/// # Errors
+///
+/// Returns [`GlobalStateError::Read`], [`GlobalStateError::MalformedJson`], or
+/// [`GlobalStateError::InvalidState`] for unreadable or invalid state, and
+/// [`GlobalStateError::InvalidVersion`] or
+/// [`GlobalStateError::InvalidDesignSystemId`] for unsafe state keys.
 pub fn load_global_state(path: impl AsRef<Path>) -> Result<GlobalState, GlobalStateError> {
     let path = path.as_ref();
     let path_display = path.display().to_string();
@@ -240,6 +247,16 @@ fn validate_global_state_design_systems(
 }
 
 /// Saves global wax state to disk, creating parent directories when needed.
+///
+/// # Errors
+///
+/// Returns [`GlobalStateError::InvalidState`],
+/// [`GlobalStateError::InvalidVersion`], or
+/// [`GlobalStateError::InvalidDesignSystemId`] when state cannot be serialized
+/// safely. Directory creation and atomic-write failures use
+/// [`GlobalStateError::CreateDir`], [`GlobalStateError::CreateTemp`],
+/// [`GlobalStateError::WriteTemp`], [`GlobalStateError::SyncTemp`], or
+/// [`GlobalStateError::Rename`].
 pub fn save_global_state(
     path: impl AsRef<Path>,
     state: &GlobalState,

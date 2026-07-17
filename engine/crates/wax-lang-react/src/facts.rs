@@ -23,7 +23,7 @@ use crate::swc_parse::{
 
 /// Builds scaffold facts for contributor smoke when React scan config is empty.
 #[must_use]
-pub fn scaffold_facts(request: &ScanRequest, react_language_id: LanguageId) -> ScanFacts {
+pub fn scaffold_facts(request: &ScanRequest, react_language_id: &LanguageId) -> ScanFacts {
     ScanFacts {
         schema_version: SCHEMA_VERSION,
         language: react_language_metadata(react_language_id),
@@ -57,9 +57,13 @@ pub fn scaffold_facts(request: &ScanRequest, react_language_id: LanguageId) -> S
 }
 
 /// Assembles configured React scan facts from registry, source files, and parsed modules.
+///
+/// # Errors
+///
+/// Returns [`ReactParseError::Io`] when a collected source file cannot be read.
 pub fn configured_scan_facts(
     request: &ScanRequest,
-    react_language_id: LanguageId,
+    react_language_id: &LanguageId,
     registry: ReactRegistryIndex,
     collection: ReactSourceFileCollection,
     repo_root: &Path,
@@ -138,9 +142,9 @@ pub fn configured_scan_facts(
     })
 }
 
-fn react_language_metadata(react_language_id: LanguageId) -> LanguageMetadata {
+fn react_language_metadata(react_language_id: &LanguageId) -> LanguageMetadata {
     LanguageMetadata {
-        id: react_language_id,
+        id: react_language_id.clone(),
         version: build_version().to_owned(),
         ecosystem: "react".to_owned(),
         parser_name: "swc".to_owned(),
