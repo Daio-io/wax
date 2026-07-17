@@ -261,6 +261,9 @@ fn sync_without_home_returns_typed_error_instead_of_panicking() {
         .arg(&root.path)
         .env_remove("HOME")
         .env_remove("WAX_HOME")
+        .env_remove("USERPROFILE")
+        .env_remove("HOMEDRIVE")
+        .env_remove("HOMEPATH")
         .output()
         .expect("spawn wax sync");
 

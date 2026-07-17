@@ -820,6 +820,9 @@ mod tests {
         let _guard = env_lock();
         let _home = EnvVarGuard::remove("HOME");
         let _wax_home = EnvVarGuard::remove("WAX_HOME");
+        let _user_profile = EnvVarGuard::remove("USERPROFILE");
+        let _home_drive = EnvVarGuard::remove("HOMEDRIVE");
+        let _home_path = EnvVarGuard::remove("HOMEPATH");
         let root = TestDir::new("ephemeral-no-home");
         let mut output = Vec::new();
 
@@ -855,6 +858,9 @@ mod tests {
         let _guard = env_lock();
         let _home = EnvVarGuard::remove("HOME");
         let _wax_home = EnvVarGuard::remove("WAX_HOME");
+        let _user_profile = EnvVarGuard::remove("USERPROFILE");
+        let _home_drive = EnvVarGuard::remove("HOMEDRIVE");
+        let _home_path = EnvVarGuard::remove("HOMEPATH");
         let root = TestDir::new("sync-warning-no-home");
         let app_repo = root.path.join("app");
         write_committed_scan_repo_with_upstream(&app_repo);
