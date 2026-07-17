@@ -16,8 +16,9 @@ const DEFAULT_PARENT_SCOPE_LIMIT: Option<u32> = None;
 ///
 /// # Errors
 ///
-/// Returns [`ScanFactsError::ContractViolation`] when counters overflow or a
-/// usage site lacks the identity required to build a summary.
+/// Returns [`ScanFactsError::ContractViolation`] when derived-count
+/// recomputation finds invalid token facts or a counter exceeds its contract
+/// width, or when a symbol-summary count exceeds `u32`.
 pub fn recompute_derived_scan_facts(
     facts: &mut ScanFacts,
     language_id: &LanguageId,
@@ -33,8 +34,9 @@ pub fn recompute_derived_scan_facts(
 ///
 /// # Errors
 ///
-/// Returns [`ScanFactsError::ContractViolation`] when counters overflow or a
-/// usage site lacks the identity required to build a summary.
+/// Returns [`ScanFactsError::ContractViolation`] when derived-count
+/// recomputation finds invalid token facts or a counter exceeds its contract
+/// width, or when a symbol-summary count exceeds `u32`.
 pub fn recompute_derived_scan_facts_with_parent_scope_limit(
     facts: &mut ScanFacts,
     language_id: &LanguageId,
@@ -51,9 +53,9 @@ pub fn recompute_derived_scan_facts_with_parent_scope_limit(
 ///
 /// # Errors
 ///
-/// Returns [`ScanFactsError::UnsupportedSchemaVersion`] for incompatible input
-/// facts or [`ScanFactsError::ContractViolation`] for overflow, inconsistent
-/// language ids, or invalid derived summaries and metrics.
+/// Returns [`ScanFactsError::ContractViolation`] when recomputing an input's
+/// derived counts finds invalid token facts or an overflowing counter, or when
+/// a generated symbol-summary count exceeds `u32`.
 pub fn merge_language_scans(
     languages: BTreeMap<LanguageId, ScanFacts>,
 ) -> Result<MergedScan, ScanFactsError> {
@@ -64,9 +66,9 @@ pub fn merge_language_scans(
 ///
 /// # Errors
 ///
-/// Returns [`ScanFactsError::UnsupportedSchemaVersion`] for incompatible input
-/// facts or [`ScanFactsError::ContractViolation`] for overflow, inconsistent
-/// language ids, or invalid derived summaries and metrics.
+/// Returns [`ScanFactsError::ContractViolation`] when recomputing an input's
+/// derived counts finds invalid token facts or an overflowing counter, or when
+/// a generated symbol-summary count exceeds `u32`.
 pub fn merge_language_scans_with_parent_scope_limit(
     languages: BTreeMap<LanguageId, ScanFacts>,
     parent_scope_limit: Option<u32>,

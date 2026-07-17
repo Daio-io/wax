@@ -80,7 +80,9 @@ pub enum ScanCommandError {
     /// Remembered design-system memory failed.
     #[error(transparent)]
     RegistryMemory(#[from] wax_core::registry_memory::RegistryMemoryError),
-    /// Registry sync failed before scan.
+    /// Legacy sync wrapper retained for API compatibility.
+    ///
+    /// Current scan entry points report best-effort sync failures as warnings.
     #[error(transparent)]
     Sync(#[from] SyncError),
     /// Wax config could not be loaded before scan sync.
@@ -89,7 +91,7 @@ pub enum ScanCommandError {
     /// Global wax paths could not be resolved.
     #[error(transparent)]
     Paths(#[from] PathsError),
-    /// Ephemeral scan requires an interactive terminal.
+    /// Repository config or usable ephemeral selections are required.
     #[error(
         "wax scan requires repository config at {config_path}; run `wax init` for CI or scripts"
     )]
@@ -97,7 +99,7 @@ pub enum ScanCommandError {
         /// Missing config path.
         config_path: PathBuf,
     },
-    /// Ephemeral scan requires an interactive terminal.
+    /// Legacy interactive-terminal error retained for API compatibility.
     #[error("wax scan needs an interactive terminal when no wax config exists")]
     RequiresInteractiveTerminal,
     /// Summary writing failed.
@@ -113,10 +115,17 @@ pub enum ScanCommandError {
 ///
 /// # Errors
 ///
-/// Returns [`ScanCommandError::RequiresInit`] or
-/// [`ScanCommandError::RequiresInteractiveTerminal`] when setup is unavailable,
-/// or another [`ScanCommandError`] for paths, config, registry, engine, sync, or
-/// output failures.
+/// Returns [`ScanCommandError::RequiresInit`] when config and usable ephemeral
+/// selections are unavailable; [`ScanCommandError::Paths`] when ephemeral setup
+/// or pre-scan upstream sync needs an implicit global state path that cannot be
+/// resolved;
+/// [`ScanCommandError::Config`] when configured pre-scan sync cannot load wax
+/// config; [`ScanCommandError::Language`] or [`ScanCommandError::Registry`] when
+/// ephemeral pack metadata cannot be resolved;
+/// [`ScanCommandError::RegistryMemory`] when remembered registry state cannot be
+/// listed or resolved; [`ScanCommandError::Engine`] when the scan fails; or
+/// [`ScanCommandError::Io`] when prompts, sync warnings, or summary output cannot
+/// be written.
 pub fn run_scan_cli(
     options: ScanCommandOptions,
     writer: &mut impl Write,
@@ -146,9 +155,12 @@ pub fn run_scan_cli(
 ///
 /// # Errors
 ///
-/// Returns [`ScanCommandError::Engine`] when scanning fails,
-/// [`ScanCommandError::Sync`] or [`ScanCommandError::Config`] during pre-scan
-/// sync, or [`ScanCommandError::Io`] when summary output cannot be written.
+/// Returns [`ScanCommandError::Config`] when pre-scan sync cannot load the wax
+/// config. If that config has a non-empty registry upstream and no state-path
+/// override, returns [`ScanCommandError::Paths`] when the global state path
+/// cannot be resolved. Returns [`ScanCommandError::Engine`] when scanning fails,
+/// or [`ScanCommandError::Io`] when a sync warning or scan summary cannot be
+/// written.
 pub fn run_scan(
     options: ScanCommandOptions,
     writer: &mut impl Write,

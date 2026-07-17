@@ -139,9 +139,11 @@ pub enum SyncError {
 /// # Errors
 ///
 /// Returns [`SyncError::MissingConfig`] or [`SyncError::MissingLockfile`] for
-/// missing inputs; `Config`, `Lockfile`, `RegistryMemory`, `RegistrySource`, or
-/// `InvalidUpstream` while preparing updates; and `ConfigUpdate`,
-/// `LockfileWrite`, or `LockRefreshFailed` when persistence fails.
+/// missing inputs; [`SyncError::Config`], [`SyncError::Lockfile`],
+/// [`SyncError::RegistryMemory`], [`SyncError::RegistrySource`], or
+/// [`SyncError::InvalidUpstream`] while preparing updates; and
+/// [`SyncError::ConfigUpdate`], [`SyncError::LockfileWrite`], or
+/// [`SyncError::LockRefreshFailed`] when persistence or rollback fails.
 pub fn sync_app_registries(options: &SyncOptions) -> Result<Vec<SyncUpdate>, SyncError> {
     let repo_files = discover_repo_files(&options.repo_root);
     ensure_repo_files_exist(&repo_files)?;
@@ -187,9 +189,11 @@ pub fn sync_app_registries(options: &SyncOptions) -> Result<Vec<SyncUpdate>, Syn
 ///
 /// # Errors
 ///
-/// Returns [`SyncError::MissingConfig`], [`SyncError::MissingLockfile`],
-/// [`SyncError::Config`], or [`SyncError::Lockfile`] when repository inputs
-/// cannot be loaded. Per-upstream and persistence failures are returned in the
+/// Returns [`SyncError::MissingConfig`] or [`SyncError::MissingLockfile`] when a
+/// required repository input is absent; [`SyncError::Config`] or
+/// [`SyncError::Lockfile`] when those inputs are invalid; or
+/// [`SyncError::ConfigUpdate`] when the original config JSON cannot be read.
+/// Per-upstream preparation and persistence failures are returned in the
 /// successful result's failure list.
 pub fn best_effort_sync_app_registries(options: &SyncOptions) -> BestEffortSyncResult {
     let repo_files = discover_repo_files(&options.repo_root);

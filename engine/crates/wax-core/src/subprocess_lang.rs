@@ -27,8 +27,15 @@ pub trait LanguageExtractor {
     ///
     /// # Errors
     ///
-    /// Returns [`LanguageError`] for command, process I/O, timeout,
-    /// cancellation, wire decoding/API, or pack-reported failures.
+    /// Returns [`LanguageError::EmptyCommand`] for an empty command;
+    /// [`LanguageError::Spawn`], [`LanguageError::WriteRequest`],
+    /// [`LanguageError::ReadStdout`], [`LanguageError::ReadStderr`], or
+    /// [`LanguageError::Wait`] for process I/O failures;
+    /// [`LanguageError::Timeout`] or [`LanguageError::WireTimeout`] for timeouts;
+    /// [`LanguageError::ProcessFailed`] for an unsuccessful process without a
+    /// usable response; [`LanguageError::InvalidResponse`] or
+    /// [`LanguageError::UnsupportedApiVersion`] for invalid wire responses; and
+    /// [`LanguageError::Wire`] for an error reported by the language pack.
     fn scan(&self, request: ScanRequest) -> Result<ScanFacts, LanguageError>;
 
     /// Runs the extractor unless cancellation is requested first.
@@ -38,7 +45,17 @@ pub trait LanguageExtractor {
     ///
     /// # Errors
     ///
-    /// Returns the [`LanguageError`] produced by [`LanguageExtractor::scan`].
+    /// Returns [`LanguageError::EmptyCommand`] for an empty command;
+    /// [`LanguageError::Spawn`], [`LanguageError::WriteRequest`],
+    /// [`LanguageError::ReadStdout`], [`LanguageError::ReadStderr`], or
+    /// [`LanguageError::Wait`] for process I/O failures;
+    /// [`LanguageError::Timeout`] or [`LanguageError::WireTimeout`] for timeouts;
+    /// [`LanguageError::ProcessFailed`] for an unsuccessful process without a
+    /// usable response; [`LanguageError::InvalidResponse`] or
+    /// [`LanguageError::UnsupportedApiVersion`] for invalid wire responses; and
+    /// [`LanguageError::Wire`] for an error reported by the language pack. The
+    /// default implementation ignores the cancellation token, so it does not
+    /// introduce [`LanguageError::Cancelled`].
     fn scan_with_cancellation(
         &self,
         request: ScanRequest,
@@ -99,8 +116,16 @@ impl SubprocessLanguageExtractor {
     ///
     /// # Errors
     ///
-    /// Returns [`LanguageError::Cancelled`] when cancellation wins, or another
-    /// [`LanguageError`] variant for command, process, timeout, or wire failures.
+    /// Returns [`LanguageError::Cancelled`] when cancellation wins;
+    /// [`LanguageError::EmptyCommand`] for an empty command;
+    /// [`LanguageError::Spawn`], [`LanguageError::WriteRequest`],
+    /// [`LanguageError::ReadStdout`], [`LanguageError::ReadStderr`], or
+    /// [`LanguageError::Wait`] for process I/O failures;
+    /// [`LanguageError::Timeout`] or [`LanguageError::WireTimeout`] for timeouts;
+    /// [`LanguageError::ProcessFailed`] for an unsuccessful process without a
+    /// usable response; [`LanguageError::InvalidResponse`] or
+    /// [`LanguageError::UnsupportedApiVersion`] for invalid wire responses; and
+    /// [`LanguageError::Wire`] for an error reported by the language pack.
     pub fn scan_with_cancellation(
         &self,
         request: ScanRequest,

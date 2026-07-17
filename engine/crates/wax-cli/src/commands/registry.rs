@@ -89,8 +89,9 @@ pub enum RegistryMemoryCommandError {
 ///
 /// # Errors
 ///
-/// Returns [`RegistryDiscoverCommandError`] when discovery/configuration fails,
-/// generated JSON cannot be serialized, or command output cannot be written.
+/// Returns [`RegistryDiscoverCommandError::Discover`] when registry discovery or
+/// persistence fails, or [`RegistryDiscoverCommandError::Io`] when dry-run JSON
+/// cannot be serialized into command output or output cannot be written.
 pub fn run_registry_discover(
     options: RegistryDiscoverCommandOptions,
     writer: &mut impl Write,
@@ -184,8 +185,9 @@ pub fn run_registry_discover(
 ///
 /// # Errors
 ///
-/// Returns [`RegistryMemoryCommandError`] when state/path resolution or output
-/// writing fails.
+/// Returns [`RegistryMemoryCommandError::Paths`] when no global state path can be
+/// resolved, [`RegistryMemoryCommandError::Memory`] when remembered state cannot
+/// be loaded, or [`RegistryMemoryCommandError::Io`] when output cannot be written.
 pub fn run_registry_list(
     options: RegistryMemoryCommandOptions,
     writer: &mut impl Write,
@@ -212,8 +214,10 @@ pub fn run_registry_list(
 ///
 /// # Errors
 ///
-/// Returns [`RegistryMemoryCommandError`] for an invalid or unknown id, state
-/// loading failures, or output-write failures.
+/// Returns [`RegistryMemoryCommandError::Paths`] when no global state path can be
+/// resolved, [`RegistryMemoryCommandError::Memory`] when the id is invalid or
+/// unknown or state cannot be loaded, or [`RegistryMemoryCommandError::Io`] when
+/// output cannot be written.
 pub fn run_registry_show(
     design_system_id: &str,
     options: RegistryMemoryCommandOptions,
@@ -239,8 +243,10 @@ pub fn run_registry_show(
 ///
 /// # Errors
 ///
-/// Returns [`RegistryMemoryCommandError`] for an invalid/unknown id, inaccessible
-/// repository root, state persistence failure, or output-write failure.
+/// Returns [`RegistryMemoryCommandError::Paths`] when no global state path can be
+/// resolved, [`RegistryMemoryCommandError::Memory`] when the id is invalid or
+/// unknown, the new repository root cannot be resolved, or state cannot be
+/// saved, and [`RegistryMemoryCommandError::Io`] when output cannot be written.
 pub fn run_registry_update(
     options: RegistryUpdateCommandOptions,
     writer: &mut impl Write,
@@ -267,8 +273,10 @@ pub fn run_registry_update(
 ///
 /// # Errors
 ///
-/// Returns [`RegistryMemoryCommandError`] for an invalid/unknown id, state
-/// persistence failure, or output-write failure.
+/// Returns [`RegistryMemoryCommandError::Paths`] when no global state path can be
+/// resolved, [`RegistryMemoryCommandError::Memory`] when the id is invalid or
+/// unknown or state cannot be saved, and [`RegistryMemoryCommandError::Io`] when
+/// output cannot be written.
 pub fn run_registry_delete(
     design_system_id: &str,
     options: RegistryMemoryCommandOptions,

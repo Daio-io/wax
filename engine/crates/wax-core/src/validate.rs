@@ -136,9 +136,14 @@ pub enum ValidateError {
 /// # Errors
 ///
 /// Returns [`ValidateError::WaxRc`] or [`ValidateError::Lockfile`] for invalid
-/// repository inputs, [`ValidateError::RegistrySource`] for registry resolution
-/// failures, and the `Registry*` variants for malformed registry content or
-/// missing/drifted registry locks.
+/// repository inputs; [`ValidateError::RegistrySource`] when a registry source
+/// cannot be resolved; [`ValidateError::RegistryRead`],
+/// [`ValidateError::RegistryMalformedJson`],
+/// [`ValidateError::RegistryUnsupportedSchemaVersion`], or
+/// [`ValidateError::RegistryInvalidShape`] for invalid registry content; and
+/// [`ValidateError::MissingRegistryLock`],
+/// [`ValidateError::RegistrySourceDrift`], or
+/// [`ValidateError::RegistryDigestDrift`] for a missing or stale registry lock.
 pub fn validate_repo(repo_root: impl AsRef<Path>) -> Result<ValidateReport, ValidateError> {
     validate_repo_with_progress(repo_root, ValidateProgress::default())
 }
@@ -156,6 +161,11 @@ pub fn validate_repo(repo_root: impl AsRef<Path>) -> Result<ValidateReport, Vali
 /// [`ValidateError::MissingRegistryLock`],
 /// [`ValidateError::RegistrySourceDrift`], or
 /// [`ValidateError::RegistryDigestDrift`] for registry validation failures.
+///
+/// # Panics
+///
+/// Panics if the callback configured in `progress` panics while handling a
+/// validation progress event.
 pub fn validate_repo_with_progress(
     repo_root: impl AsRef<Path>,
     progress: ValidateProgress,

@@ -45,8 +45,10 @@ pub enum UninstallCliError {
 ///
 /// # Errors
 ///
-/// Returns [`UninstallCliError`] when global paths/state or executable paths
-/// cannot be resolved, files cannot be removed, or output cannot be written.
+/// Returns [`UninstallCliError::FullFlagRequired`] unless `--full` was supplied,
+/// [`UninstallCliError::Paths`] when the global wax home cannot be resolved,
+/// [`UninstallCliError::RemoveWaxHome`] when that directory cannot be removed, or
+/// [`UninstallCliError::Io`] when the removal report cannot be written.
 pub fn run_uninstall_cli(
     options: UninstallCliOptions,
     writer: &mut impl Write,

@@ -169,9 +169,19 @@ pub enum InitCommandError {
 ///
 /// # Errors
 ///
-/// Returns [`InitCommandError`] for invalid/non-interactive selections, existing
-/// config, malformed bundled templates, pack/registry/state/path failures, or
-/// filesystem and output-write failures.
+/// Returns [`InitCommandError::RequiresInteractiveTerminal`] when
+/// `non_interactive` is false and `interactive` supplies no selections,
+/// [`InitCommandError::MissingLanguageSelection`] when no language is selected,
+/// or [`InitCommandError::WaxConfigAlreadyExists`] when the repository is already
+/// initialized. Bundled-template failures use
+/// [`InitCommandError::InvalidExampleWaxRc`],
+/// [`InitCommandError::InvalidExampleLanguageId`],
+/// [`InitCommandError::MissingExampleLanguages`], or
+/// [`InitCommandError::UnknownExampleLanguage`]. Pack and registry setup failures
+/// use [`InitCommandError::Language`], [`InitCommandError::Registry`],
+/// [`InitCommandError::RegistrySource`],
+/// [`InitCommandError::RegistryMemory`], or [`InitCommandError::Paths`].
+/// Filesystem and output failures use [`InitCommandError::Io`].
 pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), InitCommandError> {
     let selections = options.interactive.clone();
     if !options.non_interactive && selections.is_none() {
@@ -339,9 +349,19 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
 ///
 /// # Errors
 ///
-/// Returns [`InitCommandError::RequiresInteractiveTerminal`] without a TTY,
-/// [`InitCommandError::WaxConfigAlreadyExists`] for an initialized repo, or
-/// another [`InitCommandError`] from prompts, resolution, or [`run_init`].
+/// Returns [`InitCommandError::RequiresInteractiveTerminal`] when interactive
+/// mode has no TTY, [`InitCommandError::MissingLanguageSelection`] when the
+/// non-interactive path has no language, or
+/// [`InitCommandError::WaxConfigAlreadyExists`] when the repository is already
+/// initialized. Prompt or setup failures use [`InitCommandError::Io`],
+/// [`InitCommandError::Paths`], [`InitCommandError::Registry`],
+/// [`InitCommandError::RegistryMemory`],
+/// [`InitCommandError::RegistrySource`], or [`InitCommandError::Language`].
+/// Bundled-template failures delegated to [`run_init`] use
+/// [`InitCommandError::InvalidExampleWaxRc`],
+/// [`InitCommandError::InvalidExampleLanguageId`],
+/// [`InitCommandError::MissingExampleLanguages`], or
+/// [`InitCommandError::UnknownExampleLanguage`].
 pub fn run_init_cli(options: InitOptions, writer: &mut impl Write) -> Result<(), InitCommandError> {
     if options.non_interactive {
         return run_init(options, writer);

@@ -239,9 +239,18 @@ impl Engine {
     ///
     /// # Errors
     ///
-    /// Returns [`EngineError`] when config, lockfile, state, registry, install,
-    /// subprocess, contract validation, worker execution, or output persistence
-    /// fails.
+    /// Returns [`EngineError::WaxRc`] or [`EngineError::Lockfile`] for invalid
+    /// repository inputs; [`EngineError::GlobalState`] or [`EngineError::Paths`]
+    /// for unavailable global state; [`EngineError::RegistrySource`] or
+    /// [`EngineError::RegistryLock`] for invalid registry inputs;
+    /// [`EngineError::InstalledManifest`] or
+    /// [`EngineError::InstalledManifestMismatch`] for invalid installed packs;
+    /// [`EngineError::Registry`], [`EngineError::AutoInstallPolicyBlocked`],
+    /// [`EngineError::Install`], or [`EngineError::InstallCleanup`] when automatic
+    /// installation cannot complete; [`EngineError::Language`] or
+    /// [`EngineError::ScanWorkerPanicked`] when a scan worker fails; and
+    /// [`EngineError::ScanFacts`] or [`EngineError::ScanOutput`] when merged facts
+    /// are invalid or cannot be persisted.
     pub fn scan_repo(repo_root: impl AsRef<Path>) -> Result<MergedScan, EngineError> {
         Self::scan_repo_with_options(repo_root, ScanOptions::default())
     }
@@ -255,12 +264,25 @@ impl Engine {
     ///
     /// # Errors
     ///
-    /// Returns `WaxRc`, `Lockfile`, `GlobalState`, or `Paths` for input/state
-    /// failures; the installed-manifest, registry, policy, and install variants
-    /// for pack resolution failures; [`EngineError::Language`] for subprocess
-    /// failures; [`EngineError::ScanFacts`] for invalid facts;
-    /// [`EngineError::ScanWorkerPanicked`] for a failed worker; or
-    /// [`EngineError::ScanOutput`] when output cannot be persisted.
+    /// Returns [`EngineError::WaxRc`] or [`EngineError::Lockfile`] for invalid
+    /// repository inputs; [`EngineError::GlobalState`] or [`EngineError::Paths`]
+    /// for unavailable global state; [`EngineError::RegistrySource`] or
+    /// [`EngineError::RegistryLock`] for invalid registry inputs;
+    /// [`EngineError::InstalledManifest`] or
+    /// [`EngineError::InstalledManifestMismatch`] for invalid installed packs;
+    /// [`EngineError::AutoInstallRequired`] when installation is disabled but
+    /// needed; [`EngineError::Registry`],
+    /// [`EngineError::AutoInstallPolicyBlocked`], [`EngineError::Install`], or
+    /// [`EngineError::InstallCleanup`] when automatic installation cannot
+    /// complete; [`EngineError::Language`] or
+    /// [`EngineError::ScanWorkerPanicked`] when a scan worker fails; and
+    /// [`EngineError::ScanFacts`] or [`EngineError::ScanOutput`] when merged facts
+    /// are invalid or cannot be persisted.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the callback configured in [`ScanOptions::progress`] panics
+    /// while handling a progress event.
     pub fn scan_repo_with_options(
         repo_root: impl AsRef<Path>,
         mut options: ScanOptions,

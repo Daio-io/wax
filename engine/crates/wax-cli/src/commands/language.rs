@@ -199,8 +199,9 @@ pub enum LanguageCommandError {
 ///
 /// # Errors
 ///
-/// Returns [`LanguageCommandError`] when global paths/state cannot be loaded or
-/// formatted output cannot be written.
+/// Returns [`LanguageCommandError::Paths`] when no global state path can be
+/// resolved, [`LanguageCommandError::GlobalState`] when state cannot be loaded,
+/// or [`LanguageCommandError::Io`] when output cannot be written.
 pub fn run_list(options: ListOptions, writer: &mut impl Write) -> Result<(), LanguageCommandError> {
     let ListOptions {
         registry_url,
@@ -223,8 +224,13 @@ pub fn run_list(options: ListOptions, writer: &mut impl Write) -> Result<(), Lan
 ///
 /// # Errors
 ///
-/// Returns [`LanguageCommandError`] for pack-index/manifest/artifact resolution,
-/// installation, state persistence, or output-write failures.
+/// Returns [`LanguageCommandError::Registry`] when the pack index or target
+/// artifact cannot be loaded, [`LanguageCommandError::LanguageNotFound`] or
+/// [`LanguageCommandError::LanguageVersionNotFound`] when no requested manifest
+/// exists, [`LanguageCommandError::Install`] when installation fails,
+/// [`LanguageCommandError::Paths`] or [`LanguageCommandError::GlobalState`] when
+/// install state cannot be resolved or saved, and [`LanguageCommandError::Io`]
+/// when cleanup or output writing fails.
 pub fn run_install(
     options: InstallOptions,
     writer: &mut impl Write,
@@ -260,8 +266,10 @@ pub fn run_install(
 ///
 /// # Errors
 ///
-/// Returns [`LanguageCommandError`] when paths/state cannot be resolved, the
-/// requested install cannot be removed, or output cannot be written.
+/// Returns [`LanguageCommandError::Paths`] when state or install paths cannot be
+/// resolved, [`LanguageCommandError::GlobalState`] when state cannot be loaded or
+/// saved, or [`LanguageCommandError::Io`] when an install directory cannot be
+/// removed or output cannot be written.
 pub fn run_uninstall(
     options: UninstallOptions,
     writer: &mut impl Write,
@@ -287,8 +295,15 @@ pub fn run_uninstall(
 ///
 /// # Errors
 ///
-/// Returns [`LanguageCommandError`] for missing selections, config/lock/index
-/// resolution, installation/removal, state persistence, or output failures.
+/// Returns [`LanguageCommandError::MissingUpdateSelection`] when neither a
+/// language nor `--all` is selected; [`LanguageCommandError::Registry`] or
+/// [`LanguageCommandError::LanguageNotFound`] when the pack index cannot satisfy
+/// an update; [`LanguageCommandError::Paths`],
+/// [`LanguageCommandError::GlobalState`], [`LanguageCommandError::Install`], or
+/// [`LanguageCommandError::Io`] when an install, removal, state update, or output
+/// write fails; and [`LanguageCommandError::Lockfile`],
+/// [`LanguageCommandError::WaxRc`], or [`LanguageCommandError::RegistrySource`]
+/// when repository registry locks cannot be refreshed.
 pub fn run_update(
     options: UpdateOptions,
     writer: &mut impl Write,
@@ -365,8 +380,11 @@ pub fn run_update(
 ///
 /// # Errors
 ///
-/// Returns [`LanguageCommandError`] when config, lockfile, paths, state, or
-/// installed manifests cannot be read, or report output cannot be written.
+/// Returns [`LanguageCommandError::WaxRc`] when config cannot be loaded,
+/// [`LanguageCommandError::Lockfile`] when the optional lockfile is invalid,
+/// [`LanguageCommandError::Paths`] or [`LanguageCommandError::GlobalState`] when
+/// installed state cannot be loaded, or [`LanguageCommandError::Io`] when
+/// lockfile metadata cannot be read or report output cannot be written.
 pub fn run_doctor(
     options: DoctorOptions,
     writer: &mut impl Write,

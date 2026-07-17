@@ -73,6 +73,11 @@ impl ScanProgress {
     }
 
     /// Emits `event` when a callback is configured.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the callback supplied to [`ScanProgress::new`] panics while
+    /// handling `event`.
     pub fn emit(&self, event: ScanProgressEvent) {
         if let Some(callback) = &self.callback {
             callback(event);
@@ -105,6 +110,11 @@ impl ValidateProgress {
     }
 
     /// Emits `event` when a callback is configured.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the callback supplied to [`ValidateProgress::new`] panics while
+    /// handling `event`.
     pub fn emit(&self, event: ValidateProgressEvent) {
         if let Some(callback) = &self.callback {
             callback(event);

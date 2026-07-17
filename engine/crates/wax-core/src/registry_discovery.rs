@@ -349,14 +349,34 @@ struct DiscoveredComponent {
 ///
 /// # Errors
 ///
-/// Returns [`RegistryDiscoverError::IncompleteDesignSystemOptions`] for an
-/// incomplete remember request; the `Config`, `Lockfile`, `GlobalState`,
-/// `Paths`, `InvalidLanguageId`, `LanguageNotConfigured`, `NoConfiguredRoots`,
-/// `InvalidRootsShape`, `InvalidRootPath`, `RootEscapesRepo`, and `RootNotFound`
-/// variants for invalid inputs; `ResolveRoot`, `PackNotInstalled`,
-/// `DiscoverSubprocess`, `DiscoverUnsupported`, or `RegistryExternalSource`
-/// when discovery cannot run; and the serialization, output, atomic-write,
-/// config/lock patch, or registry-memory variants when persistence fails.
+/// Returns [`RegistryDiscoverError::IncompleteDesignSystemOptions`] for a
+/// partial remember request; [`RegistryDiscoverError::Config`],
+/// [`RegistryDiscoverError::Lockfile`], [`RegistryDiscoverError::GlobalState`],
+/// or [`RegistryDiscoverError::Paths`] when required state cannot be loaded;
+/// [`RegistryDiscoverError::InvalidLanguageId`],
+/// [`RegistryDiscoverError::MissingRoots`],
+/// [`RegistryDiscoverError::LanguageNotConfigured`],
+/// [`RegistryDiscoverError::NoConfiguredRoots`],
+/// [`RegistryDiscoverError::InvalidRootPath`],
+/// [`RegistryDiscoverError::RootEscapesRepo`],
+/// [`RegistryDiscoverError::RootNotFound`], or
+/// [`RegistryDiscoverError::ResolveRoot`] for invalid discovery inputs;
+/// [`RegistryDiscoverError::PackNotInstalled`],
+/// [`RegistryDiscoverError::DiscoverSubprocess`],
+/// [`RegistryDiscoverError::DiscoverUnsupported`], or
+/// [`RegistryDiscoverError::RegistryExternalSource`] when discovery cannot run;
+/// [`RegistryDiscoverError::Serialize`],
+/// [`RegistryDiscoverError::IdCollision`],
+/// [`RegistryDiscoverError::OutputExists`],
+/// [`RegistryDiscoverError::CreateDir`],
+/// [`RegistryDiscoverError::CreateTemp`],
+/// [`RegistryDiscoverError::WriteTemp`],
+/// [`RegistryDiscoverError::SyncTemp`], [`RegistryDiscoverError::Rename`], or
+/// [`RegistryDiscoverError::PublishNoClobber`] when output cannot be generated
+/// or published; and [`RegistryDiscoverError::ConfigPatch`],
+/// [`RegistryDiscoverError::LockfilePatch`], or
+/// [`RegistryDiscoverError::RegistryMemory`] when follow-up metadata cannot be
+/// persisted.
 pub fn discover_registry(
     options: RegistryDiscoverOptions<'_>,
 ) -> Result<RegistryDiscoverResult, RegistryDiscoverError> {

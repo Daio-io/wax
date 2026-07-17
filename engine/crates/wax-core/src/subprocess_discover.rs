@@ -52,9 +52,17 @@ impl SubprocessLanguageDiscoverer {
     ///
     /// # Errors
     ///
-    /// Returns [`DiscoverError`] when the command is empty, process I/O or wire
-    /// decoding fails, the operation times out or is cancelled, the API version
-    /// is unsupported, or the pack returns an unsupported/error response.
+    /// Returns [`DiscoverError::EmptyCommand`] for an empty command;
+    /// [`DiscoverError::Spawn`], [`DiscoverError::WriteRequest`],
+    /// [`DiscoverError::ReadStdout`], [`DiscoverError::ReadStderr`], or
+    /// [`DiscoverError::Wait`] for process I/O failures;
+    /// [`DiscoverError::Timeout`] or [`DiscoverError::WireTimeout`] for timeouts;
+    /// [`DiscoverError::ProcessFailed`] for an unsuccessful process without a
+    /// usable response; [`DiscoverError::InvalidResponse`],
+    /// [`DiscoverError::UnsupportedApiVersion`], or
+    /// [`DiscoverError::UnexpectedResponseType`] for invalid wire responses; and
+    /// [`DiscoverError::Unsupported`] or [`DiscoverError::Wire`] for errors
+    /// reported by the language pack.
     pub fn discover(
         &self,
         request: DiscoverRequest,
@@ -66,8 +74,18 @@ impl SubprocessLanguageDiscoverer {
     ///
     /// # Errors
     ///
-    /// Returns [`DiscoverError::Cancelled`] when cancellation wins, or another
-    /// [`DiscoverError`] variant for command, process, timeout, or wire failures.
+    /// Returns [`DiscoverError::Cancelled`] when cancellation wins;
+    /// [`DiscoverError::EmptyCommand`] for an empty command;
+    /// [`DiscoverError::Spawn`], [`DiscoverError::WriteRequest`],
+    /// [`DiscoverError::ReadStdout`], [`DiscoverError::ReadStderr`], or
+    /// [`DiscoverError::Wait`] for process I/O failures;
+    /// [`DiscoverError::Timeout`] or [`DiscoverError::WireTimeout`] for timeouts;
+    /// [`DiscoverError::ProcessFailed`] for an unsuccessful process without a
+    /// usable response; [`DiscoverError::InvalidResponse`],
+    /// [`DiscoverError::UnsupportedApiVersion`], or
+    /// [`DiscoverError::UnexpectedResponseType`] for invalid wire responses; and
+    /// [`DiscoverError::Unsupported`] or [`DiscoverError::Wire`] for errors
+    /// reported by the language pack.
     pub fn discover_with_cancellation(
         &self,
         request: DiscoverRequest,
