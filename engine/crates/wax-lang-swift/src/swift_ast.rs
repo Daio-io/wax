@@ -51,6 +51,10 @@ impl std::error::Error for ParseSwiftFileError {
 }
 
 /// Creates a tree-sitter parser configured for Swift.
+#[expect(
+    unsafe_code,
+    reason = "tree-sitter-swift exposes the generated grammar through a raw C ABI entrypoint, so parser initialization must call that function and wrap the returned TSLanguage pointer"
+)]
 pub(crate) fn new_parser() -> Result<tree_sitter::Parser, String> {
     let mut parser = tree_sitter::Parser::new();
     let language_fn = tree_sitter_swift::LANGUAGE.into_raw();

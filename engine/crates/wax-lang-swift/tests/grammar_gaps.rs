@@ -29,6 +29,10 @@ fn assert_parse_gap_diagnostic(
     assert_eq!(location.column, Some(expected_column));
 }
 
+#[expect(
+    unsafe_code,
+    reason = "tree-sitter-swift exposes the generated grammar through a raw C ABI entrypoint, so this grammar-regression helper must call that function and wrap the returned TSLanguage pointer"
+)]
 fn parse_source(source: &str) -> bool {
     let tempdir = tempfile::tempdir().expect("tempdir");
     let path = tempdir.path().join("Test.swift");

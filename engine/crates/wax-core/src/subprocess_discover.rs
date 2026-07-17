@@ -466,6 +466,10 @@ fn configure_command(command: &mut Command) {
 fn configure_command(_command: &mut Command) {}
 
 #[cfg(unix)]
+#[expect(
+    unsafe_code,
+    reason = "std cannot signal a Unix process group, so cleanup must call libc::kill with a negative pgid to terminate the spawned pack group"
+)]
 fn cleanup_child(child: &mut std::process::Child, child_id: u32) {
     if let Ok(process_group_id) = i32::try_from(child_id) {
         // NOTE: We apply the spec's SIGTERM grace window uniformly for every

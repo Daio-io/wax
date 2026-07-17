@@ -299,6 +299,10 @@ fn wait_for_file(path: &Path) {
     panic!("timed out waiting for {}", path.display());
 }
 
+#[expect(
+    unsafe_code,
+    reason = "the subprocess cleanup regression tests must probe a raw pid with libc::kill(pid, 0) because std has no safe process-existence check by pid"
+)]
 fn assert_process_exited(pid: &str) {
     let pid = pid.parse::<i32>().unwrap();
     for _ in 0..100 {
