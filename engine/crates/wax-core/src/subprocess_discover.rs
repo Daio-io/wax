@@ -466,18 +466,12 @@ fn configure_command(command: &mut Command) {
 fn configure_command(_command: &mut Command) {}
 
 #[cfg(unix)]
-#[expect(
-    unsafe_code,
-    reason = "std cannot signal a Unix process group, so cleanup must call libc::kill with a negative pgid to terminate the spawned pack group"
-)]
 fn cleanup_child(child: &mut std::process::Child, child_id: u32) {
     if let Ok(process_group_id) = i32::try_from(child_id) {
         // NOTE: We apply the spec's SIGTERM grace window uniformly for every
         // cleanup path, including timeouts and pipe errors, so packs get one
         // consistent shutdown contract.
-        unsafe {
-            libc::kill(-process_group_id, libc::SIGTERM);
-        }
+        signal_process_group(process_group_id, libc::SIGTERM);
         let grace_started_at = Instant::now();
         loop {
             match child.try_wait() {
@@ -490,12 +484,24 @@ fn cleanup_child(child: &mut std::process::Child, child_id: u32) {
                 Err(_) => break,
             }
         }
-        unsafe {
-            libc::kill(-process_group_id, libc::SIGKILL);
-        }
+        signal_process_group(process_group_id, libc::SIGKILL);
     }
     let _ = child.kill();
     let _ = child.wait();
+}
+
+#[cfg(unix)]
+#[expect(
+    unsafe_code,
+    reason = "std cannot signal a Unix process group, so cleanup must call libc::kill with a negative pgid to terminate the spawned pack group"
+)]
+fn signal_process_group(process_group_id: i32, signal: libc::c_int) {
+    // SAFETY: `process_group_id` comes from a spawned child id that fit in `i32`.
+    // Passing its negated value asks `kill` to signal that process group; the
+    // signal constants are provided by libc for the current Unix target.
+    unsafe {
+        libc::kill(-process_group_id, signal);
+    }
 }
 
 #[cfg(not(unix))]

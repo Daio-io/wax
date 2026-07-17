@@ -212,7 +212,8 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
             RegistrySetup::External => None,
         })
         .map(|design_system_id| {
-            resolve_state_path(options.state_path.as_deref()).map(|state_path| (design_system_id, state_path))
+            resolve_state_path(options.state_path.as_deref())
+                .map(|state_path| (design_system_id, state_path))
         })
         .transpose()?;
 

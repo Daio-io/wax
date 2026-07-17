@@ -150,7 +150,7 @@ pub fn run_scan_cli(
     }
 
     let state_path = resolve_state_path(options.state_path.as_deref())?;
-    let registry_url = resolve_registry_url(options.pack_index_url.clone())?;
+    let registry_url = resolve_registry_url(options.pack_index_url.clone());
     let manifests = fetch_pack_index(&registry_url).map_err(LanguageCommandError::from)?;
     let mut prompts = DialoguerScanPrompts;
     let selections = collect_ephemeral_scan_selections(&manifests, &mut prompts, &state_path)?;
@@ -637,6 +637,10 @@ mod tests {
     }
 
     impl EnvVarGuard {
+        #[expect(
+            unsafe_code,
+            reason = "these tests hold env_lock while mutating process environment variables, which keeps env access serialized inside this test binary"
+        )]
         fn remove(name: &'static str) -> Self {
             let previous = std::env::var_os(name);
             unsafe {
@@ -647,6 +651,10 @@ mod tests {
     }
 
     impl Drop for EnvVarGuard {
+        #[expect(
+            unsafe_code,
+            reason = "these tests hold env_lock while restoring process environment variables, which keeps env access serialized inside this test binary"
+        )]
         fn drop(&mut self) {
             unsafe {
                 match &self.previous {
