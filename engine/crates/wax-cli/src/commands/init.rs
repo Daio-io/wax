@@ -194,7 +194,7 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
     } else {
         base_waxrc
     };
-    let registry_url = resolve_registry_url(options.registry_url)?;
+    let registry_url = resolve_registry_url(options.registry_url);
     let manifests = fetch_pack_index(&registry_url)?;
     let pending_registry_scaffolds = pending_registry_scaffolds(
         &options.repo_root,
@@ -331,7 +331,7 @@ pub fn run_init_cli(options: InitOptions, writer: &mut impl Write) -> Result<(),
         return Err(InitCommandError::RequiresInteractiveTerminal);
     }
 
-    let registry_url = resolve_registry_url(options.registry_url.clone())?;
+    let registry_url = resolve_registry_url(options.registry_url.clone());
     let manifests = fetch_pack_index(&registry_url)?;
     let state_path = resolve_state_path(options.state_path.as_deref())?;
     let mut prompts = DialoguerInitPrompts;

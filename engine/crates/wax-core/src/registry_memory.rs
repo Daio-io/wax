@@ -768,7 +768,7 @@ mod registry_memory_tests {
         let remembered = RememberedDesignSystemSummary {
             id: "acme".to_owned(),
             name: "Acme Design System".to_owned(),
-            repo_root: repo.clone(),
+            repo_root: repo,
             last_seen_config: PathBuf::from(LAST_SEEN_CONFIG_RELATIVE_PATH),
         };
         let language_id = LanguageId::try_from("react").unwrap();
@@ -810,7 +810,7 @@ mod registry_memory_tests {
         let remembered = RememberedDesignSystemSummary {
             id: "acme".to_owned(),
             name: "Acme Design System".to_owned(),
-            repo_root: repo.clone(),
+            repo_root: repo,
             last_seen_config: PathBuf::from(LAST_SEEN_CONFIG_RELATIVE_PATH),
         };
         let language_id = LanguageId::try_from("react").unwrap();
@@ -834,7 +834,7 @@ mod registry_memory_tests {
         let remembered = RememberedDesignSystemSummary {
             id: "acme".to_owned(),
             name: "Acme Design System".to_owned(),
-            repo_root: repo.clone(),
+            repo_root: repo,
             last_seen_config: PathBuf::from(LAST_SEEN_CONFIG_RELATIVE_PATH),
         };
         let language_id = LanguageId::try_from("react").unwrap();

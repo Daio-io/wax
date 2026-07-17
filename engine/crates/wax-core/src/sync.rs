@@ -407,7 +407,7 @@ fn prepare_language_upstream_sync(
             design_system_local_source: local_source.clone(),
             app_registry_relative: resolved.config_source.clone(),
         });
-    if update_config_registry_source(config_json, &entry.id, &resolved.config_source)? {
+    if update_config_registry_source(config_json, &entry.id, &resolved.config_source) {
         *config_changed = true;
     }
     Ok(PreparedUpstreamSync {
@@ -479,27 +479,27 @@ fn update_config_registry_source(
     config: &mut Value,
     language_id: &LanguageId,
     source: &str,
-) -> Result<bool, SyncError> {
+) -> bool {
     let Some(language) = config
         .get_mut("languages")
         .and_then(Value::as_object_mut)
         .and_then(|languages| languages.get_mut(language_id.as_str()))
         .and_then(Value::as_object_mut)
     else {
-        return Ok(false);
+        return false;
     };
     let Some(registry) = language.get_mut("registry").and_then(Value::as_object_mut) else {
-        return Ok(false);
+        return false;
     };
     let current = registry
         .get("source")
         .and_then(Value::as_str)
         .unwrap_or_default();
     if current == source {
-        return Ok(false);
+        return false;
     }
     registry.insert("source".to_owned(), Value::String(source.to_owned()));
-    Ok(true)
+    true
 }
 
 fn refresh_registry_locks(

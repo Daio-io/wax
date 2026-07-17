@@ -198,7 +198,7 @@ pub fn install_language(
         let pack_digest = normalize_sha256_hex(pack_digest_raw)?;
         if expected_digest != pack_digest {
             return Err(InstallError::DigestDrift {
-                expected: expected_digest.clone(),
+                expected: expected_digest,
                 pack_index: pack_digest,
             });
         }

@@ -216,7 +216,7 @@ pub fn run_install(
     let progress = Arc::new(CliProgress::new());
     progress.set_message("Fetching pack index…");
 
-    let registry_url = resolve_registry_url(options.registry_url)?;
+    let registry_url = resolve_registry_url(options.registry_url);
     let manifests = fetch_pack_index(&registry_url)?;
     let manifest =
         manifest_for_language(&manifests, &options.language_id, options.version.as_deref())?;
@@ -267,7 +267,7 @@ pub fn run_update(
     options: UpdateOptions,
     writer: &mut impl Write,
 ) -> Result<(), LanguageCommandError> {
-    let registry_url = resolve_registry_url(options.registry_url)?;
+    let registry_url = resolve_registry_url(options.registry_url);
     let manifests = fetch_pack_index(&registry_url)?;
     let state_path = resolve_state_path(options.state_path.as_deref())?;
     let mut state = load_global_state(&state_path)?;
@@ -401,10 +401,8 @@ pub fn run_doctor(
     Ok(())
 }
 
-pub(crate) fn resolve_registry_url(
-    registry_url: Option<String>,
-) -> Result<String, LanguageCommandError> {
-    Ok(resolve_effective_registry_url(registry_url).url)
+pub(crate) fn resolve_registry_url(registry_url: Option<String>) -> String {
+    resolve_effective_registry_url(registry_url).url
 }
 
 fn resolve_effective_registry_url(registry_url: Option<String>) -> EffectiveRegistryUrl {
@@ -1018,7 +1016,7 @@ mod tests {
     fn resolve_registry_url_uses_default_when_cli_and_env_are_unset() {
         let _guard = env_lock();
         let _lang_index = EnvVarGuard::remove("WAX_PACK_INDEX");
-        let resolved = resolve_registry_url(None).unwrap();
+        let resolved = resolve_registry_url(None);
         assert_eq!(
             resolved,
             "https://raw.githubusercontent.com/Daio-io/wax/gh-pages/index.json"
@@ -1031,7 +1029,7 @@ mod tests {
         let _guard = env_lock();
         let expected = "https://example.invalid/index.json";
         let _lang_index = EnvVarGuard::set("WAX_PACK_INDEX", expected);
-        let resolved = resolve_registry_url(None).unwrap();
+        let resolved = resolve_registry_url(None);
         assert_eq!(resolved, expected);
     }
 
@@ -1039,8 +1037,7 @@ mod tests {
     fn resolve_registry_url_prefers_cli_over_env() {
         let _guard = env_lock();
         let _lang_index = EnvVarGuard::set("WAX_PACK_INDEX", "https://example.invalid/env.json");
-        let resolved =
-            resolve_registry_url(Some("https://example.invalid/cli.json".to_owned())).unwrap();
+        let resolved = resolve_registry_url(Some("https://example.invalid/cli.json".to_owned()));
         assert_eq!(resolved, "https://example.invalid/cli.json");
     }
 

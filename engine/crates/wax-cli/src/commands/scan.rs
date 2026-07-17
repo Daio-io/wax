@@ -239,7 +239,7 @@ fn build_ephemeral_scan_config(
     state_path: &Path,
 ) -> Result<EphemeralScanConfig, ScanCommandError> {
     let remembered = show_remembered_design_system(state_path, &selections.design_system_id)?;
-    let registry_url = resolve_registry_url(options.pack_index_url.clone())?;
+    let registry_url = resolve_registry_url(options.pack_index_url.clone());
     let manifests = fetch_pack_index(&registry_url).map_err(LanguageCommandError::from)?;
     let target = options
         .target_triple

@@ -138,7 +138,7 @@ mod tests {
         );
         assert_eq!(
             scan_progress_message(ScanProgressEvent::ScanComplete {
-                language_id: compose.clone(),
+                language_id: compose,
             }),
             "Finished compose scan…"
         );
