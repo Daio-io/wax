@@ -12,3 +12,6 @@ time = { version = "0.3", features = ["formatting", "macros", "parsing", "serde"
 
 [dev-dependencies]
 jsonschema = { version = "0.48.0", default-features = false }
+
+[lints]
+workspace = true

@@ -19,3 +19,6 @@ wax-lang-api = { path = "../wax-lang-api" }
 
 [dev-dependencies]
 tempfile = "3"
+
+[lints]
+workspace = true

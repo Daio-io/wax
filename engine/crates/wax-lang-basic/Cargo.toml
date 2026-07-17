@@ -15,3 +15,6 @@ thiserror = "2"
 time = { version = "0.3", features = ["serde", "serde-well-known"] }
 wax-contract = { path = "../wax-contract" }
 wax-lang-api = { path = "../wax-lang-api" }
+
+[lints]
+workspace = true

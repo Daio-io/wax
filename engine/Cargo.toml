@@ -31,3 +31,17 @@ artifact_targets = [
 alpha_index_binaries = ["wax", "wax-lang-compose", "wax-lang-basic", "wax-lang-react", "wax-lang-swift"]
 contributor_only_binaries = []
 build_script = "../scripts/build-release.sh"
+
+[workspace.lints.rust]
+future-incompatible = "deny"
+nonstandard-style = "deny"
+unsafe-code = "warn"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+perf = { level = "deny", priority = -1 }
+redundant_clone = "deny"
+needless_collect = "deny"
+unnecessary_wraps = "deny"
+missing_errors_doc = "deny"
+missing_panics_doc = "deny"

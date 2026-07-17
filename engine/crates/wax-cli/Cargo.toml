@@ -30,3 +30,6 @@ wax-lang-api = { path = "../wax-lang-api" }
 [dev-dependencies]
 flate2 = "1"
 tar = "0.4"
+
+[lints]
+workspace = true
