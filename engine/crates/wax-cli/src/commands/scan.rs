@@ -119,6 +119,12 @@ pub enum ScanCommandError {
 /// selections are unavailable; [`ScanCommandError::Paths`] when ephemeral setup
 /// or pre-scan upstream sync needs an implicit global state path that cannot be
 /// resolved;
+/// `ScanCommandError::Engine(EngineError::RegistrySource(..))` when the
+/// no-config ephemeral flow resolves a remembered design-system registry source
+/// that cannot be read, fetched, validated, or materialized locally
+/// (`RegistrySourceError::UnsupportedScheme`, `PlainAbsolutePath`,
+/// `PathEscapesRepo`, `InvalidFileUrl`, `Read`, `Fetch`, `HttpStatus`,
+/// `MalformedJson`, `InvalidShape`, or `CacheWrite`);
 /// [`ScanCommandError::Config`] when configured pre-scan sync cannot load wax
 /// config; [`ScanCommandError::Language`] or [`ScanCommandError::Registry`] when
 /// ephemeral pack metadata cannot be resolved;
