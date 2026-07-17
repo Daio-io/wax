@@ -51,9 +51,9 @@ impl LanguageInstallSpec {
     ///
     /// # Errors
     ///
-    /// Returns [`LanguageCommandError::InvalidLanguageSpec`] for an empty or
-    /// malformed id/version pair, or [`LanguageCommandError::LanguageId`]
-    /// when the id is not a lowercase ASCII slug.
+    /// Returns [`LanguageCommandError::InvalidLanguageSpec`] when `@` is
+    /// present without a version, and [`LanguageCommandError::LanguageId`]
+    /// when the id is empty or not a lowercase ASCII slug.
     pub fn parse(value: &str) -> Result<Self, LanguageCommandError> {
         let (language_id, version) = match value.split_once('@') {
             Some((id, version)) if !version.is_empty() => {
@@ -1099,6 +1099,26 @@ mod tests {
         let pinned = LanguageInstallSpec::parse("compose@0.4.2").unwrap();
         assert_eq!(pinned.language_id, lang("compose"));
         assert_eq!(pinned.version.as_deref(), Some("0.4.2"));
+    }
+
+    #[test]
+    fn parse_language_install_spec_routes_empty_and_invalid_ids_to_language_id_errors() {
+        assert!(matches!(
+            LanguageInstallSpec::parse(""),
+            Err(LanguageCommandError::LanguageId(_))
+        ));
+        assert!(matches!(
+            LanguageInstallSpec::parse("@1"),
+            Err(LanguageCommandError::LanguageId(_))
+        ));
+    }
+
+    #[test]
+    fn parse_language_install_spec_routes_trailing_at_to_invalid_language_spec() {
+        assert!(matches!(
+            LanguageInstallSpec::parse("compose@"),
+            Err(LanguageCommandError::InvalidLanguageSpec { .. })
+        ));
     }
 
     #[test]
