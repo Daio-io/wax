@@ -50,13 +50,33 @@ impl std::error::Error for ParseSwiftFileError {
     }
 }
 
+/// Errors produced while initialising the Swift tree-sitter parser.
+#[derive(Debug)]
+pub(crate) enum SwiftAstError {
+    /// The generated grammar binding returned a null language pointer.
+    NullLanguage,
+    /// The parser rejected the grammar language version.
+    SetLanguage(String),
+}
+
+impl std::fmt::Display for SwiftAstError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NullLanguage => write!(f, "tree-sitter Swift grammar pointer was null"),
+            Self::SetLanguage(reason) => write!(f, "failed to configure parser: {reason}"),
+        }
+    }
+}
+
+impl std::error::Error for SwiftAstError {}
+
 /// Creates a tree-sitter parser configured for Swift.
-pub(crate) fn new_parser() -> Result<tree_sitter::Parser, String> {
+pub(crate) fn new_parser() -> Result<tree_sitter::Parser, SwiftAstError> {
     let mut parser = tree_sitter::Parser::new();
-    let language = swift_language();
+    let language = swift_language()?;
     parser
         .set_language(&language)
-        .map_err(|err| err.to_string())?;
+        .map_err(|err| SwiftAstError::SetLanguage(err.to_string()))?;
     Ok(parser)
 }
 
@@ -75,11 +95,24 @@ fn swift_language_ptr() -> *const tree_sitter::ffi::TSLanguage {
     unsafe_code,
     reason = "tree-sitter requires wrapping the generated Swift TSLanguage pointer in a Language handle"
 )]
-fn swift_language() -> tree_sitter::Language {
-    let language_ptr = swift_language_ptr();
+fn swift_language() -> Result<tree_sitter::Language, SwiftAstError> {
+    language_from_raw(swift_language_ptr())
+}
+
+#[expect(
+    unsafe_code,
+    reason = "tree-sitter requires wrapping the generated Swift TSLanguage pointer in a Language handle"
+)]
+fn language_from_raw(
+    language_ptr: *const tree_sitter::ffi::TSLanguage,
+) -> Result<tree_sitter::Language, SwiftAstError> {
+    if language_ptr.is_null() {
+        return Err(SwiftAstError::NullLanguage);
+    }
     // SAFETY: `language_ptr` comes from the generated tree-sitter Swift grammar
-    // entrypoint and points to the linked grammar's static language descriptor.
-    unsafe { tree_sitter::Language::from_raw(language_ptr) }
+    // entrypoint, was checked non-null, and points to the linked grammar's static
+    // language descriptor for the process lifetime.
+    Ok(unsafe { tree_sitter::Language::from_raw(language_ptr) })
 }
 
 /// Recursively collects Swift source files under `dir`.
@@ -288,6 +321,13 @@ fn import_module_from_declaration(
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn parser_initialization_rejects_a_null_grammar_pointer() {
+        let result = language_from_raw(std::ptr::null());
+
+        assert!(matches!(result, Err(SwiftAstError::NullLanguage)));
+    }
 
     #[test]
     fn collect_import_bindings_tracks_module_and_selective_imports() {

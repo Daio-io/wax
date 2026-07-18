@@ -20,6 +20,7 @@ use wax_lang_api::{
     WirePackResponse, normalize_discovered_components,
 };
 
+use crate::process_control::{configure_process_group, terminate_child_tree};
 use crate::subprocess_lang::{LanguageCancellationToken, SubprocessLanguageManifest};
 
 const TERMINATION_GRACE: Duration = Duration::from_secs(5);
@@ -49,20 +50,6 @@ impl SubprocessLanguageDiscoverer {
     }
 
     /// Runs registry discovery for one request.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`DiscoverError::EmptyCommand`] for an empty command;
-    /// [`DiscoverError::Spawn`], [`DiscoverError::WriteRequest`],
-    /// [`DiscoverError::ReadStdout`], [`DiscoverError::ReadStderr`], or
-    /// [`DiscoverError::Wait`] for process I/O failures;
-    /// [`DiscoverError::Timeout`] or [`DiscoverError::WireTimeout`] for timeouts;
-    /// [`DiscoverError::ProcessFailed`] for an unsuccessful process without a
-    /// usable response; [`DiscoverError::InvalidResponse`],
-    /// [`DiscoverError::UnsupportedApiVersion`], or
-    /// [`DiscoverError::UnexpectedResponseType`] for invalid wire responses; and
-    /// [`DiscoverError::Unsupported`] or [`DiscoverError::Wire`] for errors
-    /// reported by the language pack.
     pub fn discover(
         &self,
         request: DiscoverRequest,
@@ -71,21 +58,6 @@ impl SubprocessLanguageDiscoverer {
     }
 
     /// Runs registry discovery unless cancellation is requested first.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`DiscoverError::Cancelled`] when cancellation wins;
-    /// [`DiscoverError::EmptyCommand`] for an empty command;
-    /// [`DiscoverError::Spawn`], [`DiscoverError::WriteRequest`],
-    /// [`DiscoverError::ReadStdout`], [`DiscoverError::ReadStderr`], or
-    /// [`DiscoverError::Wait`] for process I/O failures;
-    /// [`DiscoverError::Timeout`] or [`DiscoverError::WireTimeout`] for timeouts;
-    /// [`DiscoverError::ProcessFailed`] for an unsuccessful process without a
-    /// usable response; [`DiscoverError::InvalidResponse`],
-    /// [`DiscoverError::UnsupportedApiVersion`], or
-    /// [`DiscoverError::UnexpectedResponseType`] for invalid wire responses; and
-    /// [`DiscoverError::Unsupported`] or [`DiscoverError::Wire`] for errors
-    /// reported by the language pack.
     pub fn discover_with_cancellation(
         &self,
         request: DiscoverRequest,
@@ -221,7 +193,7 @@ fn run_subprocess_discover(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    configure_command(&mut command);
+    configure_process_group(&mut command);
 
     let mut child = command.spawn().map_err(|source| DiscoverError::Spawn {
         command: program.clone(),
@@ -455,59 +427,10 @@ fn wait_for_exchange(
     }
 }
 
-#[cfg(unix)]
-fn configure_command(command: &mut Command) {
-    use std::os::unix::process::CommandExt;
-
-    command.process_group(0);
-}
-
-#[cfg(not(unix))]
-fn configure_command(_command: &mut Command) {}
-
-#[cfg(unix)]
 fn cleanup_child(child: &mut std::process::Child, child_id: u32) {
-    if let Ok(process_group_id) = i32::try_from(child_id) {
-        // NOTE: We apply the spec's SIGTERM grace window uniformly for every
-        // cleanup path, including timeouts and pipe errors, so packs get one
-        // consistent shutdown contract.
-        signal_process_group(process_group_id, libc::SIGTERM);
-        let grace_started_at = Instant::now();
-        loop {
-            match child.try_wait() {
-                Ok(Some(_)) => break,
-                Ok(None) if grace_started_at.elapsed() < TERMINATION_GRACE => {
-                    thread::sleep(Duration::from_millis(25));
-                }
-                Ok(None) => break,
-                Err(source) if source.kind() == io::ErrorKind::Interrupted => continue,
-                Err(_) => break,
-            }
-        }
-        signal_process_group(process_group_id, libc::SIGKILL);
+    if let Err(error) = terminate_child_tree(child, child_id, TERMINATION_GRACE) {
+        eprintln!("failed to clean up discovery subprocess: {error}");
     }
-    let _ = child.kill();
-    let _ = child.wait();
-}
-
-#[cfg(unix)]
-#[expect(
-    unsafe_code,
-    reason = "std cannot signal a Unix process group, so cleanup must call libc::kill with a negative pgid to terminate the spawned pack group"
-)]
-fn signal_process_group(process_group_id: i32, signal: libc::c_int) {
-    // SAFETY: `process_group_id` comes from a spawned child id that fit in `i32`.
-    // Passing its negated value asks `kill` to signal that process group; the
-    // signal constants are provided by libc for the current Unix target.
-    unsafe {
-        libc::kill(-process_group_id, signal);
-    }
-}
-
-#[cfg(not(unix))]
-fn cleanup_child(child: &mut std::process::Child, _child_id: u32) {
-    let _ = child.kill();
-    let _ = child.wait();
 }
 
 fn parse_wire_response(stdout: &Path) -> Result<DiscoverSymbolsResult, DiscoverError> {

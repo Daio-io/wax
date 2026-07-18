@@ -83,7 +83,8 @@ pub fn discover_registry_symbols(
     parse_root: &Path,
     roots: &[PathBuf],
 ) -> Result<DiscoverRegistryResult, SwiftDiscoverError> {
-    let mut parser = new_parser().map_err(SwiftDiscoverError::ParserInitFailed)?;
+    let mut parser =
+        new_parser().map_err(|error| SwiftDiscoverError::ParserInitFailed(error.to_string()))?;
     let mut swift_files = Vec::new();
     for root in roots {
         if !root.exists() {
