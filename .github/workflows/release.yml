@@ -4,6 +4,8 @@ name: Release
   push:
     tags:
       - "v*"
+    branches-ignore:
+      - "**"
   workflow_dispatch:
     inputs:
       release_tag:

@@ -12,6 +12,14 @@ end
 
 require_includes!(
   workflow,
+  "tags:\n      - \"v*\"\n    branches-ignore:\n      - \"**\"",
+  "tag-only release trigger"
+)
+
+require_includes!(workflow, "workflow_dispatch:", "manual release dry-run trigger")
+
+require_includes!(
+  workflow,
   'if [[ "$version_output" != "wax ${expected_version}" ]]; then',
   "exact wax --version comparison"
 )
