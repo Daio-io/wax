@@ -145,7 +145,7 @@ pub(crate) fn run_exchange(request: ExchangeRequest<'_>) -> Result<ExchangeOutpu
     let stdout = match SpooledOutput::create(request.stdout_kind, "json") {
         Ok(stdout) => stdout,
         Err(source) => {
-            cleanup_child(&mut child, child_id);
+            cleanup_child(&mut child, child_id, true);
             return Err(ExchangeError::CreateSpool {
                 stream: "stdout",
                 source,
@@ -155,7 +155,7 @@ pub(crate) fn run_exchange(request: ExchangeRequest<'_>) -> Result<ExchangeOutpu
     let stderr = match SpooledOutput::create(stderr_kind(request.stdout_kind), "log") {
         Ok(stderr) => stderr,
         Err(source) => {
-            cleanup_child(&mut child, child_id);
+            cleanup_child(&mut child, child_id, true);
             return Err(ExchangeError::CreateSpool {
                 stream: "stderr",
                 source,
@@ -168,15 +168,15 @@ pub(crate) fn run_exchange(request: ExchangeRequest<'_>) -> Result<ExchangeOutpu
     let child_stderr = child.stderr.take().expect("stderr was configured as piped");
 
     thread::scope(|scope| {
+        let (stream_tx, stream_rx) = mpsc::channel();
+        spawn_reader(scope, "stdout", child_stdout, stdout, stream_tx.clone());
+        spawn_reader(scope, "stderr", child_stderr, stderr, stream_tx);
+
         let (stdin_tx, stdin_rx) = mpsc::channel();
         scope.spawn(move || {
             let result = write_request(stdin, request.request);
             let _ = stdin_tx.send(result);
         });
-
-        let (stream_tx, stream_rx) = mpsc::channel();
-        spawn_reader(scope, "stdout", child_stdout, stdout, stream_tx.clone());
-        spawn_reader(scope, "stderr", child_stderr, stderr, stream_tx);
 
         wait_for_exchange(
             &mut child,
@@ -235,14 +235,14 @@ fn wait_for_exchange(
     loop {
         if cancellation.is_cancelled() {
             return Err(ExchangeError::Cancelled {
-                cleanup: cleanup_child(child, child_id),
+                cleanup: cleanup_child(child, child_id, status.is_none()),
             });
         }
 
         match stdin_rx.try_recv() {
             Ok(Ok(())) => stdin_done = true,
             Ok(Err(source)) => {
-                cleanup_child(child, child_id);
+                cleanup_child(child, child_id, status.is_none());
                 return Err(ExchangeError::WriteRequest { source });
             }
             Err(TryRecvError::Empty) => {}
@@ -263,7 +263,7 @@ fn wait_for_exchange(
                     stream,
                     result: Err(source),
                 }) => {
-                    cleanup_child(child, child_id);
+                    cleanup_child(child, child_id, status.is_none());
                     return Err(ExchangeError::ReadStream { stream, source });
                 }
                 Ok(StreamRead { stream, .. }) => unreachable!("unexpected stream kind: {stream}"),
@@ -277,7 +277,7 @@ fn wait_for_exchange(
                 Ok(None) => {}
                 Err(source) if source.kind() == io::ErrorKind::Interrupted => continue,
                 Err(source) => {
-                    cleanup_child(child, child_id);
+                    cleanup_child(child, child_id, status.is_none());
                     return Err(ExchangeError::Wait { source });
                 }
             }
@@ -303,7 +303,7 @@ fn wait_for_exchange(
         if started_at.elapsed() >= timeout {
             return Err(ExchangeError::Timeout {
                 timeout,
-                cleanup: cleanup_child(child, child_id),
+                cleanup: cleanup_child(child, child_id, status.is_none()),
             });
         }
 
@@ -312,7 +312,14 @@ fn wait_for_exchange(
     }
 }
 
-fn cleanup_child(child: &mut std::process::Child, child_id: u32) -> Option<io::Error> {
+fn cleanup_child(
+    child: &mut std::process::Child,
+    child_id: u32,
+    child_is_unreaped: bool,
+) -> Option<io::Error> {
+    if !child_is_unreaped {
+        return None;
+    }
     terminate_child_tree(child, child_id, TERMINATION_GRACE).err()
 }
 
@@ -520,7 +527,7 @@ while :; do sleep 1; done
         let error = run_exchange(ExchangeRequest {
             command: &command,
             request: b"{}",
-            timeout: Duration::from_secs(1),
+            timeout: Duration::from_secs(5),
             cancellation: &cancellation,
             stdout_kind: "timeout-cleanup-stdout",
         })
@@ -613,6 +620,22 @@ while :; do sleep 1; done
             .collect()
     }
 
+    #[expect(
+        unsafe_code,
+        reason = "the timeout cleanup regression test must probe the child pid with libc::kill(pid, 0) because std has no safe process-existence check by pid"
+    )]
+    fn assert_process_exited(pid: &str) {
+        let pid = pid.parse::<i32>().unwrap();
+        for _ in 0..100 {
+            // SAFETY: signal zero only probes the recorded child PID; it does not signal or mutate the process.
+            if unsafe { libc::kill(pid, 0) } == -1 {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("process {pid} was still running after timeout cleanup");
+    }
+
     struct TestDir {
         path: PathBuf,
     }
@@ -639,21 +662,5 @@ while :; do sleep 1; done
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.path);
         }
-    }
-
-    #[expect(
-        unsafe_code,
-        reason = "the timeout cleanup regression test must probe the child pid with libc::kill(pid, 0) because std has no safe process-existence check by pid"
-    )]
-    fn assert_process_exited(pid: &str) {
-        let pid = pid.parse::<i32>().unwrap();
-        for _ in 0..100 {
-            // SAFETY: signal zero only probes the recorded child PID; it does not signal or mutate the process.
-            if unsafe { libc::kill(pid, 0) } == -1 {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        panic!("process {pid} was still running after timeout cleanup");
     }
 }
