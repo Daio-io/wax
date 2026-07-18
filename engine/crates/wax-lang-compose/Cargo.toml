@@ -2,6 +2,7 @@
 name = "wax-lang-compose"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 description = "Compose language pack for the wax engine"
 
 [[bin]]

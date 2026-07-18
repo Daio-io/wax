@@ -2,6 +2,7 @@
 name = "wax-core"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 description = "Core repository configuration loading for the wax engine"
 
 [dependencies]

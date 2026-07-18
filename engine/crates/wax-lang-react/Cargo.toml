@@ -2,6 +2,7 @@
 name = "wax-lang-react"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 description = "React language pack for the wax engine"
 build = "build.rs"
 

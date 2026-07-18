@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "engine/**"
+      - "rust-toolchain.toml"
       - "scripts/install.sh"
       - "scripts/test-install.sh"
       - "scripts/test-homebrew-formula.rb"
@@ -26,6 +27,7 @@ on:
       - main
     paths:
       - "engine/**"
+      - "rust-toolchain.toml"
       - "scripts/install.sh"
       - "scripts/test-install.sh"
       - "scripts/test-homebrew-formula.rb"
@@ -65,14 +67,22 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.95.0
         with:
+          toolchain: 1.95.0
           components: clippy, rustfmt
+
+      - name: Report Rust toolchain
+        run: |
+          rustc --version --verbose
+          cargo --version --verbose
+          rustup show active-toolchain
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: engine
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'engine/Cargo.lock') }}
 
       - name: Check formatting
         run: cargo fmt --all --check
@@ -124,10 +134,18 @@ jobs:
         uses: taiki-e/install-action@nextest
 
       - name: Run workspace tests and emit JUnit
-        run: cargo nextest run --workspace --profile ci
+        run: cargo nextest run --workspace --all-features --locked --profile ci
+
+      - name: Run workspace doc tests
+        run: cargo test --doc --workspace --all-features --locked
+
+      - name: Check workspace rustdoc
+        run: cargo doc --workspace --all-features --locked --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
 
       - name: Run clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
       - name: Publish test results
         if: always()

@@ -266,6 +266,9 @@ wax scan --no-auto-install
 
 ### Local Builds
 
+See [CONTRIBUTING.md](CONTRIBUTING.md#local-development) for the pinned Rust
+toolchain prerequisite and how to confirm it is active.
+
 ```bash
 cd engine
 cargo build --release -p wax-cli

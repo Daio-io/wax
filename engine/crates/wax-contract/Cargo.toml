@@ -2,6 +2,7 @@
 name = "wax-contract"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 description = "Normalized scan facts exchanged between wax language packs and the engine"
 
 [dependencies]

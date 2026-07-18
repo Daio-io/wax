@@ -23,6 +23,14 @@ Keep generated scan output out of git, especially `.wax/` outputs and global `~/
 
 ## Local development
 
+Rustup with Rust 1.95.0 is required for engine development. The repository's
+`rust-toolchain.toml` installs the minimal toolchain with Clippy and rustfmt;
+confirm it is active with:
+
+```bash
+rustup show active-toolchain
+```
+
 Build and run the CLI locally:
 
 ```bash
