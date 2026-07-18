@@ -50,6 +50,11 @@ impl SubprocessLanguageDiscoverer {
     }
 
     /// Runs registry discovery for one request.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed [`DiscoverError`] for command, process, timeout, or wire
+    /// protocol failures.
     pub fn discover(
         &self,
         request: DiscoverRequest,
@@ -58,6 +63,11 @@ impl SubprocessLanguageDiscoverer {
     }
 
     /// Runs registry discovery unless cancellation is requested first.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed [`DiscoverError`] for command, process, cancellation,
+    /// timeout, or wire protocol failures.
     pub fn discover_with_cancellation(
         &self,
         request: DiscoverRequest,

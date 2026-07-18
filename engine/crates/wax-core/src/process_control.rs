@@ -3,6 +3,8 @@ use std::process::{Child, Command, ExitStatus};
 use std::thread;
 use std::time::{Duration, Instant};
 
+const REAP_TIMEOUT: Duration = Duration::from_secs(1);
+
 /// Configures a command so the spawned child leads a dedicated process group.
 pub(crate) fn configure_process_group(command: &mut Command) {
     #[cfg(unix)]
@@ -45,61 +47,38 @@ fn terminate_unix(child: &mut Child, child_id: u32, grace: Duration) -> io::Resu
                 io::ErrorKind::InvalidInput,
                 "child process ID cannot be represented as a process group ID",
             );
-            let _ = child.kill();
-            return reap_child(child, Some(error));
+            return match reap_child(child, None) {
+                Ok(_) => Err(error),
+                Err(reap_error) => Err(io::Error::new(
+                    error.kind(),
+                    format!("{error}; reaping failed: {reap_error}"),
+                )),
+            };
         }
     };
 
     let mut cleanup_error = None;
-    let mut group_running = match signal_process_group(process_group_id, libc::SIGTERM) {
-        Ok(()) => match process_group_exists(process_group_id) {
-            Ok(group_running) => group_running,
-            Err(error) => {
-                cleanup_error = Some(error);
-                true
-            }
-        },
-        Err(error) => {
-            cleanup_error = Some(error);
-            true
-        }
-    };
-    let grace_started_at = Instant::now();
-
-    while group_running {
-        match child.try_wait() {
-            Ok(Some(_)) | Ok(None) => {}
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            Err(error) => {
-                remember_first_error(&mut cleanup_error, error);
-                break;
-            }
-        }
-
-        group_running = match process_group_exists(process_group_id) {
-            Ok(group_running) => group_running,
-            Err(error) => {
-                remember_first_error(&mut cleanup_error, error);
-                break;
-            }
-        };
-        if !group_running || grace_started_at.elapsed() >= grace {
-            break;
-        }
-
-        let remaining = grace.saturating_sub(grace_started_at.elapsed());
-        thread::sleep(remaining.min(Duration::from_millis(25)));
+    if let Err(error) = signal_process_group(process_group_id, libc::SIGTERM) {
+        cleanup_error = Some(error);
     }
 
-    if group_running && let Err(error) = signal_process_group(process_group_id, libc::SIGKILL) {
+    // Keep the direct child unreaped for the entire grace period. Its zombie
+    // process-group leader pins the numeric PGID, so the forced signal cannot
+    // be redirected to a reused process group.
+    thread::sleep(grace);
+
+    if let Err(error) = signal_process_group(process_group_id, libc::SIGKILL) {
         remember_first_error(&mut cleanup_error, error);
     }
 
-    let _ = child.kill();
     reap_child(child, cleanup_error)
 }
 
 #[cfg(unix)]
+#[expect(
+    unsafe_code,
+    reason = "std cannot signal a Unix process group, so cleanup must call libc::kill with a negative pgid"
+)]
 fn signal_process_group(process_group_id: i32, signal: i32) -> io::Result<()> {
     // SAFETY: `process_group_id` was checked as a positive `i32` converted from
     // `Child::id()`, so negating it selects that child's process group. Callers pass
@@ -118,57 +97,58 @@ fn signal_process_group(process_group_id: i32, signal: i32) -> io::Result<()> {
     }
 }
 
-#[cfg(unix)]
-fn process_group_exists(process_group_id: i32) -> io::Result<bool> {
-    // SAFETY: `process_group_id` is a positive, checked `i32`; signal zero is the
-    // documented non-delivering probe. The call has no pointers, borrowed data, or
-    // ownership transfer, and its errno result is read immediately.
-    let result = unsafe { libc::kill(-process_group_id, 0) };
-    if result == 0 {
-        return Ok(true);
-    }
-
-    let error = io::Error::last_os_error();
-    if error.raw_os_error() == Some(libc::ESRCH) {
-        Ok(false)
-    } else {
-        Err(error)
-    }
-}
-
 #[cfg(not(unix))]
 fn terminate_non_unix(child: &mut Child) -> io::Result<ExitStatus> {
-    let mut cleanup_error = None;
-    match child.try_wait() {
-        Ok(Some(_)) => {}
-        Ok(None) => {
-            if let Err(error) = child.kill() {
-                cleanup_error = Some(error);
-            }
-        }
-        Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-        Err(error) => cleanup_error = Some(error),
-    }
-    reap_child(child, cleanup_error)
+    reap_child(child, None)
 }
 
 fn reap_child(child: &mut Child, cleanup_error: Option<io::Error>) -> io::Result<ExitStatus> {
-    let status = loop {
-        match child.wait() {
-            Ok(status) => break Ok(status),
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            Err(error) => break Err(error),
-        }
-    };
-
-    match cleanup_error {
-        Some(error) => Err(error),
-        None => status,
+    let mut cleanup_error = cleanup_error;
+    if let Err(error) = child.kill() {
+        record_cleanup_error(&mut cleanup_error, error);
     }
+
+    let deadline = Instant::now() + REAP_TIMEOUT;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if let Some(error) = cleanup_error {
+                    eprintln!("child process cleanup reported an error: {error}");
+                }
+                return Ok(status);
+            }
+            Ok(None) => {}
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) => {
+                remember_first_error(&mut cleanup_error, error);
+                break;
+            }
+        }
+
+        if Instant::now() >= deadline {
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+
+    Err(cleanup_error.unwrap_or_else(|| {
+        io::Error::new(io::ErrorKind::TimedOut, "timed out reaping child process")
+    }))
 }
 
 fn remember_first_error(slot: &mut Option<io::Error>, error: io::Error) {
     if slot.is_none() {
+        *slot = Some(error);
+    }
+}
+
+fn record_cleanup_error(slot: &mut Option<io::Error>, error: io::Error) {
+    if let Some(previous) = slot.take() {
+        *slot = Some(io::Error::new(
+            previous.kind(),
+            format!("{previous}; additional cleanup error: {error}"),
+        ));
+    } else {
         *slot = Some(error);
     }
 }
@@ -202,7 +182,7 @@ mod tests {
             r#"
 trap 'touch "$2"; exit 0' TERM
 touch "$1"
-while :; do sleep 1; done
+while :; do :; done
 "#,
         );
         command.arg(&ready_path).arg(&terminated_path);
@@ -324,6 +304,10 @@ while :; do sleep 1; done
         panic!("timed out waiting for {}", path.display());
     }
 
+    #[expect(
+        unsafe_code,
+        reason = "the process-control test probes descendant liveness with libc::kill signal zero"
+    )]
     fn wait_for_process_exit(pid: i32) {
         for _ in 0..100 {
             // SAFETY: `kill` with signal zero only probes the recorded child PID;

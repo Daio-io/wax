@@ -91,10 +91,6 @@ fn swift_language_ptr() -> *const tree_sitter::ffi::TSLanguage {
     unsafe { language_fn() as *const tree_sitter::ffi::TSLanguage }
 }
 
-#[expect(
-    unsafe_code,
-    reason = "tree-sitter requires wrapping the generated Swift TSLanguage pointer in a Language handle"
-)]
 fn swift_language() -> Result<tree_sitter::Language, SwiftAstError> {
     language_from_raw(swift_language_ptr())
 }
