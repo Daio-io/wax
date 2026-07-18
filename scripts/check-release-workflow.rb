@@ -10,6 +10,11 @@ def require_includes!(workflow, needle, description)
   exit 1
 end
 
+if workflow.match?(/^\s+with:[ \t]*\n[ \t]*\n/)
+  warn "release workflow must not contain empty with mappings"
+  exit 1
+end
+
 require_includes!(
   workflow,
   "tags:\n      - \"v*\"\n    branches-ignore:\n      - \"**\"",
