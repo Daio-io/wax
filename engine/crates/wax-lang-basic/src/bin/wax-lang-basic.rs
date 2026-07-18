@@ -2,7 +2,8 @@ use clap::Parser;
 use std::io::{self, BufRead, Write};
 use wax_contract::LanguageId;
 use wax_lang_api::{
-    ScanRequestType, WIRE_API_VERSION, WireErrorCode, WirePackRequest, WirePackResponse,
+    DiscoverRequest, ScanRequest, WIRE_API_VERSION, WireErrorCode, WirePackHandler,
+    WirePackResponse, WireServerError, serve_one,
 };
 use wax_lang_basic::{BasicLanguage, BasicScanError};
 
@@ -28,126 +29,61 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn run_stdio() -> Result<(), Box<dyn std::error::Error>> {
     let stdin = io::stdin();
     let mut stdout = io::stdout().lock();
-    run_stdio_with_reader(stdin.lock(), &mut stdout)
+    Ok(run_stdio_with_reader(stdin.lock(), &mut stdout)?)
 }
 
 fn run_stdio_with_reader<R: BufRead, W: Write>(
     reader: R,
     writer: &mut W,
-) -> Result<(), Box<dyn std::error::Error>> {
-    for line_result in reader.lines() {
-        let line = line_result?;
-        if line.trim().is_empty() {
-            continue;
-        }
+) -> Result<(), WireServerError> {
+    serve_one(reader, writer, &BasicWireHandler(BasicLanguage::new()))
+}
 
-        let request: WirePackRequest = match serde_json::from_str(&line) {
-            Ok(request) => request,
-            Err(err) => {
-                let response = WirePackResponse::Error {
-                    api_version: WIRE_API_VERSION,
-                    language_id: basic_language_id(),
-                    code: WireErrorCode::ConfigInvalid,
-                    message: format!("invalid pack request JSON: {err}"),
-                    diagnostics: Vec::new(),
-                };
-                serde_json::to_writer(&mut *writer, &response)?;
-                writer.write_all(b"\n")?;
-                writer.flush()?;
-                return Ok(());
-            }
-        };
+struct BasicWireHandler(BasicLanguage);
 
-        let response = match request {
-            WirePackRequest::Scan {
-                api_version,
-                language_id,
-                repo_root,
-                snapshot_id,
-                config,
-            } => {
-                if api_version != WIRE_API_VERSION {
-                    WirePackResponse::Error {
-                        api_version: WIRE_API_VERSION,
-                        language_id,
-                        code: WireErrorCode::ApiVersionUnsupported,
-                        message: format!(
-                            "wire api_version {api_version} is unsupported; expected {WIRE_API_VERSION}"
-                        ),
-                        diagnostics: Vec::new(),
-                    }
-                } else {
-                    let scan_request = wax_lang_api::ScanRequest {
-                        request_type: ScanRequestType::Scan,
-                        api_version,
-                        language_id: language_id.clone(),
-                        repo_root,
-                        snapshot_id,
-                        config,
-                    };
-
-                    let basic = BasicLanguage::new();
-                    match basic.scan(&scan_request) {
-                        Ok(facts) => WirePackResponse::ScanFacts {
-                            api_version,
-                            language_id,
-                            facts: Box::new(facts),
-                        },
-                        Err(err) => {
-                            let code = match &err {
-                                BasicScanError::InvalidConfig(_)
-                                | BasicScanError::InvalidLanguageId(_) => {
-                                    WireErrorCode::ConfigInvalid
-                                }
-                                _ => WireErrorCode::ScanFailed,
-                            };
-                            WirePackResponse::Error {
-                                api_version,
-                                language_id,
-                                code,
-                                message: err.to_string(),
-                                diagnostics: Vec::new(),
-                            }
-                        }
-                    }
-                }
-            }
-            WirePackRequest::Discover {
-                api_version,
-                language_id,
-                repo_root: _,
-                roots: _,
-            } => {
-                if api_version != WIRE_API_VERSION {
-                    WirePackResponse::Error {
-                        api_version: WIRE_API_VERSION,
-                        language_id,
-                        code: WireErrorCode::ApiVersionUnsupported,
-                        message: format!(
-                            "wire api_version {api_version} is unsupported; expected {WIRE_API_VERSION}"
-                        ),
-                        diagnostics: Vec::new(),
-                    }
-                } else {
-                    let message = format!("{language_id} does not support registry discovery yet");
-                    WirePackResponse::Error {
-                        api_version: WIRE_API_VERSION,
-                        language_id,
-                        code: WireErrorCode::DiscoverUnsupported,
-                        message,
-                        diagnostics: Vec::new(),
-                    }
-                }
-            }
-        };
-
-        serde_json::to_writer(&mut *writer, &response)?;
-        writer.write_all(b"\n")?;
-        writer.flush()?;
-        return Ok(());
+impl WirePackHandler for BasicWireHandler {
+    fn language_id(&self) -> LanguageId {
+        basic_language_id()
     }
 
-    Ok(())
+    fn scan(&self, request: ScanRequest) -> WirePackResponse {
+        match self.0.scan(&request) {
+            Ok(facts) => WirePackResponse::ScanFacts {
+                api_version: request.api_version,
+                language_id: request.language_id,
+                facts: Box::new(facts),
+            },
+            Err(err) => {
+                let code = match &err {
+                    BasicScanError::InvalidConfig(_) | BasicScanError::InvalidLanguageId(_) => {
+                        WireErrorCode::ConfigInvalid
+                    }
+                    _ => WireErrorCode::ScanFailed,
+                };
+                WirePackResponse::Error {
+                    api_version: request.api_version,
+                    language_id: request.language_id,
+                    code,
+                    message: err.to_string(),
+                    diagnostics: Vec::new(),
+                }
+            }
+        }
+    }
+
+    fn discover(&self, request: DiscoverRequest) -> WirePackResponse {
+        let message = format!(
+            "{} does not support registry discovery yet",
+            request.language_id
+        );
+        WirePackResponse::Error {
+            api_version: WIRE_API_VERSION,
+            language_id: request.language_id,
+            code: WireErrorCode::DiscoverUnsupported,
+            message,
+            diagnostics: Vec::new(),
+        }
+    }
 }
 
 fn basic_language_id() -> LanguageId {
