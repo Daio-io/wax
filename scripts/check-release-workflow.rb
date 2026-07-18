@@ -178,7 +178,7 @@ require_includes!(
 
 require_includes!(
   workflow,
-  "cargo test -p wax-core validates_pack_index_from_env -- --ignored --nocapture",
+  "cargo test -p wax-core --locked validates_pack_index_from_env -- --ignored --nocapture",
   "pre-publish generated pack index validation"
 )
 
@@ -218,7 +218,7 @@ require_includes!(
 
 require_includes!(
   workflow,
-  "cargo test -p wax-core fetches_published_default_pack_index -- --ignored --nocapture",
+  "cargo test -p wax-core --locked fetches_published_default_pack_index -- --ignored --nocapture",
   "post-release fetch_pack_index default URL verification"
 )
 

@@ -54,10 +54,8 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Install Rust toolchain
-        # dtolnay/rust-toolchain@stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.95.0
         with:
-          toolchain: stable
           components: clippy, rustfmt
 
       - name: Cache cargo
@@ -65,6 +63,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: engine
+          key: ${{ runner.os }}-${{ runner.arch }}-host-${{ hashFiles('rust-toolchain.toml', 'engine/Cargo.lock') }}
 
       - name: Check formatting
         run: cargo fmt --all --check
@@ -73,10 +72,16 @@ jobs:
         run: ../scripts/test-generate-pack-index.sh
 
       - name: Run contract tests
-        run: cargo test -p wax-contract
+        run: cargo test -p wax-contract --locked
+
+      - name: Run workspace tests
+        run: cargo test --workspace --all-features --locked
+
+      - name: Run contract clippy
+        run: cargo clippy -p wax-contract --all-targets --locked -- -D warnings
 
       - name: Run clippy
-        run: cargo clippy -p wax-contract --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
   build:
     name: Build ${{ matrix.target }}
@@ -103,10 +108,8 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Install Rust toolchain
-        # dtolnay/rust-toolchain@stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.95.0
         with:
-          toolchain: stable
           targets: ${{ matrix.target }}
 
       - name: Cache cargo
@@ -114,6 +117,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: engine
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-${{ hashFiles('rust-toolchain.toml', 'engine/Cargo.lock') }}
 
       - name: Build release archives
         run: ./scripts/build-release.sh "${{ matrix.target }}"
@@ -231,22 +235,21 @@ jobs:
         run: ./scripts/generate-pack-index.sh release-manifests release-assets/index.json
 
       - name: Install Rust toolchain
-        # dtolnay/rust-toolchain@stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.95.0
         with:
-          toolchain: stable
 
       - name: Cache cargo
         # Swatinem/rust-cache@v2
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: engine
+          key: ${{ runner.os }}-${{ runner.arch }}-host-${{ hashFiles('rust-toolchain.toml', 'engine/Cargo.lock') }}
 
       - name: Validate generated pack index
         env:
           WAX_EXPECTED_RELEASE_TAG: ${{ env.WAX_RELEASE_TAG }}
           WAX_PACK_INDEX_URL: file://${{ github.workspace }}/release-assets/index.json
-        run: cd engine && cargo test -p wax-core validates_pack_index_from_env -- --ignored --nocapture
+        run: cd engine && cargo test -p wax-core --locked validates_pack_index_from_env -- --ignored --nocapture
 
       - name: Report dry-run success
         if: github.event_name == 'workflow_dispatch'
@@ -284,22 +287,21 @@ jobs:
         run: ./scripts/generate-pack-index.sh release-manifests release-assets/index.json
 
       - name: Install Rust toolchain
-        # dtolnay/rust-toolchain@stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.95.0
         with:
-          toolchain: stable
 
       - name: Cache cargo
         # Swatinem/rust-cache@v2
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: engine
+          key: ${{ runner.os }}-${{ runner.arch }}-host-${{ hashFiles('rust-toolchain.toml', 'engine/Cargo.lock') }}
 
       - name: Validate generated pack index
         env:
           WAX_EXPECTED_RELEASE_TAG: ${{ env.WAX_RELEASE_TAG }}
           WAX_PACK_INDEX_URL: file://${{ github.workspace }}/release-assets/index.json
-        run: cd engine && cargo test -p wax-core validates_pack_index_from_env -- --ignored --nocapture
+        run: cd engine && cargo test -p wax-core --locked validates_pack_index_from_env -- --ignored --nocapture
 
       - name: Publish release assets
         # softprops/action-gh-release@v2
@@ -431,16 +433,15 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Install Rust toolchain
-        # dtolnay/rust-toolchain@stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.95.0
         with:
-          toolchain: stable
 
       - name: Cache cargo
         # Swatinem/rust-cache@v2
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: engine
+          key: ${{ runner.os }}-${{ runner.arch }}-host-${{ hashFiles('rust-toolchain.toml', 'engine/Cargo.lock') }}
 
       - name: Verify fetch_pack_index against default URL
         env:
@@ -448,10 +449,10 @@ jobs:
         run: |
           set -euo pipefail
           for attempt in {1..12}; do
-            if cargo test -p wax-core fetches_published_default_pack_index -- --ignored --nocapture; then
+            if cargo test -p wax-core --locked fetches_published_default_pack_index -- --ignored --nocapture; then
               exit 0
             fi
             echo "published index not ready for ${WAX_EXPECTED_RELEASE_TAG}; retry ${attempt}/12"
             sleep 10
           done
-          cargo test -p wax-core fetches_published_default_pack_index -- --ignored --nocapture
+          cargo test -p wax-core --locked fetches_published_default_pack_index -- --ignored --nocapture

@@ -2,6 +2,7 @@
 name = "wax-lang-basic"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 description = "Generic text line-scanner language pack for the wax engine"
 
 [[bin]]
