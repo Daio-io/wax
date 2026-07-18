@@ -17,6 +17,7 @@ pub mod registry_lock;
 pub mod registry_memory;
 pub mod registry_source;
 pub mod subprocess_discover;
+mod subprocess_exchange;
 pub mod subprocess_lang;
 pub mod sync;
 pub mod validate;

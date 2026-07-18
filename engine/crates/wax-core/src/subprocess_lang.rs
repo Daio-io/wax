@@ -1,14 +1,12 @@
 //! Subprocess-backed language pack extraction.
 
-use std::fs::{self, File, OpenOptions};
-use std::io::{self, BufReader, Read, Write};
-use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus, Stdio};
+use std::fs::File;
+use std::io::{self, BufReader};
+use std::path::Path;
+use std::process::ExitStatus;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{self, TryRecvError};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use thiserror::Error;
 use wax_contract::{Diagnostic, ScanFacts};
@@ -16,12 +14,9 @@ use wax_lang_api::{
     ScanRequest, WIRE_API_VERSION, WireErrorCode, WireScanRequest, WireScanResponse,
 };
 
-use crate::process_control::{configure_process_group, terminate_child_tree};
+use crate::subprocess_exchange::{ExchangeError, ExchangeRequest, run_exchange};
 
-const TERMINATION_GRACE: Duration = Duration::from_secs(5);
-const STDERR_PREVIEW_BYTES: u64 = 64 * 1024;
-
-static SPOOL_COUNTER: AtomicU64 = AtomicU64::new(0);
+const STDERR_PREVIEW_BYTES: usize = 64 * 1024;
 
 /// Extracts language scan facts for one request.
 pub trait LanguageExtractor {
@@ -29,8 +24,15 @@ pub trait LanguageExtractor {
     ///
     /// # Errors
     ///
-    /// Returns a typed [`LanguageError`] for command, process, timeout, or wire
-    /// protocol failures.
+    /// Returns [`LanguageError::EmptyCommand`] for an empty command;
+    /// [`LanguageError::Spawn`], [`LanguageError::WriteRequest`],
+    /// [`LanguageError::ReadStdout`], [`LanguageError::ReadStderr`], or
+    /// [`LanguageError::Wait`] for process I/O failures;
+    /// [`LanguageError::Timeout`] or [`LanguageError::WireTimeout`] for timeouts;
+    /// [`LanguageError::ProcessFailed`] for an unsuccessful process without a
+    /// usable response; [`LanguageError::InvalidResponse`] or
+    /// [`LanguageError::UnsupportedApiVersion`] for invalid wire responses; and
+    /// [`LanguageError::Wire`] for an error reported by the language pack.
     fn scan(&self, request: ScanRequest) -> Result<ScanFacts, LanguageError>;
 
     /// Runs the extractor unless cancellation is requested first.
@@ -40,8 +42,17 @@ pub trait LanguageExtractor {
     ///
     /// # Errors
     ///
-    /// Returns the same typed errors as [`LanguageExtractor::scan`]. The default
-    /// implementation does not return [`LanguageError::Cancelled`].
+    /// Returns [`LanguageError::EmptyCommand`] for an empty command;
+    /// [`LanguageError::Spawn`], [`LanguageError::WriteRequest`],
+    /// [`LanguageError::ReadStdout`], [`LanguageError::ReadStderr`], or
+    /// [`LanguageError::Wait`] for process I/O failures;
+    /// [`LanguageError::Timeout`] or [`LanguageError::WireTimeout`] for timeouts;
+    /// [`LanguageError::ProcessFailed`] for an unsuccessful process without a
+    /// usable response; [`LanguageError::InvalidResponse`] or
+    /// [`LanguageError::UnsupportedApiVersion`] for invalid wire responses; and
+    /// [`LanguageError::Wire`] for an error reported by the language pack. The
+    /// default implementation ignores the cancellation token, so it does not
+    /// introduce [`LanguageError::Cancelled`].
     fn scan_with_cancellation(
         &self,
         request: ScanRequest,
@@ -102,8 +113,16 @@ impl SubprocessLanguageExtractor {
     ///
     /// # Errors
     ///
-    /// Returns a typed [`LanguageError`] for command, process, cancellation,
-    /// timeout, or wire protocol failures.
+    /// Returns [`LanguageError::Cancelled`] when cancellation wins;
+    /// [`LanguageError::EmptyCommand`] for an empty command;
+    /// [`LanguageError::Spawn`], [`LanguageError::WriteRequest`],
+    /// [`LanguageError::ReadStdout`], [`LanguageError::ReadStderr`], or
+    /// [`LanguageError::Wait`] for process I/O failures;
+    /// [`LanguageError::Timeout`] or [`LanguageError::WireTimeout`] for timeouts;
+    /// [`LanguageError::ProcessFailed`] for an unsuccessful process without a
+    /// usable response; [`LanguageError::InvalidResponse`] or
+    /// [`LanguageError::UnsupportedApiVersion`] for invalid wire responses; and
+    /// [`LanguageError::Wire`] for an error reported by the language pack.
     pub fn scan_with_cancellation(
         &self,
         request: ScanRequest,
@@ -227,49 +246,27 @@ fn run_subprocess_scan(
     request: ScanRequest,
     cancellation: &LanguageCancellationToken,
 ) -> Result<ScanFacts, LanguageError> {
-    let (program, args) = manifest
-        .command
-        .split_first()
-        .ok_or(LanguageError::EmptyCommand)?;
     let request = serialize_wire_request(request)?;
-
-    let mut command = Command::new(program);
-    command
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    configure_process_group(&mut command);
-
-    let mut child = command.spawn().map_err(|source| LanguageError::Spawn {
-        command: program.clone(),
-        source,
-    })?;
-    let child_id = child.id();
-
-    let stdin = child.stdin.take().expect("stdin was configured as piped");
-    let stdout = child.stdout.take().expect("stdout was configured as piped");
-    let stderr = child.stderr.take().expect("stderr was configured as piped");
-
-    let stdin_rx = write_request_async(stdin, request);
-    let stream_rx = read_streams_async(stdout, stderr);
-
-    let exchange = wait_for_exchange(
-        &mut child,
-        child_id,
-        stdin_rx,
-        stream_rx,
-        manifest.timeout,
+    let exchange = run_exchange(ExchangeRequest {
+        command: &manifest.command,
+        request: &request,
+        timeout: manifest.timeout,
         cancellation,
-    )?;
+        stdout_kind: "stdout",
+    })
+    .map_err(map_exchange_error)?;
 
-    match parse_wire_response(exchange.stdout.path()) {
+    match parse_wire_response(exchange.stdout_path()) {
         Ok(facts) => Ok(facts),
         Err(_parse_error) if !exchange.status.success() => Err(LanguageError::ProcessFailed {
             status: exchange.status,
-            stderr: read_lossy_prefix(exchange.stderr.path(), STDERR_PREVIEW_BYTES)
-                .trim()
-                .to_owned(),
+            stderr: String::from_utf8_lossy(
+                &exchange
+                    .stderr_bytes(STDERR_PREVIEW_BYTES)
+                    .unwrap_or_default(),
+            )
+            .trim()
+            .to_owned(),
         }),
         Err(parse_error) => Err(parse_error),
     }
@@ -277,205 +274,34 @@ fn run_subprocess_scan(
 
 fn serialize_wire_request(request: ScanRequest) -> Result<Vec<u8>, LanguageError> {
     let wire_request = WireScanRequest::from(request);
-    let mut request =
-        serde_json::to_vec(&wire_request).map_err(|source| LanguageError::WriteRequest {
+    serde_json::to_vec(&wire_request).map_err(|source| LanguageError::WriteRequest {
+        source: Box::new(source),
+    })
+}
+
+fn map_exchange_error(error: ExchangeError) -> LanguageError {
+    match error {
+        ExchangeError::EmptyCommand => LanguageError::EmptyCommand,
+        ExchangeError::Spawn { program, source } => LanguageError::Spawn {
+            command: program,
+            source,
+        },
+        ExchangeError::CreateSpool { stream, source }
+        | ExchangeError::ReadStream { stream, source } => map_stream_error(stream, source),
+        ExchangeError::WriteRequest { source } => LanguageError::WriteRequest {
             source: Box::new(source),
-        })?;
-    request.push(b'\n');
-    Ok(request)
-}
-
-fn write_request_async(
-    mut stdin: std::process::ChildStdin,
-    request: Vec<u8>,
-) -> mpsc::Receiver<io::Result<()>> {
-    let (tx, rx) = mpsc::channel();
-    thread::spawn(move || {
-        let result = stdin.write_all(&request).and_then(|_| stdin.flush());
-        drop(stdin);
-        let _ = tx.send(result);
-    });
-    rx
-}
-
-fn read_streams_async(
-    stdout: std::process::ChildStdout,
-    stderr: std::process::ChildStderr,
-) -> mpsc::Receiver<StreamRead> {
-    let (tx, rx) = mpsc::channel();
-    spawn_reader(StreamKind::Stdout, stdout, tx.clone());
-    spawn_reader(StreamKind::Stderr, stderr, tx);
-    rx
-}
-
-fn spawn_reader<R>(kind: StreamKind, mut stream: R, tx: mpsc::Sender<StreamRead>)
-where
-    R: Read + Send + 'static,
-{
-    thread::spawn(move || {
-        let result = SpooledOutput::create(kind).and_then(|mut output| {
-            io::copy(&mut stream, output.file_mut())?;
-            Ok(output)
-        });
-        let _ = tx.send(StreamRead { kind, result });
-    });
-}
-
-struct ExchangeOutput {
-    status: ExitStatus,
-    stdout: SpooledOutput,
-    stderr: SpooledOutput,
-}
-
-#[derive(Clone, Copy)]
-enum StreamKind {
-    Stdout,
-    Stderr,
-}
-
-struct StreamRead {
-    kind: StreamKind,
-    result: io::Result<SpooledOutput>,
-}
-
-struct SpooledOutput {
-    path: PathBuf,
-    file: File,
-}
-
-impl SpooledOutput {
-    fn create(kind: StreamKind) -> io::Result<Self> {
-        let (kind, extension) = match kind {
-            StreamKind::Stdout => ("stdout", "json"),
-            StreamKind::Stderr => ("stderr", "log"),
-        };
-
-        let counter = SPOOL_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let path = std::env::temp_dir().join(format!(
-            "wax-core-subprocess-{kind}-{}-{counter}.{extension}",
-            std::process::id()
-        ));
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-
-            options.mode(0o600);
-        }
-        options.open(&path).map(|file| Self { path, file })
-    }
-
-    fn file_mut(&mut self) -> &mut File {
-        &mut self.file
-    }
-
-    fn path(&self) -> &Path {
-        &self.path
+        },
+        ExchangeError::Wait { source } => LanguageError::Wait { source },
+        ExchangeError::Timeout { timeout, .. } => LanguageError::Timeout { timeout },
+        ExchangeError::Cancelled { .. } => LanguageError::Cancelled,
     }
 }
 
-impl Drop for SpooledOutput {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
-    }
-}
-
-fn wait_for_exchange(
-    child: &mut std::process::Child,
-    child_id: u32,
-    stdin_rx: mpsc::Receiver<io::Result<()>>,
-    stream_rx: mpsc::Receiver<StreamRead>,
-    timeout: Duration,
-    cancellation: &LanguageCancellationToken,
-) -> Result<ExchangeOutput, LanguageError> {
-    let started_at = Instant::now();
-    let mut stdin_done = false;
-    let mut status = None;
-    let mut stdout = None;
-    let mut stderr = None;
-
-    loop {
-        if cancellation.is_cancelled() {
-            cleanup_child(child, child_id);
-            return Err(LanguageError::Cancelled);
-        }
-
-        match stdin_rx.try_recv() {
-            Ok(Ok(())) => stdin_done = true,
-            Ok(Err(source)) => {
-                cleanup_child(child, child_id);
-                return Err(LanguageError::WriteRequest {
-                    source: Box::new(source),
-                });
-            }
-            Err(TryRecvError::Empty) => {}
-            Err(TryRecvError::Disconnected) => {
-                stdin_done = true;
-            }
-        }
-
-        loop {
-            match stream_rx.try_recv() {
-                Ok(read) => match (read.kind, read.result) {
-                    (StreamKind::Stdout, Ok(output)) => stdout = Some(output),
-                    (StreamKind::Stderr, Ok(output)) => stderr = Some(output),
-                    (StreamKind::Stdout, Err(source)) => {
-                        cleanup_child(child, child_id);
-                        return Err(LanguageError::ReadStdout { source });
-                    }
-                    (StreamKind::Stderr, Err(source)) => {
-                        cleanup_child(child, child_id);
-                        return Err(LanguageError::ReadStderr { source });
-                    }
-                },
-                Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => break,
-            }
-        }
-
-        if status.is_none() {
-            match child.try_wait() {
-                Ok(Some(exit_status)) => status = Some(exit_status),
-                Ok(None) => {}
-                Err(source) if source.kind() == io::ErrorKind::Interrupted => continue,
-                Err(source) => {
-                    cleanup_child(child, child_id);
-                    return Err(LanguageError::Wait { source });
-                }
-            }
-        }
-
-        if stdin_done && let Some(exit_status) = status.take() {
-            match (stdout.take(), stderr.take()) {
-                (Some(stdout), Some(stderr)) => {
-                    return Ok(ExchangeOutput {
-                        status: exit_status,
-                        stdout,
-                        stderr,
-                    });
-                }
-                (stdout_value, stderr_value) => {
-                    status = Some(exit_status);
-                    stdout = stdout_value;
-                    stderr = stderr_value;
-                }
-            }
-        }
-
-        if started_at.elapsed() >= timeout {
-            cleanup_child(child, child_id);
-            return Err(LanguageError::Timeout { timeout });
-        }
-
-        let remaining = timeout.saturating_sub(started_at.elapsed());
-        thread::sleep(remaining.min(Duration::from_millis(10)));
-    }
-}
-
-fn cleanup_child(child: &mut std::process::Child, child_id: u32) {
-    if let Err(error) = terminate_child_tree(child, child_id, TERMINATION_GRACE) {
-        eprintln!("failed to clean up language subprocess: {error}");
+fn map_stream_error(stream: &'static str, source: io::Error) -> LanguageError {
+    match stream {
+        "stdout" => LanguageError::ReadStdout { source },
+        "stderr" => LanguageError::ReadStderr { source },
+        _ => unreachable!("unexpected exchange stream: {stream}"),
     }
 }
 
@@ -536,29 +362,21 @@ fn ensure_supported_api_version(api_version: u32) -> Result<(), LanguageError> {
     }
 }
 
-fn read_lossy_prefix(path: &Path, max_bytes: u64) -> String {
-    let Ok(file) = File::open(path) else {
-        return String::new();
-    };
-    let mut buffer = Vec::new();
-    if file.take(max_bytes).read_to_end(&mut buffer).is_err() {
-        return String::new();
-    }
-    String::from_utf8_lossy(&buffer).into_owned()
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{SpooledOutput, StreamKind};
+    use std::io;
 
-    #[cfg(unix)]
+    use crate::subprocess_exchange::ExchangeError;
+
+    use super::{LanguageError, map_exchange_error};
+
     #[test]
-    fn subprocess_spool_files_are_user_only() {
-        use std::os::unix::fs::PermissionsExt;
+    fn maps_shared_stdout_read_errors_to_language_errors() {
+        let error = map_exchange_error(ExchangeError::ReadStream {
+            stream: "stdout",
+            source: io::Error::other("read failed"),
+        });
 
-        let output = SpooledOutput::create(StreamKind::Stdout).unwrap();
-
-        let mode = output.path().metadata().unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o600);
+        assert!(matches!(error, LanguageError::ReadStdout { .. }));
     }
 }

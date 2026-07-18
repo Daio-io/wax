@@ -2,8 +2,8 @@ use clap::Parser;
 use std::io::{self, BufRead, Write};
 use wax_contract::LanguageId;
 use wax_lang_api::{
-    DiscoverRequest, DiscoverRequestType, DiscoveredRegistrySymbol, ScanRequestType,
-    WIRE_API_VERSION, WireErrorCode, WirePackRequest, WirePackResponse,
+    DiscoverRequest, DiscoveredRegistrySymbol, ScanRequest, WireErrorCode, WirePackHandler,
+    WirePackResponse, WireServerError, serve_one,
 };
 use wax_lang_compose::{ComposeDiscoverError, ComposeLanguage, ComposeScanError};
 
@@ -29,122 +29,46 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn run_stdio() -> Result<(), Box<dyn std::error::Error>> {
     let stdin = io::stdin();
     let mut stdout = io::stdout().lock();
-    run_stdio_with_reader(stdin.lock(), &mut stdout)
+    Ok(run_stdio_with_reader(stdin.lock(), &mut stdout)?)
 }
 
 fn run_stdio_with_reader<R: BufRead, W: Write>(
     reader: R,
     writer: &mut W,
-) -> Result<(), Box<dyn std::error::Error>> {
-    for line_result in reader.lines() {
-        let line = line_result?;
-        if line.trim().is_empty() {
-            continue;
-        }
+) -> Result<(), WireServerError> {
+    serve_one(reader, writer, &ComposeWireHandler(ComposeLanguage::new()))
+}
 
-        let request: WirePackRequest = match serde_json::from_str(&line) {
-            Ok(request) => request,
-            Err(err) => {
-                let response = WirePackResponse::Error {
-                    api_version: WIRE_API_VERSION,
-                    language_id: compose_language_id(),
-                    code: WireErrorCode::ConfigInvalid,
-                    message: format!("invalid pack request JSON: {err}"),
-                    diagnostics: Vec::new(),
-                };
-                serde_json::to_writer(&mut *writer, &response)?;
-                writer.write_all(b"\n")?;
-                writer.flush()?;
-                return Ok(());
-            }
-        };
+struct ComposeWireHandler(ComposeLanguage);
 
-        let response = match request {
-            WirePackRequest::Scan {
-                api_version,
-                language_id,
-                repo_root,
-                snapshot_id,
-                config,
-            } => {
-                if api_version != WIRE_API_VERSION {
-                    WirePackResponse::Error {
-                        api_version: WIRE_API_VERSION,
-                        language_id,
-                        code: WireErrorCode::ApiVersionUnsupported,
-                        message: format!(
-                            "wire api_version {api_version} is unsupported; expected {WIRE_API_VERSION}"
-                        ),
-                        diagnostics: Vec::new(),
-                    }
-                } else {
-                    let scan_request = wax_lang_api::ScanRequest {
-                        request_type: ScanRequestType::Scan,
-                        api_version,
-                        language_id: language_id.clone(),
-                        repo_root,
-                        snapshot_id,
-                        config,
-                    };
-
-                    let compose = ComposeLanguage::new();
-                    match compose.scan(&scan_request) {
-                        Ok(facts) => WirePackResponse::ScanFacts {
-                            api_version,
-                            language_id,
-                            facts: Box::new(facts),
-                        },
-                        Err(err) => scan_error_response(api_version, language_id, err),
-                    }
-                }
-            }
-            WirePackRequest::Discover {
-                api_version,
-                language_id,
-                repo_root,
-                roots,
-            } => {
-                if api_version != WIRE_API_VERSION {
-                    WirePackResponse::Error {
-                        api_version: WIRE_API_VERSION,
-                        language_id,
-                        code: WireErrorCode::ApiVersionUnsupported,
-                        message: format!(
-                            "wire api_version {api_version} is unsupported; expected {WIRE_API_VERSION}"
-                        ),
-                        diagnostics: Vec::new(),
-                    }
-                } else {
-                    let discover_request = DiscoverRequest {
-                        request_type: DiscoverRequestType::Discover,
-                        api_version,
-                        language_id: language_id.clone(),
-                        repo_root,
-                        roots,
-                    };
-
-                    let compose = ComposeLanguage::new();
-                    match compose.discover(&discover_request) {
-                        Ok(result) => WirePackResponse::DiscoverSymbols {
-                            api_version,
-                            language_id,
-                            symbols: DiscoveredRegistrySymbol::symbol_names(&result.components),
-                            components: result.components,
-                            diagnostics: result.diagnostics,
-                        },
-                        Err(err) => discover_error_response(api_version, language_id, err),
-                    }
-                }
-            }
-        };
-
-        serde_json::to_writer(&mut *writer, &response)?;
-        writer.write_all(b"\n")?;
-        writer.flush()?;
-        return Ok(());
+impl WirePackHandler for ComposeWireHandler {
+    fn language_id(&self) -> LanguageId {
+        compose_language_id()
     }
 
-    Ok(())
+    fn scan(&self, request: ScanRequest) -> WirePackResponse {
+        match self.0.scan(&request) {
+            Ok(facts) => WirePackResponse::ScanFacts {
+                api_version: request.api_version,
+                language_id: request.language_id,
+                facts: Box::new(facts),
+            },
+            Err(err) => scan_error_response(request.api_version, request.language_id, err),
+        }
+    }
+
+    fn discover(&self, request: DiscoverRequest) -> WirePackResponse {
+        match self.0.discover(&request) {
+            Ok(result) => WirePackResponse::DiscoverSymbols {
+                api_version: request.api_version,
+                language_id: request.language_id,
+                symbols: DiscoveredRegistrySymbol::symbol_names(&result.components),
+                components: result.components,
+                diagnostics: result.diagnostics,
+            },
+            Err(err) => discover_error_response(request.api_version, request.language_id, err),
+        }
+    }
 }
 
 fn scan_error_response(
