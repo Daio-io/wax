@@ -16,6 +16,7 @@ use crate::registry_memory::{
     show_remembered_design_system,
 };
 use crate::registry_source::{RegistrySourceInput, resolve_registry_source};
+use crate::{AtomicWriteError, AtomicWriteOptions, write_atomically};
 
 /// Options for syncing app registries from remembered design systems.
 #[derive(Debug, Clone)]
@@ -115,6 +116,15 @@ pub enum SyncError {
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
     },
+    /// Atomic config replacement failed.
+    #[error("failed to atomically update wax config at {path}: {source}")]
+    ConfigAtomicWrite {
+        /// Config path that failed to update.
+        path: String,
+        /// Atomic-write failure.
+        #[source]
+        source: AtomicWriteError,
+    },
     /// Lockfile could not be written to disk.
     #[error("failed to write wax lockfile at {path}: {source}")]
     LockfileWrite {
@@ -123,6 +133,24 @@ pub enum SyncError {
         /// Underlying I/O failure.
         #[source]
         source: io::Error,
+    },
+    /// Atomic lockfile replacement failed.
+    #[error("failed to atomically write wax lockfile at {path}: {source}")]
+    LockfileAtomicWrite {
+        /// Lockfile path that failed to write.
+        path: String,
+        /// Atomic-write failure.
+        #[source]
+        source: AtomicWriteError,
+    },
+    /// Atomic registry rollback restoration failed.
+    #[error("failed to atomically restore registry backup at {path}: {source}")]
+    RegistryRestoreAtomicWrite {
+        /// Registry path that failed to restore.
+        path: String,
+        /// Atomic-write failure.
+        #[source]
+        source: AtomicWriteError,
     },
     /// Registry lock refresh failed after resolving upstream registry inputs.
     #[error("failed to refresh registry lock for {upstream}: {message}")]
@@ -142,8 +170,10 @@ pub enum SyncError {
 /// missing inputs; [`SyncError::Config`], [`SyncError::Lockfile`],
 /// [`SyncError::RegistryMemory`], [`SyncError::RegistrySource`], or
 /// [`SyncError::InvalidUpstream`] while preparing updates; and
-/// [`SyncError::ConfigUpdate`], [`SyncError::LockfileWrite`], or
-/// [`SyncError::LockRefreshFailed`] when persistence or rollback fails.
+/// [`SyncError::ConfigUpdate`], [`SyncError::ConfigAtomicWrite`],
+/// [`SyncError::LockfileWrite`], [`SyncError::LockfileAtomicWrite`],
+/// [`SyncError::RegistryRestoreAtomicWrite`], or [`SyncError::LockRefreshFailed`]
+/// when persistence or rollback fails.
 pub fn sync_app_registries(options: &SyncOptions) -> Result<Vec<SyncUpdate>, SyncError> {
     let repo_files = discover_repo_files(&options.repo_root);
     ensure_repo_files_exist(&repo_files)?;
@@ -338,12 +368,11 @@ fn backup_registry_file(
 fn restore_registry_backup(backup: &RegistryFileBackup) -> Result<(), SyncError> {
     let path_display = backup.path.display().to_string();
     match &backup.previous {
-        Some(contents) => {
-            fs::write(&backup.path, contents).map_err(|source| SyncError::ConfigUpdate {
+        Some(contents) => write_atomically(&backup.path, contents, AtomicWriteOptions::default())
+            .map_err(|source| SyncError::RegistryRestoreAtomicWrite {
                 path: path_display,
-                source: Box::new(source),
-            })
-        }
+                source,
+            }),
         None if backup.path.exists() => {
             fs::remove_file(&backup.path).map_err(|source| SyncError::ConfigUpdate {
                 path: path_display,
@@ -471,23 +500,19 @@ fn read_config_json(path: &Path, path_display: &str) -> Result<Value, SyncError>
 }
 
 fn write_config_json(path: &Path, path_display: &str, config: &Value) -> Result<(), SyncError> {
-    if let Some(parent) = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-    {
-        fs::create_dir_all(parent).map_err(|source| SyncError::ConfigUpdate {
-            path: path_display.to_owned(),
-            source: Box::new(source),
-        })?;
-    }
     let serialized =
         serde_json::to_string_pretty(config).map_err(|source| SyncError::ConfigUpdate {
             path: path_display.to_owned(),
             source: Box::new(source),
         })?;
-    fs::write(path, format!("{serialized}\n")).map_err(|source| SyncError::ConfigUpdate {
+    write_atomically(
+        path,
+        format!("{serialized}\n").as_bytes(),
+        AtomicWriteOptions::default(),
+    )
+    .map_err(|source| SyncError::ConfigAtomicWrite {
         path: path_display.to_owned(),
-        source: Box::new(source),
+        source,
     })
 }
 
@@ -552,7 +577,12 @@ fn save_lockfile(path: &Path, lockfile: &WaxLock) -> Result<(), SyncError> {
             path: path.display().to_string(),
             source: io::Error::new(io::ErrorKind::InvalidData, source),
         })?;
-    fs::write(path, format!("{contents}\n")).map_err(|source| SyncError::LockfileWrite {
+    write_atomically(
+        path,
+        format!("{contents}\n").as_bytes(),
+        AtomicWriteOptions::default(),
+    )
+    .map_err(|source| SyncError::LockfileAtomicWrite {
         path: path.display().to_string(),
         source,
     })
@@ -671,6 +701,40 @@ mod sync_tests {
         remember_design_system(&state_path, "acme", "Acme Design System", &ds_repo)
             .expect("remember design system");
         (ds_repo, state_path)
+    }
+
+    #[test]
+    fn restore_registry_backup_preserves_exact_bytes() {
+        let root = TestDir::new("restore-exact-bytes");
+        let path = root.path.join("registry.json");
+        let original = b"{\"schema_version\":1,\"components\":[]}\r\n";
+        fs::write(&path, b"replacement").expect("write replacement");
+
+        restore_registry_backup(&RegistryFileBackup {
+            path: path.clone(),
+            previous: Some(original.to_vec()),
+        })
+        .expect("restore backup");
+
+        assert_eq!(fs::read(path).expect("read restored registry"), original);
+    }
+
+    #[test]
+    fn restore_registry_backup_maps_atomic_failures_to_typed_error() {
+        let root = TestDir::new("restore-error-mapping");
+        let parent = root.path.join("not-a-directory");
+        fs::write(&parent, b"file").expect("create parent file");
+
+        let error = restore_registry_backup(&RegistryFileBackup {
+            path: parent.join("registry.json"),
+            previous: Some(b"registry".to_vec()),
+        })
+        .expect_err("restore should fail when parent is a file");
+
+        assert!(matches!(
+            error,
+            SyncError::RegistryRestoreAtomicWrite { .. }
+        ));
     }
 
     #[test]
@@ -801,9 +865,15 @@ mod sync_tests {
         let _guard = env_lock();
         let root = TestDir::new("restore-copied-registry");
         let app_repo = root.path.join("app");
-        let original_registry = r#"{"schema_version":1,"components":[{"name":"Button"}]}"#;
+        let original_registry =
+            b"{\"schema_version\":1,\"components\":[{\"name\":\"Button\"}]}\r\n";
         write_app_repo(&app_repo, "acme/react", ".wax/registries/acme/react.json");
-        let registry_sha256 = Sha256::digest(original_registry.as_bytes()).iter().fold(
+        fs::write(
+            app_repo.join(".wax/registries/acme/react.json"),
+            original_registry,
+        )
+        .expect("write exact original registry");
+        let registry_sha256 = Sha256::digest(original_registry).iter().fold(
             String::with_capacity(64),
             |mut hex, byte| {
                 use std::fmt::Write;
@@ -847,9 +917,9 @@ mod sync_tests {
 
         assert!(result.0.is_empty());
         assert_eq!(result.1.len(), 1);
-        let restored = fs::read_to_string(app_repo.join(".wax/registries/acme/react.json"))
+        let restored = fs::read(app_repo.join(".wax/registries/acme/react.json"))
             .expect("read restored registry");
-        assert_eq!(restored.trim(), original_registry);
+        assert_eq!(restored, original_registry);
     }
 
     #[test]

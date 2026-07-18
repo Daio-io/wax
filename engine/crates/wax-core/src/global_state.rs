@@ -3,27 +3,13 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
-use std::fs::File;
-use std::fs::OpenOptions;
 use std::io;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 use wax_contract::LanguageId;
 
 use crate::paths::validate_version_segment;
-
-#[cfg(windows)]
-use std::os::windows::ffi::OsStrExt;
-#[cfg(windows)]
-use std::ptr;
-
-#[cfg(windows)]
-const ERROR_UNABLE_TO_REMOVE_REPLACED: i32 = 1175;
-#[cfg(windows)]
-const ERROR_UNABLE_TO_MOVE_REPLACEMENT: i32 = 1176;
-#[cfg(windows)]
-const ERROR_UNABLE_TO_MOVE_REPLACEMENT_2: i32 = 1177;
+use crate::{AtomicWriteError, AtomicWriteOptions, write_atomically};
 
 /// Global state stored at `~/.wax/state.json`.
 #[derive(Debug, Clone, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -87,59 +73,9 @@ pub enum GlobalStateError {
         #[source]
         source: serde_json::Error,
     },
-    /// A parent directory for the state file could not be created.
-    #[error("failed to create wax global state directory for {path}: {source}")]
-    CreateDir {
-        /// Path passed to [`save_global_state`].
-        path: String,
-        /// Underlying I/O error.
-        #[source]
-        source: io::Error,
-    },
-    /// A temporary state file could not be created.
-    #[error("failed to create temporary wax global state file {temp_path} for {path}: {source}")]
-    CreateTemp {
-        /// Path passed to [`save_global_state`].
-        path: String,
-        /// Temporary path attempted for the atomic write.
-        temp_path: String,
-        /// Underlying I/O error.
-        #[source]
-        source: io::Error,
-    },
-    /// A temporary state file could not be written.
-    #[error("failed to write temporary wax global state file {temp_path} for {path}: {source}")]
-    WriteTemp {
-        /// Path passed to [`save_global_state`].
-        path: String,
-        /// Temporary path used for the atomic write.
-        temp_path: String,
-        /// Underlying I/O error.
-        #[source]
-        source: io::Error,
-    },
-    /// A temporary state file could not be flushed to disk.
-    #[error("failed to sync temporary wax global state file {temp_path} for {path}: {source}")]
-    SyncTemp {
-        /// Path passed to [`save_global_state`].
-        path: String,
-        /// Temporary path used for the atomic write.
-        temp_path: String,
-        /// Underlying I/O error.
-        #[source]
-        source: io::Error,
-    },
-    /// A temporary state file could not replace the destination.
-    #[error("failed to replace wax global state {path} with {temp_path}: {source}")]
-    Rename {
-        /// Path passed to [`save_global_state`].
-        path: String,
-        /// Temporary path used for the atomic write.
-        temp_path: String,
-        /// Underlying I/O error.
-        #[source]
-        source: io::Error,
-    },
+    /// Atomic state-file replacement failed.
+    #[error(transparent)]
+    AtomicWrite(#[from] AtomicWriteError),
     /// A state entry used a language pack version that is not one path segment.
     #[error(
         "invalid wax global state in {path}: language {language_id} has invalid version path component {version:?}"
@@ -253,10 +189,7 @@ fn validate_global_state_design_systems(
 /// Returns [`GlobalStateError::InvalidState`],
 /// [`GlobalStateError::InvalidVersion`], or
 /// [`GlobalStateError::InvalidDesignSystemId`] when state cannot be serialized
-/// safely. Directory creation and atomic-write failures use
-/// [`GlobalStateError::CreateDir`], [`GlobalStateError::CreateTemp`],
-/// [`GlobalStateError::WriteTemp`], [`GlobalStateError::SyncTemp`], or
-/// [`GlobalStateError::Rename`].
+/// safely. Atomic-write failures use [`GlobalStateError::AtomicWrite`].
 pub fn save_global_state(
     path: impl AsRef<Path>,
     state: &GlobalState,
@@ -265,254 +198,19 @@ pub fn save_global_state(
     let path_display = path.display().to_string();
     validate_global_state(state, &path_display)?;
 
-    if let Some(parent) = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-    {
-        fs::create_dir_all(parent).map_err(|source| GlobalStateError::CreateDir {
-            path: path_display.clone(),
-            source,
-        })?;
-    }
-
     let contents =
         serde_json::to_string_pretty(state).map_err(|source| GlobalStateError::InvalidState {
             path: path_display.clone(),
             source,
         })?;
-    write_state_atomically(path, &path_display, format!("{contents}\n").as_bytes())
-}
-
-fn write_state_atomically(
-    path: &Path,
-    path_display: &str,
-    contents: &[u8],
-) -> Result<(), GlobalStateError> {
-    let (temp_path, mut temp_file) = create_temp_state_file(path, path_display)?;
-    let temp_display = temp_path.display().to_string();
-
-    if let Err(source) = temp_file.write_all(contents) {
-        drop(temp_file);
-        remove_temp_file(&temp_path);
-        return Err(GlobalStateError::WriteTemp {
-            path: path_display.to_owned(),
-            temp_path: temp_display,
-            source,
-        });
-    }
-
-    if let Err(source) = temp_file.sync_all() {
-        drop(temp_file);
-        remove_temp_file(&temp_path);
-        return Err(GlobalStateError::SyncTemp {
-            path: path_display.to_owned(),
-            temp_path: temp_display,
-            source,
-        });
-    }
-    drop(temp_file);
-
-    replace_state_file(&temp_path, &temp_display, path, path_display)
-}
-
-fn remove_temp_file(temp_path: &Path) {
-    let _ = fs::remove_file(temp_path);
-}
-
-#[cfg(not(windows))]
-fn replace_state_file(
-    temp_path: &Path,
-    temp_display: &str,
-    path: &Path,
-    path_display: &str,
-) -> Result<(), GlobalStateError> {
-    fs::rename(temp_path, path).map_err(|source| {
-        remove_temp_file(temp_path);
-        GlobalStateError::Rename {
-            path: path_display.to_owned(),
-            temp_path: temp_display.to_owned(),
-            source,
-        }
-    })
-}
-
-#[cfg(windows)]
-fn replace_state_file(
-    temp_path: &Path,
-    temp_display: &str,
-    path: &Path,
-    path_display: &str,
-) -> Result<(), GlobalStateError> {
-    if !path.exists() {
-        return rename_temp_state_file(temp_path, temp_display, path, path_display);
-    }
-
-    replace_existing_state_file(temp_path, temp_display, path, path_display)
-}
-
-#[cfg(windows)]
-fn rename_temp_state_file(
-    temp_path: &Path,
-    temp_display: &str,
-    path: &Path,
-    path_display: &str,
-) -> Result<(), GlobalStateError> {
-    fs::rename(temp_path, path).map_err(|source| {
-        remove_temp_file(temp_path);
-        GlobalStateError::Rename {
-            path: path_display.to_owned(),
-            temp_path: temp_display.to_owned(),
-            source,
-        }
-    })
-}
-
-#[cfg(windows)]
-fn replace_existing_state_file(
-    temp_path: &Path,
-    temp_display: &str,
-    path: &Path,
-    path_display: &str,
-) -> Result<(), GlobalStateError> {
-    let replaced = wide_null(path.as_os_str());
-    let replacement = wide_null(temp_path.as_os_str());
-
-    // SAFETY: `wide_null` creates owned, null-terminated UTF-16 buffers that stay
-    // live for this synchronous call. `0` is the documented no-options value; the
-    // three null pointers request no backup or optional structures. ReplaceFileW
-    // neither retains these pointers nor transfers ownership of their buffers.
-    let replaced = unsafe {
-        replace_file_w(
-            replaced.as_ptr(),
-            replacement.as_ptr(),
-            ptr::null(),
-            0,
-            ptr::null_mut(),
-            ptr::null_mut(),
-        )
-    };
-
-    if replaced == 0 {
-        let source = io::Error::last_os_error();
-        if recover_windows_partial_replace_failure(&source, temp_path, path).unwrap_or(false) {
-            return Ok(());
-        }
-        if !is_documented_windows_partial_replace_failure(&source) {
-            remove_temp_file(temp_path);
-        }
-        return Err(GlobalStateError::Rename {
-            path: path_display.to_owned(),
-            temp_path: temp_display.to_owned(),
-            source,
-        });
-    }
-
+    write_atomically(
+        path,
+        format!("{contents}\n").as_bytes(),
+        AtomicWriteOptions {
+            new_file_mode: Some(0o600),
+        },
+    )?;
     Ok(())
-}
-
-#[cfg(windows)]
-fn recover_windows_partial_replace_failure(
-    source: &io::Error,
-    temp_path: &Path,
-    path: &Path,
-) -> Result<bool, io::Error> {
-    if source.raw_os_error() == Some(ERROR_UNABLE_TO_MOVE_REPLACEMENT)
-        && !path.exists()
-        && temp_path.exists()
-    {
-        fs::rename(temp_path, path)?;
-        return Ok(true);
-    }
-
-    Ok(false)
-}
-
-#[cfg(windows)]
-fn is_documented_windows_partial_replace_failure(source: &io::Error) -> bool {
-    matches!(
-        source.raw_os_error(),
-        Some(
-            ERROR_UNABLE_TO_REMOVE_REPLACED
-                | ERROR_UNABLE_TO_MOVE_REPLACEMENT
-                | ERROR_UNABLE_TO_MOVE_REPLACEMENT_2
-        )
-    )
-}
-
-fn create_temp_state_file(
-    path: &Path,
-    path_display: &str,
-) -> Result<(PathBuf, File), GlobalStateError> {
-    for attempt in 0..1000 {
-        let temp_path = temp_state_path(path, attempt);
-        let temp_display = temp_path.display().to_string();
-        match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temp_path)
-        {
-            Ok(file) => return Ok((temp_path, file)),
-            Err(source) if source.kind() == io::ErrorKind::AlreadyExists => {}
-            Err(source) => {
-                return Err(GlobalStateError::CreateTemp {
-                    path: path_display.to_owned(),
-                    temp_path: temp_display,
-                    source,
-                });
-            }
-        }
-    }
-
-    let temp_path = temp_state_path(path, 999);
-    Err(GlobalStateError::CreateTemp {
-        path: path_display.to_owned(),
-        temp_path: temp_path.display().to_string(),
-        source: io::Error::new(
-            io::ErrorKind::AlreadyExists,
-            "could not allocate unique temporary state path",
-        ),
-    })
-}
-
-fn temp_state_path(path: &Path, attempt: u32) -> PathBuf {
-    sibling_state_path(path, attempt, "tmp")
-}
-
-#[cfg(windows)]
-fn wide_null(value: &std::ffi::OsStr) -> Vec<u16> {
-    value.encode_wide().chain(std::iter::once(0)).collect()
-}
-
-fn sibling_state_path(path: &Path, attempt: u32, extension: &str) -> PathBuf {
-    let parent = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    let file_name = path
-        .file_name()
-        .map(|name| name.to_string_lossy())
-        .unwrap_or_else(|| "state.json".into());
-
-    parent.join(format!(
-        ".{file_name}.{}.{attempt}.{extension}",
-        std::process::id(),
-    ))
-}
-
-#[cfg(windows)]
-#[link(name = "kernel32")]
-// SAFETY: the declaration matches the Windows ReplaceFileW ABI and parameter
-// types. Call sites provide valid UTF-16 pointers and retain all buffer ownership.
-unsafe extern "system" {
-    #[link_name = "ReplaceFileW"]
-    fn replace_file_w(
-        replaced_file_name: *const u16,
-        replacement_file_name: *const u16,
-        backup_file_name: *const u16,
-        replace_flags: u32,
-        exclude: *mut std::ffi::c_void,
-        reserved: *mut std::ffi::c_void,
-    ) -> i32;
 }
 
 #[cfg(test)]
@@ -639,30 +337,5 @@ mod global_state_design_systems_tests {
 
         assert_eq!(loaded.installed_languages, state.installed_languages);
         assert!(loaded.design_systems.is_empty());
-    }
-}
-
-#[cfg(all(test, windows))]
-mod tests {
-    use super::{
-        ERROR_UNABLE_TO_MOVE_REPLACEMENT, ERROR_UNABLE_TO_MOVE_REPLACEMENT_2,
-        ERROR_UNABLE_TO_REMOVE_REPLACED, is_documented_windows_partial_replace_failure,
-    };
-    use std::io;
-
-    #[test]
-    fn detects_documented_windows_partial_replace_errors() {
-        for code in [
-            ERROR_UNABLE_TO_REMOVE_REPLACED,
-            ERROR_UNABLE_TO_MOVE_REPLACEMENT,
-            ERROR_UNABLE_TO_MOVE_REPLACEMENT_2,
-        ] {
-            assert!(is_documented_windows_partial_replace_failure(
-                &io::Error::from_raw_os_error(code),
-            ));
-        }
-        assert!(!is_documented_windows_partial_replace_failure(
-            &io::Error::from_raw_os_error(87),
-        ));
     }
 }

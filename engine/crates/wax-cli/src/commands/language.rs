@@ -26,6 +26,7 @@ use wax_core::paths::{PathsError, lang_install_dir};
 use wax_core::registry::{
     RegistryArtifact, RegistryError, RegistryManifest, fetch_pack_index, select_target_artifact,
 };
+use wax_core::{AtomicWriteError, AtomicWriteOptions, write_atomically};
 use wax_lang_api::build_version;
 
 /// Options for `wax language list`.
@@ -184,6 +185,9 @@ pub enum LanguageCommandError {
     /// Registry source resolution failed.
     #[error(transparent)]
     RegistrySource(#[from] wax_core::registry_source::RegistrySourceError),
+    /// Atomic replacement of a repository contract file failed.
+    #[error(transparent)]
+    AtomicWrite(#[from] AtomicWriteError),
     /// Filesystem operation failed.
     #[error("{context}: {source}")]
     Io {
@@ -645,10 +649,12 @@ pub(crate) fn save_lockfile(path: &Path, lockfile: &WaxLock) -> Result<(), Langu
             context: format!("serialize lockfile {}", path.display()),
             source: io::Error::new(io::ErrorKind::InvalidData, source),
         })?;
-    fs::write(path, format!("{contents}\n")).map_err(|source| LanguageCommandError::Io {
-        context: format!("write lockfile {}", path.display()),
-        source,
-    })
+    write_atomically(
+        path,
+        format!("{contents}\n").as_bytes(),
+        AtomicWriteOptions::default(),
+    )?;
+    Ok(())
 }
 
 fn record_installed_language(
@@ -1799,6 +1805,11 @@ mod tests {
         let lock =
             wax_core::config::lockfile::load_lockfile(temp.path().join(".wax/wax.lock.json"))
                 .unwrap();
+        assert!(
+            fs::read_to_string(temp.path().join(".wax/wax.lock.json"))
+                .unwrap()
+                .ends_with('\n')
+        );
         let registry = lock
             .registries
             .get(&lang("compose"))
