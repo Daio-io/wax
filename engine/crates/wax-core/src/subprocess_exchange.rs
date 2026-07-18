@@ -271,7 +271,7 @@ fn wait_for_exchange(
             }
         }
 
-        if status.is_none() {
+        if stdout.is_some() && stderr.is_some() && status.is_none() {
             match child.try_wait() {
                 Ok(Some(exit_status)) => status = Some(exit_status),
                 Ok(None) => {}
@@ -537,6 +537,55 @@ while :; do sleep 1; done
         assert_process_exited(fs::read_to_string(pid_path).unwrap().trim());
         assert!(spool_paths("timeout-cleanup-stdout").is_empty());
         assert!(spool_paths("timeout-cleanup-stderr").is_empty());
+    }
+
+    #[test]
+    fn timeout_terminates_descendants_that_hold_output_pipes_open() {
+        let temp_dir = TestDir::new("timeout-descendant-pipe");
+        let script_path = temp_dir.path().join("pack.sh");
+        write_script(&script_path, "#!/bin/sh\n(sleep 30) &\nexit 0\n");
+        let command = [script_path.to_string_lossy().into_owned()];
+        let cancellation = LanguageCancellationToken::new();
+        let started_at = std::time::Instant::now();
+
+        let error = run_exchange(ExchangeRequest {
+            command: &command,
+            request: b"{}",
+            timeout: Duration::from_millis(100),
+            cancellation: &cancellation,
+            stdout_kind: "timeout-descendant-pipe-stdout",
+        })
+        .unwrap_err();
+
+        assert!(matches!(error, ExchangeError::Timeout { .. }));
+        assert!(started_at.elapsed() < Duration::from_secs(10));
+    }
+
+    #[test]
+    fn cancellation_terminates_descendants_that_hold_output_pipes_open() {
+        let temp_dir = TestDir::new("cancel-descendant-pipe");
+        let script_path = temp_dir.path().join("pack.sh");
+        write_script(&script_path, "#!/bin/sh\n(sleep 30) &\nexit 0\n");
+        let command = [script_path.to_string_lossy().into_owned()];
+        let cancellation = LanguageCancellationToken::new();
+        let cancellation_for_thread = cancellation.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            cancellation_for_thread.cancel();
+        });
+        let started_at = std::time::Instant::now();
+
+        let error = run_exchange(ExchangeRequest {
+            command: &command,
+            request: b"{}",
+            timeout: Duration::from_secs(10),
+            cancellation: &cancellation,
+            stdout_kind: "cancel-descendant-pipe-stdout",
+        })
+        .unwrap_err();
+
+        assert!(matches!(error, ExchangeError::Cancelled { .. }));
+        assert!(started_at.elapsed() < Duration::from_secs(10));
     }
 
     #[test]
