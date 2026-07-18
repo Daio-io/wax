@@ -350,8 +350,9 @@ pub fn resolve_remembered_registry(
 ///
 /// Returns [`RegistryMemoryError::RegistrySource`] when the source path is
 /// unsafe or escapes the design-system repository, or
-/// [`RegistryMemoryError::ConfigUpdate`] when the source cannot be read or the
-/// app destination cannot be created or written.
+/// [`RegistryMemoryError::ConfigUpdate`] when the source cannot be read, or
+/// [`RegistryMemoryError::AtomicWrite`] when the app destination cannot be
+/// created or written atomically.
 pub fn copy_design_system_registry_to_app(
     remembered: &RememberedDesignSystemSummary,
     design_system_local_source: &str,
