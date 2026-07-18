@@ -1222,8 +1222,10 @@ fn replace_existing_registry_file(
     let replaced = wide_null(path.as_os_str());
     let replacement = wide_null(temp_path.as_os_str());
 
-    // SAFETY: both path buffers are null-terminated and live for the duration
-    // of the call; null backup/exclude/reserved pointers match ReplaceFileW.
+    // SAFETY: `wide_null` creates owned, null-terminated UTF-16 buffers that stay
+    // live for this synchronous call. `0` is the documented no-options value; the
+    // three null pointers request no backup or optional structures. ReplaceFileW
+    // neither retains these pointers nor transfers ownership of their buffers.
     let replaced = unsafe {
         replace_file_w(
             replaced.as_ptr(),
@@ -1289,6 +1291,8 @@ fn wide_null(value: &std::ffi::OsStr) -> Vec<u16> {
 
 #[cfg(windows)]
 #[link(name = "Kernel32")]
+// SAFETY: the declaration matches the Windows ReplaceFileW ABI and parameter
+// types. Call sites provide valid UTF-16 pointers and retain all buffer ownership.
 unsafe extern "system" {
     #[link_name = "ReplaceFileW"]
     fn replace_file_w(

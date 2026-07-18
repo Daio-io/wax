@@ -16,6 +16,8 @@ use wax_lang_api::{
     ScanRequest, WIRE_API_VERSION, WireErrorCode, WireScanRequest, WireScanResponse,
 };
 
+use crate::process_control::{configure_process_group, terminate_child_tree};
+
 const TERMINATION_GRACE: Duration = Duration::from_secs(5);
 const STDERR_PREVIEW_BYTES: u64 = 64 * 1024;
 
@@ -27,15 +29,8 @@ pub trait LanguageExtractor {
     ///
     /// # Errors
     ///
-    /// Returns [`LanguageError::EmptyCommand`] for an empty command;
-    /// [`LanguageError::Spawn`], [`LanguageError::WriteRequest`],
-    /// [`LanguageError::ReadStdout`], [`LanguageError::ReadStderr`], or
-    /// [`LanguageError::Wait`] for process I/O failures;
-    /// [`LanguageError::Timeout`] or [`LanguageError::WireTimeout`] for timeouts;
-    /// [`LanguageError::ProcessFailed`] for an unsuccessful process without a
-    /// usable response; [`LanguageError::InvalidResponse`] or
-    /// [`LanguageError::UnsupportedApiVersion`] for invalid wire responses; and
-    /// [`LanguageError::Wire`] for an error reported by the language pack.
+    /// Returns a typed [`LanguageError`] for command, process, timeout, or wire
+    /// protocol failures.
     fn scan(&self, request: ScanRequest) -> Result<ScanFacts, LanguageError>;
 
     /// Runs the extractor unless cancellation is requested first.
@@ -45,17 +40,8 @@ pub trait LanguageExtractor {
     ///
     /// # Errors
     ///
-    /// Returns [`LanguageError::EmptyCommand`] for an empty command;
-    /// [`LanguageError::Spawn`], [`LanguageError::WriteRequest`],
-    /// [`LanguageError::ReadStdout`], [`LanguageError::ReadStderr`], or
-    /// [`LanguageError::Wait`] for process I/O failures;
-    /// [`LanguageError::Timeout`] or [`LanguageError::WireTimeout`] for timeouts;
-    /// [`LanguageError::ProcessFailed`] for an unsuccessful process without a
-    /// usable response; [`LanguageError::InvalidResponse`] or
-    /// [`LanguageError::UnsupportedApiVersion`] for invalid wire responses; and
-    /// [`LanguageError::Wire`] for an error reported by the language pack. The
-    /// default implementation ignores the cancellation token, so it does not
-    /// introduce [`LanguageError::Cancelled`].
+    /// Returns the same typed errors as [`LanguageExtractor::scan`]. The default
+    /// implementation does not return [`LanguageError::Cancelled`].
     fn scan_with_cancellation(
         &self,
         request: ScanRequest,
@@ -116,16 +102,8 @@ impl SubprocessLanguageExtractor {
     ///
     /// # Errors
     ///
-    /// Returns [`LanguageError::Cancelled`] when cancellation wins;
-    /// [`LanguageError::EmptyCommand`] for an empty command;
-    /// [`LanguageError::Spawn`], [`LanguageError::WriteRequest`],
-    /// [`LanguageError::ReadStdout`], [`LanguageError::ReadStderr`], or
-    /// [`LanguageError::Wait`] for process I/O failures;
-    /// [`LanguageError::Timeout`] or [`LanguageError::WireTimeout`] for timeouts;
-    /// [`LanguageError::ProcessFailed`] for an unsuccessful process without a
-    /// usable response; [`LanguageError::InvalidResponse`] or
-    /// [`LanguageError::UnsupportedApiVersion`] for invalid wire responses; and
-    /// [`LanguageError::Wire`] for an error reported by the language pack.
+    /// Returns a typed [`LanguageError`] for command, process, cancellation,
+    /// timeout, or wire protocol failures.
     pub fn scan_with_cancellation(
         &self,
         request: ScanRequest,
@@ -261,7 +239,7 @@ fn run_subprocess_scan(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    configure_command(&mut command);
+    configure_process_group(&mut command);
 
     let mut child = command.spawn().map_err(|source| LanguageError::Spawn {
         command: program.clone(),
@@ -495,59 +473,10 @@ fn wait_for_exchange(
     }
 }
 
-#[cfg(unix)]
-fn configure_command(command: &mut Command) {
-    use std::os::unix::process::CommandExt;
-
-    command.process_group(0);
-}
-
-#[cfg(not(unix))]
-fn configure_command(_command: &mut Command) {}
-
-#[cfg(unix)]
 fn cleanup_child(child: &mut std::process::Child, child_id: u32) {
-    if let Ok(process_group_id) = i32::try_from(child_id) {
-        // NOTE: We apply the spec's SIGTERM grace window uniformly for every
-        // cleanup path, including timeouts and pipe errors, so packs get one
-        // consistent shutdown contract.
-        signal_process_group(process_group_id, libc::SIGTERM);
-        let grace_started_at = Instant::now();
-        loop {
-            match child.try_wait() {
-                Ok(Some(_)) => break,
-                Ok(None) if grace_started_at.elapsed() < TERMINATION_GRACE => {
-                    thread::sleep(Duration::from_millis(25));
-                }
-                Ok(None) => break,
-                Err(source) if source.kind() == io::ErrorKind::Interrupted => continue,
-                Err(_) => break,
-            }
-        }
-        signal_process_group(process_group_id, libc::SIGKILL);
+    if let Err(error) = terminate_child_tree(child, child_id, TERMINATION_GRACE) {
+        eprintln!("failed to clean up language subprocess: {error}");
     }
-    let _ = child.kill();
-    let _ = child.wait();
-}
-
-#[cfg(unix)]
-#[expect(
-    unsafe_code,
-    reason = "std cannot signal a Unix process group, so cleanup must call libc::kill with a negative pgid to terminate the spawned pack group"
-)]
-fn signal_process_group(process_group_id: i32, signal: libc::c_int) {
-    // SAFETY: `process_group_id` comes from a spawned child id that fit in `i32`.
-    // Passing its negated value asks `kill` to signal that process group; the
-    // signal constants are provided by libc for the current Unix target.
-    unsafe {
-        libc::kill(-process_group_id, signal);
-    }
-}
-
-#[cfg(not(unix))]
-fn cleanup_child(child: &mut std::process::Child, _child_id: u32) {
-    let _ = child.kill();
-    let _ = child.wait();
 }
 
 fn parse_wire_response(stdout: &Path) -> Result<ScanFacts, LanguageError> {

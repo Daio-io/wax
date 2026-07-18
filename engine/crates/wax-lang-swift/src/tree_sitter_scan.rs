@@ -1302,8 +1302,9 @@ pub fn scan_repository(
         !path_matches_any(&relative_text, &config.excludes)
     });
 
-    let mut parser =
-        new_parser().map_err(|reason| TreeSitterScanError::ParserInitFailed { reason })?;
+    let mut parser = new_parser().map_err(|error| TreeSitterScanError::ParserInitFailed {
+        reason: error.to_string(),
+    })?;
 
     let mut design_system_components = registry
         .canonical_symbols
