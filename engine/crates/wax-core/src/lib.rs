@@ -5,9 +5,7 @@
 mod atomic_file;
 /// Shared durable-write types for the CLI's lockfile persistence boundary.
 #[doc(hidden)]
-pub use atomic_file::{
-    AtomicWriteError, AtomicWriteOptions, write_atomically, write_atomically_no_clobber,
-};
+pub use atomic_file::{AtomicWriteError, AtomicWriteOptions, write_atomically};
 pub mod adoption_merge;
 pub mod auto_install;
 pub mod config;

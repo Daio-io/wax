@@ -14,6 +14,7 @@ use wax_lang_api::{
     DiscoverRequest, DiscoverRequestType, DiscoveredRegistrySymbol, WIRE_API_VERSION,
 };
 
+use crate::atomic_file::write_atomically_no_clobber;
 use crate::auto_install::{InstalledManifest, installed_manifest_matches_locked};
 use crate::config::lockfile::{
     LockedRegistry, LockfileError, WAX_LOCK_SCHEMA_VERSION, WaxLock, load_lockfile,
@@ -29,7 +30,7 @@ use crate::registry_memory::{
 use crate::registry_source::is_external_registry_source;
 use crate::subprocess_discover::{DiscoverError, SubprocessLanguageDiscoverer};
 use crate::subprocess_lang::SubprocessLanguageManifest;
-use crate::{AtomicWriteError, AtomicWriteOptions, write_atomically, write_atomically_no_clobber};
+use crate::{AtomicWriteError, AtomicWriteOptions, write_atomically};
 
 const REGISTRY_SCHEMA_VERSION: u32 = 1;
 const DEFAULT_DISCOVER_TIMEOUT: Duration = Duration::from_secs(120);
