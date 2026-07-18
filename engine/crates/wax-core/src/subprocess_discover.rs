@@ -1,8 +1,6 @@
 //! Subprocess-backed language pack registry discovery.
 //!
-//! The stdio exchange, spooling, and cleanup logic intentionally mirrors
-//! [`crate::subprocess_lang`] for this task. Extract shared helpers once the
-//! discover path stabilizes.
+//! The shared subprocess exchange owns stdio transport, spooling, and cleanup.
 
 use std::fs::File;
 use std::io::{self, BufReader};
