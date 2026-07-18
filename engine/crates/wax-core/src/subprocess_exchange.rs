@@ -594,7 +594,7 @@ while :; do sleep 1; done
         let script_path = temp_dir.path().join("pack.sh");
         write_script(
             &script_path,
-            "#!/bin/sh\n(sleep 30 <&0 >/dev/null 2>/dev/null) &\nexit 0\n",
+            "#!/bin/sh\nexec 3<&0\n(sleep 30 <&3 >/dev/null 2>/dev/null) &\nexit 0\n",
         );
         let command = [script_path.to_string_lossy().into_owned()];
         let request = vec![b'x'; 1024 * 1024];
@@ -620,7 +620,7 @@ while :; do sleep 1; done
         let script_path = temp_dir.path().join("pack.sh");
         write_script(
             &script_path,
-            "#!/bin/sh\n(sleep 30 <&0 >/dev/null 2>/dev/null) &\nexit 0\n",
+            "#!/bin/sh\nexec 3<&0\n(sleep 30 <&3 >/dev/null 2>/dev/null) &\nexit 0\n",
         );
         let command = [script_path.to_string_lossy().into_owned()];
         let request = vec![b'x'; 1024 * 1024];
