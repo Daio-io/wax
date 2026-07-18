@@ -271,7 +271,7 @@ fn wait_for_exchange(
             }
         }
 
-        if stdout.is_some() && stderr.is_some() && status.is_none() {
+        if stdin_done && stdout.is_some() && stderr.is_some() && status.is_none() {
             match child.try_wait() {
                 Ok(Some(exit_status)) => status = Some(exit_status),
                 Ok(None) => {}
@@ -581,6 +581,63 @@ while :; do sleep 1; done
             timeout: Duration::from_secs(10),
             cancellation: &cancellation,
             stdout_kind: "cancel-descendant-pipe-stdout",
+        })
+        .unwrap_err();
+
+        assert!(matches!(error, ExchangeError::Cancelled { .. }));
+        assert!(started_at.elapsed() < Duration::from_secs(10));
+    }
+
+    #[test]
+    fn timeout_terminates_descendants_that_hold_stdin_open() {
+        let temp_dir = TestDir::new("timeout-descendant-stdin");
+        let script_path = temp_dir.path().join("pack.sh");
+        write_script(
+            &script_path,
+            "#!/bin/sh\n(sleep 30 <&0 >/dev/null 2>/dev/null) &\nexit 0\n",
+        );
+        let command = [script_path.to_string_lossy().into_owned()];
+        let request = vec![b'x'; 1024 * 1024];
+        let cancellation = LanguageCancellationToken::new();
+        let started_at = std::time::Instant::now();
+
+        let error = run_exchange(ExchangeRequest {
+            command: &command,
+            request: &request,
+            timeout: Duration::from_millis(100),
+            cancellation: &cancellation,
+            stdout_kind: "timeout-descendant-stdin-stdout",
+        })
+        .unwrap_err();
+
+        assert!(matches!(error, ExchangeError::Timeout { .. }));
+        assert!(started_at.elapsed() < Duration::from_secs(10));
+    }
+
+    #[test]
+    fn cancellation_terminates_descendants_that_hold_stdin_open() {
+        let temp_dir = TestDir::new("cancel-descendant-stdin");
+        let script_path = temp_dir.path().join("pack.sh");
+        write_script(
+            &script_path,
+            "#!/bin/sh\n(sleep 30 <&0 >/dev/null 2>/dev/null) &\nexit 0\n",
+        );
+        let command = [script_path.to_string_lossy().into_owned()];
+        let request = vec![b'x'; 1024 * 1024];
+        let cancellation = LanguageCancellationToken::new();
+        let cancellation_for_thread = cancellation.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            cancellation_for_thread.cancel();
+        });
+        let started_at = std::time::Instant::now();
+
+        let error = run_exchange(ExchangeRequest {
+            command: &command,
+            request: &request,
+            timeout: Duration::from_secs(10),
+            cancellation: &cancellation,
+            stdout_kind: "cancel-descendant-stdin-stdout",
         })
         .unwrap_err();
 
