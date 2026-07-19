@@ -43,10 +43,8 @@ fn scan_status_is_complete_when_configured() {
         wax_lang_react::SWC_PARSER_VERSION,
         "parser_version must track the pinned SWC crate version"
     );
-    assert!(
-        facts.metrics.parse_extract_ms > 0,
-        "configured scan should record parse/extract timing"
-    );
+    assert!(facts.metrics.files_scanned > 0);
+    assert!(facts.metrics.parse_extract_ms >= 1);
     assert!(
         facts
             .token_sites
