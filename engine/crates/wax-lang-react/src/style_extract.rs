@@ -10,7 +10,7 @@ use swc_ecma_ast::{
     PropOrSpread, Tpl,
 };
 use swc_ecma_visit::{Visit, VisitWith};
-use wax_contract::{HardcodedStyleSite, TokenCategory};
+use wax_contract::{HardcodedStyleSite, StyleContext, TokenCategory};
 
 use crate::component_scope::{ComponentDefinition, parent_for_span, peel_expr};
 use crate::swc_parse::ParsedReactModule;
@@ -87,6 +87,7 @@ impl StyleSiteVisitor<'_> {
                 location,
                 value,
                 category,
+                context: StyleContext::Unknown,
                 parent: parent_for_span(self.parsed, self.components, prop_span),
             });
         }

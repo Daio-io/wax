@@ -104,7 +104,8 @@
         "scope_kind": "component",
         "symbol": "SampleScreen"
       },
-      "value": "\"#336699\""
+      "value": "\"#336699\"",
+      "context": "unknown"
     },
     {
       "category": "spacing",
@@ -127,7 +128,8 @@
         "scope_kind": "component",
         "symbol": "SampleScreen"
       },
-      "value": "8"
+      "value": "8",
+      "context": "unknown"
     },
     {
       "category": "radius",
@@ -150,7 +152,8 @@
         "scope_kind": "component",
         "symbol": "SampleScreen"
       },
-      "value": "4"
+      "value": "4",
+      "context": "unknown"
     }
   ],
   "language": {
@@ -212,10 +215,9 @@
   "metrics": {
     "files_scanned": 6,
     "invocation_adoption_ratio": 1.0,
-    "registry_resolution_ratio": 1.0,
-    "token_reference_ratio": 0.25
+    "registry_resolution_ratio": 1.0
   },
-  "schema_version": 2,
+  "schema_version": 3,
   "status": "complete",
   "token_sites": [
     {

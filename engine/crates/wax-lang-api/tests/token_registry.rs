@@ -189,12 +189,14 @@ fn token_index_rejects_duplicate_token_ids() {
             key: "theme.colors.primary".into(),
             category: TokenCategory::Color,
             aliases: vec![],
+            value: None,
         },
         DesignSystemToken {
             id: "color.primary".into(),
             key: "theme.colors.secondary".into(),
             category: TokenCategory::Color,
             aliases: vec![],
+            value: None,
         },
     ];
 
@@ -214,6 +216,7 @@ fn token_index_rejects_empty_match_key() {
         key: "".into(),
         category: TokenCategory::Color,
         aliases: vec![],
+        value: None,
     }];
 
     let err = token_index(&tokens).expect_err("empty key must fail");
@@ -247,5 +250,61 @@ fn token_index_rejects_duplicate_match_keys() {
     assert!(matches!(
         err,
         wax_lang_api::TokenRegistryError::DuplicateMatchKey { .. }
+    ));
+}
+
+#[test]
+fn parse_registry_preserves_optional_token_value() {
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "components": [{"symbol": "Button"}],
+        "tokens": [
+            {
+                "id": "spacing.s",
+                "key": "Spacing.s",
+                "category": "spacing",
+                "value": "4.dp"
+            }
+        ]
+    });
+    let tokens = parse_registry_tokens(&value).expect("tokens should parse");
+    assert_eq!(tokens[0].value.as_deref(), Some("4.dp"));
+}
+
+#[test]
+fn parse_registry_absent_value_is_none() {
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "components": [{"symbol": "Button"}],
+        "tokens": [
+            {
+                "id": "spacing.s",
+                "key": "Spacing.s",
+                "category": "spacing"
+            }
+        ]
+    });
+    let tokens = parse_registry_tokens(&value).expect("tokens should parse");
+    assert_eq!(tokens[0].value, None);
+}
+
+#[test]
+fn parse_registry_rejects_empty_token_value() {
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "components": [{"symbol": "Button"}],
+        "tokens": [
+            {
+                "id": "spacing.s",
+                "key": "Spacing.s",
+                "category": "spacing",
+                "value": ""
+            }
+        ]
+    });
+    let err = parse_registry_tokens(&value).expect_err("empty value must fail");
+    assert!(matches!(
+        err,
+        wax_lang_api::TokenRegistryError::InvalidTokenField { field: "value", .. }
     ));
 }

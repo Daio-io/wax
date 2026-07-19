@@ -2414,6 +2414,7 @@ mod tests {
             key: "theme.colors.primary".to_owned(),
             category: wax_contract::TokenCategory::Color,
             aliases: vec!["tokens.color.primary".to_owned()],
+            value: None,
         }];
         let token_index = wax_lang_api::token_index(&tokens).expect("token index");
         ReactRegistryIndex {

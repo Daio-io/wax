@@ -123,6 +123,7 @@ mod tests {
             key: "theme.colors.primary".to_owned(),
             category: TokenCategory::Color,
             aliases: vec!["tokens[\"color.primary\"]".to_owned()],
+            value: None,
         }];
         let index = token_index(&tokens).unwrap();
         ReactRegistryIndex {

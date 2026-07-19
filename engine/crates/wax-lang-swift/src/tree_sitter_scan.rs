@@ -7,7 +7,7 @@ use std::path::{Component, Path, PathBuf};
 use wax_contract::{
     DesignSystemComponent, DesignSystemToken, Diagnostic, DiagnosticSeverity, HardcodedStyleSite,
     IdentityStability, LocalComponent, MatchStatus, ParentScope, ScanStatus, SourceLocation,
-    TokenCategory, TokenSite, UsageSite,
+    StyleContext, TokenCategory, TokenSite, UsageSite,
 };
 
 use crate::component_detect::{
@@ -742,6 +742,7 @@ fn extract_hardcoded_style_from_source(
             },
             value: literal.value,
             category: literal.category,
+            context: StyleContext::Unknown,
             parent,
         });
     }

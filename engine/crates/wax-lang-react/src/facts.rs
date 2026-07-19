@@ -43,7 +43,6 @@ pub fn scaffold_facts(request: &ScanRequest, react_language_id: &LanguageId) -> 
         metrics: Metrics {
             invocation_adoption_ratio: None,
             registry_resolution_ratio: None,
-            token_reference_ratio: None,
             parse_extract_ms: 0,
             files_scanned: 0,
         },
@@ -125,7 +124,6 @@ pub fn configured_scan_facts(
         metrics: Metrics {
             invocation_adoption_ratio: None,
             registry_resolution_ratio: None,
-            token_reference_ratio: None,
             parse_extract_ms,
             files_scanned,
         },

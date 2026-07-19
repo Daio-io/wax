@@ -64,7 +64,7 @@
 
 ### Task 1: Cut the Shared Contract to Schema v3
 
-- [ ] **Task 1 complete**
+- [x] **Task 1 complete**
 
 **Files:**
 - Modify: `engine/crates/wax-contract/src/lib.rs`
@@ -80,7 +80,7 @@
 - Consumes: existing `TokenCategory`, `DesignSystemToken`, `HardcodedStyleSite`, `LanguageId`, `MergedScan`, and `ScanFactsError`.
 - Produces: `SCHEMA_VERSION = 3`, `StyleContext`, inference types, `DesignSystemToken.value`, `HardcodedStyleSite.context`, `MergedScan.token_inference`, and schema-v3 validation used by Tasks 2–5.
 
-- [ ] **Step 1: Inventory every schema-v2 and affected struct literal**
+- [x] **Step 1: Inventory every schema-v2 and affected struct literal**
 
 Run:
 
@@ -91,7 +91,7 @@ rg -n 'SCHEMA_VERSION|schema_version[^\n]*2|DesignSystemToken \{|HardcodedStyleS
 
 Expected: matches in contract, packs, core/CLI tests, wire tests, and embedded fixture scripts. Save the list in the PR description as the cutover checklist.
 
-- [ ] **Step 2: Write the failing schema-v3 round-trip test**
+- [x] **Step 2: Write the failing schema-v3 round-trip test**
 
 Add `schema_v3_token_inference_roundtrips` to `schema_roundtrip.rs` using:
 
@@ -130,7 +130,7 @@ let inference = HardcodedStyleInference {
 
 Validate the token and site through the per-language JSON schema. Place the row in `MergedScan.token_inference.sites`, provide reconciled counts, serialize/deserialize the merged value, call `MergedScan::validate`, and assert equality. Do not validate a merged scan against `scan-facts.schema.json`; that schema is intentionally scoped to `ScanFacts`.
 
-- [ ] **Step 3: Run the test and confirm the red state**
+- [x] **Step 3: Run the test and confirm the red state**
 
 ```bash
 cd engine
@@ -139,7 +139,7 @@ cargo test -p wax-contract --test schema_roundtrip schema_v3_token_inference_rou
 
 Expected: FAIL to compile because the v3 types and fields do not exist.
 
-- [ ] **Step 4: Add the schema-v3 public types**
+- [x] **Step 4: Add the schema-v3 public types**
 
 Set `SCHEMA_VERSION` to `3`, remove `Metrics.token_reference_ratio`, and add:
 
@@ -216,7 +216,7 @@ pub struct TokenInferenceReport {
 }
 ```
 
-- [ ] **Step 5: Extend raw fields and registry parsing**
+- [x] **Step 5: Extend raw fields and registry parsing**
 
 Add:
 
@@ -240,7 +240,7 @@ pub struct MergedScan {
 
 In `parse_registry_tokens`, parse `value` as an optional non-empty string and preserve it verbatim. Add tests proving absent values become `None`, present values round-trip, and `"value": ""` returns `InvalidTokenField` for `value`.
 
-- [ ] **Step 6: Add inference linkage and count validation**
+- [x] **Step 6: Add inference linkage and count validation**
 
 Extend `MergedScan::validate` to enforce:
 
@@ -261,11 +261,11 @@ hardcoded_observation_count = inference row count = total raw hard-coded site co
 
 Add one negative test per invariant with exact `ContractViolation` field paths. Include duplicate-raw-key, missing-row, duplicate-row, extra-row, and raw-count mismatch tests so an empty inference report cannot validate when raw sites exist. Task 2's inference tests enforce the stronger builder rule that numeric exact matches emit `Some(0.0)` while nonnumeric exact matches emit `None`.
 
-- [ ] **Step 7: Publish the per-language schema-v3 JSON shape**
+- [x] **Step 7: Publish the per-language schema-v3 JSON shape**
 
 Update the schema id and required version to `3`, require `hardcoded_style_site.context`, allow optional `design_system_token.value`, and remove `metrics.token_reference_ratio`. Add strict `$defs` for the raw enums and structs used by `ScanFacts`. Keep merged inference validation in `MergedScan::validate`. Add a test rewriting valid per-language JSON to version `2` and expecting `UnsupportedSchemaVersion { found: 2, supported: 3 }`.
 
-- [ ] **Step 8: Complete the mechanical workspace cutover**
+- [x] **Step 8: Complete the mechanical workspace cutover**
 
 For each Step 1 match, add `value: None`, use `StyleContext::Unknown` until Task 3, remove ratio fields/assertions, and update embedded scan facts to v3.
 
@@ -273,7 +273,7 @@ In `adoption_merge.rs`, add a temporary private `build_unassessed_token_inferenc
 
 Re-run Step 1; only explicit v2 incompatibility tests may remain.
 
-- [ ] **Step 9: Verify and commit**
+- [x] **Step 9: Verify and commit**
 
 ```bash
 cd engine
