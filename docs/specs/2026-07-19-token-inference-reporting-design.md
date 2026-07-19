@@ -5,6 +5,8 @@
 **Audience:** Wax engine, contract, language-pack, registry, and reporting implementers  
 **Related:** [Token scanning](./2026-07-03-token-scanning-design.md) · [Wax scan analytics](./2026-06-14-wax-scan-design.md) · [Registry sync and config v2](./2026-07-04-registry-sync-config-design.md)
 
+**Implementation plan:** [Token inference and reporting implementation plan](../plans/2026-07-19-token-inference-reporting-plan.md)
+
 ## Summary
 
 Wax currently treats every parser-detected hard-coded styling literal as equivalent token debt. That produces noisy reports because a fixed component dimension such as `width: 200px` contributes to the same count and ratio as `padding: 4px`, even when the registry provides no evidence that either value should use a token.

@@ -30,6 +30,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 | 11 | Adoption Metrics v2 | [2026-06-20-adoption-metrics-v2-plan.md](./2026-06-20-adoption-metrics-v2-plan.md) | `pending` | `in-progress` | — |
 | 12 | Registry sync and config v2 | [archive/2026-07-04-registry-sync-config-plan.md](./archive/2026-07-04-registry-sync-config-plan.md) | `merged` | `complete` | [ADR](../adr/2026-07-04-registry-sync-config-v2.md) |
 | 13 | Token scanning | [archive/2026-07-03-token-scanning-plan.md](./archive/2026-07-03-token-scanning-plan.md) | `merged` | `complete` | [ADR](../adr/2026-07-03-token-scanning.md) |
+| 14 | Token inference and reporting | [2026-07-19-token-inference-reporting-plan.md](./2026-07-19-token-inference-reporting-plan.md) | `pending` | `not-started` | — |
 
 **Doc status:** `pending` -> plan PR open; `merged` -> plan doc on `main`; `planned` -> not yet drafted.
 
@@ -43,7 +44,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 -> Finish Adoption Metrics v2 stacked PRs (order 11), one PR per task
 ```
 
-Orders 1-4, 6-10, 12, and 13 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Adoption Metrics v2 (order 11) still has open stacked PRs (#165, #171, #172) to merge separately.
+Orders 1-4, 6-10, 12, and 13 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Adoption Metrics v2 (order 11) still has open stacked PRs (#165, #171, #172) to merge separately. Token inference and reporting (order 14) is planned but is not active until roadmap gates permit it or the maintainer promotes it.
 
 ---
 
@@ -64,6 +65,7 @@ Orders 1-4, 6-10, 12, and 13 are **complete**. Post-alpha UX (order 5) remains o
 | 11 | `dai/adoption-metrics-v2-contract` | [#165](https://github.com/Daio-io/wax/pull/165) | Adoption Metrics v2 design and contract |
 | 12 | `dai/registry-sync-config-plan` | #195 (merged) | Registry sync and config v2 design and implementation plan |
 | 13 | `dai/token-scanning-plan` | #194 (merged) | Token scanning design and implementation plan |
+| 14 | `dai/token-inference-reporting-design` | pending | Token inference/reporting design and implementation plan |
 
 ---
 
@@ -81,3 +83,4 @@ Orders 1-4, 6-10, 12, and 13 are **complete**. Post-alpha UX (order 5) remains o
 - [Adoption Metrics v2 design](../specs/2026-06-20-adoption-metrics-v2-design.md) — facts-first invocation adoption contract (order 11 draft)
 - [Registry sync and config v2 design](../specs/2026-07-04-registry-sync-config-design.md) — clean alpha cutover for remembered design-system registries, no-config local scans, and explicit app sync (order 12, complete)
 - [Token scanning design](../specs/2026-07-03-token-scanning-design.md) — additive token references and hard-coded styling candidates (order 13, complete; [ADR](../adr/2026-07-03-token-scanning.md))
+- [Token inference and reporting design](../specs/2026-07-19-token-inference-reporting-design.md) — context-aware exact, near, unmatched, and unassessed token findings (order 14, planned)
