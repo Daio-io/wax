@@ -15,11 +15,11 @@ use std::os::windows::ffi::OsStrExt;
 #[cfg(windows)]
 use std::ptr;
 
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 const ERROR_UNABLE_TO_REMOVE_REPLACED: i32 = 1175;
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 const ERROR_UNABLE_TO_MOVE_REPLACEMENT: i32 = 1176;
-#[cfg(all(windows, test))]
+#[cfg(any(windows, test))]
 const ERROR_UNABLE_TO_MOVE_REPLACEMENT_2: i32 = 1177;
 
 /// Options that control a newly created destination file.
@@ -409,7 +409,7 @@ fn replace_existing_file(temp_path: &Path, path: &Path) -> Result<(), AtomicWrit
     Ok(())
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 fn handle_windows_replace_failure(
     source: io::Error,
     temp_path: &Path,
@@ -425,18 +425,15 @@ fn handle_windows_replace_failure(
                 source,
             })
         }
-        Err(source) => {
-            remove_temp_file(temp_path);
-            Err(AtomicWriteError::Replace {
-                path: path.to_owned(),
-                temp_path: temp_path.to_owned(),
-                source,
-            })
-        }
+        Err(source) => Err(AtomicWriteError::Replace {
+            path: path.to_owned(),
+            temp_path: temp_path.to_owned(),
+            source,
+        }),
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 fn recover_windows_partial_replace_failure(
     source: &io::Error,
     temp_path: &Path,
@@ -453,9 +450,12 @@ fn recover_windows_partial_replace_failure(
     Ok(false)
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 fn is_recoverable_windows_partial_replace_failure(source: &io::Error) -> bool {
-    source.raw_os_error() == Some(ERROR_UNABLE_TO_MOVE_REPLACEMENT)
+    matches!(
+        source.raw_os_error(),
+        Some(ERROR_UNABLE_TO_MOVE_REPLACEMENT | ERROR_UNABLE_TO_MOVE_REPLACEMENT_2)
+    )
 }
 
 #[cfg(unix)]
@@ -502,9 +502,10 @@ mod tests {
     use std::fs;
     use std::io;
     use std::path::PathBuf;
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::{Arc, Barrier};
     use std::thread;
+    use std::time::{Duration, Instant};
 
     static NEXT_TEST_DIR: AtomicU64 = AtomicU64::new(0);
 
@@ -530,6 +531,17 @@ mod tests {
         }
     }
 
+    fn wait_for_read_count(read_count: &AtomicU64, minimum: u64) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while read_count.load(Ordering::Acquire) < minimum {
+            assert!(
+                Instant::now() < deadline,
+                "reader did not observe the destination during replacement"
+            );
+            thread::yield_now();
+        }
+    }
+
     #[test]
     fn write_atomically_never_exposes_a_torn_replacement_to_readers() {
         let directory = TestDir::new("torn-read");
@@ -539,28 +551,50 @@ mod tests {
         fs::write(&path, &old_contents).expect("seed destination");
 
         let reading = Arc::new(AtomicBool::new(true));
+        let replacing = Arc::new(AtomicBool::new(false));
+        let successful_reads = Arc::new(AtomicU64::new(0));
+        let start = Arc::new(Barrier::new(2));
         let reader_path = path.clone();
         let reader_old = old_contents.clone();
         let reader_new = new_contents.clone();
         let reader_reading = Arc::clone(&reading);
+        let reader_replacing = Arc::clone(&replacing);
+        let reader_successful_reads = Arc::clone(&successful_reads);
+        let reader_start = Arc::clone(&start);
         let reader = thread::spawn(move || {
+            reader_start.wait();
             while reader_reading.load(Ordering::Acquire) {
                 if let Ok(contents) = fs::read(&reader_path) {
                     assert!(
                         contents == reader_old || contents == reader_new,
                         "reader observed a partial replacement"
                     );
+                    if reader_replacing.load(Ordering::Acquire) {
+                        reader_successful_reads.fetch_add(1, Ordering::Release);
+                    }
                 }
             }
         });
 
-        for contents in [&new_contents, &old_contents].into_iter().cycle().take(20) {
+        start.wait();
+        replacing.store(true, Ordering::Release);
+        for (index, contents) in [&new_contents, &old_contents]
+            .into_iter()
+            .cycle()
+            .take(20)
+            .enumerate()
+        {
             write_atomically(&path, contents, AtomicWriteOptions::default())
                 .expect("replace destination atomically");
+            if index == 0 {
+                wait_for_read_count(&successful_reads, 1);
+            }
         }
 
+        replacing.store(false, Ordering::Release);
         reading.store(false, Ordering::Release);
         reader.join().expect("reader should not observe torn data");
+        assert!(successful_reads.load(Ordering::Acquire) > 0);
     }
 
     #[cfg(unix)]
@@ -665,8 +699,8 @@ mod tests {
         );
     }
 
-    #[cfg(all(test, windows))]
-    mod windows_tests {
+    #[cfg(test)]
+    mod windows_recovery_tests {
         use super::super::{
             AtomicWriteError, ERROR_UNABLE_TO_MOVE_REPLACEMENT, ERROR_UNABLE_TO_MOVE_REPLACEMENT_2,
             ERROR_UNABLE_TO_REMOVE_REPLACED, handle_windows_replace_failure,
@@ -676,6 +710,7 @@ mod tests {
         use std::fs;
         use std::io;
 
+        #[cfg(windows)]
         #[test]
         fn write_atomically_overwrites_an_existing_file() {
             let directory = TestDir::new("windows-overwrite");
@@ -689,44 +724,57 @@ mod tests {
         }
 
         #[test]
-        fn partial_move_failure_recovers_by_renaming_the_temp_file() {
+        fn partial_move_failures_recover_by_renaming_the_temp_file() {
             let directory = TestDir::new("windows-partial-recovery");
-            let path = directory.path.join("state.json");
-            let temp_path = directory.path.join("replacement.tmp");
-            fs::write(&temp_path, b"new").expect("seed replacement");
+            for code in [
+                ERROR_UNABLE_TO_MOVE_REPLACEMENT,
+                ERROR_UNABLE_TO_MOVE_REPLACEMENT_2,
+            ] {
+                let path = directory.path.join(format!("state-{code}.json"));
+                let temp_path = directory.path.join(format!("replacement-{code}.tmp"));
+                fs::write(&temp_path, b"new").expect("seed replacement");
 
-            handle_windows_replace_failure(
-                io::Error::from_raw_os_error(ERROR_UNABLE_TO_MOVE_REPLACEMENT),
-                &temp_path,
-                &path,
-            )
-            .expect("recover partial move");
+                handle_windows_replace_failure(
+                    io::Error::from_raw_os_error(code),
+                    &temp_path,
+                    &path,
+                )
+                .expect("recover partial move");
 
-            assert_eq!(fs::read(path).expect("read recovered destination"), b"new");
-            assert!(!temp_path.exists(), "recovery should consume the temp file");
+                assert_eq!(fs::read(path).expect("read recovered destination"), b"new");
+                assert!(!temp_path.exists(), "recovery should consume the temp file");
+            }
         }
 
         #[test]
-        fn failed_partial_move_recovery_removes_the_temp_file() {
+        fn failed_partial_move_recovery_preserves_the_temp_file() {
             let directory = TestDir::new("windows-recovery-failure");
-            let temp_path = directory.path.join("replacement.tmp");
-            let path = directory.path.join("missing-parent").join("state.json");
-            fs::write(&temp_path, b"new").expect("seed replacement");
+            for code in [
+                ERROR_UNABLE_TO_MOVE_REPLACEMENT,
+                ERROR_UNABLE_TO_MOVE_REPLACEMENT_2,
+            ] {
+                let temp_path = directory.path.join(format!("replacement-{code}.tmp"));
+                let path = directory
+                    .path
+                    .join(format!("missing-parent-{code}"))
+                    .join("state.json");
+                fs::write(&temp_path, b"new").expect("seed replacement");
 
-            let error = handle_windows_replace_failure(
-                io::Error::from_raw_os_error(ERROR_UNABLE_TO_MOVE_REPLACEMENT),
-                &temp_path,
-                &path,
-            )
-            .expect_err("recovery rename should fail");
+                let error = handle_windows_replace_failure(
+                    io::Error::from_raw_os_error(code),
+                    &temp_path,
+                    &path,
+                )
+                .expect_err("recovery rename should fail");
 
-            assert!(
-                matches!(error, AtomicWriteError::Replace { source, .. } if source.kind() == io::ErrorKind::NotFound)
-            );
-            assert!(
-                !temp_path.exists(),
-                "failed recovery should remove the temp file"
-            );
+                assert!(
+                    matches!(error, AtomicWriteError::Replace { source, .. } if source.kind() == io::ErrorKind::NotFound)
+                );
+                assert!(
+                    temp_path.exists(),
+                    "failed recovery should preserve the temp file"
+                );
+            }
         }
 
         #[test]
@@ -735,10 +783,7 @@ mod tests {
             let path = directory.path.join("state.json");
             fs::write(&path, b"old").expect("seed destination");
 
-            for code in [
-                ERROR_UNABLE_TO_REMOVE_REPLACED,
-                ERROR_UNABLE_TO_MOVE_REPLACEMENT_2,
-            ] {
+            for code in [ERROR_UNABLE_TO_REMOVE_REPLACED, 87] {
                 let temp_path = directory.path.join(format!("replacement-{code}.tmp"));
                 fs::write(&temp_path, b"new").expect("seed replacement");
 
@@ -759,14 +804,16 @@ mod tests {
         }
 
         #[test]
-        fn only_the_move_replacement_error_is_recoverable() {
-            assert!(is_recoverable_windows_partial_replace_failure(
-                &io::Error::from_raw_os_error(ERROR_UNABLE_TO_MOVE_REPLACEMENT)
-            ));
+        fn only_partial_move_errors_are_recoverable() {
             for code in [
-                ERROR_UNABLE_TO_REMOVE_REPLACED,
+                ERROR_UNABLE_TO_MOVE_REPLACEMENT,
                 ERROR_UNABLE_TO_MOVE_REPLACEMENT_2,
             ] {
+                assert!(is_recoverable_windows_partial_replace_failure(
+                    &io::Error::from_raw_os_error(code)
+                ));
+            }
+            for code in [ERROR_UNABLE_TO_REMOVE_REPLACED, 87] {
                 assert!(!is_recoverable_windows_partial_replace_failure(
                     &io::Error::from_raw_os_error(code)
                 ));
