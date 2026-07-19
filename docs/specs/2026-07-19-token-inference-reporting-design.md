@@ -121,6 +121,8 @@ Pack mappings should follow ecosystem syntax while producing the same outcomes:
 - React maps individual inline-style property names such as `padding`, `gap`, `width`, `height`, `fontSize`, and `borderRadius`.
 - Swift distinguishes modifier names and labeled arguments such as `padding`, `spacing`, `width`, `height`, `size`, and `cornerRadius`.
 
+Compose has no general margin modifier, so it does not synthesize `margin` observations. This is an ecosystem capability difference, not a parity failure; every pack must produce equivalent contexts where its source language exposes the concept.
+
 When a parser recognizes a styling literal but cannot assign a more precise context, it emits `unknown`. It must not guess a context from the numeric value.
 
 ## Derived Inference Contract
@@ -158,9 +160,11 @@ Evidence values are typed and initially include:
 - `incompatible_units`
 - `outside_numeric_tolerance`
 
-Raw facts are never removed or rewritten. Derived rows refer to raw facts by stable site id. `wax-contract` validates that every inference row refers to a known hard-coded site in the named language and that suggestions refer to known tokens from the same language and category.
+Raw facts are never removed or rewritten. Derived rows refer to raw facts by stable site id. `wax-contract` validates a bijection between raw hard-coded sites and inference rows: raw `(language, site_id)` keys are unique, every raw site has exactly one row, every row resolves to a raw site in the named language, and duplicate inference `(language, site_id)` pairs are invalid. `hardcoded_observation_count` must equal both the number of inference rows and the total number of raw `hardcoded_style_sites` across all languages. Suggestions must refer to known tokens from the same language and category.
 
 Exact and near rows must have at least one suggestion and a confidence value. Unmatched and unassessed rows must have no suggestions or confidence. Every suggestion's match kind must agree with its row classification.
+
+For suggestion distance, numeric exact matches use `distance: 0`, numeric near matches use their finite nonzero absolute distance, and nonnumeric exact matches omit distance. This keeps distance meaningful without inventing a scalar for text-normalized values.
 
 ## Matching Semantics
 
@@ -260,9 +264,15 @@ CLI and `wax-scan` reports should present:
 5. Unassessed observations as a registry-metadata gap.
 6. Ranked suggestions with source location, usage context, observed value, canonical token and value, distance, confidence, and evidence.
 
+Inference rows intentionally contain only the stable raw-site key rather than duplicating observation details. Reporters must join each row to the corresponding language's `hardcoded_style_sites[]` on `(language, site_id)` before rendering context, observed value, or source location. A missing or duplicate join is a contract error: CLI and `wax-scan` fail closed instead of rendering a partial or misleading finding.
+
 The current `token_reference_ratio` is removed from headline reporting. Because it treats every hard-coded observation as equivalent debt, scan contract v3 should remove the metric rather than silently change its denominator. The replacement contract deliberately exposes factual counts without introducing a new composite ratio.
 
 Fixed dimensions are therefore retained but discounted correctly: they appear as confirmed or possible candidates only when registry values support that conclusion. Otherwise they remain unmatched informational observations or unassessed metadata gaps.
+
+### First-run behavior
+
+Existing registries remain valid without canonical token values, but the first schema-v3 scan of such a registry will classify its hard-coded observations as `unassessed`, not `unmatched`. This is an expected cutover state: no value metadata means Wax cannot prove that a site is outside the token set. Reports should explain that `wax-registry-discover` can propose reviewed canonical values; after approved values are written and synced, a fresh scan can produce exact, near, or genuinely unmatched results.
 
 ## Registry Maintenance Skill
 
@@ -293,6 +303,7 @@ AI-derived values remain authoring suggestions. They become deterministic scan i
 - Ambiguous equal matches remain visible and lower confidence.
 - Arithmetic and parsing failures must not produce partial suggestions; affected rows become unassessed with typed evidence.
 - Inference rows and summary counts use deterministic ordering.
+- A reporting join that cannot resolve exactly one raw site for an inference row fails closed.
 
 ## Compatibility and Versioning
 
@@ -310,6 +321,7 @@ AI-derived values remain authoring suggestions. They become deterministic scan i
 
 - Round-trip canonical token values, style contexts, inference rows, suggestions, evidence, and counts.
 - Reject invalid site/token/category links, invalid confidence/classification combinations, and inconsistent summaries.
+- Reject duplicate raw-site keys, missing inference rows, duplicate inference `(language, site_id)` rows, extra rows, and raw/inference count mismatches.
 - Verify old registries and configs without the new optional fields remain valid.
 - Verify scan schema v2 is rejected where v3 is required rather than interpreted with new semantics.
 
@@ -333,6 +345,8 @@ AI-derived values remain authoring suggestions. They become deterministic scan i
 - Verify exact, near, unmatched, and unassessed sections remain separate in terminal and HTML output.
 - Verify unmatched and unassessed observations do not appear as token debt.
 - Verify report rows include context, evidence, distance, and confidence.
+- Verify reporters join inference rows to raw sites and fail on missing or duplicate joins.
+- Verify a schema-v3 first run against a registry without token values reports every raw site as unassessed and points to the reviewed registry-maintenance flow.
 - Test registry refresh dry runs, reviewed writes, preservation rules, validation, sync, and scan reruns.
 - Update representative merged-scan fixtures, extractor goldens, report rendering tests, and screenshots.
 
@@ -340,8 +354,8 @@ AI-derived values remain authoring suggestions. They become deterministic scan i
 
 This work should be delivered as a new roadmap plan after the current active-plan gates permit it or the maintainer explicitly promotes it:
 
-1. Contract v3, registry value, config, schemas, and fixtures.
-2. Core normalization, inference, validation, and counts.
+1. Contract v3, optional registry value, raw context shape, validation, fixtures, and a complete unassessed merge stub.
+2. Repo config, core normalization, inference, validation, and counts, replacing the contract-cutover stub.
 3. Compose, React, and Swift context parity.
 4. CLI and `wax-scan` deterministic reporting.
 5. `wax-registry-discover` token-value maintenance and delegated refresh flow.

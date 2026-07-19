@@ -35,6 +35,9 @@
 - Use branch names such as `dai/token-inference-contract-v3` and conventional commits without AI/tool attribution.
 - Tick the task completion checkbox and every completed step in the same PR.
 - Do not begin implementation while the roadmap's active-plan gate blocks this plan unless the maintainer explicitly promotes it.
+- The top-level File Structure is the inventory for the full plan; each task's Files section is authoritative for that task PR, including mechanical cutover files discovered by its inventory step.
+
+**Intermediate PR behavior:** Task 1 must leave every merged scan valid by emitting one `unassessed` row per raw hard-coded site. Task 2 replaces that complete stub with configured deterministic inference; there is no intermediate state where nonempty raw sites may carry an empty inference report.
 
 ## Reference Spec
 
@@ -67,8 +70,10 @@
 - Modify: `engine/crates/wax-contract/src/lib.rs`
 - Modify: `engine/crates/wax-contract/schemas/scan-facts.schema.json`
 - Modify: `engine/crates/wax-lang-api/src/token_registry.rs`
+- Modify: `engine/crates/wax-core/src/adoption_merge.rs`
 - Modify: `engine/crates/wax-contract/tests/schema_roundtrip.rs`
 - Modify: `engine/crates/wax-lang-api/tests/token_registry.rs`
+- Modify: `engine/crates/wax-core` merge tests found by Step 1
 - Modify: affected Rust fixture constructors and embedded scan JSON found by Step 1
 
 **Interfaces:**
@@ -240,17 +245,21 @@ In `parse_registry_tokens`, parse `value` as an optional non-empty string and pr
 Extend `MergedScan::validate` to enforce:
 
 ```text
-row language exists; site id resolves in that language
+every raw hard-coded site has exactly one inference row
+raw (language, site_id) keys are unique
+every row language exists and its site id resolves in that language
+duplicate (language, site_id) pairs are invalid
 suggested token exists in the same language and category
 exact/near rows have suggestions and confidence
 unmatched/unassessed rows have neither
 suggestion match kind agrees with classification
-distance is finite and non-negative
+exact distance is absent or 0; near distance is finite and positive
 assessed = exact + near + unmatched
 observations = assessed + unassessed
+hardcoded_observation_count = inference row count = total raw hard-coded site count
 ```
 
-Add one negative test per invariant with exact `ContractViolation` field paths.
+Add one negative test per invariant with exact `ContractViolation` field paths. Include duplicate-raw-key, missing-row, duplicate-row, extra-row, and raw-count mismatch tests so an empty inference report cannot validate when raw sites exist. Task 2's inference tests enforce the stronger builder rule that numeric exact matches emit `Some(0.0)` while nonnumeric exact matches emit `None`.
 
 - [ ] **Step 7: Publish the per-language schema-v3 JSON shape**
 
@@ -258,7 +267,11 @@ Update the schema id and required version to `3`, require `hardcoded_style_site.
 
 - [ ] **Step 8: Complete the mechanical workspace cutover**
 
-For each Step 1 match, add `value: None`, use `StyleContext::Unknown` until Task 3, remove ratio fields/assertions, initialize merged inference with tolerance `2.0`, and update embedded scan facts to v3. Re-run Step 1; only explicit v2 incompatibility tests may remain.
+For each Step 1 match, add `value: None`, use `StyleContext::Unknown` until Task 3, remove ratio fields/assertions, and update embedded scan facts to v3.
+
+In `adoption_merge.rs`, add a temporary private `build_unassessed_token_inference` helper used by the default merge path. It must emit exactly one row for every raw hard-coded site with `classification: Unassessed`, absent confidence, no suggestions, and `MissingCanonicalValues` evidence; set tolerance to `2.0` and derive counts so `hardcoded_observation_count == unassessed_observation_count == total raw sites`. Task 2 replaces this stub with deterministic matching. Add a merge test proving nonempty raw sites cannot produce an empty report.
+
+Re-run Step 1; only explicit v2 incompatibility tests may remain.
 
 - [ ] **Step 9: Verify and commit**
 
@@ -267,8 +280,9 @@ cd engine
 cargo fmt --all
 cargo test -p wax-contract
 cargo test -p wax-lang-api
+cargo test -p wax-core
 cargo check --workspace --all-targets
-cargo clippy -p wax-contract -p wax-lang-api --all-targets -- -D warnings
+cargo clippy -p wax-contract -p wax-lang-api -p wax-core --all-targets -- -D warnings
 cd ..
 git add engine docs/plans/2026-07-19-token-inference-reporting-plan.md
 git commit -m "feat: add token inference contract v3"
@@ -343,7 +357,7 @@ Create `token_inference.rs` tests for:
 ```text
 Compose 4.dp vs 4dp = exact; 4.dp vs 4.sp = incompatible
 React width 4 vs 4px = exact; 1rem vs 16px = incompatible
-React color "#FFF" vs #fff = exact
+React color "#FFF" vs #fff = exact with distance absent
 Swift gap 3 vs 4 = numeric distance 1
 ```
 
@@ -399,7 +413,7 @@ pub fn build_token_inference(
 ) -> Result<TokenInferenceReport, ScanFactsError>;
 ```
 
-Emit one row per raw site, prefer exact matches, require complete usable category values before near/unmatched, keep only nearest ties, apply the confidence table, sort by language/location/site id, and derive site counts from the finished rows.
+Emit one row per raw site, prefer exact matches, require complete usable category values before near/unmatched, keep only nearest ties, apply the confidence table, sort by language/location/site id, and derive site counts from the finished rows. Numeric exact suggestions use `Some(0.0)`, numeric near suggestions use their positive absolute distance, and nonnumeric exact suggestions use `None`.
 
 - [ ] **Step 8: Integrate explicit merge options**
 
@@ -417,7 +431,7 @@ pub fn merge_language_scans_with_options(
 ) -> Result<MergedScan, ScanFactsError>;
 ```
 
-Keep `merge_language_scans` as a default test convenience. Pass config from `Engine::scan` into the new options and populate `MergedScan.token_inference` after raw facts are recomputed.
+Replace Task 1's `build_unassessed_token_inference` stub with this deterministic builder. Keep `merge_language_scans` as a default test convenience. Pass config from `Engine::scan` into the new options and populate `MergedScan.token_inference` after raw facts are recomputed.
 
 - [ ] **Step 9: Add end-to-end scan output coverage**
 
@@ -484,7 +498,7 @@ Replace category-only lookup with:
 ```rust
 fn compose_style_metadata(call: &str) -> Option<(TokenCategory, StyleContext)> {
     match call {
-        "Color" | "background" | "border" => Some((TokenCategory::Color, StyleContext::Color)),
+        "Color" | "background" => Some((TokenCategory::Color, StyleContext::Color)),
         "padding" => Some((TokenCategory::Spacing, StyleContext::Padding)),
         "size" => Some((TokenCategory::Spacing, StyleContext::Size)),
         "width" => Some((TokenCategory::Spacing, StyleContext::Width)),
@@ -498,7 +512,9 @@ fn compose_style_metadata(call: &str) -> Option<(TokenCategory, StyleContext)> {
 }
 ```
 
-Preserve direct-argument scoping and preview exclusions.
+Preserve direct-argument scoping and preview exclusions. Do not map the outer `border` call itself: its arguments can represent color, width, or shape, and nested `Color` values are already detected independently. Defer border-width context until argument-role parsing can distinguish it safely.
+
+Compose does not expose a general margin modifier, so no Compose margin fixture is required. Treat that as an ecosystem capability absence while maintaining parity for concepts shared across the packs.
 
 - [ ] **Step 4: Implement React property metadata**
 
@@ -577,7 +593,9 @@ Read `merged.token_inference.counts`. Print up to five exact/near rows sorted by
   src/Card.tsx:12 padding 4px -> spacing.s (exact, very high)
 ```
 
-Keep unmatched rows out of the ranked migration list. When unassessed is nonzero, print `Run wax-registry-discover to review missing canonical token values.`
+Before rendering details, build a raw-site index keyed by `(language, site_id)` from each language's `hardcoded_style_sites[]`. Require every inference row to resolve to exactly one raw site and read source location, context, and observed value from that joined raw record. A missing or duplicate join returns an error and suppresses the report instead of printing partial findings.
+
+Keep unmatched rows out of the ranked migration list. When unassessed is nonzero, print `Run wax-registry-discover to review missing canonical token values.` Add a first-run test using a registry whose tokens have no `value`: every raw site is unassessed, no unmatched claim is printed, and the maintenance guidance is present.
 
 - [ ] **Step 3: Add a schema-v3 report fixture and failing assertions**
 
@@ -594,15 +612,15 @@ Expected before extractor changes: FAIL because schema 3 and token inference out
 
 - [ ] **Step 4: Update the deterministic extractor**
 
-Require scan schema `3`, set insights schema to `3`, and add:
+Require scan schema `3` and set insights schema to `3`. Build a unique raw-site lookup keyed by `(language, site_id)`, reject duplicate raw keys, and fail if any inference row has zero or multiple matches. Enrich each emitted finding with the joined raw `location`, `context`, and observed `value`; do not trust or synthesize those fields from the inference row. Then add the four classification arrays:
 
 ```jq
 token_inference: {
   summary: .token_inference.counts,
-  confirmed_candidates: [.token_inference.sites[] | select(.classification == "exact")],
-  possible_candidates: [.token_inference.sites[] | select(.classification == "near")],
-  unmatched_observations: [.token_inference.sites[] | select(.classification == "unmatched")],
-  unassessed_observations: [.token_inference.sites[] | select(.classification == "unassessed")]
+  confirmed_candidates: [$enriched[] | select(.classification == "exact")],
+  possible_candidates: [$enriched[] | select(.classification == "near")],
+  unmatched_observations: [$enriched[] | select(.classification == "unmatched")],
+  unassessed_observations: [$enriched[] | select(.classification == "unassessed")]
 }
 ```
 
@@ -610,7 +628,7 @@ Sort candidates by `very_high`, `high`, `medium`, `low`, then language/file/line
 
 - [ ] **Step 5: Extend HTML rendering with escaped token tables**
 
-Add sections for confirmed token migrations, possible token migrations, and registry metadata gaps. Rows contain context, observed value, token key, canonical value, distance, confidence, and source location. Show unmatched only as a secondary informational count. Pass every scan-derived string through `html-escape.sh` before template substitution.
+Add sections for confirmed token migrations, possible token migrations, and registry metadata gaps. Rows contain the joined raw context, observed value, and source location plus token key, canonical value, distance, confidence, and evidence from inference. Show unmatched only as a secondary informational count. Pass every scan-derived string through `html-escape.sh` before template substitution.
 
 - [ ] **Step 6: Update skill and reference semantics**
 
@@ -622,9 +640,10 @@ Near rows are deterministic possible migration candidates.
 Unmatched rows are informational observations, not debt.
 Unassessed rows are registry metadata gaps and may trigger wax-registry-discover.
 Never synthesize a replacement confidence that disagrees with token_inference.
+Join inference to raw observations by (language, site_id); fail closed if the join is missing or ambiguous.
 ```
 
-Remove any headline use of the retired token ratio and any combined exact/near debt count.
+Remove any headline use of the retired token ratio and any combined exact/near debt count. Explain that existing registries without canonical values initially produce unassessed findings until reviewed values are added and a fresh scan runs.
 
 - [ ] **Step 7: Verify scripts and rendered HTML**
 
@@ -669,6 +688,7 @@ Expected: all commands exit `0`; CLI and HTML use the same classifications.
 **Files:**
 - Modify: `skills/wax-registry-discover/SKILL.md`
 - Create: `skills/wax-registry-discover/token-value-maintenance.md`
+- Create: `skills/wax-registry-discover/examples/token-value-refresh.md`
 - Modify: `skills/wax-scan/SKILL.md`
 - Modify: `skills/wax-scan/reference.md`
 - Create: `scripts/test-wax-registry-skill-contract.sh`
@@ -695,11 +715,17 @@ require_text "skills/wax-registry-discover/SKILL.md" "structured diff"
 require_text "skills/wax-registry-discover/SKILL.md" "explicit approval"
 require_text "skills/wax-registry-discover/SKILL.md" "Never delete"
 require_text "skills/wax-registry-discover/token-value-maintenance.md" "source evidence"
+require_text "skills/wax-registry-discover/examples/token-value-refresh.md" "Before registry"
+require_text "skills/wax-registry-discover/examples/token-value-refresh.md" "Proposed diff"
+require_text "skills/wax-registry-discover/examples/token-value-refresh.md" "Explicit approval"
+require_text "skills/wax-registry-discover/examples/token-value-refresh.md" "After registry"
 require_text "skills/wax-scan/SKILL.md" "unassessed"
 require_text "skills/wax-scan/SKILL.md" "wax-registry-discover"
 ```
 
-Expected before documentation changes: FAIL because the token maintenance reference is missing.
+Also extract the labeled before/after registry JSON blocks from the golden workflow into temporary files and use `jq -e` to assert: both parse; the before token has no `value`; the after token has the expected canonical value; ids, keys, categories, aliases, and metadata are unchanged; and the after token/component counts are not lower. This makes the smoke test enforce the promised preservation behavior rather than only checking prose keywords.
+
+Expected before documentation changes: FAIL because the token maintenance reference and golden workflow are missing.
 
 - [ ] **Step 2: Define direct and delegated entry points**
 
@@ -719,6 +745,8 @@ Require every proposal to show language, token id/key/category, current value, p
 - [ ] **Step 4: Define the reviewed write workflow**
 
 Run deterministic component discovery in preview mode, compare with the current registry, inspect token source, and show separate diff groups for component changes, token additions, values filled, values changed, and potential removals. Require approval for additions/changes and separate approval for removals. Preserve ids, keys, aliases, categories, metadata, and values outside the approved diff. Use `apply_patch` for registry edits.
+
+Add `examples/token-value-refresh.md` as a golden end-to-end workflow showing: a before registry whose token lacks `value`; the source declaration and line used as evidence; a proposed structured diff that fills the canonical value; the explicit approval boundary; the after registry; validation/sync/rescan results; and confirmation that no registry entries were deleted. The skill-contract test must assert these sections exist so verification covers behavior, not only isolated keywords.
 
 - [ ] **Step 5: Define validation, sync, and rerun behavior**
 
@@ -740,7 +768,7 @@ Then regenerate the report. A failed write or validation leaves the previous reg
 
 - [ ] **Step 6: Make wax-scan delegation explicit**
 
-Report unassessed counts, explain missing metadata, offer maintenance, delegate only after acceptance, never insert inferred values directly into metrics, and rerun a fresh scan after successful maintenance.
+Report unassessed counts, explain missing metadata, offer maintenance, delegate only after acceptance, never insert inferred values directly into metrics, and rerun a fresh scan after successful maintenance. Describe reviewed value maintenance as the unlock from the expected first-run all-unassessed state: only the fresh post-sync scan may reclassify observations as exact, near, or unmatched.
 
 - [ ] **Step 7: Verify and commit**
 
