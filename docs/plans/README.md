@@ -65,7 +65,7 @@ Orders 1-4, 6-10, 12, and 13 are **complete**. Post-alpha UX (order 5) remains o
 | 11 | `dai/adoption-metrics-v2-contract` | [#165](https://github.com/Daio-io/wax/pull/165) | Adoption Metrics v2 design and contract |
 | 12 | `dai/registry-sync-config-plan` | #195 (merged) | Registry sync and config v2 design and implementation plan |
 | 13 | `dai/token-scanning-plan` | #194 (merged) | Token scanning design and implementation plan |
-| 14 | `dai/token-inference-reporting-design` | pending | Token inference/reporting design and implementation plan |
+| 14 | `dai/token-inference-reporting-design` | [#230](https://github.com/Daio-io/wax/pull/230) | Token inference/reporting design and implementation plan |
 
 ---
 
