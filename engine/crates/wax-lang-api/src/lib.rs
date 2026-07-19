@@ -26,6 +26,7 @@ pub mod import_resolution;
 pub mod protocol;
 pub mod root_patterns;
 pub mod server;
+pub mod timing;
 pub mod token_registry;
 
 pub use build_info::build_version;
@@ -48,6 +49,7 @@ pub use root_patterns::{
     resolve_source_roots,
 };
 pub use server::{WirePackHandler, WireServerError, serve_one};
+pub use timing::parse_extract_millis;
 pub use token_registry::{
     RegistryTokenIndex, TokenMatch, TokenRegistryError, find_token_matches, parse_registry_tokens,
     token_index,
