@@ -1,13 +1,14 @@
 //! ScanFacts assembly for React scans.
 
 use std::path::Path;
+use std::time::Instant;
 
 use time::OffsetDateTime;
 use wax_contract::{
     CountSummary, Diagnostic, DiagnosticSeverity, LanguageId, LanguageMetadata, Metrics,
     SCHEMA_VERSION, ScanFacts, ScanStatus,
 };
-use wax_lang_api::{ScanRequest, build_version};
+use wax_lang_api::{ScanRequest, build_version, parse_extract_millis};
 
 use crate::config::ReactScanConfig;
 use crate::diagnostics::is_gap_diagnostic;
@@ -68,6 +69,7 @@ pub fn configured_scan_facts(
     repo_root: &Path,
     config: &ReactScanConfig,
 ) -> Result<ScanFacts, ReactParseError> {
+    let started = Instant::now();
     let ReactSourceFileCollection {
         files,
         root_diagnostics,
@@ -108,6 +110,7 @@ pub fn configured_scan_facts(
     diagnostics.extend(usage_extraction.diagnostics);
 
     let status = scan_status(&diagnostics);
+    let parse_extract_ms = parse_extract_millis(started.elapsed(), files_scanned);
 
     Ok(ScanFacts {
         schema_version: SCHEMA_VERSION,
@@ -123,7 +126,7 @@ pub fn configured_scan_facts(
             invocation_adoption_ratio: None,
             registry_resolution_ratio: None,
             token_reference_ratio: None,
-            parse_extract_ms: 0,
+            parse_extract_ms,
             files_scanned,
         },
         counts: CountSummary::default(),
