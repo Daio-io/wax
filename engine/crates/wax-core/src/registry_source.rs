@@ -3,6 +3,7 @@
 use crate::config::repo_files::{
     REGISTRY_CACHE_RELATIVE_DIR, default_registry_path_for_language_id,
 };
+use crate::{AtomicWriteError, AtomicWriteOptions, write_atomically};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -173,6 +174,17 @@ pub enum RegistrySourceError {
         #[source]
         io: std::io::Error,
     },
+    /// External registry cache could not be atomically replaced.
+    #[error("failed to atomically materialize registry source {input} to {path}: {source}")]
+    CacheAtomicWrite {
+        /// Source string.
+        input: String,
+        /// Target cache path.
+        path: String,
+        /// Underlying atomic-write failure.
+        #[source]
+        source: Box<AtomicWriteError>,
+    },
 }
 
 /// Resolves a registry source and returns the local repo-relative materialized path.
@@ -186,8 +198,9 @@ pub enum RegistrySourceError {
 /// [`RegistrySourceError::Read`], [`RegistrySourceError::Fetch`], or
 /// [`RegistrySourceError::HttpStatus`] for I/O and HTTP failures;
 /// [`RegistrySourceError::MalformedJson`] or [`RegistrySourceError::InvalidShape`]
-/// for invalid registry JSON; and [`RegistrySourceError::CacheWrite`] when an
-/// external registry cannot be materialized locally.
+/// for invalid registry JSON; and [`RegistrySourceError::CacheWrite`] or
+/// [`RegistrySourceError::CacheAtomicWrite`] when an external registry cannot
+/// be materialized locally.
 pub fn resolve_registry_source(
     input: RegistrySourceInput<'_>,
 ) -> Result<ResolvedRegistrySource, RegistrySourceError> {
@@ -362,19 +375,12 @@ fn materialize_external_registry(
     ensure_cache_directory_within_repo(repo_root, parent, source)?;
     reject_symlink_path(&path, source)?;
 
-    let temp_path = parent.join(format!(
-        ".tmp-{language_id}-{sha256}-{}",
-        std::process::id()
-    ));
-    fs::write(&temp_path, bytes).map_err(|io| RegistrySourceError::CacheWrite {
-        input: source.to_owned(),
-        path: temp_path.display().to_string(),
-        io,
-    })?;
-    fs::rename(&temp_path, &path).map_err(|io| RegistrySourceError::CacheWrite {
-        input: source.to_owned(),
-        path: path.display().to_string(),
-        io,
+    write_atomically(&path, bytes, AtomicWriteOptions::default()).map_err(|atomic_error| {
+        RegistrySourceError::CacheAtomicWrite {
+            input: source.to_owned(),
+            path: path.display().to_string(),
+            source: Box::new(atomic_error),
+        }
     })?;
 
     Ok(repo_relative_path)

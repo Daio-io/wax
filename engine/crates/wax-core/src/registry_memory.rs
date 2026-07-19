@@ -16,6 +16,7 @@ use crate::registry_source::{
     RegistrySourceError, is_external_registry_source, reject_repo_relative_registry_path_escape,
     validate_repo_relative_registry_path_within_repo,
 };
+use crate::{AtomicWriteError, AtomicWriteOptions, write_atomically};
 
 /// Repo-relative path recorded for remembered design systems.
 pub const LAST_SEEN_CONFIG_RELATIVE_PATH: &str = PREFERRED_CONFIG_RELATIVE_PATH;
@@ -82,6 +83,15 @@ pub enum RegistryMemoryError {
         /// Underlying I/O or parse failure.
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
+    },
+    /// Atomic replacement of a Wax config or registry file failed.
+    #[error("failed to atomically update wax file at {path}: {source}")]
+    AtomicWrite {
+        /// Destination path.
+        path: String,
+        /// Atomic-write failure.
+        #[source]
+        source: AtomicWriteError,
     },
     /// Remembered registry source path is invalid or escapes the design-system repo.
     #[error(transparent)]
@@ -340,8 +350,9 @@ pub fn resolve_remembered_registry(
 ///
 /// Returns [`RegistryMemoryError::RegistrySource`] when the source path is
 /// unsafe or escapes the design-system repository, or
-/// [`RegistryMemoryError::ConfigUpdate`] when the source cannot be read or the
-/// app destination cannot be created or written.
+/// [`RegistryMemoryError::ConfigUpdate`] when the source cannot be read, or
+/// [`RegistryMemoryError::AtomicWrite`] when the app destination cannot be
+/// created or written atomically.
 pub fn copy_design_system_registry_to_app(
     remembered: &RememberedDesignSystemSummary,
     design_system_local_source: &str,
@@ -359,17 +370,14 @@ pub fn copy_design_system_registry_to_app(
             path: source_path.display().to_string(),
             source: Box::new(source),
         })?;
-    if let Some(parent) = destination_path.parent() {
-        fs::create_dir_all(parent).map_err(|source| RegistryMemoryError::ConfigUpdate {
-            path: destination_display.clone(),
-            source: Box::new(source),
-        })?;
-    }
-    fs::write(&destination_path, format!("{contents}\n")).map_err(|source| {
-        RegistryMemoryError::ConfigUpdate {
-            path: destination_display,
-            source: Box::new(source),
-        }
+    write_atomically(
+        &destination_path,
+        format!("{contents}\n").as_bytes(),
+        AtomicWriteOptions::default(),
+    )
+    .map_err(|source| RegistryMemoryError::AtomicWrite {
+        path: destination_display,
+        source,
     })?;
     Ok(())
 }
@@ -526,27 +534,20 @@ fn write_config(
     path_display: &str,
     config: &Value,
 ) -> Result<(), RegistryMemoryError> {
-    if let Some(parent) = config_path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-    {
-        fs::create_dir_all(parent).map_err(|source| RegistryMemoryError::ConfigUpdate {
-            path: path_display.to_owned(),
-            source: Box::new(source),
-        })?;
-    }
-
     let serialized = serde_json::to_string_pretty(config).map_err(|source| {
         RegistryMemoryError::ConfigUpdate {
             path: path_display.to_owned(),
             source: Box::new(source),
         }
     })?;
-    fs::write(config_path, format!("{serialized}\n")).map_err(|source| {
-        RegistryMemoryError::ConfigUpdate {
-            path: path_display.to_owned(),
-            source: Box::new(source),
-        }
+    write_atomically(
+        config_path,
+        format!("{serialized}\n").as_bytes(),
+        AtomicWriteOptions::default(),
+    )
+    .map_err(|source| RegistryMemoryError::AtomicWrite {
+        path: path_display.to_owned(),
+        source,
     })?;
     Ok(())
 }

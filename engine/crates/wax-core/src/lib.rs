@@ -2,6 +2,10 @@
 
 //! Core engine functionality for wax.
 
+mod atomic_file;
+/// Shared durable-write types for the CLI's lockfile persistence boundary.
+#[doc(hidden)]
+pub use atomic_file::{AtomicWriteError, AtomicWriteOptions, write_atomically};
 pub mod adoption_merge;
 pub mod auto_install;
 pub mod config;
@@ -33,9 +37,7 @@ use progress::{ScanProgress, ScanProgressEvent};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
-use std::fs::{File, OpenOptions};
 use std::io;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -51,20 +53,6 @@ use wax_contract::{LanguageId, MergedScan, ScanFacts};
 use wax_lang_api::{ScanConfig, ScanRequest, ScanRequestType, WIRE_API_VERSION};
 
 const DEFAULT_SCAN_TIMEOUT: Duration = Duration::from_secs(120);
-const MAX_SCAN_OUTPUT_TEMP_ATTEMPTS: u32 = 1000;
-
-#[cfg(windows)]
-use std::os::windows::ffi::OsStrExt;
-#[cfg(windows)]
-use std::ptr;
-
-#[cfg(windows)]
-const ERROR_UNABLE_TO_REMOVE_REPLACED: i32 = 1175;
-#[cfg(windows)]
-const ERROR_UNABLE_TO_MOVE_REPLACEMENT: i32 = 1176;
-#[cfg(windows)]
-const ERROR_UNABLE_TO_MOVE_REPLACEMENT_2: i32 = 1177;
-
 #[derive(Debug, Deserialize)]
 struct InstalledManifestFile {
     id: LanguageId,
@@ -224,6 +212,9 @@ pub enum EngineError {
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
     },
+    /// Atomic scan-output replacement failed.
+    #[error(transparent)]
+    AtomicWrite(#[from] AtomicWriteError),
     /// Scan facts failed contract validation during merge.
     #[error(transparent)]
     ScanFacts(#[from] wax_contract::ScanFactsError),
@@ -675,189 +666,14 @@ fn write_json_atomic<T>(path: &Path, value: &T) -> Result<(), EngineError>
 where
     T: Serialize,
 {
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    create_output_dir(parent)?;
-    let (tmp_path, mut file) = create_temp_output_file(path)?;
-
-    let result = (|| {
-        serde_json::to_writer_pretty(&mut file, value)?;
-        file.write_all(b"\n")?;
-        file.sync_all()?;
-        drop(file);
-        replace_output_file(&tmp_path, path)?;
-        Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
-    })();
-
-    match result {
-        Ok(()) => Ok(()),
-        Err(source) => {
-            remove_failed_scan_output_temp_file(&tmp_path, source.as_ref());
-            Err(EngineError::ScanOutput {
-                path: path.display().to_string(),
-                source,
-            })
-        }
-    }
-}
-
-#[cfg(not(windows))]
-fn remove_failed_scan_output_temp_file(
-    tmp_path: &Path,
-    _source: &(dyn std::error::Error + Send + Sync + 'static),
-) {
-    let _ = fs::remove_file(tmp_path);
-}
-
-#[cfg(windows)]
-fn remove_failed_scan_output_temp_file(
-    tmp_path: &Path,
-    source: &(dyn std::error::Error + Send + Sync + 'static),
-) {
-    if let Some(source) = source.downcast_ref::<io::Error>()
-        && is_documented_windows_partial_scan_output_replace_failure(source)
-    {
-        return;
-    }
-
-    let _ = fs::remove_file(tmp_path);
-}
-
-fn create_temp_output_file(path: &Path) -> Result<(PathBuf, File), EngineError> {
-    let temp_stem = new_snapshot_id();
-    for attempt in 0..MAX_SCAN_OUTPUT_TEMP_ATTEMPTS {
-        let tmp_path = temp_output_path(path, &temp_stem, attempt);
-        match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&tmp_path)
-        {
-            Ok(file) => return Ok((tmp_path, file)),
-            Err(source) if source.kind() == io::ErrorKind::AlreadyExists => {}
-            Err(source) => {
-                return Err(EngineError::ScanOutput {
-                    path: path.display().to_string(),
-                    source: Box::new(source),
-                });
-            }
-        }
-    }
-
-    Err(EngineError::ScanOutput {
-        path: path.display().to_string(),
-        source: Box::new(io::Error::new(
-            io::ErrorKind::AlreadyExists,
-            "could not allocate unique temporary scan output path",
-        )),
-    })
-}
-
-fn temp_output_path(path: &Path, temp_stem: &str, attempt: u32) -> PathBuf {
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    let file_name = path
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("scan-output");
-    parent.join(format!(
-        ".{file_name}.{}.{temp_stem}.{attempt}.tmp",
-        std::process::id(),
-    ))
-}
-
-#[cfg(not(windows))]
-fn replace_output_file(tmp_path: &Path, path: &Path) -> io::Result<()> {
-    fs::rename(tmp_path, path)
-}
-
-#[cfg(windows)]
-fn replace_output_file(tmp_path: &Path, path: &Path) -> io::Result<()> {
-    if !path.exists() {
-        return fs::rename(tmp_path, path);
-    }
-
-    replace_existing_output_file(tmp_path, path)
-}
-
-#[cfg(windows)]
-fn replace_existing_output_file(tmp_path: &Path, path: &Path) -> io::Result<()> {
-    let replaced = wide_null(path.as_os_str());
-    let replacement = wide_null(tmp_path.as_os_str());
-
-    // SAFETY: `wide_null` creates owned, null-terminated UTF-16 buffers that stay
-    // live for this synchronous call. `0` is the documented no-options value; the
-    // three null pointers request no backup or optional structures. ReplaceFileW
-    // neither retains these pointers nor transfers ownership of their buffers.
-    let replaced = unsafe {
-        replace_file_w(
-            replaced.as_ptr(),
-            replacement.as_ptr(),
-            ptr::null(),
-            0,
-            ptr::null_mut(),
-            ptr::null_mut(),
-        )
-    };
-
-    if replaced == 0 {
-        let source = io::Error::last_os_error();
-        if recover_windows_partial_scan_output_replace_failure(&source, tmp_path, path)
-            .unwrap_or(false)
-        {
-            return Ok(());
-        }
-        return Err(source);
-    }
-
+    let mut contents =
+        serde_json::to_vec_pretty(value).map_err(|source| EngineError::ScanOutput {
+            path: path.display().to_string(),
+            source: Box::new(source),
+        })?;
+    contents.push(b'\n');
+    write_atomically(path, &contents, AtomicWriteOptions::default())?;
     Ok(())
-}
-
-#[cfg(windows)]
-fn recover_windows_partial_scan_output_replace_failure(
-    source: &io::Error,
-    tmp_path: &Path,
-    path: &Path,
-) -> io::Result<bool> {
-    if source.raw_os_error() == Some(ERROR_UNABLE_TO_MOVE_REPLACEMENT)
-        && !path.exists()
-        && tmp_path.exists()
-    {
-        fs::rename(tmp_path, path)?;
-        return Ok(true);
-    }
-
-    Ok(false)
-}
-
-#[cfg(windows)]
-fn is_documented_windows_partial_scan_output_replace_failure(source: &io::Error) -> bool {
-    matches!(
-        source.raw_os_error(),
-        Some(
-            ERROR_UNABLE_TO_REMOVE_REPLACED
-                | ERROR_UNABLE_TO_MOVE_REPLACEMENT
-                | ERROR_UNABLE_TO_MOVE_REPLACEMENT_2
-        )
-    )
-}
-
-#[cfg(windows)]
-fn wide_null(value: &std::ffi::OsStr) -> Vec<u16> {
-    value.encode_wide().chain(std::iter::once(0)).collect()
-}
-
-#[cfg(windows)]
-#[link(name = "kernel32")]
-// SAFETY: the declaration matches the Windows ReplaceFileW ABI and parameter
-// types. Call sites provide valid UTF-16 pointers and retain all buffer ownership.
-unsafe extern "system" {
-    #[link_name = "ReplaceFileW"]
-    fn replace_file_w(
-        replaced_file_name: *const u16,
-        replacement_file_name: *const u16,
-        backup_file_name: *const u16,
-        replace_flags: u32,
-        exclude: *mut std::ffi::c_void,
-        reserved: *mut std::ffi::c_void,
-    ) -> i32;
 }
 
 fn collect_installed_manifests(

@@ -711,18 +711,21 @@ fn discover_writes_language_specific_default_registry_path() {
     );
     assert!(!repo.path().join(".wax/wax.registry.json").exists());
 
-    let config: serde_json::Value = serde_json::from_str(
-        &fs::read_to_string(repo.path().join(".wax/wax.config.json")).unwrap(),
-    )
-    .unwrap();
+    let config_path = repo.path().join(".wax/wax.config.json");
+    let config_contents = fs::read_to_string(&config_path).unwrap();
+    assert!(config_contents.ends_with('\n'));
+    let config: serde_json::Value = serde_json::from_str(&config_contents).unwrap();
+    wax_core::config::waxrc::load_waxrc(&config_path).expect("production config reader");
     assert_eq!(
         config["languages"]["compose"]["registry"],
         ".wax/compose.registry.json"
     );
 
-    let lock: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(repo.path().join(".wax/wax.lock.json")).unwrap())
-            .unwrap();
+    let lock_path = repo.path().join(".wax/wax.lock.json");
+    let lock_contents = fs::read_to_string(&lock_path).unwrap();
+    assert!(lock_contents.ends_with('\n'));
+    let lock: serde_json::Value = serde_json::from_str(&lock_contents).unwrap();
+    wax_core::config::lockfile::load_lockfile(&lock_path).expect("production lockfile reader");
     assert_eq!(
         lock["registries"]["compose"]["source"],
         ".wax/compose.registry.json"

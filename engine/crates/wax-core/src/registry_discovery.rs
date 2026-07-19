@@ -2,9 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::fs::{File, OpenOptions};
 use std::io;
-use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
@@ -16,6 +14,7 @@ use wax_lang_api::{
     DiscoverRequest, DiscoverRequestType, DiscoveredRegistrySymbol, WIRE_API_VERSION,
 };
 
+use crate::atomic_file::write_atomically_no_clobber;
 use crate::auto_install::{InstalledManifest, installed_manifest_matches_locked};
 use crate::config::lockfile::{
     LockedRegistry, LockfileError, WAX_LOCK_SCHEMA_VERSION, WaxLock, load_lockfile,
@@ -31,22 +30,10 @@ use crate::registry_memory::{
 use crate::registry_source::is_external_registry_source;
 use crate::subprocess_discover::{DiscoverError, SubprocessLanguageDiscoverer};
 use crate::subprocess_lang::SubprocessLanguageManifest;
+use crate::{AtomicWriteError, AtomicWriteOptions, write_atomically};
 
 const REGISTRY_SCHEMA_VERSION: u32 = 1;
-const MAX_REGISTRY_TEMP_ATTEMPTS: u32 = 1000;
 const DEFAULT_DISCOVER_TIMEOUT: Duration = Duration::from_secs(120);
-
-#[cfg(windows)]
-use std::os::windows::ffi::OsStrExt;
-#[cfg(windows)]
-use std::ptr;
-
-#[cfg(windows)]
-const ERROR_UNABLE_TO_REMOVE_REPLACED: i32 = 1175;
-#[cfg(windows)]
-const ERROR_UNABLE_TO_MOVE_REPLACEMENT: i32 = 1176;
-#[cfg(windows)]
-const ERROR_UNABLE_TO_MOVE_REPLACEMENT_2: i32 = 1177;
 
 /// Inputs for registry discovery orchestration.
 #[derive(Debug, Clone)]
@@ -241,70 +228,9 @@ pub enum RegistryDiscoverError {
         /// Second symbol that collided with the same id.
         second_symbol: String,
     },
-    /// The output directory could not be created.
-    #[error("failed to create registry output directory for {path}: {source}")]
-    CreateDir {
-        /// Requested output path.
-        path: String,
-        /// Underlying I/O failure.
-        #[source]
-        source: io::Error,
-    },
-    /// A temporary file for atomic write could not be allocated.
-    #[error("failed to create temporary registry file {temp_path} for {path}: {source}")]
-    CreateTemp {
-        /// Final output path.
-        path: String,
-        /// Temporary path that failed to allocate.
-        temp_path: String,
-        /// Underlying I/O failure.
-        #[source]
-        source: io::Error,
-    },
-    /// Registry contents could not be written to the temporary file.
-    #[error("failed to write temporary registry file {temp_path} for {path}: {source}")]
-    WriteTemp {
-        /// Final output path.
-        path: String,
-        /// Temporary file path.
-        temp_path: String,
-        /// Underlying I/O failure.
-        #[source]
-        source: io::Error,
-    },
-    /// The temporary file could not be synced before rename.
-    #[error("failed to sync temporary registry file {temp_path} for {path}: {source}")]
-    SyncTemp {
-        /// Final output path.
-        path: String,
-        /// Temporary file path.
-        temp_path: String,
-        /// Underlying I/O failure.
-        #[source]
-        source: io::Error,
-    },
-    /// The temporary file could not be moved into place.
-    #[error("failed to replace registry file {path} with temporary file {temp_path}: {source}")]
-    Rename {
-        /// Final output path.
-        path: String,
-        /// Temporary file path.
-        temp_path: String,
-        /// Underlying I/O failure.
-        #[source]
-        source: io::Error,
-    },
-    /// The temporary file could not be linked into place without overwriting.
-    #[error("failed to publish registry file {path} from temporary file {temp_path}: {source}")]
-    PublishNoClobber {
-        /// Final output path.
-        path: String,
-        /// Temporary file path.
-        temp_path: String,
-        /// Underlying I/O failure.
-        #[source]
-        source: io::Error,
-    },
+    /// Atomic registry-output replacement failed.
+    #[error(transparent)]
+    AtomicWrite(#[from] AtomicWriteError),
     /// Config could not be patched after writing discover output.
     #[error("failed to patch wax config at {path}: {source}")]
     ConfigPatch {
@@ -314,6 +240,15 @@ pub enum RegistryDiscoverError {
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
     },
+    /// Config replacement failed after patching registry metadata.
+    #[error("failed to patch wax config at {path}: {source}")]
+    ConfigPatchAtomicWrite {
+        /// Config path that failed to update.
+        path: String,
+        /// Atomic-write failure.
+        #[source]
+        source: AtomicWriteError,
+    },
     /// Lockfile could not be patched after writing discover output.
     #[error("failed to patch lockfile at {path}: {source}")]
     LockfilePatch {
@@ -322,6 +257,15 @@ pub enum RegistryDiscoverError {
         /// Underlying I/O or parse failure.
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
+    },
+    /// Lockfile replacement failed after patching registry metadata.
+    #[error("failed to patch lockfile at {path}: {source}")]
+    LockfilePatchAtomicWrite {
+        /// Lockfile path that failed to update.
+        path: String,
+        /// Atomic-write failure.
+        #[source]
+        source: AtomicWriteError,
     },
     /// Design-system remember/update failed after discovery.
     #[error(transparent)]
@@ -368,13 +312,11 @@ struct DiscoveredComponent {
 /// [`RegistryDiscoverError::Serialize`],
 /// [`RegistryDiscoverError::IdCollision`],
 /// [`RegistryDiscoverError::OutputExists`],
-/// [`RegistryDiscoverError::CreateDir`],
-/// [`RegistryDiscoverError::CreateTemp`],
-/// [`RegistryDiscoverError::WriteTemp`],
-/// [`RegistryDiscoverError::SyncTemp`], [`RegistryDiscoverError::Rename`], or
-/// [`RegistryDiscoverError::PublishNoClobber`] when output cannot be generated
-/// or published; and [`RegistryDiscoverError::ConfigPatch`],
-/// [`RegistryDiscoverError::LockfilePatch`], or
+/// [`RegistryDiscoverError::AtomicWrite`] when output cannot be generated or
+/// published; and [`RegistryDiscoverError::ConfigPatch`],
+/// [`RegistryDiscoverError::ConfigPatchAtomicWrite`],
+/// [`RegistryDiscoverError::LockfilePatch`],
+/// [`RegistryDiscoverError::LockfilePatchAtomicWrite`], or
 /// [`RegistryDiscoverError::RegistryMemory`] when follow-up metadata cannot be
 /// persisted.
 pub fn discover_registry(
@@ -462,25 +404,28 @@ pub fn discover_registry(
         return Err(RegistryDiscoverError::OutputExists { path: path_display });
     }
 
-    if let Some(parent) = output_path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-    {
-        fs::create_dir_all(parent).map_err(|source| RegistryDiscoverError::CreateDir {
-            path: output_path.display().to_string(),
-            source,
-        })?;
-    }
-
     let contents = serde_json::to_string_pretty(&registry)
         .map_err(|source| RegistryDiscoverError::Serialize { source })?;
     let written_bytes = format!("{contents}\n");
-    write_registry_atomically(
-        &output_path,
-        &path_display,
-        written_bytes.as_bytes(),
-        options.force,
-    )?;
+    if options.force {
+        write_atomically(
+            &output_path,
+            written_bytes.as_bytes(),
+            AtomicWriteOptions::default(),
+        )?;
+    } else {
+        write_atomically_no_clobber(
+            &output_path,
+            written_bytes.as_bytes(),
+            AtomicWriteOptions::default(),
+        )
+        .map_err(|source| match source {
+            AtomicWriteError::DestinationExists { .. } => RegistryDiscoverError::OutputExists {
+                path: path_display.clone(),
+            },
+            source => RegistryDiscoverError::AtomicWrite(source),
+        })?;
+    }
 
     if configured_entry.is_some()
         && should_patch_config_registry(language_entry)
@@ -924,11 +869,14 @@ fn patch_config_registry(
             source: Box::new(source),
         }
     })?;
-    fs::write(config_path, format!("{serialized}\n")).map_err(|source| {
-        RegistryDiscoverError::ConfigPatch {
-            path: path_display,
-            source: Box::new(source),
-        }
+    write_atomically(
+        config_path,
+        format!("{serialized}\n").as_bytes(),
+        AtomicWriteOptions::default(),
+    )
+    .map_err(|source| RegistryDiscoverError::ConfigPatchAtomicWrite {
+        path: path_display,
+        source,
     })?;
     Ok(())
 }
@@ -952,11 +900,14 @@ fn patch_lockfile_registry(
             source: Box::new(source),
         }
     })?;
-    fs::write(lockfile_path, format!("{serialized}\n")).map_err(|source| {
-        RegistryDiscoverError::LockfilePatch {
-            path: path_display,
-            source: Box::new(source),
-        }
+    write_atomically(
+        lockfile_path,
+        format!("{serialized}\n").as_bytes(),
+        AtomicWriteOptions::default(),
+    )
+    .map_err(|source| RegistryDiscoverError::LockfilePatchAtomicWrite {
+        path: path_display,
+        source,
     })?;
     Ok(())
 }
@@ -1044,263 +995,4 @@ fn kebab_case_symbol(symbol: &str) -> String {
     }
 
     result.trim_matches('-').to_owned()
-}
-
-fn write_registry_atomically(
-    path: &Path,
-    path_display: &str,
-    contents: &[u8],
-    force: bool,
-) -> Result<(), RegistryDiscoverError> {
-    let (temp_path, mut temp_file) = create_temp_registry_file(path, path_display)?;
-    let temp_display = temp_path.display().to_string();
-
-    if let Err(source) = temp_file.write_all(contents) {
-        drop(temp_file);
-        remove_temp_file(&temp_path);
-        return Err(RegistryDiscoverError::WriteTemp {
-            path: path_display.to_owned(),
-            temp_path: temp_display,
-            source,
-        });
-    }
-
-    if let Err(source) = temp_file.sync_all() {
-        drop(temp_file);
-        remove_temp_file(&temp_path);
-        return Err(RegistryDiscoverError::SyncTemp {
-            path: path_display.to_owned(),
-            temp_path: temp_display,
-            source,
-        });
-    }
-    drop(temp_file);
-
-    if force {
-        replace_registry_file(&temp_path, &temp_display, path, path_display)
-    } else {
-        publish_registry_file_noclobber(&temp_path, &temp_display, path, path_display)
-    }
-}
-
-fn create_temp_registry_file(
-    path: &Path,
-    path_display: &str,
-) -> Result<(PathBuf, File), RegistryDiscoverError> {
-    for attempt in 0..MAX_REGISTRY_TEMP_ATTEMPTS {
-        let temp_path = sibling_temp_path(path, attempt);
-        let temp_display = temp_path.display().to_string();
-
-        match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temp_path)
-        {
-            Ok(file) => return Ok((temp_path, file)),
-            Err(source) if source.kind() == io::ErrorKind::AlreadyExists => {}
-            Err(source) => {
-                return Err(RegistryDiscoverError::CreateTemp {
-                    path: path_display.to_owned(),
-                    temp_path: temp_display,
-                    source,
-                });
-            }
-        }
-    }
-
-    let temp_path = sibling_temp_path(path, MAX_REGISTRY_TEMP_ATTEMPTS - 1);
-    Err(RegistryDiscoverError::CreateTemp {
-        path: path_display.to_owned(),
-        temp_path: temp_path.display().to_string(),
-        source: io::Error::new(
-            io::ErrorKind::AlreadyExists,
-            "could not allocate unique temporary registry path",
-        ),
-    })
-}
-
-fn sibling_temp_path(path: &Path, attempt: u32) -> PathBuf {
-    let parent = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    let file_name = path
-        .file_name()
-        .map(|name| name.to_string_lossy())
-        .unwrap_or_else(|| "wax.registry.json".into());
-
-    parent.join(format!("{file_name}.{attempt}.tmp"))
-}
-
-fn remove_temp_file(temp_path: &Path) {
-    let _ = fs::remove_file(temp_path);
-}
-
-fn publish_registry_file_noclobber(
-    temp_path: &Path,
-    temp_display: &str,
-    path: &Path,
-    path_display: &str,
-) -> Result<(), RegistryDiscoverError> {
-    match fs::hard_link(temp_path, path) {
-        Ok(()) => {
-            remove_temp_file(temp_path);
-            Ok(())
-        }
-        Err(source) if source.kind() == io::ErrorKind::AlreadyExists => {
-            remove_temp_file(temp_path);
-            Err(RegistryDiscoverError::OutputExists {
-                path: path_display.to_owned(),
-            })
-        }
-        Err(source) => {
-            remove_temp_file(temp_path);
-            Err(RegistryDiscoverError::PublishNoClobber {
-                path: path_display.to_owned(),
-                temp_path: temp_display.to_owned(),
-                source,
-            })
-        }
-    }
-}
-
-#[cfg(not(windows))]
-fn replace_registry_file(
-    temp_path: &Path,
-    temp_display: &str,
-    path: &Path,
-    path_display: &str,
-) -> Result<(), RegistryDiscoverError> {
-    fs::rename(temp_path, path).map_err(|source| {
-        remove_temp_file(temp_path);
-        RegistryDiscoverError::Rename {
-            path: path_display.to_owned(),
-            temp_path: temp_display.to_owned(),
-            source,
-        }
-    })
-}
-
-#[cfg(windows)]
-fn replace_registry_file(
-    temp_path: &Path,
-    temp_display: &str,
-    path: &Path,
-    path_display: &str,
-) -> Result<(), RegistryDiscoverError> {
-    if !path.exists() {
-        return rename_temp_registry_file(temp_path, temp_display, path, path_display);
-    }
-
-    replace_existing_registry_file(temp_path, temp_display, path, path_display)
-}
-
-#[cfg(windows)]
-fn rename_temp_registry_file(
-    temp_path: &Path,
-    temp_display: &str,
-    path: &Path,
-    path_display: &str,
-) -> Result<(), RegistryDiscoverError> {
-    fs::rename(temp_path, path).map_err(|source| {
-        remove_temp_file(temp_path);
-        RegistryDiscoverError::Rename {
-            path: path_display.to_owned(),
-            temp_path: temp_display.to_owned(),
-            source,
-        }
-    })
-}
-
-#[cfg(windows)]
-fn replace_existing_registry_file(
-    temp_path: &Path,
-    temp_display: &str,
-    path: &Path,
-    path_display: &str,
-) -> Result<(), RegistryDiscoverError> {
-    let replaced = wide_null(path.as_os_str());
-    let replacement = wide_null(temp_path.as_os_str());
-
-    // SAFETY: `wide_null` creates owned, null-terminated UTF-16 buffers that stay
-    // live for this synchronous call. `0` is the documented no-options value; the
-    // three null pointers request no backup or optional structures. ReplaceFileW
-    // neither retains these pointers nor transfers ownership of their buffers.
-    let replaced = unsafe {
-        replace_file_w(
-            replaced.as_ptr(),
-            replacement.as_ptr(),
-            ptr::null(),
-            0,
-            ptr::null_mut(),
-            ptr::null_mut(),
-        )
-    };
-
-    if replaced == 0 {
-        let source = io::Error::last_os_error();
-        if recover_windows_partial_replace_failure(&source, temp_path, path).unwrap_or(false) {
-            return Ok(());
-        }
-        if !is_documented_windows_partial_replace_failure(&source) {
-            remove_temp_file(temp_path);
-        }
-        return Err(RegistryDiscoverError::Rename {
-            path: path_display.to_owned(),
-            temp_path: temp_display.to_owned(),
-            source,
-        });
-    }
-
-    Ok(())
-}
-
-#[cfg(windows)]
-fn recover_windows_partial_replace_failure(
-    source: &io::Error,
-    temp_path: &Path,
-    path: &Path,
-) -> Result<bool, io::Error> {
-    if source.raw_os_error() == Some(ERROR_UNABLE_TO_MOVE_REPLACEMENT)
-        && !path.exists()
-        && temp_path.exists()
-    {
-        fs::rename(temp_path, path)?;
-        return Ok(true);
-    }
-
-    Ok(false)
-}
-
-#[cfg(windows)]
-fn is_documented_windows_partial_replace_failure(source: &io::Error) -> bool {
-    matches!(
-        source.raw_os_error(),
-        Some(
-            ERROR_UNABLE_TO_REMOVE_REPLACED
-                | ERROR_UNABLE_TO_MOVE_REPLACEMENT
-                | ERROR_UNABLE_TO_MOVE_REPLACEMENT_2
-        )
-    )
-}
-
-#[cfg(windows)]
-fn wide_null(value: &std::ffi::OsStr) -> Vec<u16> {
-    value.encode_wide().chain(std::iter::once(0)).collect()
-}
-
-#[cfg(windows)]
-#[link(name = "Kernel32")]
-// SAFETY: the declaration matches the Windows ReplaceFileW ABI and parameter
-// types. Call sites provide valid UTF-16 pointers and retain all buffer ownership.
-unsafe extern "system" {
-    #[link_name = "ReplaceFileW"]
-    fn replace_file_w(
-        replaced_file_name: *const u16,
-        replacement_file_name: *const u16,
-        backup_file_name: *const u16,
-        replace_flags: u32,
-        exclude: *mut core::ffi::c_void,
-        reserved: *mut core::ffi::c_void,
-    ) -> i32;
 }

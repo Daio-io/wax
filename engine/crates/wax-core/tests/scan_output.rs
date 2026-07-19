@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use sha2::{Digest, Sha256};
 use wax_contract::{LanguageId, MergedScan, ScanFacts};
-use wax_core::{Engine, ScanOptions};
+use wax_core::{AtomicWriteError, Engine, EngineError, ScanOptions};
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -443,10 +443,10 @@ fn scan_output_preserves_previous_json_when_output_write_fails() {
     permissions.set_mode(0o755);
     fs::set_permissions(&languages_dir, permissions).unwrap();
 
-    assert!(
-        error.to_string().contains("failed to write scan output"),
-        "unexpected error: {error}"
-    );
+    assert!(matches!(
+        error,
+        EngineError::AtomicWrite(AtomicWriteError::CreateTemp { .. })
+    ));
     assert_eq!(fs::read_to_string(&merged_path).unwrap(), original_merged);
     assert_eq!(fs::read_to_string(&compose_path).unwrap(), original_compose);
     serde_json::from_str::<MergedScan>(&original_merged).unwrap();
@@ -484,10 +484,10 @@ fn scan_output_keeps_old_language_files_when_merged_output_write_fails() {
     out_permissions.set_mode(0o755);
     fs::set_permissions(&out_dir, out_permissions).unwrap();
 
-    assert!(
-        error.to_string().contains("failed to write scan output"),
-        "unexpected error: {error}"
-    );
+    assert!(matches!(
+        error,
+        EngineError::AtomicWrite(AtomicWriteError::CreateTemp { .. })
+    ));
     assert_eq!(fs::read_to_string(&merged_path).unwrap(), original_merged);
     assert!(
         languages_dir.join("react.json").exists(),

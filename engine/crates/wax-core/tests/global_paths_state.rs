@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use wax_contract::LanguageId;
+use wax_core::AtomicWriteError;
 use wax_core::global_state::{
     GlobalState, GlobalStateError, InstalledLanguagePack, load_global_state, save_global_state,
 };
@@ -279,6 +280,22 @@ fn save_global_state_replaces_existing_file() {
     assert_eq!(loaded.installed_languages.len(), 1);
 }
 
+#[cfg(unix)]
+#[test]
+fn save_global_state_creates_owner_only_file() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TestDir::new("owner-only");
+    let path = dir.path().join("state.json");
+
+    save_global_state(&path, &GlobalState::default()).unwrap();
+
+    assert_eq!(
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+}
+
 #[test]
 fn save_global_state_rejects_invalid_version_keys() {
     let dir = TestDir::new("save-invalid-version");
@@ -325,7 +342,10 @@ fn save_global_state_reports_rename_error_when_destination_is_directory() {
 
     let err = save_global_state(&path, &GlobalState::default()).unwrap_err();
 
-    assert!(matches!(err, GlobalStateError::Rename { .. }));
+    assert!(matches!(
+        err,
+        GlobalStateError::AtomicWrite(AtomicWriteError::Replace { .. })
+    ));
     assert!(err.to_string().contains("state.json"));
 }
 

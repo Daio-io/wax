@@ -29,6 +29,7 @@ use wax_core::registry_memory::{
 use wax_core::registry_source::{
     RegistrySourceError, RegistrySourceInput, resolve_registry_source,
 };
+use wax_core::{AtomicWriteError, AtomicWriteOptions, write_atomically};
 use wax_lang_api::build_version;
 
 const EXAMPLE_WAXRC: &str = include_str!("../../../../fixtures/config/example.waxrc");
@@ -148,6 +149,9 @@ pub enum InitCommandError {
     /// Registry source resolution failed while creating initial registry locks.
     #[error(transparent)]
     RegistrySource(#[from] RegistrySourceError),
+    /// Atomic replacement of a generated Wax contract file failed.
+    #[error(transparent)]
+    AtomicWrite(#[from] AtomicWriteError),
     /// Filesystem operation failed.
     #[error("{context}: {source}")]
     Io {
@@ -802,18 +806,12 @@ fn pending_registry_scaffolds(
 }
 
 fn write_file_atomically(path: &Path, contents: &str) -> Result<(), InitCommandError> {
-    if let Some(parent) = path.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        fs::create_dir_all(parent).map_err(|source| InitCommandError::Io {
-            context: format!("create parent directory for {}", path.display()),
-            source,
-        })?;
-    }
-    fs::write(path, rendered_file_contents(contents)).map_err(|source| InitCommandError::Io {
-        context: format!("write {}", path.display()),
-        source,
-    })
+    write_atomically(
+        path,
+        rendered_file_contents(contents).as_bytes(),
+        AtomicWriteOptions::default(),
+    )?;
+    Ok(())
 }
 
 fn rendered_file_contents(contents: &str) -> String {
