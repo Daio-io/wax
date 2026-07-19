@@ -30,13 +30,16 @@ mod kotlin_ast;
 mod tree_sitter_scan;
 
 use std::path::Path;
+use std::time::Instant;
 
 use time::OffsetDateTime;
 use wax_contract::{
     CountSummary, Diagnostic, DiagnosticSeverity, LanguageId, LanguageMetadata, Metrics,
     SCHEMA_VERSION, ScanFacts, ScanFactsError, ScanStatus,
 };
-use wax_lang_api::{DiscoverRequest, DiscoveredRegistrySymbol, ScanRequest, build_version};
+use wax_lang_api::{
+    DiscoverRequest, DiscoveredRegistrySymbol, ScanRequest, build_version, parse_extract_millis,
+};
 
 pub use discover::{ComposeDiscoverError, DiscoverRegistryResult, discover_registry_symbols};
 use tree_sitter_scan::TreeSitterScanError;
@@ -132,10 +135,13 @@ impl ComposeLanguage {
         {
             ComposeConfigMode::Scaffold => scaffold_facts(request, &compose_language_id),
             ComposeConfigMode::Configured(scan_config) => {
+                let started = Instant::now();
                 let repo_root = Path::new(&request.repo_root);
                 let result = tree_sitter_scan::scan_repository(repo_root, &scan_config)
                     .map_err(map_scan_error)?;
-                facts_from_scan(request, result, &compose_language_id)
+                let parse_extract_ms =
+                    parse_extract_millis(started.elapsed(), result.files_scanned);
+                facts_from_scan(request, result, &compose_language_id, parse_extract_ms)
             }
         };
 
@@ -208,6 +214,7 @@ fn facts_from_scan(
     request: &ScanRequest,
     result: tree_sitter_scan::TreeSitterScanResult,
     language_id: &LanguageId,
+    parse_extract_ms: u64,
 ) -> ScanFacts {
     ScanFacts {
         schema_version: SCHEMA_VERSION,
@@ -229,7 +236,7 @@ fn facts_from_scan(
             invocation_adoption_ratio: None,
             registry_resolution_ratio: None,
             token_reference_ratio: None,
-            parse_extract_ms: 0,
+            parse_extract_ms,
             files_scanned: result.files_scanned,
         },
         counts: CountSummary::default(),

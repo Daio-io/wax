@@ -31,6 +31,7 @@ mod swift_ast;
 mod tree_sitter_scan;
 
 use std::path::Path;
+use std::time::Instant;
 
 pub use discover::{DiscoverRegistryResult, SwiftDiscoverError, discover_registry_symbols};
 use time::OffsetDateTime;
@@ -38,7 +39,9 @@ use wax_contract::{
     CountSummary, Diagnostic, DiagnosticSeverity, LanguageId, LanguageMetadata, Metrics,
     SCHEMA_VERSION, ScanFacts, ScanFactsError, ScanStatus,
 };
-use wax_lang_api::{DiscoverRequest, DiscoveredRegistrySymbol, ScanRequest, build_version};
+use wax_lang_api::{
+    DiscoverRequest, DiscoveredRegistrySymbol, ScanRequest, build_version, parse_extract_millis,
+};
 
 /// Parser version bundled through the `tree-sitter-swift` dependency.
 pub const TREE_SITTER_SWIFT_GRAMMAR_VERSION: &str = "0.6.0";
@@ -142,10 +145,13 @@ impl SwiftLanguage {
         {
             SwiftConfigMode::Scaffold => scaffold_facts(request, &swift_language_id),
             SwiftConfigMode::Configured(scan_config) => {
+                let started = Instant::now();
                 let repo_root = Path::new(&request.repo_root);
                 let result = tree_sitter_scan::scan_repository(repo_root, &scan_config)
                     .map_err(map_scan_error)?;
-                facts_from_scan(request, result, &swift_language_id)
+                let parse_extract_ms =
+                    parse_extract_millis(started.elapsed(), result.files_scanned);
+                facts_from_scan(request, result, &swift_language_id, parse_extract_ms)
             }
         };
         facts
@@ -219,6 +225,7 @@ fn facts_from_scan(
     request: &ScanRequest,
     result: tree_sitter_scan::TreeSitterScanResult,
     language_id: &LanguageId,
+    parse_extract_ms: u64,
 ) -> ScanFacts {
     ScanFacts {
         schema_version: SCHEMA_VERSION,
@@ -240,7 +247,7 @@ fn facts_from_scan(
             invocation_adoption_ratio: None,
             registry_resolution_ratio: None,
             token_reference_ratio: None,
-            parse_extract_ms: 0,
+            parse_extract_ms,
             files_scanned: result.files_scanned,
         },
         counts: CountSummary::default(),

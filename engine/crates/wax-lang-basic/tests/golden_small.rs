@@ -127,6 +127,8 @@ fn small_fixture_matches_golden_counts() {
         facts.hardcoded_style_sites.is_empty(),
         "basic scanner must not emit hard-coded styling candidates"
     );
+    assert!(facts.metrics.files_scanned > 0);
+    assert!(facts.metrics.parse_extract_ms >= 1);
 }
 
 fn load_golden(path: &PathBuf) -> GoldenCounts {
