@@ -163,6 +163,8 @@ fn scan_status_is_complete_when_configured() {
 
     assert_eq!(facts.status, ScanStatus::Complete);
     assert_eq!(facts.language.parser_name, "tree-sitter-swift");
+    assert!(facts.metrics.files_scanned > 0);
+    assert!(facts.metrics.parse_extract_ms >= 1);
 }
 
 #[test]

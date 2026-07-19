@@ -108,6 +108,8 @@ fn scan_status_is_complete_when_configured() {
         facts.language.parser_name, "tree-sitter-kotlin-ng",
         "parser_name must be tree-sitter-kotlin-ng"
     );
+    assert!(facts.metrics.files_scanned > 0);
+    assert!(facts.metrics.parse_extract_ms >= 1);
 }
 
 #[test]

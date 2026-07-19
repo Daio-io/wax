@@ -40,9 +40,10 @@ mod swc_parse;
 mod token_extract;
 
 use std::path::Path;
+use std::time::Instant;
 
 use wax_contract::{LanguageId, ScanFacts, ScanFactsError};
-use wax_lang_api::{DiscoverRequest, DiscoveredRegistrySymbol, ScanRequest};
+use wax_lang_api::{DiscoverRequest, DiscoveredRegistrySymbol, ScanRequest, parse_extract_millis};
 
 pub use config::{PackageConfig, ReactConfigMode, ReactScanConfig, parse_react_scan_config};
 pub use discover::{DiscoverRegistryResult, ReactDiscoverError, discover_registry_symbols};
@@ -181,20 +182,24 @@ impl ReactLanguage {
         let mut facts = match config_mode {
             ReactConfigMode::Scaffold => scaffold_facts(request, &react_language_id),
             ReactConfigMode::Configured(config) => {
+                let started = Instant::now();
                 let repo_root = Path::new(&request.repo_root);
                 let registry_path = repo_root.join(&config.design_system_registry);
                 let registry =
                     load_react_registry(&registry_path).map_err(ReactScanError::Registry)?;
                 let collection =
                     collect_react_source_files(repo_root, &config.roots, &config.ignore)?;
-                configured_scan_facts(
+                let mut facts = configured_scan_facts(
                     request,
                     &react_language_id,
                     registry,
                     collection,
                     repo_root,
                     &config,
-                )?
+                )?;
+                facts.metrics.parse_extract_ms =
+                    parse_extract_millis(started.elapsed(), facts.metrics.files_scanned);
+                facts
             }
         };
 

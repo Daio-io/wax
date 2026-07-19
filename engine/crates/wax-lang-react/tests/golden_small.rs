@@ -2,7 +2,10 @@ use std::path::{Path, PathBuf};
 
 use wax_contract::{LanguageId, ScanFacts};
 use wax_lang_api::{ScanRequest, ScanRequestType, WIRE_API_VERSION};
-use wax_lang_react::ReactLanguage;
+use wax_lang_react::{
+    ReactConfigMode, ReactLanguage, collect_react_source_files, configured_scan_facts,
+    load_react_registry, parse_react_scan_config,
+};
 
 #[test]
 fn small_fixture_matches_golden_facts_projection() {
@@ -43,10 +46,8 @@ fn scan_status_is_complete_when_configured() {
         wax_lang_react::SWC_PARSER_VERSION,
         "parser_version must track the pinned SWC crate version"
     );
-    assert!(
-        facts.metrics.parse_extract_ms > 0,
-        "configured scan should record parse/extract timing"
-    );
+    assert!(facts.metrics.files_scanned > 0);
+    assert!(facts.metrics.parse_extract_ms >= 1);
     assert!(
         facts
             .token_sites
@@ -69,6 +70,32 @@ fn scan_status_is_complete_when_configured() {
             .any(|site| site.category == wax_contract::TokenCategory::Spacing && site.value == "8"),
         "inline padding number should be a spacing hard-coded candidate"
     );
+}
+
+#[test]
+fn configured_scan_facts_records_timing_when_files_are_scanned() {
+    let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/small");
+    let request = scan_request(&fixture_root, "snap-public-configured-facts");
+    let facts = direct_configured_scan_facts(&fixture_root, &request);
+
+    assert!(
+        facts.metrics.parse_extract_ms >= 1,
+        "public configured facts should record timing for {} scanned files",
+        facts.metrics.files_scanned
+    );
+}
+
+#[test]
+fn configured_scan_facts_reports_zero_timing_when_no_files_are_scanned() {
+    let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/small");
+    let mut request = scan_request(&fixture_root, "snap-public-configured-facts-empty");
+    request
+        .config
+        .insert("roots".to_owned(), serde_json::json!(["missing"]));
+
+    let facts = direct_configured_scan_facts(&fixture_root, &request);
+
+    assert_eq!(facts.metrics.parse_extract_ms, 0);
 }
 
 #[test]
@@ -175,6 +202,27 @@ fn scan_request(fixture_root: &Path, snapshot_id: &str) -> ScanRequest {
         snapshot_id: snapshot_id.to_owned(),
         config,
     }
+}
+
+fn direct_configured_scan_facts(fixture_root: &Path, request: &ScanRequest) -> ScanFacts {
+    let config = match parse_react_scan_config(&request.config).expect("config should parse") {
+        ReactConfigMode::Configured(config) => config,
+        ReactConfigMode::Scaffold => panic!("fixture config should be configured"),
+    };
+    let registry = load_react_registry(&fixture_root.join(&config.design_system_registry))
+        .expect("registry should load");
+    let collection = collect_react_source_files(fixture_root, &config.roots, &config.ignore)
+        .expect("source files should collect");
+
+    configured_scan_facts(
+        request,
+        &request.language_id,
+        registry,
+        collection,
+        fixture_root,
+        &config,
+    )
+    .expect("configured facts should assemble")
 }
 
 fn load_golden(path: &Path) -> serde_json::Value {
