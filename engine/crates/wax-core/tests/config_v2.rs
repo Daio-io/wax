@@ -382,3 +382,108 @@ fn config_v2_rejects_design_system_registry_field() {
     assert!(matches!(err, WaxRcError::InvalidConfig { .. }));
     assert!(err.to_string().contains("design_system_registry"));
 }
+
+#[test]
+fn token_inference_defaults_numeric_tolerance_to_two() {
+    let minimal = TestFile::new(
+        "token-inference-default",
+        r#"{
+  "schema_version": 2,
+  "languages": {
+    "react": { "roots": ["src"] }
+  }
+}"#,
+    );
+
+    assert_eq!(
+        load_waxrc(minimal.path())
+            .unwrap()
+            .token_inference
+            .numeric_tolerance,
+        2.0
+    );
+}
+
+#[test]
+fn token_inference_parses_custom_and_zero_numeric_tolerance() {
+    let custom = TestFile::new(
+        "token-inference-custom",
+        r#"{
+  "schema_version": 2,
+  "token_inference": { "numeric_tolerance": 0.5 },
+  "languages": {
+    "react": { "roots": ["src"] }
+  }
+}"#,
+    );
+    let exact_only = TestFile::new(
+        "token-inference-zero",
+        r#"{
+  "schema_version": 2,
+  "token_inference": { "numeric_tolerance": 0 },
+  "languages": {
+    "react": { "roots": ["src"] }
+  }
+}"#,
+    );
+
+    assert_eq!(
+        load_waxrc(custom.path())
+            .unwrap()
+            .token_inference
+            .numeric_tolerance,
+        0.5
+    );
+    assert_eq!(
+        load_waxrc(exact_only.path())
+            .unwrap()
+            .token_inference
+            .numeric_tolerance,
+        0.0
+    );
+}
+
+#[test]
+fn token_inference_rejects_invalid_numeric_tolerance_and_unknown_keys() {
+    for (name, contents) in [
+        (
+            "token-inference-negative",
+            r#"{
+  "schema_version": 2,
+  "token_inference": { "numeric_tolerance": -1 },
+  "languages": { "react": { "roots": ["src"] } }
+}"#,
+        ),
+        (
+            "token-inference-null",
+            r#"{
+  "schema_version": 2,
+  "token_inference": { "numeric_tolerance": null },
+  "languages": { "react": { "roots": ["src"] } }
+}"#,
+        ),
+        (
+            "token-inference-string",
+            r#"{
+  "schema_version": 2,
+  "token_inference": { "numeric_tolerance": "2" },
+  "languages": { "react": { "roots": ["src"] } }
+}"#,
+        ),
+        (
+            "token-inference-unknown-key",
+            r#"{
+  "schema_version": 2,
+  "token_inference": { "numeric_tolerance": 2, "extra": true },
+  "languages": { "react": { "roots": ["src"] } }
+}"#,
+        ),
+    ] {
+        let file = TestFile::new(name, contents);
+        let err = load_waxrc(file.path()).unwrap_err();
+        assert!(
+            matches!(err, WaxRcError::InvalidConfig { .. }),
+            "{name}: {err}"
+        );
+    }
+}

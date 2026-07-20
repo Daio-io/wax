@@ -215,6 +215,7 @@ fn lockfile_doctor_reports_missing_enabled_languages() {
         schema_version: 2,
         engine: Default::default(),
         adoption: Default::default(),
+        token_inference: Default::default(),
         languages: vec![language_entry("compose"), language_entry("react")],
         design_systems: Default::default(),
     };
@@ -237,6 +238,7 @@ fn lockfile_doctor_reports_stale_entries_for_absent_languages() {
         schema_version: 2,
         engine: Default::default(),
         adoption: Default::default(),
+        token_inference: Default::default(),
         languages: Vec::new(),
         design_systems: Default::default(),
     };

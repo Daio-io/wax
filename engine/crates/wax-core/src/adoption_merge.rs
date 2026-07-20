@@ -4,15 +4,34 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use time::OffsetDateTime;
 use wax_contract::{
-    CountSummary, DesignSystemToken, HardcodedStyleInference, IdentityStability, LanguageId,
-    MatchStatus, MergedScan, Metrics, RepoSummary, SCHEMA_VERSION, ScanFacts, ScanFactsError,
-    StyleContextCounts, SymbolKind, SymbolParentScopeSummary, SymbolUsageSummary,
-    TokenCategoryCounts, TokenConfidenceCounts, TokenInferenceClassification, TokenInferenceCounts,
-    TokenInferenceEvidence, TokenInferenceReport, TokenUsageSummary,
+    CountSummary, DesignSystemToken, IdentityStability, LanguageId, MatchStatus, MergedScan,
+    Metrics, RepoSummary, SCHEMA_VERSION, ScanFacts, ScanFactsError, SymbolKind,
+    SymbolParentScopeSummary, SymbolUsageSummary, TokenCategoryCounts, TokenUsageSummary,
 };
+
+use crate::config::waxrc::TokenInferenceConfig;
+use crate::token_inference::build_token_inference;
 
 /// Default parent scope row limit when config omits an explicit value.
 const DEFAULT_PARENT_SCOPE_LIMIT: Option<u32> = None;
+
+/// Options that control merged-scan derivation.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MergeOptions {
+    /// Parent-scope summary row limit forwarded to symbol summaries.
+    pub parent_scope_limit: Option<u32>,
+    /// Token inference configuration applied after raw facts are recomputed.
+    pub token_inference: TokenInferenceConfig,
+}
+
+impl Default for MergeOptions {
+    fn default() -> Self {
+        Self {
+            parent_scope_limit: DEFAULT_PARENT_SCOPE_LIMIT,
+            token_inference: TokenInferenceConfig::default(),
+        }
+    }
+}
 
 /// Recomputes derived counters, metrics, and symbol summaries for one language scan.
 ///
@@ -61,7 +80,7 @@ pub fn recompute_derived_scan_facts_with_parent_scope_limit(
 pub fn merge_language_scans(
     languages: BTreeMap<LanguageId, ScanFacts>,
 ) -> Result<MergedScan, ScanFactsError> {
-    merge_language_scans_with_parent_scope_limit(languages, DEFAULT_PARENT_SCOPE_LIMIT)
+    merge_language_scans_with_options(languages, &MergeOptions::default())
 }
 
 /// Builds a merged scan using an explicit parent-scope row limit.
@@ -75,12 +94,32 @@ pub fn merge_language_scans_with_parent_scope_limit(
     languages: BTreeMap<LanguageId, ScanFacts>,
     parent_scope_limit: Option<u32>,
 ) -> Result<MergedScan, ScanFactsError> {
+    merge_language_scans_with_options(
+        languages,
+        &MergeOptions {
+            parent_scope_limit,
+            token_inference: TokenInferenceConfig::default(),
+        },
+    )
+}
+
+/// Builds a merged scan using explicit merge options.
+///
+/// # Errors
+///
+/// Returns [`ScanFactsError::ContractViolation`] when recomputing an input's
+/// derived counts finds invalid token facts or an overflowing counter, or when
+/// a generated merged scan violates linkage or count invariants.
+pub fn merge_language_scans_with_options(
+    languages: BTreeMap<LanguageId, ScanFacts>,
+    options: &MergeOptions,
+) -> Result<MergedScan, ScanFactsError> {
     let mut merged_languages = BTreeMap::new();
     for (language_id, mut facts) in languages {
         recompute_derived_scan_facts_with_parent_scope_limit(
             &mut facts,
             &language_id,
-            parent_scope_limit,
+            options.parent_scope_limit,
         )?;
         merged_languages.insert(language_id, facts);
     }
@@ -90,7 +129,7 @@ pub fn merge_language_scans_with_parent_scope_limit(
     let repo_metrics = metrics_from_counts(&repo_counts, merged_parse_metrics(&merged_languages));
     let symbol_usage_summary = merge_symbol_usage_summaries(&merged_languages);
     let token_usage_summary = merge_token_usage_summaries(&merged_languages);
-    let token_inference = build_unassessed_token_inference(&merged_languages)?;
+    let token_inference = build_token_inference(&merged_languages, &options.token_inference)?;
 
     let merged = MergedScan {
         schema_version: SCHEMA_VERSION,
@@ -143,47 +182,6 @@ fn metrics_from_counts(
         parse_extract_ms,
         files_scanned,
     }
-}
-
-/// Temporary Task 1 stub: one unassessed inference row per raw hard-coded site.
-///
-/// Task 2 replaces this with deterministic value matching.
-fn build_unassessed_token_inference(
-    languages: &BTreeMap<LanguageId, ScanFacts>,
-) -> Result<TokenInferenceReport, ScanFactsError> {
-    let mut sites = Vec::new();
-    for (language_id, facts) in languages {
-        for site in &facts.hardcoded_style_sites {
-            sites.push(HardcodedStyleInference {
-                language: language_id.clone(),
-                site_id: site.id.clone(),
-                classification: TokenInferenceClassification::Unassessed,
-                confidence: None,
-                suggestions: Vec::new(),
-                evidence: vec![TokenInferenceEvidence::MissingCanonicalValues],
-            });
-        }
-    }
-    let observation_count =
-        u32::try_from(sites.len()).map_err(|_| ScanFactsError::ContractViolation {
-            field: "token_inference.counts.hardcoded_observation_count".to_owned(),
-            message: "hardcoded observation count exceeds u32 maximum".to_owned(),
-        })?;
-    Ok(TokenInferenceReport {
-        numeric_tolerance: 2.0,
-        counts: TokenInferenceCounts {
-            hardcoded_observation_count: observation_count,
-            assessed_observation_count: 0,
-            exact_replacement_candidate_count: 0,
-            near_replacement_candidate_count: 0,
-            unmatched_observation_count: 0,
-            unassessed_observation_count: observation_count,
-            candidates_by_confidence: TokenConfidenceCounts::default(),
-            candidates_by_category: TokenCategoryCounts::default(),
-            candidates_by_context: StyleContextCounts::default(),
-        },
-        sites,
-    })
 }
 
 pub(crate) fn sum_count_summaries<'a>(
@@ -617,7 +615,8 @@ mod tests {
     use time::macros::datetime;
     use wax_contract::{
         DesignSystemToken, HardcodedStyleSite, LanguageMetadata, ParentScope, ScanStatus,
-        SourceLocation, StyleContext, TokenCategory, TokenSite, UsageSite,
+        SourceLocation, StyleContext, TokenCategory, TokenInferenceClassification, TokenSite,
+        UsageSite,
     };
 
     fn usage_site(status: MatchStatus, symbol: &str, registry: Option<&str>) -> UsageSite {

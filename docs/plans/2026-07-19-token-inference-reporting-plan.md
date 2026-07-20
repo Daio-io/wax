@@ -297,7 +297,7 @@ Expected: every command exits `0` and only Task 1 files are committed.
 
 ### Task 2: Implement Deterministic Core Inference
 
-- [ ] **Task 2 complete**
+- [x] **Task 2 complete**
 
 **Files:**
 - Modify: `engine/crates/wax-core/src/config/waxrc.rs`
@@ -312,7 +312,7 @@ Expected: every command exits `0` and only Task 1 files are committed.
 - Consumes: Task 1's merged inference contract.
 - Produces: `TokenInferenceConfig`, `MergeOptions`, and `build_token_inference(&BTreeMap<LanguageId, ScanFacts>, &TokenInferenceConfig) -> Result<TokenInferenceReport, ScanFactsError>`.
 
-- [ ] **Step 1: Write failing config tests**
+- [x] **Step 1: Write failing config tests**
 
 Test default `2.0`, custom `0.5`, exact-only `0`, and rejection of `-1`, `null`, strings, and unknown keys. Use:
 
@@ -321,7 +321,7 @@ assert_eq!(load_waxrc(minimal.path()).unwrap().token_inference.numeric_tolerance
 assert_eq!(load_waxrc(custom.path()).unwrap().token_inference.numeric_tolerance, 0.5);
 ```
 
-- [ ] **Step 2: Confirm the config red state**
+- [x] **Step 2: Confirm the config red state**
 
 ```bash
 cd engine
@@ -330,7 +330,7 @@ cargo test -p wax-core --test config_v2 token_inference -- --nocapture
 
 Expected: FAIL because `WaxRc.token_inference` does not exist.
 
-- [ ] **Step 3: Add typed repo configuration and schema**
+- [x] **Step 3: Add typed repo configuration and schema**
 
 Implement:
 
@@ -353,7 +353,7 @@ impl Default for TokenInferenceConfig {
 
 Add it to `WaxRc`/`WaxRcRaw`, validate finite non-negative values, and add `token_inference.numeric_tolerance` to `waxrc.schema.json` with `minimum: 0`.
 
-- [ ] **Step 4: Write failing normalization tests**
+- [x] **Step 4: Write failing normalization tests**
 
 Create `token_inference.rs` tests for:
 
@@ -364,7 +364,7 @@ React color "#FFF" vs #fff = exact with distance absent
 Swift gap 3 vs 4 = numeric distance 1
 ```
 
-- [ ] **Step 5: Implement conservative normalizers**
+- [x] **Step 5: Implement conservative normalizers**
 
 Use private helpers:
 
@@ -387,7 +387,7 @@ fn numeric_distance(left: &NormalizedValue, right: &NormalizedValue) -> Option<f
 
 Normalize Compose `dp`/`sp`, React deterministic pixel-bearing numbers, Swift scalar layout values, quotes/whitespace, and hex case. Do not convert `rem`, `%`, viewport units, or incompatible units.
 
-- [ ] **Step 6: Write failing classification/confidence tests**
+- [x] **Step 6: Write failing classification/confidence tests**
 
 Cover:
 
@@ -405,7 +405,7 @@ no same-category tokens = unassessed
 
 Assert evidence arrays and deterministic token-id ordering.
 
-- [ ] **Step 7: Implement inference and counts**
+- [x] **Step 7: Implement inference and counts**
 
 Expose:
 
@@ -418,7 +418,7 @@ pub fn build_token_inference(
 
 Emit one row per raw site, prefer exact matches, require complete usable category values before near/unmatched, keep only nearest ties, apply the confidence table, sort by language/location/site id, and derive site counts from the finished rows. Numeric exact suggestions use `Some(0.0)`, numeric near suggestions use their positive absolute distance, and nonnumeric exact suggestions use `None`.
 
-- [ ] **Step 8: Integrate explicit merge options**
+- [x] **Step 8: Integrate explicit merge options**
 
 Add:
 
@@ -436,11 +436,11 @@ pub fn merge_language_scans_with_options(
 
 Replace Task 1's `build_unassessed_token_inference` stub with this deterministic builder. Keep `merge_language_scans` as a default test convenience. Pass config from `Engine::scan` into the new options and populate `MergedScan.token_inference` after raw facts are recomputed.
 
-- [ ] **Step 9: Add end-to-end scan output coverage**
+- [x] **Step 9: Add end-to-end scan output coverage**
 
 Make a fixture emit a `4px` spacing token, a padding value `3`, and a width `200`. Assert one near row, one unmatched row, tolerance `2`, reconciled counts, and no debt classification for `200`.
 
-- [ ] **Step 10: Verify and commit**
+- [x] **Step 10: Verify and commit**
 
 ```bash
 cd engine
