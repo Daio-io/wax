@@ -1245,13 +1245,17 @@ fn validate_token_inference(merged: &MergedScan) -> Result<(), ScanFactsError> {
         ));
     }
 
-    let mut raw_keys = BTreeSet::new();
+    let mut raw_sites_by_language = BTreeMap::new();
+    let mut tokens_by_language = BTreeMap::new();
     let mut raw_site_count = 0_u32;
     for (language_id, facts) in &merged.languages {
-        for site in &facts.hardcoded_style_sites {
-            if !raw_keys.insert((language_id.clone(), site.id.clone())) {
+        let raw_sites = raw_sites_by_language
+            .entry(language_id.clone())
+            .or_insert_with(BTreeMap::new);
+        for (site_index, site) in facts.hardcoded_style_sites.iter().enumerate() {
+            if raw_sites.insert(site.id.clone(), site).is_some() {
                 return Err(contract_violation(
-                    &format!("languages.{language_id}.hardcoded_style_sites"),
+                    &format!("languages.{language_id}.hardcoded_style_sites[{site_index}].id"),
                     "raw hard-coded site ids must be unique within a language",
                 ));
             }
@@ -1262,6 +1266,14 @@ fn validate_token_inference(merged: &MergedScan) -> Result<(), ScanFactsError> {
                 )
             })?;
         }
+        tokens_by_language.insert(
+            language_id.clone(),
+            facts
+                .design_system_tokens
+                .iter()
+                .map(|token| (token.id.as_str(), token))
+                .collect::<BTreeMap<_, _>>(),
+        );
     }
 
     let mut inference_keys = BTreeSet::new();
@@ -1284,16 +1296,15 @@ fn validate_token_inference(merged: &MergedScan) -> Result<(), ScanFactsError> {
             ));
         }
 
-        let Some(facts) = merged.languages.get(&row.language) else {
+        if !merged.languages.contains_key(&row.language) {
             return Err(contract_violation(
                 &format!("{field}.language"),
                 "inference language must exist in merged scan languages",
             ));
-        };
-        let Some(site) = facts
-            .hardcoded_style_sites
-            .iter()
-            .find(|candidate| candidate.id == row.site_id)
+        }
+        let Some(site) = raw_sites_by_language
+            .get(&row.language)
+            .and_then(|sites| sites.get(row.site_id.as_str()))
         else {
             return Err(contract_violation(
                 &format!("{field}.site_id"),
@@ -1386,10 +1397,9 @@ fn validate_token_inference(merged: &MergedScan) -> Result<(), ScanFactsError> {
                 },
             }
 
-            let Some(token) = facts
-                .design_system_tokens
-                .iter()
-                .find(|candidate| candidate.id == suggestion.token_id)
+            let Some(token) = tokens_by_language
+                .get(&row.language)
+                .and_then(|tokens| tokens.get(suggestion.token_id.as_str()))
             else {
                 return Err(contract_violation(
                     &format!("{suggestion_field}.token_id"),
@@ -1400,6 +1410,18 @@ fn validate_token_inference(merged: &MergedScan) -> Result<(), ScanFactsError> {
                 return Err(contract_violation(
                     &format!("{suggestion_field}.token_key"),
                     "suggested token_key must match the registry token key",
+                ));
+            }
+            let Some(canonical_value) = &token.value else {
+                return Err(contract_violation(
+                    &format!("{suggestion_field}.canonical_value"),
+                    "suggested token must have a canonical registry value",
+                ));
+            };
+            if canonical_value != &suggestion.canonical_value {
+                return Err(contract_violation(
+                    &format!("{suggestion_field}.canonical_value"),
+                    "suggestion canonical_value must match the registry token value",
                 ));
             }
             if token.category != site.category {
@@ -1460,12 +1482,14 @@ fn validate_token_inference(merged: &MergedScan) -> Result<(), ScanFactsError> {
         }
     }
 
-    for (language_id, site_id) in &raw_keys {
-        if !inference_keys.contains(&(language_id.clone(), site_id.clone())) {
-            return Err(contract_violation(
-                "token_inference.sites",
-                "every raw hard-coded site must have exactly one inference row",
-            ));
+    for (language_id, sites) in &raw_sites_by_language {
+        for site_id in sites.keys() {
+            if !inference_keys.contains(&(language_id.clone(), site_id.clone())) {
+                return Err(contract_violation(
+                    "token_inference.sites",
+                    "every raw hard-coded site must have exactly one inference row",
+                ));
+            }
         }
     }
 

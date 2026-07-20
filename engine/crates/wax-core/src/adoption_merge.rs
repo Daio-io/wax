@@ -57,7 +57,7 @@ pub fn recompute_derived_scan_facts_with_parent_scope_limit(
 ///
 /// Returns [`ScanFactsError::ContractViolation`] when recomputing an input's
 /// derived counts finds invalid token facts or an overflowing counter, or when
-/// a generated symbol-summary count exceeds `u32`.
+/// a generated merged scan violates linkage or count invariants.
 pub fn merge_language_scans(
     languages: BTreeMap<LanguageId, ScanFacts>,
 ) -> Result<MergedScan, ScanFactsError> {
@@ -70,7 +70,7 @@ pub fn merge_language_scans(
 ///
 /// Returns [`ScanFactsError::ContractViolation`] when recomputing an input's
 /// derived counts finds invalid token facts or an overflowing counter, or when
-/// a generated symbol-summary count exceeds `u32`.
+/// a generated merged scan violates linkage or count invariants.
 pub fn merge_language_scans_with_parent_scope_limit(
     languages: BTreeMap<LanguageId, ScanFacts>,
     parent_scope_limit: Option<u32>,
@@ -90,9 +90,9 @@ pub fn merge_language_scans_with_parent_scope_limit(
     let repo_metrics = metrics_from_counts(&repo_counts, merged_parse_metrics(&merged_languages));
     let symbol_usage_summary = merge_symbol_usage_summaries(&merged_languages);
     let token_usage_summary = merge_token_usage_summaries(&merged_languages);
-    let token_inference = build_unassessed_token_inference(&merged_languages);
+    let token_inference = build_unassessed_token_inference(&merged_languages)?;
 
-    Ok(MergedScan {
+    let merged = MergedScan {
         schema_version: SCHEMA_VERSION,
         recorded_at: OffsetDateTime::now_utc(),
         repo_summary: RepoSummary {
@@ -104,7 +104,9 @@ pub fn merge_language_scans_with_parent_scope_limit(
         token_usage_summary,
         token_inference,
         languages: merged_languages,
-    })
+    };
+    merged.validate()?;
+    Ok(merged)
 }
 
 fn merged_parse_metrics(languages: &BTreeMap<LanguageId, ScanFacts>) -> (u64, u32) {
@@ -148,7 +150,7 @@ fn metrics_from_counts(
 /// Task 2 replaces this with deterministic value matching.
 fn build_unassessed_token_inference(
     languages: &BTreeMap<LanguageId, ScanFacts>,
-) -> TokenInferenceReport {
+) -> Result<TokenInferenceReport, ScanFactsError> {
     let mut sites = Vec::new();
     for (language_id, facts) in languages {
         for site in &facts.hardcoded_style_sites {
@@ -162,8 +164,12 @@ fn build_unassessed_token_inference(
             });
         }
     }
-    let observation_count = u32::try_from(sites.len()).unwrap_or(u32::MAX);
-    TokenInferenceReport {
+    let observation_count =
+        u32::try_from(sites.len()).map_err(|_| ScanFactsError::ContractViolation {
+            field: "token_inference.counts.hardcoded_observation_count".to_owned(),
+            message: "hardcoded observation count exceeds u32 maximum".to_owned(),
+        })?;
+    Ok(TokenInferenceReport {
         numeric_tolerance: 2.0,
         counts: TokenInferenceCounts {
             hardcoded_observation_count: observation_count,
@@ -177,7 +183,7 @@ fn build_unassessed_token_inference(
             candidates_by_context: StyleContextCounts::default(),
         },
         sites,
-    }
+    })
 }
 
 pub(crate) fn sum_count_summaries<'a>(
@@ -815,6 +821,33 @@ mod tests {
         assert_eq!(merged.token_usage_summary.len(), 1);
         assert_eq!(merged.token_usage_summary[0].language, "compose");
         assert_eq!(merged.token_usage_summary[0].token_id, "color.primary");
+    }
+
+    #[test]
+    fn merge_rejects_duplicate_hardcoded_style_site_ids() {
+        let mut compose = language_facts("compose", vec![]);
+        let site = HardcodedStyleSite {
+            id: "hardcoded.compose:src/Screen.kt:3:12:spacing".into(),
+            location: SourceLocation {
+                file: "src/Screen.kt".into(),
+                line: 3,
+                column: Some(12),
+            },
+            value: "8.dp".into(),
+            category: TokenCategory::Spacing,
+            context: StyleContext::Unknown,
+            parent: None,
+        };
+        compose.hardcoded_style_sites = vec![site.clone(), site];
+        let languages = BTreeMap::from([(LanguageId::try_from("compose").unwrap(), compose)]);
+
+        let err = merge_language_scans(languages).unwrap_err();
+
+        assert!(matches!(
+            err,
+            ScanFactsError::ContractViolation { field, .. }
+                if field == "languages.compose.hardcoded_style_sites[1].id"
+        ));
     }
 
     #[test]

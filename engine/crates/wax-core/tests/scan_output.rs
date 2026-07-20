@@ -262,6 +262,17 @@ JSON
 "#
 }
 
+fn duplicate_hardcoded_fixture_script() -> &'static str {
+    r#"#!/bin/sh
+set -eu
+language="$1"
+cat >/dev/null
+cat <<JSON
+{"type":"scan_facts","api_version":1,"language_id":"$language","facts":{"schema_version":3,"language":{"id":"$language","version":"0.1.0","ecosystem":"test","parser_name":"fixture","parser_version":"1.0.0"},"snapshot_id":"snap-$language","scanned_at":"1970-01-01T00:00:00Z","status":"complete","design_system_components":[],"local_components":[],"usage_sites":[],"diagnostics":[],"metrics":{"invocation_adoption_ratio":null,"registry_resolution_ratio":null,"parse_extract_ms":11,"files_scanned":1},"counts":{"registry":{"component_count":0,"used_component_count":0,"resolved_raw_invocation_count":0,"candidate_raw_invocation_count":0},"definitions":{"local_definition_count":0,"invoked_local_definition_count":0,"unused_local_definition_count":0},"raw_invocations":{"total":0,"resolved":0,"local":0,"candidate":0,"unresolved":0},"adoption":{"eligible_invocation_count":0,"adopted_invocation_count":0,"non_adopted_invocation_count":0},"parent_scopes":{"total":0,"with_resolved_invocations":0,"with_local_invocations":0,"with_unresolved_invocations":0},"tokens":{"configured_token_count":0,"used_token_count":0,"token_reference_site_count":0,"hardcoded_style_candidate_count":2,"token_references_by_category":{"color":0,"spacing":0,"typography":0,"radius":0,"elevation":0,"unknown":0},"hardcoded_by_category":{"color":0,"spacing":2,"typography":0,"radius":0,"elevation":0,"unknown":0},"parent_scopes_with_token_references":0,"parent_scopes_with_hardcoded_candidates":0}},"hardcoded_style_sites":[{"id":"hardcoded.$language:src/Screen:2:12:spacing","location":{"file":"src/Screen","line":2,"column":12},"value":"8","category":"spacing","context":"unknown"},{"id":"hardcoded.$language:src/Screen:2:12:spacing","location":{"file":"src/Screen","line":2,"column":12},"value":"8","category":"spacing","context":"unknown"}]}}
+JSON
+"#
+}
+
 fn overwrite_pack_script(wax_home: &Path, language: &str, script: &str) {
     let script_path = wax_home.join(format!("langs/{language}/0.1.0/pack.sh"));
     fs::write(&script_path, script).unwrap();
@@ -315,6 +326,29 @@ fn scan_output_merges_token_counts_summaries_and_ratio() {
             .len(),
         1
     );
+}
+
+#[test]
+fn scan_rejects_duplicate_hardcoded_ids_before_writing_outputs() {
+    let _guard = env_lock();
+    let fixture = fixture("scan-output-duplicate-hardcoded", &["compose"]);
+    overwrite_pack_script(
+        &fixture.wax_home,
+        "compose",
+        duplicate_hardcoded_fixture_script(),
+    );
+    let _wax_home = EnvVarGuard::set("WAX_HOME", &fixture.wax_home);
+
+    let err = Engine::scan_repo(&fixture.repo).expect_err("duplicate site ids must fail");
+
+    assert!(matches!(
+        err,
+        EngineError::ScanFacts(wax_contract::ScanFactsError::ContractViolation {
+            field,
+            ..
+        }) if field == "languages.compose.hardcoded_style_sites[1].id"
+    ));
+    assert!(!fixture.repo.join(".wax/out/scan-merged.json").exists());
 }
 
 #[test]

@@ -1047,8 +1047,19 @@ fn inference_merged_with_site(
     }
 }
 
+fn exact_suggestion() -> wax_contract::TokenReplacementSuggestion {
+    wax_contract::TokenReplacementSuggestion {
+        token_id: "spacing.s".into(),
+        token_key: "Spacing.s".into(),
+        canonical_value: "4.dp".into(),
+        match_kind: wax_contract::TokenMatchKind::Exact,
+        distance: Some(0.0),
+        normalized_unit: Some("dp".into()),
+    }
+}
+
 #[test]
-fn token_inference_rejects_empty_report_when_raw_sites_exist() {
+fn token_inference_rejects_missing_row() {
     let mut merged = inference_merged_with_site(
         wax_contract::TokenInferenceClassification::Unassessed,
         None,
@@ -1059,7 +1070,7 @@ fn token_inference_rejects_empty_report_when_raw_sites_exist() {
     assert!(matches!(
         err,
         wax_contract::ScanFactsError::ContractViolation { field, .. }
-            if field == "token_inference.sites" || field == "token_inference.counts.hardcoded_observation_count"
+            if field == "token_inference.sites"
     ));
 }
 
@@ -1082,7 +1093,7 @@ fn token_inference_rejects_duplicate_raw_site_ids() {
     assert!(matches!(
         err,
         wax_contract::ScanFactsError::ContractViolation { field, .. }
-            if field.contains("hardcoded_style_sites")
+            if field == "languages.compose.hardcoded_style_sites[1].id"
     ));
 }
 
@@ -1118,6 +1129,41 @@ fn token_inference_rejects_extra_inference_row() {
         err,
         wax_contract::ScanFactsError::ContractViolation { field, .. }
             if field == "token_inference.sites[0].site_id"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_unknown_language() {
+    let mut merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Unassessed,
+        None,
+        vec![],
+    );
+    merged.token_inference.sites[0].language = LanguageId::try_from("react").unwrap();
+
+    let err = merged.validate().unwrap_err();
+
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.sites[0].language"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_exact_without_suggestions() {
+    let merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Exact,
+        Some(wax_contract::TokenInferenceConfidence::VeryHigh),
+        vec![],
+    );
+
+    let err = merged.validate().unwrap_err();
+
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.sites[0].suggestions"
     ));
 }
 
@@ -1167,6 +1213,62 @@ fn token_inference_rejects_unassessed_with_suggestions() {
 }
 
 #[test]
+fn token_inference_rejects_unmatched_with_confidence() {
+    let merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Unmatched,
+        Some(wax_contract::TokenInferenceConfidence::Low),
+        vec![],
+    );
+
+    let err = merged.validate().unwrap_err();
+
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.sites[0].confidence"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_match_kind_disagreement() {
+    let mut suggestion = exact_suggestion();
+    suggestion.match_kind = wax_contract::TokenMatchKind::Near;
+    suggestion.distance = Some(1.0);
+    let merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Exact,
+        Some(wax_contract::TokenInferenceConfidence::VeryHigh),
+        vec![suggestion],
+    );
+
+    let err = merged.validate().unwrap_err();
+
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.sites[0].suggestions[0].match_kind"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_exact_nonzero_distance() {
+    let mut suggestion = exact_suggestion();
+    suggestion.distance = Some(1.0);
+    let merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Exact,
+        Some(wax_contract::TokenInferenceConfidence::VeryHigh),
+        vec![suggestion],
+    );
+
+    let err = merged.validate().unwrap_err();
+
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.sites[0].suggestions[0].distance"
+    ));
+}
+
+#[test]
 fn token_inference_rejects_unknown_suggestion_token() {
     use wax_contract::{
         TokenInferenceClassification, TokenInferenceConfidence, TokenMatchKind,
@@ -1189,6 +1291,110 @@ fn token_inference_rejects_unknown_suggestion_token() {
         err,
         wax_contract::ScanFactsError::ContractViolation { field, .. }
             if field == "token_inference.sites[0].suggestions[0].token_id"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_suggestion_token_key_mismatch() {
+    let mut suggestion = exact_suggestion();
+    suggestion.token_key = "Spacing.other".into();
+    let merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Exact,
+        Some(wax_contract::TokenInferenceConfidence::VeryHigh),
+        vec![suggestion],
+    );
+
+    let err = merged.validate().unwrap_err();
+
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.sites[0].suggestions[0].token_key"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_suggestion_from_different_category() {
+    let mut merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Exact,
+        Some(wax_contract::TokenInferenceConfidence::VeryHigh),
+        vec![exact_suggestion()],
+    );
+    merged
+        .languages
+        .get_mut(&LanguageId::try_from("compose").unwrap())
+        .unwrap()
+        .design_system_tokens[0]
+        .category = wax_contract::TokenCategory::Color;
+
+    let err = merged.validate().unwrap_err();
+
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.sites[0].suggestions[0].token_id"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_suggestion_when_token_has_no_canonical_value() {
+    use wax_contract::{
+        TokenInferenceClassification, TokenInferenceConfidence, TokenMatchKind,
+        TokenReplacementSuggestion,
+    };
+    let mut merged = inference_merged_with_site(
+        TokenInferenceClassification::Exact,
+        Some(TokenInferenceConfidence::VeryHigh),
+        vec![TokenReplacementSuggestion {
+            token_id: "spacing.s".into(),
+            token_key: "Spacing.s".into(),
+            canonical_value: "4.dp".into(),
+            match_kind: TokenMatchKind::Exact,
+            distance: Some(0.0),
+            normalized_unit: Some("dp".into()),
+        }],
+    );
+    merged
+        .languages
+        .get_mut(&LanguageId::try_from("compose").unwrap())
+        .unwrap()
+        .design_system_tokens[0]
+        .value = None;
+
+    let err = merged.validate().unwrap_err();
+
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.sites[0].suggestions[0].canonical_value"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_suggestion_with_mismatched_canonical_value() {
+    use wax_contract::{
+        TokenInferenceClassification, TokenInferenceConfidence, TokenMatchKind,
+        TokenReplacementSuggestion,
+    };
+    let merged = inference_merged_with_site(
+        TokenInferenceClassification::Exact,
+        Some(TokenInferenceConfidence::VeryHigh),
+        vec![TokenReplacementSuggestion {
+            token_id: "spacing.s".into(),
+            token_key: "Spacing.s".into(),
+            canonical_value: "8.dp".into(),
+            match_kind: TokenMatchKind::Exact,
+            distance: Some(0.0),
+            normalized_unit: Some("dp".into()),
+        }],
+    );
+
+    let err = merged.validate().unwrap_err();
+
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.sites[0].suggestions[0].canonical_value"
     ));
 }
 
@@ -1231,5 +1437,99 @@ fn token_inference_rejects_count_mismatch() {
         err,
         wax_contract::ScanFactsError::ContractViolation { field, .. }
             if field == "token_inference.counts.hardcoded_observation_count"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_assessed_count_mismatch() {
+    let mut merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Unmatched,
+        None,
+        vec![],
+    );
+    merged.token_inference.counts.assessed_observation_count = 0;
+
+    let err = merged.validate().unwrap_err();
+
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.counts.assessed_observation_count"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_classification_count_mismatch() {
+    let mut merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Unassessed,
+        None,
+        vec![],
+    );
+    merged.token_inference.counts.unassessed_observation_count = 0;
+
+    let err = merged.validate().unwrap_err();
+
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.counts.unassessed_observation_count"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_confidence_counts_mismatch() {
+    let mut merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Exact,
+        Some(wax_contract::TokenInferenceConfidence::VeryHigh),
+        vec![exact_suggestion()],
+    );
+    merged
+        .token_inference
+        .counts
+        .candidates_by_confidence
+        .very_high = 0;
+
+    let err = merged.validate().unwrap_err();
+
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.counts.candidates_by_confidence"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_category_counts_mismatch() {
+    let mut merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Exact,
+        Some(wax_contract::TokenInferenceConfidence::VeryHigh),
+        vec![exact_suggestion()],
+    );
+    merged.token_inference.counts.candidates_by_category.spacing = 0;
+
+    let err = merged.validate().unwrap_err();
+
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.counts.candidates_by_category"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_context_counts_mismatch() {
+    let mut merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Exact,
+        Some(wax_contract::TokenInferenceConfidence::VeryHigh),
+        vec![exact_suggestion()],
+    );
+    merged.token_inference.counts.candidates_by_context.padding = 0;
+
+    let err = merged.validate().unwrap_err();
+
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.counts.candidates_by_context"
     ));
 }

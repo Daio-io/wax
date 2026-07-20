@@ -250,6 +250,7 @@ raw (language, site_id) keys are unique
 every row language exists and its site id resolves in that language
 duplicate (language, site_id) pairs are invalid
 suggested token exists in the same language and category
+suggestion canonical value matches that registry token's present canonical value
 exact/near rows have suggestions and confidence
 unmatched/unassessed rows have neither
 suggestion match kind agrees with classification
@@ -270,6 +271,8 @@ Update the schema id and required version to `3`, require `hardcoded_style_site.
 For each Step 1 match, add `value: None`, use `StyleContext::Unknown` until Task 3, remove ratio fields/assertions, and update embedded scan facts to v3.
 
 In `adoption_merge.rs`, add a temporary private `build_unassessed_token_inference` helper used by the default merge path. It must emit exactly one row for every raw hard-coded site with `classification: Unassessed`, absent confidence, no suggestions, and `MissingCanonicalValues` evidence; set tolerance to `2.0` and derive counts so `hardcoded_observation_count == unassessed_observation_count == total raw sites`. Task 2 replaces this stub with deterministic matching. Add a merge test proving nonempty raw sites cannot produce an empty report.
+
+Validate the constructed `MergedScan` before returning it so invalid raw-site identities or generated inference facts fail before any scan output is written.
 
 Re-run Step 1; only explicit v2 incompatibility tests may remain.
 
