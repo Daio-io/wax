@@ -147,7 +147,6 @@ fn install_basic_scan_fixture_pack(wax_home: &Path, sha256: &str) {
         metrics: Metrics {
             invocation_adoption_ratio: None,
             registry_resolution_ratio: None,
-            token_reference_ratio: None,
             parse_extract_ms: 0,
             files_scanned: 0,
         },

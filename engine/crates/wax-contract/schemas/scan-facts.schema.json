@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://wax.dev/schemas/scan-facts.v2.schema.json",
+  "$id": "https://wax.dev/schemas/scan-facts.v3.schema.json",
   "title": "ScanFacts",
   "type": "object",
   "additionalProperties": false,
@@ -18,48 +18,82 @@
     "counts"
   ],
   "properties": {
-    "schema_version": { "const": 2 },
-    "language": { "$ref": "#/$defs/language_metadata" },
-    "snapshot_id": { "type": "string", "minLength": 1 },
-    "scanned_at": { "type": "string", "format": "date-time" },
-    "status": { "$ref": "#/$defs/scan_status" },
+    "schema_version": {
+      "const": 3
+    },
+    "language": {
+      "$ref": "#/$defs/language_metadata"
+    },
+    "snapshot_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scanned_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "status": {
+      "$ref": "#/$defs/scan_status"
+    },
     "design_system_components": {
       "type": "array",
-      "items": { "$ref": "#/$defs/design_system_component" }
+      "items": {
+        "$ref": "#/$defs/design_system_component"
+      }
     },
     "local_components": {
       "type": "array",
-      "items": { "$ref": "#/$defs/local_component" }
+      "items": {
+        "$ref": "#/$defs/local_component"
+      }
     },
     "usage_sites": {
       "type": "array",
-      "items": { "$ref": "#/$defs/usage_site" }
+      "items": {
+        "$ref": "#/$defs/usage_site"
+      }
     },
     "diagnostics": {
       "type": "array",
-      "items": { "$ref": "#/$defs/diagnostic" }
+      "items": {
+        "$ref": "#/$defs/diagnostic"
+      }
     },
-    "metrics": { "$ref": "#/$defs/metrics" },
-    "counts": { "$ref": "#/$defs/count_summary" },
+    "metrics": {
+      "$ref": "#/$defs/metrics"
+    },
+    "counts": {
+      "$ref": "#/$defs/count_summary"
+    },
     "symbol_usage_summary": {
       "type": "array",
-      "items": { "$ref": "#/$defs/symbol_usage_summary" }
+      "items": {
+        "$ref": "#/$defs/symbol_usage_summary"
+      }
     },
     "design_system_tokens": {
       "type": "array",
-      "items": { "$ref": "#/$defs/design_system_token" }
+      "items": {
+        "$ref": "#/$defs/design_system_token"
+      }
     },
     "token_sites": {
       "type": "array",
-      "items": { "$ref": "#/$defs/token_site" }
+      "items": {
+        "$ref": "#/$defs/token_site"
+      }
     },
     "hardcoded_style_sites": {
       "type": "array",
-      "items": { "$ref": "#/$defs/hardcoded_style_site" }
+      "items": {
+        "$ref": "#/$defs/hardcoded_style_site"
+      }
     },
     "token_usage_summary": {
       "type": "array",
-      "items": { "$ref": "#/$defs/token_usage_summary" }
+      "items": {
+        "$ref": "#/$defs/token_usage_summary"
+      }
     }
   },
   "$defs": {
@@ -70,69 +104,158 @@
     "language_metadata": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "version", "ecosystem", "parser_name", "parser_version"],
+      "required": [
+        "id",
+        "version",
+        "ecosystem",
+        "parser_name",
+        "parser_version"
+      ],
       "properties": {
-        "id": { "$ref": "#/$defs/language_id" },
-        "version": { "type": "string", "minLength": 1 },
-        "ecosystem": { "type": "string", "minLength": 1 },
-        "parser_name": { "type": "string", "minLength": 1 },
-        "parser_version": { "type": "string", "minLength": 1 }
+        "id": {
+          "$ref": "#/$defs/language_id"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ecosystem": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parser_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parser_version": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "source_location": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["file", "line"],
+      "required": [
+        "file",
+        "line"
+      ],
       "properties": {
-        "file": { "type": "string", "minLength": 1 },
-        "line": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
-        "column": { "type": "integer", "minimum": 1, "maximum": 4294967295 }
+        "file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        }
       }
     },
     "scan_status": {
       "type": "string",
-      "enum": ["complete", "partial", "failed"]
+      "enum": [
+        "complete",
+        "partial",
+        "failed"
+      ]
     },
     "match_status": {
       "type": "string",
-      "enum": ["resolved", "candidate", "local", "unresolved"],
+      "enum": [
+        "resolved",
+        "candidate",
+        "local",
+        "unresolved"
+      ],
       "description": "How one UI invocation resolved: resolved (registry), local (in-repo), candidate (ambiguous), unresolved (UI-shaped but unmatched)."
     },
     "symbol_kind": {
       "type": "string",
-      "enum": ["registry", "local", "candidate", "unresolved"],
+      "enum": [
+        "registry",
+        "local",
+        "candidate",
+        "unresolved"
+      ],
       "description": "What a symbol_usage_summary row represents after grouping usage sites."
     },
     "identity_stability": {
       "type": "string",
-      "enum": ["semantic", "path_sensitive", "scan_local"],
+      "enum": [
+        "semantic",
+        "path_sensitive",
+        "scan_local"
+      ],
       "description": "Expected durability of an ID for trend consumers."
     },
     "diagnostic_severity": {
       "type": "string",
-      "enum": ["error", "warning", "info"]
+      "enum": [
+        "error",
+        "warning",
+        "info"
+      ]
     },
     "design_system_component": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "symbol", "registry_symbol"],
+      "required": [
+        "id",
+        "symbol",
+        "registry_symbol"
+      ],
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "symbol": { "type": "string", "minLength": 1 },
-        "registry_symbol": { "type": "string", "minLength": 1 }
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "symbol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "registry_symbol": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "local_component": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "symbol", "location"],
+      "required": [
+        "id",
+        "symbol",
+        "location"
+      ],
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "symbol": { "type": "string", "minLength": 1 },
-        "qualified_symbol": { "type": "string", "minLength": 1 },
-        "identity_basis": { "type": "string", "minLength": 1 },
-        "identity_stability": { "$ref": "#/$defs/identity_stability" },
-        "location": { "$ref": "#/$defs/source_location" }
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "symbol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "qualified_symbol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "identity_basis": {
+          "type": "string",
+          "minLength": 1
+        },
+        "identity_stability": {
+          "$ref": "#/$defs/identity_stability"
+        },
+        "location": {
+          "$ref": "#/$defs/source_location"
+        }
       }
     },
     "parent_scope": {
@@ -146,61 +269,165 @@
         "identity_stability"
       ],
       "properties": {
-        "parent_id": { "type": "string", "minLength": 1 },
-        "symbol": { "type": "string", "minLength": 1 },
-        "qualified_symbol": { "type": "string", "minLength": 1 },
-        "scope_kind": { "type": "string", "minLength": 1 },
-        "identity_basis": { "type": "string", "minLength": 1 },
-        "identity_stability": { "$ref": "#/$defs/identity_stability" },
-        "location": { "$ref": "#/$defs/source_location" }
+        "parent_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "symbol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "qualified_symbol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scope_kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "identity_basis": {
+          "type": "string",
+          "minLength": 1
+        },
+        "identity_stability": {
+          "$ref": "#/$defs/identity_stability"
+        },
+        "location": {
+          "$ref": "#/$defs/source_location"
+        }
       }
     },
     "usage_site": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "location", "symbol", "match_status"],
+      "required": [
+        "id",
+        "location",
+        "symbol",
+        "match_status"
+      ],
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "location": { "$ref": "#/$defs/source_location" },
-        "symbol": { "type": "string", "minLength": 1 },
-        "qualified_symbol": { "type": "string", "minLength": 1 },
-        "match_status": { "$ref": "#/$defs/match_status" },
-        "registry_symbol": { "type": "string", "minLength": 1 },
-        "local_definition_id": { "type": "string", "minLength": 1 },
-        "parent": { "$ref": "#/$defs/parent_scope" }
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "location": {
+          "$ref": "#/$defs/source_location"
+        },
+        "symbol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "qualified_symbol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "match_status": {
+          "$ref": "#/$defs/match_status"
+        },
+        "registry_symbol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "local_definition_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parent": {
+          "$ref": "#/$defs/parent_scope"
+        }
       },
       "allOf": [
         {
           "if": {
-            "properties": { "match_status": { "const": "resolved" } },
-            "required": ["match_status"]
+            "properties": {
+              "match_status": {
+                "const": "resolved"
+              }
+            },
+            "required": [
+              "match_status"
+            ]
           },
-          "then": { "required": ["registry_symbol"], "not": { "required": ["local_definition_id"] } }
+          "then": {
+            "required": [
+              "registry_symbol"
+            ],
+            "not": {
+              "required": [
+                "local_definition_id"
+              ]
+            }
+          }
         },
         {
           "if": {
-            "properties": { "match_status": { "const": "candidate" } },
-            "required": ["match_status"]
+            "properties": {
+              "match_status": {
+                "const": "candidate"
+              }
+            },
+            "required": [
+              "match_status"
+            ]
           },
-          "then": { "required": ["registry_symbol"], "not": { "required": ["local_definition_id"] } }
+          "then": {
+            "required": [
+              "registry_symbol"
+            ],
+            "not": {
+              "required": [
+                "local_definition_id"
+              ]
+            }
+          }
         },
         {
           "if": {
-            "properties": { "match_status": { "const": "local" } },
-            "required": ["match_status"]
+            "properties": {
+              "match_status": {
+                "const": "local"
+              }
+            },
+            "required": [
+              "match_status"
+            ]
           },
-          "then": { "required": ["local_definition_id"], "not": { "required": ["registry_symbol"] } }
+          "then": {
+            "required": [
+              "local_definition_id"
+            ],
+            "not": {
+              "required": [
+                "registry_symbol"
+              ]
+            }
+          }
         },
         {
           "if": {
-            "properties": { "match_status": { "const": "unresolved" } },
-            "required": ["match_status"]
+            "properties": {
+              "match_status": {
+                "const": "unresolved"
+              }
+            },
+            "required": [
+              "match_status"
+            ]
           },
           "then": {
             "not": {
               "anyOf": [
-                { "required": ["registry_symbol"] },
-                { "required": ["local_definition_id"] }
+                {
+                  "required": [
+                    "registry_symbol"
+                  ]
+                },
+                {
+                  "required": [
+                    "local_definition_id"
+                  ]
+                }
               ]
             }
           }
@@ -219,14 +446,37 @@
         "invocation_count"
       ],
       "properties": {
-        "parent_id": { "type": "string", "minLength": 1 },
-        "symbol": { "type": "string", "minLength": 1 },
-        "qualified_symbol": { "type": "string", "minLength": 1 },
-        "scope_kind": { "type": "string", "minLength": 1 },
-        "identity_basis": { "type": "string", "minLength": 1 },
-        "identity_stability": { "$ref": "#/$defs/identity_stability" },
-        "invocation_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "location": { "$ref": "#/$defs/source_location" }
+        "parent_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "symbol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "qualified_symbol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scope_kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "identity_basis": {
+          "type": "string",
+          "minLength": 1
+        },
+        "identity_stability": {
+          "$ref": "#/$defs/identity_stability"
+        },
+        "invocation_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "location": {
+          "$ref": "#/$defs/source_location"
+        }
       }
     },
     "symbol_usage_summary": {
@@ -246,24 +496,65 @@
         "parent_scopes_truncated"
       ],
       "properties": {
-        "symbol_id": { "type": "string", "minLength": 1 },
-        "symbol": { "type": "string", "minLength": 1 },
-        "qualified_symbol": { "type": "string", "minLength": 1 },
-        "symbol_kind": { "$ref": "#/$defs/symbol_kind" },
-        "match_status": { "$ref": "#/$defs/match_status" },
-        "registry_symbol": { "type": "string", "minLength": 1 },
-        "local_definition_id": { "type": "string", "minLength": 1 },
-        "identity_basis": { "type": "string", "minLength": 1 },
-        "identity_stability": { "$ref": "#/$defs/identity_stability" },
-        "raw_invocation_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "parent_scope_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "file_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "symbol_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "symbol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "qualified_symbol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "symbol_kind": {
+          "$ref": "#/$defs/symbol_kind"
+        },
+        "match_status": {
+          "$ref": "#/$defs/match_status"
+        },
+        "registry_symbol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "local_definition_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "identity_basis": {
+          "type": "string",
+          "minLength": 1
+        },
+        "identity_stability": {
+          "$ref": "#/$defs/identity_stability"
+        },
+        "raw_invocation_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "parent_scope_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "file_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
         "parent_scopes": {
           "type": "array",
-          "items": { "$ref": "#/$defs/symbol_parent_scope_summary" }
+          "items": {
+            "$ref": "#/$defs/symbol_parent_scope_summary"
+          }
         },
         "parent_scope_limit": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0,
           "maximum": 4294967295,
           "description": "null emits all parent rows; 0 emits none but preserves parent_scope_count; N emits up to N rows."
@@ -276,48 +567,114 @@
       "allOf": [
         {
           "if": {
-            "properties": { "symbol_kind": { "const": "registry" } },
-            "required": ["symbol_kind"]
+            "properties": {
+              "symbol_kind": {
+                "const": "registry"
+              }
+            },
+            "required": [
+              "symbol_kind"
+            ]
           },
           "then": {
-            "properties": { "match_status": { "const": "resolved" } },
-            "required": ["registry_symbol"],
-            "not": { "required": ["local_definition_id"] }
+            "properties": {
+              "match_status": {
+                "const": "resolved"
+              }
+            },
+            "required": [
+              "registry_symbol"
+            ],
+            "not": {
+              "required": [
+                "local_definition_id"
+              ]
+            }
           }
         },
         {
           "if": {
-            "properties": { "symbol_kind": { "const": "candidate" } },
-            "required": ["symbol_kind"]
+            "properties": {
+              "symbol_kind": {
+                "const": "candidate"
+              }
+            },
+            "required": [
+              "symbol_kind"
+            ]
           },
           "then": {
-            "properties": { "match_status": { "const": "candidate" } },
-            "required": ["registry_symbol"],
-            "not": { "required": ["local_definition_id"] }
+            "properties": {
+              "match_status": {
+                "const": "candidate"
+              }
+            },
+            "required": [
+              "registry_symbol"
+            ],
+            "not": {
+              "required": [
+                "local_definition_id"
+              ]
+            }
           }
         },
         {
           "if": {
-            "properties": { "symbol_kind": { "const": "local" } },
-            "required": ["symbol_kind"]
+            "properties": {
+              "symbol_kind": {
+                "const": "local"
+              }
+            },
+            "required": [
+              "symbol_kind"
+            ]
           },
           "then": {
-            "properties": { "match_status": { "const": "local" } },
-            "required": ["local_definition_id"],
-            "not": { "required": ["registry_symbol"] }
+            "properties": {
+              "match_status": {
+                "const": "local"
+              }
+            },
+            "required": [
+              "local_definition_id"
+            ],
+            "not": {
+              "required": [
+                "registry_symbol"
+              ]
+            }
           }
         },
         {
           "if": {
-            "properties": { "symbol_kind": { "const": "unresolved" } },
-            "required": ["symbol_kind"]
+            "properties": {
+              "symbol_kind": {
+                "const": "unresolved"
+              }
+            },
+            "required": [
+              "symbol_kind"
+            ]
           },
           "then": {
-            "properties": { "match_status": { "const": "unresolved" } },
+            "properties": {
+              "match_status": {
+                "const": "unresolved"
+              }
+            },
             "not": {
               "anyOf": [
-                { "required": ["registry_symbol"] },
-                { "required": ["local_definition_id"] }
+                {
+                  "required": [
+                    "registry_symbol"
+                  ]
+                },
+                {
+                  "required": [
+                    "local_definition_id"
+                  ]
+                }
               ]
             }
           }
@@ -327,12 +684,25 @@
     "diagnostic": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["severity", "code", "message"],
+      "required": [
+        "severity",
+        "code",
+        "message"
+      ],
       "properties": {
-        "severity": { "$ref": "#/$defs/diagnostic_severity" },
-        "code": { "type": "string", "minLength": 1 },
-        "message": { "type": "string" },
-        "location": { "$ref": "#/$defs/source_location" }
+        "severity": {
+          "$ref": "#/$defs/diagnostic_severity"
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string"
+        },
+        "location": {
+          "$ref": "#/$defs/source_location"
+        }
       }
     },
     "metrics": {
@@ -346,22 +716,22 @@
       ],
       "properties": {
         "invocation_adoption_ratio": {
-          "type": ["number", "null"],
+          "type": [
+            "number",
+            "null"
+          ],
           "minimum": 0,
           "maximum": 1,
           "description": "adopted_invocation_count / eligible_invocation_count; null when eligible is zero."
         },
         "registry_resolution_ratio": {
-          "type": ["number", "null"],
+          "type": [
+            "number",
+            "null"
+          ],
           "minimum": 0,
           "maximum": 1,
           "description": "raw_invocations.resolved / raw_invocations.total; null when total is zero."
-        },
-        "token_reference_ratio": {
-          "type": ["number", "null"],
-          "minimum": 0,
-          "maximum": 1,
-          "description": "token_reference_site_count / (token_reference_site_count + hardcoded_style_candidate_count); null when denominator is zero."
         },
         "parse_extract_ms": {
           "type": "integer",
@@ -369,7 +739,11 @@
           "maximum": 4294967295,
           "description": "Practical contract maximum matching runtime validation."
         },
-        "files_scanned": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+        "files_scanned": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
       }
     },
     "registry_counts": {
@@ -382,10 +756,26 @@
         "candidate_raw_invocation_count"
       ],
       "properties": {
-        "component_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "used_component_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "resolved_raw_invocation_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "candidate_raw_invocation_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+        "component_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "used_component_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "resolved_raw_invocation_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "candidate_raw_invocation_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
       }
     },
     "definition_counts": {
@@ -397,21 +787,59 @@
         "unused_local_definition_count"
       ],
       "properties": {
-        "local_definition_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "invoked_local_definition_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "unused_local_definition_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+        "local_definition_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "invoked_local_definition_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "unused_local_definition_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
       }
     },
     "raw_invocation_counts": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["total", "resolved", "local", "candidate", "unresolved"],
+      "required": [
+        "total",
+        "resolved",
+        "local",
+        "candidate",
+        "unresolved"
+      ],
       "properties": {
-        "total": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "resolved": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "local": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "candidate": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "unresolved": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "resolved": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "local": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "candidate": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "unresolved": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
       }
     },
     "adoption_counts": {
@@ -423,9 +851,21 @@
         "non_adopted_invocation_count"
       ],
       "properties": {
-        "eligible_invocation_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "adopted_invocation_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "non_adopted_invocation_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+        "eligible_invocation_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "adopted_invocation_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "non_adopted_invocation_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
       }
     },
     "parent_scope_counts": {
@@ -438,66 +878,181 @@
         "with_unresolved_invocations"
       ],
       "properties": {
-        "total": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "with_resolved_invocations": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "with_local_invocations": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "with_unresolved_invocations": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "with_resolved_invocations": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "with_local_invocations": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "with_unresolved_invocations": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
       }
     },
     "token_category": {
       "type": "string",
-      "enum": ["color", "spacing", "typography", "radius", "elevation", "unknown"]
+      "enum": [
+        "color",
+        "spacing",
+        "typography",
+        "radius",
+        "elevation",
+        "unknown"
+      ]
     },
     "design_system_token": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "key", "category"],
+      "required": [
+        "id",
+        "key",
+        "category"
+      ],
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "key": { "type": "string", "minLength": 1 },
-        "category": { "$ref": "#/$defs/token_category" },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "$ref": "#/$defs/token_category"
+        },
         "aliases": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 }
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },
     "token_site": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "location", "token_id", "key", "category"],
+      "required": [
+        "id",
+        "location",
+        "token_id",
+        "key",
+        "category"
+      ],
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "location": { "$ref": "#/$defs/source_location" },
-        "token_id": { "type": "string", "minLength": 1 },
-        "key": { "type": "string", "minLength": 1 },
-        "category": { "$ref": "#/$defs/token_category" },
-        "parent": { "$ref": "#/$defs/parent_scope" }
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "location": {
+          "$ref": "#/$defs/source_location"
+        },
+        "token_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "$ref": "#/$defs/token_category"
+        },
+        "parent": {
+          "$ref": "#/$defs/parent_scope"
+        }
       }
     },
     "hardcoded_style_site": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "location", "value", "category"],
+      "required": [
+        "id",
+        "location",
+        "value",
+        "category",
+        "context"
+      ],
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "location": { "$ref": "#/$defs/source_location" },
-        "value": { "type": "string", "minLength": 1 },
-        "category": { "$ref": "#/$defs/token_category" },
-        "parent": { "$ref": "#/$defs/parent_scope" }
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "location": {
+          "$ref": "#/$defs/source_location"
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "$ref": "#/$defs/token_category"
+        },
+        "parent": {
+          "$ref": "#/$defs/parent_scope"
+        },
+        "context": {
+          "$ref": "#/$defs/style_context"
+        }
       }
     },
     "token_category_counts": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["color", "spacing", "typography", "radius", "elevation", "unknown"],
+      "required": [
+        "color",
+        "spacing",
+        "typography",
+        "radius",
+        "elevation",
+        "unknown"
+      ],
       "properties": {
-        "color": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "spacing": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "typography": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "radius": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "elevation": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "unknown": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+        "color": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "spacing": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "typography": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "radius": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "elevation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "unknown": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
       }
     },
     "token_counts": {
@@ -514,14 +1069,42 @@
         "parent_scopes_with_hardcoded_candidates"
       ],
       "properties": {
-        "configured_token_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "used_token_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "token_reference_site_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "hardcoded_style_candidate_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "token_references_by_category": { "$ref": "#/$defs/token_category_counts" },
-        "hardcoded_by_category": { "$ref": "#/$defs/token_category_counts" },
-        "parent_scopes_with_token_references": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "parent_scopes_with_hardcoded_candidates": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+        "configured_token_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "used_token_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "token_reference_site_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "hardcoded_style_candidate_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "token_references_by_category": {
+          "$ref": "#/$defs/token_category_counts"
+        },
+        "hardcoded_by_category": {
+          "$ref": "#/$defs/token_category_counts"
+        },
+        "parent_scopes_with_token_references": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "parent_scopes_with_hardcoded_candidates": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
       }
     },
     "token_usage_summary": {
@@ -537,27 +1120,84 @@
         "parent_scope_count"
       ],
       "properties": {
-        "language": { "type": "string", "minLength": 1 },
-        "token_id": { "type": "string", "minLength": 1 },
-        "key": { "type": "string", "minLength": 1 },
-        "category": { "$ref": "#/$defs/token_category" },
-        "reference_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "file_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "parent_scope_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+        "language": {
+          "type": "string",
+          "minLength": 1
+        },
+        "token_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "$ref": "#/$defs/token_category"
+        },
+        "reference_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "file_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "parent_scope_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
       }
     },
     "count_summary": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["registry", "definitions", "raw_invocations", "adoption", "parent_scopes"],
+      "required": [
+        "registry",
+        "definitions",
+        "raw_invocations",
+        "adoption",
+        "parent_scopes"
+      ],
       "properties": {
-        "registry": { "$ref": "#/$defs/registry_counts" },
-        "definitions": { "$ref": "#/$defs/definition_counts" },
-        "raw_invocations": { "$ref": "#/$defs/raw_invocation_counts" },
-        "adoption": { "$ref": "#/$defs/adoption_counts" },
-        "parent_scopes": { "$ref": "#/$defs/parent_scope_counts" },
-        "tokens": { "$ref": "#/$defs/token_counts" }
+        "registry": {
+          "$ref": "#/$defs/registry_counts"
+        },
+        "definitions": {
+          "$ref": "#/$defs/definition_counts"
+        },
+        "raw_invocations": {
+          "$ref": "#/$defs/raw_invocation_counts"
+        },
+        "adoption": {
+          "$ref": "#/$defs/adoption_counts"
+        },
+        "parent_scopes": {
+          "$ref": "#/$defs/parent_scope_counts"
+        },
+        "tokens": {
+          "$ref": "#/$defs/token_counts"
+        }
       }
+    },
+    "style_context": {
+      "type": "string",
+      "enum": [
+        "padding",
+        "margin",
+        "gap",
+        "width",
+        "height",
+        "size",
+        "radius",
+        "color",
+        "typography",
+        "elevation",
+        "unknown"
+      ]
     }
   }
 }

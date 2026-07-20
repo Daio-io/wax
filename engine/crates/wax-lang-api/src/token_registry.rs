@@ -91,11 +91,13 @@ pub fn parse_registry_tokens(
                 reason,
             })?;
         let aliases = parse_aliases(token, index)?;
+        let value = optional_non_empty_string(token, index, "value")?;
         tokens.push(DesignSystemToken {
             id: id.to_owned(),
             key: key.to_owned(),
             category,
             aliases,
+            value,
         });
     }
     tokens.sort_by(|left, right| left.id.cmp(&right.id));
@@ -237,6 +239,31 @@ fn required_non_empty_string<'a>(
         });
     }
     Ok(value)
+}
+
+fn optional_non_empty_string(
+    token: &serde_json::Value,
+    index: usize,
+    field: &'static str,
+) -> Result<Option<String>, TokenRegistryError> {
+    let Some(value) = token.get(field) else {
+        return Ok(None);
+    };
+    let Some(text) = value.as_str() else {
+        return Err(TokenRegistryError::InvalidTokenField {
+            index,
+            field,
+            reason: "must be a string".to_owned(),
+        });
+    };
+    if text.is_empty() {
+        return Err(TokenRegistryError::InvalidTokenField {
+            index,
+            field,
+            reason: "must not be empty".to_owned(),
+        });
+    }
+    Ok(Some(text.to_owned()))
 }
 
 fn parse_aliases(

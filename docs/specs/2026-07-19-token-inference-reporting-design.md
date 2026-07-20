@@ -1,6 +1,6 @@
 # Token Inference and Reporting Design
 
-**Status:** Proposed
+**Status:** Accepted (implementation in progress)
 
 **Date:** 2026-07-19
 

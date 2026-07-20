@@ -4,7 +4,7 @@ use time::macros::datetime;
 use wax_contract::{
     CountSummary, Diagnostic, DiagnosticSeverity, IdentityStability, LanguageId, LanguageMetadata,
     MatchStatus, MergedScan, Metrics, ParentScope, RepoSummary, SCHEMA_VERSION, ScanFacts,
-    ScanStatus, SourceLocation, SymbolKind, SymbolUsageSummary, UsageSite,
+    ScanStatus, SourceLocation, SymbolKind, SymbolUsageSummary, TokenInferenceReport, UsageSite,
 };
 
 fn scan_facts_schema() -> jsonschema::Validator {
@@ -83,7 +83,6 @@ fn minimal_facts() -> ScanFacts {
         metrics: Metrics {
             invocation_adoption_ratio: None,
             registry_resolution_ratio: None,
-            token_reference_ratio: None,
             parse_extract_ms: 12,
             files_scanned: 1,
         },
@@ -441,12 +440,14 @@ fn token_facts_roundtrip_and_validate_against_schema() {
             key: "Theme.colors.primary".into(),
             category: wax_contract::TokenCategory::Color,
             aliases: vec!["AppColors.Primary".into()],
+            value: None,
         },
         wax_contract::DesignSystemToken {
             id: "space.medium".into(),
             key: "Spacing.Medium".into(),
             category: wax_contract::TokenCategory::Spacing,
             aliases: vec![],
+            value: None,
         },
     ];
     facts.token_sites = vec![wax_contract::TokenSite {
@@ -482,6 +483,7 @@ fn token_facts_roundtrip_and_validate_against_schema() {
         },
         value: "8.dp".into(),
         category: wax_contract::TokenCategory::Spacing,
+        context: wax_contract::StyleContext::Unknown,
         parent: None,
     }];
     facts.recompute_counts().unwrap();
@@ -497,7 +499,6 @@ fn token_facts_roundtrip_and_validate_against_schema() {
     assert_eq!(back.counts.tokens.hardcoded_style_candidate_count, 1);
     assert_eq!(back.counts.tokens.token_references_by_category.color, 1);
     assert_eq!(back.counts.tokens.hardcoded_by_category.spacing, 1);
-    assert_eq!(back.metrics.token_reference_ratio, Some(0.5));
 
     let value = serde_json::to_value(&back).unwrap();
     assert!(scan_facts_schema().is_valid(&value));
@@ -533,6 +534,7 @@ fn token_site_key_must_match_key_or_alias() {
         key: "theme.colors.primary".into(),
         category: wax_contract::TokenCategory::Color,
         aliases: vec!["colors.primary".into()],
+        value: None,
     }];
     facts.token_sites = vec![wax_contract::TokenSite {
         id: "token.react:src/App.tsx:1:1:color.primary".into(),
@@ -565,6 +567,7 @@ fn hardcoded_style_site_requires_non_empty_value() {
         },
         value: "".into(),
         category: wax_contract::TokenCategory::Color,
+        context: wax_contract::StyleContext::Unknown,
         parent: None,
     }];
 
@@ -618,13 +621,13 @@ fn merged_scan_rejects_stale_repo_summary() {
             metrics: Metrics {
                 invocation_adoption_ratio: facts.metrics.invocation_adoption_ratio,
                 registry_resolution_ratio: facts.metrics.registry_resolution_ratio,
-                token_reference_ratio: facts.metrics.token_reference_ratio,
                 parse_extract_ms: facts.metrics.parse_extract_ms,
                 files_scanned: facts.metrics.files_scanned,
             },
         },
         symbol_usage_summary: vec![],
         token_usage_summary: vec![],
+        token_inference: TokenInferenceReport::empty(2.0),
         languages,
     };
 
@@ -653,17 +656,20 @@ fn accepts_zero_usage_sites_with_null_ratios() {
 }
 
 #[test]
-fn accepts_v2_metrics_without_token_reference_ratio() {
+fn rejects_v2_schema_version() {
     let mut facts = minimal_facts();
     facts.recompute_counts().unwrap();
     let mut value = serde_json::to_value(&facts).unwrap();
-    value["metrics"]
-        .as_object_mut()
-        .unwrap()
-        .remove("token_reference_ratio");
+    value["schema_version"] = serde_json::json!(2);
 
-    let back = wax_contract::scan_facts_from_json(&value.to_string()).unwrap();
-    assert_eq!(back.metrics.token_reference_ratio, None);
+    let err = wax_contract::scan_facts_from_json(&value.to_string()).unwrap_err();
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::UnsupportedSchemaVersion {
+            found: 2,
+            supported: 3
+        }
+    ));
 }
 
 #[test]
@@ -765,7 +771,6 @@ fn merged_scan_rejects_malformed_token_usage_summary() {
             metrics: Metrics {
                 invocation_adoption_ratio: facts.metrics.invocation_adoption_ratio,
                 registry_resolution_ratio: facts.metrics.registry_resolution_ratio,
-                token_reference_ratio: facts.metrics.token_reference_ratio,
                 parse_extract_ms: facts.metrics.parse_extract_ms,
                 files_scanned: facts.metrics.files_scanned,
             },
@@ -780,8 +785,751 @@ fn merged_scan_rejects_malformed_token_usage_summary() {
             file_count: 1,
             parent_scope_count: 0,
         }],
+        token_inference: TokenInferenceReport::empty(2.0),
         languages,
     };
 
     assert!(merged.validate().is_err());
+}
+
+#[test]
+fn schema_v3_token_inference_roundtrips() {
+    use wax_contract::{
+        HardcodedStyleInference, HardcodedStyleSite, StyleContext, StyleContextCounts,
+        TokenCategory, TokenCategoryCounts, TokenConfidenceCounts, TokenInferenceClassification,
+        TokenInferenceConfidence, TokenInferenceCounts, TokenInferenceEvidence,
+        TokenInferenceReport, TokenMatchKind, TokenReplacementSuggestion,
+    };
+
+    let token = wax_contract::DesignSystemToken {
+        id: "spacing.s".into(),
+        key: "Spacing.s".into(),
+        category: TokenCategory::Spacing,
+        aliases: vec![],
+        value: Some("4.dp".into()),
+    };
+    let site = HardcodedStyleSite {
+        id: "hardcoded.compose:src/Card.kt:8:20:spacing".into(),
+        location: SourceLocation {
+            file: "src/Card.kt".into(),
+            line: 8,
+            column: Some(20),
+        },
+        value: "4.dp".into(),
+        category: TokenCategory::Spacing,
+        context: StyleContext::Padding,
+        parent: None,
+    };
+    let inference = HardcodedStyleInference {
+        language: LanguageId::try_from("compose").unwrap(),
+        site_id: site.id.clone(),
+        classification: TokenInferenceClassification::Exact,
+        confidence: Some(TokenInferenceConfidence::VeryHigh),
+        suggestions: vec![TokenReplacementSuggestion {
+            token_id: token.id.clone(),
+            token_key: token.key.clone(),
+            canonical_value: "4.dp".into(),
+            match_kind: TokenMatchKind::Exact,
+            distance: Some(0.0),
+            normalized_unit: Some("dp".into()),
+        }],
+        evidence: vec![
+            TokenInferenceEvidence::ExactValue,
+            TokenInferenceEvidence::ClearUsageContext,
+        ],
+    };
+
+    let mut facts = minimal_facts();
+    facts.design_system_tokens = vec![token];
+    facts.hardcoded_style_sites = vec![site];
+    facts.recompute_counts().unwrap();
+
+    let value = serde_json::to_value(&facts).unwrap();
+    assert!(scan_facts_schema().is_valid(&value));
+    let back_facts =
+        wax_contract::scan_facts_from_json(&serde_json::to_string(&facts).unwrap()).unwrap();
+    assert_eq!(
+        back_facts.design_system_tokens[0].value.as_deref(),
+        Some("4.dp")
+    );
+    assert_eq!(
+        back_facts.hardcoded_style_sites[0].context,
+        StyleContext::Padding
+    );
+
+    let mut languages = BTreeMap::new();
+    languages.insert(LanguageId::try_from("compose").unwrap(), facts.clone());
+    let merged = MergedScan {
+        schema_version: SCHEMA_VERSION,
+        recorded_at: datetime!(2026-05-16 12:00 UTC),
+        repo_summary: RepoSummary {
+            languages: vec![LanguageId::try_from("compose").unwrap()],
+            counts: facts.counts.clone(),
+            metrics: Metrics {
+                invocation_adoption_ratio: facts.metrics.invocation_adoption_ratio,
+                registry_resolution_ratio: facts.metrics.registry_resolution_ratio,
+                parse_extract_ms: facts.metrics.parse_extract_ms,
+                files_scanned: facts.metrics.files_scanned,
+            },
+        },
+        symbol_usage_summary: vec![],
+        token_usage_summary: vec![],
+        token_inference: TokenInferenceReport {
+            numeric_tolerance: 2.0,
+            counts: TokenInferenceCounts {
+                hardcoded_observation_count: 1,
+                assessed_observation_count: 1,
+                exact_replacement_candidate_count: 1,
+                near_replacement_candidate_count: 0,
+                unmatched_observation_count: 0,
+                unassessed_observation_count: 0,
+                candidates_by_confidence: TokenConfidenceCounts {
+                    very_high: 1,
+                    high: 0,
+                    medium: 0,
+                    low: 0,
+                },
+                candidates_by_category: TokenCategoryCounts {
+                    color: 0,
+                    spacing: 1,
+                    typography: 0,
+                    radius: 0,
+                    elevation: 0,
+                    unknown: 0,
+                },
+                candidates_by_context: StyleContextCounts {
+                    padding: 1,
+                    margin: 0,
+                    gap: 0,
+                    width: 0,
+                    height: 0,
+                    size: 0,
+                    radius: 0,
+                    color: 0,
+                    typography: 0,
+                    elevation: 0,
+                    unknown: 0,
+                },
+            },
+            sites: vec![inference],
+        },
+        languages,
+    };
+
+    merged.validate().unwrap();
+    let json = serde_json::to_string(&merged).unwrap();
+    let back: MergedScan = serde_json::from_str(&json).unwrap();
+    back.validate().unwrap();
+    assert_eq!(back, merged);
+}
+
+fn inference_merged_with_site(
+    classification: wax_contract::TokenInferenceClassification,
+    confidence: Option<wax_contract::TokenInferenceConfidence>,
+    suggestions: Vec<wax_contract::TokenReplacementSuggestion>,
+) -> MergedScan {
+    use wax_contract::{
+        HardcodedStyleInference, HardcodedStyleSite, StyleContext, StyleContextCounts,
+        TokenCategory, TokenCategoryCounts, TokenConfidenceCounts, TokenInferenceCounts,
+        TokenInferenceEvidence, TokenInferenceReport,
+    };
+
+    let token = wax_contract::DesignSystemToken {
+        id: "spacing.s".into(),
+        key: "Spacing.s".into(),
+        category: TokenCategory::Spacing,
+        aliases: vec![],
+        value: Some("4.dp".into()),
+    };
+    let site = HardcodedStyleSite {
+        id: "hardcoded.compose:src/Card.kt:8:20:spacing".into(),
+        location: SourceLocation {
+            file: "src/Card.kt".into(),
+            line: 8,
+            column: Some(20),
+        },
+        value: "4.dp".into(),
+        category: TokenCategory::Spacing,
+        context: StyleContext::Padding,
+        parent: None,
+    };
+    let mut facts = minimal_facts();
+    facts.design_system_tokens = vec![token];
+    let site_id = site.id.clone();
+    facts.hardcoded_style_sites = vec![site];
+    facts.recompute_counts().unwrap();
+
+    let is_candidate = matches!(
+        classification,
+        wax_contract::TokenInferenceClassification::Exact
+            | wax_contract::TokenInferenceClassification::Near
+    );
+    let exact = u32::from(classification == wax_contract::TokenInferenceClassification::Exact);
+    let near = u32::from(classification == wax_contract::TokenInferenceClassification::Near);
+    let unmatched =
+        u32::from(classification == wax_contract::TokenInferenceClassification::Unmatched);
+    let unassessed =
+        u32::from(classification == wax_contract::TokenInferenceClassification::Unassessed);
+    let assessed = exact + near + unmatched;
+
+    let mut by_confidence = TokenConfidenceCounts::default();
+    if let Some(level) = confidence {
+        match level {
+            wax_contract::TokenInferenceConfidence::VeryHigh => by_confidence.very_high = 1,
+            wax_contract::TokenInferenceConfidence::High => by_confidence.high = 1,
+            wax_contract::TokenInferenceConfidence::Medium => by_confidence.medium = 1,
+            wax_contract::TokenInferenceConfidence::Low => by_confidence.low = 1,
+        }
+    }
+    let by_category = if is_candidate {
+        TokenCategoryCounts {
+            spacing: 1,
+            ..TokenCategoryCounts::default()
+        }
+    } else {
+        TokenCategoryCounts::default()
+    };
+    let by_context = if is_candidate {
+        StyleContextCounts {
+            padding: 1,
+            ..StyleContextCounts::default()
+        }
+    } else {
+        StyleContextCounts::default()
+    };
+
+    let mut languages = BTreeMap::new();
+    languages.insert(LanguageId::try_from("compose").unwrap(), facts.clone());
+    MergedScan {
+        schema_version: SCHEMA_VERSION,
+        recorded_at: datetime!(2026-05-16 12:00 UTC),
+        repo_summary: RepoSummary {
+            languages: vec![LanguageId::try_from("compose").unwrap()],
+            counts: facts.counts.clone(),
+            metrics: Metrics {
+                invocation_adoption_ratio: facts.metrics.invocation_adoption_ratio,
+                registry_resolution_ratio: facts.metrics.registry_resolution_ratio,
+                parse_extract_ms: facts.metrics.parse_extract_ms,
+                files_scanned: facts.metrics.files_scanned,
+            },
+        },
+        symbol_usage_summary: vec![],
+        token_usage_summary: vec![],
+        token_inference: TokenInferenceReport {
+            numeric_tolerance: 2.0,
+            counts: TokenInferenceCounts {
+                hardcoded_observation_count: 1,
+                assessed_observation_count: assessed,
+                exact_replacement_candidate_count: exact,
+                near_replacement_candidate_count: near,
+                unmatched_observation_count: unmatched,
+                unassessed_observation_count: unassessed,
+                candidates_by_confidence: by_confidence,
+                candidates_by_category: by_category,
+                candidates_by_context: by_context,
+            },
+            sites: vec![HardcodedStyleInference {
+                language: LanguageId::try_from("compose").unwrap(),
+                site_id,
+                classification,
+                confidence,
+                suggestions,
+                evidence: if classification
+                    == wax_contract::TokenInferenceClassification::Unassessed
+                {
+                    vec![TokenInferenceEvidence::MissingCanonicalValues]
+                } else {
+                    vec![]
+                },
+            }],
+        },
+        languages,
+    }
+}
+
+fn exact_suggestion() -> wax_contract::TokenReplacementSuggestion {
+    wax_contract::TokenReplacementSuggestion {
+        token_id: "spacing.s".into(),
+        token_key: "Spacing.s".into(),
+        canonical_value: "4.dp".into(),
+        match_kind: wax_contract::TokenMatchKind::Exact,
+        distance: Some(0.0),
+        normalized_unit: Some("dp".into()),
+    }
+}
+
+#[test]
+fn token_inference_rejects_missing_row() {
+    let mut merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Unassessed,
+        None,
+        vec![],
+    );
+    merged.token_inference = TokenInferenceReport::empty(2.0);
+    let err = merged.validate().unwrap_err();
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.sites"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_duplicate_raw_site_ids() {
+    let mut merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Unassessed,
+        None,
+        vec![],
+    );
+    let facts = merged
+        .languages
+        .get_mut(&LanguageId::try_from("compose").unwrap())
+        .unwrap();
+    let duplicate = facts.hardcoded_style_sites[0].clone();
+    facts.hardcoded_style_sites.push(duplicate);
+    facts.recompute_counts().unwrap();
+    merged.repo_summary.counts = facts.counts.clone();
+    let err = merged.validate().unwrap_err();
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "languages.compose.hardcoded_style_sites[1].id"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_duplicate_inference_rows() {
+    let mut merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Unassessed,
+        None,
+        vec![],
+    );
+    let row = merged.token_inference.sites[0].clone();
+    merged.token_inference.sites.push(row);
+    merged.token_inference.counts.hardcoded_observation_count = 2;
+    merged.token_inference.counts.unassessed_observation_count = 2;
+    let err = merged.validate().unwrap_err();
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.sites[1].site_id"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_extra_inference_row() {
+    let mut merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Unassessed,
+        None,
+        vec![],
+    );
+    merged.token_inference.sites[0].site_id = "missing".into();
+    let err = merged.validate().unwrap_err();
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.sites[0].site_id"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_unknown_language() {
+    let mut merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Unassessed,
+        None,
+        vec![],
+    );
+    merged.token_inference.sites[0].language = LanguageId::try_from("react").unwrap();
+
+    let err = merged.validate().unwrap_err();
+
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.sites[0].language"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_exact_without_suggestions() {
+    let merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Exact,
+        Some(wax_contract::TokenInferenceConfidence::VeryHigh),
+        vec![],
+    );
+
+    let err = merged.validate().unwrap_err();
+
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.sites[0].suggestions"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_exact_without_confidence() {
+    use wax_contract::{TokenInferenceClassification, TokenMatchKind, TokenReplacementSuggestion};
+    let mut merged = inference_merged_with_site(
+        TokenInferenceClassification::Exact,
+        Some(wax_contract::TokenInferenceConfidence::VeryHigh),
+        vec![TokenReplacementSuggestion {
+            token_id: "spacing.s".into(),
+            token_key: "Spacing.s".into(),
+            canonical_value: "4.dp".into(),
+            match_kind: TokenMatchKind::Exact,
+            distance: Some(0.0),
+            normalized_unit: Some("dp".into()),
+        }],
+    );
+    merged.token_inference.sites[0].confidence = None;
+    let err = merged.validate().unwrap_err();
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.sites[0].confidence"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_unassessed_with_suggestions() {
+    use wax_contract::{TokenInferenceClassification, TokenMatchKind, TokenReplacementSuggestion};
+    let mut merged =
+        inference_merged_with_site(TokenInferenceClassification::Unassessed, None, vec![]);
+    merged.token_inference.sites[0].suggestions = vec![TokenReplacementSuggestion {
+        token_id: "spacing.s".into(),
+        token_key: "Spacing.s".into(),
+        canonical_value: "4.dp".into(),
+        match_kind: TokenMatchKind::Exact,
+        distance: None,
+        normalized_unit: None,
+    }];
+    let err = merged.validate().unwrap_err();
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.sites[0].suggestions"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_unmatched_with_confidence() {
+    let merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Unmatched,
+        Some(wax_contract::TokenInferenceConfidence::Low),
+        vec![],
+    );
+
+    let err = merged.validate().unwrap_err();
+
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.sites[0].confidence"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_match_kind_disagreement() {
+    let mut suggestion = exact_suggestion();
+    suggestion.match_kind = wax_contract::TokenMatchKind::Near;
+    suggestion.distance = Some(1.0);
+    let merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Exact,
+        Some(wax_contract::TokenInferenceConfidence::VeryHigh),
+        vec![suggestion],
+    );
+
+    let err = merged.validate().unwrap_err();
+
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.sites[0].suggestions[0].match_kind"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_exact_nonzero_distance() {
+    let mut suggestion = exact_suggestion();
+    suggestion.distance = Some(1.0);
+    let merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Exact,
+        Some(wax_contract::TokenInferenceConfidence::VeryHigh),
+        vec![suggestion],
+    );
+
+    let err = merged.validate().unwrap_err();
+
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.sites[0].suggestions[0].distance"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_unknown_suggestion_token() {
+    use wax_contract::{
+        TokenInferenceClassification, TokenInferenceConfidence, TokenMatchKind,
+        TokenReplacementSuggestion,
+    };
+    let merged = inference_merged_with_site(
+        TokenInferenceClassification::Exact,
+        Some(TokenInferenceConfidence::VeryHigh),
+        vec![TokenReplacementSuggestion {
+            token_id: "missing".into(),
+            token_key: "Missing".into(),
+            canonical_value: "4.dp".into(),
+            match_kind: TokenMatchKind::Exact,
+            distance: Some(0.0),
+            normalized_unit: Some("dp".into()),
+        }],
+    );
+    let err = merged.validate().unwrap_err();
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.sites[0].suggestions[0].token_id"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_suggestion_token_key_mismatch() {
+    let mut suggestion = exact_suggestion();
+    suggestion.token_key = "Spacing.other".into();
+    let merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Exact,
+        Some(wax_contract::TokenInferenceConfidence::VeryHigh),
+        vec![suggestion],
+    );
+
+    let err = merged.validate().unwrap_err();
+
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.sites[0].suggestions[0].token_key"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_suggestion_from_different_category() {
+    let mut merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Exact,
+        Some(wax_contract::TokenInferenceConfidence::VeryHigh),
+        vec![exact_suggestion()],
+    );
+    merged
+        .languages
+        .get_mut(&LanguageId::try_from("compose").unwrap())
+        .unwrap()
+        .design_system_tokens[0]
+        .category = wax_contract::TokenCategory::Color;
+
+    let err = merged.validate().unwrap_err();
+
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.sites[0].suggestions[0].token_id"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_suggestion_when_token_has_no_canonical_value() {
+    use wax_contract::{
+        TokenInferenceClassification, TokenInferenceConfidence, TokenMatchKind,
+        TokenReplacementSuggestion,
+    };
+    let mut merged = inference_merged_with_site(
+        TokenInferenceClassification::Exact,
+        Some(TokenInferenceConfidence::VeryHigh),
+        vec![TokenReplacementSuggestion {
+            token_id: "spacing.s".into(),
+            token_key: "Spacing.s".into(),
+            canonical_value: "4.dp".into(),
+            match_kind: TokenMatchKind::Exact,
+            distance: Some(0.0),
+            normalized_unit: Some("dp".into()),
+        }],
+    );
+    merged
+        .languages
+        .get_mut(&LanguageId::try_from("compose").unwrap())
+        .unwrap()
+        .design_system_tokens[0]
+        .value = None;
+
+    let err = merged.validate().unwrap_err();
+
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.sites[0].suggestions[0].canonical_value"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_suggestion_with_mismatched_canonical_value() {
+    use wax_contract::{
+        TokenInferenceClassification, TokenInferenceConfidence, TokenMatchKind,
+        TokenReplacementSuggestion,
+    };
+    let merged = inference_merged_with_site(
+        TokenInferenceClassification::Exact,
+        Some(TokenInferenceConfidence::VeryHigh),
+        vec![TokenReplacementSuggestion {
+            token_id: "spacing.s".into(),
+            token_key: "Spacing.s".into(),
+            canonical_value: "8.dp".into(),
+            match_kind: TokenMatchKind::Exact,
+            distance: Some(0.0),
+            normalized_unit: Some("dp".into()),
+        }],
+    );
+
+    let err = merged.validate().unwrap_err();
+
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.sites[0].suggestions[0].canonical_value"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_near_distance_zero() {
+    use wax_contract::{
+        TokenInferenceClassification, TokenInferenceConfidence, TokenMatchKind,
+        TokenReplacementSuggestion,
+    };
+    let merged = inference_merged_with_site(
+        TokenInferenceClassification::Near,
+        Some(TokenInferenceConfidence::Medium),
+        vec![TokenReplacementSuggestion {
+            token_id: "spacing.s".into(),
+            token_key: "Spacing.s".into(),
+            canonical_value: "4.dp".into(),
+            match_kind: TokenMatchKind::Near,
+            distance: Some(0.0),
+            normalized_unit: Some("dp".into()),
+        }],
+    );
+    let err = merged.validate().unwrap_err();
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.sites[0].suggestions[0].distance"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_count_mismatch() {
+    let mut merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Unassessed,
+        None,
+        vec![],
+    );
+    merged.token_inference.counts.hardcoded_observation_count = 99;
+    let err = merged.validate().unwrap_err();
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.counts.hardcoded_observation_count"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_assessed_count_mismatch() {
+    let mut merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Unmatched,
+        None,
+        vec![],
+    );
+    merged.token_inference.counts.assessed_observation_count = 0;
+
+    let err = merged.validate().unwrap_err();
+
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.counts.assessed_observation_count"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_classification_count_mismatch() {
+    let mut merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Unassessed,
+        None,
+        vec![],
+    );
+    merged.token_inference.counts.unassessed_observation_count = 0;
+
+    let err = merged.validate().unwrap_err();
+
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.counts.unassessed_observation_count"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_confidence_counts_mismatch() {
+    let mut merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Exact,
+        Some(wax_contract::TokenInferenceConfidence::VeryHigh),
+        vec![exact_suggestion()],
+    );
+    merged
+        .token_inference
+        .counts
+        .candidates_by_confidence
+        .very_high = 0;
+
+    let err = merged.validate().unwrap_err();
+
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.counts.candidates_by_confidence"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_category_counts_mismatch() {
+    let mut merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Exact,
+        Some(wax_contract::TokenInferenceConfidence::VeryHigh),
+        vec![exact_suggestion()],
+    );
+    merged.token_inference.counts.candidates_by_category.spacing = 0;
+
+    let err = merged.validate().unwrap_err();
+
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.counts.candidates_by_category"
+    ));
+}
+
+#[test]
+fn token_inference_rejects_context_counts_mismatch() {
+    let mut merged = inference_merged_with_site(
+        wax_contract::TokenInferenceClassification::Exact,
+        Some(wax_contract::TokenInferenceConfidence::VeryHigh),
+        vec![exact_suggestion()],
+    );
+    merged.token_inference.counts.candidates_by_context.padding = 0;
+
+    let err = merged.validate().unwrap_err();
+
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "token_inference.counts.candidates_by_context"
+    ));
 }

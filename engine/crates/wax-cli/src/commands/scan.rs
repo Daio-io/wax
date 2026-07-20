@@ -529,11 +529,6 @@ fn write_scan_summary(
     writeln!(writer, "  Unresolved UI calls: {}", raw.unresolved).map_err(write_error)?;
 
     writeln!(writer, "token metrics:").map_err(write_error)?;
-    if let Some(ratio) = repo.metrics.token_reference_ratio {
-        writeln!(writer, "  Token reference ratio: {:.1}%", ratio * 100.0).map_err(write_error)?;
-    } else {
-        writeln!(writer, "  Token reference ratio: n/a").map_err(write_error)?;
-    }
     writeln!(
         writer,
         "  Token references: {}",
@@ -544,6 +539,12 @@ fn write_scan_summary(
         writer,
         "  Hard-coded style candidates: {}",
         repo.counts.tokens.hardcoded_style_candidate_count
+    )
+    .map_err(write_error)?;
+    writeln!(
+        writer,
+        "  Unassessed hard-coded observations: {}",
+        merged.token_inference.counts.unassessed_observation_count
     )
     .map_err(write_error)?;
 
@@ -742,13 +743,13 @@ mod tests {
                 metrics: Metrics {
                     invocation_adoption_ratio: Some(0.875),
                     registry_resolution_ratio: Some(0.7),
-                    token_reference_ratio: Some(0.75),
                     parse_extract_ms: 2,
                     files_scanned: 2,
                 },
             },
             symbol_usage_summary: vec![],
             token_usage_summary: vec![],
+            token_inference: wax_contract::TokenInferenceReport::empty(2.0),
             languages: BTreeMap::from([
                 (
                     LanguageId::from_str("compose").unwrap(),
@@ -808,9 +809,9 @@ mod tests {
         assert!(stdout.contains("Raw DS invocations: 7 resolved, 1 candidate"));
         assert!(stdout.contains("Unresolved UI calls: 1"));
         assert!(stdout.contains("token metrics:"));
-        assert!(stdout.contains("Token reference ratio: 75.0%"));
         assert!(stdout.contains("Token references: 3"));
         assert!(stdout.contains("Hard-coded style candidates: 1"));
+        assert!(stdout.contains("Unassessed hard-coded observations: 0"));
         assert!(stdout.contains("PACK_TIMEOUT: timed out"));
         assert!(stdout.contains(
             "parse_failed (src/Broken.tsx:4:12): failed to parse source file; file skipped"
@@ -944,13 +945,13 @@ mod tests {
                 metrics: Metrics {
                     invocation_adoption_ratio: None,
                     registry_resolution_ratio: None,
-                    token_reference_ratio: None,
                     parse_extract_ms: 0,
                     files_scanned: 0,
                 },
             },
             symbol_usage_summary: vec![],
             token_usage_summary: vec![],
+            token_inference: wax_contract::TokenInferenceReport::empty(2.0),
             languages: BTreeMap::new(),
         };
 
@@ -1041,7 +1042,6 @@ mod tests {
             metrics: Metrics {
                 invocation_adoption_ratio,
                 registry_resolution_ratio: None,
-                token_reference_ratio: None,
                 parse_extract_ms: 1,
                 files_scanned: 1,
             },

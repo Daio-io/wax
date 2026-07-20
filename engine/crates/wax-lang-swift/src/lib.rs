@@ -246,7 +246,6 @@ fn facts_from_scan(
         metrics: Metrics {
             invocation_adoption_ratio: None,
             registry_resolution_ratio: None,
-            token_reference_ratio: None,
             parse_extract_ms,
             files_scanned: result.files_scanned,
         },
@@ -285,7 +284,6 @@ fn scaffold_facts(request: &ScanRequest, language_id: &LanguageId) -> ScanFacts 
         metrics: Metrics {
             invocation_adoption_ratio: None,
             registry_resolution_ratio: None,
-            token_reference_ratio: None,
             parse_extract_ms: 0,
             files_scanned: 0,
         },

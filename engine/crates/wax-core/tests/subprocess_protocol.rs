@@ -326,7 +326,6 @@ fn sample_scan_facts() -> ScanFacts {
         metrics: Metrics {
             invocation_adoption_ratio: None,
             registry_resolution_ratio: None,
-            token_reference_ratio: None,
             parse_extract_ms: 12,
             files_scanned: 1,
         },

@@ -20,7 +20,7 @@ pub const TREE_SITTER_KOTLIN_GRAMMAR_VERSION: &str = "1.1.0";
 use wax_contract::{
     DesignSystemComponent, DesignSystemToken, Diagnostic, DiagnosticSeverity, HardcodedStyleSite,
     IdentityStability, LocalComponent, MatchStatus, ParentScope, ScanStatus, SourceLocation,
-    TokenCategory, TokenSite, UsageSite,
+    StyleContext, TokenCategory, TokenSite, UsageSite,
 };
 use wax_lang_api::{
     RegistryTokenIndex, RootPatternKind, RootResolutionError, ScanConfig, parse_registry_tokens,
@@ -773,6 +773,7 @@ fn extract_hardcoded_style_from_source(
                 },
                 value,
                 category,
+                context: StyleContext::Unknown,
                 parent,
             });
         }
@@ -1992,6 +1993,7 @@ fun BrokenScreen(
                 key: (*key).to_owned(),
                 category: *category,
                 aliases: Vec::new(),
+                value: None,
             });
         }
         token_index(&tokens).expect("token index should build")

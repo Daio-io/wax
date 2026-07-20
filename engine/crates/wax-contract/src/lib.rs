@@ -26,7 +26,7 @@ use thiserror::Error;
 use time::OffsetDateTime;
 
 /// Current JSON schema version for [`ScanFacts`] and [`MergedScan`].
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// Maximum parser/extraction duration accepted by the frozen JSON contract.
 ///
@@ -38,7 +38,6 @@ pub const MAX_PARSE_EXTRACT_MS: u64 = u32::MAX as u64;
 const NULLABLE_JSON_FIELDS: &[&[&str]] = &[
     &["metrics", "invocation_adoption_ratio"],
     &["metrics", "registry_resolution_ratio"],
-    &["metrics", "token_reference_ratio"],
 ];
 
 /// Validated lowercase ASCII slug used to identify a language pack.
@@ -385,6 +384,9 @@ pub struct DesignSystemToken {
     /// Exact source-facing aliases for the same token.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub aliases: Vec<String>,
+    /// Optional canonical source-facing value for deterministic inference.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
 }
 
 /// Source reference to a known design token.
@@ -406,6 +408,34 @@ pub struct TokenSite {
     pub parent: Option<ParentScope>,
 }
 
+/// Typed usage context for a hard-coded styling observation.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum StyleContext {
+    /// Padding / inset styling.
+    Padding,
+    /// Margin styling.
+    Margin,
+    /// Gap / spacing-between styling.
+    Gap,
+    /// Explicit width.
+    Width,
+    /// Explicit height.
+    Height,
+    /// Combined size (width and height together).
+    Size,
+    /// Corner radius.
+    Radius,
+    /// Color styling.
+    Color,
+    /// Typography styling.
+    Typography,
+    /// Elevation / shadow styling.
+    Elevation,
+    /// Recognized styling literal without a more precise context.
+    Unknown,
+}
+
 /// Hard-coded styling literal detected in a styling context.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -418,6 +448,8 @@ pub struct HardcodedStyleSite {
     pub value: String,
     /// Styling category inferred from context.
     pub category: TokenCategory,
+    /// Precise usage context for the observation.
+    pub context: StyleContext,
     /// Parent scope attribution when available.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent: Option<ParentScope>,
@@ -572,9 +604,6 @@ pub struct Metrics {
     pub invocation_adoption_ratio: Option<f64>,
     /// Resolved invocations divided by all raw invocations, or `None` when total is zero.
     pub registry_resolution_ratio: Option<f64>,
-    /// Known token references divided by token references plus hard-coded styling candidates.
-    #[serde(default)]
-    pub token_reference_ratio: Option<f64>,
     /// Parser and extraction elapsed time in milliseconds.
     pub parse_extract_ms: u64,
     /// Number of files scanned by the language pack.
@@ -720,6 +749,201 @@ pub struct RepoSummary {
     pub metrics: Metrics,
 }
 
+/// Classification produced by deterministic token inference.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TokenInferenceClassification {
+    /// Observed value exactly matches one or more canonical token values.
+    Exact,
+    /// Observed numeric value is within tolerance of one or more canonical values.
+    Near,
+    /// Observation was assessed and matched no token.
+    Unmatched,
+    /// Observation could not be assessed from available registry metadata.
+    Unassessed,
+}
+
+/// Confidence attached to exact and near replacement suggestions.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum TokenInferenceConfidence {
+    /// Weakest suggestion confidence.
+    Low,
+    /// Moderate suggestion confidence.
+    Medium,
+    /// Strong suggestion confidence.
+    High,
+    /// Strongest suggestion confidence.
+    VeryHigh,
+}
+
+/// Whether a suggestion came from an exact or near value match.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TokenMatchKind {
+    /// Exact normalized value match.
+    Exact,
+    /// Near numeric match within tolerance.
+    Near,
+}
+
+/// Typed evidence explaining an inference row.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum TokenInferenceEvidence {
+    /// Observed value exactly matched a canonical value.
+    ExactValue,
+    /// Observed numeric value fell within configured tolerance.
+    WithinNumericTolerance,
+    /// Usage context is a clear token-oriented property.
+    ClearUsageContext,
+    /// Usage context is a generic dimension such as width/height/size/unknown.
+    GenericDimensionContext,
+    /// Multiple equally good suggestions were retained.
+    MultipleEqualMatches,
+    /// Registry tokens lack canonical values needed for assessment.
+    MissingCanonicalValues,
+    /// Some same-category tokens lack usable canonical values.
+    IncompleteCanonicalCoverage,
+    /// A canonical value could not be normalized for comparison.
+    UnsupportedCanonicalFormat,
+    /// Observed and canonical units are incompatible.
+    IncompatibleUnits,
+    /// Numeric distance exceeded the configured tolerance.
+    OutsideNumericTolerance,
+}
+
+/// One ranked token replacement suggestion for a hard-coded observation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct TokenReplacementSuggestion {
+    /// Suggested token id from the same language registry.
+    pub token_id: String,
+    /// Suggested token key from the same language registry.
+    pub token_key: String,
+    /// Canonical registry value used for the match.
+    pub canonical_value: String,
+    /// Whether the suggestion is an exact or near match.
+    pub match_kind: TokenMatchKind,
+    /// Absolute numeric distance when meaningful; exact nonnumeric matches omit it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub distance: Option<f64>,
+    /// Normalized unit for numeric suggestions when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub normalized_unit: Option<String>,
+}
+
+/// Core-owned inference conclusion for one raw hard-coded style site.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct HardcodedStyleInference {
+    /// Language that owns the raw hard-coded site.
+    pub language: LanguageId,
+    /// Stable raw-site id from `hardcoded_style_sites`.
+    pub site_id: String,
+    /// Exact, near, unmatched, or unassessed classification.
+    pub classification: TokenInferenceClassification,
+    /// Present only for exact and near rows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<TokenInferenceConfidence>,
+    /// Ranked replacement suggestions; empty for unmatched and unassessed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub suggestions: Vec<TokenReplacementSuggestion>,
+    /// Typed evidence explaining the classification and confidence.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub evidence: Vec<TokenInferenceEvidence>,
+}
+
+/// Exact/near candidate counts grouped by confidence.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct TokenConfidenceCounts {
+    /// Candidates with very high confidence.
+    pub very_high: u32,
+    /// Candidates with high confidence.
+    pub high: u32,
+    /// Candidates with medium confidence.
+    pub medium: u32,
+    /// Candidates with low confidence.
+    pub low: u32,
+}
+
+/// Exact/near candidate counts grouped by style context.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct StyleContextCounts {
+    /// Padding candidates.
+    pub padding: u32,
+    /// Margin candidates.
+    pub margin: u32,
+    /// Gap candidates.
+    pub gap: u32,
+    /// Width candidates.
+    pub width: u32,
+    /// Height candidates.
+    pub height: u32,
+    /// Size candidates.
+    pub size: u32,
+    /// Radius candidates.
+    pub radius: u32,
+    /// Color candidates.
+    pub color: u32,
+    /// Typography candidates.
+    pub typography: u32,
+    /// Elevation candidates.
+    pub elevation: u32,
+    /// Unknown-context candidates.
+    pub unknown: u32,
+}
+
+/// Summary counts for a token inference report.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct TokenInferenceCounts {
+    /// Total raw hard-coded observations covered by inference rows.
+    pub hardcoded_observation_count: u32,
+    /// Exact + near + unmatched observations.
+    pub assessed_observation_count: u32,
+    /// Exact replacement candidates.
+    pub exact_replacement_candidate_count: u32,
+    /// Near replacement candidates.
+    pub near_replacement_candidate_count: u32,
+    /// Assessed observations with no replacement match.
+    pub unmatched_observation_count: u32,
+    /// Observations that could not be assessed.
+    pub unassessed_observation_count: u32,
+    /// Exact/near candidates grouped by confidence.
+    pub candidates_by_confidence: TokenConfidenceCounts,
+    /// Exact/near candidates grouped by token category.
+    pub candidates_by_category: TokenCategoryCounts,
+    /// Exact/near candidates grouped by style context.
+    pub candidates_by_context: StyleContextCounts,
+}
+
+/// Core-owned token inference facts for a merged scan.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct TokenInferenceReport {
+    /// Applied numeric near-match tolerance.
+    pub numeric_tolerance: f64,
+    /// Counts reconciled from [`Self::sites`].
+    pub counts: TokenInferenceCounts,
+    /// One inference row per raw hard-coded site across languages.
+    pub sites: Vec<HardcodedStyleInference>,
+}
+
+impl TokenInferenceReport {
+    /// Empty report used when no raw hard-coded sites exist.
+    #[must_use]
+    pub fn empty(numeric_tolerance: f64) -> Self {
+        Self {
+            numeric_tolerance,
+            counts: TokenInferenceCounts::default(),
+            sites: Vec::new(),
+        }
+    }
+}
+
 /// Merged scan facts keyed by language id.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -737,6 +961,8 @@ pub struct MergedScan {
     /// Derived per-token summaries across merged languages.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub token_usage_summary: Vec<TokenUsageSummary>,
+    /// Core-owned hard-coded style inference report.
+    pub token_inference: TokenInferenceReport,
     /// Per-language scan facts.
     pub languages: BTreeMap<LanguageId, ScanFacts>,
 }
@@ -842,6 +1068,14 @@ impl ScanFacts {
             let field = format!("design_system_tokens[{index}]");
             require_non_empty(&format!("{field}.id"), &token.id)?;
             require_non_empty(&format!("{field}.key"), &token.key)?;
+            if let Some(value) = &token.value
+                && value.is_empty()
+            {
+                return Err(contract_violation(
+                    &format!("{field}.value"),
+                    "value must not be empty when present",
+                ));
+            }
             for (alias_index, alias) in token.aliases.iter().enumerate() {
                 if alias.is_empty() {
                     return Err(contract_violation(
@@ -896,7 +1130,6 @@ impl ScanFacts {
         self.counts = counts;
         self.metrics.invocation_adoption_ratio = metrics.0;
         self.metrics.registry_resolution_ratio = metrics.1;
-        self.metrics.token_reference_ratio = metrics.2;
         Ok(())
     }
 }
@@ -931,6 +1164,7 @@ impl MergedScan {
         }
 
         validate_repo_summary(self)?;
+        validate_token_inference(self)?;
 
         Ok(())
     }
@@ -988,8 +1222,7 @@ fn validate_repo_summary(merged: &MergedScan) -> Result<(), ScanFactsError> {
         ));
     }
 
-    let (expected_adoption, expected_resolution, expected_token_ratio) =
-        ratios_from_counts(&counts);
+    let (expected_adoption, expected_resolution) = ratios_from_counts(&counts);
     validate_ratio(
         "repo_summary.metrics.invocation_adoption_ratio",
         merged.repo_summary.metrics.invocation_adoption_ratio,
@@ -999,12 +1232,416 @@ fn validate_repo_summary(merged: &MergedScan) -> Result<(), ScanFactsError> {
         "repo_summary.metrics.registry_resolution_ratio",
         merged.repo_summary.metrics.registry_resolution_ratio,
         expected_resolution,
-    )?;
-    validate_ratio(
-        "repo_summary.metrics.token_reference_ratio",
-        merged.repo_summary.metrics.token_reference_ratio,
-        expected_token_ratio,
     )
+}
+
+fn validate_token_inference(merged: &MergedScan) -> Result<(), ScanFactsError> {
+    if !merged.token_inference.numeric_tolerance.is_finite()
+        || merged.token_inference.numeric_tolerance < 0.0
+    {
+        return Err(contract_violation(
+            "token_inference.numeric_tolerance",
+            "numeric_tolerance must be a finite non-negative number",
+        ));
+    }
+
+    let mut raw_sites_by_language = BTreeMap::new();
+    let mut tokens_by_language = BTreeMap::new();
+    let mut raw_site_count = 0_u32;
+    for (language_id, facts) in &merged.languages {
+        let raw_sites = raw_sites_by_language
+            .entry(language_id.clone())
+            .or_insert_with(BTreeMap::new);
+        for (site_index, site) in facts.hardcoded_style_sites.iter().enumerate() {
+            if raw_sites.insert(site.id.clone(), site).is_some() {
+                return Err(contract_violation(
+                    &format!("languages.{language_id}.hardcoded_style_sites[{site_index}].id"),
+                    "raw hard-coded site ids must be unique within a language",
+                ));
+            }
+            raw_site_count = raw_site_count.checked_add(1).ok_or_else(|| {
+                contract_violation(
+                    "token_inference.counts.hardcoded_observation_count",
+                    "hardcoded observation count exceeds u32 maximum",
+                )
+            })?;
+        }
+        tokens_by_language.insert(
+            language_id.clone(),
+            facts
+                .design_system_tokens
+                .iter()
+                .map(|token| (token.id.as_str(), token))
+                .collect::<BTreeMap<_, _>>(),
+        );
+    }
+
+    let mut inference_keys = BTreeSet::new();
+    let mut exact = 0_u32;
+    let mut near = 0_u32;
+    let mut unmatched = 0_u32;
+    let mut unassessed = 0_u32;
+    let mut by_confidence = TokenConfidenceCounts::default();
+    let mut by_category = TokenCategoryCounts::default();
+    let mut by_context = StyleContextCounts::default();
+
+    for (index, row) in merged.token_inference.sites.iter().enumerate() {
+        let field = format!("token_inference.sites[{index}]");
+        require_non_empty(&format!("{field}.site_id"), &row.site_id)?;
+
+        if !inference_keys.insert((row.language.clone(), row.site_id.clone())) {
+            return Err(contract_violation(
+                &format!("{field}.site_id"),
+                "inference (language, site_id) pairs must be unique",
+            ));
+        }
+
+        if !merged.languages.contains_key(&row.language) {
+            return Err(contract_violation(
+                &format!("{field}.language"),
+                "inference language must exist in merged scan languages",
+            ));
+        }
+        let Some(site) = raw_sites_by_language
+            .get(&row.language)
+            .and_then(|sites| sites.get(row.site_id.as_str()))
+        else {
+            return Err(contract_violation(
+                &format!("{field}.site_id"),
+                "inference site_id must resolve to a raw hard-coded site in that language",
+            ));
+        };
+
+        match row.classification {
+            TokenInferenceClassification::Exact | TokenInferenceClassification::Near => {
+                if row.suggestions.is_empty() {
+                    return Err(contract_violation(
+                        &format!("{field}.suggestions"),
+                        "exact and near rows must include at least one suggestion",
+                    ));
+                }
+                if row.confidence.is_none() {
+                    return Err(contract_violation(
+                        &format!("{field}.confidence"),
+                        "exact and near rows must include confidence",
+                    ));
+                }
+            }
+            TokenInferenceClassification::Unmatched | TokenInferenceClassification::Unassessed => {
+                if !row.suggestions.is_empty() {
+                    return Err(contract_violation(
+                        &format!("{field}.suggestions"),
+                        "unmatched and unassessed rows must not include suggestions",
+                    ));
+                }
+                if row.confidence.is_some() {
+                    return Err(contract_violation(
+                        &format!("{field}.confidence"),
+                        "unmatched and unassessed rows must not include confidence",
+                    ));
+                }
+            }
+        }
+
+        for (suggestion_index, suggestion) in row.suggestions.iter().enumerate() {
+            let suggestion_field = format!("{field}.suggestions[{suggestion_index}]");
+            require_non_empty(
+                &format!("{suggestion_field}.token_id"),
+                &suggestion.token_id,
+            )?;
+            require_non_empty(
+                &format!("{suggestion_field}.token_key"),
+                &suggestion.token_key,
+            )?;
+            require_non_empty(
+                &format!("{suggestion_field}.canonical_value"),
+                &suggestion.canonical_value,
+            )?;
+
+            let expected_kind = match row.classification {
+                TokenInferenceClassification::Exact => TokenMatchKind::Exact,
+                TokenInferenceClassification::Near => TokenMatchKind::Near,
+                TokenInferenceClassification::Unmatched
+                | TokenInferenceClassification::Unassessed => {
+                    return Err(contract_violation(
+                        &format!("{field}.suggestions"),
+                        "unmatched and unassessed rows must not include suggestions",
+                    ));
+                }
+            };
+            if suggestion.match_kind != expected_kind {
+                return Err(contract_violation(
+                    &format!("{suggestion_field}.match_kind"),
+                    "suggestion match_kind must agree with row classification",
+                ));
+            }
+
+            match suggestion.match_kind {
+                TokenMatchKind::Exact => match suggestion.distance {
+                    None | Some(0.0) => {}
+                    Some(_) => {
+                        return Err(contract_violation(
+                            &format!("{suggestion_field}.distance"),
+                            "exact suggestion distance must be absent or 0",
+                        ));
+                    }
+                },
+                TokenMatchKind::Near => match suggestion.distance {
+                    Some(distance) if distance.is_finite() && distance > 0.0 => {}
+                    _ => {
+                        return Err(contract_violation(
+                            &format!("{suggestion_field}.distance"),
+                            "near suggestion distance must be finite and positive",
+                        ));
+                    }
+                },
+            }
+
+            let Some(token) = tokens_by_language
+                .get(&row.language)
+                .and_then(|tokens| tokens.get(suggestion.token_id.as_str()))
+            else {
+                return Err(contract_violation(
+                    &format!("{suggestion_field}.token_id"),
+                    "suggested token must exist in the same language",
+                ));
+            };
+            if token.key != suggestion.token_key {
+                return Err(contract_violation(
+                    &format!("{suggestion_field}.token_key"),
+                    "suggested token_key must match the registry token key",
+                ));
+            }
+            let Some(canonical_value) = &token.value else {
+                return Err(contract_violation(
+                    &format!("{suggestion_field}.canonical_value"),
+                    "suggested token must have a canonical registry value",
+                ));
+            };
+            if canonical_value != &suggestion.canonical_value {
+                return Err(contract_violation(
+                    &format!("{suggestion_field}.canonical_value"),
+                    "suggestion canonical_value must match the registry token value",
+                ));
+            }
+            if token.category != site.category {
+                return Err(contract_violation(
+                    &format!("{suggestion_field}.token_id"),
+                    "suggested token must share the raw site category",
+                ));
+            }
+        }
+
+        match row.classification {
+            TokenInferenceClassification::Exact => {
+                exact = exact.checked_add(1).ok_or_else(|| {
+                    contract_violation(
+                        "token_inference.counts.exact_replacement_candidate_count",
+                        "count exceeds u32 maximum",
+                    )
+                })?;
+                increment_confidence_count(&mut by_confidence, row.confidence)?;
+                increment_token_category(
+                    "token_inference.counts.candidates_by_category",
+                    &mut by_category,
+                    site.category,
+                )?;
+                increment_style_context_count(&mut by_context, site.context);
+            }
+            TokenInferenceClassification::Near => {
+                near = near.checked_add(1).ok_or_else(|| {
+                    contract_violation(
+                        "token_inference.counts.near_replacement_candidate_count",
+                        "count exceeds u32 maximum",
+                    )
+                })?;
+                increment_confidence_count(&mut by_confidence, row.confidence)?;
+                increment_token_category(
+                    "token_inference.counts.candidates_by_category",
+                    &mut by_category,
+                    site.category,
+                )?;
+                increment_style_context_count(&mut by_context, site.context);
+            }
+            TokenInferenceClassification::Unmatched => {
+                unmatched = unmatched.checked_add(1).ok_or_else(|| {
+                    contract_violation(
+                        "token_inference.counts.unmatched_observation_count",
+                        "count exceeds u32 maximum",
+                    )
+                })?;
+            }
+            TokenInferenceClassification::Unassessed => {
+                unassessed = unassessed.checked_add(1).ok_or_else(|| {
+                    contract_violation(
+                        "token_inference.counts.unassessed_observation_count",
+                        "count exceeds u32 maximum",
+                    )
+                })?;
+            }
+        }
+    }
+
+    for (language_id, sites) in &raw_sites_by_language {
+        for site_id in sites.keys() {
+            if !inference_keys.contains(&(language_id.clone(), site_id.clone())) {
+                return Err(contract_violation(
+                    "token_inference.sites",
+                    "every raw hard-coded site must have exactly one inference row",
+                ));
+            }
+        }
+    }
+
+    let row_count = checked_len(
+        "token_inference.counts.hardcoded_observation_count",
+        merged.token_inference.sites.len(),
+    )?;
+    if row_count != raw_site_count {
+        return Err(contract_violation(
+            "token_inference.counts.hardcoded_observation_count",
+            "hardcoded_observation_count must equal inference row count and raw hard-coded site count",
+        ));
+    }
+
+    let assessed = exact
+        .checked_add(near)
+        .and_then(|value| value.checked_add(unmatched))
+        .ok_or_else(|| {
+            contract_violation(
+                "token_inference.counts.assessed_observation_count",
+                "count exceeds u32 maximum",
+            )
+        })?;
+    let observations = assessed.checked_add(unassessed).ok_or_else(|| {
+        contract_violation(
+            "token_inference.counts.hardcoded_observation_count",
+            "count exceeds u32 maximum",
+        )
+    })?;
+
+    let counts = &merged.token_inference.counts;
+    if counts.hardcoded_observation_count != observations
+        || counts.hardcoded_observation_count != row_count
+    {
+        return Err(contract_violation(
+            "token_inference.counts.hardcoded_observation_count",
+            "hardcoded_observation_count must equal assessed + unassessed and the inference row count",
+        ));
+    }
+    if counts.assessed_observation_count != assessed {
+        return Err(contract_violation(
+            "token_inference.counts.assessed_observation_count",
+            "assessed_observation_count must equal exact + near + unmatched",
+        ));
+    }
+    if counts.exact_replacement_candidate_count != exact {
+        return Err(contract_violation(
+            "token_inference.counts.exact_replacement_candidate_count",
+            "exact_replacement_candidate_count must match exact rows",
+        ));
+    }
+    if counts.near_replacement_candidate_count != near {
+        return Err(contract_violation(
+            "token_inference.counts.near_replacement_candidate_count",
+            "near_replacement_candidate_count must match near rows",
+        ));
+    }
+    if counts.unmatched_observation_count != unmatched {
+        return Err(contract_violation(
+            "token_inference.counts.unmatched_observation_count",
+            "unmatched_observation_count must match unmatched rows",
+        ));
+    }
+    if counts.unassessed_observation_count != unassessed {
+        return Err(contract_violation(
+            "token_inference.counts.unassessed_observation_count",
+            "unassessed_observation_count must match unassessed rows",
+        ));
+    }
+    if counts.candidates_by_confidence != by_confidence {
+        return Err(contract_violation(
+            "token_inference.counts.candidates_by_confidence",
+            "candidates_by_confidence must match exact and near rows",
+        ));
+    }
+    if counts.candidates_by_category != by_category {
+        return Err(contract_violation(
+            "token_inference.counts.candidates_by_category",
+            "candidates_by_category must match exact and near rows",
+        ));
+    }
+    if counts.candidates_by_context != by_context {
+        return Err(contract_violation(
+            "token_inference.counts.candidates_by_context",
+            "candidates_by_context must match exact and near rows",
+        ));
+    }
+
+    Ok(())
+}
+
+fn increment_confidence_count(
+    counts: &mut TokenConfidenceCounts,
+    confidence: Option<TokenInferenceConfidence>,
+) -> Result<(), ScanFactsError> {
+    match confidence {
+        Some(TokenInferenceConfidence::VeryHigh) => {
+            counts.very_high = counts.very_high.checked_add(1).ok_or_else(|| {
+                contract_violation(
+                    "token_inference.counts.candidates_by_confidence.very_high",
+                    "count exceeds u32 maximum",
+                )
+            })?;
+        }
+        Some(TokenInferenceConfidence::High) => {
+            counts.high = counts.high.checked_add(1).ok_or_else(|| {
+                contract_violation(
+                    "token_inference.counts.candidates_by_confidence.high",
+                    "count exceeds u32 maximum",
+                )
+            })?;
+        }
+        Some(TokenInferenceConfidence::Medium) => {
+            counts.medium = counts.medium.checked_add(1).ok_or_else(|| {
+                contract_violation(
+                    "token_inference.counts.candidates_by_confidence.medium",
+                    "count exceeds u32 maximum",
+                )
+            })?;
+        }
+        Some(TokenInferenceConfidence::Low) => {
+            counts.low = counts.low.checked_add(1).ok_or_else(|| {
+                contract_violation(
+                    "token_inference.counts.candidates_by_confidence.low",
+                    "count exceeds u32 maximum",
+                )
+            })?;
+        }
+        None => {
+            return Err(contract_violation(
+                "token_inference.counts.candidates_by_confidence",
+                "exact and near rows must include confidence",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn increment_style_context_count(counts: &mut StyleContextCounts, context: StyleContext) {
+    match context {
+        StyleContext::Padding => counts.padding = counts.padding.saturating_add(1),
+        StyleContext::Margin => counts.margin = counts.margin.saturating_add(1),
+        StyleContext::Gap => counts.gap = counts.gap.saturating_add(1),
+        StyleContext::Width => counts.width = counts.width.saturating_add(1),
+        StyleContext::Height => counts.height = counts.height.saturating_add(1),
+        StyleContext::Size => counts.size = counts.size.saturating_add(1),
+        StyleContext::Radius => counts.radius = counts.radius.saturating_add(1),
+        StyleContext::Color => counts.color = counts.color.saturating_add(1),
+        StyleContext::Typography => counts.typography = counts.typography.saturating_add(1),
+        StyleContext::Elevation => counts.elevation = counts.elevation.saturating_add(1),
+        StyleContext::Unknown => counts.unknown = counts.unknown.saturating_add(1),
+    }
 }
 
 fn validate_parent_scope(field: &str, parent: &ParentScope) -> Result<(), ScanFactsError> {
@@ -1285,7 +1922,7 @@ fn validate_derived_values(facts: &ScanFacts) -> Result<(), ScanFactsError> {
         ));
     }
 
-    let (expected_counts, (expected_adoption, expected_resolution, expected_token_ratio)) =
+    let (expected_counts, (expected_adoption, expected_resolution)) =
         derive_counts_and_metrics(facts)?;
 
     if facts.counts != expected_counts {
@@ -1304,11 +1941,6 @@ fn validate_derived_values(facts: &ScanFacts) -> Result<(), ScanFactsError> {
         "metrics.registry_resolution_ratio",
         facts.metrics.registry_resolution_ratio,
         expected_resolution,
-    )?;
-    validate_ratio(
-        "metrics.token_reference_ratio",
-        facts.metrics.token_reference_ratio,
-        expected_token_ratio,
     )
 }
 
@@ -1499,20 +2131,7 @@ fn ratios_from_counts(counts: &CountSummary) -> DerivedMetrics {
     } else {
         Some(f64::from(counts.raw_invocations.resolved) / f64::from(counts.raw_invocations.total))
     };
-    let token_denominator = counts
-        .tokens
-        .token_reference_site_count
-        .saturating_add(counts.tokens.hardcoded_style_candidate_count);
-    let token_reference_ratio = if token_denominator == 0 {
-        None
-    } else {
-        Some(f64::from(counts.tokens.token_reference_site_count) / f64::from(token_denominator))
-    };
-    (
-        invocation_adoption_ratio,
-        registry_resolution_ratio,
-        token_reference_ratio,
-    )
+    (invocation_adoption_ratio, registry_resolution_ratio)
 }
 
 fn validate_ratio(
@@ -1544,7 +2163,7 @@ fn validate_ratio(
     }
 }
 
-type DerivedMetrics = (Option<f64>, Option<f64>, Option<f64>);
+type DerivedMetrics = (Option<f64>, Option<f64>);
 
 fn increment_token_category(
     field: &str,
@@ -1817,21 +2436,10 @@ fn derive_counts_and_metrics(
     } else {
         Some(f64::from(resolved) / f64::from(total))
     };
-    let token_denominator =
-        token_reference_site_count.saturating_add(hardcoded_style_candidate_count);
-    let token_reference_ratio = if token_denominator == 0 {
-        None
-    } else {
-        Some(f64::from(token_reference_site_count) / f64::from(token_denominator))
-    };
 
     Ok((
         counts,
-        (
-            invocation_adoption_ratio,
-            registry_resolution_ratio,
-            token_reference_ratio,
-        ),
+        (invocation_adoption_ratio, registry_resolution_ratio),
     ))
 }
 
