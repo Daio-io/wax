@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use wax_contract::{LanguageId, ScanFacts};
+use wax_contract::{LanguageId, ScanFacts, StyleContext, TokenCategory};
 use wax_lang_api::{ScanRequest, ScanRequestType, WIRE_API_VERSION};
 use wax_lang_react::{
     ReactConfigMode, ReactLanguage, collect_react_source_files, configured_scan_facts,
@@ -55,20 +55,73 @@ fn scan_status_is_complete_when_configured() {
             .any(|site| site.token_id == "color.primary" && site.parent.is_some()),
         "React token references should include parent attribution inside components"
     );
-    assert!(
-        facts
-            .hardcoded_style_sites
-            .iter()
-            .any(|site| site.category == wax_contract::TokenCategory::Color
-                && site.value == "\"#336699\""),
-        "inline style color hex should be a color hard-coded candidate"
+    assert_style_context(
+        &facts,
+        TokenCategory::Color,
+        StyleContext::Color,
+        "\"#336699\"",
+    );
+    assert_style_context(
+        &facts,
+        TokenCategory::Spacing,
+        StyleContext::Padding,
+        "\"4px\"",
+    );
+    assert_style_context(
+        &facts,
+        TokenCategory::Spacing,
+        StyleContext::Margin,
+        "\"4px\"",
+    );
+    assert_style_context(&facts, TokenCategory::Spacing, StyleContext::Gap, "\"4px\"");
+    assert_style_context(&facts, TokenCategory::Spacing, StyleContext::Width, "200");
+    assert_style_context(&facts, TokenCategory::Spacing, StyleContext::Height, "40");
+    assert_style_context(
+        &facts,
+        TokenCategory::Typography,
+        StyleContext::Typography,
+        "\"4px\"",
+    );
+    assert_style_context(
+        &facts,
+        TokenCategory::Radius,
+        StyleContext::Radius,
+        "\"4px\"",
+    );
+    assert_style_context(
+        &facts,
+        TokenCategory::Elevation,
+        StyleContext::Elevation,
+        "\"0 1px 2px #000\"",
     );
     assert!(
         facts
             .hardcoded_style_sites
             .iter()
-            .any(|site| site.category == wax_contract::TokenCategory::Spacing && site.value == "8"),
-        "inline padding number should be a spacing hard-coded candidate"
+            .any(|site| site.context == StyleContext::Width && site.value == "200"),
+        "fixed width 200 must remain a raw hard-coded site"
+    );
+    assert!(
+        !facts
+            .hardcoded_style_sites
+            .iter()
+            .any(|site| site.value == "200" && site.context != StyleContext::Width),
+        "non-style ordinary numbers must stay absent"
+    );
+}
+
+fn assert_style_context(
+    facts: &ScanFacts,
+    category: TokenCategory,
+    context: StyleContext,
+    value: &str,
+) {
+    assert!(
+        facts.hardcoded_style_sites.iter().any(|site| {
+            site.category == category && site.context == context && site.value == value
+        }),
+        "expected {category:?}/{context:?} value={value}, got: {:?}",
+        facts.hardcoded_style_sites
     );
 }
 

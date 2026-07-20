@@ -33,13 +33,13 @@
       "configured_token_count": 2,
       "hardcoded_by_category": {
         "color": 1,
-        "elevation": 0,
+        "elevation": 1,
         "radius": 1,
-        "spacing": 1,
-        "typography": 0,
+        "spacing": 5,
+        "typography": 1,
         "unknown": 0
       },
-      "hardcoded_style_candidate_count": 3,
+      "hardcoded_style_candidate_count": 9,
       "parent_scopes_with_hardcoded_candidates": 1,
       "parent_scopes_with_token_references": 1,
       "token_reference_site_count": 1,
@@ -78,18 +78,20 @@
     {
       "category": "spacing",
       "id": "space.medium",
-      "key": "theme.space.medium"
+      "key": "theme.space.medium",
+      "value": "4px"
     }
   ],
   "diagnostics": [],
   "hardcoded_style_sites": [
     {
       "category": "color",
-      "id": "hardcoded.react:src/Sample.tsx:16:21:Color",
+      "context": "color",
+      "id": "hardcoded.react:src/Sample.tsx:19:11:Color",
       "location": {
-        "column": 21,
+        "column": 11,
         "file": "src/Sample.tsx",
-        "line": 16
+        "line": 19
       },
       "parent": {
         "identity_basis": "module_path_and_symbol",
@@ -104,16 +106,16 @@
         "scope_kind": "component",
         "symbol": "SampleScreen"
       },
-      "value": "\"#336699\"",
-      "context": "unknown"
+      "value": "\"#336699\""
     },
     {
       "category": "spacing",
-      "id": "hardcoded.react:src/Sample.tsx:16:39:Spacing",
+      "context": "padding",
+      "id": "hardcoded.react:src/Sample.tsx:20:11:Spacing",
       "location": {
-        "column": 39,
+        "column": 11,
         "file": "src/Sample.tsx",
-        "line": 16
+        "line": 20
       },
       "parent": {
         "identity_basis": "module_path_and_symbol",
@@ -128,16 +130,136 @@
         "scope_kind": "component",
         "symbol": "SampleScreen"
       },
-      "value": "8",
-      "context": "unknown"
+      "value": "\"4px\""
+    },
+    {
+      "category": "spacing",
+      "context": "margin",
+      "id": "hardcoded.react:src/Sample.tsx:21:11:Spacing",
+      "location": {
+        "column": 11,
+        "file": "src/Sample.tsx",
+        "line": 21
+      },
+      "parent": {
+        "identity_basis": "module_path_and_symbol",
+        "identity_stability": "path_sensitive",
+        "location": {
+          "column": 29,
+          "file": "src/Sample.tsx",
+          "line": 10
+        },
+        "parent_id": "react:component:src/Sample#SampleScreen",
+        "qualified_symbol": "src/Sample#SampleScreen",
+        "scope_kind": "component",
+        "symbol": "SampleScreen"
+      },
+      "value": "\"4px\""
+    },
+    {
+      "category": "spacing",
+      "context": "gap",
+      "id": "hardcoded.react:src/Sample.tsx:22:11:Spacing",
+      "location": {
+        "column": 11,
+        "file": "src/Sample.tsx",
+        "line": 22
+      },
+      "parent": {
+        "identity_basis": "module_path_and_symbol",
+        "identity_stability": "path_sensitive",
+        "location": {
+          "column": 29,
+          "file": "src/Sample.tsx",
+          "line": 10
+        },
+        "parent_id": "react:component:src/Sample#SampleScreen",
+        "qualified_symbol": "src/Sample#SampleScreen",
+        "scope_kind": "component",
+        "symbol": "SampleScreen"
+      },
+      "value": "\"4px\""
+    },
+    {
+      "category": "spacing",
+      "context": "width",
+      "id": "hardcoded.react:src/Sample.tsx:23:11:Spacing",
+      "location": {
+        "column": 11,
+        "file": "src/Sample.tsx",
+        "line": 23
+      },
+      "parent": {
+        "identity_basis": "module_path_and_symbol",
+        "identity_stability": "path_sensitive",
+        "location": {
+          "column": 29,
+          "file": "src/Sample.tsx",
+          "line": 10
+        },
+        "parent_id": "react:component:src/Sample#SampleScreen",
+        "qualified_symbol": "src/Sample#SampleScreen",
+        "scope_kind": "component",
+        "symbol": "SampleScreen"
+      },
+      "value": "200"
+    },
+    {
+      "category": "spacing",
+      "context": "height",
+      "id": "hardcoded.react:src/Sample.tsx:24:11:Spacing",
+      "location": {
+        "column": 11,
+        "file": "src/Sample.tsx",
+        "line": 24
+      },
+      "parent": {
+        "identity_basis": "module_path_and_symbol",
+        "identity_stability": "path_sensitive",
+        "location": {
+          "column": 29,
+          "file": "src/Sample.tsx",
+          "line": 10
+        },
+        "parent_id": "react:component:src/Sample#SampleScreen",
+        "qualified_symbol": "src/Sample#SampleScreen",
+        "scope_kind": "component",
+        "symbol": "SampleScreen"
+      },
+      "value": "40"
+    },
+    {
+      "category": "typography",
+      "context": "typography",
+      "id": "hardcoded.react:src/Sample.tsx:25:11:Typography",
+      "location": {
+        "column": 11,
+        "file": "src/Sample.tsx",
+        "line": 25
+      },
+      "parent": {
+        "identity_basis": "module_path_and_symbol",
+        "identity_stability": "path_sensitive",
+        "location": {
+          "column": 29,
+          "file": "src/Sample.tsx",
+          "line": 10
+        },
+        "parent_id": "react:component:src/Sample#SampleScreen",
+        "qualified_symbol": "src/Sample#SampleScreen",
+        "scope_kind": "component",
+        "symbol": "SampleScreen"
+      },
+      "value": "\"4px\""
     },
     {
       "category": "radius",
-      "id": "hardcoded.react:src/Sample.tsx:16:51:Radius",
+      "context": "radius",
+      "id": "hardcoded.react:src/Sample.tsx:26:11:Radius",
       "location": {
-        "column": 51,
+        "column": 11,
         "file": "src/Sample.tsx",
-        "line": 16
+        "line": 26
       },
       "parent": {
         "identity_basis": "module_path_and_symbol",
@@ -152,8 +274,31 @@
         "scope_kind": "component",
         "symbol": "SampleScreen"
       },
-      "value": "4",
-      "context": "unknown"
+      "value": "\"4px\""
+    },
+    {
+      "category": "elevation",
+      "context": "elevation",
+      "id": "hardcoded.react:src/Sample.tsx:27:11:Elevation",
+      "location": {
+        "column": 11,
+        "file": "src/Sample.tsx",
+        "line": 27
+      },
+      "parent": {
+        "identity_basis": "module_path_and_symbol",
+        "identity_stability": "path_sensitive",
+        "location": {
+          "column": 29,
+          "file": "src/Sample.tsx",
+          "line": 10
+        },
+        "parent_id": "react:component:src/Sample#SampleScreen",
+        "qualified_symbol": "src/Sample#SampleScreen",
+        "scope_kind": "component",
+        "symbol": "SampleScreen"
+      },
+      "value": "\"0 1px 2px #000\""
     }
   ],
   "language": {
@@ -280,22 +425,22 @@
       "symbol": "PrimaryButton"
     },
     {
-      "id": "usage.src/Sample.tsx:14:7:PrimaryButton",
+      "id": "usage.src/Sample.tsx:15:7:PrimaryButton",
       "location": {
         "column": 7,
         "file": "src/Sample.tsx",
-        "line": 14
+        "line": 15
       },
       "match_status": "resolved",
       "registry_symbol": "PrimaryButton",
       "symbol": "PrimaryButton"
     },
     {
-      "id": "usage.src/Sample.tsx:15:7:TextField",
+      "id": "usage.src/Sample.tsx:16:7:TextField",
       "location": {
         "column": 7,
         "file": "src/Sample.tsx",
-        "line": 15
+        "line": 16
       },
       "match_status": "resolved",
       "registry_symbol": "TextField",

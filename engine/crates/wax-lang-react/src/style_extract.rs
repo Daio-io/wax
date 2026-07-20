@@ -64,7 +64,7 @@ impl StyleSiteVisitor<'_> {
             let Some(prop_name) = style_prop_name(&key_value.key) else {
                 continue;
             };
-            let Some(category) = react_style_category(prop_name) else {
+            let Some((category, context)) = react_style_metadata(prop_name) else {
                 continue;
             };
             if !is_hardcoded_style_value(&key_value.value) {
@@ -87,7 +87,7 @@ impl StyleSiteVisitor<'_> {
                 location,
                 value,
                 category,
-                context: StyleContext::Unknown,
+                context,
                 parent: parent_for_span(self.parsed, self.components, prop_span),
             });
         }
@@ -120,13 +120,27 @@ fn style_prop_name(name: &PropName) -> Option<&str> {
     }
 }
 
-fn react_style_category(prop_name: &str) -> Option<TokenCategory> {
+fn react_style_metadata(prop_name: &str) -> Option<(TokenCategory, StyleContext)> {
     match prop_name {
-        "color" | "backgroundColor" | "borderColor" => Some(TokenCategory::Color),
-        "padding" | "margin" | "gap" | "width" | "height" => Some(TokenCategory::Spacing),
-        "fontSize" | "fontWeight" | "lineHeight" => Some(TokenCategory::Typography),
-        "borderRadius" => Some(TokenCategory::Radius),
-        "boxShadow" | "shadow" => Some(TokenCategory::Elevation),
+        "color" | "backgroundColor" | "borderColor" => {
+            Some((TokenCategory::Color, StyleContext::Color))
+        }
+        "padding" | "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft"
+        | "paddingInline" | "paddingBlock" | "paddingInlineStart" | "paddingInlineEnd"
+        | "paddingBlockStart" | "paddingBlockEnd" => {
+            Some((TokenCategory::Spacing, StyleContext::Padding))
+        }
+        "margin" | "marginTop" | "marginRight" | "marginBottom" | "marginLeft" | "marginInline"
+        | "marginBlock" | "marginInlineStart" | "marginInlineEnd" | "marginBlockStart"
+        | "marginBlockEnd" => Some((TokenCategory::Spacing, StyleContext::Margin)),
+        "gap" | "rowGap" | "columnGap" => Some((TokenCategory::Spacing, StyleContext::Gap)),
+        "width" => Some((TokenCategory::Spacing, StyleContext::Width)),
+        "height" => Some((TokenCategory::Spacing, StyleContext::Height)),
+        "fontSize" | "fontWeight" | "lineHeight" => {
+            Some((TokenCategory::Typography, StyleContext::Typography))
+        }
+        "borderRadius" => Some((TokenCategory::Radius, StyleContext::Radius)),
+        "boxShadow" | "shadow" => Some((TokenCategory::Elevation, StyleContext::Elevation)),
         _ => None,
     }
 }

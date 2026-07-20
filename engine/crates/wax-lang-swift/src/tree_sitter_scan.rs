@@ -667,26 +667,34 @@ fn extract_usage_from_source(
     }
 }
 
-fn swift_style_category(call_symbol: &str) -> Option<TokenCategory> {
+fn swift_style_metadata(call_symbol: &str) -> Option<(TokenCategory, StyleContext)> {
     match call_symbol {
         "Color" | "foregroundStyle" | "foregroundColor" | "background" => {
-            Some(TokenCategory::Color)
+            Some((TokenCategory::Color, StyleContext::Color))
         }
-        "padding" | "frame" | "spacing" => Some(TokenCategory::Spacing),
-        "font" | "fontWeight" => Some(TokenCategory::Typography),
-        "cornerRadius" | "clipShape" => Some(TokenCategory::Radius),
-        "shadow" => Some(TokenCategory::Elevation),
+        "padding" => Some((TokenCategory::Spacing, StyleContext::Padding)),
+        "frame" => Some((TokenCategory::Spacing, StyleContext::Size)),
+        "spacing" => Some((TokenCategory::Spacing, StyleContext::Gap)),
+        "font" | "fontWeight" => Some((TokenCategory::Typography, StyleContext::Typography)),
+        "cornerRadius" | "clipShape" => Some((TokenCategory::Radius, StyleContext::Radius)),
+        "shadow" => Some((TokenCategory::Elevation, StyleContext::Elevation)),
         _ => None,
     }
 }
 
-fn style_label_category(label: &str) -> Option<TokenCategory> {
+fn style_label_metadata(label: &str) -> Option<(TokenCategory, StyleContext)> {
     match label {
-        "spacing" | "width" | "height" | "padding" | "leading" | "trailing" | "top" | "bottom"
-        | "horizontal" | "vertical" => Some(TokenCategory::Spacing),
-        "size" | "weight" | "pointSize" => Some(TokenCategory::Typography),
-        "cornerRadius" | "radius" => Some(TokenCategory::Radius),
-        "blur" => Some(TokenCategory::Elevation),
+        "spacing" => Some((TokenCategory::Spacing, StyleContext::Gap)),
+        "width" => Some((TokenCategory::Spacing, StyleContext::Width)),
+        "height" => Some((TokenCategory::Spacing, StyleContext::Height)),
+        "padding" | "leading" | "trailing" | "top" | "bottom" | "horizontal" | "vertical" => {
+            Some((TokenCategory::Spacing, StyleContext::Padding))
+        }
+        "size" | "weight" | "pointSize" => {
+            Some((TokenCategory::Typography, StyleContext::Typography))
+        }
+        "cornerRadius" | "radius" => Some((TokenCategory::Radius, StyleContext::Radius)),
+        "blur" => Some((TokenCategory::Elevation, StyleContext::Elevation)),
         _ => None,
     }
 }
@@ -694,6 +702,7 @@ fn style_label_category(label: &str) -> Option<TokenCategory> {
 struct HardcodedLiteral {
     value: String,
     category: TokenCategory,
+    context: StyleContext,
     position: tree_sitter::Point,
     start_byte: usize,
     end_byte: usize,
@@ -742,7 +751,7 @@ fn extract_hardcoded_style_from_source(
             },
             value: literal.value,
             category: literal.category,
-            context: StyleContext::Unknown,
+            context: literal.context,
             parent,
         });
     }
@@ -790,6 +799,7 @@ fn collect_hardcoded_literals_from_call(
             out.push(HardcodedLiteral {
                 value: text.to_owned(),
                 category: TokenCategory::Color,
+                context: StyleContext::Color,
                 position: call_site.position,
                 start_byte: node.start_byte(),
                 end_byte: node.end_byte(),
@@ -798,12 +808,12 @@ fn collect_hardcoded_literals_from_call(
         return;
     }
 
-    let callee_category = swift_style_category(&call_site.symbol);
+    let callee_metadata = swift_style_metadata(&call_site.symbol);
     let allows_style_labels =
-        callee_category.is_some() || is_swiftui_style_label_callee(&call_site.symbol);
+        callee_metadata.is_some() || is_swiftui_style_label_callee(&call_site.symbol);
     // Non-styling calls must not emit hard-coded style candidates from labeled args such as
     // `analytics.record(size: 14)`.
-    if callee_category.is_none() && !allows_style_labels {
+    if callee_metadata.is_none() && !allows_style_labels {
         return;
     }
 
@@ -811,7 +821,7 @@ fn collect_hardcoded_literals_from_call(
         collect_style_literals_in_arguments(
             arguments,
             source,
-            callee_category,
+            callee_metadata,
             allows_style_labels,
             out,
         );
@@ -846,7 +856,7 @@ fn is_swiftui_style_label_callee(symbol: &str) -> bool {
 fn collect_style_literals_in_arguments(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    inherited_category: Option<TokenCategory>,
+    inherited_metadata: Option<(TokenCategory, StyleContext)>,
     allows_style_labels: bool,
     out: &mut Vec<HardcodedLiteral>,
 ) {
@@ -860,19 +870,28 @@ fn collect_style_literals_in_arguments(
         if let Some((label, value_node)) = labeled_argument_parts(current, source) {
             // Nested call values belong to the nested call, not this enclosing traversal.
             if !value_contains_call_expression(value_node) {
-                let category = if allows_style_labels {
-                    style_label_category(&label).or(inherited_category)
+                let metadata = if allows_style_labels {
+                    match (style_label_metadata(&label), inherited_metadata) {
+                        // SwiftUI `.shadow(radius:)` uses a radius label for elevation depth.
+                        (
+                            Some((TokenCategory::Radius, StyleContext::Radius)),
+                            Some((TokenCategory::Elevation, StyleContext::Elevation)),
+                        ) if label == "radius" => inherited_metadata,
+                        (Some(label_meta), _) => Some(label_meta),
+                        (None, inherited) => inherited,
+                    }
                 } else {
-                    inherited_category
+                    inherited_metadata
                 };
-                if let Some(category) = category
-                    && let Some(literal) = literal_from_style_value(value_node, source, category)
+                if let Some((category, context)) = metadata
+                    && let Some(literal) =
+                        literal_from_style_value(value_node, source, category, context)
                 {
                     out.push(literal);
                 }
             }
-        } else if let Some(category) = inherited_category
-            && let Some(literal) = bare_literal_node(current, source, category)
+        } else if let Some((category, context)) = inherited_metadata
+            && let Some(literal) = bare_literal_node(current, source, category, context)
         {
             out.push(literal);
         }
@@ -957,8 +976,9 @@ fn literal_from_style_value(
     node: tree_sitter::Node<'_>,
     source: &[u8],
     category: TokenCategory,
+    context: StyleContext,
 ) -> Option<HardcodedLiteral> {
-    if let Some(literal) = bare_literal_node(node, source, category) {
+    if let Some(literal) = bare_literal_node(node, source, category, context) {
         return Some(literal);
     }
     // Peel non-call wrappers only; nested calls own their own literals.
@@ -967,7 +987,7 @@ fn literal_from_style_value(
         if current.kind() == "call_expression" {
             continue;
         }
-        if let Some(literal) = bare_literal_node(current, source, category) {
+        if let Some(literal) = bare_literal_node(current, source, category, context) {
             return Some(literal);
         }
         for i in (0..current.child_count()).rev() {
@@ -986,6 +1006,7 @@ fn bare_literal_node(
     node: tree_sitter::Node<'_>,
     source: &[u8],
     category: TokenCategory,
+    context: StyleContext,
 ) -> Option<HardcodedLiteral> {
     let kind = node.kind();
     let is_number = matches!(
@@ -1016,6 +1037,7 @@ fn bare_literal_node(
     Some(HardcodedLiteral {
         value: text,
         category,
+        context,
         position: node.start_position(),
         start_byte: node.start_byte(),
         end_byte: node.end_byte(),

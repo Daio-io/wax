@@ -14,5 +14,24 @@ fun SampleScreen() {
     PrimaryButton(onClick = {})
     TextField(value = "", onValueChange = {})
     val primary = Theme.colors.primary
-    Box(Modifier.padding(8.dp).background(Color(0xFF336699)))
+    val ordinary = 200
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Box(
+            Modifier
+                .padding(4.dp)
+                .width(200.dp)
+                .height(40.dp)
+                .size(4.dp)
+                .background(Color(0xFF336699))
+                .clip(RoundedCornerShape(4.dp))
+                .shadow(4.dp)
+        )
+        Text(text = "Hello", style = TextStyle(fontSize = 4.sp))
+    }
+}
+
+@Preview
+@Composable
+fun SamplePreview() {
+    Box(Modifier.padding(99.dp).background(Color(0xFF000000)))
 }

@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use wax_contract::{LanguageId, MatchStatus};
+use wax_contract::{LanguageId, MatchStatus, StyleContext, TokenCategory};
 use wax_lang_api::{ScanRequest, ScanRequestType, WIRE_API_VERSION};
 use wax_lang_compose::ComposeLanguage;
 
@@ -80,17 +80,82 @@ fn small_fixture_matches_golden_counts() {
             .any(|site| site.token_id == "color.primary" && site.parent.is_some()),
         "Compose token references should include parent attribution when inside a composable"
     );
-    assert!(
-        facts.hardcoded_style_sites.iter().any(|site| {
-            site.category == wax_contract::TokenCategory::Spacing && site.value == "8.dp"
-        }),
-        "Modifier.padding(8.dp) should be a spacing hard-coded candidate"
+    assert_style_context(
+        &facts,
+        TokenCategory::Spacing,
+        StyleContext::Padding,
+        "4.dp",
+    );
+    assert_style_context(&facts, TokenCategory::Spacing, StyleContext::Gap, "4.dp");
+    assert_style_context(
+        &facts,
+        TokenCategory::Spacing,
+        StyleContext::Width,
+        "200.dp",
+    );
+    assert_style_context(
+        &facts,
+        TokenCategory::Spacing,
+        StyleContext::Height,
+        "40.dp",
+    );
+    assert_style_context(&facts, TokenCategory::Spacing, StyleContext::Size, "4.dp");
+    assert_style_context(&facts, TokenCategory::Radius, StyleContext::Radius, "4.dp");
+    assert_style_context(
+        &facts,
+        TokenCategory::Typography,
+        StyleContext::Typography,
+        "4.sp",
+    );
+    assert_style_context(
+        &facts,
+        TokenCategory::Elevation,
+        StyleContext::Elevation,
+        "4.dp",
     );
     assert!(
         facts.hardcoded_style_sites.iter().any(|site| {
-            site.category == wax_contract::TokenCategory::Color && site.value.contains("0x")
+            site.category == TokenCategory::Color
+                && site.context == StyleContext::Color
+                && site.value.contains("0x")
         }),
-        "Color(0x...) should be a color hard-coded candidate"
+        "Color(0x...) should be a color hard-coded candidate with Color context"
+    );
+    assert!(
+        facts
+            .hardcoded_style_sites
+            .iter()
+            .any(|site| site.context == StyleContext::Width && site.value == "200.dp"),
+        "fixed width 200.dp must remain a raw hard-coded site"
+    );
+    assert!(
+        facts
+            .hardcoded_style_sites
+            .iter()
+            .all(|site| site.value != "99.dp" && !site.value.contains("0xFF000000")),
+        "preview composable hard-coded styles must stay absent"
+    );
+    assert!(
+        !facts
+            .hardcoded_style_sites
+            .iter()
+            .any(|site| site.value == "200" && site.context != StyleContext::Width),
+        "non-style ordinary numbers must stay absent"
+    );
+}
+
+fn assert_style_context(
+    facts: &wax_contract::ScanFacts,
+    category: TokenCategory,
+    context: StyleContext,
+    value: &str,
+) {
+    assert!(
+        facts.hardcoded_style_sites.iter().any(|site| {
+            site.category == category && site.context == context && site.value == value
+        }),
+        "expected {category:?}/{context:?} value={value}, got: {:?}",
+        facts.hardcoded_style_sites
     );
 }
 

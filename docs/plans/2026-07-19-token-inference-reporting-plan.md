@@ -459,7 +459,7 @@ Expected: all commands exit `0`; merged output validates as schema v3.
 
 ### Task 3: Emit Parser-Pack Style Context with Parity
 
-- [ ] **Task 3 complete**
+- [x] **Task 3 complete**
 
 **Files:**
 - Modify: `engine/crates/wax-lang-compose/src/tree_sitter_scan.rs`
@@ -479,11 +479,11 @@ Expected: all commands exit `0`; merged output validates as schema v3.
 - Consumes: Task 1's `StyleContext` and Task 2's inference semantics.
 - Produces: precise context on every parser-backed hard-coded site with equivalent outcomes for shared concepts.
 
-- [ ] **Step 1: Add failing parity assertions**
+- [x] **Step 1: Add failing parity assertions**
 
 For every supported ecosystem concept, assert sites for padding, gap/spacing, width, height, radius, typography, color, and elevation. Include a fixed width `200` and assert it remains a raw site. Assert previews/demos and non-style numbers stay absent.
 
-- [ ] **Step 2: Confirm all three red states**
+- [x] **Step 2: Confirm all three red states**
 
 ```bash
 cd engine
@@ -494,7 +494,7 @@ cargo test -p wax-lang-swift --test golden_small
 
 Expected: FAIL because Task 1 used `Unknown` during cutover.
 
-- [ ] **Step 3: Implement Compose metadata mapping**
+- [x] **Step 3: Implement Compose metadata mapping**
 
 Replace category-only lookup with:
 
@@ -519,19 +519,19 @@ Preserve direct-argument scoping and preview exclusions. Do not map the outer `b
 
 Compose does not expose a general margin modifier, so no Compose margin fixture is required. Treat that as an ecosystem capability absence while maintaining parity for concepts shared across the packs.
 
-- [ ] **Step 4: Implement React property metadata**
+- [x] **Step 4: Implement React property metadata**
 
 Map padding and margin longhands, `gap`/`rowGap`/`columnGap`, width, height, font properties, radius, colors, and shadows to `(TokenCategory, StyleContext)`. Keep the inline JSX style-object boundary; broader CSS-in-JS remains out of scope.
 
-- [ ] **Step 5: Implement Swift call and label metadata**
+- [x] **Step 5: Implement Swift call and label metadata**
 
 Carry `(TokenCategory, StyleContext)` through `HardcodedLiteral`. Distinguish `.padding`, stack `spacing`, frame `width`/`height`, font `size`, radius labels, color, and shadow. For `.frame(width: 200, height: 40)`, emit separate sites. Preserve nested-call ownership and longest-range deduplication.
 
-- [ ] **Step 6: Add native canonical fixture values**
+- [x] **Step 6: Add native canonical fixture values**
 
 Use Compose `"4.dp"`, React `"4px"`, and Swift `"4"`. Do not add a `200` token. Pack tests assert raw context only; core tests remain the sole inference-policy tests.
 
-- [ ] **Step 7: Verify and commit**
+- [x] **Step 7: Verify and commit**
 
 ```bash
 cd engine
