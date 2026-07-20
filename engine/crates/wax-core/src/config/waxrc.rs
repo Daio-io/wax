@@ -11,6 +11,43 @@ use wax_contract::LanguageId;
 /// Current wax config schema version supported by this engine.
 pub const WAXRC_SCHEMA_VERSION: u32 = 2;
 
+/// Default absolute numeric tolerance for near token matching.
+pub const DEFAULT_NUMERIC_TOKEN_TOLERANCE: f64 = 2.0;
+
+fn default_numeric_token_tolerance() -> f64 {
+    DEFAULT_NUMERIC_TOKEN_TOLERANCE
+}
+
+/// Repo-local token inference settings.
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct TokenInferenceConfig {
+    /// Absolute distance allowed for near numeric matches.
+    ///
+    /// `0` disables near matching while preserving exact matches.
+    #[serde(default = "default_numeric_token_tolerance")]
+    pub numeric_tolerance: f64,
+}
+
+impl Default for TokenInferenceConfig {
+    fn default() -> Self {
+        Self {
+            numeric_tolerance: DEFAULT_NUMERIC_TOKEN_TOLERANCE,
+        }
+    }
+}
+
+impl TokenInferenceConfig {
+    fn validate(&self) -> Result<(), serde_json::Error> {
+        if !self.numeric_tolerance.is_finite() || self.numeric_tolerance < 0.0 {
+            return Err(serde_json::Error::custom(
+                "token_inference.numeric_tolerance must be a finite non-negative number",
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Repository-level wax configuration loaded from a repo config file.
 #[derive(Debug)]
 pub struct WaxRc {
@@ -20,6 +57,8 @@ pub struct WaxRc {
     pub engine: EngineConfig,
     /// Adoption Metrics v2 scan behavior.
     pub adoption: AdoptionConfig,
+    /// Deterministic hard-coded style token inference settings.
+    pub token_inference: TokenInferenceConfig,
     /// Language pack entries configured for this repository.
     ///
     /// Presence of a language key means the language is enabled.
@@ -215,6 +254,8 @@ struct WaxRcRaw {
     engine: EngineConfig,
     #[serde(default)]
     adoption: AdoptionConfig,
+    #[serde(default)]
+    token_inference: TokenInferenceConfig,
     #[serde(default)]
     languages: BTreeMap<LanguageId, LanguageEntryRaw>,
     #[serde(default)]
@@ -454,6 +495,7 @@ pub fn load_waxrc(path: impl AsRef<Path>) -> Result<WaxRc, WaxRcError> {
         schema_version: raw.schema_version,
         engine: raw.engine,
         adoption: raw.adoption,
+        token_inference: raw.token_inference,
         languages,
         design_systems: raw.design_systems,
     };
@@ -468,6 +510,12 @@ pub fn load_waxrc(path: impl AsRef<Path>) -> Result<WaxRc, WaxRcError> {
     }
     rc.adoption
         .validate_supported()
+        .map_err(|source| WaxRcError::InvalidConfig {
+            path: path_display.clone(),
+            source,
+        })?;
+    rc.token_inference
+        .validate()
         .map_err(|source| WaxRcError::InvalidConfig {
             path: path_display.clone(),
             source,

@@ -340,6 +340,7 @@ fn build_ephemeral_scan_config(
             schema_version: WAXRC_SCHEMA_VERSION,
             engine: EngineConfig::default(),
             adoption: AdoptionConfig::default(),
+            token_inference: Default::default(),
             languages,
             design_systems: BTreeMap::new(),
         },

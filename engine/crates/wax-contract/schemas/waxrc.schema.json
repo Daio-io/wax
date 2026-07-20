@@ -20,6 +20,18 @@
         }
       }
     },
+    "token_inference": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Deterministic hard-coded style token inference settings.",
+      "properties": {
+        "numeric_tolerance": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Absolute distance allowed for near numeric matches. Defaults to 2. 0 disables near matching."
+        }
+      }
+    },
     "adoption": {
       "type": "object",
       "additionalProperties": false,
