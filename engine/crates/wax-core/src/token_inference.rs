@@ -13,9 +13,18 @@ use crate::config::waxrc::TokenInferenceConfig;
 
 #[derive(Debug, Clone, PartialEq)]
 enum NormalizedValue {
-    Numeric { scalar: f64, unit: Option<String> },
+    Numeric {
+        scalar: f64,
+        unit: Option<String>,
+        allow_near: bool,
+    },
     ExactText(String),
     Unsupported,
+}
+
+struct InferredSite<'a> {
+    row: HardcodedStyleInference,
+    source: &'a HardcodedStyleSite,
 }
 
 /// Builds one inference row per raw hard-coded site using configured matching rules.
@@ -27,45 +36,41 @@ pub fn build_token_inference(
     languages: &BTreeMap<LanguageId, ScanFacts>,
     config: &TokenInferenceConfig,
 ) -> Result<TokenInferenceReport, ScanFactsError> {
-    let mut sites = Vec::new();
+    let mut inferred_sites = Vec::new();
 
     for (language_id, facts) in languages {
         for site in &facts.hardcoded_style_sites {
-            sites.push(infer_site(
-                language_id,
-                site,
-                &facts.design_system_tokens,
-                config.numeric_tolerance,
-            ));
+            inferred_sites.push(InferredSite {
+                row: infer_site(
+                    language_id,
+                    site,
+                    &facts.design_system_tokens,
+                    config.numeric_tolerance,
+                ),
+                source: site,
+            });
         }
     }
 
-    sites.sort_by(|left, right| {
-        let left_site = lookup_site(languages, left);
-        let right_site = lookup_site(languages, right);
+    inferred_sites.sort_by(|left, right| {
         (
-            left.language.as_str(),
-            left_site
-                .map(|site| site.location.file.as_str())
-                .unwrap_or(""),
-            left_site.map(|site| site.location.line).unwrap_or(0),
-            left_site.and_then(|site| site.location.column).unwrap_or(0),
-            left.site_id.as_str(),
+            left.row.language.as_str(),
+            left.source.location.file.as_str(),
+            left.source.location.line,
+            left.source.location.column.unwrap_or(0),
+            left.row.site_id.as_str(),
         )
             .cmp(&(
-                right.language.as_str(),
-                right_site
-                    .map(|site| site.location.file.as_str())
-                    .unwrap_or(""),
-                right_site.map(|site| site.location.line).unwrap_or(0),
-                right_site
-                    .and_then(|site| site.location.column)
-                    .unwrap_or(0),
-                right.site_id.as_str(),
+                right.row.language.as_str(),
+                right.source.location.file.as_str(),
+                right.source.location.line,
+                right.source.location.column.unwrap_or(0),
+                right.row.site_id.as_str(),
             ))
     });
 
-    let counts = derive_counts(languages, &sites)?;
+    let counts = derive_counts(&inferred_sites)?;
+    let sites = inferred_sites.into_iter().map(|site| site.row).collect();
     Ok(TokenInferenceReport {
         numeric_tolerance: config.numeric_tolerance,
         counts,
@@ -73,21 +78,7 @@ pub fn build_token_inference(
     })
 }
 
-fn lookup_site<'a>(
-    languages: &'a BTreeMap<LanguageId, ScanFacts>,
-    row: &HardcodedStyleInference,
-) -> Option<&'a HardcodedStyleSite> {
-    languages
-        .get(&row.language)?
-        .hardcoded_style_sites
-        .iter()
-        .find(|site| site.id == row.site_id)
-}
-
-fn derive_counts(
-    languages: &BTreeMap<LanguageId, ScanFacts>,
-    sites: &[HardcodedStyleInference],
-) -> Result<TokenInferenceCounts, ScanFactsError> {
+fn derive_counts(sites: &[InferredSite<'_>]) -> Result<TokenInferenceCounts, ScanFactsError> {
     let hardcoded_observation_count =
         u32::try_from(sites.len()).map_err(|_| ScanFactsError::ContractViolation {
             field: "token_inference.counts.hardcoded_observation_count".to_owned(),
@@ -98,17 +89,17 @@ fn derive_counts(
         ..TokenInferenceCounts::default()
     };
 
-    for row in sites {
-        match row.classification {
+    for site in sites {
+        match site.row.classification {
             TokenInferenceClassification::Exact => {
                 counts.exact_replacement_candidate_count =
                     counts.exact_replacement_candidate_count.saturating_add(1);
-                bump_candidate_breakdown(languages, row, &mut counts);
+                bump_candidate_breakdown(site, &mut counts);
             }
             TokenInferenceClassification::Near => {
                 counts.near_replacement_candidate_count =
                     counts.near_replacement_candidate_count.saturating_add(1);
-                bump_candidate_breakdown(languages, row, &mut counts);
+                bump_candidate_breakdown(site, &mut counts);
             }
             TokenInferenceClassification::Unmatched => {
                 counts.unmatched_observation_count =
@@ -128,12 +119,8 @@ fn derive_counts(
     Ok(counts)
 }
 
-fn bump_candidate_breakdown(
-    languages: &BTreeMap<LanguageId, ScanFacts>,
-    row: &HardcodedStyleInference,
-    counts: &mut TokenInferenceCounts,
-) {
-    match row.confidence {
+fn bump_candidate_breakdown(site: &InferredSite<'_>, counts: &mut TokenInferenceCounts) {
+    match site.row.confidence {
         Some(TokenInferenceConfidence::VeryHigh) => {
             counts.candidates_by_confidence.very_high =
                 counts.candidates_by_confidence.very_high.saturating_add(1);
@@ -153,10 +140,8 @@ fn bump_candidate_breakdown(
         None => {}
     }
 
-    if let Some(site) = lookup_site(languages, row) {
-        bump_category(&mut counts.candidates_by_category, site.category);
-        bump_context(&mut counts.candidates_by_context, site.context);
-    }
+    bump_category(&mut counts.candidates_by_category, site.source.category);
+    bump_context(&mut counts.candidates_by_context, site.source.context);
 }
 
 fn bump_category(counts: &mut TokenCategoryCounts, category: TokenCategory) {
@@ -293,7 +278,13 @@ fn infer_site(
         return unassessed(language_id, site, evidence);
     }
 
-    if !matches!(observed, NormalizedValue::Numeric { .. }) {
+    if !matches!(
+        observed,
+        NormalizedValue::Numeric {
+            allow_near: true,
+            ..
+        }
+    ) {
         return unmatched(
             language_id,
             site,
@@ -328,12 +319,11 @@ fn infer_site(
 
     near_candidates.sort_by(|left, right| {
         left.3
-            .partial_cmp(&right.3)
-            .unwrap_or(std::cmp::Ordering::Equal)
+            .total_cmp(&right.3)
             .then_with(|| left.0.id.cmp(&right.0.id))
     });
     let best_distance = near_candidates[0].3;
-    near_candidates.retain(|candidate| (candidate.3 - best_distance).abs() <= f64::EPSILON);
+    near_candidates.retain(|candidate| candidate.3 == best_distance);
     let multiple = near_candidates.len() > 1;
     let suggestions = near_candidates
         .iter()
@@ -469,12 +459,14 @@ fn values_exact_match(left: &NormalizedValue, right: &NormalizedValue) -> bool {
             NormalizedValue::Numeric {
                 scalar: left_scalar,
                 unit: left_unit,
+                ..
             },
             NormalizedValue::Numeric {
                 scalar: right_scalar,
                 unit: right_unit,
+                ..
             },
-        ) => left_unit == right_unit && (left_scalar - right_scalar).abs() <= f64::EPSILON,
+        ) => left_unit == right_unit && left_scalar == right_scalar,
         (NormalizedValue::ExactText(left_text), NormalizedValue::ExactText(right_text)) => {
             left_text == right_text
         }
@@ -488,10 +480,12 @@ fn numeric_distance(left: &NormalizedValue, right: &NormalizedValue) -> Option<f
             NormalizedValue::Numeric {
                 scalar: left_scalar,
                 unit: left_unit,
+                allow_near: true,
             },
             NormalizedValue::Numeric {
                 scalar: right_scalar,
                 unit: right_unit,
+                allow_near: true,
             },
         ) if left_unit == right_unit => Some((left_scalar - right_scalar).abs()),
         _ => None,
@@ -523,7 +517,7 @@ fn normalize_value(
     }
 
     match language.as_str() {
-        "compose" => normalize_compose(trimmed),
+        "compose" => normalize_compose(category, context, trimmed),
         "react" => normalize_react(category, context, trimmed),
         "swift" => normalize_swift(category, context, trimmed),
         _ => normalize_generic(category, context, trimmed),
@@ -542,17 +536,31 @@ fn strip_wrapping_quotes(value: &str) -> &str {
     value
 }
 
-fn normalize_compose(value: &str) -> NormalizedValue {
-    if let Some(normalized) = parse_compose_numeric(value) {
-        return normalized;
+fn normalize_compose(
+    category: TokenCategory,
+    context: StyleContext,
+    value: &str,
+) -> NormalizedValue {
+    if let Some(color) = normalize_compose_hex_color(category, context, value) {
+        return NormalizedValue::ExactText(color);
     }
     if looks_like_hex_color(value) {
         return NormalizedValue::ExactText(normalize_hex_color(value));
     }
-    NormalizedValue::ExactText(value.to_ascii_lowercase())
+
+    if let Some(normalized) = parse_compose_numeric(value, allow_numeric_near(category, context)) {
+        if matches!(normalized, NormalizedValue::Unsupported)
+            && supports_exact_text_fallback(category, context)
+        {
+            return NormalizedValue::ExactText(value.to_owned());
+        }
+        return normalized;
+    }
+
+    NormalizedValue::ExactText(value.to_owned())
 }
 
-fn parse_compose_numeric(value: &str) -> Option<NormalizedValue> {
+fn parse_compose_numeric(value: &str, allow_near: bool) -> Option<NormalizedValue> {
     let compact: String = value.chars().filter(|ch| !ch.is_whitespace()).collect();
     let split_at = compact
         .char_indices()
@@ -572,6 +580,7 @@ fn parse_compose_numeric(value: &str) -> Option<NormalizedValue> {
             Some(NormalizedValue::Numeric {
                 scalar,
                 unit: Some(unit),
+                allow_near,
             })
         }
         None => {
@@ -579,49 +588,54 @@ fn parse_compose_numeric(value: &str) -> Option<NormalizedValue> {
             if !scalar.is_finite() {
                 return Some(NormalizedValue::Unsupported);
             }
-            Some(NormalizedValue::Numeric { scalar, unit: None })
+            Some(NormalizedValue::Numeric {
+                scalar,
+                unit: None,
+                allow_near,
+            })
         }
     }
 }
 
 fn normalize_react(category: TokenCategory, context: StyleContext, value: &str) -> NormalizedValue {
-    if category == TokenCategory::Color
-        || context == StyleContext::Color
-        || looks_like_hex_color(value)
-    {
-        if looks_like_hex_color(value) {
-            return NormalizedValue::ExactText(normalize_hex_color(value));
-        }
-        return NormalizedValue::ExactText(value.to_ascii_lowercase());
+    if looks_like_hex_color(value) {
+        return NormalizedValue::ExactText(normalize_hex_color(value));
     }
 
-    if let Some(normalized) = parse_css_length(value, allow_unitless_px(context)) {
+    if let Some(normalized) = parse_css_length(
+        value,
+        allow_unitless_px(context),
+        allow_numeric_near(category, context),
+    ) {
+        if matches!(normalized, NormalizedValue::Unsupported)
+            && supports_exact_text_fallback(category, context)
+        {
+            return NormalizedValue::ExactText(value.to_owned());
+        }
         return normalized;
     }
 
-    NormalizedValue::ExactText(value.to_ascii_lowercase())
+    NormalizedValue::ExactText(value.to_owned())
 }
 
 fn normalize_swift(category: TokenCategory, context: StyleContext, value: &str) -> NormalizedValue {
-    if category == TokenCategory::Color
-        || context == StyleContext::Color
-        || looks_like_hex_color(value)
-    {
-        if looks_like_hex_color(value) {
-            return NormalizedValue::ExactText(normalize_hex_color(value));
-        }
-        return NormalizedValue::ExactText(value.to_ascii_lowercase());
+    if looks_like_hex_color(value) {
+        return NormalizedValue::ExactText(normalize_hex_color(value));
     }
 
     let compact: String = value.chars().filter(|ch| !ch.is_whitespace()).collect();
     if let Ok(scalar) = compact.parse::<f64>() {
         if scalar.is_finite() {
-            return NormalizedValue::Numeric { scalar, unit: None };
+            return NormalizedValue::Numeric {
+                scalar,
+                unit: None,
+                allow_near: allow_numeric_near(category, context),
+            };
         }
         return NormalizedValue::Unsupported;
     }
 
-    NormalizedValue::ExactText(value.to_ascii_lowercase())
+    NormalizedValue::ExactText(value.to_owned())
 }
 
 fn normalize_generic(
@@ -629,19 +643,55 @@ fn normalize_generic(
     context: StyleContext,
     value: &str,
 ) -> NormalizedValue {
-    if category == TokenCategory::Color
-        || context == StyleContext::Color
-        || looks_like_hex_color(value)
-    {
-        if looks_like_hex_color(value) {
-            return NormalizedValue::ExactText(normalize_hex_color(value));
-        }
-        return NormalizedValue::ExactText(value.to_ascii_lowercase());
+    if looks_like_hex_color(value) {
+        return NormalizedValue::ExactText(normalize_hex_color(value));
     }
-    if let Some(normalized) = parse_css_length(value, allow_unitless_px(context)) {
+    if let Some(normalized) = parse_css_length(
+        value,
+        allow_unitless_px(context),
+        allow_numeric_near(category, context),
+    ) {
+        if matches!(normalized, NormalizedValue::Unsupported)
+            && supports_exact_text_fallback(category, context)
+        {
+            return NormalizedValue::ExactText(value.to_owned());
+        }
         return normalized;
     }
-    NormalizedValue::ExactText(value.to_ascii_lowercase())
+    NormalizedValue::ExactText(value.to_owned())
+}
+
+fn allow_numeric_near(category: TokenCategory, context: StyleContext) -> bool {
+    !matches!(category, TokenCategory::Color | TokenCategory::Elevation)
+        && !matches!(context, StyleContext::Color | StyleContext::Elevation)
+}
+
+fn supports_exact_text_fallback(category: TokenCategory, context: StyleContext) -> bool {
+    matches!(
+        category,
+        TokenCategory::Color | TokenCategory::Typography | TokenCategory::Elevation
+    ) || matches!(
+        context,
+        StyleContext::Color | StyleContext::Typography | StyleContext::Elevation
+    )
+}
+
+fn normalize_compose_hex_color(
+    category: TokenCategory,
+    context: StyleContext,
+    value: &str,
+) -> Option<String> {
+    if category != TokenCategory::Color && context != StyleContext::Color {
+        return None;
+    }
+    let trimmed = value.trim();
+    let hex = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))?;
+    if !matches!(hex.len(), 6 | 8) || !hex.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        return None;
+    }
+    Some(format!("0x{}", hex.to_ascii_lowercase()))
 }
 
 fn allow_unitless_px(context: StyleContext) -> bool {
@@ -654,12 +704,15 @@ fn allow_unitless_px(context: StyleContext) -> bool {
             | StyleContext::Height
             | StyleContext::Size
             | StyleContext::Radius
-            | StyleContext::Unknown
     )
 }
 
-fn parse_css_length(value: &str, unitless_as_px: bool) -> Option<NormalizedValue> {
-    let compact: String = value.chars().filter(|ch| !ch.is_whitespace()).collect();
+fn parse_css_length(
+    value: &str,
+    unitless_as_px: bool,
+    allow_near: bool,
+) -> Option<NormalizedValue> {
+    let compact = value.trim();
     let split_at = compact
         .char_indices()
         .find(|&(_, ch)| ch.is_ascii_alphabetic() || ch == '%')
@@ -677,12 +730,14 @@ fn parse_css_length(value: &str, unitless_as_px: bool) -> Option<NormalizedValue
                 "px" => Some(NormalizedValue::Numeric {
                     scalar,
                     unit: Some("px".to_owned()),
+                    allow_near,
                 }),
                 "rem" | "em" | "vh" | "vw" | "vmin" | "vmax" | "%" => {
                     // Keep incompatible unit families distinct; never convert.
                     Some(NormalizedValue::Numeric {
                         scalar,
                         unit: Some(unit),
+                        allow_near,
                     })
                 }
                 _ => Some(NormalizedValue::Unsupported),
@@ -697,9 +752,14 @@ fn parse_css_length(value: &str, unitless_as_px: bool) -> Option<NormalizedValue
                 Some(NormalizedValue::Numeric {
                     scalar,
                     unit: Some("px".to_owned()),
+                    allow_near,
                 })
             } else {
-                Some(NormalizedValue::Numeric { scalar, unit: None })
+                Some(NormalizedValue::Numeric {
+                    scalar,
+                    unit: None,
+                    allow_near,
+                })
             }
         }
     }
@@ -707,7 +767,9 @@ fn parse_css_length(value: &str, unitless_as_px: bool) -> Option<NormalizedValue
 
 fn looks_like_hex_color(value: &str) -> bool {
     let trimmed = value.trim();
-    let hex = trimmed.strip_prefix('#').unwrap_or(trimmed);
+    let Some(hex) = trimmed.strip_prefix('#') else {
+        return false;
+    };
     matches!(hex.len(), 3 | 4 | 6 | 8) && hex.chars().all(|ch| ch.is_ascii_hexdigit())
 }
 
@@ -761,6 +823,44 @@ mod tests {
             aliases: Vec::new(),
             value: value.map(str::to_owned),
         }
+    }
+
+    fn facts(
+        language_id: &LanguageId,
+        tokens: Vec<DesignSystemToken>,
+        sites: Vec<HardcodedStyleSite>,
+    ) -> ScanFacts {
+        let mut facts = ScanFacts {
+            schema_version: 3,
+            language: wax_contract::LanguageMetadata {
+                id: language_id.clone(),
+                version: "0.1.0".into(),
+                ecosystem: "test".into(),
+                parser_name: "test".into(),
+                parser_version: "1.0.0".into(),
+            },
+            snapshot_id: "snap".into(),
+            scanned_at: time::OffsetDateTime::UNIX_EPOCH,
+            status: wax_contract::ScanStatus::Complete,
+            design_system_components: Vec::new(),
+            local_components: Vec::new(),
+            usage_sites: Vec::new(),
+            diagnostics: Vec::new(),
+            metrics: wax_contract::Metrics {
+                invocation_adoption_ratio: None,
+                registry_resolution_ratio: None,
+                parse_extract_ms: 0,
+                files_scanned: 0,
+            },
+            counts: wax_contract::CountSummary::default(),
+            symbol_usage_summary: Vec::new(),
+            design_system_tokens: tokens,
+            token_sites: Vec::new(),
+            hardcoded_style_sites: sites,
+            token_usage_summary: Vec::new(),
+        };
+        facts.recompute_counts().unwrap();
+        facts
     }
 
     #[test]
@@ -899,37 +999,26 @@ mod tests {
         tokens: Vec<DesignSystemToken>,
         tolerance: f64,
     ) -> HardcodedStyleInference {
-        let (language_id, site) = site(language, value, TokenCategory::Spacing, context);
-        let mut facts = ScanFacts {
-            schema_version: 3,
-            language: wax_contract::LanguageMetadata {
-                id: language_id.clone(),
-                version: "0.1.0".into(),
-                ecosystem: "test".into(),
-                parser_name: "test".into(),
-                parser_version: "1.0.0".into(),
-            },
-            snapshot_id: "snap".into(),
-            scanned_at: time::OffsetDateTime::UNIX_EPOCH,
-            status: wax_contract::ScanStatus::Complete,
-            design_system_components: Vec::new(),
-            local_components: Vec::new(),
-            usage_sites: Vec::new(),
-            diagnostics: Vec::new(),
-            metrics: wax_contract::Metrics {
-                invocation_adoption_ratio: None,
-                registry_resolution_ratio: None,
-                parse_extract_ms: 0,
-                files_scanned: 0,
-            },
-            counts: wax_contract::CountSummary::default(),
-            symbol_usage_summary: Vec::new(),
-            design_system_tokens: tokens,
-            token_sites: Vec::new(),
-            hardcoded_style_sites: vec![site],
-            token_usage_summary: Vec::new(),
-        };
-        facts.recompute_counts().unwrap();
+        classify_category(
+            language,
+            value,
+            TokenCategory::Spacing,
+            context,
+            tokens,
+            tolerance,
+        )
+    }
+
+    fn classify_category(
+        language: &str,
+        value: &str,
+        category: TokenCategory,
+        context: StyleContext,
+        tokens: Vec<DesignSystemToken>,
+        tolerance: f64,
+    ) -> HardcodedStyleInference {
+        let (language_id, site) = site(language, value, category, context);
+        let facts = facts(&language_id, tokens, vec![site]);
         let languages = BTreeMap::from([(language_id, facts)]);
         let report = build_token_inference(
             &languages,
@@ -1100,5 +1189,234 @@ mod tests {
             2.0,
         );
         assert_eq!(row.classification, TokenInferenceClassification::Unassessed);
+    }
+
+    #[test]
+    fn classification_compose_native_argb_color_is_exact() {
+        let row = classify_category(
+            "compose",
+            "0xFF336699",
+            TokenCategory::Color,
+            StyleContext::Color,
+            vec![token(
+                "color.primary",
+                TokenCategory::Color,
+                Some("0xFF336699"),
+            )],
+            2.0,
+        );
+
+        assert_eq!(row.classification, TokenInferenceClassification::Exact);
+    }
+
+    #[test]
+    fn classification_numeric_color_is_never_near() {
+        let row = classify_category(
+            "compose",
+            "254",
+            TokenCategory::Color,
+            StyleContext::Color,
+            vec![token("color.primary", TokenCategory::Color, Some("255"))],
+            2.0,
+        );
+
+        assert_eq!(row.classification, TokenInferenceClassification::Unmatched);
+    }
+
+    #[test]
+    fn classification_numeric_elevation_is_never_near() {
+        let row = classify_category(
+            "swift",
+            "3",
+            TokenCategory::Elevation,
+            StyleContext::Elevation,
+            vec![token("elevation.low", TokenCategory::Elevation, Some("4"))],
+            2.0,
+        );
+
+        assert_eq!(row.classification, TokenInferenceClassification::Unmatched);
+    }
+
+    #[test]
+    fn classification_react_composite_shadow_is_exact_text() {
+        let row = classify_category(
+            "react",
+            "\"0 1px 2px #000\"",
+            TokenCategory::Elevation,
+            StyleContext::Elevation,
+            vec![token(
+                "elevation.low",
+                TokenCategory::Elevation,
+                Some("0 1px 2px #000"),
+            )],
+            2.0,
+        );
+
+        assert_eq!(row.classification, TokenInferenceClassification::Exact);
+    }
+
+    #[test]
+    fn classification_react_composite_shadow_does_not_collapse_to_scalar() {
+        let row = classify_category(
+            "react",
+            "\"0 0 0\"",
+            TokenCategory::Elevation,
+            StyleContext::Elevation,
+            vec![token("elevation.zero", TokenCategory::Elevation, Some("0"))],
+            2.0,
+        );
+
+        assert_eq!(row.classification, TokenInferenceClassification::Unmatched);
+    }
+
+    #[test]
+    fn classification_react_unknown_unitless_value_does_not_assume_pixels() {
+        let row = classify(
+            "react",
+            "4",
+            StyleContext::Unknown,
+            vec![token("spacing.s", TokenCategory::Spacing, Some("4px"))],
+            2.0,
+        );
+
+        assert_eq!(row.classification, TokenInferenceClassification::Unmatched);
+    }
+
+    #[test]
+    fn classification_swift_named_color_preserves_case() {
+        let row = classify_category(
+            "swift",
+            "\"Brand\"",
+            TokenCategory::Color,
+            StyleContext::Color,
+            vec![token("color.brand", TokenCategory::Color, Some("brand"))],
+            2.0,
+        );
+
+        assert_eq!(row.classification, TokenInferenceClassification::Unmatched);
+    }
+
+    #[test]
+    fn classification_swift_three_letter_named_color_is_not_hex() {
+        let row = classify_category(
+            "swift",
+            "\"Bad\"",
+            TokenCategory::Color,
+            StyleContext::Color,
+            vec![token("color.bad", TokenCategory::Color, Some("bad"))],
+            2.0,
+        );
+
+        assert_eq!(row.classification, TokenInferenceClassification::Unmatched);
+    }
+
+    #[test]
+    fn classification_distinct_sub_epsilon_values_are_not_exact() {
+        let row = classify(
+            "swift",
+            "0",
+            StyleContext::Gap,
+            vec![token(
+                "spacing.tiny",
+                TokenCategory::Spacing,
+                Some("0.00000000000000000001"),
+            )],
+            0.0,
+        );
+
+        assert_eq!(row.classification, TokenInferenceClassification::Unmatched);
+    }
+
+    #[test]
+    fn classification_near_ties_require_identical_distances() {
+        let row = classify(
+            "swift",
+            "0",
+            StyleContext::Gap,
+            vec![
+                token("spacing.negative", TokenCategory::Spacing, Some("-1")),
+                token("spacing.positive", TokenCategory::Spacing, Some("1")),
+                token(
+                    "spacing.almost",
+                    TokenCategory::Spacing,
+                    Some("1.0000000000000002"),
+                ),
+            ],
+            2.0,
+        );
+
+        assert_eq!(
+            row.suggestions
+                .iter()
+                .map(|suggestion| suggestion.token_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["spacing.negative", "spacing.positive"]
+        );
+    }
+
+    #[test]
+    fn inference_sorts_sources_and_counts_candidate_metadata() {
+        let language_id = language("react");
+        let late = HardcodedStyleSite {
+            id: "hardcoded.react:z.tsx:2:1:spacing".into(),
+            location: SourceLocation {
+                file: "z.tsx".into(),
+                line: 2,
+                column: Some(1),
+            },
+            value: "4".into(),
+            category: TokenCategory::Spacing,
+            context: StyleContext::Width,
+            parent: None,
+        };
+        let early = HardcodedStyleSite {
+            id: "hardcoded.react:a.tsx:10:1:color".into(),
+            location: SourceLocation {
+                file: "a.tsx".into(),
+                line: 10,
+                column: Some(1),
+            },
+            value: "\"#FFF\"".into(),
+            category: TokenCategory::Color,
+            context: StyleContext::Color,
+            parent: None,
+        };
+        let facts = facts(
+            &language_id,
+            vec![
+                token("spacing.s", TokenCategory::Spacing, Some("4px")),
+                token("color.primary", TokenCategory::Color, Some("#fff")),
+            ],
+            vec![late, early],
+        );
+        let report = build_token_inference(
+            &BTreeMap::from([(language_id, facts)]),
+            &TokenInferenceConfig::default(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            (
+                report
+                    .sites
+                    .iter()
+                    .map(|site| site.site_id.as_str())
+                    .collect::<Vec<_>>(),
+                report.counts.candidates_by_category.color,
+                report.counts.candidates_by_category.spacing,
+                report.counts.candidates_by_context.color,
+                report.counts.candidates_by_context.width,
+            ),
+            (
+                vec![
+                    "hardcoded.react:a.tsx:10:1:color",
+                    "hardcoded.react:z.tsx:2:1:spacing",
+                ],
+                1,
+                1,
+                1,
+                1,
+            )
+        );
     }
 }
