@@ -68,7 +68,7 @@ Attach source evidence to every AI-inferred token change. Do not propose a value
 5. Require **explicit approval** for additions and value changes.
 6. Require a separate approval for removals. **Never delete** components or tokens automatically.
 7. Preserve ids, keys, aliases, categories, metadata, and values outside the approved diff.
-8. Apply only the approved registry edits with `apply_patch`.
+8. **For an existing registry, use `apply_patch` only** and apply exactly the approved registry edits. Do not run write-mode discovery or `--force`: current discovery output is component-only and replacing the file can discard tokens, aliases, metadata, and other unapproved fields.
 9. Run validation, then sync/rescan when this was a delegated app flow (see below).
 
 ## Validation, sync, and rerun

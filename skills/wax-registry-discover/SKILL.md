@@ -147,10 +147,12 @@ Use configless discovery: **always pass `--root`** and do not assume configured 
 
    - Ask about exports that look like helpers, demos, previews, aliases, or duplicate public components.
    - Ask before excluding discovered symbols from the registry.
-   - Ask before using `--force`.
+   - Do not use `--force` to replace an existing registry; apply the approved diff instead.
    - Require **explicit approval** for additions and value changes; require a separate approval for any removals.
 
-7. Write the registry only after review. Prefer `apply_patch` for registry edits so the approved diff is the only change applied. For full rediscovery writes:
+7. Write the registry only after review. **For an existing registry, use `apply_patch` only** so the approved diff is the only change applied. Current discovery output is component-only, so running the write form with `--force` against an existing registry can discard tokens, aliases, metadata, and other fields outside the approved diff.
+
+   Reserve the full discovery write for creating a new registry at a path that does not exist:
 
    ```bash
    wax registry discover \
@@ -160,7 +162,7 @@ Use configless discovery: **always pass `--root`** and do not assume configured 
      --root <path>
    ```
 
-   If an existing registry blocks the write, show the structured diff or summary before `--force`, then run the forced write only after explicit user approval.
+   If the target already exists, keep the command in `--dry-run` mode and transfer only approved changes with `apply_patch`.
 
 8. Validate after write when Wax config exists:
 
@@ -224,7 +226,8 @@ wax registry delete <id>
 - use `--root` when Wax config is absent
 - pass `--design-system` and `--name` when discovering in a design-system repo
 - do not blindly overwrite
-- show a structured diff or summary before `--force`
+- keep discovery in `--dry-run` mode for existing registries
+- use `apply_patch` only for approved changes to an existing registry; never replace it with `--force`
 - require explicit approval before writing additions or value changes
 - require separate approval before any removals
 - **Never delete** components or tokens automatically

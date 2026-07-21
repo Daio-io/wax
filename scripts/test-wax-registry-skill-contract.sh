@@ -27,13 +27,29 @@ require_text() {
 require_text "skills/wax-registry-discover/SKILL.md" "structured diff"
 require_text "skills/wax-registry-discover/SKILL.md" "explicit approval"
 require_text "skills/wax-registry-discover/SKILL.md" "Never delete"
+require_text "skills/wax-registry-discover/SKILL.md" 'For an existing registry, use `apply_patch` only'
 require_text "skills/wax-registry-discover/token-value-maintenance.md" "source evidence"
+require_text "skills/wax-registry-discover/token-value-maintenance.md" 'For an existing registry, use `apply_patch` only'
+require_text "skills/wax-registry-discover/token-value-maintenance.md" "Source file / line"
+require_text "skills/wax-registry-discover/token-value-maintenance.md" "Resolution explanation"
+require_text "skills/wax-registry-discover/token-value-maintenance.md" "Confidence"
+require_text "skills/wax-registry-discover/token-value-maintenance.md" "Computed expressions"
+require_text "skills/wax-registry-discover/token-value-maintenance.md" "separate approval for removals"
 require_text "skills/wax-registry-discover/examples/token-value-refresh.md" "Before registry"
 require_text "skills/wax-registry-discover/examples/token-value-refresh.md" "Proposed diff"
 require_text "skills/wax-registry-discover/examples/token-value-refresh.md" "Explicit approval"
 require_text "skills/wax-registry-discover/examples/token-value-refresh.md" "After registry"
+require_text "skills/wax-registry-discover/examples/token-value-refresh.md" "Before maintenance result"
+require_text "skills/wax-registry-discover/examples/token-value-refresh.md" "After maintenance result"
+require_text "skills/wax-registry-discover/examples/token-value-refresh.md" "Unassessed observations: 1"
+require_text "skills/wax-registry-discover/examples/token-value-refresh.md" "Confirmed migration candidates: 1"
+require_text "skills/wax-registry-discover/examples/token-value-refresh.md" "Unassessed observations: 0"
+require_text "skills/wax-registry-discover/examples/token-value-refresh.md" "validation passed"
+require_text "skills/wax-registry-discover/examples/token-value-refresh.md" "updated compose registry from"
 require_text "skills/wax-scan/SKILL.md" "unassessed"
 require_text "skills/wax-scan/SKILL.md" "wax-registry-discover"
+require_text "skills/wax-scan/SKILL.md" 'Inspect each unassessed row'
+require_text "skills/wax-scan/SKILL.md" "unsupported_canonical_format"
 
 GOLDEN="skills/wax-registry-discover/examples/token-value-refresh.md"
 EXPECTED_CANONICAL_VALUE="16.dp"
@@ -89,6 +105,13 @@ jq -e --arg id "$TOKEN_ID" --slurpfile after "$AFTER_JSON" '
   and (($before.metadata // {}) == ($after_tok.metadata // {}))
 ' "$BEFORE_JSON" >/dev/null \
   || fail "ids, keys, categories, aliases, and metadata must be unchanged for $TOKEN_ID"
+
+jq -e --arg id "$TOKEN_ID" --arg expected "$EXPECTED_CANONICAL_VALUE" \
+  --slurpfile after "$AFTER_JSON" '
+  (.tokens |= map(if .id == $id then . + {value: $expected} else . end))
+  == $after[0]
+' "$BEFORE_JSON" >/dev/null \
+  || fail "after registry must equal before registry plus only the approved value for $TOKEN_ID"
 
 BEFORE_TOKEN_COUNT="$(jq '.tokens | length' "$BEFORE_JSON")"
 AFTER_TOKEN_COUNT="$(jq '.tokens | length' "$AFTER_JSON")"

@@ -100,7 +100,7 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
 - Treat scan-time registry sync warnings as non-fatal; the scan continues with current registry inputs.
 - Prefer deterministic metrics from the extractor over agent estimation.
 - Label every non-deterministic insight with confidence.
-- Report unassessed token counts as metadata gaps; offer `wax-registry-discover` and delegate only after acceptance.
+- Report unassessed token counts as non-debt diagnostic gaps; inspect typed evidence before offering `wax-registry-discover`, and delegate only after acceptance.
 - Never write inferred canonical token values into registries or metrics from this skill; maintenance belongs to `wax-registry-discover`.
 - Do not invent precision for health, maturity, or debt scores when data is sparse; explain weighting and uncertainty.
 - Skip trend analysis unless `--baseline` is provided.
@@ -149,7 +149,7 @@ Use only deterministic classifications from insights `token_inference` (schema v
 - Exact rows are deterministic confirmed migration candidates.
 - Near rows are deterministic possible migration candidates.
 - Unmatched rows are informational observations, not debt.
-- Unassessed rows are registry metadata gaps (missing canonical token values).
+- Unassessed rows require evidence-specific diagnosis; they are not automatically missing-value gaps.
 - Never synthesize a replacement confidence that disagrees with `token_inference`.
 - Join inference to raw observations by `(language, site_id)`; fail closed if the join is missing or ambiguous.
 
@@ -162,8 +162,10 @@ Reviewed value maintenance is the unlock from that first-run unassessed state: o
 When insights report unassessed observations:
 
 1. Report the unassessed count from `token_inference.summary` / `unassessed_observations`.
-2. Explain that missing registry metadata (optional canonical `value`) prevents deterministic comparison.
-3. Offer registry enrichment via the `wax-registry-discover` skill.
+2. Inspect each unassessed row's typed `evidence` before explaining the cause:
+   - `missing_canonical_values` or `incomplete_canonical_coverage`: explain that same-category registry coverage is absent or has missing/unusable optional canonical `value` fields, then offer registry enrichment.
+   - `unsupported_canonical_format` without missing/incomplete evidence: explain that the observed or canonical format could not be normalized. Inspect the raw observation and same-category registry values before deciding whether a publisher edit can help; do not describe this as a missing value.
+3. Offer registry enrichment via the `wax-registry-discover` skill only when the evidence and source inspection identify an actionable publisher-registry gap.
 4. Delegate only after the user accepts maintenance. Do not start publisher edits unprompted.
 5. Never insert inferred or AI-proposed values directly into scan metrics, insights JSON, or report KPIs.
 6. After successful reviewed maintenance and `wax sync`, rerun a fresh `wax scan` and regenerate the report.

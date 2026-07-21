@@ -42,9 +42,9 @@ The extractor requires scan schema `3`, builds a unique raw-site lookup keyed by
 
 When `token_inference.summary` shows a nonzero unassessed count:
 
-1. Surface the count and treat rows as registry metadata gaps, not debt.
-2. Explain that optional canonical token `value` fields are missing or unusable for comparison.
-3. Offer the `wax-registry-discover` reviewed token-value maintenance workflow.
+1. Surface the count and treat rows as non-debt diagnostic gaps; classify the cause only after inspecting evidence.
+2. Inspect each row's typed `evidence`. `missing_canonical_values` and `incomplete_canonical_coverage` identify absent or incomplete same-category registry coverage. `unsupported_canonical_format` identifies a normalization failure and does not by itself prove that a canonical value is missing.
+3. Offer the `wax-registry-discover` reviewed token-value maintenance workflow only for an actionable publisher-registry gap. For unsupported formats, inspect the raw observation and same-category registry values first; report a normalization limitation when a registry edit cannot resolve it.
 4. Delegate only after the user accepts; do not edit registries from `wax-scan` itself.
 5. Never insert inferred values into insights, HTML placeholders, or KPIs.
 6. After successful publisher maintenance and `wax sync`, rerun a fresh scan so exact/near/unmatched classifications can appear.

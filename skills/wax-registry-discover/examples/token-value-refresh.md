@@ -8,6 +8,21 @@ Golden end-to-end workflow for filling a missing canonical token value through r
 - Publisher design-system repo is resolved via `registry.upstream` / remembered metadata.
 - Language: `compose`.
 
+## Before maintenance result
+
+The fresh app scan and deterministic extractor show one metadata gap with typed missing-value evidence:
+
+```text
+token metrics:
+  Confirmed migration candidates: 0
+  Possible migration candidates: 0
+  Unmatched observations: 0 (informational)
+  Unassessed observations: 1 (registry values needed)
+
+token_inference.unassessed_observations[0].evidence:
+  - missing_canonical_values
+```
+
 ## Before registry
 
 Publisher registry before maintenance (token lacks `value`):
@@ -133,18 +148,40 @@ Confirmation: component count and token count are unchanged; only the approved `
 
 ## Validation, sync, and rescan
 
-In the publisher repo:
+In the publisher repo, validation succeeds after the approved patch:
 
-```bash
-wax validate
+```text
+$ wax validate
+validation passed
 ```
 
 Return to the app (delegated flow with resolvable upstream):
 
-```bash
-wax sync
-wax validate
-wax scan
+```text
+$ wax sync
+updated compose registry from example-ds/compose -> .wax/registries/example-ds/compose.json
+$ wax validate
+validation passed
+$ wax scan
+scan output: .wax/out/scan-merged.json
 ```
 
-Then regenerate the report. The fresh post-sync scan may now classify matching observations as exact, near, or unmatched. A failed write or validation would have left the previous registry recoverable and stopped before sync.
+## After maintenance result
+
+The fresh post-sync scan uses the approved canonical value and deterministically reclassifies the same observation:
+
+```text
+token metrics:
+  Confirmed migration candidates: 1
+  Possible migration candidates: 0
+  Unmatched observations: 0 (informational)
+  Unassessed observations: 0 (registry values needed)
+
+confirmed candidate:
+  site: packages/app/src/main/kotlin/com/example/app/Checkout.kt:24
+  observed value: 16.dp
+  suggestion: space.medium / Spacing.Medium / 16.dp
+  match: exact
+```
+
+Regenerate the report from this fresh result. The metadata-gap row is gone and the exact candidate appears in the confirmed migration table. A failed write or validation would have left the previous registry recoverable and stopped before sync.

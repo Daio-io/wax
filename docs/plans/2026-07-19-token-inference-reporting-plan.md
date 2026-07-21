@@ -730,7 +730,7 @@ require_text "skills/wax-scan/SKILL.md" "unassessed"
 require_text "skills/wax-scan/SKILL.md" "wax-registry-discover"
 ```
 
-Also extract the labeled before/after registry JSON blocks from the golden workflow into temporary files and use `jq -e` to assert: both parse; the before token has no `value`; the after token has the expected canonical value; ids, keys, categories, aliases, and metadata are unchanged; and the after token/component counts are not lower. This makes the smoke test enforce the promised preservation behavior rather than only checking prose keywords.
+Also extract the labeled before/after registry JSON blocks from the golden workflow into temporary files and use `jq -e` to assert: both parse; the before token has no `value`; the after token has the expected canonical value; the entire after registry equals the before registry plus only that approved value; and the after token/component counts are not lower. This makes the smoke test enforce the promised preservation behavior rather than only checking prose keywords.
 
 Expected before documentation changes: FAIL because the token maintenance reference and golden workflow are missing.
 
@@ -775,7 +775,7 @@ Then regenerate the report. A failed write or validation leaves the previous reg
 
 - [x] **Step 6: Make wax-scan delegation explicit**
 
-Report unassessed counts, explain missing metadata, offer maintenance, delegate only after acceptance, never insert inferred values directly into metrics, and rerun a fresh scan after successful maintenance. Describe reviewed value maintenance as the unlock from the expected first-run all-unassessed state: only the fresh post-sync scan may reclassify observations as exact, near, or unmatched.
+Report unassessed counts and inspect typed evidence before explaining the cause. Offer maintenance for missing or incomplete registry coverage, but report unsupported normalization without assuming a missing value. Delegate only after acceptance, never insert inferred values directly into metrics, and rerun a fresh scan after successful maintenance. Describe reviewed value maintenance as the unlock from the expected first-run all-unassessed state: only the fresh post-sync scan may reclassify observations as exact, near, or unmatched.
 
 - [x] **Step 7: Verify and commit**
 
