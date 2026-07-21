@@ -16,6 +16,7 @@ use thiserror::Error;
 use wax_contract::{
     Diagnostic, DiagnosticSeverity, HardcodedStyleInference, HardcodedStyleSite, LanguageId,
     MergedScan, ScanStatus, TokenInferenceClassification, TokenInferenceConfidence,
+    TokenInferenceEvidence, TokenReplacementSuggestion,
 };
 use wax_core::config::lockfile::{LockedRegistry, WAX_LOCK_SCHEMA_VERSION, WaxLock};
 use wax_core::config::repo_files::PREFERRED_CONFIG_RELATIVE_PATH;
@@ -143,6 +144,8 @@ pub enum ScanCommandError {
 /// ephemeral pack metadata cannot be resolved;
 /// [`ScanCommandError::RegistryMemory`] when remembered registry state cannot be
 /// listed or resolved; [`ScanCommandError::Engine`] when the scan fails; or
+/// [`ScanCommandError::TokenInferenceJoin`] when token inference cannot be
+/// joined uniquely to its raw observation; or
 /// [`ScanCommandError::Io`] when prompts, sync warnings, or summary output cannot
 /// be written.
 pub fn run_scan_cli(
@@ -178,6 +181,8 @@ pub fn run_scan_cli(
 /// config. If that config has a non-empty registry upstream and no state-path
 /// override, returns [`ScanCommandError::Paths`] when the global state path
 /// cannot be resolved. Returns [`ScanCommandError::Engine`] when scanning fails,
+/// [`ScanCommandError::TokenInferenceJoin`] when token inference cannot be
+/// joined uniquely to its raw observation,
 /// or [`ScanCommandError::Io`] when a sync warning or scan summary cannot be
 /// written.
 pub fn run_scan(
@@ -682,23 +687,73 @@ fn style_context_label(context: wax_contract::StyleContext) -> &'static str {
     }
 }
 
+fn token_inference_evidence_label(evidence: TokenInferenceEvidence) -> &'static str {
+    match evidence {
+        TokenInferenceEvidence::ExactValue => "exact value",
+        TokenInferenceEvidence::WithinNumericTolerance => "within numeric tolerance",
+        TokenInferenceEvidence::ClearUsageContext => "clear usage context",
+        TokenInferenceEvidence::GenericDimensionContext => "generic dimension context",
+        TokenInferenceEvidence::MultipleEqualMatches => "multiple equal matches",
+        TokenInferenceEvidence::MissingCanonicalValues => "missing canonical values",
+        TokenInferenceEvidence::IncompleteCanonicalCoverage => "incomplete canonical coverage",
+        TokenInferenceEvidence::UnsupportedCanonicalFormat => "unsupported canonical format",
+        TokenInferenceEvidence::IncompatibleUnits => "incompatible units",
+        TokenInferenceEvidence::OutsideNumericTolerance => "outside numeric tolerance",
+    }
+}
+
+fn format_token_suggestion(suggestion: &TokenReplacementSuggestion) -> String {
+    let distance = suggestion.distance.map(|distance| {
+        format!(
+            " (distance {distance}{})",
+            suggestion.normalized_unit.as_deref().unwrap_or_default()
+        )
+    });
+    format!(
+        "{}={}{}",
+        suggestion.token_key,
+        suggestion.canonical_value,
+        distance.as_deref().unwrap_or_default()
+    )
+}
+
 fn format_token_finding_line(finding: &JoinedTokenFinding<'_>) -> String {
     let location = &finding.site.location;
-    let token_key = finding
+    let suggestions = finding
         .row
         .suggestions
-        .first()
-        .map(|suggestion| suggestion.token_key.as_str())
-        .unwrap_or("?");
+        .iter()
+        .map(format_token_suggestion)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let suggestions = if suggestions.is_empty() {
+        "?".to_owned()
+    } else {
+        suggestions
+    };
+    let evidence = finding
+        .row
+        .evidence
+        .iter()
+        .copied()
+        .map(token_inference_evidence_label)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let evidence = if evidence.is_empty() {
+        String::new()
+    } else {
+        format!("; evidence: {evidence}")
+    };
     format!(
-        "{}:{} {} {} -> {} ({}, {})",
+        "{}:{} {} {} -> {} ({}, {}{})",
         location.file,
         location.line,
         style_context_label(finding.site.context),
         finding.site.value,
-        token_key,
+        suggestions,
         classification_label(finding.row.classification),
-        confidence_label(finding.row.confidence)
+        confidence_label(finding.row.confidence),
+        evidence
     )
 }
 
@@ -841,8 +896,8 @@ mod tests {
         Metrics, ParentScopeCounts, RawInvocationCounts, RegistryCounts, RepoSummary,
         SCHEMA_VERSION, ScanFacts, ScanStatus, SourceLocation, StyleContext, StyleContextCounts,
         TokenCategory, TokenCategoryCounts, TokenConfidenceCounts, TokenInferenceClassification,
-        TokenInferenceConfidence, TokenInferenceCounts, TokenInferenceReport, TokenMatchKind,
-        TokenReplacementSuggestion,
+        TokenInferenceConfidence, TokenInferenceCounts, TokenInferenceEvidence,
+        TokenInferenceReport, TokenMatchKind, TokenReplacementSuggestion,
     };
     use wax_core::paths::PathsError;
 
@@ -1107,9 +1162,16 @@ mod tests {
                 language: react.clone(),
                 site_id: exact_id,
                 classification: TokenInferenceClassification::Exact,
-                confidence: Some(TokenInferenceConfidence::VeryHigh),
-                suggestions: vec![exact_suggestion("spacing.s", "4px")],
-                evidence: vec![],
+                confidence: Some(TokenInferenceConfidence::High),
+                suggestions: vec![
+                    exact_suggestion("spacing.s", "4px"),
+                    exact_suggestion("spacing.s.alias", "4px"),
+                ],
+                evidence: vec![
+                    TokenInferenceEvidence::ExactValue,
+                    TokenInferenceEvidence::ClearUsageContext,
+                    TokenInferenceEvidence::MultipleEqualMatches,
+                ],
             },
             HardcodedStyleInference {
                 language: react.clone(),
@@ -1117,7 +1179,10 @@ mod tests {
                 classification: TokenInferenceClassification::Near,
                 confidence: Some(TokenInferenceConfidence::Medium),
                 suggestions: vec![near_suggestion("spacing.m", "8px", 2.0)],
-                evidence: vec![],
+                evidence: vec![
+                    TokenInferenceEvidence::WithinNumericTolerance,
+                    TokenInferenceEvidence::ClearUsageContext,
+                ],
             },
             HardcodedStyleInference {
                 language: react.clone(),
@@ -1165,8 +1230,8 @@ mod tests {
                     unmatched_observation_count: 1,
                     unassessed_observation_count: 1,
                     candidates_by_confidence: TokenConfidenceCounts {
-                        very_high: 1,
-                        high: 0,
+                        very_high: 0,
+                        high: 1,
                         medium: 1,
                         low: 0,
                     },
@@ -1200,8 +1265,12 @@ mod tests {
         assert!(stdout.contains("  Possible migration candidates: 1"));
         assert!(stdout.contains("  Unmatched observations: 1 (informational)"));
         assert!(stdout.contains("  Unassessed observations: 1 (registry values needed)"));
-        assert!(stdout.contains("src/Card.tsx:12 padding 4px -> spacing.s (exact, very high)"));
-        assert!(stdout.contains("src/Button.tsx:20 gap 6px -> spacing.m (near, medium)"));
+        assert!(stdout.contains(
+            "src/Card.tsx:12 padding 4px -> spacing.s=4px (distance 0px), spacing.s.alias=4px (distance 0px) (exact, high; evidence: exact value, clear usage context, multiple equal matches)"
+        ));
+        assert!(stdout.contains(
+            "src/Button.tsx:20 gap 6px -> spacing.m=8px (distance 2px) (near, medium; evidence: within numeric tolerance, clear usage context)"
+        ));
         assert!(
             stdout.contains("Run wax-registry-discover to review missing canonical token values.")
         );

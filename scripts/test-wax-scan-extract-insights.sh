@@ -19,7 +19,14 @@ fi
 
 PARTIAL_BASELINE_V3="$(mktemp)"
 MISSING_JOIN_SCAN="$(mktemp)"
-trap 'rm -f "$PARTIAL_BASELINE_V3" "$MISSING_JOIN_SCAN"' EXIT
+MISSING_TOKEN_INFERENCE_SCAN="$(mktemp)"
+UNKNOWN_CLASSIFICATION_SCAN="$(mktemp)"
+MISMATCHED_COUNTS_SCAN="$(mktemp)"
+DUPLICATE_RAW_SITE_SCAN="$(mktemp)"
+MISSING_INFERENCE_ROW_SCAN="$(mktemp)"
+DUPLICATE_INFERENCE_KEY_SCAN="$(mktemp)"
+EXTRACTOR_ERROR="$(mktemp)"
+trap 'rm -f "$PARTIAL_BASELINE_V3" "$MISSING_JOIN_SCAN" "$MISSING_TOKEN_INFERENCE_SCAN" "$UNKNOWN_CLASSIFICATION_SCAN" "$MISMATCHED_COUNTS_SCAN" "$DUPLICATE_RAW_SITE_SCAN" "$MISSING_INFERENCE_ROW_SCAN" "$DUPLICATE_INFERENCE_KEY_SCAN" "$EXTRACTOR_ERROR"' EXIT
 jq '.schema_version = 3' "$BASELINE_SCHEMA_V2" >"$PARTIAL_BASELINE_V3"
 
 if [[ ! -x "$SCRIPT" ]]; then
@@ -30,6 +37,14 @@ fi
 fail() {
   echo "FAIL: $1" >&2
   exit 1
+}
+
+assert_extractor_rejects() {
+  local label="$1"
+  local scan="$2"
+  if "$SCRIPT" "$scan" >/dev/null 2>"$EXTRACTOR_ERROR"; then
+    fail "$label"
+  fi
 }
 
 assert_eq() {
@@ -174,9 +189,62 @@ fi
 echo "PASS: schema v2 baseline is treated as incompatible"
 
 jq '.token_inference.sites[0].site_id = "does-not-exist"' "$FIXTURE" >"$MISSING_JOIN_SCAN"
-if "$SCRIPT" "$MISSING_JOIN_SCAN" >/dev/null 2>/tmp/extract-insights-missing-join.err; then
-  fail "extractor should fail closed when an inference row has no matching raw site"
-fi
+assert_extractor_rejects \
+  "extractor should fail closed when an inference row has no matching raw site" \
+  "$MISSING_JOIN_SCAN"
 echo "PASS: extractor fails closed on unresolved inference join"
+
+jq 'del(.token_inference)' "$FIXTURE" >"$MISSING_TOKEN_INFERENCE_SCAN"
+assert_extractor_rejects \
+  "schema-v3 extraction should require token_inference" \
+  "$MISSING_TOKEN_INFERENCE_SCAN"
+echo "PASS: extractor rejects missing token inference"
+
+jq '.token_inference.sites[0].classification = "future_classification"' \
+  "$FIXTURE" >"$UNKNOWN_CLASSIFICATION_SCAN"
+assert_extractor_rejects \
+  "extractor should reject unknown token inference classifications" \
+  "$UNKNOWN_CLASSIFICATION_SCAN"
+echo "PASS: extractor rejects unknown classifications"
+
+jq '.token_inference.counts.exact_replacement_candidate_count = 2' \
+  "$FIXTURE" >"$MISMATCHED_COUNTS_SCAN"
+assert_extractor_rejects \
+  "extractor should reject token inference count and row mismatches" \
+  "$MISMATCHED_COUNTS_SCAN"
+echo "PASS: extractor rejects mismatched token inference counts"
+
+jq '.languages.react.hardcoded_style_sites += [.languages.react.hardcoded_style_sites[0]]' \
+  "$FIXTURE" >"$DUPLICATE_RAW_SITE_SCAN"
+assert_extractor_rejects \
+  "extractor should reject duplicate language/site raw keys" \
+  "$DUPLICATE_RAW_SITE_SCAN"
+echo "PASS: extractor rejects duplicate raw-site join keys"
+
+jq '
+  .token_inference.sites = .token_inference.sites[1:]
+  | .token_inference.counts.hardcoded_observation_count = 3
+  | .token_inference.counts.assessed_observation_count = 2
+  | .token_inference.counts.exact_replacement_candidate_count = 0
+' "$FIXTURE" >"$MISSING_INFERENCE_ROW_SCAN"
+assert_extractor_rejects \
+  "extractor should reject a raw site without an inference row" \
+  "$MISSING_INFERENCE_ROW_SCAN"
+echo "PASS: extractor rejects missing inference rows"
+
+jq '
+  .token_inference.sites = [
+    .token_inference.sites[0],
+    .token_inference.sites[0],
+    .token_inference.sites[2],
+    .token_inference.sites[3]
+  ]
+  | .token_inference.counts.exact_replacement_candidate_count = 2
+  | .token_inference.counts.near_replacement_candidate_count = 0
+' "$FIXTURE" >"$DUPLICATE_INFERENCE_KEY_SCAN"
+assert_extractor_rejects \
+  "extractor should reject duplicate language/site inference keys" \
+  "$DUPLICATE_INFERENCE_KEY_SCAN"
+echo "PASS: extractor rejects duplicate inference keys"
 
 echo "PASS: all wax-scan extract-insights tests"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deterministic insights extractor for wax-scan skill (Adoption Metrics v2).
+# Deterministic insights extractor for wax-scan skill (scan schema v3).
 set -euo pipefail
 
 usage() {
@@ -38,7 +38,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if ! jq -e '.schema_version and .languages' "$SCAN" >/dev/null 2>&1; then
+if ! jq -e '
+  (.schema_version | type == "number")
+  and (.languages | type == "object")
+  and (.token_inference | type == "object")
+  and (.token_inference.counts | type == "object")
+  and (.token_inference.sites | type == "array")
+' "$SCAN" >/dev/null 2>&1; then
   echo "extract-insights.sh: invalid scan-merged.json: $SCAN" >&2
   exit 1
 fi
@@ -369,6 +375,82 @@ extract_core() {
       else 4
       end;
 
+    def validate_token_inference:
+      .token_inference as $inference
+      | $inference.sites as $rows
+      | ($rows | group_by([.language, .site_id]) | map(select(length > 1))) as $duplicate_keys
+      | if ($duplicate_keys | length) > 0 then
+          error(
+            "duplicate token inference key(s): "
+            + ($duplicate_keys
+              | map(.[0].language + ":" + .[0].site_id)
+              | join(", "))
+          )
+        else
+          .
+        end
+      | ([$rows[].classification | select(
+          . != "exact"
+          and . != "near"
+          and . != "unmatched"
+          and . != "unassessed"
+        )] | unique) as $invalid_classifications
+      | if ($invalid_classifications | length) > 0 then
+          error(
+            "unknown token inference classification(s): "
+            + ($invalid_classifications | join(", "))
+          )
+        else
+          [
+            {
+              name: "hardcoded_observation_count",
+              reported: $inference.counts.hardcoded_observation_count,
+              actual: ($rows | length)
+            },
+            {
+              name: "raw_hardcoded_style_site_count",
+              reported: $inference.counts.hardcoded_observation_count,
+              actual: ([.languages[] | .hardcoded_style_sites[]?] | length)
+            },
+            {
+              name: "assessed_observation_count",
+              reported: $inference.counts.assessed_observation_count,
+              actual: ([$rows[] | select(.classification != "unassessed")] | length)
+            },
+            {
+              name: "exact_replacement_candidate_count",
+              reported: $inference.counts.exact_replacement_candidate_count,
+              actual: ([$rows[] | select(.classification == "exact")] | length)
+            },
+            {
+              name: "near_replacement_candidate_count",
+              reported: $inference.counts.near_replacement_candidate_count,
+              actual: ([$rows[] | select(.classification == "near")] | length)
+            },
+            {
+              name: "unmatched_observation_count",
+              reported: $inference.counts.unmatched_observation_count,
+              actual: ([$rows[] | select(.classification == "unmatched")] | length)
+            },
+            {
+              name: "unassessed_observation_count",
+              reported: $inference.counts.unassessed_observation_count,
+              actual: ([$rows[] | select(.classification == "unassessed")] | length)
+            }
+          ] as $checks
+          | ([$checks[] | select(.reported != .actual)]) as $mismatches
+          | if ($mismatches | length) > 0 then
+              error(
+                "token inference count mismatch(es): "
+                + ($mismatches
+                  | map(.name + " reported=" + (.reported | tostring) + " actual=" + (.actual | tostring))
+                  | join(", "))
+              )
+            else
+              .
+            end
+        end;
+
     def raw_style_site_rows:
       [.languages | to_entries[] as $entry
         | $entry.key as $lang
@@ -415,9 +497,9 @@ extract_core() {
 
     def token_inference_block:
       raw_style_site_index as $index
-      | [(.token_inference.sites // [])[] | enrich_inference_row($index)] as $enriched
+      | [.token_inference.sites[] | enrich_inference_row($index)] as $enriched
       | {
-          summary: (.token_inference.counts // {}),
+          summary: .token_inference.counts,
           confirmed_candidates: (
             [$enriched[] | select(.classification == "exact")]
             | sort_by([(.confidence | confidence_rank), .language, .location.file, .location.line])
@@ -460,7 +542,8 @@ extract_core() {
       | sort_by(-.count, .pattern)
       | map(select(.count >= 2));
 
-    {
+    validate_token_inference
+    | {
       schema_version: 3,
       generated_at: $generated_at,
       source_scan: $source_scan,

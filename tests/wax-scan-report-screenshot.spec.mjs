@@ -10,6 +10,7 @@ const artifactDir = path.resolve(
 );
 const reportHtml = path.join(artifactDir, "index.html");
 const desktopViewport = { width: 1440, height: 1100 };
+const tokenViewport = { width: 1440, height: 1500 };
 
 test.beforeAll(() => {
   rmSync(artifactDir, { recursive: true, force: true });
@@ -84,7 +85,7 @@ test("desktop screenshot keeps the current report layout with the black and bumb
 });
 
 test("token inference sections render confirmed, possible, and metadata-gap tables", async ({ page }, testInfo) => {
-  await openReport(page, desktopViewport);
+  await openReport(page, tokenViewport);
 
   await page.getByRole("heading", { name: "Confirmed token migrations" }).scrollIntoViewIfNeeded();
   await expect(page.getByRole("heading", { name: "Confirmed token migrations" })).toBeVisible();
@@ -92,5 +93,8 @@ test("token inference sections render confirmed, possible, and metadata-gap tabl
   await expect(page.getByRole("heading", { name: "Registry metadata gaps" })).toBeVisible();
 
   await expect(page.getByRole("heading", { name: "Confirmed token migrations" })).toBeInViewport();
+  await expect(page.getByText("src/Card.tsx:12", { exact: true })).toBeInViewport();
+  await expect(page.getByText("src/Button.tsx:20", { exact: true })).toBeInViewport();
+  await expect(page.getByText("src/Legacy.tsx:30", { exact: true })).toBeInViewport();
   await verifyScreenshot(page, testInfo, "wax-scan-report-token-sections.png");
 });

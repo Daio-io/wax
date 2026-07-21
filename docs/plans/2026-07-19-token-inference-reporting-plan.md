@@ -568,6 +568,7 @@ Expected: every command exits `0`; context coverage expands without ordinary-lit
 - Modify: `scripts/fixtures/wax-scan/expected-insights.sample.json`
 - Modify: `tests/wax-scan-report-screenshot.spec.mjs`
 - Modify: `tests/goldens/wax-scan-report-desktop.png`
+- Create: `tests/goldens/wax-scan-report-token-sections.png`
 
 **Interfaces:**
 - Consumes: schema-v3 `MergedScan.token_inference` and raw language token facts.
@@ -593,10 +594,12 @@ Assert output omits `Token reference ratio` and does not call unmatched or unass
 Read `merged.token_inference.counts`. Print up to five exact/near rows sorted by confidence then source location:
 
 ```text
-  src/Card.tsx:12 padding 4px -> spacing.s (exact, very high)
+  src/Card.tsx:12 padding 4px -> spacing.s=4px (distance 0px), spacing.s.alias=4px (distance 0px) (exact, high; evidence: exact value, clear usage context, multiple equal matches)
 ```
 
 Before rendering details, build a raw-site index keyed by `(language, site_id)` from each language's `hardcoded_style_sites[]`. Require every inference row to resolve to exactly one raw site and read source location, context, and observed value from that joined raw record. A missing or duplicate join returns an error and suppresses the report instead of printing partial findings.
+
+Render every tied suggestion in deterministic order, including canonical values, numeric distance/unit when available, and typed evidence so terminal output preserves the replacement rationale.
 
 Keep unmatched rows out of the ranked migration list. When unassessed is nonzero, print `Run wax-registry-discover to review missing canonical token values.` Add a first-run test using a registry whose tokens have no `value`: every raw site is unassessed, no unmatched claim is printed, and the maintenance guidance is present.
 
@@ -651,10 +654,11 @@ Remove any headline use of the retired token ratio and any combined exact/near d
 - [x] **Step 7: Verify scripts and rendered HTML**
 
 ```bash
+cargo build --manifest-path engine/Cargo.toml -p wax-cli -p wax-lang-compose
 scripts/test-wax-scan-extract-insights.sh
 scripts/test-wax-scan-html-escape.sh
 scripts/test-wax-scan-render-report.sh
-scripts/test-wax-scan-integration-smoke.sh
+WAX_BIN=engine/target/debug/wax WAX_COMPOSE_BIN=engine/target/debug/wax-lang-compose scripts/test-wax-scan-integration-smoke.sh
 ```
 
 Expected: every script prints its PASS summary and no rendered `{{...}}` placeholders remain.

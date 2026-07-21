@@ -11,15 +11,29 @@ EXTRACTOR="skills/wax-scan/scripts/extract-insights.sh"
 RENDER="$SCRIPT_DIR/render-wax-scan-fixture-report.sh"
 FIXTURE_SRC="engine/fixtures/smoke/compose/repo"
 SKILL_MD="skills/wax-scan/SKILL.md"
-WAX_BIN="${WAX_BIN:-wax}"
+WAX_BIN="${WAX_BIN:-$ROOT/engine/target/debug/wax}"
+WAX_COMPOSE_BIN="${WAX_COMPOSE_BIN:-$ROOT/engine/target/debug/wax-lang-compose}"
 
 if ! command -v "$WAX_BIN" >/dev/null 2>&1; then
-  echo "FAIL: wax CLI is required on PATH or via WAX_BIN" >&2
+  echo "FAIL: workspace wax CLI is required via WAX_BIN; run cargo build --manifest-path engine/Cargo.toml -p wax-cli" >&2
   exit 1
 fi
 
+WAX_BIN="$(cd "$(dirname "$(command -v "$WAX_BIN")")" && pwd)/$(basename "$WAX_BIN")"
+
 if ! command -v jq >/dev/null 2>&1; then
   echo "FAIL: jq is required" >&2
+  exit 1
+fi
+
+if [[ ! -x "$WAX_COMPOSE_BIN" ]]; then
+  echo "FAIL: workspace Compose pack is required via WAX_COMPOSE_BIN; run cargo build --manifest-path engine/Cargo.toml -p wax-lang-compose" >&2
+  exit 1
+fi
+WAX_COMPOSE_BIN="$(cd "$(dirname "$WAX_COMPOSE_BIN")" && pwd)/$(basename "$WAX_COMPOSE_BIN")"
+
+if ! command -v rustc >/dev/null 2>&1 || ! command -v tar >/dev/null 2>&1; then
+  echo "FAIL: rustc and tar are required" >&2
   exit 1
 fi
 
@@ -35,17 +49,50 @@ for path in "$EXTRACTOR" "$RENDER" "$FIXTURE_SRC/design-system/registry.json" "$
 done
 
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/wax-scan-integration-smoke.XXXXXX")"
-SKIP_MARKER="$WORK_DIR/skip-live-scan"
 cleanup() {
   rm -rf "$WORK_DIR"
 }
 trap cleanup EXIT
+
+PACK_ARCHIVE="$WORK_DIR/wax-lang-compose.tar.gz"
+PACK_INDEX="$WORK_DIR/pack-index.json"
+tar -C "$(dirname "$WAX_COMPOSE_BIN")" -czf "$PACK_ARCHIVE" "$(basename "$WAX_COMPOSE_BIN")"
+
+if command -v sha256sum >/dev/null 2>&1; then
+  PACK_SHA256="$(sha256sum "$PACK_ARCHIVE" | awk '{print $1}')"
+elif command -v shasum >/dev/null 2>&1; then
+  PACK_SHA256="$(shasum -a 256 "$PACK_ARCHIVE" | awk '{print $1}')"
+else
+  fail "sha256sum or shasum is required"
+fi
+
+HOST_TARGET="$(rustc -vV | awk '/^host:/ {print $2}')"
+PACK_VERSION="$(awk -F '"' '
+  /^\[workspace.package\]/ { in_workspace_package = 1; next }
+  in_workspace_package && /^version = / { print $2; exit }
+' "$ROOT/engine/Cargo.toml")"
+if [[ -z "$HOST_TARGET" || -z "$PACK_VERSION" ]]; then
+  fail "could not resolve workspace pack target or version"
+fi
+
+jq -n \
+  --arg version "$PACK_VERSION" \
+  --arg target "$HOST_TARGET" \
+  --arg url "file://$PACK_ARCHIVE" \
+  --arg sha256 "$PACK_SHA256" \
+  '[{
+    id: "compose",
+    version: $version,
+    api_version: 1,
+    targets: {($target): {url: $url, sha256: $sha256}}
+  }]' >"$PACK_INDEX"
 
 cp -R "$FIXTURE_SRC/." "$WORK_DIR/"
 
 (
   cd "$WORK_DIR"
   export WAX_HOME="$WORK_DIR/.wax-home"
+  export WAX_PACK_INDEX="file://$PACK_INDEX"
 
   if ! "$WAX_BIN" init --non-interactive --language compose --repo-root . >/dev/null 2>&1; then
     fail "wax init failed on smoke fixture"
@@ -68,10 +115,6 @@ cp -R "$FIXTURE_SRC/." "$WORK_DIR/"
 
   SCAN_ERR="$WORK_DIR/scan.err"
   if ! "$WAX_BIN" scan --no-auto-install --repo-root . >/dev/null 2>"$SCAN_ERR"; then
-    if grep -Fq "invalid ScanFacts contract" "$SCAN_ERR"; then
-      touch "$SKIP_MARKER"
-      exit 0
-    fi
     cat "$SCAN_ERR" >&2
     fail "wax scan failed on smoke fixture"
   fi
@@ -128,11 +171,6 @@ cp -R "$FIXTURE_SRC/." "$WORK_DIR/"
     fail "rendered HTML missing local definition count from live insights"
   fi
 )
-
-if [[ -f "$SKIP_MARKER" ]]; then
-  echo "SKIP: installed compose pack is not yet compatible with Adoption Metrics v2 scan facts"
-  exit 0
-fi
 
 guardrail_checks=(
   "wax init"
