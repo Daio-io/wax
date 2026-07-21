@@ -120,8 +120,11 @@ fn scan_command_prints_full_summary_and_writes_output() {
     assert!(stdout.contains("swift: failed"));
     assert!(stdout.contains("token metrics:"));
     assert!(stdout.contains("Token references: 0"));
-    assert!(stdout.contains("Hard-coded style candidates: 0"));
-    assert!(stdout.contains("Unassessed hard-coded observations: 0"));
+    assert!(stdout.contains("Confirmed migration candidates: 0"));
+    assert!(stdout.contains("Possible migration candidates: 0"));
+    assert!(stdout.contains("Unmatched observations: 0 (informational)"));
+    assert!(stdout.contains("Unassessed observations: 0 (registry values needed)"));
+    assert!(!stdout.contains("Token reference ratio"));
     assert!(stdout.contains("failure diagnostics (up to 5):"));
     assert!(stdout.contains("PACK_TIMEOUT: timed out"));
     assert!(stdout.contains("PACK_CRASH: process exited"));

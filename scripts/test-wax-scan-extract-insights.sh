@@ -10,12 +10,17 @@ SCRIPT="skills/wax-scan/scripts/extract-insights.sh"
 FIXTURE="$FIXTURES/scan-merged.sample.json"
 EXPECTED="$FIXTURES/expected-insights.sample.json"
 BASELINE_SCHEMA_V1="$FIXTURES/scan-merged.compose-only.sample.json"
-BASELINE_COMPOSE_ONLY_V2="$FIXTURES/scan-merged.schema-v2.sample.json"
+BASELINE_SCHEMA_V2="$FIXTURES/scan-merged.schema-v2.sample.json"
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "FAIL: jq is required" >&2
   exit 1
 fi
+
+PARTIAL_BASELINE_V3="$(mktemp)"
+MISSING_JOIN_SCAN="$(mktemp)"
+trap 'rm -f "$PARTIAL_BASELINE_V3" "$MISSING_JOIN_SCAN"' EXIT
+jq '.schema_version = 3' "$BASELINE_SCHEMA_V2" >"$PARTIAL_BASELINE_V3"
 
 if [[ ! -x "$SCRIPT" ]]; then
   echo "FAIL: missing executable $SCRIPT" >&2
@@ -59,6 +64,28 @@ if [[ "$NORM_ACTUAL" != "$NORM_EXPECTED" ]]; then
   exit 1
 fi
 echo "PASS: default extraction matches expected key fields"
+
+assert_eq \
+  "confirmed candidates contain the exact row" \
+  "$(jq '.token_inference.confirmed_candidates | length' <<<"$ACTUAL")" \
+  "1"
+assert_eq \
+  "possible candidates contain the near row" \
+  "$(jq '.token_inference.possible_candidates | length' <<<"$ACTUAL")" \
+  "1"
+assert_eq \
+  "unmatched observations contain the unmatched row" \
+  "$(jq '.token_inference.unmatched_observations | length' <<<"$ACTUAL")" \
+  "1"
+assert_eq \
+  "unassessed observations contain the unassessed row" \
+  "$(jq '.token_inference.unassessed_observations | length' <<<"$ACTUAL")" \
+  "1"
+assert_eq \
+  "token inference summary passes through core counts" \
+  "$(jq '.token_inference.summary.hardcoded_observation_count' <<<"$ACTUAL")" \
+  "4"
+echo "PASS: token inference classification arrays"
 
 assert_eq \
   "repo summary exposes ds_vs_local_ratio" \
@@ -105,7 +132,7 @@ assert_eq \
   "0"
 echo "PASS: identical baseline comparison"
 
-PARTIAL_BASELINE="$("$SCRIPT" "$FIXTURE" --baseline "$BASELINE_COMPOSE_ONLY_V2")"
+PARTIAL_BASELINE="$("$SCRIPT" "$FIXTURE" --baseline "$PARTIAL_BASELINE_V3")"
 assert_eq \
   "partial baseline still computes repo resolved delta" \
   "$(jq -r '.baseline_deltas.raw_invocations.resolved' <<<"$PARTIAL_BASELINE")" \
@@ -135,6 +162,21 @@ fi
 if ! jq -e '.limits[] | select(.metric == "Baseline comparison" and (.missing_capability | test("schema_version")))' <<<"$SCHEMA_MISMATCH" >/dev/null; then
   fail "schema mismatch should emit schema incompatibility limit"
 fi
-echo "PASS: schema mismatch handling"
+echo "PASS: schema v1 mismatch handling"
+
+SCHEMA_V2_MISMATCH="$("$SCRIPT" "$FIXTURE" --baseline "$BASELINE_SCHEMA_V2")"
+if jq -e '.baseline_deltas != null' <<<"$SCHEMA_V2_MISMATCH" >/dev/null; then
+  fail "schema-v2 baseline should leave baseline_deltas null; it lacks inference classifications"
+fi
+if ! jq -e '.limits[] | select(.metric == "Baseline comparison" and (.missing_capability | test("schema_version")))' <<<"$SCHEMA_V2_MISMATCH" >/dev/null; then
+  fail "schema-v2 baseline should emit schema incompatibility limit"
+fi
+echo "PASS: schema v2 baseline is treated as incompatible"
+
+jq '.token_inference.sites[0].site_id = "does-not-exist"' "$FIXTURE" >"$MISSING_JOIN_SCAN"
+if "$SCRIPT" "$MISSING_JOIN_SCAN" >/dev/null 2>/tmp/extract-insights-missing-join.err; then
+  fail "extractor should fail closed when an inference row has no matching raw site"
+fi
+echo "PASS: extractor fails closed on unresolved inference join"
 
 echo "PASS: all wax-scan extract-insights tests"

@@ -551,7 +551,7 @@ Expected: every command exits `0`; context coverage expands without ordinary-lit
 
 ### Task 4: Report Deterministic Token Inference
 
-- [ ] **Task 4 complete**
+- [x] **Task 4 complete**
 
 **Files:**
 - Modify: `engine/crates/wax-cli/src/commands/scan.rs`
@@ -573,7 +573,7 @@ Expected: every command exits `0`; context coverage expands without ordinary-lit
 - Consumes: schema-v3 `MergedScan.token_inference` and raw language token facts.
 - Produces: CLI sections and wax-scan insights schema-v3 fields `summary`, `confirmed_candidates`, `possible_candidates`, `unmatched_observations`, and `unassessed_observations`.
 
-- [ ] **Step 1: Write failing CLI summary tests**
+- [x] **Step 1: Write failing CLI summary tests**
 
 Construct one row of each classification and assert:
 
@@ -588,7 +588,7 @@ token metrics:
 
 Assert output omits `Token reference ratio` and does not call unmatched or unassessed rows debt.
 
-- [ ] **Step 2: Implement the CLI summary cutover**
+- [x] **Step 2: Implement the CLI summary cutover**
 
 Read `merged.token_inference.counts`. Print up to five exact/near rows sorted by confidence then source location:
 
@@ -600,7 +600,7 @@ Before rendering details, build a raw-site index keyed by `(language, site_id)` 
 
 Keep unmatched rows out of the ranked migration list. When unassessed is nonzero, print `Run wax-registry-discover to review missing canonical token values.` Add a first-run test using a registry whose tokens have no `value`: every raw site is unassessed, no unmatched claim is printed, and the maintenance guidance is present.
 
-- [ ] **Step 3: Add a schema-v3 report fixture and failing assertions**
+- [x] **Step 3: Add a schema-v3 report fixture and failing assertions**
 
 Put one exact, near, unmatched, and unassessed row in `scan-merged.sample.json`. Add:
 
@@ -613,7 +613,7 @@ assert_eq "unassessed" "$(jq '.token_inference.unassessed_observations | length'
 
 Expected before extractor changes: FAIL because schema 3 and token inference output are unsupported.
 
-- [ ] **Step 4: Update the deterministic extractor**
+- [x] **Step 4: Update the deterministic extractor**
 
 Require scan schema `3` and set insights schema to `3`. Build a unique raw-site lookup keyed by `(language, site_id)`, reject duplicate raw keys, and fail if any inference row has zero or multiple matches. Enrich each emitted finding with the joined raw `location`, `context`, and observed `value`; do not trust or synthesize those fields from the inference row. Then add the four classification arrays:
 
@@ -629,11 +629,11 @@ token_inference: {
 
 Sort candidates by `very_high`, `high`, `medium`, `low`, then language/file/line. Treat schema-v2 baselines as incompatible because they lack inference classifications.
 
-- [ ] **Step 5: Extend HTML rendering with escaped token tables**
+- [x] **Step 5: Extend HTML rendering with escaped token tables**
 
 Add sections for confirmed token migrations, possible token migrations, and registry metadata gaps. Rows contain the joined raw context, observed value, and source location plus token key, canonical value, distance, confidence, and evidence from inference. Show unmatched only as a secondary informational count. Pass every scan-derived string through `html-escape.sh` before template substitution.
 
-- [ ] **Step 6: Update skill and reference semantics**
+- [x] **Step 6: Update skill and reference semantics**
 
 Add these rules verbatim in substance:
 
@@ -648,7 +648,7 @@ Join inference to raw observations by (language, site_id); fail closed if the jo
 
 Remove any headline use of the retired token ratio and any combined exact/near debt count. Explain that existing registries without canonical values initially produce unassessed findings until reviewed values are added and a fresh scan runs.
 
-- [ ] **Step 7: Verify scripts and rendered HTML**
+- [x] **Step 7: Verify scripts and rendered HTML**
 
 ```bash
 scripts/test-wax-scan-extract-insights.sh
@@ -659,7 +659,7 @@ scripts/test-wax-scan-integration-smoke.sh
 
 Expected: every script prints its PASS summary and no rendered `{{...}}` placeholders remain.
 
-- [ ] **Step 8: Regenerate and inspect the screenshot golden**
+- [x] **Step 8: Regenerate and inspect the screenshot golden**
 
 ```bash
 npx playwright test tests/wax-scan-report-screenshot.spec.mjs --update-snapshots
@@ -668,7 +668,7 @@ npx playwright test tests/wax-scan-report-screenshot.spec.mjs
 
 Expected: the second command exits `0`. Inspect the image for overflow, readable confidence labels, and separation of exact, near, and metadata-gap sections.
 
-- [ ] **Step 9: Verify CLI and commit**
+- [x] **Step 9: Verify CLI and commit**
 
 ```bash
 cd engine

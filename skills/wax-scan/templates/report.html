@@ -237,6 +237,24 @@
     {{migration_candidates_table_html}}
   </div>
 
+  <h2>Confirmed token migrations</h2>
+  <p class="subtitle">Deterministic exact matches between hard-coded values and registry token values — confirmed migration candidates.</p>
+  <div class="panel">
+    {{confirmed_candidates_table_html}}
+  </div>
+
+  <h2>Possible token migrations</h2>
+  <p class="subtitle">Deterministic near matches within the configured numeric tolerance — possible migration candidates, not confirmed.</p>
+  <div class="panel">
+    {{possible_candidates_table_html}}
+  </div>
+
+  <h2>Registry metadata gaps</h2>
+  <p class="subtitle">{{unassessed_count}} hard-coded observation(s) could not be assessed because registry tokens lack canonical values. {{unmatched_count_note}}</p>
+  <div class="panel">
+    {{unassessed_table_html}}
+  </div>
+
   <h2>Key findings</h2>
   <div class="panel">
     {{key_findings_html}}

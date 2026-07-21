@@ -45,6 +45,7 @@ async function verifyScreenshot(page, testInfo, name) {
   await page.screenshot({
     path: artifactPath,
     animations: "disabled",
+    fullPage: true,
   });
 
   await testInfo.attach(name, {
@@ -54,6 +55,7 @@ async function verifyScreenshot(page, testInfo, name) {
 
   await expect(page).toHaveScreenshot(name, {
     animations: "disabled",
+    fullPage: true,
     maxDiffPixelRatio: 0.03,
   });
 }
@@ -72,7 +74,16 @@ test("desktop screenshot keeps the current report layout with the black and bumb
     "Adoption by area",
     "Adoption gaps",
     "Candidates to bring into the design system",
+    "Confirmed token migrations",
+    "Possible token migrations",
+    "Registry metadata gaps",
     "Key findings",
   ]);
+
+  await page.getByRole("heading", { name: "Confirmed token migrations" }).scrollIntoViewIfNeeded();
+  await expect(page.getByRole("heading", { name: "Confirmed token migrations" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Possible token migrations" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Registry metadata gaps" })).toBeVisible();
+
   await verifyScreenshot(page, testInfo, "wax-scan-report-desktop.png");
 });

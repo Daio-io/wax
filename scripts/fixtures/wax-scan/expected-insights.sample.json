@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "source_scan": "scripts/fixtures/wax-scan/scan-merged.sample.json",
   "repo_summary": {
     "languages": [
@@ -293,6 +293,131 @@
       "count": 2
     }
   ],
+  "token_inference": {
+    "summary": {
+      "hardcoded_observation_count": 4,
+      "assessed_observation_count": 3,
+      "exact_replacement_candidate_count": 1,
+      "near_replacement_candidate_count": 1,
+      "unmatched_observation_count": 1,
+      "unassessed_observation_count": 1,
+      "candidates_by_confidence": {
+        "very_high": 1,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "candidates_by_category": {
+        "color": 0,
+        "spacing": 2,
+        "typography": 0,
+        "radius": 0,
+        "elevation": 0,
+        "unknown": 0
+      },
+      "candidates_by_context": {
+        "padding": 1,
+        "margin": 0,
+        "gap": 1,
+        "width": 0,
+        "height": 0,
+        "size": 0,
+        "radius": 0,
+        "color": 0,
+        "typography": 0,
+        "elevation": 0,
+        "unknown": 0
+      }
+    },
+    "confirmed_candidates": [
+      {
+        "language": "react",
+        "site_id": "hc:r1",
+        "classification": "exact",
+        "confidence": "very_high",
+        "suggestions": [
+          {
+            "token_id": "spacing.s",
+            "token_key": "spacing.s",
+            "canonical_value": "4px",
+            "match_kind": "exact",
+            "distance": 0,
+            "normalized_unit": "px"
+          }
+        ],
+        "evidence": [
+          "exact_value",
+          "clear_usage_context"
+        ],
+        "location": {
+          "file": "src/Card.tsx",
+          "line": 12
+        },
+        "context": "padding",
+        "value": "4px"
+      }
+    ],
+    "possible_candidates": [
+      {
+        "language": "react",
+        "site_id": "hc:r2",
+        "classification": "near",
+        "confidence": "medium",
+        "suggestions": [
+          {
+            "token_id": "spacing.m",
+            "token_key": "spacing.m",
+            "canonical_value": "8px",
+            "match_kind": "near",
+            "distance": 2,
+            "normalized_unit": "px"
+          }
+        ],
+        "evidence": [
+          "within_numeric_tolerance",
+          "clear_usage_context"
+        ],
+        "location": {
+          "file": "src/Button.tsx",
+          "line": 20
+        },
+        "context": "gap",
+        "value": "6px"
+      }
+    ],
+    "unmatched_observations": [
+      {
+        "language": "react",
+        "site_id": "hc:r3",
+        "classification": "unmatched",
+        "evidence": [
+          "outside_numeric_tolerance"
+        ],
+        "location": {
+          "file": "src/Widget.tsx",
+          "line": 5
+        },
+        "context": "width",
+        "value": "200px"
+      }
+    ],
+    "unassessed_observations": [
+      {
+        "language": "react",
+        "site_id": "hc:r4",
+        "classification": "unassessed",
+        "evidence": [
+          "missing_canonical_values"
+        ],
+        "location": {
+          "file": "src/Legacy.tsx",
+          "line": 30
+        },
+        "context": "unknown",
+        "value": "9px"
+      }
+    ]
+  },
   "limits": [
     {
       "metric": "Coverage by feature/screen/route/module/team",

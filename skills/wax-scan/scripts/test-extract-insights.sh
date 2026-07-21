@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 EXTRACTOR="$ROOT/skills/wax-scan/scripts/extract-insights.sh"
 SCAN="$ROOT/scripts/fixtures/wax-scan/scan-merged.sample.json"
-BASELINE_V2="$ROOT/scripts/fixtures/wax-scan/scan-merged.schema-v2.sample.json"
+BASELINE_SCHEMA_V2="$ROOT/scripts/fixtures/wax-scan/scan-merged.schema-v2.sample.json"
 EXPECTED="$ROOT/scripts/fixtures/wax-scan/expected-insights.sample.json"
 
 if [[ ! -x "$EXTRACTOR" ]]; then
@@ -16,13 +16,27 @@ fi
 ACTUAL="$(mktemp)"
 NO_REPO_SUMMARY="$(mktemp)"
 HOTSPOT_SCAN="$(mktemp)"
-trap 'rm -f "$ACTUAL" "$NO_REPO_SUMMARY" "$HOTSPOT_SCAN"' EXIT
+BASELINE_V3="$(mktemp)"
+trap 'rm -f "$ACTUAL" "$NO_REPO_SUMMARY" "$HOTSPOT_SCAN" "$BASELINE_V3"' EXIT
 
 "$EXTRACTOR" "$SCAN" | jq 'del(.generated_at)' >"$ACTUAL"
 
 diff -u "$EXPECTED" "$ACTUAL"
 
-"$EXTRACTOR" "$SCAN" --baseline "$BASELINE_V2" \
+jq -e '
+    (.token_inference.confirmed_candidates | length) == 1
+    and (.token_inference.possible_candidates | length) == 1
+    and (.token_inference.unmatched_observations | length) == 1
+    and (.token_inference.unassessed_observations | length) == 1
+  ' "$ACTUAL" >/dev/null
+
+# A schema-v2 baseline lacks inference classifications, so it must be treated
+# as incompatible rather than silently mixed with v3 denominators.
+"$EXTRACTOR" "$SCAN" --baseline "$BASELINE_SCHEMA_V2" \
+  | jq -e '.baseline_deltas == null' >/dev/null
+
+jq '.schema_version = 3' "$BASELINE_SCHEMA_V2" >"$BASELINE_V3"
+"$EXTRACTOR" "$SCAN" --baseline "$BASELINE_V3" \
   | jq -e '
       .baseline_deltas.symbol_usage_summary
       | map(select(.symbol_id == "compose:registry:com.ds.Modal" and .raw_invocation_count == 1))

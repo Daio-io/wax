@@ -325,6 +325,128 @@ migration_candidates_table_html = (
     f"<tbody>{''.join(migration_rows)}</tbody></table>"
 )
 
+CONFIDENCE_LABELS = {
+    "very_high": "very high",
+    "high": "high",
+    "medium": "medium",
+    "low": "low",
+}
+
+
+def confidence_label(value):
+    if not value:
+        return "—"
+    return CONFIDENCE_LABELS.get(value, value)
+
+
+def evidence_label(value):
+    return str(value).replace("_", " ")
+
+
+def location_label(row):
+    location = row.get("location") or {}
+    file = location.get("file", "")
+    line = location.get("line", "")
+    if not file:
+        return "—"
+    return f"{file}:{line}" if line != "" else file
+
+
+def suggestion_field(row, key, formatter=str):
+    suggestions = row.get("suggestions") or []
+    values = [formatter(item.get(key)) for item in suggestions if item.get(key) is not None]
+    return ", ".join(values) if values else "—"
+
+
+def distance_label(row):
+    suggestions = row.get("suggestions") or []
+    values = [item.get("distance") for item in suggestions if item.get("distance") is not None]
+    if not values:
+        return "—"
+    return ", ".join(f"{value:g}" for value in values)
+
+
+def evidence_cell(row):
+    evidence = row.get("evidence") or []
+    return ", ".join(evidence_label(item) for item in evidence) if evidence else "—"
+
+
+def token_candidate_rows(rows):
+    out = []
+    for row in rows:
+        out.append(
+            "<tr>"
+            f"<td>{esc(location_label(row))}</td>"
+            f"<td>{esc(row.get('context', ''))}</td>"
+            f"<td><code>{esc(row.get('value', ''))}</code></td>"
+            f"<td><code>{esc(suggestion_field(row, 'token_key'))}</code></td>"
+            f"<td><code>{esc(suggestion_field(row, 'canonical_value'))}</code></td>"
+            f'<td class="num">{esc(distance_label(row))}</td>'
+            f"<td>{esc(confidence_label(row.get('confidence')))}</td>"
+            f"<td>{esc(evidence_cell(row))}</td>"
+            "</tr>"
+        )
+    return "".join(out)
+
+
+token_inference = data.get("token_inference", {})
+confirmed_candidates = token_inference.get("confirmed_candidates", [])
+possible_candidates = token_inference.get("possible_candidates", [])
+unassessed_observations = token_inference.get("unassessed_observations", [])
+unmatched_observations = token_inference.get("unmatched_observations", [])
+token_summary = token_inference.get("summary", {})
+unassessed_count = int(
+    token_summary.get("unassessed_observation_count", len(unassessed_observations)) or 0
+)
+unmatched_count = int(
+    token_summary.get("unmatched_observation_count", len(unmatched_observations)) or 0
+)
+
+candidate_head = (
+    "<table><thead><tr>"
+    "<th>Location</th><th>Context</th><th>Observed value</th><th>Token</th>"
+    "<th>Canonical value</th><th>Distance</th><th>Confidence</th><th>Evidence</th>"
+    "</tr></thead><tbody>{rows}</tbody></table>"
+)
+confirmed_rows_html = token_candidate_rows(confirmed_candidates)
+confirmed_candidates_table_html = candidate_head.format(
+    rows=confirmed_rows_html or '<tr><td colspan="8" class="muted">No confirmed migration candidates in this scan</td></tr>'
+)
+possible_rows_html = token_candidate_rows(possible_candidates)
+possible_candidates_table_html = candidate_head.format(
+    rows=possible_rows_html or '<tr><td colspan="8" class="muted">No possible migration candidates in this scan</td></tr>'
+)
+
+unassessed_rows = []
+for row in unassessed_observations:
+    unassessed_rows.append(
+        "<tr>"
+        f"<td>{esc(location_label(row))}</td>"
+        f"<td>{esc(row.get('context', ''))}</td>"
+        f"<td><code>{esc(row.get('value', ''))}</code></td>"
+        f"<td>{esc(evidence_cell(row))}</td>"
+        "</tr>"
+    )
+unassessed_rows_html = "".join(unassessed_rows) or (
+    '<tr><td colspan="4" class="muted">No unassessed observations in this scan</td></tr>'
+)
+unassessed_table_html = (
+    "<table><thead><tr><th>Location</th><th>Context</th><th>Observed value</th><th>Evidence</th></tr></thead>"
+    f"<tbody>{unassessed_rows_html}</tbody></table>"
+)
+
+unmatched_count_note = ""
+if unmatched_count > 0:
+    unmatched_count_note = (
+        f"{num(unmatched_count)} observation(s) were assessed and found unmatched "
+        "(informational, not migration debt)."
+    )
+if unassessed_count > 0:
+    unmatched_count_note = (
+        unmatched_count_note
+        + " Run the wax-registry-discover skill to review missing canonical token values."
+    ).strip()
+
 top_ds = ds_symbols[0] if ds_symbols else None
 findings = []
 if top_ds:
@@ -381,6 +503,11 @@ replacements = {
     "adoption_gaps_table_html": adoption_gaps_table_html,
     "duplicate_components_table_html": duplicate_components_table_html,
     "migration_candidates_table_html": migration_candidates_table_html,
+    "confirmed_candidates_table_html": confirmed_candidates_table_html,
+    "possible_candidates_table_html": possible_candidates_table_html,
+    "unassessed_table_html": unassessed_table_html,
+    "unassessed_count": num(unassessed_count),
+    "unmatched_count_note": esc(unmatched_count_note),
     "key_findings_html": key_findings_html,
 }
 
@@ -400,6 +527,12 @@ if len(per_language) <= 1:
     rendered = remove_section(rendered, "Adoption gaps")
 if not duplicate_rows:
     rendered = remove_section(rendered, "Exact-name duplicates in shared UI")
+if not confirmed_candidates:
+    rendered = remove_section(rendered, "Confirmed token migrations")
+if not possible_candidates:
+    rendered = remove_section(rendered, "Possible token migrations")
+if unassessed_count == 0 and unmatched_count == 0:
+    rendered = remove_section(rendered, "Registry metadata gaps")
 
 if "{{" in rendered:
     unresolved = sorted(set(part.split("}}", 1)[0] for part in rendered.split("{{")[1:]))

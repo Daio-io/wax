@@ -86,8 +86,8 @@ cp -R "$FIXTURE_SRC/." "$WORK_DIR/"
   fi
 
   schema_version="$(jq -r '.schema_version' "$INSIGHTS_PATH")"
-  if [[ "$schema_version" != "2" ]]; then
-    fail "expected insights schema_version 2, got ${schema_version}"
+  if [[ "$schema_version" != "3" ]]; then
+    fail "expected insights schema_version 3, got ${schema_version}"
   fi
 
   resolved="$(jq -r '.repo_summary.raw_invocations.resolved' "$INSIGHTS_PATH")"

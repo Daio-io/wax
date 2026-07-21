@@ -14,11 +14,11 @@ Output: versioned insights JSON consumed by the agent when rendering terminal an
 
 | Field | Description |
 |-------|-------------|
-| `schema_version` | Insights contract version (`2` for Adoption Metrics v2) |
+| `schema_version` | Insights contract version (`3` for token inference reporting) |
 | `generated_at` | RFC3339 timestamp |
 | `source_scan` | Path to merged scan input |
 | `repo_summary` | Repository-level DS-vs-local coverage, invocation adoption, registry resolution, raw invocation counters, local definitions, and parent-scope totals |
-| `per_language` | Per-language status, DS-vs-local coverage, invocation adoption, registry resolution, and v2 count groups |
+| `per_language` | Per-language status, DS-vs-local coverage, invocation adoption, registry resolution, and count groups |
 | `symbol_rollups.design_system` | DS symbol usage frequency |
 | `symbol_rollups.candidate` | Candidate design-system symbol frequency, reported separately from confirmed design-system usage |
 | `symbol_rollups.local` | Local invocation symbol frequency |
@@ -28,10 +28,17 @@ Output: versioned insights JSON consumed by the agent when rendering terminal an
 | `unused_registry_components` | Registry components with no resolved usage in the current scan |
 | `parent_scope_hotspots` | Parent scopes with raw, resolved, local, candidate, and unresolved invocation counts |
 | `fragmentation_candidates` | Symbol families suggesting duplication |
+| `token_inference.summary` | Copied scan `token_inference.counts` (exact/near/unmatched/unassessed) |
+| `token_inference.confirmed_candidates` | Exact classifications enriched with joined raw `location`, `context`, and `value` |
+| `token_inference.possible_candidates` | Near classifications enriched the same way |
+| `token_inference.unmatched_observations` | Unmatched rows (informational; not debt) |
+| `token_inference.unassessed_observations` | Registry metadata gaps (missing canonical token values) |
 | `limits[]` | Metrics unavailable from current facts |
 | `baseline_deltas` | Trend deltas when `--baseline` supplied |
 
-## Limits catalog (v2)
+The extractor requires scan schema `3`, builds a unique raw-site lookup keyed by `(language, site_id)`, and fails closed when any inference row has zero or multiple raw matches. Candidate arrays are sorted by confidence (`very_high`, `high`, `medium`, `low`) then language/file/line. Schema-v2 baselines are incompatible because they lack inference classifications.
+
+## Limits catalog
 
 Emit a `limits[]` entry when the metric is not supported by current `ScanFacts`:
 
@@ -61,7 +68,7 @@ Data gap: <metric> requires <missing capability>. Not computed in this scan.
 
 ## Baseline deltas (when `--baseline` provided)
 
-Compute when the baseline is a compatible v2 `scan-merged.json`:
+Compute when the baseline is a compatible v3 `scan-merged.json`:
 
 - UI invocation adoption ratio change
 - DS-vs-local ratio change
@@ -71,7 +78,7 @@ Compute when the baseline is a compatible v2 `scan-merged.json`:
 - Parent-scope total change
 - Per-language deltas when language sets match
 
-If the baseline is schema v1, emit a single limit entry explaining the compatibility data gap instead of mixing v1 and v2 denominators.
+If the baseline is schema v1 or v2, emit a single limit entry explaining the compatibility data gap instead of mixing older denominators with v3 inference classifications.
 
 ## HTML escaping
 
@@ -106,7 +113,7 @@ The template is the approved visual source of truth for the report UI. It uses t
 | `{{repo_name}}` | Repository or project name | `my-app` |
 | `{{generated_at}}` | Insights JSON `generated_at` (RFC3339) | `2026-06-14T12:00:00Z` |
 | `{{source_scan}}` | Insights JSON `source_scan` | `.wax/out/scan-merged.json` |
-| `{{schema_version}}` | Insights JSON `schema_version` | `2` |
+| `{{schema_version}}` | Insights JSON `schema_version` | `3` |
 
 ### Opening KPI band
 
@@ -146,6 +153,11 @@ Do not render UI invocation adoption as a primary KPI in the HTML report. Keep u
 | `{{adoption_gaps_table_html}}` | Multi-language DS-vs-local table |
 | `{{duplicate_components_table_html}}` | Exact-name duplicate table |
 | `{{migration_candidates_table_html}}` | Local-only migration queue |
+| `{{confirmed_candidates_table_html}}` | Exact token migration candidates (joined raw context/value/location plus inference suggestion fields) |
+| `{{possible_candidates_table_html}}` | Near token migration candidates |
+| `{{unassessed_table_html}}` | Registry metadata-gap observations |
+| `{{unassessed_count}}` | Count of unassessed observations |
+| `{{unmatched_count_note}}` | Secondary informational note when unmatched observations are present (not a debt table) |
 | `{{key_findings_html}}` | Deterministic findings list |
 
 ### Manual HTML smoke checklist
