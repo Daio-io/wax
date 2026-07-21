@@ -38,6 +38,19 @@ Output: versioned insights JSON consumed by the agent when rendering terminal an
 
 The extractor requires scan schema `3`, builds a unique raw-site lookup keyed by `(language, site_id)`, and fails closed when any inference row has zero or multiple raw matches. Candidate arrays are sorted by confidence (`very_high`, `high`, `medium`, `low`) then language/file/line. Schema-v2 baselines are incompatible because they lack inference classifications.
 
+## Unassessed delegation
+
+When `token_inference.summary` shows a nonzero unassessed count:
+
+1. Surface the count and treat rows as registry metadata gaps, not debt.
+2. Explain that optional canonical token `value` fields are missing or unusable for comparison.
+3. Offer the `wax-registry-discover` reviewed token-value maintenance workflow.
+4. Delegate only after the user accepts; do not edit registries from `wax-scan` itself.
+5. Never insert inferred values into insights, HTML placeholders, or KPIs.
+6. After successful publisher maintenance and `wax sync`, rerun a fresh scan so exact/near/unmatched classifications can appear.
+
+First-run registries without canonical values commonly produce an all-unassessed token section; reviewed value maintenance plus a fresh post-sync scan is the expected unlock.
+
 ## Limits catalog
 
 Emit a `limits[]` entry when the metric is not supported by current `ScanFacts`:

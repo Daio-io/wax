@@ -100,6 +100,8 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
 - Treat scan-time registry sync warnings as non-fatal; the scan continues with current registry inputs.
 - Prefer deterministic metrics from the extractor over agent estimation.
 - Label every non-deterministic insight with confidence.
+- Report unassessed token counts as metadata gaps; offer `wax-registry-discover` and delegate only after acceptance.
+- Never write inferred canonical token values into registries or metrics from this skill; maintenance belongs to `wax-registry-discover`.
 - Do not invent precision for health, maturity, or debt scores when data is sparse; explain weighting and uncertainty.
 - Skip trend analysis unless `--baseline` is provided.
 - When post-alpha engine artifacts exist (`.wax/out/scan-summary.json`, `.wax/out/scan-graph.json`), prefer them over the skill-local extractor.
@@ -147,11 +149,26 @@ Use only deterministic classifications from insights `token_inference` (schema v
 - Exact rows are deterministic confirmed migration candidates.
 - Near rows are deterministic possible migration candidates.
 - Unmatched rows are informational observations, not debt.
-- Unassessed rows are registry metadata gaps and may trigger `wax-registry-discover`.
+- Unassessed rows are registry metadata gaps (missing canonical token values).
 - Never synthesize a replacement confidence that disagrees with `token_inference`.
 - Join inference to raw observations by `(language, site_id)`; fail closed if the join is missing or ambiguous.
 
-Existing registries whose tokens lack canonical `value` fields initially produce unassessed findings until reviewed values are written and a fresh scan runs. Do not treat that first-run unassessed set as unmatched debt, and do not combine exact + near counts into a single token-debt headline. The retired token reference ratio must not appear as a report KPI.
+Existing registries whose tokens lack canonical `value` fields initially produce an expected first-run all-unassessed (or mostly unassessed) state. Do not treat that set as unmatched debt, and do not combine exact + near counts into a single token-debt headline. The retired token reference ratio must not appear as a report KPI.
+
+## Unassessed observations and registry maintenance
+
+Reviewed value maintenance is the unlock from that first-run unassessed state: only a fresh post-sync scan may reclassify observations as exact, near, or unmatched.
+
+When insights report unassessed observations:
+
+1. Report the unassessed count from `token_inference.summary` / `unassessed_observations`.
+2. Explain that missing registry metadata (optional canonical `value`) prevents deterministic comparison.
+3. Offer registry enrichment via the `wax-registry-discover` skill.
+4. Delegate only after the user accepts maintenance. Do not start publisher edits unprompted.
+5. Never insert inferred or AI-proposed values directly into scan metrics, insights JSON, or report KPIs.
+6. After successful reviewed maintenance and `wax sync`, rerun a fresh `wax scan` and regenerate the report.
+
+Delegation hands off to `wax-registry-discover` (see that skill's token-value maintenance docs). Authoritative writes target the publisher registry; app-local synced copies are never the source of truth.
 
 ---
 

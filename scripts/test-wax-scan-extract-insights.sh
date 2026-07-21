@@ -60,9 +60,11 @@ assert_eq() {
 }
 
 normalize() {
+  # Coerce numbers so jq 1.7 float serialization (0.0) matches integer fixtures (0).
   jq -S '
     del(.generated_at)
     | .source_scan = "scripts/fixtures/wax-scan/scan-merged.sample.json"
+    | walk(if type == "number" then . + 0.0 else . end)
   '
 }
 
