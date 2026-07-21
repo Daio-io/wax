@@ -31,7 +31,7 @@ All 6 tasks shipped:
 | 3. Pack context parity | Compose, React, and Swift style-context mapping with equivalent outcomes for shared concepts and ecosystem-capability differences (for example Compose margin) | [#235](https://github.com/Daio-io/wax/pull/235) |
 | 4. Reporting | CLI confirmed/possible/unmatched/unassessed summary and ranked findings, wax-scan extractor and HTML sections joined to raw sites by `(language, site_id)` | [#236](https://github.com/Daio-io/wax/pull/236) |
 | 5. Registry maintenance | `wax-registry-discover` token-value maintenance workflow with evidence, structured diff, explicit approval, and no automatic deletion | [#237](https://github.com/Daio-io/wax/pull/237) |
-| 6. Documentation and closeout | README, specs, this ADR, plan archive, and full-workspace verification | this PR (branch `dai/token-inference-closeout`) |
+| 6. Documentation and closeout | README, specs, this ADR, plan archive, and full-workspace verification | [#238](https://github.com/Daio-io/wax/pull/238) |
 
 ## Consequences
 
