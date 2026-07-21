@@ -714,6 +714,9 @@ fn write_token_inference_summary(
     writer: &mut impl Write,
     merged: &MergedScan,
 ) -> Result<(), ScanCommandError> {
+    // Validate joins before writing any inference lines so a bad link cannot
+    // leave a partial token report on the writer.
+    let joined = join_token_inference_rows(merged)?;
     let counts = &merged.token_inference.counts;
     writeln!(
         writer,
@@ -740,7 +743,6 @@ fn write_token_inference_summary(
     )
     .map_err(write_error)?;
 
-    let joined = join_token_inference_rows(merged)?;
     let mut ranked: Vec<&JoinedTokenFinding<'_>> = joined
         .iter()
         .filter(|finding| {
@@ -1342,6 +1344,9 @@ mod tests {
         .expect_err("missing join should fail closed");
 
         assert!(matches!(error, ScanCommandError::TokenInferenceJoin { .. }));
+        let stdout = String::from_utf8(output).unwrap();
+        assert!(!stdout.contains("Confirmed migration candidates:"));
+        assert!(!stdout.contains("(exact,"));
     }
 
     #[test]
