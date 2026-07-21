@@ -577,13 +577,19 @@ fn extract_usage_from_source(
     }
 }
 
-fn compose_style_category(call_symbol: &str) -> Option<TokenCategory> {
-    match call_symbol {
-        "Color" | "background" | "border" => Some(TokenCategory::Color),
-        "padding" | "size" | "width" | "height" | "spacedBy" => Some(TokenCategory::Spacing),
-        "fontSize" | "TextStyle" => Some(TokenCategory::Typography),
-        "clip" | "cornerRadius" | "RoundedCornerShape" => Some(TokenCategory::Radius),
-        "shadow" | "elevation" => Some(TokenCategory::Elevation),
+fn compose_style_metadata(call: &str) -> Option<(TokenCategory, StyleContext)> {
+    match call {
+        "Color" | "background" => Some((TokenCategory::Color, StyleContext::Color)),
+        "padding" => Some((TokenCategory::Spacing, StyleContext::Padding)),
+        "size" => Some((TokenCategory::Spacing, StyleContext::Size)),
+        "width" => Some((TokenCategory::Spacing, StyleContext::Width)),
+        "height" => Some((TokenCategory::Spacing, StyleContext::Height)),
+        "spacedBy" => Some((TokenCategory::Spacing, StyleContext::Gap)),
+        "fontSize" | "TextStyle" => Some((TokenCategory::Typography, StyleContext::Typography)),
+        "clip" | "cornerRadius" | "RoundedCornerShape" => {
+            Some((TokenCategory::Radius, StyleContext::Radius))
+        }
+        "shadow" | "elevation" => Some((TokenCategory::Elevation, StyleContext::Elevation)),
         _ => None,
     }
 }
@@ -756,7 +762,7 @@ fn extract_hardcoded_style_from_source(
         if node.kind() == "call_expression"
             && !is_within_preview_composable(node, source)
             && let Some((call_symbol, pos)) = style_call_callee(node, source)
-            && let Some(category) = compose_style_category(&call_symbol)
+            && let Some((category, context)) = compose_style_metadata(&call_symbol)
             && let Some(value) = first_style_literal(node, source, category)
         {
             let line = pos.row as u32 + 1;
@@ -773,7 +779,7 @@ fn extract_hardcoded_style_from_source(
                 },
                 value,
                 category,
-                context: StyleContext::Unknown,
+                context,
                 parent,
             });
         }

@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use wax_contract::{MatchStatus, ScanFacts, ScanStatus};
+use wax_contract::{MatchStatus, ScanFacts, ScanStatus, StyleContext, TokenCategory};
 use wax_lang_api::{ScanConfig, ScanRequest, ScanRequestType, WIRE_API_VERSION};
 use wax_lang_swift::SwiftLanguage;
 
@@ -60,32 +60,43 @@ fn golden_small_swiftui_fixture_matches_counts() {
         "SwiftUI token references should include parent attribution inside views"
     );
     assert!(
-        facts
-            .hardcoded_style_sites
-            .iter()
-            .any(|site| site.category == wax_contract::TokenCategory::Color
-                && site.value.contains("Color")),
-        "SwiftUI Color(...) should be a color hard-coded candidate"
-    );
-    assert!(
-        facts
-            .hardcoded_style_sites
-            .iter()
-            .any(|site| site.category == wax_contract::TokenCategory::Radius && site.value == "8"),
-        "cornerRadius(8) should be a radius hard-coded candidate"
-    );
-    assert!(
-        facts
-            .hardcoded_style_sites
-            .iter()
-            .any(|site| site.category == wax_contract::TokenCategory::Spacing && site.value == "12"),
-        "VStack(spacing: 12) should be a spacing hard-coded candidate"
-    );
-    assert!(
         facts.hardcoded_style_sites.iter().any(|site| {
-            site.category == wax_contract::TokenCategory::Typography && site.value == "14"
+            site.category == TokenCategory::Color
+                && site.context == StyleContext::Color
+                && site.value.contains("Color")
         }),
-        ".font(.system(size: 14)) should be a typography hard-coded candidate"
+        "SwiftUI Color(...) should be a color hard-coded candidate with Color context"
+    );
+    assert_style_context(&facts, TokenCategory::Spacing, StyleContext::Gap, "4");
+    assert_style_context(&facts, TokenCategory::Spacing, StyleContext::Padding, "4");
+    assert_style_context(&facts, TokenCategory::Spacing, StyleContext::Width, "200");
+    assert_style_context(&facts, TokenCategory::Spacing, StyleContext::Height, "40");
+    assert_style_context(
+        &facts,
+        TokenCategory::Typography,
+        StyleContext::Typography,
+        "4",
+    );
+    assert_style_context(&facts, TokenCategory::Radius, StyleContext::Radius, "4");
+    assert_style_context(
+        &facts,
+        TokenCategory::Elevation,
+        StyleContext::Elevation,
+        "4",
+    );
+    assert!(
+        facts
+            .hardcoded_style_sites
+            .iter()
+            .any(|site| site.context == StyleContext::Width && site.value == "200"),
+        "fixed width 200 must remain a raw hard-coded site"
+    );
+    assert!(
+        !facts
+            .hardcoded_style_sites
+            .iter()
+            .any(|site| site.value == "200" && site.context != StyleContext::Width),
+        "non-style ordinary numbers must stay absent"
     );
     assert_eq!(
         facts
@@ -277,4 +288,19 @@ fn scan_small_fixture() -> ScanFacts {
 
 fn fixture_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/small")
+}
+
+fn assert_style_context(
+    facts: &ScanFacts,
+    category: TokenCategory,
+    context: StyleContext,
+    value: &str,
+) {
+    assert!(
+        facts.hardcoded_style_sites.iter().any(|site| {
+            site.category == category && site.context == context && site.value == value
+        }),
+        "expected {category:?}/{context:?} value={value}, got: {:?}",
+        facts.hardcoded_style_sites
+    );
 }

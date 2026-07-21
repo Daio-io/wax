@@ -21,7 +21,8 @@
     {
       "id": "space.medium",
       "key": "Theme.spacing.medium",
-      "category": "spacing"
+      "category": "spacing",
+      "value": "4"
     }
   ]
 }
