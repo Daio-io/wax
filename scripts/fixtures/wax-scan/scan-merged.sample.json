@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "recorded_at": "2026-06-14T12:00:00Z",
   "repo_summary": {
     "languages": [
@@ -124,9 +124,95 @@
       "parent_scopes_truncated": true
     }
   ],
+  "token_inference": {
+    "numeric_tolerance": 2.0,
+    "counts": {
+      "hardcoded_observation_count": 4,
+      "assessed_observation_count": 3,
+      "exact_replacement_candidate_count": 1,
+      "near_replacement_candidate_count": 1,
+      "unmatched_observation_count": 1,
+      "unassessed_observation_count": 1,
+      "candidates_by_confidence": {
+        "very_high": 1,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "candidates_by_category": {
+        "color": 0,
+        "spacing": 2,
+        "typography": 0,
+        "radius": 0,
+        "elevation": 0,
+        "unknown": 0
+      },
+      "candidates_by_context": {
+        "padding": 1,
+        "margin": 0,
+        "gap": 1,
+        "width": 0,
+        "height": 0,
+        "size": 0,
+        "radius": 0,
+        "color": 0,
+        "typography": 0,
+        "elevation": 0,
+        "unknown": 0
+      }
+    },
+    "sites": [
+      {
+        "language": "react",
+        "site_id": "hc:r1",
+        "classification": "exact",
+        "confidence": "very_high",
+        "suggestions": [
+          {
+            "token_id": "spacing.s",
+            "token_key": "spacing.s",
+            "canonical_value": "4px",
+            "match_kind": "exact",
+            "distance": 0.0,
+            "normalized_unit": "px"
+          }
+        ],
+        "evidence": ["exact_value", "clear_usage_context"]
+      },
+      {
+        "language": "react",
+        "site_id": "hc:r2",
+        "classification": "near",
+        "confidence": "medium",
+        "suggestions": [
+          {
+            "token_id": "spacing.m",
+            "token_key": "spacing.m",
+            "canonical_value": "8px",
+            "match_kind": "near",
+            "distance": 2.0,
+            "normalized_unit": "px"
+          }
+        ],
+        "evidence": ["within_numeric_tolerance", "clear_usage_context"]
+      },
+      {
+        "language": "react",
+        "site_id": "hc:r3",
+        "classification": "unmatched",
+        "evidence": ["outside_numeric_tolerance"]
+      },
+      {
+        "language": "react",
+        "site_id": "hc:r4",
+        "classification": "unassessed",
+        "evidence": ["missing_canonical_values"]
+      }
+    ]
+  },
   "languages": {
     "compose": {
-      "schema_version": 2,
+      "schema_version": 3,
       "language": {
         "id": "compose",
         "version": "0.1.0",
@@ -315,7 +401,7 @@
       "symbol_usage_summary": []
     },
     "react": {
-      "schema_version": 2,
+      "schema_version": 3,
       "language": {
         "id": "react",
         "version": "0.1.0",
@@ -441,6 +527,62 @@
         "parse_extract_ms": 80,
         "files_scanned": 2
       },
+      "design_system_tokens": [
+        {
+          "id": "spacing.s",
+          "key": "spacing.s",
+          "category": "spacing",
+          "value": "4px"
+        },
+        {
+          "id": "spacing.m",
+          "key": "spacing.m",
+          "category": "spacing",
+          "value": "8px"
+        }
+      ],
+      "hardcoded_style_sites": [
+        {
+          "id": "hc:r1",
+          "location": {
+            "file": "src/Card.tsx",
+            "line": 12
+          },
+          "value": "4px",
+          "category": "spacing",
+          "context": "padding"
+        },
+        {
+          "id": "hc:r2",
+          "location": {
+            "file": "src/Button.tsx",
+            "line": 20
+          },
+          "value": "6px",
+          "category": "spacing",
+          "context": "gap"
+        },
+        {
+          "id": "hc:r3",
+          "location": {
+            "file": "src/Widget.tsx",
+            "line": 5
+          },
+          "value": "200px",
+          "category": "spacing",
+          "context": "width"
+        },
+        {
+          "id": "hc:r4",
+          "location": {
+            "file": "src/Legacy.tsx",
+            "line": 30
+          },
+          "value": "9px",
+          "category": "spacing",
+          "context": "unknown"
+        }
+      ],
       "counts": {
         "registry": {
           "component_count": 1,

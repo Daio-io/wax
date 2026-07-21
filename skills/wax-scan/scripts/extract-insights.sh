@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deterministic insights extractor for wax-scan skill (Adoption Metrics v2).
+# Deterministic insights extractor for wax-scan skill (scan schema v3).
 set -euo pipefail
 
 usage() {
@@ -38,14 +38,20 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if ! jq -e '.schema_version and .languages' "$SCAN" >/dev/null 2>&1; then
+if ! jq -e '
+  (.schema_version | type == "number")
+  and (.languages | type == "object")
+  and (.token_inference | type == "object")
+  and (.token_inference.counts | type == "object")
+  and (.token_inference.sites | type == "array")
+' "$SCAN" >/dev/null 2>&1; then
   echo "extract-insights.sh: invalid scan-merged.json: $SCAN" >&2
   exit 1
 fi
 
 SCAN_SCHEMA="$(jq -r '.schema_version' "$SCAN")"
-if [[ "$SCAN_SCHEMA" != "2" ]]; then
-  echo "extract-insights.sh: unsupported scan schema_version ${SCAN_SCHEMA}; expected 2" >&2
+if [[ "$SCAN_SCHEMA" != "3" ]]; then
+  echo "extract-insights.sh: unsupported scan schema_version ${SCAN_SCHEMA}; expected 3" >&2
   exit 1
 fi
 
@@ -361,6 +367,157 @@ extract_core() {
       | sort_by(-.raw_invocation_count, .symbol)
       | .[0:$limit];
 
+    def confidence_rank:
+      if . == "very_high" then 0
+      elif . == "high" then 1
+      elif . == "medium" then 2
+      elif . == "low" then 3
+      else 4
+      end;
+
+    def validate_token_inference:
+      .token_inference as $inference
+      | $inference.sites as $rows
+      | ($rows | group_by([.language, .site_id]) | map(select(length > 1))) as $duplicate_keys
+      | if ($duplicate_keys | length) > 0 then
+          error(
+            "duplicate token inference key(s): "
+            + ($duplicate_keys
+              | map(.[0].language + ":" + .[0].site_id)
+              | join(", "))
+          )
+        else
+          .
+        end
+      | ([$rows[].classification | select(
+          . != "exact"
+          and . != "near"
+          and . != "unmatched"
+          and . != "unassessed"
+        )] | unique) as $invalid_classifications
+      | if ($invalid_classifications | length) > 0 then
+          error(
+            "unknown token inference classification(s): "
+            + ($invalid_classifications | join(", "))
+          )
+        else
+          [
+            {
+              name: "hardcoded_observation_count",
+              reported: $inference.counts.hardcoded_observation_count,
+              actual: ($rows | length)
+            },
+            {
+              name: "raw_hardcoded_style_site_count",
+              reported: $inference.counts.hardcoded_observation_count,
+              actual: ([.languages[] | .hardcoded_style_sites[]?] | length)
+            },
+            {
+              name: "assessed_observation_count",
+              reported: $inference.counts.assessed_observation_count,
+              actual: ([$rows[] | select(.classification != "unassessed")] | length)
+            },
+            {
+              name: "exact_replacement_candidate_count",
+              reported: $inference.counts.exact_replacement_candidate_count,
+              actual: ([$rows[] | select(.classification == "exact")] | length)
+            },
+            {
+              name: "near_replacement_candidate_count",
+              reported: $inference.counts.near_replacement_candidate_count,
+              actual: ([$rows[] | select(.classification == "near")] | length)
+            },
+            {
+              name: "unmatched_observation_count",
+              reported: $inference.counts.unmatched_observation_count,
+              actual: ([$rows[] | select(.classification == "unmatched")] | length)
+            },
+            {
+              name: "unassessed_observation_count",
+              reported: $inference.counts.unassessed_observation_count,
+              actual: ([$rows[] | select(.classification == "unassessed")] | length)
+            }
+          ] as $checks
+          | ([$checks[] | select(.reported != .actual)]) as $mismatches
+          | if ($mismatches | length) > 0 then
+              error(
+                "token inference count mismatch(es): "
+                + ($mismatches
+                  | map(.name + " reported=" + (.reported | tostring) + " actual=" + (.actual | tostring))
+                  | join(", "))
+              )
+            else
+              .
+            end
+        end;
+
+    def raw_style_site_rows:
+      [.languages | to_entries[] as $entry
+        | $entry.key as $lang
+        | $entry.value.hardcoded_style_sites[]?
+        | {
+            lang: $lang,
+            site_id: .id,
+            location: .location,
+            context: .context,
+            value: .value
+          }
+      ];
+
+    def raw_style_site_index:
+      raw_style_site_rows as $rows
+      | ($rows | group_by([.lang, .site_id]) | map(select(length > 1))) as $dupes
+      | if ($dupes | length) > 0 then
+          error(
+            "duplicate raw hard-coded style site key(s): "
+            + ($dupes | map(.[0].lang + ":" + .[0].site_id) | join(", "))
+          )
+        else
+          (
+            $rows
+            | map({
+                key: (.lang + "\u0000" + .site_id),
+                value: { location: .location, context: .context, value: .value }
+              })
+            | from_entries
+          )
+        end;
+
+    def enrich_inference_row($index):
+      ($index[.language + "\u0000" + .site_id]) as $raw
+      | if $raw == null then
+          error(
+            "token inference row for "
+            + .language + ":" + .site_id
+            + " did not resolve to exactly one raw hard-coded style site"
+          )
+        else
+          . + { location: $raw.location, context: $raw.context, value: $raw.value }
+        end;
+
+    def token_inference_block:
+      raw_style_site_index as $index
+      | [.token_inference.sites[] | enrich_inference_row($index)] as $enriched
+      | {
+          summary: .token_inference.counts,
+          confirmed_candidates: (
+            [$enriched[] | select(.classification == "exact")]
+            | sort_by([(.confidence | confidence_rank), .language, .location.file, .location.line])
+          ),
+          possible_candidates: (
+            [$enriched[] | select(.classification == "near")]
+            | sort_by([(.confidence | confidence_rank), .language, .location.file, .location.line])
+          ),
+          unmatched_observations: (
+            [$enriched[] | select(.classification == "unmatched")]
+            | sort_by([.language, .location.file, .location.line])
+          ),
+          unassessed_observations: (
+            [$enriched[] | select(.classification == "unassessed")]
+            | sort_by([.language, .location.file, .location.line])
+          )
+        };
+
     def suffix_families:
       [.languages[] | .local_components[]? | .symbol]
       | unique
@@ -385,8 +542,9 @@ extract_core() {
       | sort_by(-.count, .pattern)
       | map(select(.count >= 2));
 
-    {
-      schema_version: 2,
+    validate_token_inference
+    | {
+      schema_version: 3,
       generated_at: $generated_at,
       source_scan: $source_scan,
       repo_summary: repo_summary_block,
@@ -397,6 +555,7 @@ extract_core() {
       unused_registry_components: unused_registry_components,
       parent_scope_hotspots: parent_scope_hotspots(5),
       fragmentation_candidates: suffix_families,
+      token_inference: token_inference_block,
       limits: $limits,
       baseline_deltas: null
     }
@@ -431,8 +590,8 @@ compute_baseline_deltas() {
   local baseline_schema
   baseline_schema="$(jq -r '.schema_version' "$baseline_file")"
 
-  if [[ "$baseline_schema" != "2" ]]; then
-    jq --arg reason "Baseline schema_version ${baseline_schema} is incompatible with current v2 scan output; v1 baselines cannot be mixed with v2 denominators" '
+  if [[ "$baseline_schema" != "3" ]]; then
+    jq --arg reason "Baseline schema_version ${baseline_schema} is incompatible with current v3 scan output; older baselines lack inference classifications and cannot be mixed with v3 denominators" '
       .limits += [{
         metric: "Baseline comparison",
         missing_capability: $reason

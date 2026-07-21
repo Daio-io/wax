@@ -9,6 +9,8 @@ const artifactDir = path.resolve(
   process.env.WAX_SCAN_REPORT_ARTIFACT_DIR || path.join(root, ".wax/out/report-screenshots"),
 );
 const reportHtml = path.join(artifactDir, "index.html");
+const desktopViewport = { width: 1440, height: 1100 };
+const tokenViewport = { width: 1440, height: 1500 };
 
 test.beforeAll(() => {
   rmSync(artifactDir, { recursive: true, force: true });
@@ -52,6 +54,8 @@ async function verifyScreenshot(page, testInfo, name) {
     contentType: "image/png",
   });
 
+  // Fixed viewport screenshots keep dimensions stable across macOS/Linux font metrics.
+  // fullPage snapshots differ by a few pixels of height and fail before maxDiffPixelRatio applies.
   await expect(page).toHaveScreenshot(name, {
     animations: "disabled",
     maxDiffPixelRatio: 0.03,
@@ -59,7 +63,7 @@ async function verifyScreenshot(page, testInfo, name) {
 }
 
 test("desktop screenshot keeps the current report layout with the black and bumblebee theme", async ({ page }, testInfo) => {
-  await openReport(page, { width: 1440, height: 1100 });
+  await openReport(page, desktopViewport);
   await expectBumblebeeTheme(page);
 
   const logoBox = await page.locator(".report-logo").boundingBox();
@@ -72,7 +76,25 @@ test("desktop screenshot keeps the current report layout with the black and bumb
     "Adoption by area",
     "Adoption gaps",
     "Candidates to bring into the design system",
+    "Confirmed token migrations",
+    "Possible token migrations",
+    "Registry metadata gaps",
     "Key findings",
   ]);
   await verifyScreenshot(page, testInfo, "wax-scan-report-desktop.png");
+});
+
+test("token inference sections render confirmed, possible, and metadata-gap tables", async ({ page }, testInfo) => {
+  await openReport(page, tokenViewport);
+
+  await page.getByRole("heading", { name: "Confirmed token migrations" }).scrollIntoViewIfNeeded();
+  await expect(page.getByRole("heading", { name: "Confirmed token migrations" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Possible token migrations" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Registry metadata gaps" })).toBeVisible();
+
+  await expect(page.getByRole("heading", { name: "Confirmed token migrations" })).toBeInViewport();
+  await expect(page.getByText("src/Card.tsx:12", { exact: true })).toBeInViewport();
+  await expect(page.getByText("src/Button.tsx:20", { exact: true })).toBeInViewport();
+  await expect(page.getByText("src/Legacy.tsx:30", { exact: true })).toBeInViewport();
+  await verifyScreenshot(page, testInfo, "wax-scan-report-token-sections.png");
 });

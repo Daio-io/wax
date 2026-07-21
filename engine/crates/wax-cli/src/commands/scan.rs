@@ -7,13 +7,17 @@ use super::language::{
 };
 use super::state_path::resolve_state_path;
 use crate::progress::{CliProgress, optional_scan_progress_sink};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use thiserror::Error;
-use wax_contract::{Diagnostic, DiagnosticSeverity, LanguageId, MergedScan, ScanStatus};
+use wax_contract::{
+    Diagnostic, DiagnosticSeverity, HardcodedStyleInference, HardcodedStyleSite, LanguageId,
+    MergedScan, ScanStatus, TokenInferenceClassification, TokenInferenceConfidence,
+    TokenInferenceEvidence, TokenReplacementSuggestion,
+};
 use wax_core::config::lockfile::{LockedRegistry, WAX_LOCK_SCHEMA_VERSION, WaxLock};
 use wax_core::config::repo_files::PREFERRED_CONFIG_RELATIVE_PATH;
 use wax_core::config::waxrc::{
@@ -109,6 +113,16 @@ pub enum ScanCommandError {
         #[source]
         source: io::Error,
     },
+    /// A token inference row did not resolve to exactly one raw hard-coded style site.
+    #[error(
+        "token inference row for language {language:?} site {site_id:?} did not resolve to exactly one raw hard-coded style site; suppressing token report"
+    )]
+    TokenInferenceJoin {
+        /// Language of the unresolved inference row.
+        language: String,
+        /// Raw hard-coded style site id that failed to resolve.
+        site_id: String,
+    },
 }
 
 /// Runs `wax scan`, prompting for ephemeral selections when config is missing in a TTY.
@@ -130,6 +144,8 @@ pub enum ScanCommandError {
 /// ephemeral pack metadata cannot be resolved;
 /// [`ScanCommandError::RegistryMemory`] when remembered registry state cannot be
 /// listed or resolved; [`ScanCommandError::Engine`] when the scan fails; or
+/// [`ScanCommandError::TokenInferenceJoin`] when token inference cannot be
+/// joined uniquely to its raw observation; or
 /// [`ScanCommandError::Io`] when prompts, sync warnings, or summary output cannot
 /// be written.
 pub fn run_scan_cli(
@@ -165,6 +181,8 @@ pub fn run_scan_cli(
 /// config. If that config has a non-empty registry upstream and no state-path
 /// override, returns [`ScanCommandError::Paths`] when the global state path
 /// cannot be resolved. Returns [`ScanCommandError::Engine`] when scanning fails,
+/// [`ScanCommandError::TokenInferenceJoin`] when token inference cannot be
+/// joined uniquely to its raw observation,
 /// or [`ScanCommandError::Io`] when a sync warning or scan summary cannot be
 /// written.
 pub fn run_scan(
@@ -536,18 +554,7 @@ fn write_scan_summary(
         repo.counts.tokens.token_reference_site_count
     )
     .map_err(write_error)?;
-    writeln!(
-        writer,
-        "  Hard-coded style candidates: {}",
-        repo.counts.tokens.hardcoded_style_candidate_count
-    )
-    .map_err(write_error)?;
-    writeln!(
-        writer,
-        "  Unassessed hard-coded observations: {}",
-        merged.token_inference.counts.unassessed_observation_count
-    )
-    .map_err(write_error)?;
+    write_token_inference_summary(writer, merged)?;
 
     let diagnostics = merged
         .languages
@@ -565,6 +572,263 @@ fn write_scan_summary(
         writeln!(
             writer,
             "To save this setup for CI or teammates, run `wax init`."
+        )
+        .map_err(write_error)?;
+    }
+
+    Ok(())
+}
+
+/// Maximum number of ranked exact/near token findings printed by the CLI.
+const MAX_TOKEN_DETAIL_ROWS: usize = 5;
+
+/// One inference row joined to its raw hard-coded style site.
+struct JoinedTokenFinding<'a> {
+    row: &'a HardcodedStyleInference,
+    site: &'a HardcodedStyleSite,
+}
+
+/// Builds a unique `(language, site_id)` index over every raw hard-coded style
+/// site across all languages.
+///
+/// # Errors
+///
+/// Returns [`ScanCommandError::TokenInferenceJoin`] when the same
+/// `(language, site_id)` key appears in more than one raw site.
+fn build_raw_style_site_index(
+    merged: &MergedScan,
+) -> Result<HashMap<(&LanguageId, &str), &HardcodedStyleSite>, ScanCommandError> {
+    let mut index = HashMap::new();
+    for (language_id, facts) in &merged.languages {
+        for site in &facts.hardcoded_style_sites {
+            let key = (language_id, site.id.as_str());
+            if index.insert(key, site).is_some() {
+                return Err(ScanCommandError::TokenInferenceJoin {
+                    language: language_id.as_str().to_owned(),
+                    site_id: site.id.clone(),
+                });
+            }
+        }
+    }
+    Ok(index)
+}
+
+/// Joins every token inference row to exactly one raw hard-coded style site.
+///
+/// # Errors
+///
+/// Returns [`ScanCommandError::TokenInferenceJoin`] when the raw-site index
+/// contains a duplicate key or when any inference row has no matching raw
+/// site.
+fn join_token_inference_rows(
+    merged: &MergedScan,
+) -> Result<Vec<JoinedTokenFinding<'_>>, ScanCommandError> {
+    let index = build_raw_style_site_index(merged)?;
+    merged
+        .token_inference
+        .sites
+        .iter()
+        .map(|row| {
+            index
+                .get(&(&row.language, row.site_id.as_str()))
+                .copied()
+                .map(|site| JoinedTokenFinding { row, site })
+                .ok_or_else(|| ScanCommandError::TokenInferenceJoin {
+                    language: row.language.as_str().to_owned(),
+                    site_id: row.site_id.clone(),
+                })
+        })
+        .collect()
+}
+
+fn confidence_rank(confidence: Option<TokenInferenceConfidence>) -> u8 {
+    match confidence {
+        Some(TokenInferenceConfidence::VeryHigh) => 0,
+        Some(TokenInferenceConfidence::High) => 1,
+        Some(TokenInferenceConfidence::Medium) => 2,
+        Some(TokenInferenceConfidence::Low) => 3,
+        None => 4,
+    }
+}
+
+fn confidence_label(confidence: Option<TokenInferenceConfidence>) -> &'static str {
+    match confidence {
+        Some(TokenInferenceConfidence::VeryHigh) => "very high",
+        Some(TokenInferenceConfidence::High) => "high",
+        Some(TokenInferenceConfidence::Medium) => "medium",
+        Some(TokenInferenceConfidence::Low) => "low",
+        None => "none",
+    }
+}
+
+fn classification_label(classification: TokenInferenceClassification) -> &'static str {
+    match classification {
+        TokenInferenceClassification::Exact => "exact",
+        TokenInferenceClassification::Near => "near",
+        TokenInferenceClassification::Unmatched => "unmatched",
+        TokenInferenceClassification::Unassessed => "unassessed",
+    }
+}
+
+fn style_context_label(context: wax_contract::StyleContext) -> &'static str {
+    use wax_contract::StyleContext;
+    match context {
+        StyleContext::Padding => "padding",
+        StyleContext::Margin => "margin",
+        StyleContext::Gap => "gap",
+        StyleContext::Width => "width",
+        StyleContext::Height => "height",
+        StyleContext::Size => "size",
+        StyleContext::Radius => "radius",
+        StyleContext::Color => "color",
+        StyleContext::Typography => "typography",
+        StyleContext::Elevation => "elevation",
+        StyleContext::Unknown => "unknown",
+    }
+}
+
+fn token_inference_evidence_label(evidence: TokenInferenceEvidence) -> &'static str {
+    match evidence {
+        TokenInferenceEvidence::ExactValue => "exact value",
+        TokenInferenceEvidence::WithinNumericTolerance => "within numeric tolerance",
+        TokenInferenceEvidence::ClearUsageContext => "clear usage context",
+        TokenInferenceEvidence::GenericDimensionContext => "generic dimension context",
+        TokenInferenceEvidence::MultipleEqualMatches => "multiple equal matches",
+        TokenInferenceEvidence::MissingCanonicalValues => "missing canonical values",
+        TokenInferenceEvidence::IncompleteCanonicalCoverage => "incomplete canonical coverage",
+        TokenInferenceEvidence::UnsupportedCanonicalFormat => "unsupported canonical format",
+        TokenInferenceEvidence::IncompatibleUnits => "incompatible units",
+        TokenInferenceEvidence::OutsideNumericTolerance => "outside numeric tolerance",
+    }
+}
+
+fn format_token_suggestion(suggestion: &TokenReplacementSuggestion) -> String {
+    let distance = suggestion.distance.map(|distance| {
+        format!(
+            " (distance {distance}{})",
+            suggestion.normalized_unit.as_deref().unwrap_or_default()
+        )
+    });
+    format!(
+        "{}={}{}",
+        suggestion.token_key,
+        suggestion.canonical_value,
+        distance.as_deref().unwrap_or_default()
+    )
+}
+
+fn format_token_finding_line(finding: &JoinedTokenFinding<'_>) -> String {
+    let location = &finding.site.location;
+    let suggestions = finding
+        .row
+        .suggestions
+        .iter()
+        .map(format_token_suggestion)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let suggestions = if suggestions.is_empty() {
+        "?".to_owned()
+    } else {
+        suggestions
+    };
+    let evidence = finding
+        .row
+        .evidence
+        .iter()
+        .copied()
+        .map(token_inference_evidence_label)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let evidence = if evidence.is_empty() {
+        String::new()
+    } else {
+        format!("; evidence: {evidence}")
+    };
+    format!(
+        "{}:{} {} {} -> {} ({}, {}{})",
+        location.file,
+        location.line,
+        style_context_label(finding.site.context),
+        finding.site.value,
+        suggestions,
+        classification_label(finding.row.classification),
+        confidence_label(finding.row.confidence),
+        evidence
+    )
+}
+
+/// Writes the confirmed/possible/unmatched/unassessed counts, up to five
+/// ranked exact/near migration candidates, and registry maintenance guidance.
+///
+/// # Errors
+///
+/// Returns [`ScanCommandError::TokenInferenceJoin`] when an inference row
+/// cannot be joined to exactly one raw hard-coded style site; the report is
+/// suppressed rather than printed partially.
+fn write_token_inference_summary(
+    writer: &mut impl Write,
+    merged: &MergedScan,
+) -> Result<(), ScanCommandError> {
+    // Validate joins before writing any inference lines so a bad link cannot
+    // leave a partial token report on the writer.
+    let joined = join_token_inference_rows(merged)?;
+    let counts = &merged.token_inference.counts;
+    writeln!(
+        writer,
+        "  Confirmed migration candidates: {}",
+        counts.exact_replacement_candidate_count
+    )
+    .map_err(write_error)?;
+    writeln!(
+        writer,
+        "  Possible migration candidates: {}",
+        counts.near_replacement_candidate_count
+    )
+    .map_err(write_error)?;
+    writeln!(
+        writer,
+        "  Unmatched observations: {} (informational)",
+        counts.unmatched_observation_count
+    )
+    .map_err(write_error)?;
+    writeln!(
+        writer,
+        "  Unassessed observations: {} (registry values needed)",
+        counts.unassessed_observation_count
+    )
+    .map_err(write_error)?;
+
+    let mut ranked: Vec<&JoinedTokenFinding<'_>> = joined
+        .iter()
+        .filter(|finding| {
+            matches!(
+                finding.row.classification,
+                TokenInferenceClassification::Exact | TokenInferenceClassification::Near
+            )
+        })
+        .collect();
+    ranked.sort_by(|left, right| {
+        confidence_rank(left.row.confidence)
+            .cmp(&confidence_rank(right.row.confidence))
+            .then_with(|| left.site.location.file.cmp(&right.site.location.file))
+            .then_with(|| left.site.location.line.cmp(&right.site.location.line))
+            .then_with(|| {
+                left.site
+                    .location
+                    .column
+                    .unwrap_or(0)
+                    .cmp(&right.site.location.column.unwrap_or(0))
+            })
+    });
+
+    for finding in ranked.iter().take(MAX_TOKEN_DETAIL_ROWS) {
+        writeln!(writer, "  {}", format_token_finding_line(finding)).map_err(write_error)?;
+    }
+
+    if counts.unassessed_observation_count > 0 {
+        writeln!(
+            writer,
+            "  Run wax-registry-discover to review missing canonical token values."
         )
         .map_err(write_error)?;
     }
@@ -627,9 +891,13 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
     use time::OffsetDateTime;
     use wax_contract::{
-        AdoptionCounts, CountSummary, DefinitionCounts, Diagnostic, DiagnosticSeverity, LanguageId,
-        LanguageMetadata, MergedScan, Metrics, ParentScopeCounts, RawInvocationCounts,
-        RegistryCounts, RepoSummary, SCHEMA_VERSION, ScanFacts, ScanStatus, SourceLocation,
+        AdoptionCounts, CountSummary, DefinitionCounts, Diagnostic, DiagnosticSeverity,
+        HardcodedStyleInference, HardcodedStyleSite, LanguageId, LanguageMetadata, MergedScan,
+        Metrics, ParentScopeCounts, RawInvocationCounts, RegistryCounts, RepoSummary,
+        SCHEMA_VERSION, ScanFacts, ScanStatus, SourceLocation, StyleContext, StyleContextCounts,
+        TokenCategory, TokenCategoryCounts, TokenConfidenceCounts, TokenInferenceClassification,
+        TokenInferenceConfidence, TokenInferenceCounts, TokenInferenceEvidence,
+        TokenInferenceReport, TokenMatchKind, TokenReplacementSuggestion,
     };
     use wax_core::paths::PathsError;
 
@@ -811,14 +1079,343 @@ mod tests {
         assert!(stdout.contains("Unresolved UI calls: 1"));
         assert!(stdout.contains("token metrics:"));
         assert!(stdout.contains("Token references: 3"));
-        assert!(stdout.contains("Hard-coded style candidates: 1"));
-        assert!(stdout.contains("Unassessed hard-coded observations: 0"));
+        assert!(stdout.contains("Confirmed migration candidates: 0"));
+        assert!(stdout.contains("Possible migration candidates: 0"));
+        assert!(stdout.contains("Unmatched observations: 0 (informational)"));
+        assert!(stdout.contains("Unassessed observations: 0 (registry values needed)"));
+        assert!(!stdout.contains("Token reference ratio"));
         assert!(stdout.contains("PACK_TIMEOUT: timed out"));
         assert!(stdout.contains(
             "parse_failed (src/Broken.tsx:4:12): failed to parse source file; file skipped"
         ));
         assert!(stdout.contains("PACK_CRASH: process exited"));
         assert!(!stdout.contains("PACK_WARN: warn"));
+    }
+
+    fn spacing_site(
+        id: &str,
+        file: &str,
+        line: u32,
+        value: &str,
+        context: StyleContext,
+    ) -> HardcodedStyleSite {
+        HardcodedStyleSite {
+            id: id.to_owned(),
+            location: SourceLocation {
+                file: file.to_owned(),
+                line,
+                column: None,
+            },
+            value: value.to_owned(),
+            category: TokenCategory::Spacing,
+            context,
+            parent: None,
+        }
+    }
+
+    fn exact_suggestion(token_id: &str, canonical_value: &str) -> TokenReplacementSuggestion {
+        TokenReplacementSuggestion {
+            token_id: token_id.to_owned(),
+            token_key: token_id.to_owned(),
+            canonical_value: canonical_value.to_owned(),
+            match_kind: TokenMatchKind::Exact,
+            distance: Some(0.0),
+            normalized_unit: Some("px".to_owned()),
+        }
+    }
+
+    fn near_suggestion(
+        token_id: &str,
+        canonical_value: &str,
+        distance: f64,
+    ) -> TokenReplacementSuggestion {
+        TokenReplacementSuggestion {
+            token_id: token_id.to_owned(),
+            token_key: token_id.to_owned(),
+            canonical_value: canonical_value.to_owned(),
+            match_kind: TokenMatchKind::Near,
+            distance: Some(distance),
+            normalized_unit: Some("px".to_owned()),
+        }
+    }
+
+    #[test]
+    fn token_summary_reports_all_four_classifications() {
+        let mut output = Vec::new();
+        let react = LanguageId::from_str("react").unwrap();
+
+        let exact_site = spacing_site("hc:1", "src/Card.tsx", 12, "4px", StyleContext::Padding);
+        let near_site = spacing_site("hc:2", "src/Button.tsx", 20, "6px", StyleContext::Gap);
+        let unmatched_site = spacing_site("hc:3", "src/Widget.tsx", 5, "17px", StyleContext::Width);
+        let unassessed_site =
+            spacing_site("hc:4", "src/Legacy.tsx", 30, "9px", StyleContext::Unknown);
+        let exact_id = exact_site.id.clone();
+        let near_id = near_site.id.clone();
+        let unmatched_id = unmatched_site.id.clone();
+        let unassessed_id = unassessed_site.id.clone();
+
+        let mut facts = facts_with_status(ScanStatus::Complete, None, vec![]);
+        facts.hardcoded_style_sites = vec![exact_site, near_site, unmatched_site, unassessed_site];
+
+        let sites = vec![
+            HardcodedStyleInference {
+                language: react.clone(),
+                site_id: exact_id,
+                classification: TokenInferenceClassification::Exact,
+                confidence: Some(TokenInferenceConfidence::High),
+                suggestions: vec![
+                    exact_suggestion("spacing.s", "4px"),
+                    exact_suggestion("spacing.s.alias", "4px"),
+                ],
+                evidence: vec![
+                    TokenInferenceEvidence::ExactValue,
+                    TokenInferenceEvidence::ClearUsageContext,
+                    TokenInferenceEvidence::MultipleEqualMatches,
+                ],
+            },
+            HardcodedStyleInference {
+                language: react.clone(),
+                site_id: near_id,
+                classification: TokenInferenceClassification::Near,
+                confidence: Some(TokenInferenceConfidence::Medium),
+                suggestions: vec![near_suggestion("spacing.m", "8px", 2.0)],
+                evidence: vec![
+                    TokenInferenceEvidence::WithinNumericTolerance,
+                    TokenInferenceEvidence::ClearUsageContext,
+                ],
+            },
+            HardcodedStyleInference {
+                language: react.clone(),
+                site_id: unmatched_id,
+                classification: TokenInferenceClassification::Unmatched,
+                confidence: None,
+                suggestions: vec![],
+                evidence: vec![],
+            },
+            HardcodedStyleInference {
+                language: react.clone(),
+                site_id: unassessed_id,
+                classification: TokenInferenceClassification::Unassessed,
+                confidence: None,
+                suggestions: vec![],
+                evidence: vec![],
+            },
+        ];
+
+        let mut counts = CountSummary::default();
+        counts.tokens.token_reference_site_count = 6;
+
+        let merged = MergedScan {
+            schema_version: SCHEMA_VERSION,
+            recorded_at: OffsetDateTime::UNIX_EPOCH,
+            repo_summary: RepoSummary {
+                languages: vec![react.clone()],
+                counts,
+                metrics: Metrics {
+                    invocation_adoption_ratio: None,
+                    registry_resolution_ratio: None,
+                    parse_extract_ms: 0,
+                    files_scanned: 0,
+                },
+            },
+            symbol_usage_summary: vec![],
+            token_usage_summary: vec![],
+            token_inference: TokenInferenceReport {
+                numeric_tolerance: 2.0,
+                counts: TokenInferenceCounts {
+                    hardcoded_observation_count: 4,
+                    assessed_observation_count: 3,
+                    exact_replacement_candidate_count: 1,
+                    near_replacement_candidate_count: 1,
+                    unmatched_observation_count: 1,
+                    unassessed_observation_count: 1,
+                    candidates_by_confidence: TokenConfidenceCounts {
+                        very_high: 0,
+                        high: 1,
+                        medium: 1,
+                        low: 0,
+                    },
+                    candidates_by_category: TokenCategoryCounts {
+                        spacing: 2,
+                        ..Default::default()
+                    },
+                    candidates_by_context: StyleContextCounts {
+                        padding: 1,
+                        gap: 1,
+                        ..Default::default()
+                    },
+                },
+                sites,
+            },
+            languages: BTreeMap::from([(react, facts)]),
+        };
+
+        write_scan_summary(
+            &mut output,
+            &merged,
+            std::path::Path::new("/tmp/repo/.wax/out/scan-merged.json"),
+            false,
+        )
+        .unwrap();
+
+        let stdout = String::from_utf8(output).unwrap();
+        assert!(stdout.contains("token metrics:"));
+        assert!(stdout.contains("  Token references: 6"));
+        assert!(stdout.contains("  Confirmed migration candidates: 1"));
+        assert!(stdout.contains("  Possible migration candidates: 1"));
+        assert!(stdout.contains("  Unmatched observations: 1 (informational)"));
+        assert!(stdout.contains("  Unassessed observations: 1 (registry values needed)"));
+        assert!(stdout.contains(
+            "src/Card.tsx:12 padding 4px -> spacing.s=4px (distance 0px), spacing.s.alias=4px (distance 0px) (exact, high; evidence: exact value, clear usage context, multiple equal matches)"
+        ));
+        assert!(stdout.contains(
+            "src/Button.tsx:20 gap 6px -> spacing.m=8px (distance 2px) (near, medium; evidence: within numeric tolerance, clear usage context)"
+        ));
+        assert!(
+            stdout.contains("Run wax-registry-discover to review missing canonical token values.")
+        );
+        assert!(!stdout.contains("Token reference ratio"));
+        assert!(!stdout.to_lowercase().contains("debt"));
+    }
+
+    #[test]
+    fn token_summary_first_run_all_unassessed_shows_maintenance_guidance() {
+        let mut output = Vec::new();
+        let react = LanguageId::from_str("react").unwrap();
+
+        let sites_raw = vec![
+            spacing_site("hc:1", "src/A.tsx", 1, "4px", StyleContext::Padding),
+            spacing_site("hc:2", "src/B.tsx", 2, "8px", StyleContext::Width),
+            spacing_site("hc:3", "src/C.tsx", 3, "12px", StyleContext::Gap),
+        ];
+
+        let mut facts = facts_with_status(ScanStatus::Complete, None, vec![]);
+        facts.hardcoded_style_sites = sites_raw.clone();
+
+        let sites = sites_raw
+            .iter()
+            .map(|site| HardcodedStyleInference {
+                language: react.clone(),
+                site_id: site.id.clone(),
+                classification: TokenInferenceClassification::Unassessed,
+                confidence: None,
+                suggestions: vec![],
+                evidence: vec![],
+            })
+            .collect();
+
+        let merged = MergedScan {
+            schema_version: SCHEMA_VERSION,
+            recorded_at: OffsetDateTime::UNIX_EPOCH,
+            repo_summary: RepoSummary {
+                languages: vec![react.clone()],
+                counts: CountSummary::default(),
+                metrics: Metrics {
+                    invocation_adoption_ratio: None,
+                    registry_resolution_ratio: None,
+                    parse_extract_ms: 0,
+                    files_scanned: 0,
+                },
+            },
+            symbol_usage_summary: vec![],
+            token_usage_summary: vec![],
+            token_inference: TokenInferenceReport {
+                numeric_tolerance: 2.0,
+                counts: TokenInferenceCounts {
+                    hardcoded_observation_count: 3,
+                    assessed_observation_count: 0,
+                    exact_replacement_candidate_count: 0,
+                    near_replacement_candidate_count: 0,
+                    unmatched_observation_count: 0,
+                    unassessed_observation_count: 3,
+                    candidates_by_confidence: TokenConfidenceCounts::default(),
+                    candidates_by_category: TokenCategoryCounts::default(),
+                    candidates_by_context: StyleContextCounts::default(),
+                },
+                sites,
+            },
+            languages: BTreeMap::from([(react, facts)]),
+        };
+
+        write_scan_summary(
+            &mut output,
+            &merged,
+            std::path::Path::new("/tmp/repo/.wax/out/scan-merged.json"),
+            false,
+        )
+        .unwrap();
+
+        let stdout = String::from_utf8(output).unwrap();
+        assert!(stdout.contains("  Confirmed migration candidates: 0"));
+        assert!(stdout.contains("  Possible migration candidates: 0"));
+        assert!(stdout.contains("  Unmatched observations: 0 (informational)"));
+        assert!(stdout.contains("  Unassessed observations: 3 (registry values needed)"));
+        assert!(
+            stdout.contains("Run wax-registry-discover to review missing canonical token values.")
+        );
+        assert!(!stdout.contains("(exact,"));
+        assert!(!stdout.contains("(near,"));
+    }
+
+    #[test]
+    fn token_summary_fails_closed_when_inference_row_has_no_raw_site() {
+        let mut output = Vec::new();
+        let react = LanguageId::from_str("react").unwrap();
+
+        let facts = facts_with_status(ScanStatus::Complete, None, vec![]);
+
+        let merged = MergedScan {
+            schema_version: SCHEMA_VERSION,
+            recorded_at: OffsetDateTime::UNIX_EPOCH,
+            repo_summary: RepoSummary {
+                languages: vec![react.clone()],
+                counts: CountSummary::default(),
+                metrics: Metrics {
+                    invocation_adoption_ratio: None,
+                    registry_resolution_ratio: None,
+                    parse_extract_ms: 0,
+                    files_scanned: 0,
+                },
+            },
+            symbol_usage_summary: vec![],
+            token_usage_summary: vec![],
+            token_inference: TokenInferenceReport {
+                numeric_tolerance: 2.0,
+                counts: TokenInferenceCounts {
+                    hardcoded_observation_count: 1,
+                    assessed_observation_count: 1,
+                    exact_replacement_candidate_count: 1,
+                    near_replacement_candidate_count: 0,
+                    unmatched_observation_count: 0,
+                    unassessed_observation_count: 0,
+                    candidates_by_confidence: TokenConfidenceCounts::default(),
+                    candidates_by_category: TokenCategoryCounts::default(),
+                    candidates_by_context: StyleContextCounts::default(),
+                },
+                sites: vec![HardcodedStyleInference {
+                    language: react.clone(),
+                    site_id: "missing-site".to_owned(),
+                    classification: TokenInferenceClassification::Exact,
+                    confidence: Some(TokenInferenceConfidence::VeryHigh),
+                    suggestions: vec![exact_suggestion("spacing.s", "4px")],
+                    evidence: vec![],
+                }],
+            },
+            languages: BTreeMap::from([(react, facts)]),
+        };
+
+        let error = write_scan_summary(
+            &mut output,
+            &merged,
+            std::path::Path::new("/tmp/repo/.wax/out/scan-merged.json"),
+            false,
+        )
+        .expect_err("missing join should fail closed");
+
+        assert!(matches!(error, ScanCommandError::TokenInferenceJoin { .. }));
+        let stdout = String::from_utf8(output).unwrap();
+        assert!(!stdout.contains("Confirmed migration candidates:"));
+        assert!(!stdout.contains("(exact,"));
     }
 
     #[test]

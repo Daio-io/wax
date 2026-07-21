@@ -76,7 +76,7 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
 
 8. When `--html` or `--html-only` is requested, render `.wax/out/report/index.html` using `skills/wax-scan/templates/report.html`.
    - Self-contained branded report: dark panel layout, wax-yellow accents, ranked usage/migration sections, and secondary diagnostics.
-   - Layout: header → KPI grid + caveat → DS usage inventory → unused registry components → adoption by area/language → migration candidates → key findings.
+   - Layout: header → KPI grid + caveat → DS usage inventory → unused registry components → adoption by area/language → local migration candidates → confirmed/possible token migrations → registry metadata gaps → key findings.
    - Populate the agreed first-screen metrics:
      - DS vs local UI coverage from `repo_summary.ds_vs_local_ratio`
      - raw DS invocations (`raw_invocations.resolved`)
@@ -88,6 +88,7 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
      - named unused registry components when available
      - parent-scope hotspots with resolved/local/unresolved counts when available
      - ranked local migration candidates and fragmentation families
+     - deterministic token inference from insights `token_inference` (confirmed/possible candidates and metadata gaps)
      - deterministic key findings driven by migration opportunity
    - No CDN or external assets — self-contained CSS and inline SVG only.
    - Escape all scan-derived text (symbols, limits, paths, narrative evidence) with `skills/wax-scan/scripts/html-escape.sh` before inserting into HTML or SVG. Only trusted template snippets (card shells, badges) may be raw HTML.
@@ -133,8 +134,24 @@ Analyze and report on:
 5. Version adoption
 6. Fragmentation and duplication
 7. Migration opportunities
-8. Missing design system capabilities
-9. Trends over time
+8. Token inference (confirmed/possible replacements and registry metadata gaps)
+9. Missing design system capabilities
+10. Trends over time
+
+---
+
+# TOKEN INFERENCE
+
+Use only deterministic classifications from insights `token_inference` (schema v3). Do not invent or re-rank replacement confidence.
+
+- Exact rows are deterministic confirmed migration candidates.
+- Near rows are deterministic possible migration candidates.
+- Unmatched rows are informational observations, not debt.
+- Unassessed rows are registry metadata gaps and may trigger `wax-registry-discover`.
+- Never synthesize a replacement confidence that disagrees with `token_inference`.
+- Join inference to raw observations by `(language, site_id)`; fail closed if the join is missing or ambiguous.
+
+Existing registries whose tokens lack canonical `value` fields initially produce unassessed findings until reviewed values are written and a fresh scan runs. Do not treat that first-run unassessed set as unmatched debt, and do not combine exact + near counts into a single token-debt headline. The retired token reference ratio must not appear as a report KPI.
 
 ---
 
