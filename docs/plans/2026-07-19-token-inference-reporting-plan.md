@@ -690,7 +690,7 @@ Expected: all commands exit `0`; CLI and HTML use the same classifications.
 
 ### Task 5: Expand Registry Discovery into Reviewed Token Maintenance
 
-- [ ] **Task 5 complete**
+- [x] **Task 5 complete**
 
 **Files:**
 - Modify: `skills/wax-registry-discover/SKILL.md`
@@ -704,7 +704,7 @@ Expected: all commands exit `0`; CLI and HTML use the same classifications.
 - Consumes: schema-v3 unassessed rows, optional registry token values, remembered upstream resolution, `wax registry discover --dry-run`, `wax validate`, and `wax sync`.
 - Produces: a direct or delegated reviewed workflow; it adds no AI dependency to engine scanning or validation.
 
-- [ ] **Step 1: Write a failing skill-contract test**
+- [x] **Step 1: Write a failing skill-contract test**
 
 Create an executable shell test with:
 
@@ -730,11 +730,11 @@ require_text "skills/wax-scan/SKILL.md" "unassessed"
 require_text "skills/wax-scan/SKILL.md" "wax-registry-discover"
 ```
 
-Also extract the labeled before/after registry JSON blocks from the golden workflow into temporary files and use `jq -e` to assert: both parse; the before token has no `value`; the after token has the expected canonical value; ids, keys, categories, aliases, and metadata are unchanged; and the after token/component counts are not lower. This makes the smoke test enforce the promised preservation behavior rather than only checking prose keywords.
+Also extract the labeled before/after registry JSON blocks from the golden workflow into temporary files and use `jq -e` to assert: both parse; the before token has no `value`; the after token has the expected canonical value; the entire after registry equals the before registry plus only that approved value; and the after token/component counts are not lower. This makes the smoke test enforce the promised preservation behavior rather than only checking prose keywords.
 
 Expected before documentation changes: FAIL because the token maintenance reference and golden workflow are missing.
 
-- [ ] **Step 2: Define direct and delegated entry points**
+- [x] **Step 2: Define direct and delegated entry points**
 
 Document:
 
@@ -745,17 +745,17 @@ Delegated: wax-scan finds unassessed observations and offers registry enrichment
 
 Resolve the publisher repo through `design_systems` config or remembered upstream metadata. If it cannot be resolved, stop with instructions; never edit an app-local synced copy as authoritative source.
 
-- [ ] **Step 3: Define canonical-value evidence rules**
+- [x] **Step 3: Define canonical-value evidence rules**
 
 Require every proposal to show language, token id/key/category, current value, proposed source-facing value, source file/line, resolution explanation, and confidence. Accept direct constants and traceable simple aliases. Treat computed, runtime, or theme-dependent values as ambiguous and do not flatten modes.
 
-- [ ] **Step 4: Define the reviewed write workflow**
+- [x] **Step 4: Define the reviewed write workflow**
 
 Run deterministic component discovery in preview mode, compare with the current registry, inspect token source, and show separate diff groups for component changes, token additions, values filled, values changed, and potential removals. Require approval for additions/changes and separate approval for removals. Preserve ids, keys, aliases, categories, metadata, and values outside the approved diff. Use `apply_patch` for registry edits.
 
 Add `examples/token-value-refresh.md` as a golden end-to-end workflow showing: a before registry whose token lacks `value`; the source declaration and line used as evidence; a proposed structured diff that fills the canonical value; the explicit approval boundary; the after registry; validation/sync/rescan results; and confirmation that no registry entries were deleted. The skill-contract test must assert these sections exist so verification covers behavior, not only isolated keywords.
 
-- [ ] **Step 5: Define validation, sync, and rerun behavior**
+- [x] **Step 5: Define validation, sync, and rerun behavior**
 
 After an approved publisher-registry edit, run:
 
@@ -773,11 +773,11 @@ wax scan
 
 Then regenerate the report. A failed write or validation leaves the previous registry recoverable and stops before sync.
 
-- [ ] **Step 6: Make wax-scan delegation explicit**
+- [x] **Step 6: Make wax-scan delegation explicit**
 
-Report unassessed counts, explain missing metadata, offer maintenance, delegate only after acceptance, never insert inferred values directly into metrics, and rerun a fresh scan after successful maintenance. Describe reviewed value maintenance as the unlock from the expected first-run all-unassessed state: only the fresh post-sync scan may reclassify observations as exact, near, or unmatched.
+Report unassessed counts and inspect typed evidence before explaining the cause. Offer maintenance for missing or incomplete registry coverage, but report unsupported normalization without assuming a missing value. Delegate only after acceptance, never insert inferred values directly into metrics, and rerun a fresh scan after successful maintenance. Describe reviewed value maintenance as the unlock from the expected first-run all-unassessed state: only the fresh post-sync scan may reclassify observations as exact, near, or unmatched.
 
-- [ ] **Step 7: Verify and commit**
+- [x] **Step 7: Verify and commit**
 
 ```bash
 chmod +x scripts/test-wax-registry-skill-contract.sh

@@ -1,11 +1,25 @@
 ---
 name: wax-registry-discover
-description: Use when updating Wax design-system registries from source packages; auto-detects languages and roots when needed, runs deterministic discovery, reviews candidates, asks about ambiguous exports, remembers design systems, writes registries, validates config, and refreshes app inputs with wax sync.
+description: Use when updating Wax design-system registries from source packages; auto-detects languages and roots when needed, runs deterministic discovery, reviews candidates, proposes reviewed canonical token values, asks about ambiguous exports, remembers design systems, writes registries after explicit approval, validates config, and refreshes app inputs with wax sync.
 ---
 
 # Wax Registry Discover
 
 Use this skill to help design-system maintainers and app teams work with Wax registries while keeping runtime scan and validate behavior deterministic. AI review is an authoring aid only; do not make `wax scan` or `wax validate` depend on agent decisions.
+
+This skill covers component discovery and reviewed canonical token-value maintenance. See [token-value-maintenance.md](token-value-maintenance.md) for evidence rules and the reviewed write workflow. See [examples/token-value-refresh.md](examples/token-value-refresh.md) for a golden end-to-end value fill.
+
+## Entry points
+
+```text
+Direct: discover, update, refresh, or audit a Wax registry.
+Delegated: wax-scan finds unassessed observations and offers registry enrichment.
+```
+
+| Entry | When | What to do |
+|-------|------|------------|
+| Direct | User asks to discover, update, refresh, or audit a registry | Run this skill end-to-end from the publisher repo |
+| Delegated | `wax-scan` reports unassessed token observations and the user accepts maintenance | Resolve the publisher, propose reviewed values with source evidence, write only after approval, then sync and rescan the app |
 
 ## Two repository roles
 
@@ -15,6 +29,8 @@ Use this skill to help design-system maintainers and app teams work with Wax reg
 | App consumer | Product codebase | `wax init`, `wax sync`, `wax scan` |
 
 Repo config lives at `.wax/wax.config.json`. Lockfile lives at `.wax/wax.lock.json`.
+
+**Authoritative writes always target the publisher registry.** Resolve the publisher through `design_systems` config or remembered upstream metadata (`wax registry show`, `registry.upstream`). If the publisher cannot be resolved, stop with instructions to point at the design-system repo or remember it; never edit an app-local synced copy under `.wax/registries/<design-system>/` as the authoritative source.
 
 ## Command
 
@@ -115,7 +131,7 @@ Use configless discovery: **always pass `--root`** and do not assume configured 
 
    - Design-system repos: `.wax/registries/<language>.json` unless config overrides `design_systems.<id>.registries.<language>.source`.
 
-4. Compare dry-run output with the existing registry. Show a concise diff or summary of added, removed, and changed component ids/symbols. Discovered registries should include a `package` field per component when the language pack can infer it:
+4. Compare dry-run output with the existing registry. Show a concise **structured diff** or summary of added, removed, and changed component ids/symbols. Discovered registries should include a `package` field per component when the language pack can infer it:
 
    | Language | `package` inference |
    |----------|---------------------|
@@ -125,13 +141,18 @@ Use configless discovery: **always pass `--root`** and do not assume configured 
 
    When `package` is present, parser-backed scans count only imports from that package as resolved design-system usage.
 
-5. Review ambiguous candidates before writing:
+5. When refreshing canonical token values (direct or delegated), follow [token-value-maintenance.md](token-value-maintenance.md): inspect token source, attach source evidence, and group the structured diff into component changes, token additions, values filled, values changed, and potential removals.
+
+6. Review ambiguous candidates before writing:
 
    - Ask about exports that look like helpers, demos, previews, aliases, or duplicate public components.
    - Ask before excluding discovered symbols from the registry.
-   - Ask before using `--force`.
+   - Do not use `--force` to replace an existing registry; apply the approved diff instead.
+   - Require **explicit approval** for additions and value changes; require a separate approval for any removals.
 
-6. Write the registry only after review:
+7. Write the registry only after review. **For an existing registry, use `apply_patch` only** so the approved diff is the only change applied. Current discovery output is component-only, so running the write form with `--force` against an existing registry can discard tokens, aliases, metadata, and other fields outside the approved diff.
+
+   Reserve the full discovery write for creating a new registry at a path that does not exist:
 
    ```bash
    wax registry discover \
@@ -141,13 +162,25 @@ Use configless discovery: **always pass `--root`** and do not assume configured 
      --root <path>
    ```
 
-   If an existing registry blocks the write, show the diff or summary before `--force`, then run the forced write only after explicit user approval.
+   If the target already exists, keep the command in `--dry-run` mode and transfer only approved changes with `apply_patch`.
 
-7. Validate after write when Wax config exists:
+8. Validate after write when Wax config exists:
 
    ```bash
    wax validate
    ```
+
+   A failed write or validation leaves the previous registry recoverable and stops before sync.
+
+9. For a delegated app flow with resolvable upstream, return to the app and run:
+
+   ```bash
+   wax sync
+   wax validate
+   wax scan
+   ```
+
+   Then regenerate the report. Only the fresh post-sync scan may reclassify observations as exact, near, or unmatched.
 
 ## App workflow
 
@@ -193,6 +226,13 @@ wax registry delete <id>
 - use `--root` when Wax config is absent
 - pass `--design-system` and `--name` when discovering in a design-system repo
 - do not blindly overwrite
-- show diff or summary before `--force`
+- keep discovery in `--dry-run` mode for existing registries
+- use `apply_patch` only for approved changes to an existing registry; never replace it with `--force`
+- require explicit approval before writing additions or value changes
+- require separate approval before any removals
+- **Never delete** components or tokens automatically
+- preserve ids, keys, aliases, categories, metadata, and values outside the approved diff
 - validate after write when Wax config exists
+- never edit an app-local synced registry as authoritative source
 - use `wax sync` for app repos with `registry.upstream`; use `wax language update` for language-pack lock refresh
+- AI-proposed values become deterministic scan inputs only after approved registry writes and a fresh scan
