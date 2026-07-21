@@ -1,6 +1,6 @@
 # Token Inference and Reporting Design
 
-**Status:** Accepted (implementation in progress)
+**Status:** Accepted (implemented)
 
 **Date:** 2026-07-19
 
@@ -8,7 +8,7 @@
 
 **Related:** [Token scanning](./2026-07-03-token-scanning-design.md) · [Wax scan analytics](./2026-06-14-wax-scan-design.md) · [Registry sync and config v2](./2026-07-04-registry-sync-config-design.md)
 
-**Implementation plan:** [Token inference and reporting implementation plan](../plans/2026-07-19-token-inference-reporting-plan.md)
+**Implementation plan:** [Token inference and reporting implementation plan (archived)](../plans/archive/2026-07-19-token-inference-reporting-plan.md) · [ADR](../adr/2026-07-19-token-inference-reporting.md)
 
 ## Summary
 

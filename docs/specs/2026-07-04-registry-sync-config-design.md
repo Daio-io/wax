@@ -1,5 +1,7 @@
 # Registry Sync and Config v2 Design
 
+**Related:** [Token inference and reporting design](./2026-07-19-token-inference-reporting-design.md) — the `wax-registry-discover` skill uses this design's `design_systems` config and remembered upstream metadata to resolve the publisher registry it proposes reviewed canonical token `value` updates against, then hands back to `wax sync` / `wax scan` for the app repo.
+
 ## Context
 
 Wax can already discover design-system registries, scan codebases with language packs, and pin registry digests in `.wax/wax.lock.json`. The rough edge is the handoff between a design-system repo and app repos: after discovering a registry, users still copy files manually and keep app configs in sync by hand.
@@ -233,6 +235,8 @@ For each `languages.<language>.registry.upstream`:
 `wax scan` should attempt the same app sync as a best-effort preflight when upstream metadata exists. If sync succeeds, the scan uses the refreshed registry inputs and lockfile. If sync fails because the design-system repo is unavailable, global memory is stale, a hosted source cannot be reached, or a registry cannot be copied, Wax prints a warning and continues scanning with the current configured `registry.source`.
 
 `wax sync` remains useful as an explicit command before scan when users want to refresh inputs intentionally or see sync failures separately. When a scan falls back to current inputs after a failed best-effort sync, it should include a short hint:
+
+When a scan reports unassessed token observations because canonical token `value` metadata is missing or stale, the `wax-registry-discover` skill can propose reviewed publisher-registry updates (never editing an app-local synced copy). After an approved write, the normal flow resumes: `wax sync` refreshes the app-local registry copy, `wax validate` confirms the config, and a fresh `wax scan` can reclassify previously unassessed observations. See [Token inference and reporting](./2026-07-19-token-inference-reporting-design.md#registry-maintenance-skill).
 
 ```text
 warning: registry sync failed for acme/react; scanning with current registry source. Run `wax sync` for details.

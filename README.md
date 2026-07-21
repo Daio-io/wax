@@ -105,7 +105,9 @@ wax registry discover --language react --root ../design-system/src --force
 Review discovered entries before committing them.
 
 Add design tokens to the same per-language registry files. Wax matches each token's
-`key` and optional `aliases` exactly in source:
+`key` and optional `aliases` exactly in source. Add an optional `value` with the
+canonical source-facing representation to let Wax infer exact and near matches
+against hard-coded styling:
 
 ```json
 {
@@ -122,19 +124,23 @@ Add design tokens to the same per-language registry files. Wax matches each toke
       "id": "color.primary",
       "key": "theme.colors.primary",
       "category": "color",
-      "aliases": ["tokens.color.primary"]
+      "aliases": ["tokens.color.primary"],
+      "value": "#3366ff"
     },
     {
       "id": "space.medium",
       "key": "theme.space.medium",
-      "category": "spacing"
+      "category": "spacing",
+      "value": "8px"
     }
   ]
 }
 ```
 
 Registries without `tokens` (or with an empty array) stay valid. Component-only
-coverage still works; token facts are additive.
+coverage still works; token facts are additive. A token without `value` remains
+valid too — Wax reports its hard-coded observations as `unassessed` until a
+reviewed canonical value is added (see [Registry maintenance](#tokens) below).
 
 ### Scan Your App
 
@@ -162,15 +168,48 @@ The terminal summary includes token metrics when registry tokens are configured:
 
 ```text
 token metrics:
-  Token reference ratio: 75.0%
   Token references: 12
-  Hard-coded style candidates: 4
+  Confirmed migration candidates: 3
+  Possible migration candidates: 1
+  Unmatched observations: 2 (informational)
+  Unassessed observations: 4 (registry values needed)
 ```
 
-The token reference ratio is factual, not a compliance score: it compares known
-token references to hard-coded styling candidates. Parser-backed packs (`react`,
-`compose`, `swift`) can emit hard-coded styling candidates in styling contexts.
-The `basic` pack matches token references only.
+Every hard-coded styling observation from a parser-backed pack (`react`,
+`compose`, `swift`) gets exactly one deterministic classification:
+
+- **exact** — the observed value matches a registry token's canonical `value`
+  exactly; reported as a confirmed migration candidate.
+- **near** — the observed value is numerically close to a canonical value,
+  within `token_inference.numeric_tolerance`; reported as a possible migration
+  candidate.
+- **unmatched** — every same-category token has a usable canonical value, but
+  none match closely enough; reported as informational evidence, not debt. A
+  fixed dimension such as `width: 200px` stays visible here without counting
+  against adoption.
+- **unassessed** — the registry lacks enough canonical values to reach a
+  conclusion; Wax cannot yet prove the observation is inside or outside the
+  token set.
+
+There is no combined debt, health, or compliance score. Exact, near, unmatched,
+and unassessed counts stay separate on purpose. The retired
+`token_reference_ratio` metric no longer appears in scan output.
+
+Control near-match sensitivity with `token_inference.numeric_tolerance` in
+`.wax/wax.config.json`:
+
+```json
+{
+  "schema_version": 2,
+  "token_inference": {
+    "numeric_tolerance": 2
+  }
+}
+```
+
+The default tolerance is `2`; a value of `0` disables near matching and keeps
+only exact matches. The `basic` pack matches token references only and never
+emits hard-coded observations or inference rows.
 
 ## CLI Usage
 
@@ -238,20 +277,65 @@ wax validate
 
 Token definitions live in each language registry (for example
 `.wax/react.registry.json`). Each entry needs an `id`, exact source `key`,
-`category`, and optional `aliases`.
+`category`, optional `aliases`, and an optional `value` — the canonical
+source-facing representation Wax compares against hard-coded styling:
+
+```json
+{
+  "id": "space.medium",
+  "key": "theme.space.medium",
+  "category": "spacing",
+  "value": "8px"
+}
+```
 
 Supported categories: `color`, `spacing`, `typography`, `radius`, `elevation`,
 and `unknown`.
 
 Scan output adds token facts alongside component usage:
 
-- `design_system_tokens[]` — configured registry tokens
+- `design_system_tokens[]` — configured registry tokens, each optionally
+  carrying a canonical `value`
 - `token_sites[]` — exact matches for token keys or aliases in source
-- `hardcoded_style_sites[]` — conservative hard-coded styling candidates from
-  parser-backed packs
+- `hardcoded_style_sites[]` — every hard-coded styling observation from
+  parser-backed packs, with typed usage context (padding, gap, width,
+  height, radius, color, and so on)
+- `token_inference` — one deterministic `exact` / `near` / `unmatched` /
+  `unassessed` row per hard-coded observation, with confidence, suggested
+  replacement tokens, and typed evidence
 
-Token registry discovery is not automated yet. Author or sync `tokens[]`
-explicitly, then run `wax sync` and `wax scan` as usual.
+Findings map to a simple framing:
+
+- **confirmed** (`exact`) and **possible** (`near`) rows are migration
+  candidates.
+- **informational** (`unmatched`) rows are visible facts, not debt — a fixed
+  dimension without a matching canonical value is not treated as a token
+  violation.
+- **unassessed** rows mean the registry needs more canonical `value` data
+  before Wax can reach a conclusion.
+
+Tune near-match sensitivity in `.wax/wax.config.json`:
+
+```json
+{
+  "schema_version": 2,
+  "token_inference": {
+    "numeric_tolerance": 2
+  }
+}
+```
+
+`numeric_tolerance` defaults to `2` and accepts any finite non-negative
+number; `0` keeps only exact matches. Near matching applies to compatible
+numeric scalar values only — colors, shadows, and composite typography
+values always require an exact normalized match.
+
+Token registry discovery and value maintenance are not automated end-to-end.
+Author or sync `tokens[]` explicitly, or run the `wax-registry-discover` skill
+to propose reviewed canonical values with source evidence and an explicit
+approval step before any registry write. After canonical values are approved,
+run `wax sync` and `wax scan` again to reclassify previously unassessed
+observations.
 
 ### CI
 
@@ -279,19 +363,24 @@ cargo build --release -p wax-cli
 
 Scan output reports design-system coverage using deterministic JSON. The merged
 scan file includes resolved design-system usages, local UI, candidate matches,
-unresolved invocations, and additive token facts (references and hard-coded
-styling candidates).
+unresolved invocations, and additive token facts: references, raw hard-coded
+observations with usage context, and a deterministic `token_inference` report
+(exact, near, unmatched, and unassessed classifications with confidence and
+suggested replacements).
 
 For the full output contract, see
 [Adoption Metrics v2](docs/specs/2026-06-20-adoption-metrics-v2-design.md).
-For token facts and CLI metrics, see
-[Token scanning](docs/specs/2026-07-03-token-scanning-design.md).
+For raw token facts, see
+[Token scanning](docs/specs/2026-07-03-token-scanning-design.md). For
+inference classifications, confidence, and reviewed registry maintenance, see
+[Token inference and reporting](docs/specs/2026-07-19-token-inference-reporting-design.md).
 
 ## More Docs
 
 - [Language packs and distribution](docs/specs/2026-05-16-language-packs-and-distribution.md)
 - [Component tracker design](docs/specs/2026-05-13-component-tracker-design.md)
 - [Token scanning](docs/specs/2026-07-03-token-scanning-design.md)
+- [Token inference and reporting](docs/specs/2026-07-19-token-inference-reporting-design.md)
 - [Implementation plans](docs/plans/README.md)
 - [Architecture decision records](docs/adr/README.md)
 - [Contributing](CONTRIBUTING.md)

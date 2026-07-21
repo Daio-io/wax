@@ -1,10 +1,12 @@
 # Token Scanning Design
 
-**Status:** Accepted (implemented)  
+**Status:** Accepted (implemented); superseded in part by the inference addendum below
 **Date:** 2026-07-03  
 **Audience:** Wax engine, contract, language-pack, and reporting implementers  
-**Related:** `docs/specs/2026-06-20-adoption-metrics-v2-design.md`, `docs/specs/2026-05-13-component-tracker-design.md`, `docs/specs/2026-07-04-registry-sync-config-design.md`
+**Related:** `docs/specs/2026-06-20-adoption-metrics-v2-design.md`, `docs/specs/2026-05-13-component-tracker-design.md`, `docs/specs/2026-07-04-registry-sync-config-design.md`, [`docs/specs/2026-07-19-token-inference-reporting-design.md`](./2026-07-19-token-inference-reporting-design.md)
 **Implementation plan:** [`docs/plans/archive/2026-07-03-token-scanning-plan.md`](../plans/archive/2026-07-03-token-scanning-plan.md) · [ADR](../adr/2026-07-03-token-scanning.md)
+
+> **v1 non-goals delivered by the inference addendum:** This v1 design intentionally deferred suggested replacement tokens, a token `style_context` field, and automated registry value population (see Non-Goals below). The [token inference and reporting design](./2026-07-19-token-inference-reporting-design.md) and its [ADR](../adr/2026-07-19-token-inference-reporting.md) deliver these as schema-v3 additions: typed `StyleContext`, deterministic exact/near/unmatched/unassessed classification against optional canonical registry `value`, and a reviewed `wax-registry-discover` maintenance workflow. This document is kept as-is for v1 history; it is not rewritten. The retired `token_reference_ratio` metric described below no longer appears in scan output as of schema v3.
 
 ## Summary
 
@@ -24,13 +26,13 @@ The design does not try to map hard-coded values to replacement tokens. That rem
 
 ## Non-Goals
 
-- Suggested replacement tokens for hard-coded values.
-- Fuzzy value matching, unit normalization, theme-mode matching, or cross-platform token equivalence.
-- Regex or pattern-based token matching in registries.
-- A token `style_context` field.
-- Hard-coded styling candidates from the basic text scanner.
-- Runtime telemetry or production instrumentation.
-- Automated token discovery or population of registry `tokens[]` (for example via `wax-registry-discover`); token registries are authored or synced explicitly in v1.
+- Suggested replacement tokens for hard-coded values. **Delivered by the inference addendum:** schema-v3 `token_inference` rows now suggest exact/near replacement tokens; see [Token inference and reporting](./2026-07-19-token-inference-reporting-design.md).
+- Fuzzy value matching, unit normalization, theme-mode matching, or cross-platform token equivalence. **Partially delivered:** the inference addendum adds conservative, language-aware numeric normalization and near matching within a configurable tolerance; theme-mode and cross-platform equivalence remain out of scope.
+- Regex or pattern-based token matching in registries. Still out of scope; token `key`/`aliases` matching remains exact.
+- A token `style_context` field. **Delivered by the inference addendum:** raw `HardcodedStyleSite.context` (a typed `StyleContext`) ships in schema v3.
+- Hard-coded styling candidates from the basic text scanner. Still out of scope; `basic` continues to emit token references only.
+- Runtime telemetry or production instrumentation. Still out of scope.
+- Automated token discovery or population of registry `tokens[]` (for example via `wax-registry-discover`); token registries are authored or synced explicitly in v1. **Delivered by the inference addendum:** `wax-registry-discover` expands into a reviewed token-value maintenance workflow with source evidence and explicit approval; it never writes automatically.
 
 ## Approach
 
@@ -200,6 +202,8 @@ token_reference_ratio =
 The ratio is `null` when the denominator is zero.
 
 Reports must label this as "token reference ratio", not "token compliance", because Wax is not proving that hard-coded values have correct replacement tokens.
+
+> **Retired in schema v3:** `token_reference_ratio` treated every hard-coded observation as equivalent debt regardless of registry evidence. The inference addendum removes it from the contract and headline reporting in favor of separate exact/near/unmatched/unassessed counts; see [Token inference and reporting](./2026-07-19-token-inference-reporting-design.md).
 
 ## Validation
 

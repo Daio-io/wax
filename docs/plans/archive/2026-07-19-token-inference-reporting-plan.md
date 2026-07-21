@@ -794,7 +794,7 @@ Expected: all scripts exit `0` and the skill contract enforces evidence, approva
 
 ### Task 6: Documentation, Full Verification, and Closeout
 
-- [ ] **Task 6 complete**
+- [x] **Task 6 complete**
 
 **Files:**
 - Modify: `README.md`
@@ -811,7 +811,7 @@ Expected: all scripts exit `0` and the skill contract enforces evidence, approva
 - Consumes: all completed implementation tasks and verified behavior.
 - Produces: current setup/config/report docs, accepted ADR, archived plan, and full-workspace evidence.
 
-- [ ] **Step 1: Record shipped names before editing docs**
+- [x] **Step 1: Record shipped names before editing docs**
 
 Use this consistency checklist:
 
@@ -825,19 +825,19 @@ registry field: value
 retired metric: token_reference_ratio
 ```
 
-- [ ] **Step 2: Update user-facing setup and config documentation**
+- [x] **Step 2: Update user-facing setup and config documentation**
 
 Add registry and tolerance examples. Explain confirmed, possible, informational, and unassessed findings. State that fixed dimensions remain visible but are not debt without exact/near registry evidence.
 
-- [ ] **Step 3: Update related specs without rewriting v1 history**
+- [x] **Step 3: Update related specs without rewriting v1 history**
 
 Mark token-scanning v1's replacement/context non-goals as delivered by this addendum. Link registry sync to skill-assisted refresh. Change the new design to `Accepted (implemented)` and link its plan/ADR.
 
-- [ ] **Step 4: Create the ADR**
+- [x] **Step 4: Create the ADR**
 
 Record pack-owned context, core-owned inference, one optional canonical value, separate classifications, light context confidence, tolerance `2`, schema-v3 ratio removal, and reviewed registry writes. Add implementation PR links once known.
 
-- [ ] **Step 5: Run release/report checks**
+- [x] **Step 5: Run release/report checks**
 
 ```bash
 scripts/test-generate-pack-index.sh
@@ -851,7 +851,7 @@ scripts/test-wax-registry-skill-contract.sh
 
 Expected: every command exits `0` and each test prints PASS.
 
-- [ ] **Step 6: Run full Rust verification**
+- [x] **Step 6: Run full Rust verification**
 
 ```bash
 cd engine
@@ -862,7 +862,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 Expected: formatting is clean, all tests pass, and clippy emits no warnings.
 
-- [ ] **Step 7: Audit contract and documentation drift**
+- [x] **Step 7: Audit contract and documentation drift**
 
 ```bash
 rg -n 'token_reference_ratio' engine skills scripts README.md docs \
@@ -874,11 +874,11 @@ rg -n 'T(BD)|TO(DO)|FIX(ME)' docs/specs/2026-07-19-token-inference-reporting-des
 
 Expected: only explicit migration/history references remain in the first result; the second returns no matches.
 
-- [ ] **Step 8: Close the roadmap and archive the plan**
+- [x] **Step 8: Close the roadmap and archive the plan**
 
 After all task PRs merge, tick every checkbox, move this file to `docs/plans/archive/2026-07-19-token-inference-reporting-plan.md`, update the archive index, and set roadmap statuses to `merged` and `complete`. Do not change the active plan until roadmap gates permit it.
 
-- [ ] **Step 9: Commit closeout**
+- [x] **Step 9: Commit closeout**
 
 ```bash
 git add README.md docs engine/crates/wax-contract/schemas skills
@@ -889,14 +889,14 @@ git commit -m "docs: close token inference and reporting plan"
 
 ## Final Acceptance Checklist
 
-- [ ] Every raw parser-backed hard-coded observation survives with typed context.
-- [ ] Optional canonical values round-trip and empty values fail validation.
-- [ ] Core emits exactly one deterministic inference row per observation.
-- [ ] Exact, near, unmatched, and unassessed counts reconcile and remain separate.
-- [ ] A fixed unmatched width such as `200px` is informational, not migration debt.
-- [ ] Default tolerance is `2`, custom tolerance is reproducible, and `0` disables near matching.
-- [ ] Context changes confidence only and tied suggestions remain visible.
-- [ ] CLI, JSON, terminal skill output, and HTML consume the same classifications.
-- [ ] Registry maintenance requires evidence, diff review, approval, and no automatic deletion.
-- [ ] Compose, React, and Swift fixtures demonstrate context parity.
-- [ ] All focused scripts, workspace tests, formatting, and clippy pass.
+- [x] Every raw parser-backed hard-coded observation survives with typed context.
+- [x] Optional canonical values round-trip and empty values fail validation.
+- [x] Core emits exactly one deterministic inference row per observation.
+- [x] Exact, near, unmatched, and unassessed counts reconcile and remain separate.
+- [x] A fixed unmatched width such as `200px` is informational, not migration debt.
+- [x] Default tolerance is `2`, custom tolerance is reproducible, and `0` disables near matching.
+- [x] Context changes confidence only and tied suggestions remain visible.
+- [x] CLI, JSON, terminal skill output, and HTML consume the same classifications.
+- [x] Registry maintenance requires evidence, diff review, approval, and no automatic deletion.
+- [x] Compose, React, and Swift fixtures demonstrate context parity.
+- [x] All focused scripts, workspace tests, formatting, and clippy pass.
