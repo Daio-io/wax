@@ -41,10 +41,10 @@
 
 ## Reference Spec
 
-- Design: [docs/specs/2026-07-19-token-inference-reporting-design.md](../specs/2026-07-19-token-inference-reporting-design.md)
-- Token scanning v1: [docs/specs/2026-07-03-token-scanning-design.md](../specs/2026-07-03-token-scanning-design.md)
-- Wax scan analytics: [docs/specs/2026-06-14-wax-scan-design.md](../specs/2026-06-14-wax-scan-design.md)
-- Registry sync/config v2: [docs/specs/2026-07-04-registry-sync-config-design.md](../specs/2026-07-04-registry-sync-config-design.md)
+- Design: [docs/specs/2026-07-19-token-inference-reporting-design.md](../../specs/2026-07-19-token-inference-reporting-design.md)
+- Token scanning v1: [docs/specs/2026-07-03-token-scanning-design.md](../../specs/2026-07-03-token-scanning-design.md)
+- Wax scan analytics: [docs/specs/2026-06-14-wax-scan-design.md](../../specs/2026-06-14-wax-scan-design.md)
+- Registry sync/config v2: [docs/specs/2026-07-04-registry-sync-config-design.md](../../specs/2026-07-04-registry-sync-config-design.md)
 
 ## File Structure
 

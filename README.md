@@ -139,8 +139,10 @@ against hard-coded styling:
 
 Registries without `tokens` (or with an empty array) stay valid. Component-only
 coverage still works; token facts are additive. A token without `value` remains
-valid too — Wax reports its hard-coded observations as `unassessed` until a
-reviewed canonical value is added (see [Registry maintenance](#tokens) below).
+valid too. When no exact match exists, missing or unsupported same-category
+canonical values leave the affected observations `unassessed`; inspect each
+row's typed `evidence` before proposing a registry change. See the reviewed
+[registry-maintenance workflow](skills/wax-registry-discover/SKILL.md).
 
 ### Scan Your App
 
@@ -164,7 +166,7 @@ wax scan
 
 Wax writes results under `.wax/out/`, including `.wax/out/scan-merged.json`.
 
-The terminal summary includes token metrics when registry tokens are configured:
+The terminal summary includes token metrics for every scan:
 
 ```text
 token metrics:
@@ -178,8 +180,8 @@ token metrics:
 Every hard-coded styling observation from a parser-backed pack (`react`,
 `compose`, `swift`) gets exactly one deterministic classification:
 
-- **exact** — the observed value matches a registry token's canonical `value`
-  exactly; reported as a confirmed migration candidate.
+- **exact** — the normalized observed value matches a registry token's
+  normalized canonical `value`; reported as a confirmed migration candidate.
 - **near** — the observed value is numerically close to a canonical value,
   within `token_inference.numeric_tolerance`; reported as a possible migration
   candidate.
@@ -187,9 +189,10 @@ Every hard-coded styling observation from a parser-backed pack (`react`,
   none match closely enough; reported as informational evidence, not debt. A
   fixed dimension such as `width: 200px` stays visible here without counting
   against adoption.
-- **unassessed** — the registry lacks enough canonical values to reach a
-  conclusion; Wax cannot yet prove the observation is inside or outside the
-  token set.
+- **unassessed** — Wax cannot complete the comparison, for example because no
+  same-category token exists, a canonical value is missing or unsupported, or
+  the observed format cannot be normalized. Inspect the row's typed `evidence`
+  before deciding whether registry maintenance is needed.
 
 There is no combined debt, health, or compliance score. Exact, near, unmatched,
 and unassessed counts stay separate on purpose. The retired
@@ -207,9 +210,9 @@ Control near-match sensitivity with `token_inference.numeric_tolerance` in
 }
 ```
 
-The default tolerance is `2`; a value of `0` disables near matching and keeps
-only exact matches. The `basic` pack matches token references only and never
-emits hard-coded observations or inference rows.
+The default tolerance is `2`; a value of `0` disables near matching while exact,
+unmatched, and unassessed classifications remain. The `basic` pack matches token
+references only and never emits hard-coded observations or inference rows.
 
 ## CLI Usage
 
@@ -311,8 +314,10 @@ Findings map to a simple framing:
 - **informational** (`unmatched`) rows are visible facts, not debt — a fixed
   dimension without a matching canonical value is not treated as a token
   violation.
-- **unassessed** rows mean the registry needs more canonical `value` data
-  before Wax can reach a conclusion.
+- **unassessed** rows mean Wax could not complete the comparison. Inspect their
+  typed `evidence`: missing or incomplete canonical `value` coverage can be
+  repaired through reviewed registry maintenance, while unsupported observed or
+  canonical formats need different handling.
 
 Tune near-match sensitivity in `.wax/wax.config.json`:
 
@@ -325,17 +330,23 @@ Tune near-match sensitivity in `.wax/wax.config.json`:
 }
 ```
 
-`numeric_tolerance` defaults to `2` and accepts any finite non-negative
-number; `0` keeps only exact matches. Near matching applies to compatible
-numeric scalar values only — colors, shadows, and composite typography
-values always require an exact normalized match.
+`numeric_tolerance` defaults to `2` and accepts any finite non-negative number;
+`0` disables near matching while preserving the other classifications. Near
+matching applies only to compatible numeric scalar values in the same language
+and category. Compose keeps `dp` and `sp` distinct, React uses CSS pixel
+semantics only for numeric length properties, and Swift layout values remain in
+their native scalar space. Wax never converts incompatible units or
+environment-dependent units such as `rem` to `px`. Increasing the tolerance can
+produce more possible migration candidates; colors, shadows, and composite
+typography values always require an exact normalized match.
 
 Token registry discovery and value maintenance are not automated end-to-end.
-Author or sync `tokens[]` explicitly, or run the `wax-registry-discover` skill
-to propose reviewed canonical values with source evidence and an explicit
-approval step before any registry write. After canonical values are approved,
-run `wax sync` and `wax scan` again to reclassify previously unassessed
-observations.
+Author or sync `tokens[]` explicitly. When an unassessed row reports missing or
+incomplete canonical-value evidence, use the
+[`wax-registry-discover` skill](skills/wax-registry-discover/SKILL.md) to propose
+reviewed canonical values with source evidence and an explicit approval step
+before any registry write. After canonical values are approved, run `wax sync`
+and `wax scan` again to reclassify the affected observations.
 
 ### CI
 

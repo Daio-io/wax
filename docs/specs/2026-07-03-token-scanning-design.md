@@ -6,7 +6,7 @@
 **Related:** `docs/specs/2026-06-20-adoption-metrics-v2-design.md`, `docs/specs/2026-05-13-component-tracker-design.md`, `docs/specs/2026-07-04-registry-sync-config-design.md`, [`docs/specs/2026-07-19-token-inference-reporting-design.md`](./2026-07-19-token-inference-reporting-design.md)
 **Implementation plan:** [`docs/plans/archive/2026-07-03-token-scanning-plan.md`](../plans/archive/2026-07-03-token-scanning-plan.md) · [ADR](../adr/2026-07-03-token-scanning.md)
 
-> **v1 non-goals delivered by the inference addendum:** This v1 design intentionally deferred suggested replacement tokens, a token `style_context` field, and automated registry value population (see Non-Goals below). The [token inference and reporting design](./2026-07-19-token-inference-reporting-design.md) and its [ADR](../adr/2026-07-19-token-inference-reporting.md) deliver these as schema-v3 additions: typed `StyleContext`, deterministic exact/near/unmatched/unassessed classification against optional canonical registry `value`, and a reviewed `wax-registry-discover` maintenance workflow. This document is kept as-is for v1 history; it is not rewritten. The retired `token_reference_ratio` metric described below no longer appears in scan output as of schema v3.
+> **v1 non-goals revisited by the inference addendum:** This v1 design intentionally deferred suggested replacement tokens, a token `style_context` field, and automated registry value population (see Non-Goals below). The [token inference and reporting design](./2026-07-19-token-inference-reporting-design.md) and its [ADR](../adr/2026-07-19-token-inference-reporting.md) deliver typed `StyleContext` and deterministic exact/near/unmatched/unassessed classification against optional canonical registry `value`. They partially address registry population through a reviewed `wax-registry-discover` maintenance workflow that never writes automatically. This document is kept as-is for v1 history; it is not rewritten. The retired `token_reference_ratio` metric described below no longer appears in scan output as of schema v3.
 
 ## Summary
 
@@ -32,7 +32,7 @@ The design does not try to map hard-coded values to replacement tokens. That rem
 - A token `style_context` field. **Delivered by the inference addendum:** raw `HardcodedStyleSite.context` (a typed `StyleContext`) ships in schema v3.
 - Hard-coded styling candidates from the basic text scanner. Still out of scope; `basic` continues to emit token references only.
 - Runtime telemetry or production instrumentation. Still out of scope.
-- Automated token discovery or population of registry `tokens[]` (for example via `wax-registry-discover`); token registries are authored or synced explicitly in v1. **Delivered by the inference addendum:** `wax-registry-discover` expands into a reviewed token-value maintenance workflow with source evidence and explicit approval; it never writes automatically.
+- Automated token discovery or population of registry `tokens[]` (for example via `wax-registry-discover`); token registries are authored or synced explicitly in v1. **Partially addressed by the inference addendum:** `wax-registry-discover` expands into a reviewed token-value maintenance workflow with source evidence and explicit approval, but it never writes automatically.
 
 ## Approach
 

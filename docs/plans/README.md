@@ -44,7 +44,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 -> No active plan is promoted. Wait for maintainer promotion before starting new roadmap work.
 ```
 
-Orders 1-4, 6-10, and 12-14 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Adoption Metrics v2 (order 11) still has open stacked PRs (#165, #171, #172) that may merge independently. Token inference and reporting (order 14) finished implementation across PRs #231–#237 plus this closeout and is archived; no successor plan has been promoted to active yet.
+Orders 1-4, 6-10, and 12-14 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Adoption Metrics v2 (order 11) still has open stacked PRs (#165, #171, #172) that may merge independently. Token inference and reporting (order 14) finished implementation in PRs #231, #233, #235, #236, and #237 plus closeout PR #238 and is archived; no successor plan has been promoted to active yet.
 
 ---
 
