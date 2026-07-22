@@ -172,14 +172,21 @@ Inference compares a site only with tokens in the same language and category.
 
 ### Normalization
 
-Normalization is conservative and language-aware:
+Normalization is conservative, typed, and language-aware. Language adapters
+parse source syntax into shared semantic values before comparison:
 
-- Numeric values are parsed into a scalar and unit.
+- Numeric values are parsed into a scalar and unit, so insignificant decimal
+  precision and equivalent numeric notation do not affect matching. For
+  example, `16`, `16.00`, and `1.6e1` represent the same scalar.
 - Compose units such as `dp` and `sp` remain distinct.
 - React numeric values use deterministic CSS pixel semantics only for properties where React/CSS defines the number as a length. Unitless properties remain unitless.
 - Swift numeric layout values remain in Swift's native scalar space.
 - Incompatible units are never compared.
-- Nonnumeric values receive only safe normalization, such as trimming insignificant whitespace and quotes and normalizing hexadecimal color casing.
+- Supported hexadecimal colors normalize to RGBA values, including short and
+  full CSS forms and Compose's native ARGB integer form. Syntax-specific alpha
+  ordering is resolved before comparison.
+- Composite shadows, font declarations, named colors, and other nonnumeric
+  values remain exact text after safe whitespace and quote handling.
 - The first version does not infer environment-dependent conversions such as `rem` to `px`.
 
 An unsupported observed or canonical value is not silently coerced.
