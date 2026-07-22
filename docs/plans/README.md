@@ -67,7 +67,7 @@ Orders 1-4, 6-10, and 12-14 are **complete**. Post-alpha UX (order 5) remains ot
 | 12 | `dai/registry-sync-config-plan` | #195 (merged) | Registry sync and config v2 design and implementation plan |
 | 13 | `dai/token-scanning-plan` | #194 (merged) | Token scanning design and implementation plan |
 | 14 | `dai/token-inference-reporting-design` | [#230](https://github.com/Daio-io/wax/pull/230) | Token inference/reporting design and implementation plan |
-| 15 | `dai/compose-parse-recovery-design` | draft | Compose parse recovery/UI-scoping design and implementation plan |
+| 15 | `dai/compose-parse-recovery-design` | [#240](https://github.com/Daio-io/wax/pull/240) | Compose parse recovery/UI-scoping design and implementation plan |
 
 ---
 
