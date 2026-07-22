@@ -78,19 +78,19 @@ test("desktop screenshot keeps the current report layout with the black and bumb
     "Candidates to bring into the design system",
     "Confirmed token migrations",
     "Possible token migrations",
-    "Registry metadata gaps",
+    "Token comparison coverage",
     "Key findings",
   ]);
   await verifyScreenshot(page, testInfo, "wax-scan-report-desktop.png");
 });
 
-test("token inference sections render confirmed, possible, and metadata-gap tables", async ({ page }, testInfo) => {
+test("token inference sections render confirmed, possible, and comparison-coverage tables", async ({ page }, testInfo) => {
   await openReport(page, tokenViewport);
 
   await page.getByRole("heading", { name: "Confirmed token migrations" }).scrollIntoViewIfNeeded();
   await expect(page.getByRole("heading", { name: "Confirmed token migrations" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Possible token migrations" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Registry metadata gaps" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Token comparison coverage" })).toBeVisible();
 
   await expect(page.getByRole("heading", { name: "Confirmed token migrations" })).toBeInViewport();
   await expect(page.getByText("src/Card.tsx:12", { exact: true })).toBeInViewport();

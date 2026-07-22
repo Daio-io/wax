@@ -14,10 +14,11 @@ The fresh app scan and deterministic extractor show one metadata gap with typed 
 
 ```text
 token metrics:
+  Assessed observations: 0 of 1
   Confirmed migration candidates: 0
   Possible migration candidates: 0
   Unmatched observations: 0 (informational)
-  Unassessed observations: 1 (registry values needed)
+  Unassessed observations: 1 (comparison unavailable)
 
 token_inference.unassessed_observations[0].evidence:
   - missing_canonical_values
@@ -172,10 +173,11 @@ The fresh post-sync scan uses the approved canonical value and deterministically
 
 ```text
 token metrics:
+  Assessed observations: 1 of 1
   Confirmed migration candidates: 1
   Possible migration candidates: 0
   Unmatched observations: 0 (informational)
-  Unassessed observations: 0 (registry values needed)
+  Unassessed observations: 0 (comparison unavailable)
 
 confirmed candidate:
   site: packages/app/src/main/kotlin/com/example/app/Checkout.kt:24

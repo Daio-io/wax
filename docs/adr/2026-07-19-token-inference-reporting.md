@@ -19,6 +19,12 @@ Token scanning (order 13) retained hard-coded styling observations and known tok
 6. **Schema v3 removes `token_reference_ratio`** — The scan contract advances from schema version 2 to 3. `Metrics.token_reference_ratio` is removed rather than reinterpreted, because it treated every hard-coded observation as equivalent debt regardless of registry evidence. `wax-contract` validates a bijection between raw hard-coded sites and inference rows so an inference report can never be silently incomplete.
 7. **Registry value writes are reviewed, never automatic** — `wax-registry-discover` expands from component discovery into general reviewed registry maintenance. Every canonical-value proposal carries source evidence, a structured diff, and requires explicit approval before writing. The skill preserves ids, keys, aliases, categories, metadata, and existing values outside the approved diff, and it never deletes components or tokens automatically. AI-derived values affect deterministic metrics only after a user approves and persists them.
 
+## 2026-07-22 addendum: partial canonical coverage
+
+Category is a semantic compatibility filter, not a completeness gate. Wax still compares a spacing observation only with same-language spacing tokens, but each token with a usable canonical value participates independently. Missing or unsupported sibling values do not block exact, near, or unmatched classification; an observation is `unassessed` only when its observed value cannot be normalized or no same-category token has a usable canonical value.
+
+Reporting states `assessed_observation_count` out of `hardcoded_observation_count`. The raw hard-coded total and its category groups are inventory, never debt; exact and near remain the only migration-candidate classes and remain separate.
+
 ## Implementation summary
 
 All 6 tasks shipped:

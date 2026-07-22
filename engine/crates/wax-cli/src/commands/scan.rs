@@ -775,6 +775,12 @@ fn write_token_inference_summary(
     let counts = &merged.token_inference.counts;
     writeln!(
         writer,
+        "  Assessed observations: {} of {}",
+        counts.assessed_observation_count, counts.hardcoded_observation_count
+    )
+    .map_err(write_error)?;
+    writeln!(
+        writer,
         "  Confirmed migration candidates: {}",
         counts.exact_replacement_candidate_count
     )
@@ -793,7 +799,7 @@ fn write_token_inference_summary(
     .map_err(write_error)?;
     writeln!(
         writer,
-        "  Unassessed observations: {} (registry values needed)",
+        "  Unassessed observations: {} (comparison unavailable)",
         counts.unassessed_observation_count
     )
     .map_err(write_error)?;
@@ -825,7 +831,17 @@ fn write_token_inference_summary(
         writeln!(writer, "  {}", format_token_finding_line(finding)).map_err(write_error)?;
     }
 
-    if counts.unassessed_observation_count > 0 {
+    let needs_registry_values = joined.iter().any(|finding| {
+        finding.row.classification == TokenInferenceClassification::Unassessed
+            && finding.row.evidence.iter().any(|evidence| {
+                matches!(
+                    evidence,
+                    TokenInferenceEvidence::MissingCanonicalValues
+                        | TokenInferenceEvidence::IncompleteCanonicalCoverage
+                )
+            })
+    });
+    if needs_registry_values {
         writeln!(
             writer,
             "  Run wax-registry-discover to review missing canonical token values."
@@ -1079,10 +1095,11 @@ mod tests {
         assert!(stdout.contains("Unresolved UI calls: 1"));
         assert!(stdout.contains("token metrics:"));
         assert!(stdout.contains("Token references: 3"));
+        assert!(stdout.contains("Assessed observations: 0 of 0"));
         assert!(stdout.contains("Confirmed migration candidates: 0"));
         assert!(stdout.contains("Possible migration candidates: 0"));
         assert!(stdout.contains("Unmatched observations: 0 (informational)"));
-        assert!(stdout.contains("Unassessed observations: 0 (registry values needed)"));
+        assert!(stdout.contains("Unassessed observations: 0 (comparison unavailable)"));
         assert!(!stdout.contains("Token reference ratio"));
         assert!(stdout.contains("PACK_TIMEOUT: timed out"));
         assert!(stdout.contains(
@@ -1198,7 +1215,7 @@ mod tests {
                 classification: TokenInferenceClassification::Unassessed,
                 confidence: None,
                 suggestions: vec![],
-                evidence: vec![],
+                evidence: vec![TokenInferenceEvidence::MissingCanonicalValues],
             },
         ];
 
@@ -1261,10 +1278,11 @@ mod tests {
         let stdout = String::from_utf8(output).unwrap();
         assert!(stdout.contains("token metrics:"));
         assert!(stdout.contains("  Token references: 6"));
+        assert!(stdout.contains("  Assessed observations: 3 of 4"));
         assert!(stdout.contains("  Confirmed migration candidates: 1"));
         assert!(stdout.contains("  Possible migration candidates: 1"));
         assert!(stdout.contains("  Unmatched observations: 1 (informational)"));
-        assert!(stdout.contains("  Unassessed observations: 1 (registry values needed)"));
+        assert!(stdout.contains("  Unassessed observations: 1 (comparison unavailable)"));
         assert!(stdout.contains(
             "src/Card.tsx:12 padding 4px -> spacing.s=4px (distance 0px), spacing.s.alias=4px (distance 0px) (exact, high; evidence: exact value, clear usage context, multiple equal matches)"
         ));
@@ -1279,7 +1297,7 @@ mod tests {
     }
 
     #[test]
-    fn token_summary_first_run_all_unassessed_shows_maintenance_guidance() {
+    fn token_summary_unassessed_guidance_follows_evidence() {
         let mut output = Vec::new();
         let react = LanguageId::from_str("react").unwrap();
 
@@ -1300,11 +1318,11 @@ mod tests {
                 classification: TokenInferenceClassification::Unassessed,
                 confidence: None,
                 suggestions: vec![],
-                evidence: vec![],
+                evidence: vec![TokenInferenceEvidence::MissingCanonicalValues],
             })
             .collect();
 
-        let merged = MergedScan {
+        let mut merged = MergedScan {
             schema_version: SCHEMA_VERSION,
             recorded_at: OffsetDateTime::UNIX_EPOCH,
             repo_summary: RepoSummary {
@@ -1346,15 +1364,33 @@ mod tests {
         .unwrap();
 
         let stdout = String::from_utf8(output).unwrap();
+        assert!(stdout.contains("  Assessed observations: 0 of 3"));
         assert!(stdout.contains("  Confirmed migration candidates: 0"));
         assert!(stdout.contains("  Possible migration candidates: 0"));
         assert!(stdout.contains("  Unmatched observations: 0 (informational)"));
-        assert!(stdout.contains("  Unassessed observations: 3 (registry values needed)"));
+        assert!(stdout.contains("  Unassessed observations: 3 (comparison unavailable)"));
         assert!(
             stdout.contains("Run wax-registry-discover to review missing canonical token values.")
         );
         assert!(!stdout.contains("(exact,"));
         assert!(!stdout.contains("(near,"));
+
+        for row in &mut merged.token_inference.sites {
+            row.evidence = vec![TokenInferenceEvidence::UnsupportedCanonicalFormat];
+        }
+        let mut unsupported_output = Vec::new();
+        write_scan_summary(
+            &mut unsupported_output,
+            &merged,
+            std::path::Path::new("/tmp/repo/.wax/out/scan-merged.json"),
+            false,
+        )
+        .unwrap();
+        let unsupported_stdout = String::from_utf8(unsupported_output).unwrap();
+        assert!(
+            !unsupported_stdout
+                .contains("Run wax-registry-discover to review missing canonical token values.")
+        );
     }
 
     #[test]

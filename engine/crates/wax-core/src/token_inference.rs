@@ -201,14 +201,12 @@ fn infer_site(
 
     let mut usable = Vec::new();
     let mut missing_canonical = false;
-    let mut incomplete_coverage = false;
     let mut unsupported_canonical = false;
 
     for token in &same_category {
         match &token.value {
             None => {
                 missing_canonical = true;
-                incomplete_coverage = true;
             }
             Some(value) => {
                 let normalized =
@@ -216,7 +214,6 @@ fn infer_site(
                 match normalized {
                     NormalizedValue::Unsupported => {
                         unsupported_canonical = true;
-                        incomplete_coverage = true;
                     }
                     other => usable.push((*token, other, value.as_str())),
                 }
@@ -262,7 +259,7 @@ fn infer_site(
         };
     }
 
-    if incomplete_coverage {
+    if usable.is_empty() {
         let mut evidence = Vec::new();
         if missing_canonical {
             evidence.push(TokenInferenceEvidence::MissingCanonicalValues);
@@ -1050,6 +1047,22 @@ mod tests {
     }
 
     #[test]
+    fn classification_missing_sibling_does_not_block_exact_match() {
+        let row = classify(
+            "react",
+            "4",
+            StyleContext::Padding,
+            vec![
+                token("spacing.s", TokenCategory::Spacing, Some("4px")),
+                token("spacing.m", TokenCategory::Spacing, None),
+            ],
+            2.0,
+        );
+        assert_eq!(row.classification, TokenInferenceClassification::Exact);
+        assert_eq!(row.suggestions[0].token_id, "spacing.s");
+    }
+
+    #[test]
     fn classification_exact_width_is_high() {
         let row = classify(
             "react",
@@ -1138,7 +1151,7 @@ mod tests {
     }
 
     #[test]
-    fn classification_incomplete_coverage_without_exact_is_unassessed() {
+    fn classification_missing_sibling_does_not_block_near_match() {
         let row = classify(
             "react",
             "3",
@@ -1149,11 +1162,108 @@ mod tests {
             ],
             2.0,
         );
-        assert_eq!(row.classification, TokenInferenceClassification::Unassessed);
+        assert_eq!(row.classification, TokenInferenceClassification::Near);
+        assert_eq!(row.suggestions[0].token_id, "spacing.s");
+        assert_eq!(row.suggestions[0].distance, Some(1.0));
         assert!(
-            row.evidence
+            !row.evidence
+                .contains(&TokenInferenceEvidence::MissingCanonicalValues)
+        );
+        assert!(
+            !row.evidence
                 .contains(&TokenInferenceEvidence::IncompleteCanonicalCoverage)
         );
+    }
+
+    #[test]
+    fn classification_missing_sibling_does_not_block_unmatched() {
+        let row = classify(
+            "react",
+            "200",
+            StyleContext::Width,
+            vec![
+                token("spacing.s", TokenCategory::Spacing, Some("4px")),
+                token("spacing.m", TokenCategory::Spacing, None),
+            ],
+            2.0,
+        );
+        assert_eq!(row.classification, TokenInferenceClassification::Unmatched);
+        assert!(row.suggestions.is_empty());
+        assert!(row.confidence.is_none());
+        assert!(
+            !row.evidence
+                .contains(&TokenInferenceEvidence::MissingCanonicalValues)
+        );
+        assert!(
+            !row.evidence
+                .contains(&TokenInferenceEvidence::IncompleteCanonicalCoverage)
+        );
+    }
+
+    #[test]
+    fn classification_unsupported_sibling_does_not_block_near_match() {
+        let row = classify(
+            "react",
+            "3",
+            StyleContext::Padding,
+            vec![
+                token("spacing.s", TokenCategory::Spacing, Some("4px")),
+                token("spacing.legacy", TokenCategory::Spacing, Some("8pt")),
+            ],
+            2.0,
+        );
+        assert_eq!(row.classification, TokenInferenceClassification::Near);
+        assert_eq!(row.suggestions[0].token_id, "spacing.s");
+        assert!(
+            !row.evidence
+                .contains(&TokenInferenceEvidence::UnsupportedCanonicalFormat)
+        );
+        assert!(
+            !row.evidence
+                .contains(&TokenInferenceEvidence::IncompleteCanonicalCoverage)
+        );
+    }
+
+    #[test]
+    fn classification_different_category_value_does_not_participate() {
+        let row = classify(
+            "react",
+            "3",
+            StyleContext::Padding,
+            vec![token("radius.s", TokenCategory::Radius, Some("4px"))],
+            2.0,
+        );
+        assert_eq!(row.classification, TokenInferenceClassification::Unassessed);
+    }
+
+    #[test]
+    fn partial_coverage_counts_near_and_unmatched_as_assessed() {
+        let (language_id, mut near_site) =
+            site("react", "3", TokenCategory::Spacing, StyleContext::Gap);
+        near_site.id = "hardcoded.react:src/Card:1:1:spacing-near".to_owned();
+        let (_, mut unmatched_site) =
+            site("react", "200", TokenCategory::Spacing, StyleContext::Width);
+        unmatched_site.id = "hardcoded.react:src/Card:2:1:spacing-unmatched".to_owned();
+        unmatched_site.location.line = 2;
+        let facts = facts(
+            &language_id,
+            vec![
+                token("spacing.s", TokenCategory::Spacing, Some("4px")),
+                token("spacing.m", TokenCategory::Spacing, None),
+            ],
+            vec![near_site, unmatched_site],
+        );
+        let report = build_token_inference(
+            &BTreeMap::from([(language_id, facts)]),
+            &TokenInferenceConfig::default(),
+        )
+        .unwrap();
+
+        assert_eq!(report.counts.hardcoded_observation_count, 2);
+        assert_eq!(report.counts.assessed_observation_count, 2);
+        assert_eq!(report.counts.near_replacement_candidate_count, 1);
+        assert_eq!(report.counts.unmatched_observation_count, 1);
+        assert_eq!(report.counts.unassessed_observation_count, 0);
     }
 
     #[test]

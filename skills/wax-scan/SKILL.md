@@ -100,6 +100,7 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
 - Treat scan-time registry sync warnings as non-fatal; the scan continues with current registry inputs.
 - Prefer deterministic metrics from the extractor over agent estimation.
 - Label every non-deterministic insight with confidence.
+- State `assessed_observation_count` out of `hardcoded_observation_count` before interpreting token findings. The hard-coded total and category-grouped raw counts are inventory, never debt.
 - Report unassessed token counts as non-debt diagnostic gaps; inspect typed evidence before offering `wax-registry-discover`, and delegate only after acceptance.
 - Never write inferred canonical token values into registries or metrics from this skill; maintenance belongs to `wax-registry-discover`.
 - Do not invent precision for health, maturity, or debt scores when data is sparse; explain weighting and uncertainty.
@@ -150,10 +151,11 @@ Use only deterministic classifications from insights `token_inference` (schema v
 - Near rows are deterministic possible migration candidates.
 - Unmatched rows are informational observations, not debt.
 - Unassessed rows require evidence-specific diagnosis; they are not automatically missing-value gaps.
+- `hardcoded_observation_count` is raw inventory. Always pair it with `assessed_observation_count`; never label the total or its category groups as debt.
 - Never synthesize a replacement confidence that disagrees with `token_inference`.
 - Join inference to raw observations by `(language, site_id)`; fail closed if the join is missing or ambiguous.
 
-Existing registries whose tokens lack canonical `value` fields initially produce an expected first-run all-unassessed (or mostly unassessed) state. Do not treat that set as unmatched debt, and do not combine exact + near counts into a single token-debt headline. The retired token reference ratio must not appear as a report KPI.
+Each same-category token with a usable canonical `value` participates independently. A missing sibling value does not block exact, near, or unmatched classification against usable tokens. Existing registries with no usable same-category values still produce unassessed observations. Do not treat that set as unmatched debt, and do not combine exact + near counts into a single token-debt headline. The retired token reference ratio must not appear as a report KPI.
 
 ## Unassessed observations and registry maintenance
 
