@@ -31,6 +31,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 | 12 | Registry sync and config v2 | [archive/2026-07-04-registry-sync-config-plan.md](./archive/2026-07-04-registry-sync-config-plan.md) | `merged` | `complete` | [ADR](../adr/2026-07-04-registry-sync-config-v2.md) |
 | 13 | Token scanning | [archive/2026-07-03-token-scanning-plan.md](./archive/2026-07-03-token-scanning-plan.md) | `merged` | `complete` | [ADR](../adr/2026-07-03-token-scanning.md) |
 | 14 | Token inference and reporting | [archive/2026-07-19-token-inference-reporting-plan.md](./archive/2026-07-19-token-inference-reporting-plan.md) | `merged` | `complete` | [ADR](../adr/2026-07-19-token-inference-reporting.md) |
+| 15 | Compose parse recovery and UI scoping | [2026-07-22-compose-parse-recovery-plan.md](./2026-07-22-compose-parse-recovery-plan.md) | `pending` | `not-started` | — |
 
 **Doc status:** `pending` -> plan PR open; `merged` -> plan doc on `main`; `planned` -> not yet drafted.
 
@@ -44,7 +45,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 -> No active plan is promoted. Wait for maintainer promotion before starting new roadmap work.
 ```
 
-Orders 1-4, 6-10, and 12-14 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Adoption Metrics v2 (order 11) still has open stacked PRs (#165, #171, #172) that may merge independently. Token inference and reporting (order 14) finished implementation in PRs #231, #233, #235, #236, and #237 plus closeout PR #238 and is archived; no successor plan has been promoted to active yet.
+Orders 1-4, 6-10, and 12-14 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Adoption Metrics v2 (order 11) still has open stacked PRs (#165, #171, #172) that may merge independently. Token inference and reporting (order 14) finished implementation in PRs #231, #233, #235, #236, and #237 plus closeout PR #238 and is archived. Compose parse recovery and UI scoping (order 15) is planned, but no successor plan has been promoted to active yet.
 
 ---
 
@@ -66,6 +67,7 @@ Orders 1-4, 6-10, and 12-14 are **complete**. Post-alpha UX (order 5) remains ot
 | 12 | `dai/registry-sync-config-plan` | #195 (merged) | Registry sync and config v2 design and implementation plan |
 | 13 | `dai/token-scanning-plan` | #194 (merged) | Token scanning design and implementation plan |
 | 14 | `dai/token-inference-reporting-design` | [#230](https://github.com/Daio-io/wax/pull/230) | Token inference/reporting design and implementation plan |
+| 15 | `dai/compose-parse-recovery-design` | [#240](https://github.com/Daio-io/wax/pull/240) | Compose parse recovery/UI-scoping design and implementation plan |
 
 ---
 
@@ -84,3 +86,4 @@ Orders 1-4, 6-10, and 12-14 are **complete**. Post-alpha UX (order 5) remains ot
 - [Registry sync and config v2 design](../specs/2026-07-04-registry-sync-config-design.md) — clean alpha cutover for remembered design-system registries, no-config local scans, and explicit app sync (order 12, complete)
 - [Token scanning design](../specs/2026-07-03-token-scanning-design.md) — additive token references and hard-coded styling candidates (order 13, complete; [ADR](../adr/2026-07-03-token-scanning.md))
 - [Token inference and reporting design](../specs/2026-07-19-token-inference-reporting-design.md) — context-aware exact, near, unmatched, and unassessed token findings (order 14, complete; [ADR](../adr/2026-07-19-token-inference-reporting.md))
+- [Compose parse recovery and UI scope design](./2026-07-22-compose-parse-recovery-design.md) — fault-tolerant Kotlin parsing and Compose-aware usage scoping (order 15, planned)
