@@ -190,11 +190,13 @@ The classifier applies these rules in order:
 
 1. Normalize every same-category token that has a canonical value.
 2. If one or more normalized canonical values exactly match the observation, classify it as `exact` and retain all equal matches.
-3. If no exact match exists and any same-category token lacks a usable canonical value, classify the site as `unassessed`. Missing metadata could conceal an exact or closer match.
-4. Otherwise, for compatible numeric scalar values, find the smallest absolute distance.
+3. Discard same-category tokens whose canonical value is missing or cannot be normalized; they do not block usable siblings.
+4. For compatible numeric scalar values among the usable tokens, find the smallest absolute distance.
 5. If the smallest distance is greater than zero and no greater than the configured tolerance, classify the site as `near` and retain every suggestion tied at that distance.
-6. If every same-category token has an assessable value but none qualify, classify the site as `unmatched`.
-7. If no same-category token exists, classify the site as `unassessed` because the registry lacks the metadata needed for a value-based conclusion.
+6. If at least one same-category token has a usable canonical value but none qualify, classify the site as `unmatched`.
+7. If no same-category token has a usable canonical value, classify the site as `unassessed` because the registry lacks the metadata needed for a value-based conclusion.
+
+Category is a semantic compatibility filter derived from code usage, not a completeness gate. A spacing observation compares only with spacing tokens, but each spacing token with a usable value participates independently of missing or unsupported siblings.
 
 Near matching initially applies to numeric scalar values only. Colors, shadows, and composite typography values require an exact normalized match.
 
@@ -253,7 +255,7 @@ The core-derived inference summary contains:
 
 The counts must reconcile with the inference rows. Exact and near counts remain separate; Wax does not combine them into a weighted debt score.
 
-Counts are site counts, not suggestion counts. `assessed_observation_count` equals exact plus near plus unmatched observations, and `hardcoded_observation_count` equals assessed plus unassessed observations.
+Counts are site counts, not suggestion counts. `assessed_observation_count` equals exact plus near plus unmatched observations, and `hardcoded_observation_count` equals assessed plus unassessed observations. Reports state assessed observations out of the raw total; the raw hard-coded count and its category groups are inventory, never debt.
 
 CLI and `wax-scan` reports should present:
 
@@ -297,7 +299,8 @@ AI-derived values remain authoring suggestions. They become deterministic scan i
 
 - Registries without `value` remain valid and produce unassessed observations where comparison is impossible.
 - Explicit empty canonical values fail registry validation.
-- Unsupported canonical formats produce `unassessed` with evidence rather than false unmatched results.
+- When no same-category canonical value is usable, unsupported canonical formats produce `unassessed` with evidence rather than false unmatched results.
+- A missing or unsupported canonical sibling does not block assessment when another same-category token has a usable value.
 - Incompatible units cannot become exact or near suggestions.
 - Invalid or negative tolerance configuration fails config validation before scanning.
 - Ambiguous equal matches remain visible and lower confidence.
@@ -328,6 +331,7 @@ AI-derived values remain authoring suggestions. They become deterministic scan i
 ### Core inference
 
 - Cover exact, near, unmatched, unassessed, tied, unsupported-format, and incompatible-unit cases.
+- Cover mixed same-category canonical coverage, proving missing siblings do not block near or unmatched classification.
 - Use table-driven normalization tests for Compose, React, and Swift representations.
 - Verify default tolerance `2`, custom tolerance, and exact-only tolerance `0`.
 - Verify deterministic suggestion ranking and count reconciliation.

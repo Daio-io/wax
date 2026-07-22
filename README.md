@@ -139,10 +139,11 @@ against hard-coded styling:
 
 Registries without `tokens` (or with an empty array) stay valid. Component-only
 coverage still works; token facts are additive. A token without `value` remains
-valid too. When no exact match exists, missing or unsupported same-category
-canonical values leave the affected observations `unassessed`; inspect each
-row's typed `evidence` before proposing a registry change. See the reviewed
-[registry-maintenance workflow](skills/wax-registry-discover/SKILL.md).
+valid too. Same-category tokens with usable values are assessed independently;
+a missing or unsupported sibling does not block matching. An observation is
+`unassessed` when no same-category token has a usable value or its observed
+format cannot be normalized. Inspect typed `evidence` before proposing a
+registry change. See the reviewed [registry-maintenance workflow](skills/wax-registry-discover/SKILL.md).
 
 ### Scan Your App
 
@@ -171,10 +172,11 @@ The terminal summary includes token metrics for every scan:
 ```text
 token metrics:
   Token references: 12
+  Assessed observations: 6 of 10
   Confirmed migration candidates: 3
   Possible migration candidates: 1
   Unmatched observations: 2 (informational)
-  Unassessed observations: 4 (registry values needed)
+  Unassessed observations: 4 (comparison unavailable)
 ```
 
 Every hard-coded styling observation from a parser-backed pack (`react`,
@@ -185,17 +187,18 @@ Every hard-coded styling observation from a parser-backed pack (`react`,
 - **near** — the observed value is numerically close to a canonical value,
   within `token_inference.numeric_tolerance`; reported as a possible migration
   candidate.
-- **unmatched** — every same-category token has a usable canonical value, but
-  none match closely enough; reported as informational evidence, not debt. A
+- **unmatched** — at least one same-category token has a usable canonical value,
+  but none match closely enough; reported as informational evidence, not debt. A
   fixed dimension such as `width: 200px` stays visible here without counting
   against adoption.
 - **unassessed** — Wax cannot complete the comparison, for example because no
-  same-category token exists, a canonical value is missing or unsupported, or
-  the observed format cannot be normalized. Inspect the row's typed `evidence`
-  before deciding whether registry maintenance is needed.
+  same-category token has a usable canonical value or the observed format cannot
+  be normalized. Inspect the row's typed `evidence` before deciding whether
+  registry maintenance is needed.
 
 There is no combined debt, health, or compliance score. Exact, near, unmatched,
-and unassessed counts stay separate on purpose. The retired
+and unassessed counts stay separate on purpose. Raw hard-coded observations are
+inventory, not debt; interpret them through the assessed subset. The retired
 `token_reference_ratio` metric no longer appears in scan output.
 
 Control near-match sensitivity with `token_inference.numeric_tolerance` in
@@ -315,9 +318,10 @@ Findings map to a simple framing:
   dimension without a matching canonical value is not treated as a token
   violation.
 - **unassessed** rows mean Wax could not complete the comparison. Inspect their
-  typed `evidence`: missing or incomplete canonical `value` coverage can be
-  repaired through reviewed registry maintenance, while unsupported observed or
-  canonical formats need different handling.
+  typed `evidence`: no usable same-category canonical `value` can be repaired
+  through reviewed registry maintenance, while unsupported observed formats
+  need different handling. Missing sibling values do not block assessment when
+  another same-category token has a usable value.
 
 Tune near-match sensitivity in `.wax/wax.config.json`:
 

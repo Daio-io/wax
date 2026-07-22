@@ -32,7 +32,7 @@ Output: versioned insights JSON consumed by the agent when rendering terminal an
 | `token_inference.confirmed_candidates` | Exact classifications enriched with joined raw `location`, `context`, and `value` |
 | `token_inference.possible_candidates` | Near classifications enriched the same way |
 | `token_inference.unmatched_observations` | Unmatched rows (informational; not debt) |
-| `token_inference.unassessed_observations` | Registry metadata gaps (missing canonical token values) |
+| `token_inference.unassessed_observations` | Evidence-specific comparison gaps (missing values or unsupported normalization) |
 | `limits[]` | Metrics unavailable from current facts |
 | `baseline_deltas` | Trend deltas when `--baseline` supplied |
 
@@ -42,14 +42,14 @@ The extractor requires scan schema `3`, builds a unique raw-site lookup keyed by
 
 When `token_inference.summary` shows a nonzero unassessed count:
 
-1. Surface the count and treat rows as non-debt diagnostic gaps; classify the cause only after inspecting evidence.
+1. State `assessed_observation_count` out of `hardcoded_observation_count`, then surface the unassessed count and treat rows as non-debt diagnostic gaps. The hard-coded total and its category groups are raw inventory, never debt.
 2. Inspect each row's typed `evidence`. `missing_canonical_values` and `incomplete_canonical_coverage` identify absent or incomplete same-category registry coverage. `unsupported_canonical_format` identifies a normalization failure and does not by itself prove that a canonical value is missing.
 3. Offer the `wax-registry-discover` reviewed token-value maintenance workflow only for an actionable publisher-registry gap. For unsupported formats, inspect the raw observation and same-category registry values first; report a normalization limitation when a registry edit cannot resolve it.
 4. Delegate only after the user accepts; do not edit registries from `wax-scan` itself.
 5. Never insert inferred values into insights, HTML placeholders, or KPIs.
 6. After successful publisher maintenance and `wax sync`, rerun a fresh scan so exact/near/unmatched classifications can appear.
 
-First-run registries without canonical values commonly produce an all-unassessed token section; reviewed value maintenance plus a fresh post-sync scan is the expected unlock.
+Tokens with usable canonical values are assessed independently within the observation's semantic category; missing sibling values do not gate them. Registries without any usable same-category values still produce an all-unassessed token section; reviewed value maintenance plus a fresh post-sync scan is the expected unlock.
 
 ## Limits catalog
 

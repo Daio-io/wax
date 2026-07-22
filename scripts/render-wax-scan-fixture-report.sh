@@ -401,6 +401,8 @@ unassessed_count = int(
 unmatched_count = int(
     token_summary.get("unmatched_observation_count", len(unmatched_observations)) or 0
 )
+assessed_count = int(token_summary.get("assessed_observation_count", 0) or 0)
+hardcoded_count = int(token_summary.get("hardcoded_observation_count", 0) or 0)
 
 candidate_head = (
     "<table><thead><tr>"
@@ -441,7 +443,14 @@ if unmatched_count > 0:
         f"{num(unmatched_count)} observation(s) were assessed and found unmatched "
         "(informational, not migration debt)."
     )
-if unassessed_count > 0:
+needs_registry_values = any(
+    bool(
+        {"missing_canonical_values", "incomplete_canonical_coverage"}
+        & set(row.get("evidence") or [])
+    )
+    for row in unassessed_observations
+)
+if needs_registry_values:
     unmatched_count_note = (
         unmatched_count_note
         + " Run the wax-registry-discover skill to review missing canonical token values."
@@ -506,6 +515,8 @@ replacements = {
     "confirmed_candidates_table_html": confirmed_candidates_table_html,
     "possible_candidates_table_html": possible_candidates_table_html,
     "unassessed_table_html": unassessed_table_html,
+    "assessed_count": num(assessed_count),
+    "hardcoded_count": num(hardcoded_count),
     "unassessed_count": num(unassessed_count),
     "unmatched_count_note": esc(unmatched_count_note),
     "key_findings_html": key_findings_html,
@@ -532,7 +543,7 @@ if not confirmed_candidates:
 if not possible_candidates:
     rendered = remove_section(rendered, "Possible token migrations")
 if unassessed_count == 0 and unmatched_count == 0:
-    rendered = remove_section(rendered, "Registry metadata gaps")
+    rendered = remove_section(rendered, "Token comparison coverage")
 
 if "{{" in rendered:
     unresolved = sorted(set(part.split("}}", 1)[0] for part in rendered.split("{{")[1:]))

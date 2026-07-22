@@ -237,6 +237,8 @@
     {{migration_candidates_table_html}}
   </div>
 
+  <p class="subtitle">{{assessed_count}} of {{hardcoded_count}} hard-coded observations were assessed against usable same-category token values. Raw hard-coded observations are inventory, not debt.</p>
+
   <h2>Confirmed token migrations</h2>
   <p class="subtitle">Deterministic exact matches between hard-coded values and registry token values — confirmed migration candidates.</p>
   <div class="panel">
@@ -249,8 +251,8 @@
     {{possible_candidates_table_html}}
   </div>
 
-  <h2>Registry metadata gaps</h2>
-  <p class="subtitle">{{unassessed_count}} hard-coded observation(s) could not be assessed because registry tokens lack canonical values. {{unmatched_count_note}}</p>
+  <h2>Token comparison coverage</h2>
+  <p class="subtitle">{{unassessed_count}} hard-coded observation(s) could not be assessed; inspect typed evidence for the cause. {{unmatched_count_note}}</p>
   <div class="panel">
     {{unassessed_table_html}}
   </div>
