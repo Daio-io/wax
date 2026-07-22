@@ -349,7 +349,7 @@ Skipping to the next boundary without recognizing known syntax would protect lat
 
 Implementation should be split into focused reviewable tasks: recovery metadata and diagnostics, known syntax normalization, scope-aware extraction, generic bounded recovery, CLI reporting, compiler validation, and corpus replay. The detailed implementation plan should preserve the repository rule of one checked task per focused PR.
 
-The current roadmap names token inference and reporting as the active implementation plan. This Compose recovery work may be fully planned now, but implementation starts only when the maintainer promotes it or explicitly grants an exception to the active-plan gate.
+Token inference and reporting (order 14) is complete and archived, and the current roadmap has no promoted active plan. This Compose recovery work may be fully planned now, but implementation starts only when the maintainer promotes it or explicitly grants an exception to the active-plan gate.
 
 ## Acceptance Criteria
 

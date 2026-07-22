@@ -44,6 +44,7 @@
 
 - Create `engine/crates/wax-lang-compose/src/kotlin_recovery.rs` — lexical regions, byte-preserving normalizers, syntax-problem selection, clean passes, and bounded island recovery.
 - Modify `engine/crates/wax-lang-compose/src/kotlin_ast.rs` — parsed-file model, parser entry points, AST helpers, and diagnostics backed by recovery metadata.
+- Modify `engine/crates/wax-lang-compose/src/discover.rs` — migrate registry discovery to recovery metadata, diagnostics, and recovered parse passes.
 - Modify `engine/crates/wax-lang-compose/src/tree_sitter_scan.rs` — clean-pass iteration, UI-scope traversal, extraction filtering, deterministic merge/deduplication, and status.
 - Modify `engine/crates/wax-lang-compose/src/lib.rs` — register the private recovery module.
 - Create `engine/crates/wax-lang-compose/tests/fixtures/kotlin-syntax/` — reduced valid and malformed Kotlin cases plus the compiler matrix.
@@ -65,6 +66,7 @@
 - Create: `engine/crates/wax-lang-compose/src/kotlin_recovery.rs`
 - Modify: `engine/crates/wax-lang-compose/src/lib.rs`
 - Modify: `engine/crates/wax-lang-compose/src/kotlin_ast.rs`
+- Modify: `engine/crates/wax-lang-compose/src/discover.rs`
 - Modify: `engine/crates/wax-lang-compose/src/tree_sitter_scan.rs`
 - Modify: `docs/plans/2026-07-22-compose-parse-recovery-plan.md`
 
@@ -76,7 +78,7 @@
 
 In `kotlin_ast.rs`, add `smallest_problem_prefers_nested_missing_or_error` using a hand-parsed malformed annotated function type. Assert that the selected range starts at the inner missing/error node rather than the containing `function_declaration`. Add `known_recovery_metadata_defaults_to_one_primary_pass` asserting a valid file has one full-file pass and no unresolved problems.
 
-In `tree_sitter_scan.rs`, rename `partial_parse_still_extracts_symbols_during_scan` to `partial_parse_reports_the_smallest_problem_and_keeps_prior_facts`. Add assertions that the diagnostic line is the malformed `fun Broken(` line and its message contains `file scanned with gaps`.
+In `tree_sitter_scan.rs`, rename `partial_parse_still_extracts_symbols_during_scan` to `partial_parse_reports_the_smallest_problem_and_keeps_prior_facts`. Add assertions that the diagnostic line is the malformed `fun Broken(` line and its message contains `file scanned with gaps`. In `discover.rs`, add `partial_discovery_uses_recovery_diagnostics_and_keeps_prior_symbols` to lock the same diagnostic migration for registry discovery.
 
 Run:
 
@@ -169,14 +171,19 @@ Replace the current `source/tree` struct with:
 #[derive(Debug)]
 pub(crate) struct ParsedKotlinFile {
     pub(crate) source: String,
-    pub(crate) passes: Vec<ParsePass>,
+    pub(crate) primary: ParsePass,
+    pub(crate) recovered: Vec<ParsePass>,
     pub(crate) syntax_regions: Vec<SyntaxRegion>,
     pub(crate) unresolved_problems: Vec<SyntaxProblem>,
 }
 
 impl ParsedKotlinFile {
+    pub(crate) fn passes(&self) -> impl Iterator<Item = &ParsePass> {
+        std::iter::once(&self.primary).chain(&self.recovered)
+    }
+
     pub(crate) fn primary_tree(&self) -> &tree_sitter::Tree {
-        &self.passes[0].tree
+        &self.primary.tree
     }
 
     pub(crate) fn is_partial(&self) -> bool {
@@ -185,7 +192,7 @@ impl ParsedKotlinFile {
 }
 ```
 
-For this task, `parse_kotlin_file_permissive` still applies the existing annotated-parameter normalization, creates one `ParsePass` with `clean = [0..source.len()]`, records no known regions, and collects unresolved problems from the returned tree. Update `parse_kotlin_file_strict` to use `parsed.is_partial()`.
+For this task, `parse_kotlin_file_permissive` still applies the existing annotated-parameter normalization, creates `primary` with `clean = [0..source.len()]`, leaves `recovered` empty, records no known regions, and collects unresolved problems from the returned tree. Keeping the primary pass in its own field makes an empty parsed-file state unrepresentable. Update `parse_kotlin_file_strict` to use `parsed.is_partial()`.
 
 - [ ] **Step 4: Collect every error before selecting the narrowest useful node**
 
@@ -210,6 +217,8 @@ Keep diagnostic severity `Error` and code `parse_failed`.
 - [ ] **Step 5: Wire scan status to unresolved problems**
 
 In `scan_repository`, replace direct `tree_has_syntax_errors(&parsed.tree)` checks with `parsed.is_partial()`. Push one `parse_failed` diagnostic per unresolved problem, not one per outer tree. Continue to count a file once for status purposes. For Task 1 extraction, use `parsed.primary_tree().root_node()` so output is otherwise unchanged.
+
+Migrate `discover_registry_symbols` in the same task: replace `parsed.tree` with `parsed.primary_tree()`, emit diagnostics from `parsed.unresolved_problems`, and keep primary-only symbol collection until Task 4 introduces clean recovered passes. This migration is required because `discover.rs` calls both changed interfaces.
 
 Delete `tree_has_syntax_errors` only after `rg` shows no remaining callers; otherwise leave it for strict parser tests.
 
@@ -375,7 +384,7 @@ Apply non-overlapping transforms from highest byte offset to lowest so recorded 
 1. **Suspend lambda:** recognize the `suspend` keyword followed only by whitespace/comments and `{`; mask `suspend`, record the balanced lambda block as `SuspendLambda`, `body = Some(block)`, `component_scope = Exclude`.
 2. **When guard:** only inside a balanced `when` body, recognize a branch-level `if` between the condition and `->`; mask from `if` through the byte before `->`, record the complete entry as `WhenGuard`, and set `body` to the expression/block after `->`, `component_scope = Inherit`.
 3. **Annotated function type:** find `@Composable` followed by a balanced function-type range containing a top-level `->`; mask only a redundant outer parenthesis pair when present. Cover parameter, property, constructor-property, return, nullable, and receiver forms. If the declaration initializer is a lambda, record that lambda body with `component_scope = ComposableLambda`.
-4. **Explicit backing field:** inside a class/object body, recognize a line beginning with `field` followed by `=` after a property declaration; mask the `field = <initializer>` range through its lexical statement boundary. Record the initializer as `ExplicitBackingField`, `component_scope = Exclude`.
+4. **Explicit backing field:** inside a class/object body, recognize a line beginning with `field` after a property declaration and require a balanced initializer plus a safe lexical statement boundary. Mask the `field` keyword and any optional `: FieldType` suffix only through the byte before `=`, leaving `= <initializer>` parseable as the property's initializer. Record the complete field declaration as the source region and the preserved initializer expression as its body with `component_scope = Exclude`.
 5. **Context parameter:** inside `context(...)`, recognize `identifier : Type`; mask only `identifier` and `:`, leaving the type list parseable as legacy context syntax. Record `ContextParameter`, `component_scope = Inherit`. A type-only context list is recorded as `ContextReceiver` without modification.
 6. **Annotated type argument:** inside balanced `<...>`, recognize a type-use annotation before a type; mask the annotation name and optional balanced argument list, leaving the type and comma intact. Record `AnnotatedTypeArgument`, `component_scope = Exclude` for the annotation range only.
 
@@ -394,6 +403,7 @@ In `parse_recovery.rs`, scan the full fixture repository and assert:
 - status is `Complete` and no diagnostic has code `parse_failed`;
 - every `Before...` and `After...` local component is present;
 - `PrimaryButton`, `Spacing.small`, and `7.dp` facts after every syntax construct retain their one-based fixture locations;
+- `Spacing.small` and `Modifier.padding(7.dp)` inside an explicit backing-field initializer remain token/style facts while `MutableStateFlow(...)` remains excluded from component facts;
 - guarded branch and context composable-body calls are present;
 - trailing-comma behavior is unchanged.
 
@@ -445,6 +455,7 @@ ordinary function { PrimaryButton(); UnknownCard() }           -> no usages
 top-level property initializer { PrimaryButton() }             -> no usages
 @Composable fun Screen() { PrimaryButton(); UnknownCard() }    -> both usages
 @Composable fun Screen() { list.forEach { PrimaryButton() } }  -> PrimaryButton
+@Composable fun Screen() { fun load() { UnknownCard() } }       -> no usages
 @Composable function-type property lambda                      -> PrimaryButton
 suspend { FetchRepository(); PrimaryButton() }                 -> neither call
 explicit field initializer MutableStateFlow(...)               -> no unresolved call
@@ -452,7 +463,7 @@ when guard branch inside @Composable function                  -> PrimaryButton
 context-parameter @Composable body                             -> PrimaryButton
 ```
 
-Add a token/style independence case outside a composable: `val color = AppTokens.color.primary` remains a token site, while a `Modifier.padding(7.dp)` expression that passes existing style-syntax predicates remains a hard-coded style site. Assert neither creates a component usage.
+Add token/style independence cases outside a composable and inside the preserved explicit-field initializer: `val color = AppTokens.color.primary` and the field's `Spacing.small` remain token sites, while a `Modifier.padding(7.dp)` expression that passes existing style-syntax predicates remains a hard-coded style site. Assert none creates a component usage.
 
 Run:
 
@@ -487,7 +498,8 @@ Replace the flat stack in `extract_usage_from_source` with recursive `visit_comp
 1. Any `SyntaxRegion.body` with `Exclude` containing the child sets `NonUi`.
 2. Any `SyntaxRegion.body` with `ComposableLambda` containing the child sets `ComposableLambda`.
 3. A non-preview `function_declaration` carrying `@Composable` sets `Composable` for its body.
-4. Other lambda/function descendants inherit the parent scope.
+4. Any other named `function_declaration` sets `NonUi`; a function never inherits composable scope solely because it is lexically nested in a composable.
+5. Ordinary lambda descendants and other expression nodes inherit the parent scope.
 
 Emit a call only when `scope.is_ui()`, existing preview/scaffolding checks pass, and the node belongs to a clean parse range. Preserve registry/local/unresolved classification and existing ids exactly.
 
@@ -512,7 +524,7 @@ fn node_is_extractable(node: tree_sitter::Node<'_>, clean: &[ByteRange]) -> bool
 }
 ```
 
-Use it in local, usage, token, and hard-coded-style traversals. Only usage traversal consults `UiScope`. Token/style traversals skip explicit-field and type-annotation ranges because those regions are tolerance-only; otherwise retain their existing syntactic candidate rules.
+Use it in local, usage, token, and hard-coded-style traversals. Only usage traversal consults `UiScope`. Token/style traversals skip type-annotation ranges, but continue through the preserved initializer body of an explicit backing field; `ComponentScopePolicy::Exclude` applies only to component/unresolved-call extraction. Otherwise retain the existing syntactic candidate rules.
 
 - [ ] **Step 6: Update golden counts only for proven false positives**
 
@@ -541,6 +553,7 @@ Expected: all commands exit `0`; infrastructure constructors no longer contribut
 **Files:**
 - Modify: `engine/crates/wax-lang-compose/src/kotlin_recovery.rs`
 - Modify: `engine/crates/wax-lang-compose/src/kotlin_ast.rs`
+- Modify: `engine/crates/wax-lang-compose/src/discover.rs`
 - Modify: `engine/crates/wax-lang-compose/src/tree_sitter_scan.rs`
 - Create: `engine/crates/wax-lang-compose/tests/fixtures/kotlin-syntax/malformed/BroadTopLevelError.kt`
 - Create: `engine/crates/wax-lang-compose/tests/fixtures/kotlin-syntax/malformed/BroadMemberError.kt`
@@ -587,14 +600,20 @@ Never emit a boundary inside a comment, string, character literal, annotation ar
 
 - [ ] **Step 3: Implement bounded blank-and-reparse recovery**
 
-Add:
+Add a result type that keeps the always-present primary pass separate from zero or more later passes:
 
 ```rust
+pub(crate) struct ParseRecovery {
+    pub(crate) primary_clean: Vec<ByteRange>,
+    pub(crate) recovered: Vec<ParsePass>,
+    pub(crate) unresolved_problems: Vec<SyntaxProblem>,
+}
+
 pub(crate) fn recover_parse_passes(
     parser: &mut tree_sitter::Parser,
     normalized: &[u8],
     primary: &tree_sitter::Tree,
-) -> (Vec<ParsePass>, Vec<SyntaxProblem>);
+) -> ParseRecovery;
 ```
 
 For each broad primary problem, choose the first safe boundary strictly after the problem start. Clone the normalized bytes, blank the half-open range `[problem.start, boundary)` with `mask_preserving_lines`, and reparse. The boundary token itself must remain intact. Accept a pass only when:
@@ -606,11 +625,13 @@ For each broad primary problem, choose the first safe boundary strictly after th
 
 Store `clean = [boundary..next_problem_start]` and increment priority. Continue from the next problem/boundary until EOF, no progress, or `MAX_RECOVERY_ATTEMPTS`. Track tried `(problem_start, boundary)` pairs in a `BTreeSet`. On cap/no-progress, retain the last unresolved problem. Never unwrap parser output or delimiter matches in this path.
 
-Before returning, replace the primary pass's full-file clean range with the complement of its unresolved problem ranges. This preserves valid primary facts before and between errors while preventing extraction from a broad error node.
+Before returning, set `primary_clean` to the complement of the unresolved problem ranges. The caller assigns it to `ParsedKotlinFile.primary.clean` and stores only later passes in `ParsedKotlinFile.recovered`. This preserves valid primary facts before and between errors while preventing extraction from a broad error node without representing the primary pass as an optional vector element.
 
 - [ ] **Step 4: Iterate every pass through one extraction pipeline**
 
-In `scan_repository`, first index locals across all passes, then extract usages/tokens/styles across all passes. Pass each pass's `clean` ranges and the file's syntax regions into the existing extractors. Primary priority is `0`; recovered pass priority increases with source progress.
+In `scan_repository`, first index locals across `parsed.passes()`, then extract usages/tokens/styles across the same iterator. Pass each pass's `clean` ranges and the file's syntax regions into the existing extractors. Primary priority is `0`; recovered pass priority increases with source progress.
+
+Update `discover_registry_symbols` to collect declarations across `parsed.passes()` with the same clean-range predicate. Its existing `BTreeMap` remains the semantic deduplication boundary, so overlapping primary and recovered declarations cannot duplicate discovered symbols. Emit the same unresolved-problem diagnostics as repository scanning.
 
 Collect only facts admitted by `node_is_extractable` as `(priority, fact)` and resolve duplicate ids with a `BTreeMap`. Insert passes in ascending priority and retain the first fact for each id. Because error-containing nodes are rejected before insertion, no conflict rule needs to inspect an AST node after fact construction. Strip priority before returning contract facts.
 
