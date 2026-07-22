@@ -17,5 +17,6 @@ ADRs record significant product and engineering decisions after implementation. 
 | 2026-06-20 | [Adoption Metrics v2](./2026-06-20-adoption-metrics-v2.md) | Pending merge | [Active implementation plan](../plans/2026-06-20-adoption-metrics-v2-plan.md) |
 | 2026-07-03 | [Token scanning](./2026-07-03-token-scanning.md) | Accepted | [Plan archive](../plans/archive/2026-07-03-token-scanning-plan.md) |
 | 2026-07-04 | [Registry sync and config v2](./2026-07-04-registry-sync-config-v2.md) | Accepted | [Plan archive](../plans/archive/2026-07-04-registry-sync-config-plan.md) |
+| 2026-07-19 | [Token inference and reporting](./2026-07-19-token-inference-reporting.md) | Accepted | [Plan archive](../plans/archive/2026-07-19-token-inference-reporting-plan.md) |
 
 **Active plans** (not yet implemented or deferred) remain in [`docs/plans/`](../plans/README.md).
