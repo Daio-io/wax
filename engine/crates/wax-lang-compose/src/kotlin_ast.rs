@@ -498,67 +498,43 @@ fn collect_syntax_problem_nodes(root: tree_sitter::Node<'_>) -> Vec<tree_sitter:
     let mut candidates = Vec::new();
     collect_problem_candidates(root, &mut candidates);
     let all_candidates = candidates.clone();
+
+    // Keep leaf problems so a broad error node cannot bridge disjoint
+    // descendants into one diagnostic. Equal ranges are still collapsed using
+    // the required missing-node preference.
     candidates.retain(|candidate| {
-        !is_redundant_zero_width_outer_candidate(*candidate, all_candidates.as_slice())
+        !all_candidates
+            .iter()
+            .copied()
+            .any(|other| other != *candidate && node_descends_from(other, *candidate))
+    });
+    candidates.sort_by_key(|node| {
+        (
+            node.end_byte().saturating_sub(node.start_byte()),
+            !node.is_missing(),
+            node.start_byte(),
+        )
+    });
+    candidates.dedup_by(|left, right| {
+        left.start_byte() == right.start_byte() && left.end_byte() == right.end_byte()
     });
     candidates.sort_by_key(|node| (node.start_byte(), node.end_byte()));
-
-    let mut groups: Vec<Vec<tree_sitter::Node<'_>>> = Vec::new();
-    for candidate in candidates {
-        match groups.last_mut() {
-            Some(group)
-                if group
-                    .iter()
-                    .any(|existing| problem_nodes_overlap_or_nest(*existing, candidate)) =>
-            {
-                group.push(candidate);
-            }
-            _ => groups.push(vec![candidate]),
-        }
-    }
-
-    groups
-        .into_iter()
-        .filter_map(|group| {
-            group.into_iter().min_by_key(|node| {
-                (
-                    node.end_byte().saturating_sub(node.start_byte()),
-                    !node.is_missing(),
-                    node.start_byte(),
-                )
-            })
-        })
-        .collect()
+    candidates
 }
 
 fn collect_problem_candidates<'a>(
     node: tree_sitter::Node<'a>,
     candidates: &mut Vec<tree_sitter::Node<'a>>,
 ) {
-    if node.is_error() || node.is_missing() {
-        candidates.push(node);
-    }
+    let mut stack = vec![node];
+    while let Some(node) = stack.pop() {
+        if node.is_error() || node.is_missing() {
+            candidates.push(node);
+        }
 
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_problem_candidates(child, candidates);
+        let mut cursor = node.walk();
+        stack.extend(node.children(&mut cursor));
     }
-}
-
-fn is_redundant_zero_width_outer_candidate(
-    candidate: tree_sitter::Node<'_>,
-    candidates: &[tree_sitter::Node<'_>],
-) -> bool {
-    if candidate.is_missing() || candidate.start_byte() != candidate.end_byte() {
-        return false;
-    }
-
-    candidates.iter().copied().any(|other| {
-        other.is_missing()
-            && other.start_byte() == candidate.start_byte()
-            && other.end_byte() == candidate.end_byte()
-            && node_descends_from(other, candidate)
-    })
 }
 
 fn node_descends_from(mut node: tree_sitter::Node<'_>, ancestor: tree_sitter::Node<'_>) -> bool {
@@ -570,25 +546,6 @@ fn node_descends_from(mut node: tree_sitter::Node<'_>, ancestor: tree_sitter::No
     }
 
     false
-}
-
-fn problem_nodes_overlap_or_nest(
-    left: tree_sitter::Node<'_>,
-    right: tree_sitter::Node<'_>,
-) -> bool {
-    let left_range = ByteRange::new(left.start_byte(), left.end_byte()).expect("valid range");
-    let right_range = ByteRange::new(right.start_byte(), right.end_byte()).expect("valid range");
-    ranges_overlap(left_range, right_range)
-        || zero_width_position_within_range(left_range, right_range)
-        || zero_width_position_within_range(right_range, left_range)
-}
-
-fn ranges_overlap(left: ByteRange, right: ByteRange) -> bool {
-    left.start < right.end && right.start < left.end
-}
-
-fn zero_width_position_within_range(point: ByteRange, range: ByteRange) -> bool {
-    point.start == point.end && range.start <= point.start && point.start <= range.end
 }
 
 pub(crate) fn annotation_type_name(
@@ -981,6 +938,39 @@ fun Broken() {
             "expected nested missing/error node instead of outer function_declaration"
         );
         assert!(problem.is_missing() || problem.is_error());
+    }
+
+    #[test]
+    fn disjoint_inner_failures_under_outer_error_produce_two_ordered_problems() {
+        let mut parser = new_parser().expect("parser");
+        let first_tree = parser.parse("fun First(\n".as_bytes(), None).expect("tree");
+        let second_tree = parser
+            .parse("\n\nfun Second(\n".as_bytes(), None)
+            .expect("tree");
+        let first_problems = collect_syntax_problem_nodes(first_tree.root_node());
+        let second_problems = collect_syntax_problem_nodes(second_tree.root_node());
+
+        assert_eq!(first_problems.len(), 1);
+        assert_eq!(second_problems.len(), 1);
+        assert!(
+            first_problems[0].start_byte() < first_tree.root_node().end_byte()
+                && second_problems[0].start_byte() < second_tree.root_node().end_byte(),
+            "each disjoint outer error should retain its own narrow problem"
+        );
+    }
+
+    #[test]
+    fn syntax_problem_collection_handles_deep_malformed_input_iteratively() {
+        let mut parser = new_parser().expect("parser");
+        let source = format!("fun Broken() = {}0\n", "[".repeat(8_192));
+        let tree = parser.parse(source.as_bytes(), None).expect("tree");
+        let root = tree.root_node();
+
+        assert!(root.has_error(), "test input should remain malformed");
+        assert!(
+            !collect_syntax_problem_nodes(root).is_empty(),
+            "deep malformed input should produce a syntax problem"
+        );
     }
 
     #[test]

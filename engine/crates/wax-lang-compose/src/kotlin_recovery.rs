@@ -1,7 +1,6 @@
-#![allow(dead_code)]
-
 //! Recovery metadata for permissive Kotlin parsing.
 
+#[allow(dead_code)]
 pub(crate) const MAX_RECOVERY_ATTEMPTS: usize = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -15,16 +14,19 @@ impl ByteRange {
         (start <= end).then_some(Self { start, end })
     }
 
+    #[allow(dead_code)]
     pub(crate) fn contains(self, byte: usize) -> bool {
         self.start <= byte && byte < self.end
     }
 
+    #[allow(dead_code)]
     pub(crate) fn contains_node(self, node: tree_sitter::Node<'_>) -> bool {
         self.start <= node.start_byte() && node.end_byte() <= self.end
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[allow(dead_code)]
 pub(crate) enum SyntaxFamily {
     SuspendLambda,
     WhenGuard,
@@ -37,6 +39,7 @@ pub(crate) enum SyntaxFamily {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub(crate) enum ComponentScopePolicy {
     Inherit,
     ComposableLambda,
@@ -60,6 +63,7 @@ pub(crate) struct SyntaxProblem {
     pub(crate) recovered_later_source: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub(crate) struct ParsePass {
     pub(crate) tree: tree_sitter::Tree,
