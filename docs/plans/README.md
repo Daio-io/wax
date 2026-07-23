@@ -31,7 +31,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 | 12 | Registry sync and config v2 | [archive/2026-07-04-registry-sync-config-plan.md](./archive/2026-07-04-registry-sync-config-plan.md) | `merged` | `complete` | [ADR](../adr/2026-07-04-registry-sync-config-v2.md) |
 | 13 | Token scanning | [archive/2026-07-03-token-scanning-plan.md](./archive/2026-07-03-token-scanning-plan.md) | `merged` | `complete` | [ADR](../adr/2026-07-03-token-scanning.md) |
 | 14 | Token inference and reporting | [archive/2026-07-19-token-inference-reporting-plan.md](./archive/2026-07-19-token-inference-reporting-plan.md) | `merged` | `complete` | [ADR](../adr/2026-07-19-token-inference-reporting.md) |
-| 15 | Compose parse recovery and UI scoping | [2026-07-22-compose-parse-recovery-plan.md](./2026-07-22-compose-parse-recovery-plan.md) | `pending` | `not-started` | — |
+| 15 | Compose parse recovery and UI scoping | [2026-07-22-compose-parse-recovery-plan.md](./2026-07-22-compose-parse-recovery-plan.md) | `merged` | `not-started` | — |
 
 **Doc status:** `pending` -> plan PR open; `merged` -> plan doc on `main`; `planned` -> not yet drafted.
 

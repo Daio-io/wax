@@ -157,7 +157,6 @@ pub(crate) struct SyntaxProblem {
 pub(crate) struct ParsePass {
     pub(crate) tree: tree_sitter::Tree,
     pub(crate) clean: Vec<ByteRange>,
-    pub(crate) priority: u16,
 }
 ```
 
@@ -600,20 +599,18 @@ Never emit a boundary inside a comment, string, character literal, annotation ar
 
 - [ ] **Step 3: Implement bounded blank-and-reparse recovery**
 
-Add a result type that keeps the always-present primary pass separate from zero or more later passes:
+Return the recovery parts directly so the caller can keep the always-present primary pass separate from zero or more later passes:
 
 ```rust
-pub(crate) struct ParseRecovery {
-    pub(crate) primary_clean: Vec<ByteRange>,
-    pub(crate) recovered: Vec<ParsePass>,
-    pub(crate) unresolved_problems: Vec<SyntaxProblem>,
-}
-
 pub(crate) fn recover_parse_passes(
     parser: &mut tree_sitter::Parser,
     normalized: &[u8],
     primary: &tree_sitter::Tree,
-) -> ParseRecovery;
+) -> (
+    Vec<ByteRange>,
+    Vec<ParsePass>,
+    Vec<SyntaxProblem>,
+);
 ```
 
 For each broad primary problem, choose the first safe boundary strictly after the problem start. Clone the normalized bytes, blank the half-open range `[problem.start, boundary)` with `mask_preserving_lines`, and reparse. The boundary token itself must remain intact. Accept a pass only when:
@@ -623,17 +620,17 @@ For each broad primary problem, choose the first safe boundary strictly after th
 - the first remaining problem begins after the prior accepted offset, or no problem remains;
 - the suffix contains at least one named declaration or statement node.
 
-Store `clean = [boundary..next_problem_start]` and increment priority. Continue from the next problem/boundary until EOF, no progress, or `MAX_RECOVERY_ATTEMPTS`. Track tried `(problem_start, boundary)` pairs in a `BTreeSet`. On cap/no-progress, retain the last unresolved problem. Never unwrap parser output or delimiter matches in this path.
+Store `clean = [boundary..next_problem_start]`. Continue from the next problem/boundary only when its offset strictly increases, stopping at EOF, no progress, or `MAX_RECOVERY_ATTEMPTS`. On cap/no-progress, retain the last unresolved problem. Never unwrap parser output or delimiter matches in this path.
 
-Before returning, set `primary_clean` to the complement of the unresolved problem ranges. The caller assigns it to `ParsedKotlinFile.primary.clean` and stores only later passes in `ParsedKotlinFile.recovered`. This preserves valid primary facts before and between errors while preventing extraction from a broad error node without representing the primary pass as an optional vector element.
+Before returning, set the first tuple element to the complement of the unresolved problem ranges. The caller assigns it to `ParsedKotlinFile.primary.clean`, stores later passes in `ParsedKotlinFile.recovered`, and stores the remaining problems in `ParsedKotlinFile.unresolved_problems`. This preserves valid primary facts before and between errors while preventing extraction from a broad error node without representing the primary pass as an optional vector element.
 
 - [ ] **Step 4: Iterate every pass through one extraction pipeline**
 
-In `scan_repository`, first index locals across `parsed.passes()`, then extract usages/tokens/styles across the same iterator. Pass each pass's `clean` ranges and the file's syntax regions into the existing extractors. Primary priority is `0`; recovered pass priority increases with source progress.
+In `scan_repository`, first index locals across `parsed.passes()`, then extract usages/tokens/styles across the same iterator. Pass each pass's `clean` ranges and the file's syntax regions into the existing extractors. `parsed.passes()` yields the primary pass first, followed by recovered passes in source-progress order.
 
 Update `discover_registry_symbols` to collect declarations across `parsed.passes()` with the same clean-range predicate. Its existing `BTreeMap` remains the semantic deduplication boundary, so overlapping primary and recovered declarations cannot duplicate discovered symbols. Emit the same unresolved-problem diagnostics as repository scanning.
 
-Collect only facts admitted by `node_is_extractable` as `(priority, fact)` and resolve duplicate ids with a `BTreeMap`. Insert passes in ascending priority and retain the first fact for each id. Because error-containing nodes are rejected before insertion, no conflict rule needs to inspect an AST node after fact construction. Strip priority before returning contract facts.
+Insert only facts admitted by `node_is_extractable` into a `BTreeMap` while iterating `parsed.passes()`, retaining the first fact for each id. Because error-containing nodes are rejected before insertion, no conflict rule needs to inspect an AST node after fact construction.
 
 Use these stable keys:
 
@@ -819,6 +816,8 @@ The offline shell test uses a fake Wax binary and temporary repo to cover succes
 Run the normal checks:
 
 ```bash
+wax_repo_root="$(git rev-parse --show-toplevel)"
+cd "$wax_repo_root"
 scripts/test-verify-compose-kotlin-fixtures.sh
 scripts/test-replay-compose-corpus.sh
 cd engine
@@ -827,18 +826,21 @@ cargo test -p wax-lang-compose
 cargo test -p wax-cli
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
+cargo build --release -p wax-cli
 ```
 
 Then, with the maintainer-provided compilers and corpus:
 
 ```bash
+wax_repo_root="$(git rev-parse --show-toplevel)"
+cd "$wax_repo_root"
 scripts/verify-compose-kotlin-fixtures.sh --version 2.1.0 --compiler "$KOTLINC_2_1_0"
 scripts/verify-compose-kotlin-fixtures.sh --version 2.2.0 --compiler "$KOTLINC_2_2_0"
 scripts/verify-compose-kotlin-fixtures.sh --version 2.3.0 --compiler "$KOTLINC_2_3_0"
 scripts/verify-compose-kotlin-fixtures.sh --version 2.4.0 --compiler "$KOTLINC_2_4_0"
 scripts/replay-compose-corpus.sh \
   --repo "$COMPOSE_CORPUS_REPO" \
-  --wax-bin "$PWD/engine/target/release/wax" \
+  --wax-bin "$wax_repo_root/engine/target/release/wax" \
   --baseline "$COMPOSE_CORPUS_BASELINE" \
   --max-slowdown-percent 10
 ```

@@ -831,16 +831,13 @@ fn write_token_inference_summary(
         writeln!(writer, "  {}", format_token_finding_line(finding)).map_err(write_error)?;
     }
 
-    let needs_registry_values = joined.iter().any(|finding| {
-        finding.row.classification == TokenInferenceClassification::Unassessed
-            && finding.row.evidence.iter().any(|evidence| {
-                matches!(
-                    evidence,
-                    TokenInferenceEvidence::MissingCanonicalValues
-                        | TokenInferenceEvidence::IncompleteCanonicalCoverage
-                )
-            })
-    });
+    let needs_registry_values =
+        joined.iter().any(|finding| {
+            finding.row.classification == TokenInferenceClassification::Unassessed
+                && finding.row.evidence.iter().any(|evidence| {
+                    matches!(evidence, TokenInferenceEvidence::MissingCanonicalValues)
+                })
+        });
     if needs_registry_values {
         writeln!(
             writer,
@@ -1376,7 +1373,10 @@ mod tests {
         assert!(!stdout.contains("(near,"));
 
         for row in &mut merged.token_inference.sites {
-            row.evidence = vec![TokenInferenceEvidence::UnsupportedCanonicalFormat];
+            row.evidence = vec![
+                TokenInferenceEvidence::IncompleteCanonicalCoverage,
+                TokenInferenceEvidence::UnsupportedCanonicalFormat,
+            ];
         }
         let mut unsupported_output = Vec::new();
         write_scan_summary(

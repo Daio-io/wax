@@ -444,10 +444,7 @@ if unmatched_count > 0:
         "(informational, not migration debt)."
     )
 needs_registry_values = any(
-    bool(
-        {"missing_canonical_values", "incomplete_canonical_coverage"}
-        & set(row.get("evidence") or [])
-    )
+    "missing_canonical_values" in (row.get("evidence") or [])
     for row in unassessed_observations
 )
 if needs_registry_values:

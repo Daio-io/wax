@@ -6,7 +6,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RENDER="$ROOT/scripts/render-wax-scan-fixture-report.sh"
 FIXTURE="$ROOT/scripts/fixtures/wax-scan/expected-insights.sample.json"
 OUTPUT="$(mktemp "${TMPDIR:-/tmp}/wax-scan-render.XXXXXX.html")"
-trap 'rm -f "$OUTPUT"' EXIT
+UNSUPPORTED_FIXTURE="$(mktemp "${TMPDIR:-/tmp}/wax-scan-unsupported.XXXXXX.json")"
+UNSUPPORTED_OUTPUT="$(mktemp "${TMPDIR:-/tmp}/wax-scan-unsupported.XXXXXX.html")"
+trap 'rm -f "$OUTPUT" "$UNSUPPORTED_FIXTURE" "$UNSUPPORTED_OUTPUT"' EXIT
 
 cd "$ROOT"
 
@@ -61,6 +63,20 @@ assert_not_contains "UnknownWidget"
 assert_not_contains "This fixture does not include the full registry symbol list"
 assert_not_contains "Action queue"
 assert_not_contains "hero-metric"
+
+jq '
+  .token_inference.unassessed_observations[].evidence = [
+    "incomplete_canonical_coverage",
+    "unsupported_canonical_format"
+  ]
+' "$FIXTURE" > "$UNSUPPORTED_FIXTURE"
+"$RENDER" \
+  --insights "$UNSUPPORTED_FIXTURE" \
+  --repo-name "wax-render-unsupported-test" \
+  "$UNSUPPORTED_OUTPUT" >/dev/null
+if grep -Fq -- "wax-registry-discover" "$UNSUPPORTED_OUTPUT"; then
+  fail "unsupported-only coverage should not recommend missing canonical values"
+fi
 
 if grep -Fq "{{" "$OUTPUT"; then
   fail "rendered report still contains unresolved template placeholders"

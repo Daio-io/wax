@@ -63,6 +63,8 @@
 
 ## Task 1: Extend the Shared Contract
 
+- [x] **Task 1 complete**
+
 **Files:**
 - Modify: `engine/crates/wax-contract/src/lib.rs`
 - Modify: `engine/crates/wax-contract/schemas/scan-facts.schema.json`
@@ -276,6 +278,8 @@ The language-pack distribution spec update must explicitly state that Adoption M
 
 ## Task 2: Add Engine Aggregation and Summary Generation
 
+- [x] **Task 2 complete**
+
 **Files:**
 - Modify: `engine/crates/wax-core/src/lib.rs`
 - Modify: `engine/crates/wax-core/tests/scan_output.rs`
@@ -351,6 +355,8 @@ git commit -m "feat: aggregate adoption metrics v2 summaries"
 
 ## Task 3: Migrate Basic Pack to Schema v2
 
+- [x] **Task 3 complete**
+
 **Files:**
 - Modify: `engine/crates/wax-lang-basic/src/line_scan.rs`
 - Modify: `engine/crates/wax-lang-basic/tests/golden_small.rs`
@@ -399,6 +405,8 @@ git commit -m "feat: emit basic schema v2 scan facts"
 ```
 
 ## Task 4: Implement Compose v2 Facts
+
+- [x] **Task 4 complete**
 
 **Files:**
 - Modify: `engine/crates/wax-lang-compose/src/tree_sitter_scan.rs`
@@ -494,6 +502,8 @@ git commit -m "feat: emit compose adoption metrics v2 facts"
 
 ## Task 5: Implement React v2 Facts
 
+- [x] **Task 5 complete**
+
 **Files:**
 - Modify: `engine/crates/wax-lang-react/src/extract.rs`
 - Modify: `engine/crates/wax-lang-react/src/facts.rs`
@@ -574,6 +584,8 @@ git commit -m "feat: emit react adoption metrics v2 facts"
 
 ## Task 6: Implement SwiftUI v2 Facts
 
+- [x] **Task 6 complete**
+
 **Files:**
 - Modify: `engine/crates/wax-lang-swift/src/tree_sitter_scan.rs`
 - Modify: `engine/crates/wax-lang-swift/tests/fixtures/small/`
@@ -644,6 +656,8 @@ git commit -m "feat: emit swiftui adoption metrics v2 facts"
 ```
 
 ## Task 7: Update CLI and Scan Analytics Reporting
+
+- [x] **Task 7 complete**
 
 **Files:**
 - Modify: `engine/crates/wax-cli/src/commands/scan.rs`
@@ -724,6 +738,8 @@ git commit -m "feat: report adoption metrics v2"
 ```
 
 ## Task 8: Cross-Crate Verification and Cutover Docs
+
+- [x] **Task 8 complete**
 
 **Files:**
 - Modify: `README.md`
