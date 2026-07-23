@@ -9,7 +9,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 3. Each implementation task remains **one PR per task** inside the active plan, per that plan's execution model.
 4. Update the **Doc status** and **Implementation status** columns when a plan doc PR merges or when implementation of a plan finishes.
 
-**Active plan:** None promoted yet. Token inference and reporting (order 14) completed and archived; see its [plan archive](./archive/2026-07-19-token-inference-reporting-plan.md) and [ADR](../adr/2026-07-19-token-inference-reporting.md). Existing Adoption Metrics v2 stacked PRs (#165, #171, #172) remain independently mergeable, but no new active-plan work begins until a maintainer promotes the next plan.
+**Active plan:** None promoted yet. Adoption Metrics v2 (order 11) and Token inference and reporting (order 14) are complete and archived; see their [Adoption Metrics v2 archive](./archive/2026-06-20-adoption-metrics-v2-plan.md), [Adoption Metrics v2 ADR](../adr/2026-06-20-adoption-metrics-v2.md), [token inference archive](./archive/2026-07-19-token-inference-reporting-plan.md), and [token inference ADR](../adr/2026-07-19-token-inference-reporting.md). No new active-plan work begins until a maintainer promotes the next plan.
 
 ---
 
@@ -27,7 +27,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 | 8 | SwiftUI language pack | [archive/2026-06-13-swift-language-pack-plan.md](./archive/2026-06-13-swift-language-pack-plan.md) | `merged` | `complete` | [ADR](../adr/2026-06-13-swift-language-pack.md) |
 | 9 | Interactive init wizard | [archive/2026-06-13-interactive-init.md](./archive/2026-06-13-interactive-init.md) | `merged` | `complete` | [ADR](../adr/2026-06-13-interactive-init.md) |
 | 10 | Wax scan analytics skill | [archive/2026-06-14-wax-scan-plan.md](./archive/2026-06-14-wax-scan-plan.md) | `merged` | `complete` | [ADR](../adr/2026-06-14-wax-scan-analytics-skill.md) |
-| 11 | Adoption Metrics v2 | [2026-06-20-adoption-metrics-v2-plan.md](./2026-06-20-adoption-metrics-v2-plan.md) | `pending` | `in-progress` | — |
+| 11 | Adoption Metrics v2 | [archive/2026-06-20-adoption-metrics-v2-plan.md](./archive/2026-06-20-adoption-metrics-v2-plan.md) | `merged` | `complete` | [ADR](../adr/2026-06-20-adoption-metrics-v2.md) |
 | 12 | Registry sync and config v2 | [archive/2026-07-04-registry-sync-config-plan.md](./archive/2026-07-04-registry-sync-config-plan.md) | `merged` | `complete` | [ADR](../adr/2026-07-04-registry-sync-config-v2.md) |
 | 13 | Token scanning | [archive/2026-07-03-token-scanning-plan.md](./archive/2026-07-03-token-scanning-plan.md) | `merged` | `complete` | [ADR](../adr/2026-07-03-token-scanning.md) |
 | 14 | Token inference and reporting | [archive/2026-07-19-token-inference-reporting-plan.md](./archive/2026-07-19-token-inference-reporting-plan.md) | `merged` | `complete` | [ADR](../adr/2026-07-19-token-inference-reporting.md) |
@@ -45,7 +45,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 -> No active plan is promoted. Wait for maintainer promotion before starting new roadmap work.
 ```
 
-Orders 1-4, 6-10, and 12-14 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Adoption Metrics v2 (order 11) still has open stacked PRs (#165, #171, #172) that may merge independently. Token inference and reporting (order 14) finished implementation in PRs #231, #233, #235, #236, and #237 plus closeout PR #238 and is archived. Compose parse recovery and UI scoping (order 15) is planned, but no successor plan has been promoted to active yet.
+Orders 1-4, 6-14 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Adoption Metrics v2 shipped in PRs #165, #171, and #172 and is archived. Token inference and reporting finished implementation in PRs #231, #233, #235, #236, and #237 plus closeout PR #238 and is archived. Compose parse recovery and UI scoping (order 15) is planned, but no successor plan has been promoted to active yet.
 
 ---
 
@@ -63,7 +63,7 @@ Orders 1-4, 6-10, and 12-14 are **complete**. Post-alpha UX (order 5) remains ot
 | 8 | `dai/swift-language-pack-plan` | merged | SwiftUI language pack design and implementation plan |
 | 9 | `dai/interactive-init-plan` | #142 (merged) | Interactive init design and implementation plan |
 | 10 | `docs/wax-scan-skill-plan` | #151 (merged) | Wax scan analytics skill design, implementation plan, and Task 1 scaffold |
-| 11 | `dai/adoption-metrics-v2-contract` | [#165](https://github.com/Daio-io/wax/pull/165) | Adoption Metrics v2 design and contract |
+| 11 | `dai/adoption-metrics-v2-contract` | [#165](https://github.com/Daio-io/wax/pull/165), [#171](https://github.com/Daio-io/wax/pull/171), [#172](https://github.com/Daio-io/wax/pull/172) | Adoption Metrics v2 design, implementation, reporting, and closeout |
 | 12 | `dai/registry-sync-config-plan` | #195 (merged) | Registry sync and config v2 design and implementation plan |
 | 13 | `dai/token-scanning-plan` | #194 (merged) | Token scanning design and implementation plan |
 | 14 | `dai/token-inference-reporting-design` | [#230](https://github.com/Daio-io/wax/pull/230) | Token inference/reporting design and implementation plan |
@@ -82,7 +82,7 @@ Orders 1-4, 6-10, and 12-14 are **complete**. Post-alpha UX (order 5) remains ot
 - [SwiftUI language pack design](./archive/2026-06-12-swift-language-pack-design.md) — SwiftUI parser-backed pack (complete)
 - [Interactive init design](../specs/2026-06-13-interactive-init-design.md) — extracted Post-alpha UX Task 1 plan
 - [Wax scan analytics skill design](../specs/2026-06-14-wax-scan-design.md) — scan orchestration and adoption reporting skill (order 10)
-- [Adoption Metrics v2 design](../specs/2026-06-20-adoption-metrics-v2-design.md) — facts-first invocation adoption contract (order 11 draft)
+- [Adoption Metrics v2 design](../specs/2026-06-20-adoption-metrics-v2-design.md) — facts-first invocation adoption contract (order 11, complete; [ADR](../adr/2026-06-20-adoption-metrics-v2.md))
 - [Registry sync and config v2 design](../specs/2026-07-04-registry-sync-config-design.md) — clean alpha cutover for remembered design-system registries, no-config local scans, and explicit app sync (order 12, complete)
 - [Token scanning design](../specs/2026-07-03-token-scanning-design.md) — additive token references and hard-coded styling candidates (order 13, complete; [ADR](../adr/2026-07-03-token-scanning.md))
 - [Token inference and reporting design](../specs/2026-07-19-token-inference-reporting-design.md) — context-aware exact, near, unmatched, and unassessed token findings (order 14, complete; [ADR](../adr/2026-07-19-token-inference-reporting.md))

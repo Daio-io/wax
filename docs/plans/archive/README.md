@@ -20,6 +20,7 @@ Completed implementation plans live here. Each plan has a corresponding **ADR** 
 | 9 | [Interactive init wizard](./2026-06-13-interactive-init.md) | [ADR](../../adr/2026-06-13-interactive-init.md) | Complete |
 | 9 (design) | [Interactive init design](../../specs/2026-06-13-interactive-init-design.md) | — | Reference |
 | 10 | [Wax scan analytics skill](./2026-06-14-wax-scan-plan.md) | [ADR](../../adr/2026-06-14-wax-scan-analytics-skill.md) | Complete |
+| 11 | [Adoption Metrics v2](./2026-06-20-adoption-metrics-v2-plan.md) | [ADR](../../adr/2026-06-20-adoption-metrics-v2.md) | Complete |
 | 12 | [Registry sync and config v2](./2026-07-04-registry-sync-config-plan.md) | [ADR](../../adr/2026-07-04-registry-sync-config-v2.md) | Complete |
 | 13 | [Token scanning](./2026-07-03-token-scanning-plan.md) | [ADR](../../adr/2026-07-03-token-scanning.md) | Complete |
 | 14 | [Token inference and reporting](./2026-07-19-token-inference-reporting-plan.md) | [ADR](../../adr/2026-07-19-token-inference-reporting.md) | Complete |
