@@ -10,7 +10,7 @@ use crate::kotlin_ast::{
     has_preview_annotation, is_non_ui_scaffolding_composable_symbol,
     is_pascal_case_composable_symbol, is_within_preview_composable, nearest_enclosing_composable,
     new_parser, package_name_from_source, parse_kotlin_file_permissive,
-    partial_tree_parse_diagnostic, tree_has_syntax_errors, unparseable_file_diagnostic,
+    partial_tree_parse_diagnostic, unparseable_file_diagnostic,
 };
 
 /// Grammar version bundled via the `tree-sitter-kotlin-ng` crate dependency.
@@ -950,12 +950,14 @@ pub fn scan_repository(
 
         match parse_kotlin_file_permissive(&mut parser, file_path) {
             Ok(parsed) => {
-                if tree_has_syntax_errors(&parsed.tree) {
+                if parsed.is_partial() {
                     parse_failures += 1;
-                    diagnostics.push(partial_tree_parse_diagnostic(
-                        parsed.tree.root_node(),
-                        &relative_file,
-                    ));
+                    diagnostics.extend(
+                        parsed
+                            .unresolved_problems
+                            .iter()
+                            .map(|problem| partial_tree_parse_diagnostic(problem, &relative_file)),
+                    );
                 }
                 parsed_files.push((relative_file, parsed));
             }
@@ -972,7 +974,7 @@ pub fn scan_repository(
     let mut local_index = LocalComposableIndex::default();
     for (relative_file, parsed) in &parsed_files {
         for local in index_local_components_from_source(
-            parsed.tree.root_node(),
+            parsed.primary_tree().root_node(),
             parsed.source.as_bytes(),
             relative_file,
         ) {
@@ -983,7 +985,7 @@ pub fn scan_repository(
 
     for (relative_file, parsed) in &parsed_files {
         extract_usage_from_source(
-            parsed.tree.root_node(),
+            parsed.primary_tree().root_node(),
             parsed.source.as_bytes(),
             relative_file,
             &registry,
@@ -991,13 +993,13 @@ pub fn scan_repository(
             &mut usage_sites,
         );
         extract_hardcoded_style_from_source(
-            parsed.tree.root_node(),
+            parsed.primary_tree().root_node(),
             parsed.source.as_bytes(),
             relative_file,
             &mut hardcoded_style_sites,
         );
         extract_token_sites_from_source(
-            parsed.tree.root_node(),
+            parsed.primary_tree().root_node(),
             parsed.source.as_bytes(),
             relative_file,
             &registry.token_index,
@@ -1699,7 +1701,7 @@ fun Screen() { Button(onClick = {}) }
     }
 
     #[test]
-    fn partial_parse_still_extracts_symbols_during_scan() {
+    fn partial_parse_reports_the_smallest_problem_and_keeps_prior_facts() {
         let config = ComposeScanConfig {
             design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
             roots: vec![std::path::PathBuf::from("app/src/main/kotlin")],
@@ -1735,6 +1737,67 @@ fun Screen() { Button(onClick = {}) }
                 .iter()
                 .any(|diagnostic| diagnostic.code == "parse_failed"),
             "partial trees with syntax errors must emit parse_failed"
+        );
+        let parse_failed = result
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.code == "parse_failed")
+            .expect("parse_failed diagnostic");
+        assert_eq!(
+            parse_failed.location.as_ref().map(|location| location.line),
+            Some(5)
+        );
+        assert!(
+            parse_failed.message.contains("file scanned with gaps"),
+            "partial parse message should explain retained scan coverage"
+        );
+        assert_eq!(result.status, ScanStatus::Partial);
+    }
+
+    #[test]
+    fn partial_and_valid_files_both_count_and_keep_valid_ui_facts() {
+        let config = ComposeScanConfig {
+            design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
+            roots: vec![std::path::PathBuf::from("app/src/main/kotlin")],
+            excludes: vec![],
+        };
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let registry_dir = tmp.path().join("design-system");
+        std::fs::create_dir_all(&registry_dir).expect("create registry dir");
+        std::fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"PrimaryButton"}]}"#,
+        )
+        .expect("write registry");
+
+        let source_dir = tmp.path().join("app/src/main/kotlin");
+        std::fs::create_dir_all(&source_dir).expect("create source dir");
+        std::fs::write(
+            source_dir.join("Valid.kt"),
+            "@Composable\nfun Screen() {\n    PrimaryButton(onClick = {})\n}\n",
+        )
+        .expect("write valid source");
+        std::fs::write(source_dir.join("Broken.kt"), "@Composable\nfun Broken(\n")
+            .expect("write broken source");
+
+        let result = scan_repository(tmp.path(), &config)
+            .expect("scan should complete across malformed and valid files");
+
+        assert_eq!(result.files_scanned, 2);
+        assert!(
+            result
+                .local_components
+                .iter()
+                .any(|component| component.symbol == "Screen"),
+            "valid composable should still be indexed"
+        );
+        assert!(
+            result
+                .usage_sites
+                .iter()
+                .any(|usage| usage.symbol == "PrimaryButton"),
+            "valid file usage facts should survive unrelated parse failures"
         );
         assert_eq!(result.status, ScanStatus::Partial);
     }

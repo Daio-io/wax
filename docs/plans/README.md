@@ -9,7 +9,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 3. Each implementation task remains **one PR per task** inside the active plan, per that plan's execution model.
 4. Update the **Doc status** and **Implementation status** columns when a plan doc PR merges or when implementation of a plan finishes.
 
-**Active plan:** None promoted yet. Adoption Metrics v2 (order 11) and Token inference and reporting (order 14) are complete and archived; see their [Adoption Metrics v2 archive](./archive/2026-06-20-adoption-metrics-v2-plan.md), [Adoption Metrics v2 ADR](../adr/2026-06-20-adoption-metrics-v2.md), [token inference archive](./archive/2026-07-19-token-inference-reporting-plan.md), and [token inference ADR](../adr/2026-07-19-token-inference-reporting.md). No new active-plan work begins until a maintainer promotes the next plan.
+**Active plan:** None promoted yet. A maintainer exception authorizes only Task 1 of Compose parse recovery and UI scoping in [PR #245](https://github.com/Daio-io/wax/pull/245); Tasks 2–5 remain gated until the plan is promoted or another exception is granted. Adoption Metrics v2 (order 11) and Token inference and reporting (order 14) are complete and archived; see their [Adoption Metrics v2 archive](./archive/2026-06-20-adoption-metrics-v2-plan.md), [Adoption Metrics v2 ADR](../adr/2026-06-20-adoption-metrics-v2.md), [token inference archive](./archive/2026-07-19-token-inference-reporting-plan.md), and [token inference ADR](../adr/2026-07-19-token-inference-reporting.md).
 
 ---
 
@@ -31,7 +31,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 | 12 | Registry sync and config v2 | [archive/2026-07-04-registry-sync-config-plan.md](./archive/2026-07-04-registry-sync-config-plan.md) | `merged` | `complete` | [ADR](../adr/2026-07-04-registry-sync-config-v2.md) |
 | 13 | Token scanning | [archive/2026-07-03-token-scanning-plan.md](./archive/2026-07-03-token-scanning-plan.md) | `merged` | `complete` | [ADR](../adr/2026-07-03-token-scanning.md) |
 | 14 | Token inference and reporting | [archive/2026-07-19-token-inference-reporting-plan.md](./archive/2026-07-19-token-inference-reporting-plan.md) | `merged` | `complete` | [ADR](../adr/2026-07-19-token-inference-reporting.md) |
-| 15 | Compose parse recovery and UI scoping | [2026-07-22-compose-parse-recovery-plan.md](./2026-07-22-compose-parse-recovery-plan.md) | `pending` | `not-started` | — |
+| 15 | Compose parse recovery and UI scoping | [2026-07-22-compose-parse-recovery-plan.md](./2026-07-22-compose-parse-recovery-plan.md) | `merged` | `in-progress` | — |
 
 **Doc status:** `pending` -> plan PR open; `merged` -> plan doc on `main`; `planned` -> not yet drafted.
 
@@ -42,10 +42,11 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 ## Which plan should I run?
 
 ```text
--> No active plan is promoted. Wait for maintainer promotion before starting new roadmap work.
+-> Only Compose parse recovery Task 1 is authorized under the PR #245 maintainer exception.
+-> Do not start Task 2 until the plan is promoted or another exception is granted.
 ```
 
-Orders 1-4, 6-14 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Adoption Metrics v2 shipped in PRs #165, #171, and #172 and is archived. Token inference and reporting finished implementation in PRs #231, #233, #235, #236, and #237 plus closeout PR #238 and is archived. Compose parse recovery and UI scoping (order 15) is planned, but no successor plan has been promoted to active yet.
+Orders 1-4, 6-14 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Adoption Metrics v2 shipped in PRs #165, #171, and #172 and is archived. Token inference and reporting finished implementation in PRs #231, #233, #235, #236, and #237 plus closeout PR #238 and is archived. Compose parse recovery and UI scoping (order 15) is in progress only for the explicitly authorized Task 1; no successor plan has been promoted to active yet.
 
 ---
 

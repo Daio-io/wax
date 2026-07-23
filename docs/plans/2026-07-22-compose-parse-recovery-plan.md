@@ -22,7 +22,7 @@
 - Unknown or malformed skipped syntax emits `parse_failed` and keeps the scan `Partial`, even when later facts are recovered.
 - Full diagnostics remain in JSON. Terminal output shows at most five failure diagnostics and prints the actual total and omitted count.
 - Normal Rust tests must not require a globally installed Kotlin compiler or network access.
-- The current roadmap gate remains authoritative: implementation starts only after this plan is promoted or the maintainer explicitly grants an exception.
+- The current roadmap gate remains authoritative. Task 1 proceeds under the maintainer exception recorded in [`README.md`](./README.md); Tasks 2–5 remain gated until this plan is promoted or another exception is granted.
 - One task is one focused PR unless the maintainer explicitly batches adjacent tasks. Run `cargo fmt --all` before every Rust commit.
 
 ---
@@ -60,7 +60,7 @@
 
 ### Task 1: Introduce Recovery Metadata and Precise Syntax Diagnostics
 
-- [ ] **Task 1 complete**
+- [x] **Task 1 complete**
 
 **Files:**
 - Create: `engine/crates/wax-lang-compose/src/kotlin_recovery.rs`
@@ -68,13 +68,14 @@
 - Modify: `engine/crates/wax-lang-compose/src/kotlin_ast.rs`
 - Modify: `engine/crates/wax-lang-compose/src/discover.rs`
 - Modify: `engine/crates/wax-lang-compose/src/tree_sitter_scan.rs`
+- Modify: `docs/plans/README.md`
 - Modify: `docs/plans/2026-07-22-compose-parse-recovery-plan.md`
 
 **Interfaces:**
 - Consumes: original Kotlin source, `tree_sitter::Tree`, existing `parse_kotlin_file_permissive`, and existing `parse_failed` diagnostics.
 - Produces: `ByteRange`, `SyntaxFamily`, `ComponentScopePolicy`, `SyntaxRegion`, `SyntaxProblem`, `ParsePass`, and an expanded `ParsedKotlinFile` used by Tasks 2–4.
 
-- [ ] **Step 1: Lock the current failure shape with red tests**
+- [x] **Step 1: Lock the current failure shape with red tests**
 
 In `kotlin_ast.rs`, add `smallest_problem_prefers_nested_missing_or_error` using a hand-parsed malformed annotated function type. Assert that the selected range starts at the inner missing/error node rather than the containing `function_declaration`. Add `known_recovery_metadata_defaults_to_one_primary_pass` asserting a valid file has one full-file pass and no unresolved problems.
 
@@ -90,7 +91,7 @@ cargo test -p wax-lang-compose kotlin_ast::tests::known_recovery_metadata_defaul
 
 Expected: FAIL because the recovery metadata and smallest-problem selector do not exist.
 
-- [ ] **Step 2: Add the private recovery module and exact data model**
+- [x] **Step 2: Add the private recovery module and exact data model**
 
 Add `mod kotlin_recovery;` beside `mod kotlin_ast;` in `lib.rs`. Define these crate-private types in `kotlin_recovery.rs`:
 
@@ -163,7 +164,7 @@ pub(crate) struct ParsePass {
 
 Add `merge_clean_ranges(Vec<ByteRange>) -> Vec<ByteRange>` that sorts by `(start, end)` and combines overlapping or touching entries. Sort regions by `(source.start, source.end, family)`. Keep these types private to the Compose crate; they are not contract types.
 
-- [ ] **Step 3: Expand `ParsedKotlinFile` without exposing normalized text**
+- [x] **Step 3: Expand `ParsedKotlinFile` without exposing normalized text**
 
 Replace the current `source/tree` struct with:
 
@@ -194,7 +195,7 @@ impl ParsedKotlinFile {
 
 For this task, `parse_kotlin_file_permissive` still applies the existing annotated-parameter normalization, creates `primary` with `clean = [0..source.len()]`, leaves `recovered` empty, records no known regions, and collects unresolved problems from the returned tree. Keeping the primary pass in its own field makes an empty parsed-file state unrepresentable. Update `parse_kotlin_file_strict` to use `parsed.is_partial()`.
 
-- [ ] **Step 4: Collect every error before selecting the narrowest useful node**
+- [x] **Step 4: Collect every error before selecting the narrowest useful node**
 
 Replace `first_error_node` with a depth-first `collect_syntax_problem_nodes`. Include both `node.is_error()` and `node.is_missing()`. Group candidates whose byte ranges overlap or whose zero-width position lies inside the same outer error range, then keep one candidate per group using this sort key:
 
@@ -214,7 +215,7 @@ tree-sitter could not fully parse <file> near <line>:<column>; file scanned with
 
 Keep diagnostic severity `Error` and code `parse_failed`.
 
-- [ ] **Step 5: Wire scan status to unresolved problems**
+- [x] **Step 5: Wire scan status to unresolved problems**
 
 In `scan_repository`, replace direct `tree_has_syntax_errors(&parsed.tree)` checks with `parsed.is_partial()`. Push one `parse_failed` diagnostic per unresolved problem, not one per outer tree. Continue to count a file once for status purposes. For Task 1 extraction, use `parsed.primary_tree().root_node()` so output is otherwise unchanged.
 
@@ -222,11 +223,11 @@ Migrate `discover_registry_symbols` in the same task: replace `parsed.tree` with
 
 Delete `tree_has_syntax_errors` only after `rg` shows no remaining callers; otherwise leave it for strict parser tests.
 
-- [ ] **Step 6: Make malformed input panic-proof**
+- [x] **Step 6: Make malformed input panic-proof**
 
 Add unit cases for empty source, unclosed block comment, unclosed triple-quoted string, unbalanced braces, and a parser returning a partial tree. Each test must assert a normal `ParsedKotlinFile` or `ParseKotlinFileError::ParseFailed`, never a panic. Add a repository test with one malformed file and one valid file; assert two files scanned and the valid file's UI fact is present.
 
-- [ ] **Step 7: Verify and commit**
+- [x] **Step 7: Verify and commit**
 
 ```bash
 cd engine

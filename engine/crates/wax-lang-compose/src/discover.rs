@@ -10,7 +10,7 @@ use crate::kotlin_ast::{
     ParseKotlinFileError, collect_kotlin_files, function_name_from_decl, has_composable_annotation,
     has_preview_annotation, is_non_ui_scaffolding_composable_symbol, new_parser,
     package_name_from_source, parse_kotlin_file_permissive, partial_tree_parse_diagnostic,
-    tree_has_syntax_errors, unparseable_file_diagnostic,
+    unparseable_file_diagnostic,
 };
 
 /// Result of discovering Compose registry symbols from Kotlin source roots.
@@ -105,21 +105,25 @@ pub fn discover_registry_symbols(
     for file_path in kotlin_files {
         match parse_kotlin_file_permissive(&mut parser, &file_path) {
             Ok(parsed) => {
-                let package =
-                    package_name_from_source(parsed.tree.root_node(), parsed.source.as_bytes());
+                let package = package_name_from_source(
+                    parsed.primary_tree().root_node(),
+                    parsed.source.as_bytes(),
+                );
                 collect_symbols(
-                    parsed.tree.root_node(),
+                    parsed.primary_tree().root_node(),
                     parsed.source.as_bytes(),
                     package,
                     &mut components,
                     &mut diagnostics,
                 );
-                if tree_has_syntax_errors(&parsed.tree) {
+                if parsed.is_partial() {
                     let relative_file = repo_relative_path(parse_root, &file_path);
-                    diagnostics.push(partial_tree_parse_diagnostic(
-                        parsed.tree.root_node(),
-                        &relative_file,
-                    ));
+                    diagnostics.extend(
+                        parsed
+                            .unresolved_problems
+                            .iter()
+                            .map(|problem| partial_tree_parse_diagnostic(problem, &relative_file)),
+                    );
                 }
             }
             Err(ParseKotlinFileError::ParseFailed(_)) => {
@@ -234,4 +238,39 @@ fn repo_relative_path(parse_root: &Path, file_path: &Path) -> String {
                 .map(|name| name.to_string_lossy().replace("\\", "/"))
                 .unwrap_or_else(|| file_path.to_string_lossy().replace("\\", "/"))
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn partial_discovery_uses_recovery_diagnostics_and_keeps_prior_symbols() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let source_dir = tempdir.path().join("design-system/src/main/kotlin");
+        std::fs::create_dir_all(&source_dir).expect("create source dir");
+        std::fs::write(
+            source_dir.join("Components.kt"),
+            "@Composable\nfun PrimaryButton() {}\nfun Broken(\n",
+        )
+        .expect("write source");
+
+        let result = discover_registry_symbols(tempdir.path(), &[source_dir])
+            .expect("discovery should keep symbols from partial files");
+
+        assert_eq!(result.symbols(), vec!["PrimaryButton".to_owned()]);
+        let parse_failed = result
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.code == "parse_failed")
+            .expect("parse_failed diagnostic");
+        assert_eq!(
+            parse_failed.location.as_ref().map(|location| location.line),
+            Some(3)
+        );
+        assert!(
+            parse_failed.message.contains("file scanned with gaps"),
+            "partial discovery message should explain retained symbol coverage"
+        );
+    }
 }
