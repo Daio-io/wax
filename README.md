@@ -196,6 +196,12 @@ Every hard-coded styling observation from a parser-backed pack (`react`,
   be normalized. Inspect the row's typed `evidence` before deciding whether
   registry maintenance is needed.
 
+Exact matching compares shared semantic values rather than source formatting.
+Insignificant numeric precision such as `16`, `16.00`, or `1.6e1` does not
+change a match, while language-specific units remain incompatible. Supported
+short/full hexadecimal and Compose ARGB color forms normalize to the same RGBA
+representation; composite values remain conservative exact-text comparisons.
+
 There is no combined debt, health, or compliance score. Exact, near, unmatched,
 and unassessed counts stay separate on purpose. Raw hard-coded observations are
 inventory, not debt; interpret them through the assessed subset. The retired

@@ -18,6 +18,7 @@ enum NormalizedValue {
         unit: Option<String>,
         allow_near: bool,
     },
+    Color([u8; 4]),
     ExactText(String),
     Unsupported,
 }
@@ -464,6 +465,7 @@ fn values_exact_match(left: &NormalizedValue, right: &NormalizedValue) -> bool {
                 ..
             },
         ) => left_unit == right_unit && left_scalar == right_scalar,
+        (NormalizedValue::Color(left), NormalizedValue::Color(right)) => left == right,
         (NormalizedValue::ExactText(left_text), NormalizedValue::ExactText(right_text)) => {
             left_text == right_text
         }
@@ -513,6 +515,10 @@ fn normalize_value(
         return NormalizedValue::Unsupported;
     }
 
+    if let Some(color) = parse_hash_color(trimmed) {
+        return NormalizedValue::Color(color);
+    }
+
     match language.as_str() {
         "compose" => normalize_compose(category, context, trimmed),
         "react" => normalize_react(category, context, trimmed),
@@ -539,10 +545,7 @@ fn normalize_compose(
     value: &str,
 ) -> NormalizedValue {
     if let Some(color) = normalize_compose_hex_color(category, context, value) {
-        return NormalizedValue::ExactText(color);
-    }
-    if looks_like_hex_color(value) {
-        return NormalizedValue::ExactText(normalize_hex_color(value));
+        return NormalizedValue::Color(color);
     }
 
     if let Some(normalized) = parse_compose_numeric(value, allow_numeric_near(category, context)) {
@@ -559,46 +562,30 @@ fn normalize_compose(
 
 fn parse_compose_numeric(value: &str, allow_near: bool) -> Option<NormalizedValue> {
     let compact: String = value.chars().filter(|ch| !ch.is_whitespace()).collect();
-    let split_at = compact
-        .char_indices()
-        .find(|&(_, ch)| ch.is_ascii_alphabetic())
-        .map(|(index, _)| index);
-    match split_at {
-        Some(index) => {
-            let (number, unit) = compact.split_at(index);
-            let scalar = number.parse::<f64>().ok()?;
-            if !scalar.is_finite() {
-                return Some(NormalizedValue::Unsupported);
-            }
-            let unit = unit.to_ascii_lowercase();
-            if unit != "dp" && unit != "sp" {
-                return Some(NormalizedValue::Unsupported);
-            }
-            Some(NormalizedValue::Numeric {
-                scalar,
-                unit: Some(unit),
-                allow_near,
-            })
+    for (suffix, unit) in [(".dp", "dp"), ("dp", "dp"), (".sp", "sp"), ("sp", "sp")] {
+        if let Some(number) = strip_suffix_ignore_ascii_case(&compact, suffix)
+            && let Some(normalized) = normalize_numeric(number, Some(unit), allow_near)
+        {
+            return Some(normalized);
         }
-        None => {
-            let scalar = compact.parse::<f64>().ok()?;
-            if !scalar.is_finite() {
-                return Some(NormalizedValue::Unsupported);
-            }
-            Some(NormalizedValue::Numeric {
-                scalar,
-                unit: None,
-                allow_near,
-            })
-        }
+    }
+
+    if let Some(scalar) = parse_finite_scalar(&compact) {
+        return Some(NormalizedValue::Numeric {
+            scalar,
+            unit: None,
+            allow_near,
+        });
+    }
+
+    if split_numeric_prefix(&compact).is_some() {
+        Some(NormalizedValue::Unsupported)
+    } else {
+        None
     }
 }
 
 fn normalize_react(category: TokenCategory, context: StyleContext, value: &str) -> NormalizedValue {
-    if looks_like_hex_color(value) {
-        return NormalizedValue::ExactText(normalize_hex_color(value));
-    }
-
     if let Some(normalized) = parse_css_length(
         value,
         allow_unitless_px(context),
@@ -616,20 +603,17 @@ fn normalize_react(category: TokenCategory, context: StyleContext, value: &str) 
 }
 
 fn normalize_swift(category: TokenCategory, context: StyleContext, value: &str) -> NormalizedValue {
-    if looks_like_hex_color(value) {
-        return NormalizedValue::ExactText(normalize_hex_color(value));
-    }
-
     let compact: String = value.chars().filter(|ch| !ch.is_whitespace()).collect();
     if let Ok(scalar) = compact.parse::<f64>() {
-        if scalar.is_finite() {
-            return NormalizedValue::Numeric {
+        return if scalar.is_finite() {
+            NormalizedValue::Numeric {
                 scalar,
                 unit: None,
                 allow_near: allow_numeric_near(category, context),
-            };
-        }
-        return NormalizedValue::Unsupported;
+            }
+        } else {
+            NormalizedValue::Unsupported
+        };
     }
 
     NormalizedValue::ExactText(value.to_owned())
@@ -640,9 +624,6 @@ fn normalize_generic(
     context: StyleContext,
     value: &str,
 ) -> NormalizedValue {
-    if looks_like_hex_color(value) {
-        return NormalizedValue::ExactText(normalize_hex_color(value));
-    }
     if let Some(normalized) = parse_css_length(
         value,
         allow_unitless_px(context),
@@ -677,7 +658,7 @@ fn normalize_compose_hex_color(
     category: TokenCategory,
     context: StyleContext,
     value: &str,
-) -> Option<String> {
+) -> Option<[u8; 4]> {
     if category != TokenCategory::Color && context != StyleContext::Color {
         return None;
     }
@@ -688,7 +669,17 @@ fn normalize_compose_hex_color(
     if !matches!(hex.len(), 6 | 8) || !hex.chars().all(|ch| ch.is_ascii_hexdigit()) {
         return None;
     }
-    Some(format!("0x{}", hex.to_ascii_lowercase()))
+    let (alpha, red_at) = if hex.len() == 8 {
+        (parse_hex_byte(hex, 0)?, 2)
+    } else {
+        (u8::MAX, 0)
+    };
+    Some([
+        parse_hex_byte(hex, red_at)?,
+        parse_hex_byte(hex, red_at + 2)?,
+        parse_hex_byte(hex, red_at + 4)?,
+        alpha,
+    ])
 }
 
 fn allow_unitless_px(context: StyleContext) -> bool {
@@ -710,73 +701,111 @@ fn parse_css_length(
     allow_near: bool,
 ) -> Option<NormalizedValue> {
     let compact = value.trim();
-    let split_at = compact
-        .char_indices()
-        .find(|&(_, ch)| ch.is_ascii_alphabetic() || ch == '%')
-        .map(|(index, _)| index);
-
-    match split_at {
-        Some(index) => {
-            let (number, unit) = compact.split_at(index);
-            let scalar = number.parse::<f64>().ok()?;
-            if !scalar.is_finite() {
-                return Some(NormalizedValue::Unsupported);
-            }
-            let unit = unit.to_ascii_lowercase();
-            match unit.as_str() {
-                "px" => Some(NormalizedValue::Numeric {
-                    scalar,
-                    unit: Some("px".to_owned()),
-                    allow_near,
-                }),
-                "rem" | "em" | "vh" | "vw" | "vmin" | "vmax" | "%" => {
-                    // Keep incompatible unit families distinct; never convert.
-                    Some(NormalizedValue::Numeric {
-                        scalar,
-                        unit: Some(unit),
-                        allow_near,
-                    })
-                }
-                _ => Some(NormalizedValue::Unsupported),
-            }
-        }
-        None => {
-            let scalar = compact.parse::<f64>().ok()?;
-            if !scalar.is_finite() {
-                return Some(NormalizedValue::Unsupported);
-            }
-            if unitless_as_px {
-                Some(NormalizedValue::Numeric {
-                    scalar,
-                    unit: Some("px".to_owned()),
-                    allow_near,
-                })
-            } else {
-                Some(NormalizedValue::Numeric {
-                    scalar,
-                    unit: None,
-                    allow_near,
-                })
-            }
+    for unit in ["vmin", "vmax", "rem", "px", "em", "vh", "vw", "%"] {
+        if let Some(number) = strip_suffix_ignore_ascii_case(compact, unit)
+            && let Some(normalized) = normalize_numeric(number, Some(unit), allow_near)
+        {
+            return Some(normalized);
         }
     }
-}
 
-fn looks_like_hex_color(value: &str) -> bool {
-    let trimmed = value.trim();
-    let Some(hex) = trimmed.strip_prefix('#') else {
-        return false;
-    };
-    matches!(hex.len(), 3 | 4 | 6 | 8) && hex.chars().all(|ch| ch.is_ascii_hexdigit())
-}
+    if let Some(scalar) = parse_finite_scalar(compact) {
+        return Some(NormalizedValue::Numeric {
+            scalar,
+            unit: unitless_as_px.then(|| "px".to_owned()),
+            allow_near,
+        });
+    }
 
-fn normalize_hex_color(value: &str) -> String {
-    let trimmed = value.trim();
-    if let Some(hex) = trimmed.strip_prefix('#') {
-        format!("#{}", hex.to_ascii_lowercase())
+    if split_numeric_prefix(compact).is_some() {
+        Some(NormalizedValue::Unsupported)
     } else {
-        format!("#{}", trimmed.to_ascii_lowercase())
+        None
     }
+}
+
+fn normalize_numeric(
+    number: &str,
+    unit: Option<&str>,
+    allow_near: bool,
+) -> Option<NormalizedValue> {
+    let scalar = number.parse::<f64>().ok()?;
+    if !scalar.is_finite() {
+        return Some(NormalizedValue::Unsupported);
+    }
+    Some(NormalizedValue::Numeric {
+        scalar,
+        unit: unit.map(str::to_owned),
+        allow_near,
+    })
+}
+
+fn parse_finite_scalar(value: &str) -> Option<f64> {
+    let scalar = value.parse::<f64>().ok()?;
+    scalar.is_finite().then_some(scalar)
+}
+
+fn strip_suffix_ignore_ascii_case<'a>(value: &'a str, suffix: &str) -> Option<&'a str> {
+    let split_at = value.len().checked_sub(suffix.len())?;
+    let prefix = value.get(..split_at)?;
+    let candidate = value.get(split_at..)?;
+    candidate.eq_ignore_ascii_case(suffix).then_some(prefix)
+}
+
+fn split_numeric_prefix(value: &str) -> Option<(&str, &str)> {
+    value
+        .char_indices()
+        .rev()
+        .map(|(index, _)| index)
+        .filter(|index| *index > 0)
+        .find_map(|index| {
+            let (number, suffix) = value.split_at(index);
+            (!suffix.is_empty() && parse_finite_scalar(number).is_some())
+                .then_some((number, suffix))
+        })
+}
+
+fn parse_hash_color(value: &str) -> Option<[u8; 4]> {
+    let trimmed = value.trim();
+    let hex = trimmed.strip_prefix('#')?;
+    if !matches!(hex.len(), 3 | 4 | 6 | 8) || !hex.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        return None;
+    }
+
+    if matches!(hex.len(), 3 | 4) {
+        let red = parse_hex_nibble(hex, 0)?;
+        let green = parse_hex_nibble(hex, 1)?;
+        let blue = parse_hex_nibble(hex, 2)?;
+        let alpha = if hex.len() == 4 {
+            parse_hex_nibble(hex, 3)?
+        } else {
+            u8::MAX
+        };
+        return Some([red, green, blue, alpha]);
+    }
+
+    Some([
+        parse_hex_byte(hex, 0)?,
+        parse_hex_byte(hex, 2)?,
+        parse_hex_byte(hex, 4)?,
+        if hex.len() == 8 {
+            parse_hex_byte(hex, 6)?
+        } else {
+            u8::MAX
+        },
+    ])
+}
+
+fn parse_hex_nibble(hex: &str, index: usize) -> Option<u8> {
+    let value = hex.as_bytes().get(index).copied()?;
+    let value = char::from(value).to_digit(16)? as u8;
+    Some(value * 17)
+}
+
+fn parse_hex_byte(hex: &str, index: usize) -> Option<u8> {
+    let end = index.checked_add(2)?;
+    let pair = hex.get(index..end)?;
+    u8::from_str_radix(pair, 16).ok()
 }
 
 #[cfg(test)]
@@ -898,6 +927,118 @@ mod tests {
     }
 
     #[test]
+    fn normalize_numeric_precision_variants_are_exact_across_languages_and_categories() {
+        let category_cases = [
+            (TokenCategory::Spacing, StyleContext::Padding),
+            (TokenCategory::Typography, StyleContext::Typography),
+            (TokenCategory::Radius, StyleContext::Radius),
+            (TokenCategory::Elevation, StyleContext::Elevation),
+            (TokenCategory::Unknown, StyleContext::Unknown),
+        ];
+
+        for language_name in ["compose", "react", "swift", "basic"] {
+            for (category, context) in category_cases {
+                let (observed, canonical) = match (language_name, category) {
+                    ("compose", TokenCategory::Typography) => ("1.600e1.sp", "16.sp"),
+                    ("compose", TokenCategory::Unknown) => ("16.00", "16"),
+                    ("compose", _) => ("16.00.dp", "16.dp"),
+                    ("react" | "basic", TokenCategory::Typography) => ("1.600e1rem", "16rem"),
+                    ("react" | "basic", TokenCategory::Unknown) => ("16.00", "16"),
+                    ("react" | "basic", _) => ("16.00px", "16px"),
+                    ("swift", _) => ("16.00", "16"),
+                    _ => unreachable!(),
+                };
+                let language_id = language(language_name);
+                let observed = normalize_value(&language_id, category, context, observed);
+                let canonical = normalize_value(&language_id, category, context, canonical);
+                assert!(
+                    values_exact_match(&observed, &canonical),
+                    "expected {language_name} {category:?} {observed:?} to equal {canonical:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn normalize_equivalent_hex_colors_across_languages() {
+        let cases = [
+            ("compose", "#fff", "#ffffff"),
+            ("compose", "0x112233", "0xFF112233"),
+            ("compose", "0x80ff0000", "#ff000080"),
+            ("react", "#fff", "#ffffff"),
+            ("react", "#0f08", "#00ff0088"),
+            ("swift", "#fff", "#ffffff"),
+            ("basic", "#0f08", "#00ff0088"),
+        ];
+
+        for (language_name, observed, canonical) in cases {
+            let language_id = language(language_name);
+            let observed = normalize_value(
+                &language_id,
+                TokenCategory::Color,
+                StyleContext::Color,
+                observed,
+            );
+            let canonical = normalize_value(
+                &language_id,
+                TokenCategory::Color,
+                StyleContext::Color,
+                canonical,
+            );
+            assert!(
+                values_exact_match(&observed, &canonical),
+                "expected {language_name} {observed:?} to equal {canonical:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn normalize_non_ascii_values_remain_exact_text() {
+        for language_name in ["compose", "react", "swift", "basic"] {
+            let language_id = language(language_name);
+            let normalized = normalize_value(
+                &language_id,
+                TokenCategory::Unknown,
+                StyleContext::Unknown,
+                "éx",
+            );
+            assert_eq!(normalized, NormalizedValue::ExactText("éx".to_owned()));
+        }
+    }
+
+    #[test]
+    fn normalize_unit_suffix_without_numeric_receiver_remains_exact_text() {
+        for (language_name, value) in [
+            ("compose", "namedDp"),
+            ("react", "system"),
+            ("basic", "system"),
+        ] {
+            let language_id = language(language_name);
+            let normalized = normalize_value(
+                &language_id,
+                TokenCategory::Unknown,
+                StyleContext::Unknown,
+                value,
+            );
+            assert_eq!(normalized, NormalizedValue::ExactText(value.to_owned()));
+        }
+    }
+
+    #[test]
+    fn normalize_swift_non_finite_numeric_value_is_unsupported() {
+        let language_id = language("swift");
+        assert_eq!(
+            normalize_value(
+                &language_id,
+                TokenCategory::Spacing,
+                StyleContext::Gap,
+                "NaN",
+            ),
+            NormalizedValue::Unsupported
+        );
+    }
+
+    #[test]
     fn normalize_react_width_unitless_matches_px_and_rejects_rem() {
         let language_id = language("react");
         let observed = normalize_observed(
@@ -939,7 +1080,7 @@ mod tests {
     }
 
     #[test]
-    fn normalize_react_color_is_case_insensitive_exact_without_distance() {
+    fn normalize_react_color_is_typed_case_insensitive_and_without_distance() {
         let language_id = language("react");
         let observed = normalize_observed(
             &language_id,
@@ -963,7 +1104,7 @@ mod tests {
             "#fff",
         );
         assert!(values_exact_match(&observed, &canonical));
-        assert!(matches!(observed, NormalizedValue::ExactText(_)));
+        assert!(matches!(observed, NormalizedValue::Color(_)));
     }
 
     #[test]

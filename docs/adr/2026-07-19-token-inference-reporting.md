@@ -50,7 +50,7 @@ All 6 tasks shipped:
 
 ### Negative / trade-offs
 
-- Near matching is limited to compatible numeric scalar values in this version; colors, shadows, and composite typography values require exact normalized matches.
+- Near matching is limited to compatible numeric scalar values in this version. Insignificant decimal precision is ignored across language syntax, supported hexadecimal colors compare through a shared RGBA value, and shadows or composite typography values remain exact text.
 - A registry with no canonical values produces an expected first-run all-`unassessed` state until reviewed values are added and a fresh scan runs.
 - One repo-local tolerance applies to all compatible numeric categories; category-specific overrides are deferred until real scans show a global tolerance is inadequate.
 - Theme, mode, density, and platform variants of a token value remain unresolved; the contract supports only one canonical value per language registry.
