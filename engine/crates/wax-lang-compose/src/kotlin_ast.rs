@@ -16,18 +16,19 @@ use crate::kotlin_recovery::{
 /// `source` is always the original file text. `primary.tree` may be parsed
 /// from a byte-preserving normalized buffer that works around a tree-sitter
 /// Kotlin grammar gap for annotated parenthesized function-type parameters.
-#[allow(dead_code)]
 #[derive(Debug)]
 pub(crate) struct ParsedKotlinFile {
     pub(crate) source: String,
     pub(crate) primary: ParsePass,
+    #[allow(dead_code)]
     pub(crate) recovered: Vec<ParsePass>,
+    #[allow(dead_code)]
     pub(crate) syntax_regions: Vec<SyntaxRegion>,
     pub(crate) unresolved_problems: Vec<SyntaxProblem>,
 }
 
-#[allow(dead_code)]
 impl ParsedKotlinFile {
+    #[allow(dead_code)]
     pub(crate) fn passes(&self) -> impl Iterator<Item = &ParsePass> {
         std::iter::once(&self.primary).chain(&self.recovered)
     }
@@ -515,11 +516,34 @@ fn collect_syntax_problem_nodes(root: tree_sitter::Node<'_>) -> Vec<tree_sitter:
             node.start_byte(),
         )
     });
-    candidates.dedup_by(|left, right| {
-        left.start_byte() == right.start_byte() && left.end_byte() == right.end_byte()
-    });
-    candidates.sort_by_key(|node| (node.start_byte(), node.end_byte()));
-    candidates
+    let mut groups: Vec<Vec<tree_sitter::Node<'_>>> = Vec::new();
+    for candidate in candidates {
+        if let Some(group) = groups.iter_mut().find(|group| {
+            group
+                .iter()
+                .copied()
+                .any(|existing| problem_nodes_overlap_or_nest(existing, candidate))
+        }) {
+            group.push(candidate);
+        } else {
+            groups.push(vec![candidate]);
+        }
+    }
+
+    let mut selected = groups
+        .into_iter()
+        .filter_map(|group| {
+            group.into_iter().min_by_key(|node| {
+                (
+                    node.end_byte().saturating_sub(node.start_byte()),
+                    !node.is_missing(),
+                    node.start_byte(),
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+    selected.sort_by_key(|node| (node.start_byte(), node.end_byte()));
+    selected
 }
 
 fn collect_problem_candidates<'a>(
@@ -546,6 +570,25 @@ fn node_descends_from(mut node: tree_sitter::Node<'_>, ancestor: tree_sitter::No
     }
 
     false
+}
+
+fn problem_nodes_overlap_or_nest(
+    left: tree_sitter::Node<'_>,
+    right: tree_sitter::Node<'_>,
+) -> bool {
+    let left_range = ByteRange::new(left.start_byte(), left.end_byte()).expect("valid range");
+    let right_range = ByteRange::new(right.start_byte(), right.end_byte()).expect("valid range");
+    ranges_overlap(left_range, right_range)
+        || zero_width_position_within_range(left_range, right_range)
+        || zero_width_position_within_range(right_range, left_range)
+}
+
+fn ranges_overlap(left: ByteRange, right: ByteRange) -> bool {
+    left.start < right.end && right.start < left.end
+}
+
+fn zero_width_position_within_range(point: ByteRange, range: ByteRange) -> bool {
+    point.start == point.end && range.start <= point.start && point.start <= range.end
 }
 
 pub(crate) fn annotation_type_name(
