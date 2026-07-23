@@ -7,15 +7,38 @@ use std::path::{Path, PathBuf};
 
 use wax_contract::{Diagnostic, DiagnosticSeverity, SourceLocation};
 
-/// Parsed Kotlin source and syntax tree.
+use crate::kotlin_recovery::{
+    ByteRange, ParsePass, SyntaxFamily, SyntaxProblem, SyntaxRegion, merge_clean_ranges,
+};
+
+/// Parsed Kotlin source and syntax trees.
 ///
-/// `source` is always the original file text. `tree` may be parsed from a
-/// byte-preserving normalized buffer that works around a tree-sitter Kotlin
-/// grammar gap for annotated parenthesized function-type parameters.
+/// `source` is always the original file text. `primary.tree` may be parsed
+/// from a byte-preserving normalized buffer that works around a tree-sitter
+/// Kotlin grammar gap for annotated parenthesized function-type parameters.
+#[allow(dead_code)]
 #[derive(Debug)]
 pub(crate) struct ParsedKotlinFile {
     pub(crate) source: String,
-    pub(crate) tree: tree_sitter::Tree,
+    pub(crate) primary: ParsePass,
+    pub(crate) recovered: Vec<ParsePass>,
+    pub(crate) syntax_regions: Vec<SyntaxRegion>,
+    pub(crate) unresolved_problems: Vec<SyntaxProblem>,
+}
+
+#[allow(dead_code)]
+impl ParsedKotlinFile {
+    pub(crate) fn passes(&self) -> impl Iterator<Item = &ParsePass> {
+        std::iter::once(&self.primary).chain(&self.recovered)
+    }
+
+    pub(crate) fn primary_tree(&self) -> &tree_sitter::Tree {
+        &self.primary.tree
+    }
+
+    pub(crate) fn is_partial(&self) -> bool {
+        !self.unresolved_problems.is_empty()
+    }
 }
 
 /// Errors produced while reading or parsing Kotlin source.
@@ -108,8 +131,21 @@ pub(crate) fn parse_kotlin_file_permissive(
     let tree = parser
         .parse(normalized.as_bytes(), None)
         .ok_or_else(|| ParseKotlinFileError::ParseFailed(path.to_path_buf()))?;
+    let clean = merge_clean_ranges(vec![ByteRange::new(0, source.len()).expect("valid range")]);
+    let mut syntax_regions: Vec<SyntaxRegion> = Vec::new();
+    syntax_regions.sort_by_key(|region| (region.source.start, region.source.end, region.family));
 
-    Ok(ParsedKotlinFile { source, tree })
+    Ok(ParsedKotlinFile {
+        unresolved_problems: syntax_problems_from_tree(tree.root_node()),
+        source,
+        primary: ParsePass {
+            tree,
+            clean,
+            priority: 0,
+        },
+        recovered: Vec::new(),
+        syntax_regions,
+    })
 }
 
 #[allow(dead_code)]
@@ -118,16 +154,11 @@ pub(crate) fn parse_kotlin_file_strict(
     path: &Path,
 ) -> Result<ParsedKotlinFile, ParseKotlinFileError> {
     let parsed = parse_kotlin_file_permissive(parser, path)?;
-    if tree_has_syntax_errors(&parsed.tree) {
+    if parsed.is_partial() {
         return Err(ParseKotlinFileError::ParseFailed(path.to_path_buf()));
     }
 
     Ok(parsed)
-}
-
-/// Returns whether tree-sitter reported recoverable syntax errors in a parsed tree.
-pub(crate) fn tree_has_syntax_errors(tree: &tree_sitter::Tree) -> bool {
-    tree.root_node().has_error()
 }
 
 fn normalize_annotated_parenthesized_function_types_for_parse(source: &str) -> Cow<'_, str> {
@@ -429,45 +460,135 @@ pub(crate) fn unparseable_file_diagnostic(relative_file: &str) -> Diagnostic {
 
 /// Diagnostic emitted when tree-sitter recovers a partial tree with syntax errors.
 pub(crate) fn partial_tree_parse_diagnostic(
-    root: tree_sitter::Node<'_>,
+    problem: &SyntaxProblem,
     relative_file: &str,
 ) -> Diagnostic {
     Diagnostic {
         severity: DiagnosticSeverity::Error,
         code: "parse_failed".to_owned(),
         message: format!(
-            "tree-sitter reported syntax errors in {relative_file}; file scanned with gaps"
+            "tree-sitter could not fully parse {relative_file} near {}:{}; file scanned with gaps",
+            problem.line, problem.column
         ),
-        location: first_syntax_error_location(root, relative_file),
+        location: Some(SourceLocation {
+            file: relative_file.to_owned(),
+            line: problem.line,
+            column: Some(problem.column),
+        }),
     }
 }
 
-fn first_syntax_error_location(
-    root: tree_sitter::Node<'_>,
-    relative_file: &str,
-) -> Option<SourceLocation> {
-    let node = first_error_node(root)?;
-    let start = node.start_position();
-    Some(SourceLocation {
-        file: relative_file.to_owned(),
-        line: u32::try_from(start.row.saturating_add(1)).unwrap_or(u32::MAX),
-        column: Some(u32::try_from(start.column.saturating_add(1)).unwrap_or(u32::MAX)),
-    })
+fn syntax_problems_from_tree(root: tree_sitter::Node<'_>) -> Vec<SyntaxProblem> {
+    collect_syntax_problem_nodes(root)
+        .into_iter()
+        .map(|node| {
+            let start = node.start_position();
+            SyntaxProblem {
+                range: ByteRange::new(node.start_byte(), node.end_byte()).expect("valid range"),
+                line: u32::try_from(start.row.saturating_add(1)).unwrap_or(u32::MAX),
+                column: u32::try_from(start.column.saturating_add(1)).unwrap_or(u32::MAX),
+                family: SyntaxFamily::Unknown,
+                recovered_later_source: false,
+            }
+        })
+        .collect()
 }
 
-fn first_error_node(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+fn collect_syntax_problem_nodes(root: tree_sitter::Node<'_>) -> Vec<tree_sitter::Node<'_>> {
+    let mut candidates = Vec::new();
+    collect_problem_candidates(root, &mut candidates);
+    let all_candidates = candidates.clone();
+    candidates.retain(|candidate| {
+        !is_redundant_zero_width_outer_candidate(*candidate, all_candidates.as_slice())
+    });
+    candidates.sort_by_key(|node| (node.start_byte(), node.end_byte()));
+
+    let mut groups: Vec<Vec<tree_sitter::Node<'_>>> = Vec::new();
+    for candidate in candidates {
+        match groups.last_mut() {
+            Some(group)
+                if group
+                    .iter()
+                    .any(|existing| problem_nodes_overlap_or_nest(*existing, candidate)) =>
+            {
+                group.push(candidate);
+            }
+            _ => groups.push(vec![candidate]),
+        }
+    }
+
+    groups
+        .into_iter()
+        .filter_map(|group| {
+            group.into_iter().min_by_key(|node| {
+                (
+                    node.end_byte().saturating_sub(node.start_byte()),
+                    !node.is_missing(),
+                    node.start_byte(),
+                )
+            })
+        })
+        .collect()
+}
+
+fn collect_problem_candidates<'a>(
+    node: tree_sitter::Node<'a>,
+    candidates: &mut Vec<tree_sitter::Node<'a>>,
+) {
     if node.is_error() || node.is_missing() {
-        return Some(node);
+        candidates.push(node);
     }
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if let Some(found) = first_error_node(child) {
-            return Some(found);
-        }
+        collect_problem_candidates(child, candidates);
+    }
+}
+
+fn is_redundant_zero_width_outer_candidate(
+    candidate: tree_sitter::Node<'_>,
+    candidates: &[tree_sitter::Node<'_>],
+) -> bool {
+    if candidate.is_missing() || candidate.start_byte() != candidate.end_byte() {
+        return false;
     }
 
-    None
+    candidates.iter().copied().any(|other| {
+        other.is_missing()
+            && other.start_byte() == candidate.start_byte()
+            && other.end_byte() == candidate.end_byte()
+            && node_descends_from(other, candidate)
+    })
+}
+
+fn node_descends_from(mut node: tree_sitter::Node<'_>, ancestor: tree_sitter::Node<'_>) -> bool {
+    while let Some(parent) = node.parent() {
+        if parent == ancestor {
+            return true;
+        }
+        node = parent;
+    }
+
+    false
+}
+
+fn problem_nodes_overlap_or_nest(
+    left: tree_sitter::Node<'_>,
+    right: tree_sitter::Node<'_>,
+) -> bool {
+    let left_range = ByteRange::new(left.start_byte(), left.end_byte()).expect("valid range");
+    let right_range = ByteRange::new(right.start_byte(), right.end_byte()).expect("valid range");
+    ranges_overlap(left_range, right_range)
+        || zero_width_position_within_range(left_range, right_range)
+        || zero_width_position_within_range(right_range, left_range)
+}
+
+fn ranges_overlap(left: ByteRange, right: ByteRange) -> bool {
+    left.start < right.end && right.start < left.end
+}
+
+fn zero_width_position_within_range(point: ByteRange, range: ByteRange) -> bool {
+    point.start == point.end && range.start <= point.start && point.start <= range.end
 }
 
 pub(crate) fn annotation_type_name(
@@ -752,6 +873,24 @@ fn simple_identifier_from_expression(
 mod tests {
     use super::*;
 
+    fn first_node_of_kind<'a>(
+        root: tree_sitter::Node<'a>,
+        kind: &str,
+    ) -> Option<tree_sitter::Node<'a>> {
+        let mut stack = vec![root];
+        while let Some(node) = stack.pop() {
+            if node.kind() == kind {
+                return Some(node);
+            }
+            for index in (0..node.child_count()).rev() {
+                if let Some(child) = node.child(index) {
+                    stack.push(child);
+                }
+            }
+        }
+        None
+    }
+
     #[test]
     fn collect_import_bindings_maps_named_and_wildcard_imports() {
         let mut parser = new_parser().expect("parser");
@@ -819,6 +958,58 @@ fun Screen() {}
     }
 
     #[test]
+    fn smallest_problem_prefers_nested_missing_or_error() {
+        let mut parser = new_parser().expect("parser");
+        let source = r#"
+import androidx.compose.runtime.Composable
+
+@Composable
+fun Broken() {
+    val content: @Composable ((String) -> Unit =
+}
+"#;
+        let tree = parser.parse(source.as_bytes(), None).expect("tree");
+        let root = tree.root_node();
+        let function = first_node_of_kind(root, "function_declaration")
+            .unwrap_or_else(|| panic!("{}", root.to_sexp()));
+        let problems = collect_syntax_problem_nodes(root);
+
+        assert_eq!(problems.len(), 1, "expected one grouped syntax problem");
+        let problem = problems[0];
+        assert!(
+            problem.start_byte() > function.start_byte(),
+            "expected nested missing/error node instead of outer function_declaration"
+        );
+        assert!(problem.is_missing() || problem.is_error());
+    }
+
+    #[test]
+    fn known_recovery_metadata_defaults_to_one_primary_pass() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let source_file = tempdir.path().join("Screen.kt");
+        fs::write(
+            &source_file,
+            "@Composable\nfun PrimaryButton() {}\nfun Helper() = Unit\n",
+        )
+        .expect("write source");
+
+        let mut parser = new_parser().expect("parser");
+        let parsed =
+            parse_kotlin_file_permissive(&mut parser, &source_file).expect("permissive parse");
+
+        assert_eq!(parsed.passes().count(), 1);
+        assert_eq!(
+            parsed.primary.clean,
+            vec![ByteRange::new(0, parsed.source.len()).unwrap()]
+        );
+        assert_eq!(parsed.primary.priority, 0);
+        assert!(parsed.recovered.is_empty());
+        assert!(parsed.syntax_regions.is_empty());
+        assert!(parsed.unresolved_problems.is_empty());
+        assert!(!parsed.is_partial());
+    }
+
+    #[test]
     fn strict_parse_reports_syntax_errors() {
         let tempdir = tempfile::tempdir().expect("tempdir");
         let broken_file = tempdir.path().join("Broken.kt");
@@ -845,7 +1036,9 @@ fun Screen() {}
         let parsed = parse_kotlin_file_permissive(&mut parser, &broken_file)
             .expect("permissive parse should keep partial trees");
 
-        assert!(parsed.tree.root_node().has_error());
+        assert!(parsed.primary_tree().root_node().has_error());
+        assert!(parsed.is_partial());
+        assert!(!parsed.unresolved_problems.is_empty());
     }
 
     #[test]
@@ -879,7 +1072,7 @@ private object CapsuleDecor : NavDecoration {
             .expect("permissive parse should succeed");
 
         assert!(
-            !parsed.tree.root_node().has_error(),
+            !parsed.primary_tree().root_node().has_error(),
             "valid parenthesized annotated function type should parse without tree-sitter errors"
         );
         assert!(
@@ -962,5 +1155,71 @@ class Screen(
 )
 "#
         );
+    }
+
+    #[test]
+    fn permissive_parse_handles_empty_source_without_panicking() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let source_file = tempdir.path().join("Empty.kt");
+        fs::write(&source_file, "").expect("write source");
+
+        let mut parser = new_parser().expect("parser");
+        let parsed = parse_kotlin_file_permissive(&mut parser, &source_file)
+            .expect("empty source should parse");
+
+        assert_eq!(parsed.source, "");
+        assert_eq!(parsed.passes().count(), 1);
+    }
+
+    #[test]
+    fn permissive_parse_handles_unclosed_block_comment_without_panicking() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let source_file = tempdir.path().join("BlockComment.kt");
+        fs::write(&source_file, "/* unterminated").expect("write source");
+
+        let mut parser = new_parser().expect("parser");
+        let parsed = parse_kotlin_file_permissive(&mut parser, &source_file)
+            .expect("unterminated block comment should still produce a parsed file");
+
+        assert!(parsed.primary_tree().root_node().has_error() || parsed.is_partial());
+    }
+
+    #[test]
+    fn permissive_parse_handles_unclosed_triple_quoted_string_without_panicking() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let source_file = tempdir.path().join("TripleQuoted.kt");
+        fs::write(&source_file, "val text = \"\"\"unterminated").expect("write source");
+
+        let mut parser = new_parser().expect("parser");
+        let parsed = parse_kotlin_file_permissive(&mut parser, &source_file)
+            .expect("unterminated triple quoted string should still produce a parsed file");
+
+        assert!(parsed.primary_tree().root_node().has_error() || parsed.is_partial());
+    }
+
+    #[test]
+    fn strict_parse_handles_unbalanced_braces_without_panicking() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let source_file = tempdir.path().join("Braces.kt");
+        fs::write(&source_file, "@Composable\nfun Broken() {\n").expect("write source");
+
+        let mut parser = new_parser().expect("parser");
+        let err = parse_kotlin_file_strict(&mut parser, &source_file)
+            .expect_err("strict parse should reject partial trees");
+
+        assert!(matches!(err, ParseKotlinFileError::ParseFailed(path) if path == source_file));
+    }
+
+    #[test]
+    fn strict_parse_handles_partial_tree_without_panicking() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let source_file = tempdir.path().join("Partial.kt");
+        fs::write(&source_file, "fun Broken(\n").expect("write source");
+
+        let mut parser = new_parser().expect("parser");
+        let err = parse_kotlin_file_strict(&mut parser, &source_file)
+            .expect_err("strict parse should reject a parser partial tree");
+
+        assert!(matches!(err, ParseKotlinFileError::ParseFailed(path) if path == source_file));
     }
 }
