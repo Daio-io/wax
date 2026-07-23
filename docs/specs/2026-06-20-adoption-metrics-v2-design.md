@@ -1,8 +1,9 @@
 # Adoption Metrics v2 Design
 
-**Status:** Draft proposal  
+**Status:** Accepted (implemented)  
 **Date:** 2026-06-20  
 **Audience:** Wax engine, contract, language-pack, and reporting implementers  
+**Implementation plan:** [Archived Adoption Metrics v2 implementation plan](../plans/archive/2026-06-20-adoption-metrics-v2-plan.md)  
 **Related:** [Language packs and distribution](./2026-05-16-language-packs-and-distribution.md), [Wax scan analytics skill](./2026-06-14-wax-scan-design.md), [Component tracker design](./2026-05-13-component-tracker-design.md)
 
 ## Summary

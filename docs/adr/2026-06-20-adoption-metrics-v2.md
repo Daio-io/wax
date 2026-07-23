@@ -1,9 +1,9 @@
 # ADR: Adoption Metrics v2
 
-**Status:** Pending merge (implemented in stacked PRs; accepted when #165 -> #171 -> #172 lands)
+**Status:** Accepted (implemented)
 **Date:** 2026-06-20
 **Type:** Breaking contract change (alpha)
-**Related:** [Design spec](../specs/2026-06-20-adoption-metrics-v2-design.md) · [Implementation plan](../plans/2026-06-20-adoption-metrics-v2-plan.md) · [Wax scan analytics ADR](./2026-06-14-wax-scan-analytics-skill.md)
+**Related:** [Design spec](../specs/2026-06-20-adoption-metrics-v2-design.md) · [Archived implementation plan](../plans/archive/2026-06-20-adoption-metrics-v2-plan.md) · [Wax scan analytics ADR](./2026-06-14-wax-scan-analytics-skill.md)
 
 ## Context
 

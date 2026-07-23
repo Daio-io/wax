@@ -14,7 +14,7 @@ ADRs record significant product and engineering decisions after implementation. 
 | 2026-06-13 | [SwiftUI language pack](./2026-06-13-swift-language-pack.md) | Accepted | [Plan archive](../plans/archive/2026-06-13-swift-language-pack-plan.md) |
 | 2026-06-13 | [Interactive init wizard](./2026-06-13-interactive-init.md) | Accepted | [Plan archive](../plans/archive/2026-06-13-interactive-init.md) |
 | 2026-06-14 | [Wax scan analytics skill](./2026-06-14-wax-scan-analytics-skill.md) | Accepted | [Plan archive](../plans/archive/2026-06-14-wax-scan-plan.md) |
-| 2026-06-20 | [Adoption Metrics v2](./2026-06-20-adoption-metrics-v2.md) | Pending merge | [Active implementation plan](../plans/2026-06-20-adoption-metrics-v2-plan.md) |
+| 2026-06-20 | [Adoption Metrics v2](./2026-06-20-adoption-metrics-v2.md) | Accepted | [Archived implementation plan](../plans/archive/2026-06-20-adoption-metrics-v2-plan.md) |
 | 2026-07-03 | [Token scanning](./2026-07-03-token-scanning.md) | Accepted | [Plan archive](../plans/archive/2026-07-03-token-scanning-plan.md) |
 | 2026-07-04 | [Registry sync and config v2](./2026-07-04-registry-sync-config-v2.md) | Accepted | [Plan archive](../plans/archive/2026-07-04-registry-sync-config-plan.md) |
 | 2026-07-19 | [Token inference and reporting](./2026-07-19-token-inference-reporting.md) | Accepted | [Plan archive](../plans/archive/2026-07-19-token-inference-reporting-plan.md) |

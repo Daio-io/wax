@@ -31,9 +31,9 @@
 
 ## Reference Spec
 
-- Design spec: [docs/specs/2026-06-20-adoption-metrics-v2-design.md](../specs/2026-06-20-adoption-metrics-v2-design.md)
-- Existing contract spec: [docs/specs/2026-05-16-language-packs-and-distribution.md](../specs/2026-05-16-language-packs-and-distribution.md)
-- Wax scan analytics design: [docs/specs/2026-06-14-wax-scan-design.md](../specs/2026-06-14-wax-scan-design.md)
+- Design spec: [docs/specs/2026-06-20-adoption-metrics-v2-design.md](../../specs/2026-06-20-adoption-metrics-v2-design.md)
+- Existing contract spec: [docs/specs/2026-05-16-language-packs-and-distribution.md](../../specs/2026-05-16-language-packs-and-distribution.md)
+- Wax scan analytics design: [docs/specs/2026-06-14-wax-scan-design.md](../../specs/2026-06-14-wax-scan-design.md)
 
 ## File Structure
 
@@ -737,7 +737,7 @@ git commit -m "feat: report adoption metrics v2"
 - Consumes: all previous task outputs.
 - Produces: release-ready docs and completed plan checkboxes.
 
-- [ ] **Step 1: Update user-facing docs**
+- [x] **Step 1: Update user-facing docs**
 
 Document:
 
@@ -747,7 +747,7 @@ Document:
 - Alpha cutover from `adoption_coverage_ratio` to explicit v2 counters and metrics.
 - Roadmap active-plan status in `docs/plans/README.md`.
 
-- [ ] **Step 2: Run workspace checks**
+- [x] **Step 2: Run workspace checks**
 
 Run:
 
@@ -760,11 +760,11 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 Expected: all pass.
 
-- [ ] **Step 3: Update plan checkboxes**
+- [x] **Step 3: Update plan checkboxes**
 
 Tick completed task checkboxes and verification steps in this plan before opening or updating the implementation PR.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add README.md CHANGELOG.md docs/adr/2026-06-20-adoption-metrics-v2.md docs/adr/README.md docs/plans/2026-06-20-adoption-metrics-v2-plan.md docs/plans/README.md
@@ -784,5 +784,5 @@ git commit -m "docs: document adoption metrics v2 rollout"
 - [x] Subprocess protocol and CLI scan fixtures use schema v2 facts.
 - [x] `engine/crates/wax-contract/schemas/scan-facts.schema.json` and `waxrc.schema.json` document v2 fields and config.
 - [x] `skills/wax-scan/SKILL.md`, extractor fixtures, and baseline behavior are v2-aware.
-- [ ] Adoption Metrics v2 ADR is added and indexed.
-- [ ] Workspace fmt, tests, and clippy pass.
+- [x] Adoption Metrics v2 ADR is added and indexed.
+- [x] Workspace fmt, tests, and clippy pass.
