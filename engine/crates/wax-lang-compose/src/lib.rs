@@ -27,6 +27,7 @@
 
 pub mod discover;
 mod kotlin_ast;
+mod kotlin_recovery;
 mod tree_sitter_scan;
 
 use std::path::Path;
