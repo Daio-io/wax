@@ -22,7 +22,7 @@
 - Unknown or malformed skipped syntax emits `parse_failed` and keeps the scan `Partial`, even when later facts are recovered.
 - Full diagnostics remain in JSON. Terminal output shows at most five failure diagnostics and prints the actual total and omitted count.
 - Normal Rust tests must not require a globally installed Kotlin compiler or network access.
-- The current roadmap gate remains authoritative: implementation starts only after this plan is promoted or the maintainer explicitly grants an exception.
+- The current roadmap gate remains authoritative. Task 1 proceeds under the maintainer exception recorded in [`README.md`](./README.md); Tasks 2–5 remain gated until this plan is promoted or another exception is granted.
 - One task is one focused PR unless the maintainer explicitly batches adjacent tasks. Run `cargo fmt --all` before every Rust commit.
 
 ---
@@ -68,6 +68,7 @@
 - Modify: `engine/crates/wax-lang-compose/src/kotlin_ast.rs`
 - Modify: `engine/crates/wax-lang-compose/src/discover.rs`
 - Modify: `engine/crates/wax-lang-compose/src/tree_sitter_scan.rs`
+- Modify: `docs/plans/README.md`
 - Modify: `docs/plans/2026-07-22-compose-parse-recovery-plan.md`
 
 **Interfaces:**

@@ -10,6 +10,7 @@ pub(crate) struct ByteRange {
 }
 
 impl ByteRange {
+    #[cfg_attr(not(test), expect(dead_code, reason = "used by later recovery tasks"))]
     pub(crate) fn new(start: usize, end: usize) -> Option<Self> {
         (start <= end).then_some(Self { start, end })
     }

@@ -132,9 +132,10 @@ pub(crate) fn parse_kotlin_file_permissive(
     let tree = parser
         .parse(normalized.as_bytes(), None)
         .ok_or_else(|| ParseKotlinFileError::ParseFailed(path.to_path_buf()))?;
-    let clean = merge_clean_ranges(vec![ByteRange::new(0, source.len()).expect("valid range")]);
-    let mut syntax_regions: Vec<SyntaxRegion> = Vec::new();
-    syntax_regions.sort_by_key(|region| (region.source.start, region.source.end, region.family));
+    let clean = merge_clean_ranges(vec![ByteRange {
+        start: 0,
+        end: source.len(),
+    }]);
 
     Ok(ParsedKotlinFile {
         unresolved_problems: syntax_problems_from_tree(tree.root_node()),
@@ -145,7 +146,7 @@ pub(crate) fn parse_kotlin_file_permissive(
             priority: 0,
         },
         recovered: Vec::new(),
-        syntax_regions,
+        syntax_regions: Vec::new(),
     })
 }
 
@@ -485,7 +486,7 @@ fn syntax_problems_from_tree(root: tree_sitter::Node<'_>) -> Vec<SyntaxProblem> 
         .map(|node| {
             let start = node.start_position();
             SyntaxProblem {
-                range: ByteRange::new(node.start_byte(), node.end_byte()).expect("valid range"),
+                range: node_byte_range(node),
                 line: u32::try_from(start.row.saturating_add(1)).unwrap_or(u32::MAX),
                 column: u32::try_from(start.column.saturating_add(1)).unwrap_or(u32::MAX),
                 family: SyntaxFamily::Unknown,
@@ -496,99 +497,108 @@ fn syntax_problems_from_tree(root: tree_sitter::Node<'_>) -> Vec<SyntaxProblem> 
 }
 
 fn collect_syntax_problem_nodes(root: tree_sitter::Node<'_>) -> Vec<tree_sitter::Node<'_>> {
-    let mut candidates = Vec::new();
-    collect_problem_candidates(root, &mut candidates);
-    let all_candidates = candidates.clone();
+    let mut candidates = collect_leaf_problem_candidates(root);
+    candidates.sort_by_key(|node| (node.start_byte(), node.end_byte()));
 
-    // Keep leaf problems so a broad error node cannot bridge disjoint
-    // descendants into one diagnostic. Equal ranges are still collapsed using
-    // the required missing-node preference.
-    candidates.retain(|candidate| {
-        !all_candidates
-            .iter()
-            .copied()
-            .any(|other| other != *candidate && node_descends_from(other, *candidate))
-    });
-    candidates.sort_by_key(|node| {
-        (
-            node.end_byte().saturating_sub(node.start_byte()),
-            !node.is_missing(),
-            node.start_byte(),
-        )
-    });
-    let mut groups: Vec<Vec<tree_sitter::Node<'_>>> = Vec::new();
+    let mut selected = Vec::with_capacity(candidates.len());
+    let mut current_group = None;
     for candidate in candidates {
-        if let Some(group) = groups.iter_mut().find(|group| {
-            group
-                .iter()
-                .copied()
-                .any(|existing| problem_nodes_overlap_or_nest(existing, candidate))
-        }) {
-            group.push(candidate);
-        } else {
-            groups.push(vec![candidate]);
+        let candidate_range = node_byte_range(candidate);
+        let candidate_is_point = candidate_range.start == candidate_range.end;
+        match current_group.take() {
+            None => {
+                current_group = Some((candidate_range.end, candidate_is_point, candidate));
+            }
+            Some((group_end, group_has_point_at_end, best))
+                if problem_range_connects_to_group(
+                    group_end,
+                    group_has_point_at_end,
+                    candidate_range,
+                ) =>
+            {
+                let (group_end, group_has_point_at_end) = if candidate_range.end > group_end {
+                    (candidate_range.end, candidate_is_point)
+                } else {
+                    (
+                        group_end,
+                        group_has_point_at_end
+                            || (candidate_range.end == group_end && candidate_is_point),
+                    )
+                };
+                let best = if syntax_problem_sort_key(candidate) < syntax_problem_sort_key(best) {
+                    candidate
+                } else {
+                    best
+                };
+                current_group = Some((group_end, group_has_point_at_end, best));
+            }
+            Some((_, _, best)) => {
+                selected.push(best);
+                current_group = Some((candidate_range.end, candidate_is_point, candidate));
+            }
         }
     }
-
-    let mut selected = groups
-        .into_iter()
-        .filter_map(|group| {
-            group.into_iter().min_by_key(|node| {
-                (
-                    node.end_byte().saturating_sub(node.start_byte()),
-                    !node.is_missing(),
-                    node.start_byte(),
-                )
-            })
-        })
-        .collect::<Vec<_>>();
-    selected.sort_by_key(|node| (node.start_byte(), node.end_byte()));
+    if let Some((_, _, best)) = current_group {
+        selected.push(best);
+    }
     selected
 }
 
-fn collect_problem_candidates<'a>(
-    node: tree_sitter::Node<'a>,
-    candidates: &mut Vec<tree_sitter::Node<'a>>,
-) {
-    let mut stack = vec![node];
-    while let Some(node) = stack.pop() {
-        if node.is_error() || node.is_missing() {
+fn collect_leaf_problem_candidates(root: tree_sitter::Node<'_>) -> Vec<tree_sitter::Node<'_>> {
+    let mut candidates = Vec::new();
+    let mut has_problem_descendant = Vec::new();
+    let mut stack = vec![(root, None)];
+
+    while let Some((node, nearest_problem)) = stack.pop() {
+        let nearest_problem = if node.is_error() || node.is_missing() {
+            if let Some(index) = nearest_problem {
+                has_problem_descendant[index] = true;
+            }
+            let index = candidates.len();
             candidates.push(node);
-        }
+            has_problem_descendant.push(false);
+            Some(index)
+        } else {
+            nearest_problem
+        };
 
-        let mut cursor = node.walk();
-        stack.extend(node.children(&mut cursor));
+        for index in (0..node.child_count()).rev() {
+            if let Some(child) = node.child(index) {
+                stack.push((child, nearest_problem));
+            }
+        }
+    }
+
+    candidates
+        .into_iter()
+        .zip(has_problem_descendant)
+        .filter_map(|(candidate, has_descendant)| (!has_descendant).then_some(candidate))
+        .collect()
+}
+
+fn syntax_problem_sort_key(node: tree_sitter::Node<'_>) -> (usize, bool, usize) {
+    (
+        node.end_byte().saturating_sub(node.start_byte()),
+        !node.is_missing(),
+        node.start_byte(),
+    )
+}
+
+fn node_byte_range(node: tree_sitter::Node<'_>) -> ByteRange {
+    ByteRange {
+        start: node.start_byte(),
+        end: node.end_byte(),
     }
 }
 
-fn node_descends_from(mut node: tree_sitter::Node<'_>, ancestor: tree_sitter::Node<'_>) -> bool {
-    while let Some(parent) = node.parent() {
-        if parent == ancestor {
-            return true;
-        }
-        node = parent;
-    }
-
-    false
-}
-
-fn problem_nodes_overlap_or_nest(
-    left: tree_sitter::Node<'_>,
-    right: tree_sitter::Node<'_>,
+fn problem_range_connects_to_group(
+    group_end: usize,
+    group_has_point_at_end: bool,
+    candidate: ByteRange,
 ) -> bool {
-    let left_range = ByteRange::new(left.start_byte(), left.end_byte()).expect("valid range");
-    let right_range = ByteRange::new(right.start_byte(), right.end_byte()).expect("valid range");
-    ranges_overlap(left_range, right_range)
-        || zero_width_position_within_range(left_range, right_range)
-        || zero_width_position_within_range(right_range, left_range)
-}
-
-fn ranges_overlap(left: ByteRange, right: ByteRange) -> bool {
-    left.start < right.end && right.start < left.end
-}
-
-fn zero_width_position_within_range(point: ByteRange, range: ByteRange) -> bool {
-    point.start == point.end && range.start <= point.start && point.start <= range.end
+    candidate.start < group_end
+        || (candidate.start == group_end
+            && (group_has_point_at_end || candidate.start == candidate.end))
 }
 
 pub(crate) fn annotation_type_name(
@@ -984,22 +994,26 @@ fun Broken() {
     }
 
     #[test]
-    fn disjoint_inner_failures_under_outer_error_produce_two_ordered_problems() {
+    fn disjoint_failures_in_one_tree_produce_two_ordered_problems() {
         let mut parser = new_parser().expect("parser");
-        let first_tree = parser.parse("fun First(\n".as_bytes(), None).expect("tree");
-        let second_tree = parser
-            .parse("\n\nfun Second(\n".as_bytes(), None)
-            .expect("tree");
-        let first_problems = collect_syntax_problem_nodes(first_tree.root_node());
-        let second_problems = collect_syntax_problem_nodes(second_tree.root_node());
+        let source = "fun First() { val one = }\nfun Second() { val two = }\n";
+        let tree = parser.parse(source.as_bytes(), None).expect("tree");
+        let problems = collect_syntax_problem_nodes(tree.root_node());
 
-        assert_eq!(first_problems.len(), 1);
-        assert_eq!(second_problems.len(), 1);
+        assert_eq!(problems.len(), 2);
         assert!(
-            first_problems[0].start_byte() < first_tree.root_node().end_byte()
-                && second_problems[0].start_byte() < second_tree.root_node().end_byte(),
-            "each disjoint outer error should retain its own narrow problem"
+            problems[0].start_byte() < problems[1].start_byte(),
+            "disjoint problems should remain in source order"
         );
+    }
+
+    #[test]
+    fn zero_width_problem_bridges_touching_problem_ranges() {
+        let point = ByteRange { start: 10, end: 10 };
+        let right = ByteRange { start: 10, end: 20 };
+
+        assert!(problem_range_connects_to_group(10, false, point));
+        assert!(problem_range_connects_to_group(10, true, right));
     }
 
     #[test]
@@ -1013,6 +1027,29 @@ fun Broken() {
         assert!(
             !collect_syntax_problem_nodes(root).is_empty(),
             "deep malformed input should produce a syntax problem"
+        );
+    }
+
+    #[test]
+    fn syntax_problem_collection_handles_many_independent_errors_within_budget() {
+        let mut parser = new_parser().expect("parser");
+        let source = (0..1_000)
+            .map(|index| format!("fun Broken{index}() {{ val x = }}\n"))
+            .collect::<String>();
+        let tree = parser.parse(source.as_bytes(), None).expect("tree");
+
+        let started = std::time::Instant::now();
+        let problems = collect_syntax_problem_nodes(tree.root_node());
+        let elapsed = started.elapsed();
+
+        assert!(
+            problems.len() >= 900,
+            "expected independent parser problems, found {}",
+            problems.len()
+        );
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "syntax problem selection took {elapsed:?}"
         );
     }
 
