@@ -245,7 +245,7 @@ Expected: all commands exit `0`; successfully parsed fixture facts remain unchan
 
 ### Task 2: Normalize the Seven Known Kotlin Syntax Families
 
-- [ ] **Task 2 complete**
+- [x] **Task 2 complete**
 
 **Files:**
 - Modify: `engine/crates/wax-lang-compose/src/kotlin_recovery.rs`
@@ -268,7 +268,7 @@ Expected: all commands exit `0`; successfully parsed fixture facts remain unchan
 - Consumes: Task 1 recovery metadata and the existing lexical helpers for comments, strings, identifiers, annotations, and matching delimiters.
 - Produces: `normalize_kotlin_for_parse(&str) -> NormalizedKotlinSource`, known `SyntaxRegion` metadata, and a clean primary tree for every valid fixture.
 
-- [ ] **Step 1: Commit reduced fixture sources and the compiler matrix**
+- [x] **Step 1: Commit reduced fixture sources and the compiler matrix**
 
 Each Kotlin file must contain a `Before...` composable, the target syntax, and an `After...` composable. Use `PrimaryButton`, `Spacing.small`, and `Modifier.padding(7.dp)` as the common known facts. Keep tolerance-only infrastructure calls (`FetchRepository`, `MutableStateFlow`) PascalCase so scope tests can prove they are not UI facts later.
 
@@ -327,7 +327,7 @@ val items: List<
 
 Provide minimal local stubs in each file so it compiles independently without Compose or coroutine dependencies. `@Target(AnnotationTarget.TYPE, AnnotationTarget.FUNCTION)` defines `Composable`; simple classes/interfaces define the other names.
 
-- [ ] **Step 2: Add failing byte-preservation and parser tests**
+- [x] **Step 2: Add failing byte-preservation and parser tests**
 
 In `kotlin_recovery.rs` unit tests, load every fixture with `include_str!`, call `normalize_kotlin_for_parse`, and assert:
 
@@ -349,7 +349,7 @@ cargo test -p wax-lang-compose --test parse_recovery known_valid_syntax_is_byte_
 
 Expected: FAIL because the normalizer and fixtures are new.
 
-- [ ] **Step 3: Generalize the lexical pass**
+- [x] **Step 3: Generalize the lexical pass**
 
 Move the existing comment/string/delimiter helpers from `kotlin_ast.rs` into `kotlin_recovery.rs`. Add one `lex_kotlin` pass that emits token starts and balanced `()`, `{}`, `[]`, and `<>` ranges while skipping nested block comments, line comments, quoted chars/strings, and triple-quoted strings. Do not use regex replacements.
 
@@ -378,7 +378,7 @@ fn mask_preserving_lines(bytes: &mut [u8], range: ByteRange) {
 
 Require balanced candidate delimiters before applying a transform; otherwise record nothing and leave generic recovery for Task 4.
 
-- [ ] **Step 4: Implement the known transforms in source order**
+- [x] **Step 4: Implement the known transforms in source order**
 
 Apply non-overlapping transforms from highest byte offset to lowest so recorded original ranges remain stable:
 
@@ -387,17 +387,17 @@ Apply non-overlapping transforms from highest byte offset to lowest so recorded 
 3. **Annotated function type:** find `@Composable` followed by a balanced function-type range containing a top-level `->`; mask only a redundant outer parenthesis pair when present. Cover parameter, property, constructor-property, return, nullable, and receiver forms. If the declaration initializer is a lambda, record that lambda body with `component_scope = ComposableLambda`.
 4. **Explicit backing field:** inside a class/object body, recognize a line beginning with `field` after a property declaration and require a balanced initializer plus a safe lexical statement boundary. Mask the `field` keyword and any optional `: FieldType` suffix only through the byte before `=`, leaving `= <initializer>` parseable as the property's initializer. Record the complete field declaration as the source region and the preserved initializer expression as its body with `component_scope = Exclude`.
 5. **Context parameter:** inside `context(...)`, recognize `identifier : Type`; mask only `identifier` and `:`, leaving the type list parseable as legacy context syntax. Record `ContextParameter`, `component_scope = Inherit`. A type-only context list is recorded as `ContextReceiver` without modification.
-6. **Annotated type argument:** inside balanced `<...>`, recognize a type-use annotation before a type; mask the annotation name and optional balanced argument list, leaving the type and comma intact. Record `AnnotatedTypeArgument`, `component_scope = Exclude` for the annotation range only.
+6. **Annotated type argument:** inside balanced `<...>`, recognize a type-use annotation before a type; mask the annotation name and optional balanced argument list while leaving the type intact. When the annotation belongs to the final type argument and the pinned grammar still rejects its trailing comma, mask that comma too and extend the recorded `AnnotatedTypeArgument` source range through it. Record `component_scope = Exclude`.
 
 If two candidates overlap, keep the narrower recognized construct and leave the outer range untouched. Never modify comments, strings, character literals, annotation string arguments, or malformed unbalanced candidates.
 
-- [ ] **Step 5: Use the unified normalizer in the parser**
+- [x] **Step 5: Use the unified normalizer in the parser**
 
 Replace `normalize_annotated_parenthesized_function_types_for_parse` with `normalize_kotlin_for_parse`. Parse `normalized.bytes`, copy `normalized.regions` into `ParsedKotlinFile`, and collect syntax problems only from the normalized tree. Delete the parameter-only helper and invert its existing negative property/return test: all supported annotated function-type positions must now parse without errors.
 
 Known regions are metadata, not diagnostics. If the normalized tree is clean, leave `unresolved_problems` empty and report `Complete`.
 
-- [ ] **Step 6: Add scanner assertions for facts before and after every construct**
+- [x] **Step 6: Add scanner assertions for facts before and after every construct**
 
 In `parse_recovery.rs`, scan the full fixture repository and assert:
 
@@ -410,7 +410,7 @@ In `parse_recovery.rs`, scan the full fixture repository and assert:
 
 Do not assert final suspend/backing-field/slot scope decisions until Task 3; Task 2 only proves parse reachability.
 
-- [ ] **Step 7: Verify and commit**
+- [x] **Step 7: Verify and commit**
 
 ```bash
 cd engine

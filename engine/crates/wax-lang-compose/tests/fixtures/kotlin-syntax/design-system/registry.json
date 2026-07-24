@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "components": [
+    {
+      "id": "ds.primary-button",
+      "symbol": "PrimaryButton"
+    }
+  ],
+  "tokens": [
+    {
+      "id": "space.small",
+      "key": "Spacing.small",
+      "category": "spacing"
+    }
+  ]
+}

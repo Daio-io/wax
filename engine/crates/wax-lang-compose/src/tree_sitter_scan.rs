@@ -12,6 +12,7 @@ use crate::kotlin_ast::{
     new_parser, package_name_from_source, parse_kotlin_file_permissive,
     partial_tree_parse_diagnostic, unparseable_file_diagnostic,
 };
+use crate::kotlin_recovery::{ComponentScopePolicy, SyntaxRegion};
 
 /// Grammar version bundled via the `tree-sitter-kotlin-ng` crate dependency.
 /// Update this constant when bumping the crate in `Cargo.toml`.
@@ -499,6 +500,7 @@ fn extract_usage_from_source(
     file: &str,
     registry: &RegistryIndex,
     local_index: &LocalComposableIndex,
+    syntax_regions: &[SyntaxRegion],
     usage_sites: &mut Vec<UsageSite>,
 ) {
     let package = package_name_from_source(root, source);
@@ -511,7 +513,11 @@ fn extract_usage_from_source(
             && is_pascal_case_composable_symbol(&call_symbol)
         {
             let skip_current = is_within_preview_composable(node, source)
-                || is_non_ui_scaffolding_composable_symbol(&call_symbol);
+                || is_non_ui_scaffolding_composable_symbol(&call_symbol)
+                || syntax_regions.iter().any(|region| {
+                    region.component_scope == ComponentScopePolicy::Exclude
+                        && region.body.is_some_and(|body| body.contains_node(node))
+                });
             if !skip_current {
                 let line = pos.row as u32 + 1;
                 let column = pos.column as u32 + 1;
@@ -876,7 +882,7 @@ fn extract_from_source(
         local_index.insert(file, local.clone());
         local_components.push(local);
     }
-    extract_usage_from_source(root, source, file, registry, &local_index, usage_sites);
+    extract_usage_from_source(root, source, file, registry, &local_index, &[], usage_sites);
 }
 
 // ── Public scan entry point ───────────────────────────────────────────────────
@@ -990,6 +996,7 @@ pub fn scan_repository(
             relative_file,
             &registry,
             &local_index,
+            &parsed.syntax_regions,
             &mut usage_sites,
         );
         extract_hardcoded_style_from_source(
@@ -1803,7 +1810,7 @@ fun Screen() { Button(onClick = {}) }
     }
 
     #[test]
-    fn annotated_parenthesized_generic_function_type_does_not_emit_parse_failed() {
+    fn annotated_function_type_positions_do_not_emit_parse_failed() {
         let config = ComposeScanConfig {
             design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
             roots: vec![std::path::PathBuf::from("app/src/main/kotlin")],
@@ -1828,6 +1835,9 @@ import androidx.compose.runtime.Composable
 
 interface NavArgument
 interface NavDecoration
+
+val handler: @Composable ((NavArgument) -> Unit) = {}
+fun handlerFactory(): @Composable ((NavArgument) -> Unit) = {}
 
 private object CapsuleDecor : NavDecoration {
     @Composable
