@@ -40,6 +40,10 @@ class ExplicitBackingFieldHolder {
 
     val modifier: Modifier
         field = Modifier.padding(7.dp)
+
+    fun load() {
+        PrimaryButton(onClick = {})
+    }
 }
 
 @Composable

@@ -27,7 +27,10 @@ fun BeforeSuspendLambda() {
     Spacing.small
 }
 
-val loader = suspend { FetchRepository() }
+val loader = suspend {
+    FetchRepository()
+    PrimaryButton(onClick = {})
+}
 
 @Composable
 fun AfterSuspendLambda() {

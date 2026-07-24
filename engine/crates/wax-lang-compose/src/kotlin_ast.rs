@@ -547,6 +547,23 @@ pub(crate) fn is_within_preview_composable(mut node: tree_sitter::Node<'_>, sour
     false
 }
 
+/// True when `node` has an error/missing ancestor that still lies inside a clean range.
+pub(crate) fn node_has_error_ancestor_within(
+    mut node: tree_sitter::Node<'_>,
+    clean: &[ByteRange],
+) -> bool {
+    while let Some(parent) = node.parent() {
+        if !clean.iter().any(|range| range.contains_node(parent)) {
+            break;
+        }
+        if parent.is_error() || parent.is_missing() {
+            return true;
+        }
+        node = parent;
+    }
+    false
+}
+
 pub(crate) fn is_pascal_case_composable_symbol(symbol: &str) -> bool {
     symbol
         .chars()

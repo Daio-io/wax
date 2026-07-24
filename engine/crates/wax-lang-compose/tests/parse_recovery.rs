@@ -107,6 +107,64 @@ fn known_valid_syntax_is_byte_preserving() {
         assert_fact(&facts, FactKind::Style, file, "7.dp", dp_line, dp_column);
     }
 
+    let annotated_function_type_source = fixture_source(
+        &fixture_root,
+        "app/src/main/kotlin/AnnotatedFunctionType.kt",
+    );
+    let (slot_line, slot_column) = find_line_and_column_after(
+        &annotated_function_type_source,
+        "val content",
+        "PrimaryButton(onClick = {})",
+    );
+    assert_fact(
+        &facts,
+        FactKind::Usage,
+        "app/src/main/kotlin/AnnotatedFunctionType.kt",
+        "PrimaryButton",
+        slot_line,
+        slot_column,
+    );
+    let slot_usage = facts
+        .usage_sites
+        .iter()
+        .find(|site| {
+            site.location.file == "app/src/main/kotlin/AnnotatedFunctionType.kt"
+                && site.symbol == "PrimaryButton"
+                && site.location.line == slot_line
+                && site.location.column == Some(slot_column)
+        })
+        .expect("annotated function-type slot usage");
+    assert!(
+        slot_usage.parent.is_none(),
+        "top-level composable property lambda usages must not invent a parent"
+    );
+    let (ordinary_slot_line, _) = find_line_and_column_after(
+        &annotated_function_type_source,
+        "val ordinaryContent",
+        "PrimaryButton(onClick = {})",
+    );
+    assert!(
+        facts.usage_sites.iter().all(|site| {
+            !(site.location.file == "app/src/main/kotlin/AnnotatedFunctionType.kt"
+                && site.symbol == "PrimaryButton"
+                && site.location.line == ordinary_slot_line)
+        }),
+        "ordinary (non-@Composable) property lambdas must not emit UI usages"
+    );
+
+    let explicit_backing_field_source =
+        fixture_source(&fixture_root, "app/src/main/kotlin/ExplicitBackingField.kt");
+    let (load_button_line, _) =
+        find_line_and_column_after(&explicit_backing_field_source, "fun load", "PrimaryButton");
+    assert!(
+        facts.usage_sites.iter().all(|site| {
+            !(site.location.file == "app/src/main/kotlin/ExplicitBackingField.kt"
+                && site.symbol == "PrimaryButton"
+                && site.location.line == load_button_line)
+        }),
+        "non-UI methods must not emit component usages"
+    );
+
     let when_guard_source = fixture_source(&fixture_root, "app/src/main/kotlin/WhenGuard.kt");
     let (when_guard_line, when_guard_column) = find_line_and_column_after(
         &when_guard_source,
@@ -154,8 +212,6 @@ fn known_valid_syntax_is_byte_preserving() {
         context_receiver_column,
     );
 
-    let explicit_backing_field_source =
-        fixture_source(&fixture_root, "app/src/main/kotlin/ExplicitBackingField.kt");
     let (initializer_token_line, initializer_token_column) = find_line_and_column_after(
         &explicit_backing_field_source,
         "val spacing",
@@ -190,6 +246,25 @@ fn known_valid_syntax_is_byte_preserving() {
                 .iter()
                 .all(|component| component.symbol != "MutableStateFlow"),
         "explicit backing-field infrastructure constructors must not become component facts"
+    );
+
+    let suspend_source = fixture_source(&fixture_root, "app/src/main/kotlin/SuspendLambda.kt");
+    let (suspend_button_line, _) =
+        find_line_and_column_after(&suspend_source, "suspend", "PrimaryButton");
+    assert!(
+        facts.usage_sites.iter().all(|site| {
+            !(site.location.file == "app/src/main/kotlin/SuspendLambda.kt"
+                && site.symbol == "PrimaryButton"
+                && site.location.line == suspend_button_line)
+        }),
+        "PrimaryButton inside suspend {{}} must not be a usage site"
+    );
+    assert!(
+        facts
+            .usage_sites
+            .iter()
+            .all(|site| site.symbol != "FetchRepository"),
+        "FetchRepository inside suspend {{}} must not be an unresolved UI call"
     );
 
     let trailing_comma_source =
