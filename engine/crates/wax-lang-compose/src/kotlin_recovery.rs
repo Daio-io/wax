@@ -58,6 +58,20 @@ pub(crate) struct SyntaxRegion {
     pub(crate) component_scope: ComponentScopePolicy,
 }
 
+/// True when `node` sits in a known syntax region's source span but outside its body.
+///
+/// Type annotations and masked prefixes are excluded from token/style walks, while
+/// preserved bodies (for example explicit-field initializers) remain extractable.
+pub(crate) fn node_in_type_annotation_range(
+    node: tree_sitter::Node<'_>,
+    regions: &[SyntaxRegion],
+) -> bool {
+    regions.iter().any(|region| {
+        region.source.contains_node(node)
+            && !region.body.is_some_and(|body| body.contains_node(node))
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SyntaxProblem {
     pub(crate) range: ByteRange,

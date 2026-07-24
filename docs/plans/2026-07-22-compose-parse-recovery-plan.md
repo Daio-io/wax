@@ -429,7 +429,7 @@ Expected: all commands exit `0`; every valid known fixture is `Complete`.
 
 ### Task 3: Restrict Component Facts to UI-Bearing Scopes
 
-- [ ] **Task 3 complete**
+- [x] **Task 3 complete**
 
 **Files:**
 - Modify: `engine/crates/wax-lang-compose/src/kotlin_ast.rs`
@@ -447,7 +447,7 @@ Expected: all commands exit `0`; every valid known fixture is `Complete`.
 - Consumes: syntax-region `ComponentScopePolicy`, composable annotations, preview exclusion, registry/import resolution, and local-component index.
 - Produces: explicit `UiScope` traversal and component metrics containing only UI-bearing calls.
 
-- [ ] **Step 1: Write scope-policy tests before changing extraction**
+- [x] **Step 1: Write scope-policy tests before changing extraction**
 
 Add these focused cases to `tree_sitter_scan.rs`:
 
@@ -475,7 +475,7 @@ cargo test -p wax-lang-compose tree_sitter_scan::tests::component_calls_require_
 
 Expected: FAIL because current extraction scans every PascalCase call.
 
-- [ ] **Step 2: Add explicit UI scope and a single component walker**
+- [x] **Step 2: Add explicit UI scope and a single component walker**
 
 Define beside usage extraction:
 
@@ -504,17 +504,17 @@ Replace the flat stack in `extract_usage_from_source` with recursive `visit_comp
 
 Emit a call only when `scope.is_ui()`, existing preview/scaffolding checks pass, and the node belongs to a clean parse range. Preserve registry/local/unresolved classification and existing ids exactly.
 
-- [ ] **Step 3: Make parent attribution follow the active scope**
+- [x] **Step 3: Make parent attribution follow the active scope**
 
 For declaration-backed `Composable`, keep `nearest_enclosing_composable` and its current semantic `ParentScope`. For a top-level annotated composable property lambda, use `parent = None`; do not invent a local component or synthetic parent id. Nested ordinary lambdas continue attributing calls to the nearest enclosing composable declaration.
 
 Add assertions for these three cases so scope admission and parent identity cannot drift together.
 
-- [ ] **Step 4: Keep local indexing strict and preview-safe**
+- [x] **Step 4: Keep local indexing strict and preview-safe**
 
 Continue indexing only PascalCase `@Composable fun` declarations. Do not index composable function-type properties. Filter local declarations to clean parse ranges and keep the existing preview/provider/effect exclusions. Add a regression proving a malformed non-UI declaration cannot create a local component after normalization.
 
-- [ ] **Step 5: Separate token/style filters from component scope**
+- [x] **Step 5: Separate token/style filters from component scope**
 
 Introduce a shared predicate:
 
@@ -527,11 +527,11 @@ fn node_is_extractable(node: tree_sitter::Node<'_>, clean: &[ByteRange]) -> bool
 
 Use it in local, usage, token, and hard-coded-style traversals. Only usage traversal consults `UiScope`. Token/style traversals skip type-annotation ranges, but continue through the preserved initializer body of an explicit backing field; `ComponentScopePolicy::Exclude` applies only to component/unresolved-call extraction. Otherwise retain the existing syntactic candidate rules.
 
-- [ ] **Step 6: Update golden counts only for proven false positives**
+- [x] **Step 6: Update golden counts only for proven false positives**
 
 Run the small golden test. If counts change, list every removed usage id and its enclosing non-UI syntax in the PR description. Update `golden.json` only for calls outside UI-bearing scopes. Do not accept token/style or resolved/candidate changes without a separate root-cause test.
 
-- [ ] **Step 7: Verify and commit**
+- [x] **Step 7: Verify and commit**
 
 ```bash
 cd engine

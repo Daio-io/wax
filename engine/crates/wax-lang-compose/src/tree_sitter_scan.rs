@@ -9,10 +9,12 @@ use crate::kotlin_ast::{
     collect_kotlin_files, function_name_from_decl, has_composable_annotation,
     has_preview_annotation, is_non_ui_scaffolding_composable_symbol,
     is_pascal_case_composable_symbol, is_within_preview_composable, nearest_enclosing_composable,
-    new_parser, package_name_from_source, parse_kotlin_file_permissive,
-    partial_tree_parse_diagnostic, unparseable_file_diagnostic,
+    new_parser, node_has_error_ancestor_within, package_name_from_source,
+    parse_kotlin_file_permissive, partial_tree_parse_diagnostic, unparseable_file_diagnostic,
 };
-use crate::kotlin_recovery::{ComponentScopePolicy, SyntaxRegion};
+use crate::kotlin_recovery::{
+    ByteRange, ComponentScopePolicy, SyntaxRegion, node_in_type_annotation_range,
+};
 
 /// Grammar version bundled via the `tree-sitter-kotlin-ng` crate dependency.
 /// Update this constant when bumping the crate in `Cargo.toml`.
@@ -452,6 +454,7 @@ fn index_local_components_from_source(
     root: tree_sitter::Node<'_>,
     source: &[u8],
     file: &str,
+    clean: &[ByteRange],
 ) -> Vec<LocalComponent> {
     let package = package_name_from_source(root, source);
     let mut local_components = Vec::new();
@@ -459,6 +462,7 @@ fn index_local_components_from_source(
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
         if node.kind() == "function_declaration"
+            && node_is_extractable(node, clean)
             && has_composable_annotation(node, source)
             && !has_preview_annotation(node, source)
             && !is_within_preview_composable(node, source)
@@ -494,6 +498,58 @@ fn index_local_components_from_source(
     local_components
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UiScope {
+    NonUi,
+    Composable,
+    ComposableLambda,
+}
+
+impl UiScope {
+    fn is_ui(self) -> bool {
+        !matches!(self, Self::NonUi)
+    }
+}
+
+fn node_is_extractable(node: tree_sitter::Node<'_>, clean: &[ByteRange]) -> bool {
+    clean.iter().any(|range| range.contains_node(node))
+        && !node_has_error_ancestor_within(node, clean)
+}
+
+fn component_scope_for_child(
+    child: tree_sitter::Node<'_>,
+    parent: tree_sitter::Node<'_>,
+    inherited: UiScope,
+    source: &[u8],
+    syntax_regions: &[SyntaxRegion],
+) -> UiScope {
+    if syntax_regions.iter().any(|region| {
+        region.component_scope == ComponentScopePolicy::Exclude
+            && region.body.is_some_and(|body| body.contains_node(child))
+    }) {
+        return UiScope::NonUi;
+    }
+    if syntax_regions.iter().any(|region| {
+        region.component_scope == ComponentScopePolicy::ComposableLambda
+            && region.body.is_some_and(|body| body.contains_node(child))
+    }) {
+        return UiScope::ComposableLambda;
+    }
+    if parent.kind() == "function_declaration" {
+        if has_composable_annotation(parent, source) && !has_preview_annotation(parent, source) {
+            return UiScope::Composable;
+        }
+        if function_name_from_decl(parent, source).is_some() {
+            return UiScope::NonUi;
+        }
+    }
+    inherited
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "mirrors scan_repository extraction call sites; args are distinct inputs"
+)]
 fn extract_usage_from_source(
     root: tree_sitter::Node<'_>,
     source: &[u8],
@@ -501,84 +557,112 @@ fn extract_usage_from_source(
     registry: &RegistryIndex,
     local_index: &LocalComposableIndex,
     syntax_regions: &[SyntaxRegion],
+    clean: &[ByteRange],
     usage_sites: &mut Vec<UsageSite>,
 ) {
     let package = package_name_from_source(root, source);
     let imports = collect_import_bindings(root, source);
+    let mut ctx = ComponentUsageCtx {
+        source,
+        file,
+        package: package.as_deref(),
+        registry,
+        local_index,
+        imports: &imports,
+        syntax_regions,
+        clean,
+        usage_sites,
+    };
+    visit_component_usage(root, UiScope::NonUi, &mut ctx);
+}
 
-    let mut stack = vec![root];
-    while let Some(node) = stack.pop() {
-        if node.kind() == "call_expression"
-            && let Some((call_symbol, pos)) = call_simple_callee(node, source)
-            && is_pascal_case_composable_symbol(&call_symbol)
-        {
-            let skip_current = is_within_preview_composable(node, source)
-                || is_non_ui_scaffolding_composable_symbol(&call_symbol)
-                || syntax_regions.iter().any(|region| {
-                    region.component_scope == ComponentScopePolicy::Exclude
-                        && region.body.is_some_and(|body| body.contains_node(node))
+struct ComponentUsageCtx<'a> {
+    source: &'a [u8],
+    file: &'a str,
+    package: Option<&'a str>,
+    registry: &'a RegistryIndex,
+    local_index: &'a LocalComposableIndex,
+    imports: &'a ImportBindings,
+    syntax_regions: &'a [SyntaxRegion],
+    clean: &'a [ByteRange],
+    usage_sites: &'a mut Vec<UsageSite>,
+}
+
+fn visit_component_usage(
+    node: tree_sitter::Node<'_>,
+    scope: UiScope,
+    ctx: &mut ComponentUsageCtx<'_>,
+) {
+    if node.kind() == "call_expression"
+        && scope.is_ui()
+        && node_is_extractable(node, ctx.clean)
+        && let Some((call_symbol, pos)) = call_simple_callee(node, ctx.source)
+        && is_pascal_case_composable_symbol(&call_symbol)
+        && !is_within_preview_composable(node, ctx.source)
+        && !is_non_ui_scaffolding_composable_symbol(&call_symbol)
+    {
+        let line = pos.row as u32 + 1;
+        let column = pos.column as u32 + 1;
+        let location = SourceLocation {
+            file: ctx.file.to_owned(),
+            line,
+            column: Some(column),
+        };
+        let parent = match scope {
+            UiScope::Composable => {
+                nearest_enclosing_composable(node, ctx.source).map(|(name, parent_pos)| {
+                    parent_scope_for_composable(ctx.file, ctx.package, &name, parent_pos)
+                })
+            }
+            UiScope::ComposableLambda | UiScope::NonUi => None,
+        };
+
+        if let Some(registry_symbol) = ctx.registry.resolve_targets.get(&call_symbol) {
+            if let Some(match_status) =
+                resolve_registry_match(&call_symbol, registry_symbol, ctx.registry, ctx.imports)
+            {
+                ctx.usage_sites.push(UsageSite {
+                    id: format!("usage.compose:{}:{line}:{column}:{call_symbol}", ctx.file),
+                    location,
+                    symbol: call_symbol.clone(),
+                    qualified_symbol: None,
+                    match_status,
+                    registry_symbol: Some(registry_symbol.clone()),
+                    local_definition_id: None,
+                    parent,
                 });
-            if !skip_current {
-                let line = pos.row as u32 + 1;
-                let column = pos.column as u32 + 1;
-                let location = SourceLocation {
-                    file: file.to_owned(),
-                    line,
-                    column: Some(column),
-                };
-                let parent =
-                    nearest_enclosing_composable(node, source).map(|(name, parent_pos)| {
-                        parent_scope_for_composable(file, package.as_deref(), &name, parent_pos)
-                    });
-
-                if let Some(registry_symbol) = registry.resolve_targets.get(&call_symbol) {
-                    if let Some(match_status) =
-                        resolve_registry_match(&call_symbol, registry_symbol, registry, &imports)
-                    {
-                        usage_sites.push(UsageSite {
-                            id: format!("usage.compose:{file}:{line}:{column}:{call_symbol}"),
-                            location: location.clone(),
-                            symbol: call_symbol.clone(),
-                            qualified_symbol: None,
-                            match_status,
-                            registry_symbol: Some(registry_symbol.clone()),
-                            local_definition_id: None,
-                            parent,
-                        });
-                    }
-                } else if let Some(local) =
-                    local_index.resolve(file, package.as_deref(), &call_symbol)
-                {
-                    usage_sites.push(UsageSite {
-                        id: format!("usage.compose:{file}:{line}:{column}:{call_symbol}"),
-                        location: location.clone(),
-                        symbol: call_symbol.clone(),
-                        qualified_symbol: local.qualified_symbol.clone(),
-                        match_status: MatchStatus::Local,
-                        registry_symbol: None,
-                        local_definition_id: Some(local.id.clone()),
-                        parent,
-                    });
-                } else {
-                    usage_sites.push(UsageSite {
-                        id: format!("usage.compose:{file}:{line}:{column}:{call_symbol}"),
-                        location,
-                        symbol: call_symbol,
-                        qualified_symbol: None,
-                        match_status: MatchStatus::Unresolved,
-                        registry_symbol: None,
-                        local_definition_id: None,
-                        parent,
-                    });
-                }
             }
+        } else if let Some(local) = ctx.local_index.resolve(ctx.file, ctx.package, &call_symbol) {
+            ctx.usage_sites.push(UsageSite {
+                id: format!("usage.compose:{}:{line}:{column}:{call_symbol}", ctx.file),
+                location,
+                symbol: call_symbol.clone(),
+                qualified_symbol: local.qualified_symbol.clone(),
+                match_status: MatchStatus::Local,
+                registry_symbol: None,
+                local_definition_id: Some(local.id.clone()),
+                parent,
+            });
+        } else {
+            ctx.usage_sites.push(UsageSite {
+                id: format!("usage.compose:{}:{line}:{column}:{call_symbol}", ctx.file),
+                location,
+                symbol: call_symbol,
+                qualified_symbol: None,
+                match_status: MatchStatus::Unresolved,
+                registry_symbol: None,
+                local_definition_id: None,
+                parent,
+            });
         }
+    }
 
-        let child_count = node.child_count();
-        for i in (0..child_count).rev() {
-            if let Some(child) = node.child(i) {
-                stack.push(child);
-            }
+    let child_count = node.child_count();
+    for i in 0..child_count {
+        if let Some(child) = node.child(i) {
+            let child_scope =
+                component_scope_for_child(child, node, scope, ctx.source, ctx.syntax_regions);
+            visit_component_usage(child, child_scope, ctx);
         }
     }
 }
@@ -760,12 +844,18 @@ fn extract_hardcoded_style_from_source(
     root: tree_sitter::Node<'_>,
     source: &[u8],
     file: &str,
+    clean: &[ByteRange],
+    syntax_regions: &[SyntaxRegion],
     out: &mut Vec<HardcodedStyleSite>,
 ) {
     let package = package_name_from_source(root, source);
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
+        if node_in_type_annotation_range(node, syntax_regions) {
+            continue;
+        }
         if node.kind() == "call_expression"
+            && node_is_extractable(node, clean)
             && !is_within_preview_composable(node, source)
             && let Some((call_symbol, pos)) = style_call_callee(node, source)
             && let Some((category, context)) = compose_style_metadata(&call_symbol)
@@ -802,12 +892,18 @@ fn extract_token_sites_from_source(
     source: &[u8],
     file: &str,
     token_index: &RegistryTokenIndex,
+    clean: &[ByteRange],
+    syntax_regions: &[SyntaxRegion],
     out: &mut Vec<TokenSite>,
 ) {
     let package = package_name_from_source(root, source);
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
+        if node_in_type_annotation_range(node, syntax_regions) {
+            continue;
+        }
         if is_token_reference_node(node)
+            && node_is_extractable(node, clean)
             && !is_within_preview_composable(node, source)
             && let Ok(text) = node.utf8_text(source)
             && let Some(token_match) = token_index.matches.get(text)
@@ -877,12 +973,25 @@ fn extract_from_source(
     local_components: &mut Vec<LocalComponent>,
     usage_sites: &mut Vec<UsageSite>,
 ) {
+    let clean = [ByteRange {
+        start: 0,
+        end: source.len(),
+    }];
     let mut local_index = LocalComposableIndex::default();
-    for local in index_local_components_from_source(root, source, file) {
+    for local in index_local_components_from_source(root, source, file, &clean) {
         local_index.insert(file, local.clone());
         local_components.push(local);
     }
-    extract_usage_from_source(root, source, file, registry, &local_index, &[], usage_sites);
+    extract_usage_from_source(
+        root,
+        source,
+        file,
+        registry,
+        &local_index,
+        &[],
+        &clean,
+        usage_sites,
+    );
 }
 
 // ── Public scan entry point ───────────────────────────────────────────────────
@@ -983,6 +1092,7 @@ pub fn scan_repository(
             parsed.primary_tree().root_node(),
             parsed.source.as_bytes(),
             relative_file,
+            &parsed.primary.clean,
         ) {
             local_index.insert(relative_file, local.clone());
             local_components.push(local);
@@ -997,12 +1107,15 @@ pub fn scan_repository(
             &registry,
             &local_index,
             &parsed.syntax_regions,
+            &parsed.primary.clean,
             &mut usage_sites,
         );
         extract_hardcoded_style_from_source(
             parsed.primary_tree().root_node(),
             parsed.source.as_bytes(),
             relative_file,
+            &parsed.primary.clean,
+            &parsed.syntax_regions,
             &mut hardcoded_style_sites,
         );
         extract_token_sites_from_source(
@@ -1010,6 +1123,8 @@ pub fn scan_repository(
             parsed.source.as_bytes(),
             relative_file,
             &registry.token_index,
+            &parsed.primary.clean,
+            &parsed.syntax_regions,
             &mut token_sites,
         );
     }
@@ -1199,6 +1314,7 @@ fn glob_segment_match(segment: &[u8], pattern: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kotlin_recovery::normalize_kotlin_for_parse;
 
     fn make_parser() -> tree_sitter::Parser {
         let mut p = tree_sitter::Parser::new();
@@ -1246,19 +1362,210 @@ mod tests {
         source: &str,
         registry: &RegistryIndex,
     ) -> (Vec<LocalComponent>, Vec<UsageSite>) {
+        let normalized = normalize_kotlin_for_parse(source);
         let mut parser = make_parser();
-        let tree = parser.parse(source.as_bytes(), None).unwrap();
+        let tree = parser.parse(normalized.bytes.as_slice(), None).unwrap();
+        let clean = [ByteRange {
+            start: 0,
+            end: source.len(),
+        }];
+        let root = tree.root_node();
+        let bytes = source.as_bytes();
         let mut locals = Vec::new();
         let mut usages = Vec::new();
-        extract_from_source(
-            tree.root_node(),
-            source.as_bytes(),
+        let mut local_index = LocalComposableIndex::default();
+        for local in index_local_components_from_source(root, bytes, "Test.kt", &clean) {
+            local_index.insert("Test.kt", local.clone());
+            locals.push(local);
+        }
+        extract_usage_from_source(
+            root,
+            bytes,
             "Test.kt",
             registry,
-            &mut locals,
+            &local_index,
+            &normalized.regions,
+            &clean,
             &mut usages,
         );
         (locals, usages)
+    }
+
+    fn usage_symbols(usages: &[UsageSite]) -> Vec<&str> {
+        usages.iter().map(|usage| usage.symbol.as_str()).collect()
+    }
+
+    #[test]
+    fn component_calls_require_ui_scope() {
+        let registry = registry_without_packages(&[
+            ("PrimaryButton", "PrimaryButton"),
+            ("UnknownCard", "UnknownCard"),
+        ]);
+
+        let (_, ordinary) =
+            parse_and_extract("fun helper() { PrimaryButton(); UnknownCard() }", &registry);
+        assert!(
+            ordinary.is_empty(),
+            "ordinary functions are NonUi: {ordinary:?}"
+        );
+
+        let (_, property) = parse_and_extract("val boot = PrimaryButton()", &registry);
+        assert!(
+            property.is_empty(),
+            "top-level property initializers are NonUi: {property:?}"
+        );
+
+        let (_, composable) = parse_and_extract(
+            "@Composable\nfun Screen() { PrimaryButton(); UnknownCard() }",
+            &registry,
+        );
+        assert_eq!(
+            usage_symbols(&composable),
+            vec!["PrimaryButton", "UnknownCard"]
+        );
+        assert!(
+            composable.iter().all(|site| {
+                site.parent.as_ref().map(|parent| parent.symbol.as_str()) == Some("Screen")
+            }),
+            "declaration-backed Composable parents must stay Screen: {composable:?}"
+        );
+
+        let (_, nested_lambda) = parse_and_extract(
+            "@Composable\nfun Screen() { list.forEach { PrimaryButton() } }",
+            &registry,
+        );
+        assert_eq!(usage_symbols(&nested_lambda), vec!["PrimaryButton"]);
+        assert_eq!(
+            nested_lambda[0]
+                .parent
+                .as_ref()
+                .map(|parent| parent.symbol.as_str()),
+            Some("Screen"),
+            "ordinary nested lambdas keep nearest enclosing composable parent"
+        );
+
+        let (_, nested_fun) = parse_and_extract(
+            "@Composable\nfun Screen() { fun load() { UnknownCard() } }",
+            &registry,
+        );
+        assert!(
+            nested_fun.is_empty(),
+            "nested named functions do not inherit UI scope: {nested_fun:?}"
+        );
+
+        let (_, slot_lambda) = parse_and_extract(
+            "val content: @Composable (() -> Unit) = { PrimaryButton() }",
+            &registry,
+        );
+        assert_eq!(usage_symbols(&slot_lambda), vec!["PrimaryButton"]);
+        assert!(
+            slot_lambda[0].parent.is_none(),
+            "top-level annotated composable property lambda has no synthetic parent: {slot_lambda:?}"
+        );
+
+        let (_, suspend_body) = parse_and_extract(
+            "val loader = suspend { FetchRepository(); PrimaryButton() }",
+            &registry,
+        );
+        assert!(
+            suspend_body.is_empty(),
+            "suspend lambda bodies are Exclude for components: {suspend_body:?}"
+        );
+
+        let (_, field_init) = parse_and_extract(
+            "class Holder {\n    val state: StateFlow<List<Item>>\n        field = MutableStateFlow(emptyList())\n}\n",
+            &registry,
+        );
+        assert!(
+            field_init
+                .iter()
+                .all(|site| site.symbol != "MutableStateFlow"),
+            "explicit field initializers must not emit unresolved UI calls: {field_init:?}"
+        );
+
+        let (_, when_guard) = parse_and_extract(
+            "@Composable\nfun Screen(item: Any) {\n    when (item) {\n        is Visible if enabled -> PrimaryButton()\n        else -> Unit\n    }\n}\n",
+            &registry,
+        );
+        assert_eq!(usage_symbols(&when_guard), vec!["PrimaryButton"]);
+
+        let (_, context_param) = parse_and_extract(
+            "context(scope: Scope)\n@Composable\nfun Screen() { PrimaryButton() }\n",
+            &registry,
+        );
+        assert_eq!(usage_symbols(&context_param), vec!["PrimaryButton"]);
+
+        let token_index = token_match_index(&[
+            (
+                "token.color",
+                "AppTokens.color.primary",
+                TokenCategory::Color,
+            ),
+            ("token.spacing", "Spacing.small", TokenCategory::Spacing),
+        ]);
+        let token_source = r#"
+val color = AppTokens.color.primary
+class Holder {
+    val spacing: Dp
+        field = Spacing.small
+    val modifier: Modifier
+        field = Modifier.padding(7.dp)
+}
+"#;
+        let tokens = extract_token_sites(token_source, &token_index);
+        assert!(
+            tokens
+                .iter()
+                .any(|site| site.key == "AppTokens.color.primary"),
+            "tokens outside composables remain extractable: {tokens:?}"
+        );
+        assert!(
+            tokens.iter().any(|site| site.key == "Spacing.small"),
+            "tokens inside explicit-field initializers remain extractable: {tokens:?}"
+        );
+        let styles = extract_hardcoded_styles(token_source);
+        assert!(
+            styles
+                .iter()
+                .any(|site| site.value == "7.dp" && site.category == TokenCategory::Spacing),
+            "hard-coded styles inside explicit-field initializers remain extractable: {styles:?}"
+        );
+        let (_, token_usages) = parse_and_extract(token_source, &registry);
+        assert!(
+            token_usages.is_empty(),
+            "token/style independence cases must not create component usages: {token_usages:?}"
+        );
+    }
+
+    #[test]
+    fn malformed_non_ui_declaration_does_not_create_local_component() {
+        let registry = registry_without_packages(&[]);
+        let (locals, _) =
+            parse_and_extract("@Composable\nfun Screen() {}\nfun Broken(\n", &registry);
+        assert!(
+            locals.iter().any(|local| local.symbol == "Screen"),
+            "earlier UI declarations should still index: {locals:?}"
+        );
+        assert!(
+            locals.iter().all(|local| local.symbol != "Broken"),
+            "malformed non-UI declarations must not become local components: {locals:?}"
+        );
+    }
+
+    #[test]
+    fn composable_function_type_properties_are_not_indexed_as_locals() {
+        let registry = registry_without_packages(&[]);
+        let (locals, _) = parse_and_extract(
+            "val content: @Composable (() -> Unit) = { }\n@Composable\nfun Screen() {}\n",
+            &registry,
+        );
+        assert_eq!(
+            locals
+                .iter()
+                .map(|local| local.symbol.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Screen"]
+        );
     }
 
     #[test]
@@ -2052,13 +2359,20 @@ fun BrokenScreen(
     }
 
     fn extract_hardcoded_styles(source: &str) -> Vec<HardcodedStyleSite> {
+        let normalized = normalize_kotlin_for_parse(source);
         let mut parser = make_parser();
-        let tree = parser.parse(source.as_bytes(), None).unwrap();
+        let tree = parser.parse(normalized.bytes.as_slice(), None).unwrap();
+        let clean = [ByteRange {
+            start: 0,
+            end: source.len(),
+        }];
         let mut sites = Vec::new();
         extract_hardcoded_style_from_source(
             tree.root_node(),
             source.as_bytes(),
             "Test.kt",
+            &clean,
+            &normalized.regions,
             &mut sites,
         );
         sites
@@ -2079,14 +2393,21 @@ fun BrokenScreen(
     }
 
     fn extract_token_sites(source: &str, index: &RegistryTokenIndex) -> Vec<TokenSite> {
+        let normalized = normalize_kotlin_for_parse(source);
         let mut parser = make_parser();
-        let tree = parser.parse(source.as_bytes(), None).unwrap();
+        let tree = parser.parse(normalized.bytes.as_slice(), None).unwrap();
+        let clean = [ByteRange {
+            start: 0,
+            end: source.len(),
+        }];
         let mut sites = Vec::new();
         extract_token_sites_from_source(
             tree.root_node(),
             source.as_bytes(),
             "Test.kt",
             index,
+            &clean,
+            &normalized.regions,
             &mut sites,
         );
         sites

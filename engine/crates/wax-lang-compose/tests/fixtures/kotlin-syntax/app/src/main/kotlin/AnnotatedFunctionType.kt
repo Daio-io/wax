@@ -31,6 +31,7 @@ fun BeforeAnnotatedFunctionType() {
 
 val content: @Composable (() -> Unit) = { PrimaryButton(onClick = {}) }
 val receiverContent: @Composable (Scope.(Item) -> Unit) = { PrimaryButton(onClick = {}) }
+val ordinaryContent: () -> Unit = { PrimaryButton(onClick = {}) }
 
 @Composable
 fun AfterAnnotatedFunctionType() {
