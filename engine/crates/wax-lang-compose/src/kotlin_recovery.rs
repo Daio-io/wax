@@ -429,7 +429,7 @@ fn collect_annotated_function_type_transforms(
         let Some(type_close) = lexed.matching_delimiters.get(&type_open).copied() else {
             continue;
         };
-        if !contains_top_level_arrow(lexed, type_open + 1, type_close) {
+        if find_top_level_arrow(lexed, type_open + 1, type_close).is_none() {
             continue;
         }
 
@@ -471,7 +471,7 @@ fn collect_explicit_backing_field_transforms(
 ) {
     for &token_start in &lexed.token_starts {
         if !starts_with_keyword(lexed.bytes, token_start, b"field")
-            || !is_token_at_line_start(lexed.bytes, token_start)
+            || first_non_whitespace_on_line(lexed.bytes, token_start) != token_start
         {
             continue;
         }
@@ -670,7 +670,9 @@ fn select_non_overlapping_transforms(
     let mut selected: Vec<RecoveryTransform> = Vec::new();
     'candidate: for transform in transforms {
         for existing in &selected {
-            if ranges_overlap(transform.source, existing.source) {
+            if transform.source.start < existing.source.end
+                && existing.source.start < transform.source.end
+            {
                 continue 'candidate;
             }
         }
@@ -744,10 +746,6 @@ fn previous_non_whitespace_byte(bytes: &[u8], index: usize) -> Option<u8> {
         }
         cursor = cursor.checked_sub(1)?;
     }
-}
-
-fn contains_top_level_arrow(lexed: &LexedKotlin<'_>, start: usize, end: usize) -> bool {
-    find_top_level_arrow(lexed, start, end).is_some()
 }
 
 fn find_top_level_arrow(lexed: &LexedKotlin<'_>, start: usize, end: usize) -> Option<usize> {
@@ -889,18 +887,18 @@ fn enclosing_class_or_object_body(lexed: &LexedKotlin<'_>, index: usize) -> Opti
 
     let search_start = smallest_enclosing_delimiter(lexed, body.start, DelimiterKind::Brace)
         .map_or(0, |parent| parent.start + 1);
-    let owner = lexed
+    lexed
         .token_starts
         .iter()
         .copied()
         .filter(|token| search_start <= *token && *token < body.start)
         .filter(|token| is_top_level_in_range(lexed, *token, search_start, body.start))
         .rev()
-        .find(|token| is_declaration_keyword(lexed.bytes, *token))?;
-
-    (starts_with_keyword(lexed.bytes, owner, b"class")
-        || starts_with_keyword(lexed.bytes, owner, b"object"))
-    .then_some(body)
+        .find(|token| {
+            starts_with_keyword(lexed.bytes, *token, b"class")
+                || starts_with_keyword(lexed.bytes, *token, b"object")
+        })
+        .map(|_| body)
 }
 
 fn preceding_property_start(
@@ -917,12 +915,10 @@ fn preceding_property_start(
             is_top_level_in_range(lexed, *token, class_body.start + 1, class_body.end - 1)
         })
         .rev()
-        .find(|token| is_declaration_keyword(lexed.bytes, *token))?;
-    if !starts_with_keyword(lexed.bytes, property_start, b"val")
-        && !starts_with_keyword(lexed.bytes, property_start, b"var")
-    {
-        return None;
-    }
+        .find(|token| {
+            starts_with_keyword(lexed.bytes, *token, b"val")
+                || starts_with_keyword(lexed.bytes, *token, b"var")
+        })?;
     if !lexed.bytes[property_start..field_start].contains(&b'\n')
         || find_top_level_byte(lexed, property_start, field_start, b'=').is_some()
         || find_top_level_byte(lexed, property_start, field_start, b';').is_some()
@@ -935,23 +931,6 @@ fn preceding_property_start(
     }
 
     Some(property_start)
-}
-
-fn is_declaration_keyword(bytes: &[u8], token: usize) -> bool {
-    [
-        b"class".as_slice(),
-        b"object".as_slice(),
-        b"interface".as_slice(),
-        b"fun".as_slice(),
-        b"val".as_slice(),
-        b"var".as_slice(),
-        b"constructor".as_slice(),
-        b"init".as_slice(),
-        b"get".as_slice(),
-        b"set".as_slice(),
-    ]
-    .iter()
-    .any(|keyword| starts_with_keyword(bytes, token, keyword))
 }
 
 fn has_safe_initializer_boundary(
@@ -1033,19 +1012,11 @@ fn first_non_whitespace_on_line(bytes: &[u8], index: usize) -> usize {
     skip_ascii_whitespace(bytes, cursor)
 }
 
-fn is_token_at_line_start(bytes: &[u8], index: usize) -> bool {
-    first_non_whitespace_on_line(bytes, index) == index
-}
-
 fn trim_trailing_whitespace(bytes: &[u8], start: usize, mut end: usize) -> usize {
     while end > start && bytes[end - 1].is_ascii_whitespace() {
         end -= 1;
     }
     end
-}
-
-fn ranges_overlap(left: ByteRange, right: ByteRange) -> bool {
-    left.start < right.end && right.start < left.end
 }
 
 fn is_annotation_token_byte(byte: u8) -> bool {
@@ -1123,94 +1094,80 @@ mod tests {
     };
     use crate::kotlin_ast::{new_parser, parse_kotlin_file_permissive};
 
-    #[derive(Clone, Copy)]
-    struct FixtureCase {
-        file: &'static str,
-        source: &'static str,
-        after_name: &'static str,
-    }
-
-    const FIXTURES: &[FixtureCase] = &[
-        FixtureCase {
-            file: "SuspendLambda.kt",
-            source: include_str!(
-                "../tests/fixtures/kotlin-syntax/app/src/main/kotlin/SuspendLambda.kt"
-            ),
-            after_name: "AfterSuspendLambda",
-        },
-        FixtureCase {
-            file: "WhenGuard.kt",
-            source: include_str!(
-                "../tests/fixtures/kotlin-syntax/app/src/main/kotlin/WhenGuard.kt"
-            ),
-            after_name: "AfterWhenGuard",
-        },
-        FixtureCase {
-            file: "AnnotatedFunctionType.kt",
-            source: include_str!(
+    // (file, source, after_name)
+    const FIXTURES: &[(&str, &str, &str)] = &[
+        (
+            "SuspendLambda.kt",
+            include_str!("../tests/fixtures/kotlin-syntax/app/src/main/kotlin/SuspendLambda.kt"),
+            "AfterSuspendLambda",
+        ),
+        (
+            "WhenGuard.kt",
+            include_str!("../tests/fixtures/kotlin-syntax/app/src/main/kotlin/WhenGuard.kt"),
+            "AfterWhenGuard",
+        ),
+        (
+            "AnnotatedFunctionType.kt",
+            include_str!(
                 "../tests/fixtures/kotlin-syntax/app/src/main/kotlin/AnnotatedFunctionType.kt"
             ),
-            after_name: "AfterAnnotatedFunctionType",
-        },
-        FixtureCase {
-            file: "ExplicitBackingField.kt",
-            source: include_str!(
+            "AfterAnnotatedFunctionType",
+        ),
+        (
+            "ExplicitBackingField.kt",
+            include_str!(
                 "../tests/fixtures/kotlin-syntax/app/src/main/kotlin/ExplicitBackingField.kt"
             ),
-            after_name: "AfterExplicitBackingField",
-        },
-        FixtureCase {
-            file: "ContextParameter.kt",
-            source: include_str!(
-                "../tests/fixtures/kotlin-syntax/app/src/main/kotlin/ContextParameter.kt"
-            ),
-            after_name: "AfterContextParameter",
-        },
-        FixtureCase {
-            file: "ContextReceiver.kt",
-            source: include_str!(
-                "../tests/fixtures/kotlin-syntax/app/src/main/kotlin/ContextReceiver.kt"
-            ),
-            after_name: "AfterContextReceiver",
-        },
-        FixtureCase {
-            file: "WhenTrailingComma.kt",
-            source: include_str!(
+            "AfterExplicitBackingField",
+        ),
+        (
+            "ContextParameter.kt",
+            include_str!("../tests/fixtures/kotlin-syntax/app/src/main/kotlin/ContextParameter.kt"),
+            "AfterContextParameter",
+        ),
+        (
+            "ContextReceiver.kt",
+            include_str!("../tests/fixtures/kotlin-syntax/app/src/main/kotlin/ContextReceiver.kt"),
+            "AfterContextReceiver",
+        ),
+        (
+            "WhenTrailingComma.kt",
+            include_str!(
                 "../tests/fixtures/kotlin-syntax/app/src/main/kotlin/WhenTrailingComma.kt"
             ),
-            after_name: "AfterWhenTrailingComma",
-        },
-        FixtureCase {
-            file: "AnnotatedTypeArgument.kt",
-            source: include_str!(
+            "AfterWhenTrailingComma",
+        ),
+        (
+            "AnnotatedTypeArgument.kt",
+            include_str!(
                 "../tests/fixtures/kotlin-syntax/app/src/main/kotlin/AnnotatedTypeArgument.kt"
             ),
-            after_name: "AfterAnnotatedTypeArgument",
-        },
+            "AfterAnnotatedTypeArgument",
+        ),
     ];
+
+    fn fixture_source(file: &str) -> &'static str {
+        FIXTURES
+            .iter()
+            .find_map(|(name, source, _)| (*name == file).then_some(*source))
+            .unwrap_or_else(|| panic!("missing fixture {file}"))
+    }
 
     #[test]
     fn known_valid_syntax_fixtures_are_byte_preserving_and_sorted() {
-        for fixture in FIXTURES {
-            let normalized = normalize_kotlin_for_parse(fixture.source);
+        for &(file, source, _) in FIXTURES {
+            let normalized = normalize_kotlin_for_parse(source);
             let tree = parse(&normalized);
 
-            assert_eq!(
-                normalized.bytes.len(),
-                fixture.source.len(),
-                "{}",
-                fixture.file
-            );
+            assert_eq!(normalized.bytes.len(), source.len(), "{file}");
             assert_eq!(
                 newline_offsets(&normalized.bytes),
-                newline_offsets(fixture.source.as_bytes()),
-                "{}",
-                fixture.file
+                newline_offsets(source.as_bytes()),
+                "{file}"
             );
             assert!(
                 !tree.root_node().has_error(),
-                "{} should parse cleanly after normalization:\n{}\n{}",
-                fixture.file,
+                "{file} should parse cleanly after normalization:\n{}\n{}",
                 String::from_utf8_lossy(&normalized.bytes),
                 tree.root_node().to_sexp()
             );
@@ -1219,8 +1176,7 @@ mod tests {
                     .regions
                     .windows(2)
                     .all(|pair| pair[0].source.start <= pair[1].source.start),
-                "{} regions should stay ordered",
-                fixture.file
+                "{file} regions should stay ordered"
             );
         }
     }
@@ -1229,51 +1185,40 @@ mod tests {
     fn permissive_parse_retains_original_source_and_after_function_locations() {
         let tempdir = tempfile::tempdir().expect("tempdir");
 
-        for fixture in FIXTURES {
-            let path = tempdir.path().join(fixture.file);
-            std::fs::write(&path, fixture.source).expect("write fixture");
+        for &(file, source, after_name) in FIXTURES {
+            let path = tempdir.path().join(file);
+            std::fs::write(&path, source).expect("write fixture");
 
             let mut parser = new_parser().expect("parser");
             let parsed =
                 parse_kotlin_file_permissive(&mut parser, &path).expect("permissive parse");
 
-            assert_eq!(parsed.source, fixture.source, "{}", fixture.file);
+            assert_eq!(parsed.source, source, "{file}");
 
-            let after_name_start = fixture
-                .source
-                .find(fixture.after_name)
-                .expect("after function name");
-            let expected_position = byte_line_column(fixture.source.as_bytes(), after_name_start);
+            let after_name_start = source.find(after_name).expect("after function name");
+            let expected_position = byte_line_column(source.as_bytes(), after_name_start);
             let after_node = find_function_name_node(
                 parsed.primary_tree().root_node(),
                 parsed.source.as_bytes(),
-                fixture.after_name,
+                after_name,
             )
-            .unwrap_or_else(|| panic!("missing after function {}", fixture.file));
+            .unwrap_or_else(|| panic!("missing after function {file}"));
 
-            assert_eq!(
-                after_node.start_byte(),
-                after_name_start,
-                "{}",
-                fixture.file
-            );
+            assert_eq!(after_node.start_byte(), after_name_start, "{file}");
             assert_eq!(
                 (
                     after_node.start_position().row + 1,
                     after_node.start_position().column + 1
                 ),
                 expected_position,
-                "{}",
-                fixture.file
+                "{file}"
             );
         }
     }
 
     #[test]
     fn trailing_comma_fixture_requires_no_known_region() {
-        let normalized = normalize_kotlin_for_parse(include_str!(
-            "../tests/fixtures/kotlin-syntax/app/src/main/kotlin/WhenTrailingComma.kt"
-        ));
+        let normalized = normalize_kotlin_for_parse(fixture_source("WhenTrailingComma.kt"));
 
         assert!(
             normalized.regions.is_empty(),
@@ -1283,9 +1228,7 @@ mod tests {
 
     #[test]
     fn annotated_type_argument_preserves_its_type_and_masks_its_trailing_comma() {
-        let source = include_str!(
-            "../tests/fixtures/kotlin-syntax/app/src/main/kotlin/AnnotatedTypeArgument.kt"
-        );
+        let source = fixture_source("AnnotatedTypeArgument.kt");
         let normalized = normalize_kotlin_for_parse(source);
         let annotation_start = source
             .find("@Serializable(with = ItemSerializer::class)")
@@ -1388,9 +1331,7 @@ val character = '@'
 
     #[test]
     fn context_receiver_fixture_records_region_without_masking() {
-        let normalized = normalize_kotlin_for_parse(include_str!(
-            "../tests/fixtures/kotlin-syntax/app/src/main/kotlin/ContextReceiver.kt"
-        ));
+        let normalized = normalize_kotlin_for_parse(fixture_source("ContextReceiver.kt"));
 
         assert!(
             normalized
