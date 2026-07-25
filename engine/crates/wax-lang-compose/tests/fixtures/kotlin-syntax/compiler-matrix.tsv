@@ -8,4 +8,5 @@
 2.4.0	-	app/src/main/kotlin/ExplicitBackingField.kt
 2.4.0	-	app/src/main/kotlin/ContextParameter.kt
 2.4.0	-	app/src/main/kotlin/WhenTrailingComma.kt
+2.4.0	-	app/src/main/kotlin/WhenIfBody.kt
 2.4.0	-	app/src/main/kotlin/AnnotatedTypeArgument.kt

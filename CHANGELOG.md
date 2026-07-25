@@ -14,6 +14,10 @@
 
 - Show TTY progress spinners on stderr for `wax scan`, `wax validate`, and `wax language install`; suppressed when stderr is piped (CI and scripts).
 
+### wax-lang-compose
+
+- Stop treating `when` arm bodies of the form `-> if (cond) …` as when-guards. The false-positive mask was introducing `parse_failed` diagnostics on valid Kotlin.
+
 ### wax-core
 
 - Add shared `registry_lock::verify_registry_lock` used by validate and scan.

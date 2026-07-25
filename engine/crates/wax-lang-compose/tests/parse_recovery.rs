@@ -34,6 +34,11 @@ fn known_valid_syntax_is_byte_preserving() {
             "AfterWhenGuard",
         ),
         (
+            "app/src/main/kotlin/WhenIfBody.kt",
+            "BeforeWhenIfBody",
+            "AfterWhenIfBody",
+        ),
+        (
             "app/src/main/kotlin/AnnotatedFunctionType.kt",
             "BeforeAnnotatedFunctionType",
             "AfterAnnotatedFunctionType",

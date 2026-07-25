@@ -585,27 +585,7 @@ fn collect_suspend_lambda_transforms(lexed: &LexedKotlin<'_>, out: &mut Vec<Reco
 
 fn collect_when_guard_transforms(lexed: &LexedKotlin<'_>, out: &mut Vec<RecoveryTransform>) {
     for &token_start in &lexed.token_starts {
-        if !starts_with_keyword(lexed.bytes, token_start, b"when") {
-            continue;
-        }
-
-        let Some(condition_open) = next_significant_index(lexed.bytes, token_start + "when".len())
-        else {
-            continue;
-        };
-        if lexed.bytes.get(condition_open) != Some(&b'(') {
-            continue;
-        }
-        let Some(condition_close) = lexed.matching_delimiters.get(&condition_open).copied() else {
-            continue;
-        };
-        let Some(body_open) = next_significant_index(lexed.bytes, condition_close + 1) else {
-            continue;
-        };
-        if lexed.bytes.get(body_open) != Some(&b'{') {
-            continue;
-        }
-        let Some(body_close) = lexed.matching_delimiters.get(&body_open).copied() else {
+        let Some((body_open, body_close)) = when_body_range(lexed, token_start) else {
             continue;
         };
 
@@ -621,6 +601,12 @@ fn collect_when_guard_transforms(lexed: &LexedKotlin<'_>, out: &mut Vec<Recovery
 
             let entry_start = first_non_whitespace_on_line(lexed.bytes, inner_start);
             if entry_start >= inner_start {
+                continue;
+            }
+            // `pattern if guard -> body` has no arrow before `if`. An arrow between
+            // the entry start and `if` means this is a when-arm body expression
+            // (`-> if (cond) …`), not a when-guard.
+            if find_top_level_arrow(lexed, entry_start, inner_start).is_some() {
                 continue;
             }
 
@@ -650,6 +636,23 @@ fn collect_when_guard_transforms(lexed: &LexedKotlin<'_>, out: &mut Vec<Recovery
             });
         }
     }
+}
+
+fn when_body_range(lexed: &LexedKotlin<'_>, when_start: usize) -> Option<(usize, usize)> {
+    if !starts_with_keyword(lexed.bytes, when_start, b"when") {
+        return None;
+    }
+    let condition_open = next_significant_index(lexed.bytes, when_start + "when".len())?;
+    if lexed.bytes.get(condition_open) != Some(&b'(') {
+        return None;
+    }
+    let condition_close = lexed.matching_delimiters.get(&condition_open).copied()?;
+    let body_open = next_significant_index(lexed.bytes, condition_close + 1)?;
+    if lexed.bytes.get(body_open) != Some(&b'{') {
+        return None;
+    }
+    let body_close = lexed.matching_delimiters.get(&body_open).copied()?;
+    Some((body_open, body_close))
 }
 
 fn collect_annotated_function_type_transforms(
@@ -1352,6 +1355,11 @@ mod tests {
             "WhenGuard.kt",
             include_str!("../tests/fixtures/kotlin-syntax/app/src/main/kotlin/WhenGuard.kt"),
             "AfterWhenGuard",
+        ),
+        (
+            "WhenIfBody.kt",
+            include_str!("../tests/fixtures/kotlin-syntax/app/src/main/kotlin/WhenIfBody.kt"),
+            "AfterWhenIfBody",
         ),
         (
             "AnnotatedFunctionType.kt",
