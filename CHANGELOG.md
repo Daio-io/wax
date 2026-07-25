@@ -20,6 +20,7 @@
 
 ### wax-core
 
+- Raise the default language-pack scan timeout from 120s to 10 minutes and honor `WAX_SCAN_TIMEOUT_SECS`, matching the language-pack distribution spec.
 - Add shared `registry_lock::verify_registry_lock` used by validate and scan.
 - `validate_repo` reports `RegistrySourceDrift` when a locked registry source no longer matches config (aligned with scan).
 - Remove unused pre-registry `ValidateError` variants (`MissingDesignSystemRegistry`, `InvalidDesignSystemRegistryPath`, `RegistryPathEscapesRepo`).
