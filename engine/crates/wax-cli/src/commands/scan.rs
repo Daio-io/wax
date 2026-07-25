@@ -563,9 +563,8 @@ fn write_scan_summary(
         .filter(|diagnostic| {
             diagnostic.severity == DiagnosticSeverity::Error || diagnostic.code == "parse_failed"
         })
-        .take(MAX_FAILURE_DIAGNOSTICS)
         .collect::<Vec<_>>();
-    write_failure_diagnostics(writer, &diagnostics)?;
+    write_failure_diagnostics(writer, &diagnostics, output_path)?;
 
     if ephemeral {
         writeln!(writer).map_err(write_error)?;
@@ -855,18 +854,31 @@ fn write_token_inference_summary(
 fn write_failure_diagnostics(
     writer: &mut impl Write,
     diagnostics: &[&Diagnostic],
+    output_path: &Path,
 ) -> Result<(), ScanCommandError> {
     if diagnostics.is_empty() {
         writeln!(writer, "failure diagnostics: none").map_err(write_error)?;
-    } else {
+        return Ok(());
+    }
+
+    let total = diagnostics.len();
+    let showing = total.min(MAX_FAILURE_DIAGNOSTICS);
+    writeln!(
+        writer,
+        "failure diagnostics ({total} total; showing {showing}):"
+    )
+    .map_err(write_error)?;
+    for diagnostic in diagnostics.iter().take(MAX_FAILURE_DIAGNOSTICS) {
+        writeln!(writer, "  {}", format_diagnostic_line(diagnostic)).map_err(write_error)?;
+    }
+    let omitted = total - showing;
+    if omitted > 0 {
         writeln!(
             writer,
-            "failure diagnostics (up to {MAX_FAILURE_DIAGNOSTICS}):"
+            "  {omitted} more diagnostics omitted; see {} for the complete list.",
+            output_path.display()
         )
         .map_err(write_error)?;
-        for diagnostic in diagnostics {
-            writeln!(writer, "  {}", format_diagnostic_line(diagnostic)).map_err(write_error)?;
-        }
     }
     Ok(())
 }
@@ -896,7 +908,8 @@ pub fn repo_relative_dir_has_entries(repo_root: &Path, relative: &str) -> bool {
 mod tests {
     use super::{
         EphemeralScanSelections, ScanCommandError, ScanCommandOptions,
-        attempt_scan_time_registry_sync, run_scan_cli, write_scan_summary,
+        attempt_scan_time_registry_sync, run_scan_cli, write_failure_diagnostics,
+        write_scan_summary,
     };
     use crate::testing::env_lock;
     use std::collections::BTreeMap;
@@ -1107,6 +1120,38 @@ mod tests {
         ));
         assert!(stdout.contains("PACK_CRASH: process exited"));
         assert!(!stdout.contains("PACK_WARN: warn"));
+    }
+
+    #[test]
+    fn failure_diagnostics_report_total_and_omitted_count() {
+        let output_path = Path::new("/repo/.wax/out/scan-merged.json");
+        let owned = (1..=7)
+            .map(|n| {
+                diagnostic(
+                    DiagnosticSeverity::Error,
+                    &format!("FAIL_{n}"),
+                    &format!("failure {n}"),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let render = |count: usize| {
+            let refs: Vec<&Diagnostic> = owned[..count].iter().collect();
+            let mut out = Vec::new();
+            write_failure_diagnostics(&mut out, &refs, output_path).unwrap();
+            String::from_utf8(out).unwrap()
+        };
+
+        assert!(render(0).contains("failure diagnostics: none"));
+        assert!(render(1).contains("failure diagnostics (1 total; showing 1):"));
+        assert!(render(5).contains("failure diagnostics (5 total; showing 5):"));
+
+        let seven = render(7);
+        assert!(seven.contains("failure diagnostics (7 total; showing 5):"));
+        assert_eq!(seven.matches("FAIL_").count(), 5);
+        assert!(seven.contains(
+            "  2 more diagnostics omitted; see /repo/.wax/out/scan-merged.json for the complete list."
+        ));
     }
 
     fn spacing_site(
