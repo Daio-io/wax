@@ -14,6 +14,10 @@
 
 - Show TTY progress spinners on stderr for `wax scan`, `wax validate`, and `wax language install`; suppressed when stderr is piped (CI and scripts).
 
+### wax-lang-compose
+
+- Recover `when` arms whose body is a bare `if` expression (`-> if (cond) …`), which the pinned `tree-sitter-kotlin-ng` grammar cannot parse.
+
 ### wax-core
 
 - Add shared `registry_lock::verify_registry_lock` used by validate and scan.
