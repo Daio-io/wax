@@ -9,7 +9,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 3. Each implementation task remains **one PR per task** inside the active plan, per that plan's execution model.
 4. Update the **Doc status** and **Implementation status** columns when a plan doc PR merges or when implementation of a plan finishes.
 
-**Active plan:** None promoted yet. A maintainer exception authorizes only Task 1 of Compose parse recovery and UI scoping in [PR #245](https://github.com/Daio-io/wax/pull/245); Tasks 2–5 remain gated until the plan is promoted or another exception is granted. Adoption Metrics v2 (order 11) and Token inference and reporting (order 14) are complete and archived; see their [Adoption Metrics v2 archive](./archive/2026-06-20-adoption-metrics-v2-plan.md), [Adoption Metrics v2 ADR](../adr/2026-06-20-adoption-metrics-v2.md), [token inference archive](./archive/2026-07-19-token-inference-reporting-plan.md), and [token inference ADR](../adr/2026-07-19-token-inference-reporting.md).
+**Active plan:** None promoted yet. A maintainer exception authorizes Compose parse recovery Tasks 1–5 (PRs #245–#249 plus this Task 5 reporting/validation gate); archive/ADR and roadmap `complete` wait until Task 5 merges. Adoption Metrics v2 (order 11) and Token inference and reporting (order 14) are complete and archived; see their [Adoption Metrics v2 archive](./archive/2026-06-20-adoption-metrics-v2-plan.md), [Adoption Metrics v2 ADR](../adr/2026-06-20-adoption-metrics-v2.md), [token inference archive](./archive/2026-07-19-token-inference-reporting-plan.md), and [token inference ADR](../adr/2026-07-19-token-inference-reporting.md).
 
 ---
 
@@ -42,11 +42,11 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 ## Which plan should I run?
 
 ```text
--> Only Compose parse recovery Task 1 is authorized under the PR #245 maintainer exception.
--> Do not start Task 2 until the plan is promoted or another exception is granted.
+-> Compose parse recovery Tasks 1–4 are merged (#245–#249); Task 5 (reporting/validation gate) is authorized under the same maintainer exception.
+-> Do not archive the plan or create an ADR until Task 5 merges and closeout is complete.
 ```
 
-Orders 1-4, 6-14 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Adoption Metrics v2 shipped in PRs #165, #171, and #172 and is archived. Token inference and reporting finished implementation in PRs #231, #233, #235, #236, and #237 plus closeout PR #238 and is archived. Compose parse recovery and UI scoping (order 15) is in progress only for the explicitly authorized Task 1; no successor plan has been promoted to active yet.
+Orders 1-4, 6-14 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Adoption Metrics v2 shipped in PRs #165, #171, and #172 and is archived. Token inference and reporting finished implementation in PRs #231, #233, #235, #236, and #237 plus closeout PR #238 and is archived. Compose parse recovery and UI scoping (order 15) is `in-progress` through Task 5; mark `complete` and archive only after Task 5 merges.
 
 ---
 

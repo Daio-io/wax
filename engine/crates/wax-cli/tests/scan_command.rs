@@ -126,7 +126,7 @@ fn scan_command_prints_full_summary_and_writes_output() {
     assert!(stdout.contains("Unmatched observations: 0 (informational)"));
     assert!(stdout.contains("Unassessed observations: 0 (comparison unavailable)"));
     assert!(!stdout.contains("Token reference ratio"));
-    assert!(stdout.contains("failure diagnostics (up to 5):"));
+    assert!(stdout.contains("failure diagnostics (2 total; showing 2):"));
     assert!(stdout.contains("PACK_TIMEOUT: timed out"));
     assert!(stdout.contains("PACK_CRASH: process exited"));
 }

@@ -13,6 +13,11 @@ on:
       - "scripts/check-release-workflow.rb"
       - "scripts/render-wax-scan-fixture-report.sh"
       - "scripts/test-wax-scan-render-report.sh"
+      - "scripts/verify-compose-kotlin-fixtures.sh"
+      - "scripts/test-verify-compose-kotlin-fixtures.sh"
+      - "scripts/replay-compose-corpus.sh"
+      - "scripts/test-replay-compose-corpus.sh"
+      - "engine/crates/wax-lang-compose/tests/fixtures/kotlin-syntax/**"
       - "scripts/fixtures/wax-scan/**"
       - "skills/wax-scan/**"
       - "tests/wax-scan-report-screenshot.spec.mjs"
@@ -36,6 +41,11 @@ on:
       - "scripts/check-release-workflow.rb"
       - "scripts/render-wax-scan-fixture-report.sh"
       - "scripts/test-wax-scan-render-report.sh"
+      - "scripts/verify-compose-kotlin-fixtures.sh"
+      - "scripts/test-verify-compose-kotlin-fixtures.sh"
+      - "scripts/replay-compose-corpus.sh"
+      - "scripts/test-replay-compose-corpus.sh"
+      - "engine/crates/wax-lang-compose/tests/fixtures/kotlin-syntax/**"
       - "scripts/fixtures/wax-scan/**"
       - "skills/wax-scan/**"
       - "tests/wax-scan-report-screenshot.spec.mjs"
@@ -91,6 +101,12 @@ jobs:
 
       - name: Test curl installer
         run: ../scripts/test-install.sh
+
+      - name: Test Compose Kotlin fixture validator
+        run: ../scripts/test-verify-compose-kotlin-fixtures.sh
+
+      - name: Test Compose corpus replay harness
+        run: ../scripts/test-replay-compose-corpus.sh
 
       - name: Test Homebrew formula
         run: ruby ../scripts/test-homebrew-formula.rb
@@ -151,3 +167,30 @@ jobs:
         uses: EnricoMi/publish-unit-test-result-action@v2
         with:
           files: engine/target/nextest/ci/junit.xml
+
+  verify-compose-kotlin-fixtures:
+    name: Verify Compose Kotlin fixtures (${{ matrix.kotlin }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        kotlin: ["2.1.0", "2.2.0", "2.3.0", "2.4.0"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download Kotlin compiler ${{ matrix.kotlin }}
+        run: |
+          version="${{ matrix.kotlin }}"
+          archive="kotlin-compiler-${version}.zip"
+          url="https://github.com/JetBrains/kotlin/releases/download/v${version}/${archive}"
+          curl -fsSL "$url" -o "${RUNNER_TEMP}/${archive}"
+          unzip -q "${RUNNER_TEMP}/${archive}" -d "${RUNNER_TEMP}/kotlin-${version}"
+
+      - name: Compile fixtures with pinned kotlinc
+        run: |
+          version="${{ matrix.kotlin }}"
+          compiler="${RUNNER_TEMP}/kotlin-${version}/kotlinc/bin/kotlinc"
+          ./scripts/verify-compose-kotlin-fixtures.sh --version "$version" --compiler "$compiler"

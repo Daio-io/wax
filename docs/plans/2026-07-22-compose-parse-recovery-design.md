@@ -14,7 +14,16 @@ Wax currently bundles:
 
 - `tree-sitter` 0.25.10;
 - `tree-sitter-kotlin-ng` 1.1.0;
-- a byte-preserving workaround for annotated parenthesized function-type parameters.
+- a byte-preserving recovery layer for the seven known syntax families plus bounded island reparse.
+
+Pinned Kotlin compiler validation targets (see `compiler-matrix.tsv`):
+
+- `2.1.0` with `-Xwhen-guards`;
+- `2.2.0` with `-Xcontext-parameters` / `-Xcontext-receivers`;
+- `2.3.0` with `-Xexplicit-backing-fields`;
+- `2.4.0` for the remaining committed fixtures with no extra flags.
+
+Corpus release-gate before/after counts are produced by `scripts/replay-compose-corpus.sh` against a maintainer-supplied 54-file corpus and baseline; they are not committed here. Offline harness coverage lives in `scripts/test-replay-compose-corpus.sh`.
 
 Direct parser probes and full Wax scans established:
 
@@ -30,7 +39,7 @@ For broad error nodes, facts before the unsupported construct survive while late
 
 A probe against the published `tree-sitter-kotlin-sg` 0.4.1 grammar recovered suspend lambdas, `when` guards, and annotated generic arguments. It was not a drop-in replacement: 12 existing `wax-lang-compose` tests failed in import resolution, package-qualified local identity, hard-coded style extraction, and annotated function-type handling. It also caused infrastructure calls such as `MutableStateFlow(...)` to appear as unresolved UI calls. A grammar replacement therefore mixes parser recovery with a broad AST migration and does not solve UI scoping by itself.
 
-The CLI issue is independent and confirmed: summary rendering calls `.take(5)` before formatting diagnostics, so it cannot print the true total or state how many diagnostics were omitted. JSON output retains the full list.
+The CLI summary now reports diagnostic totals and omitted counts while JSON retains the full list.
 
 ## Goals
 

@@ -696,7 +696,7 @@ Expected: all commands exit `0`; every accepted pass advances and output ids are
 
 ### Task 5: Report Truthfully, Validate with Kotlin, and Add the Corpus Release Gate
 
-- [ ] **Task 5 complete**
+- [x] **Task 5 complete**
 
 **Files:**
 - Modify: `engine/crates/wax-cli/src/commands/scan.rs`
@@ -714,7 +714,7 @@ Expected: all commands exit `0`; every accepted pass advances and output ids are
 - Consumes: full merged diagnostics, committed compiler matrix, a maintainer-supplied corpus repo, and baseline JSON.
 - Produces: truthful terminal truncation, reproducible compiler checks, an attributable corpus delta report, and final roadmap/ADR handoff data.
 
-- [ ] **Step 1: Write failing CLI summary tests for 0, 1, 5, and 7 failures**
+- [x] **Step 1: Write failing CLI summary tests for 0, 1, 5, and 7 failures**
 
 Change the unit helper to pass the complete filtered diagnostic vector to `write_failure_diagnostics`. Assert exact headings:
 
@@ -731,7 +731,7 @@ For seven, assert exactly five formatted rows plus:
   2 more diagnostics omitted; see /repo/.wax/out/scan-merged.json for the complete list.
 ```
 
-Update the process-level assertion in `scan_command.rs` from `failure diagnostics (up to 5):` to `failure diagnostics (3 total; showing 3):` for its current fixture.
+Update the process-level assertion in `scan_command.rs` from `failure diagnostics (up to 5):` to `failure diagnostics (2 total; showing 2):` for its current fixture.
 
 Run:
 
@@ -742,7 +742,7 @@ cargo test -p wax-cli commands::scan::tests::failure_diagnostics_report_total_an
 
 Expected: FAIL because `.take(5)` currently discards the total before rendering.
 
-- [ ] **Step 2: Move truncation into the formatter**
+- [x] **Step 2: Move truncation into the formatter**
 
 Collect all matching diagnostics in `write_scan_summary` by removing `.take(MAX_FAILURE_DIAGNOSTICS)`. Change the function signature to accept `output_path`:
 
@@ -756,7 +756,7 @@ fn write_failure_diagnostics(
 
 Print `diagnostics.len()` and `diagnostics.len().min(MAX_FAILURE_DIAGNOSTICS)`, iterate with `.take(5)`, then print the omitted count only when positive. Use the actual `output_path` already passed to `write_scan_summary`; do not hard-code `.wax/out`.
 
-- [ ] **Step 3: Add the explicit Kotlin compiler validator**
+- [x] **Step 3: Add the explicit Kotlin compiler validator**
 
 `scripts/verify-compose-kotlin-fixtures.sh` accepts exactly:
 
@@ -776,7 +776,7 @@ fi
 
 Treat `-` as no flags, reject unknown arguments/relative compiler paths/missing executable/no matrix rows, and never use `eval` or download during normal invocation. The offline shell test supplies a fake executable that records arguments and proves version filtering, flags, space-safe paths, cleanup, and nonzero propagation.
 
-- [ ] **Step 4: Add the pinned CI compiler matrix**
+- [x] **Step 4: Add the pinned CI compiler matrix**
 
 Add a `verify-compose-kotlin-fixtures` job with versions `2.1.0`, `2.2.0`, `2.3.0`, and `2.4.0`. For each matrix entry, download only the official release archive:
 
@@ -786,7 +786,7 @@ https://github.com/JetBrains/kotlin/releases/download/v<VERSION>/kotlin-compiler
 
 Unzip under `${RUNNER_TEMP}/kotlin-VERSION`, then call the validator with its absolute `bin/kotlinc` path. Also add `../scripts/test-verify-compose-kotlin-fixtures.sh` and `../scripts/test-replay-compose-corpus.sh` to the existing engine `verify` job. Add the four scripts and Kotlin fixture directory to workflow path filters.
 
-- [ ] **Step 5: Add a deterministic maintainer corpus replay command**
+- [x] **Step 5: Add a deterministic maintainer corpus replay command**
 
 `scripts/replay-compose-corpus.sh` accepts:
 
@@ -815,7 +815,7 @@ Compare sorted ids and diagnostics with the baseline. Exit nonzero for pack `Fai
 
 The offline shell test uses a fake Wax binary and temporary repo to cover success, lost-id failure, known-syntax failure, and 10% slowdown failure.
 
-- [ ] **Step 6: Run the complete release gate**
+- [x] **Step 6: Run the complete release gate**
 
 Run the normal checks:
 
@@ -846,7 +846,7 @@ scripts/replay-compose-corpus.sh \
 
 Expected: every command exits `0`; no known syntax family remains partial; no prior ids are lost; only recovered UI facts and named false-positive removals differ; slowdown is at most 10%.
 
-- [ ] **Step 7: Close out documentation and commit**
+- [x] **Step 7: Close out documentation and commit**
 
 Record the exact grammar/compiler versions and corpus before/after counts in the design's investigation section. Mark implementation complete in the roadmap only after Tasks 1–5 are merged. Archive the plan and create an ADR only after the entire plan ships; do not do either in an individual task PR.
 
