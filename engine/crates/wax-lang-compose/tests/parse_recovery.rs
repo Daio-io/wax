@@ -284,16 +284,96 @@ fn known_valid_syntax_is_byte_preserving() {
     );
 }
 
+#[test]
+fn broad_error_recovers_later_declaration() {
+    let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(FIXTURE_ROOT);
+    let facts = scan_fixture_root(&fixture_root, "malformed", "broad-error-recovery");
+
+    for symbol in [
+        "BeforeTopLevelGap",
+        "AfterTopLevelGap",
+        "BeforeMemberGap",
+        "AfterMemberGap",
+        "BeforeNestedGap",
+        "AfterNestedGap",
+    ] {
+        assert!(
+            facts
+                .local_components
+                .iter()
+                .any(|component| component.symbol == symbol),
+            "missing recovered local component {symbol}: {:?}",
+            facts.local_components
+        );
+    }
+    assert!(
+        facts.usage_sites.iter().any(|usage| usage
+            .location
+            .file
+            .ends_with("BroadTopLevelError.kt")
+            && usage.symbol == "PrimaryButton"
+            && usage.location.line > 9),
+        "later top-level usage was not recovered: {:?}",
+        facts.usage_sites
+    );
+    assert!(
+        facts
+            .usage_sites
+            .iter()
+            .any(|usage| usage.location.file.ends_with("BroadMemberError.kt")
+                && usage.symbol == "PrimaryButton"
+                && usage.location.line > 11),
+        "later member usage was not recovered: {:?}",
+        facts.usage_sites
+    );
+    assert_eq!(facts.status, ScanStatus::Partial);
+    assert!(
+        facts.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == "parse_failed"
+                && diagnostic
+                    .message
+                    .contains("continued scanning later source")
+        }),
+        "recovered partial files must explain later-source recovery: {:?}",
+        facts.diagnostics
+    );
+    assert!(
+        !facts
+            .local_components
+            .iter()
+            .any(|component| component.symbol == "AfterUnbalancedGap"),
+        "unbalanced delimiters must not invent later-island recovery: {:?}",
+        facts.local_components
+    );
+
+    let mut ids = std::collections::BTreeSet::new();
+    for id in facts
+        .local_components
+        .iter()
+        .map(|fact| &fact.id)
+        .chain(facts.usage_sites.iter().map(|fact| &fact.id))
+        .chain(facts.token_sites.iter().map(|fact| &fact.id))
+        .chain(facts.hardcoded_style_sites.iter().map(|fact| &fact.id))
+    {
+        assert!(ids.insert(id), "duplicate fact id {id}");
+    }
+}
+
 fn scan_fixture(fixture_root: &Path, snapshot_id: &str) -> wax_contract::ScanFacts {
+    scan_fixture_root(fixture_root, "app/src/main/kotlin", snapshot_id)
+}
+
+fn scan_fixture_root(
+    fixture_root: &Path,
+    root: &str,
+    snapshot_id: &str,
+) -> wax_contract::ScanFacts {
     let mut config = serde_json::Map::new();
     config.insert(
         "registry".to_owned(),
         serde_json::Value::String("design-system/registry.json".to_owned()),
     );
-    config.insert(
-        "roots".to_owned(),
-        serde_json::json!(["app/src/main/kotlin"]),
-    );
+    config.insert("roots".to_owned(), serde_json::json!([root]));
 
     let request = ScanRequest {
         request_type: ScanRequestType::Scan,

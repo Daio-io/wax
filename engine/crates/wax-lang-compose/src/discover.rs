@@ -9,8 +9,8 @@ use wax_lang_api::DiscoveredRegistrySymbol;
 use crate::kotlin_ast::{
     ParseKotlinFileError, collect_kotlin_files, function_name_from_decl, has_composable_annotation,
     has_preview_annotation, is_non_ui_scaffolding_composable_symbol, new_parser,
-    package_name_from_source, parse_kotlin_file_permissive, partial_tree_parse_diagnostic,
-    unparseable_file_diagnostic,
+    node_has_error_ancestor_within, package_name_from_source, parse_kotlin_file_permissive,
+    partial_tree_parse_diagnostic, unparseable_file_diagnostic,
 };
 
 /// Result of discovering Compose registry symbols from Kotlin source roots.
@@ -109,13 +109,16 @@ pub fn discover_registry_symbols(
                     parsed.primary_tree().root_node(),
                     parsed.source.as_bytes(),
                 );
-                collect_symbols(
-                    parsed.primary_tree().root_node(),
-                    parsed.source.as_bytes(),
-                    package,
-                    &mut components,
-                    &mut diagnostics,
-                );
+                for pass in parsed.passes() {
+                    collect_symbols(
+                        pass.tree.root_node(),
+                        parsed.source.as_bytes(),
+                        package.clone(),
+                        &pass.clean,
+                        &mut components,
+                        &mut diagnostics,
+                    );
+                }
                 if parsed.is_partial() {
                     let relative_file = repo_relative_path(parse_root, &file_path);
                     diagnostics.extend(
@@ -149,12 +152,15 @@ fn collect_symbols(
     root: tree_sitter::Node<'_>,
     source: &[u8],
     package: Option<String>,
+    clean: &[crate::kotlin_recovery::ByteRange],
     components: &mut BTreeMap<String, Option<String>>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
         if node.kind() == "function_declaration"
+            && clean.iter().any(|range| range.contains_node(node))
+            && !node_has_error_ancestor_within(node, clean)
             && is_top_level_declaration(node)
             && has_composable_annotation(node, source)
             && !has_preview_annotation(node, source)
