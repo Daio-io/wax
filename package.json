@@ -5,6 +5,6 @@
     "test:wax-scan-report": "playwright test tests/wax-scan-report-screenshot.spec.mjs --project=chromium"
   },
   "devDependencies": {
-    "@playwright/test": "1.61.1"
+    "@playwright/test": "1.62.0"
   }
 }
