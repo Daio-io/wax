@@ -81,7 +81,7 @@ validator_temp="$(cat "$FAKE_TEMP_DIR_LOG")"
 : > "$FAKE_LOG"
 "$script" --version 2.4.0 --compiler "$fake_compiler"
 d_count="$(tr '\0' '\n' < "$FAKE_LOG" | grep -c '^-d$' || true)"
-assert_eq "$d_count" "7" "2.4.0 fixture count"
+assert_eq "$d_count" "8" "2.4.0 fixture count"
 if tr '\0' '\n' < "$FAKE_LOG" | grep -F -- "-Xwhen-guards" >/dev/null; then
   printf 'unexpected flag for 2.4.0\n' >&2
   exit 1
