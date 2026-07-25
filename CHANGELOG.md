@@ -16,7 +16,7 @@
 
 ### wax-lang-compose
 
-- Recover `when` arms whose body is a bare `if` expression (`-> if (cond) …`), which the pinned `tree-sitter-kotlin-ng` grammar cannot parse.
+- Stop treating `when` arm bodies of the form `-> if (cond) …` as when-guards. The false-positive mask was introducing `parse_failed` diagnostics on valid Kotlin.
 
 ### wax-core
 

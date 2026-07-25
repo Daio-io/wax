@@ -205,7 +205,6 @@ fn syntax_family_name(family: SyntaxFamily) -> &'static str {
     match family {
         SyntaxFamily::SuspendLambda => "suspend lambda",
         SyntaxFamily::WhenGuard => "when guard",
-        SyntaxFamily::WhenIfBody => "when if-expression body",
         SyntaxFamily::AnnotatedFunctionType => "annotated function type",
         SyntaxFamily::ExplicitBackingField => "explicit backing field",
         SyntaxFamily::ContextParameter => "context parameter",

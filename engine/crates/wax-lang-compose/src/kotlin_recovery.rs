@@ -35,8 +35,6 @@ impl ByteRange {
 pub(crate) enum SyntaxFamily {
     SuspendLambda,
     WhenGuard,
-    /// `when` arm whose body is a bare `if` expression (`-> if (cond) …`).
-    WhenIfBody,
     AnnotatedFunctionType,
     ExplicitBackingField,
     ContextParameter,
@@ -159,7 +157,6 @@ pub(crate) fn normalize_kotlin_for_parse(source: &str) -> NormalizedKotlinSource
     let mut transforms = Vec::new();
     collect_suspend_lambda_transforms(&lexed, &mut transforms);
     collect_when_guard_transforms(&lexed, &mut transforms);
-    collect_when_if_body_transforms(&lexed, &mut transforms);
     collect_annotated_function_type_transforms(&lexed, &mut transforms);
     collect_explicit_backing_field_transforms(&lexed, &mut transforms);
     collect_context_transforms(&lexed, &mut transforms);
@@ -172,11 +169,6 @@ pub(crate) fn normalize_kotlin_for_parse(source: &str) -> NormalizedKotlinSource
     for transform in &selected {
         for range in &transform.mask_ranges {
             mask_preserving_lines(&mut bytes, *range);
-        }
-        if transform.family == SyntaxFamily::WhenIfBody
-            && let Some(range) = transform.mask_ranges.first()
-        {
-            write_preserving_lines(&mut bytes, range.start, b"null");
         }
     }
 
@@ -611,6 +603,12 @@ fn collect_when_guard_transforms(lexed: &LexedKotlin<'_>, out: &mut Vec<Recovery
             if entry_start >= inner_start {
                 continue;
             }
+            // `pattern if guard -> body` has no arrow before `if`. An arrow between
+            // the entry start and `if` means this is a when-arm body expression
+            // (`-> if (cond) …`), not a when-guard.
+            if find_top_level_arrow(lexed, entry_start, inner_start).is_some() {
+                continue;
+            }
 
             let Some(arrow) = find_top_level_arrow(lexed, inner_start, body_close) else {
                 continue;
@@ -636,51 +634,6 @@ fn collect_when_guard_transforms(lexed: &LexedKotlin<'_>, out: &mut Vec<Recovery
                 component_scope: ComponentScopePolicy::Inherit,
                 mask_ranges: vec![mask],
             });
-        }
-    }
-}
-
-fn collect_when_if_body_transforms(lexed: &LexedKotlin<'_>, out: &mut Vec<RecoveryTransform>) {
-    for &token_start in &lexed.token_starts {
-        let Some((body_open, body_close)) = when_body_range(lexed, token_start) else {
-            continue;
-        };
-
-        let mut index = body_open + 1;
-        while index + 1 < body_close {
-            let Some(arrow) = find_top_level_arrow(lexed, index, body_close) else {
-                break;
-            };
-            if !is_top_level_in_range(lexed, arrow, body_open + 1, body_close) {
-                index = arrow + 2;
-                continue;
-            }
-
-            let Some(expr_start) = next_significant_index(lexed.bytes, arrow + 2) else {
-                break;
-            };
-            if expr_start >= body_close || !starts_with_keyword(lexed.bytes, expr_start, b"if") {
-                index = arrow + 2;
-                continue;
-            }
-
-            let expr_end = expression_end(lexed, expr_start, body_close);
-            if expr_end <= expr_start + b"null".len() {
-                index = arrow + 2;
-                continue;
-            }
-            let Some(source) = ByteRange::new(expr_start, expr_end) else {
-                index = arrow + 2;
-                continue;
-            };
-            out.push(RecoveryTransform {
-                source,
-                body: None,
-                family: SyntaxFamily::WhenIfBody,
-                component_scope: ComponentScopePolicy::Exclude,
-                mask_ranges: vec![source],
-            });
-            index = expr_end;
         }
     }
 }
@@ -982,18 +935,6 @@ fn mask_preserving_lines(bytes: &mut [u8], range: ByteRange) {
     for byte in &mut bytes[range.start..range.end] {
         if *byte != b'\n' && *byte != b'\r' {
             *byte = b' ';
-        }
-    }
-}
-
-fn write_preserving_lines(bytes: &mut [u8], start: usize, text: &[u8]) {
-    for (offset, &byte) in text.iter().enumerate() {
-        let index = start + offset;
-        if index >= bytes.len() {
-            break;
-        }
-        if bytes[index] != b'\n' && bytes[index] != b'\r' {
-            bytes[index] = byte;
         }
     }
 }
