@@ -22,6 +22,9 @@ cp "${FAKE_SCAN:?}" "${REPO_ROOT:?}/.wax/out/scan-merged.json"
 EOF
 chmod +x "$fake_wax"
 
+unknown_msg='tree-sitter could not fully parse unknown syntax in App.kt near 1:1; file scanned with gaps'
+unknown_key="error|parse_failed|${unknown_msg}||null|null"
+
 write_scan() {
   local status="$1" ms="$2" usage_id="$3" message="${4-}"
   local diagnostics="[]"
@@ -57,22 +60,26 @@ write_scan() {
 }
 
 write_baseline() {
-  cat > "$tmp/baseline.json" <<'JSON'
-{
-  "status": "complete",
-  "parse_failure_count": 0,
-  "files_scanned": 1,
-  "usage_site_ids": ["usage:Button"],
-  "local_component_ids": ["local:Screen"],
-  "token_site_ids": [],
-  "hardcoded_style_site_ids": [],
-  "parse_extract_ms": 100,
-  "baseline_parse_extract_ms": 100,
-  "slowdown_percent": 0.0,
-  "expected_added_ids": [],
-  "expected_removed_false_positive_ids": []
-}
-JSON
+  local diag_keys_json="${1:-[]}"
+  jq -n --argjson keys "$diag_keys_json" '
+    {
+      status: "complete",
+      parse_failure_count: ($keys | length),
+      files_scanned: 1,
+      usage_site_ids: ["usage:Button"],
+      local_component_ids: ["local:Screen"],
+      token_site_ids: [],
+      hardcoded_style_site_ids: [],
+      diagnostic_keys: $keys,
+      parse_extract_ms: 100,
+      baseline_parse_extract_ms: 100,
+      slowdown_percent: 0.0,
+      expected_added_ids: [],
+      expected_removed_false_positive_ids: [],
+      expected_added_diagnostic_keys: [],
+      expected_removed_diagnostic_keys: []
+    }
+  ' > "$tmp/baseline.json"
 }
 
 run_replay() {
@@ -81,14 +88,12 @@ run_replay() {
       --max-slowdown-percent 10
 }
 
-write_scan partial 105 "usage:Button" \
-  "tree-sitter could not fully parse unknown syntax in App.kt near 1:1; file scanned with gaps"
-write_baseline
+write_scan partial 105 "usage:Button" "$unknown_msg"
+write_baseline "$(jq -cn --arg k "$unknown_key" '[$k]')"
 run_replay >/dev/null
 
-write_scan complete 100 "usage:Other" \
-  "tree-sitter could not fully parse unknown syntax in App.kt near 1:1; file scanned with gaps"
-write_baseline
+write_scan complete 100 "usage:Other" "$unknown_msg"
+write_baseline "$(jq -cn --arg k "$unknown_key" '[$k]')"
 set +e
 out="$(run_replay 2>&1)"
 status=$?
@@ -98,7 +103,7 @@ printf '%s\n' "$out" | grep -F "lost ids" >/dev/null
 
 write_scan partial 100 "usage:Button" \
   "tree-sitter could not fully parse when guard syntax in App.kt near 2:1; skipped the uncertain region and continued scanning later source"
-write_baseline
+write_baseline "$(jq -cn --arg k "$unknown_key" '[$k]')"
 set +e
 out="$(run_replay 2>&1)"
 status=$?
@@ -106,8 +111,18 @@ set -e
 assert_eq "$status" "1" "known family exit"
 printf '%s\n' "$out" | grep -F "known-family" >/dev/null
 
+# Diagnostic delta: baseline expects a diagnostic the scan no longer emits.
+write_scan complete 100 "usage:Button"
+write_baseline "$(jq -cn --arg k "$unknown_key" '[$k]')"
+set +e
+out="$(run_replay 2>&1)"
+status=$?
+set -e
+assert_eq "$status" "1" "lost diagnostic exit"
+printf '%s\n' "$out" | grep -F "lost diagnostics" >/dev/null
+
 write_scan complete 120 "usage:Button"
-write_baseline
+write_baseline '[]'
 set +e
 out="$(run_replay 2>&1)"
 status=$?

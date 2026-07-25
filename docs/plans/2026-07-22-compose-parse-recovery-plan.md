@@ -696,7 +696,7 @@ Expected: all commands exit `0`; every accepted pass advances and output ids are
 
 ### Task 5: Report Truthfully, Validate with Kotlin, and Add the Corpus Release Gate
 
-- [x] **Task 5 complete**
+- [ ] **Task 5 complete**
 
 **Files:**
 - Modify: `engine/crates/wax-cli/src/commands/scan.rs`
@@ -811,11 +811,13 @@ Validate that the repo contains `.wax/wax.config.json`, run the supplied binary 
 }
 ```
 
-Compare sorted ids and diagnostics with the baseline. Exit nonzero for pack `Failed`, lost pre-existing ids, any known-family `parse_failed`, unattributed new/removed ids, or slowdown greater than the configured percentage. Accept expected delta ids through baseline arrays `expected_added_ids` and `expected_removed_false_positive_ids`. Do not commit the proprietary 54-file corpus or its source paths.
+Compare sorted ids and diagnostics with the baseline. Exit nonzero for pack `Failed`, lost pre-existing ids, any known-family `parse_failed`, unattributed new/removed ids, or slowdown greater than the configured percentage. Accept expected delta ids through baseline arrays `expected_added_ids` and `expected_removed_false_positive_ids`, and expected diagnostic deltas through `expected_added_diagnostic_keys` / `expected_removed_diagnostic_keys`. Do not commit the proprietary 54-file corpus or its source paths.
 
-The offline shell test uses a fake Wax binary and temporary repo to cover success, lost-id failure, known-syntax failure, and 10% slowdown failure.
+The offline shell test uses a fake Wax binary and temporary repo to cover success, lost-id failure, known-syntax failure, diagnostic-delta failure, and 10% slowdown failure.
 
-- [x] **Step 6: Run the complete release gate**
+- [ ] **Step 6: Run the complete release gate**
+
+Offline harness and cargo checks from this step passed in the Task 5 PR. The maintainer-provided `KOTLINC_*` / `COMPOSE_CORPUS_*` live commands remain for the release gate and are required before marking Task 5 complete.
 
 Run the normal checks:
 
@@ -848,7 +850,7 @@ Expected: every command exits `0`; no known syntax family remains partial; no pr
 
 - [x] **Step 7: Close out documentation and commit**
 
-Record the exact grammar/compiler versions and corpus before/after counts in the design's investigation section. Mark implementation complete in the roadmap only after Tasks 1–5 are merged. Archive the plan and create an ADR only after the entire plan ships; do not do either in an individual task PR.
+Record the exact grammar/compiler versions and corpus before/after counts in the design's investigation section. Grammar/compiler pins are recorded; corpus before/after counts remain deferred until the live maintainer replay in Step 6 runs. Mark implementation complete in the roadmap only after Tasks 1–5 are merged. Archive the plan and create an ADR only after the entire plan ships; do not do either in an individual task PR.
 
 ```bash
 git add engine/crates/wax-cli scripts .github/workflows/build_engine.yml docs/plans
