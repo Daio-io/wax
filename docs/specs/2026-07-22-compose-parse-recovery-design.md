@@ -1,6 +1,15 @@
 # Compose Parse Recovery and UI Scope Design
 
+**Status:** Accepted (implemented)
+
+**Date:** 2026-07-22
+
+**Audience:** Wax Compose language-pack, CLI, and CI maintainers
+
+**Related:** [Archived implementation plan](../plans/archive/2026-07-22-compose-parse-recovery-plan.md) · [ADR](../adr/2026-07-22-compose-parse-recovery.md)
+
 ## Summary
+
 
 Wax should treat Kotlin parsing as a fault-tolerant source of UI facts, not as a requirement that every byte of a file match the bundled grammar. A recoverable syntax error must never crash the Compose pack, abort a repository scan, or prevent later valid declarations in the same file from being analyzed.
 
@@ -35,7 +44,7 @@ Direct parser probes and full Wax scans established:
 - annotated generic type arguments produce an `ERROR` range that can consume later declarations;
 - the supplied trailing comma before a `when` branch arrow already parses without errors in the pinned grammar.
 
-For broad error nodes, facts before the unsupported construct survive while later composable declarations, component calls, and token references disappear. The diagnostic often points to the containing declaration because the current locator returns the first outer `ERROR` node before inspecting narrower descendants.
+Before recovery, broad error nodes caused later composable declarations, component calls, and token references to disappear, and diagnostics often pointed at containing declarations. The shipped recovery layer selects the smallest useful problem, continues later islands, and scopes component facts to UI-bearing regions.
 
 A probe against the published `tree-sitter-kotlin-sg` 0.4.1 grammar recovered suspend lambdas, `when` guards, and annotated generic arguments. It was not a drop-in replacement: 12 existing `wax-lang-compose` tests failed in import resolution, package-qualified local identity, hard-coded style extraction, and annotated function-type handling. It also caused infrastructure calls such as `MutableStateFlow(...)` to appear as unresolved UI calls. A grammar replacement therefore mixes parser recovery with a broad AST migration and does not solve UI scoping by itself.
 

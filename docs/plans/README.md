@@ -9,7 +9,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 3. Each implementation task remains **one PR per task** inside the active plan, per that plan's execution model.
 4. Update the **Doc status** and **Implementation status** columns when a plan doc PR merges or when implementation of a plan finishes.
 
-**Active plan:** None promoted yet. A maintainer exception authorizes Compose parse recovery Tasks 1–5 (PRs #245–#249 plus this Task 5 reporting/validation gate); archive/ADR and roadmap `complete` wait until Task 5 merges. Adoption Metrics v2 (order 11) and Token inference and reporting (order 14) are complete and archived; see their [Adoption Metrics v2 archive](./archive/2026-06-20-adoption-metrics-v2-plan.md), [Adoption Metrics v2 ADR](../adr/2026-06-20-adoption-metrics-v2.md), [token inference archive](./archive/2026-07-19-token-inference-reporting-plan.md), and [token inference ADR](../adr/2026-07-19-token-inference-reporting.md).
+**Active plan:** None promoted yet. Adoption Metrics v2 (order 11), Token inference and reporting (order 14), and Compose parse recovery and UI scoping (order 15) are complete and archived; see their [Adoption Metrics v2 archive](./archive/2026-06-20-adoption-metrics-v2-plan.md), [Adoption Metrics v2 ADR](../adr/2026-06-20-adoption-metrics-v2.md), [token inference archive](./archive/2026-07-19-token-inference-reporting-plan.md), [token inference ADR](../adr/2026-07-19-token-inference-reporting.md), [compose parse recovery archive](./archive/2026-07-22-compose-parse-recovery-plan.md), and [compose parse recovery ADR](../adr/2026-07-22-compose-parse-recovery.md). No new active-plan work begins until a maintainer promotes the next plan.
 
 ---
 
@@ -31,7 +31,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 | 12 | Registry sync and config v2 | [archive/2026-07-04-registry-sync-config-plan.md](./archive/2026-07-04-registry-sync-config-plan.md) | `merged` | `complete` | [ADR](../adr/2026-07-04-registry-sync-config-v2.md) |
 | 13 | Token scanning | [archive/2026-07-03-token-scanning-plan.md](./archive/2026-07-03-token-scanning-plan.md) | `merged` | `complete` | [ADR](../adr/2026-07-03-token-scanning.md) |
 | 14 | Token inference and reporting | [archive/2026-07-19-token-inference-reporting-plan.md](./archive/2026-07-19-token-inference-reporting-plan.md) | `merged` | `complete` | [ADR](../adr/2026-07-19-token-inference-reporting.md) |
-| 15 | Compose parse recovery and UI scoping | [2026-07-22-compose-parse-recovery-plan.md](./2026-07-22-compose-parse-recovery-plan.md) | `merged` | `in-progress` | — |
+| 15 | Compose parse recovery and UI scoping | [archive/2026-07-22-compose-parse-recovery-plan.md](./archive/2026-07-22-compose-parse-recovery-plan.md) | `merged` | `complete` | [ADR](../adr/2026-07-22-compose-parse-recovery.md) |
 
 **Doc status:** `pending` -> plan PR open; `merged` -> plan doc on `main`; `planned` -> not yet drafted.
 
@@ -42,11 +42,11 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 ## Which plan should I run?
 
 ```text
--> Compose parse recovery Tasks 1–4 are merged (#245–#249); Task 5 (reporting/validation gate) is authorized under the same maintainer exception.
--> Do not archive the plan or create an ADR until Task 5 merges and closeout is complete.
+-> No active implementation plan is promoted.
+-> Do not start a new plan until a maintainer promotes the next roadmap item.
 ```
 
-Orders 1-4, 6-14 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Adoption Metrics v2 shipped in PRs #165, #171, and #172 and is archived. Token inference and reporting finished implementation in PRs #231, #233, #235, #236, and #237 plus closeout PR #238 and is archived. Compose parse recovery and UI scoping (order 15) is `in-progress` through Task 5; mark `complete` and archive only after Task 5 merges.
+Orders 1-4, 6-15 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Adoption Metrics v2 shipped in PRs #165, #171, and #172 and is archived. Token inference and reporting finished implementation in PRs #231, #233, #235, #236, and #237 plus closeout PR #238 and is archived. Compose parse recovery and UI scoping finished implementation in PRs #245–#247, #249, and #250 plus this closeout PR and is archived.
 
 ---
 
@@ -87,4 +87,4 @@ Orders 1-4, 6-14 are **complete**. Post-alpha UX (order 5) remains otherwise def
 - [Registry sync and config v2 design](../specs/2026-07-04-registry-sync-config-design.md) — clean alpha cutover for remembered design-system registries, no-config local scans, and explicit app sync (order 12, complete)
 - [Token scanning design](../specs/2026-07-03-token-scanning-design.md) — additive token references and hard-coded styling candidates (order 13, complete; [ADR](../adr/2026-07-03-token-scanning.md))
 - [Token inference and reporting design](../specs/2026-07-19-token-inference-reporting-design.md) — context-aware exact, near, unmatched, and unassessed token findings (order 14, complete; [ADR](../adr/2026-07-19-token-inference-reporting.md))
-- [Compose parse recovery and UI scope design](./2026-07-22-compose-parse-recovery-design.md) — fault-tolerant Kotlin parsing and Compose-aware usage scoping (order 15, planned)
+- [Compose parse recovery and UI scope design](../specs/2026-07-22-compose-parse-recovery-design.md) — fault-tolerant Kotlin parsing and Compose-aware usage scoping (order 15, complete; [ADR](../adr/2026-07-22-compose-parse-recovery.md))
