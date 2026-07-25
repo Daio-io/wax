@@ -549,7 +549,7 @@ Expected: all commands exit `0`; infrastructure constructors no longer contribut
 
 ### Task 4: Recover Later Clean Islands and Deduplicate Facts
 
-- [ ] **Task 4 complete**
+- [x] **Task 4 complete**
 
 **Files:**
 - Modify: `engine/crates/wax-lang-compose/src/kotlin_recovery.rs`
@@ -566,7 +566,7 @@ Expected: all commands exit `0`; infrastructure constructors no longer contribut
 - Consumes: Task 1 `ParsePass`/`SyntaxProblem`, Task 2 lexer boundaries, Task 3 clean-range extraction.
 - Produces: bounded later-source passes, progress/cap guarantees, deterministic fact merging, and `Partial` output with useful recovered facts.
 
-- [ ] **Step 1: Add red recovery and overlap tests**
+- [x] **Step 1: Add red recovery and overlap tests**
 
 The malformed top-level fixture must place a valid composable before a broad malformed declaration and another valid composable after it. The member fixture does the same inside an object/class. `UnbalancedDelimiters.kt` must never provide a safe later boundary.
 
@@ -589,7 +589,7 @@ cargo test -p wax-lang-compose kotlin_recovery::tests::recovery_attempts_are_bou
 
 Expected: FAIL because only the primary pass exists.
 
-- [ ] **Step 2: Produce safe lexical recovery boundaries**
+- [x] **Step 2: Produce safe lexical recovery boundaries**
 
 From the Task 2 lexer, emit boundaries at:
 
@@ -599,7 +599,7 @@ From the Task 2 lexer, emit boundaries at:
 
 Never emit a boundary inside a comment, string, character literal, annotation argument, or unmatched deeper delimiter. Sort and deduplicate byte offsets.
 
-- [ ] **Step 3: Implement bounded blank-and-reparse recovery**
+- [x] **Step 3: Implement bounded blank-and-reparse recovery**
 
 Add a result type that keeps the always-present primary pass separate from zero or more later passes:
 
@@ -628,7 +628,7 @@ Store `clean = [boundary..next_problem_start]` and increment priority. Continue 
 
 Before returning, set `primary_clean` to the complement of the unresolved problem ranges. The caller assigns it to `ParsedKotlinFile.primary.clean` and stores only later passes in `ParsedKotlinFile.recovered`. This preserves valid primary facts before and between errors while preventing extraction from a broad error node without representing the primary pass as an optional vector element.
 
-- [ ] **Step 4: Iterate every pass through one extraction pipeline**
+- [x] **Step 4: Iterate every pass through one extraction pipeline**
 
 In `scan_repository`, first index locals across `parsed.passes()`, then extract usages/tokens/styles across the same iterator. Pass each pass's `clean` ranges and the file's syntax regions into the existing extractors. Primary priority is `0`; recovered pass priority increases with source progress.
 
@@ -647,7 +647,7 @@ HardcodedStyleSite.id
 
 Retain the existing final sort comparators after deduplication.
 
-- [ ] **Step 5: Improve recovery diagnostic text without changing its code**
+- [x] **Step 5: Improve recovery diagnostic text without changing its code**
 
 When later source was recovered, emit:
 
@@ -657,7 +657,7 @@ tree-sitter could not fully parse <family> syntax in <file> near <line>:<column>
 
 Use `unknown` when no known family matches. When no later island is recovered, replace the middle clause with `file scanned with gaps`. Keep code `parse_failed`, severity `Error`, and location at the smallest problem.
 
-- [ ] **Step 6: Prove file and repository isolation**
+- [x] **Step 6: Prove file and repository isolation**
 
 Add a private seam without changing the public function:
 
@@ -678,7 +678,7 @@ fn scan_repository_with_parser(
 
 If a parser seam is needed, add private `parse_source_with(parser, bytes) -> Option<Tree>` and unit-test it; do not expose parser injection publicly.
 
-- [ ] **Step 7: Verify and commit**
+- [x] **Step 7: Verify and commit**
 
 ```bash
 cd engine

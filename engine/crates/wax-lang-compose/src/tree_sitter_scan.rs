@@ -1001,6 +1001,19 @@ pub fn scan_repository(
     repo_root: &Path,
     config: &ComposeScanConfig,
 ) -> Result<TreeSitterScanResult, TreeSitterScanError> {
+    scan_repository_with_parser(repo_root, config, parse_kotlin_file_permissive)
+}
+
+type ParseFileFn = fn(
+    &mut tree_sitter::Parser,
+    &Path,
+) -> Result<crate::kotlin_ast::ParsedKotlinFile, ParseKotlinFileError>;
+
+fn scan_repository_with_parser(
+    repo_root: &Path,
+    config: &ComposeScanConfig,
+    parse_file: ParseFileFn,
+) -> Result<TreeSitterScanResult, TreeSitterScanError> {
     let mut parser =
         new_parser().map_err(|reason| TreeSitterScanError::ParserInitFailed { reason })?;
 
@@ -1047,10 +1060,6 @@ pub fn scan_repository(
         .collect::<Vec<_>>();
 
     let design_system_tokens = registry.tokens.clone();
-    let mut local_components = Vec::new();
-    let mut usage_sites = Vec::new();
-    let mut token_sites = Vec::new();
-    let mut hardcoded_style_sites = Vec::new();
     let mut files_scanned = 0_u32;
     let mut parse_failures = 0_u32;
     let mut parsed_files = Vec::new();
@@ -1063,7 +1072,7 @@ pub fn scan_repository(
             .display()
             .to_string();
 
-        match parse_kotlin_file_permissive(&mut parser, file_path) {
+        match parse_file(&mut parser, file_path) {
             Ok(parsed) => {
                 if parsed.is_partial() {
                     parse_failures += 1;
@@ -1087,47 +1096,68 @@ pub fn scan_repository(
     }
 
     let mut local_index = LocalComposableIndex::default();
+    let mut local_with_priority = Vec::new();
     for (relative_file, parsed) in &parsed_files {
-        for local in index_local_components_from_source(
-            parsed.primary_tree().root_node(),
-            parsed.source.as_bytes(),
-            relative_file,
-            &parsed.primary.clean,
-        ) {
-            local_index.insert(relative_file, local.clone());
-            local_components.push(local);
+        for pass in parsed.passes() {
+            for local in index_local_components_from_source(
+                pass.tree.root_node(),
+                parsed.source.as_bytes(),
+                relative_file,
+                &pass.clean,
+            ) {
+                local_index.insert(relative_file, local.clone());
+                local_with_priority.push((pass.priority, local));
+            }
         }
     }
 
+    let mut usage_with_priority = Vec::new();
+    let mut token_with_priority = Vec::new();
+    let mut style_with_priority = Vec::new();
     for (relative_file, parsed) in &parsed_files {
-        extract_usage_from_source(
-            parsed.primary_tree().root_node(),
-            parsed.source.as_bytes(),
-            relative_file,
-            &registry,
-            &local_index,
-            &parsed.syntax_regions,
-            &parsed.primary.clean,
-            &mut usage_sites,
-        );
-        extract_hardcoded_style_from_source(
-            parsed.primary_tree().root_node(),
-            parsed.source.as_bytes(),
-            relative_file,
-            &parsed.primary.clean,
-            &parsed.syntax_regions,
-            &mut hardcoded_style_sites,
-        );
-        extract_token_sites_from_source(
-            parsed.primary_tree().root_node(),
-            parsed.source.as_bytes(),
-            relative_file,
-            &registry.token_index,
-            &parsed.primary.clean,
-            &parsed.syntax_regions,
-            &mut token_sites,
-        );
+        for pass in parsed.passes() {
+            let mut pass_usages = Vec::new();
+            extract_usage_from_source(
+                pass.tree.root_node(),
+                parsed.source.as_bytes(),
+                relative_file,
+                &registry,
+                &local_index,
+                &parsed.syntax_regions,
+                &pass.clean,
+                &mut pass_usages,
+            );
+            usage_with_priority.extend(pass_usages.into_iter().map(|fact| (pass.priority, fact)));
+
+            let mut pass_styles = Vec::new();
+            extract_hardcoded_style_from_source(
+                pass.tree.root_node(),
+                parsed.source.as_bytes(),
+                relative_file,
+                &pass.clean,
+                &parsed.syntax_regions,
+                &mut pass_styles,
+            );
+            style_with_priority.extend(pass_styles.into_iter().map(|fact| (pass.priority, fact)));
+
+            let mut pass_tokens = Vec::new();
+            extract_token_sites_from_source(
+                pass.tree.root_node(),
+                parsed.source.as_bytes(),
+                relative_file,
+                &registry.token_index,
+                &pass.clean,
+                &parsed.syntax_regions,
+                &mut pass_tokens,
+            );
+            token_with_priority.extend(pass_tokens.into_iter().map(|fact| (pass.priority, fact)));
+        }
     }
+
+    let mut local_components = retain_first_by_id(local_with_priority, |fact| &fact.id);
+    let mut usage_sites = retain_first_by_id(usage_with_priority, |fact| &fact.id);
+    let mut token_sites = retain_first_by_id(token_with_priority, |fact| &fact.id);
+    let mut hardcoded_style_sites = retain_first_by_id(style_with_priority, |fact| &fact.id);
 
     design_system_components.sort_by(|l, r| l.symbol.cmp(&r.symbol));
     local_components.sort_by(|l, r| l.symbol.cmp(&r.symbol));
@@ -1177,6 +1207,15 @@ pub fn scan_repository(
         diagnostics,
         status,
     })
+}
+
+fn retain_first_by_id<T>(mut facts: Vec<(u16, T)>, id: impl Fn(&T) -> &str) -> Vec<T> {
+    facts.sort_by_key(|(priority, _)| *priority);
+    let mut unique = BTreeMap::new();
+    for (_, fact) in facts {
+        unique.entry(id(&fact).to_owned()).or_insert(fact);
+    }
+    unique.into_values().collect()
 }
 
 fn map_root_resolution_error(err: RootResolutionError) -> TreeSitterScanError {
@@ -2114,6 +2153,122 @@ fun Screen() { Button(onClick = {}) }
             "valid file usage facts should survive unrelated parse failures"
         );
         assert_eq!(result.status, ScanStatus::Partial);
+    }
+
+    #[test]
+    fn no_tree_file_is_skipped_while_neighbors_still_scan() {
+        let config = ComposeScanConfig {
+            design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
+            roots: vec![std::path::PathBuf::from("app/src/main/kotlin")],
+            excludes: vec![],
+        };
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let registry_dir = tmp.path().join("design-system");
+        std::fs::create_dir_all(&registry_dir).expect("create registry dir");
+        std::fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"PrimaryButton"}]}"#,
+        )
+        .expect("write registry");
+
+        let source_dir = tmp.path().join("app/src/main/kotlin");
+        std::fs::create_dir_all(&source_dir).expect("create source dir");
+        std::fs::write(source_dir.join("NoTree.kt"), "fun skipped() {}\n").expect("write no-tree");
+        std::fs::write(
+            source_dir.join("Partial.kt"),
+            "@Composable\nfun BeforeGap() {\n    PrimaryButton(onClick = {})\n}\nfun Broken() = ()\n@Composable\nfun AfterGap() {\n    PrimaryButton(onClick = {})\n}\n",
+        )
+        .expect("write partial");
+        std::fs::write(
+            source_dir.join("Valid.kt"),
+            "@Composable\nfun Screen() {\n    PrimaryButton(onClick = {})\n}\n",
+        )
+        .expect("write valid");
+
+        fn parse_file_skipping_no_tree(
+            parser: &mut tree_sitter::Parser,
+            path: &Path,
+        ) -> Result<crate::kotlin_ast::ParsedKotlinFile, ParseKotlinFileError> {
+            if path.file_name().and_then(|name| name.to_str()) == Some("NoTree.kt") {
+                return Err(ParseKotlinFileError::ParseFailed(path.to_path_buf()));
+            }
+            parse_kotlin_file_permissive(parser, path)
+        }
+
+        let result = scan_repository_with_parser(tmp.path(), &config, parse_file_skipping_no_tree)
+            .expect("repository scan isolates no-tree failures");
+
+        assert_eq!(result.files_scanned, 3);
+        assert!(
+            result.diagnostics.iter().any(|diagnostic| {
+                diagnostic.code == "parse_failed"
+                    && diagnostic
+                        .location
+                        .as_ref()
+                        .is_some_and(|location| location.file.ends_with("NoTree.kt"))
+                    && diagnostic.message.contains("file skipped")
+            }),
+            "no-tree file must be skipped with a diagnostic: {:?}",
+            result.diagnostics
+        );
+        assert!(
+            result
+                .local_components
+                .iter()
+                .any(|component| component.symbol == "AfterGap"),
+            "malformed neighbor must still recover later facts: {:?}",
+            result.local_components
+        );
+        assert!(
+            result
+                .local_components
+                .iter()
+                .any(|component| component.symbol == "Screen"),
+            "valid neighbor must still scan: {:?}",
+            result.local_components
+        );
+        assert_eq!(result.status, ScanStatus::Partial);
+    }
+
+    #[test]
+    fn filesystem_read_errors_abort_the_scan() {
+        let config = ComposeScanConfig {
+            design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
+            roots: vec![std::path::PathBuf::from("app/src/main/kotlin")],
+            excludes: vec![],
+        };
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let registry_dir = tmp.path().join("design-system");
+        std::fs::create_dir_all(&registry_dir).expect("create registry dir");
+        std::fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"PrimaryButton"}]}"#,
+        )
+        .expect("write registry");
+
+        let source_dir = tmp.path().join("app/src/main/kotlin");
+        std::fs::create_dir_all(&source_dir).expect("create source dir");
+        let unreadable = source_dir.join("Unreadable.kt");
+        std::fs::write(&unreadable, "@Composable\nfun Screen() {}\n").expect("write source");
+
+        fn parse_file_io_error(
+            _parser: &mut tree_sitter::Parser,
+            path: &Path,
+        ) -> Result<crate::kotlin_ast::ParsedKotlinFile, ParseKotlinFileError> {
+            Err(ParseKotlinFileError::Io {
+                context: format!("read Kotlin source {}", path.display()),
+                source: std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied"),
+            })
+        }
+
+        let err = scan_repository_with_parser(tmp.path(), &config, parse_file_io_error)
+            .expect_err("real filesystem errors must abort the scan");
+        assert!(
+            matches!(err, TreeSitterScanError::Io { .. }),
+            "expected Io abort, got {err:?}"
+        );
     }
 
     #[test]

@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use wax_contract::{Diagnostic, DiagnosticSeverity, SourceLocation};
 
 use crate::kotlin_recovery::{
-    ByteRange, ParsePass, SyntaxFamily, SyntaxProblem, SyntaxRegion, merge_clean_ranges,
-    normalize_kotlin_for_parse,
+    ByteRange, ParsePass, SyntaxFamily, SyntaxProblem, SyntaxRegion, normalize_kotlin_for_parse,
+    recover_parse_passes,
 };
 
 /// Parsed Kotlin source and syntax trees.
@@ -132,20 +132,17 @@ pub(crate) fn parse_kotlin_file_permissive(
     let tree = parser
         .parse(normalized.bytes.as_slice(), None)
         .ok_or_else(|| ParseKotlinFileError::ParseFailed(path.to_path_buf()))?;
-    let clean = merge_clean_ranges(vec![ByteRange {
-        start: 0,
-        end: source.len(),
-    }]);
+    let recovery = recover_parse_passes(parser, &normalized.bytes, &tree);
 
     Ok(ParsedKotlinFile {
-        unresolved_problems: syntax_problems_from_tree(tree.root_node()),
+        unresolved_problems: recovery.unresolved_problems,
         source,
         primary: ParsePass {
             tree,
-            clean,
+            clean: recovery.primary_clean,
             priority: 0,
         },
-        recovered: Vec::new(),
+        recovered: recovery.recovered,
         syntax_regions: normalized.regions,
     })
 }
@@ -186,8 +183,15 @@ pub(crate) fn partial_tree_parse_diagnostic(
         severity: DiagnosticSeverity::Error,
         code: "parse_failed".to_owned(),
         message: format!(
-            "tree-sitter could not fully parse {relative_file} near {}:{}; file scanned with gaps",
-            problem.line, problem.column
+            "tree-sitter could not fully parse {} syntax in {relative_file} near {}:{}; {}; component, token, local-definition, or hard-coded-style facts in the skipped region may be incomplete",
+            syntax_family_name(problem.family),
+            problem.line,
+            problem.column,
+            if problem.recovered_later_source {
+                "skipped the uncertain region and continued scanning later source"
+            } else {
+                "file scanned with gaps"
+            },
         ),
         location: Some(SourceLocation {
             file: relative_file.to_owned(),
@@ -197,7 +201,20 @@ pub(crate) fn partial_tree_parse_diagnostic(
     }
 }
 
-fn syntax_problems_from_tree(root: tree_sitter::Node<'_>) -> Vec<SyntaxProblem> {
+fn syntax_family_name(family: SyntaxFamily) -> &'static str {
+    match family {
+        SyntaxFamily::SuspendLambda => "suspend lambda",
+        SyntaxFamily::WhenGuard => "when guard",
+        SyntaxFamily::AnnotatedFunctionType => "annotated function type",
+        SyntaxFamily::ExplicitBackingField => "explicit backing field",
+        SyntaxFamily::ContextParameter => "context parameter",
+        SyntaxFamily::ContextReceiver => "context receiver",
+        SyntaxFamily::AnnotatedTypeArgument => "annotated type argument",
+        SyntaxFamily::Unknown => "unknown",
+    }
+}
+
+pub(crate) fn syntax_problems_from_tree(root: tree_sitter::Node<'_>) -> Vec<SyntaxProblem> {
     collect_syntax_problem_nodes(root)
         .into_iter()
         .map(|node| {

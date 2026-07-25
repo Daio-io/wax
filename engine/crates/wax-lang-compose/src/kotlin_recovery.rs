@@ -1,7 +1,7 @@
 //! Recovery metadata for permissive Kotlin parsing.
 
 use std::cmp::Reverse;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[allow(dead_code)]
 pub(crate) const MAX_RECOVERY_ATTEMPTS: usize = 64;
@@ -87,6 +87,14 @@ pub(crate) struct ParsePass {
     pub(crate) tree: tree_sitter::Tree,
     pub(crate) clean: Vec<ByteRange>,
     pub(crate) priority: u16,
+}
+
+/// Additional parse passes recovered after broad syntax gaps.
+#[derive(Debug)]
+pub(crate) struct ParseRecovery {
+    pub(crate) primary_clean: Vec<ByteRange>,
+    pub(crate) recovered: Vec<ParsePass>,
+    pub(crate) unresolved_problems: Vec<SyntaxProblem>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -294,6 +302,224 @@ fn lex_kotlin(source: &str) -> LexedKotlin<'_> {
         delimiters,
         unbalanced_delimiters,
     }
+}
+
+pub(crate) fn recover_parse_passes(
+    parser: &mut tree_sitter::Parser,
+    normalized: &[u8],
+    primary: &tree_sitter::Tree,
+) -> ParseRecovery {
+    let mut unresolved_problems = crate::kotlin_ast::syntax_problems_from_tree(primary.root_node());
+    let primary_ranges = unresolved_problems
+        .iter()
+        .map(|problem| problem.range)
+        .collect::<Vec<_>>();
+    let boundaries = safe_recovery_boundaries(normalized);
+    let mut working_problems = unresolved_problems.clone();
+    let mut recovered = Vec::new();
+    let mut tried = BTreeSet::new();
+    let mut prior_offset = 0usize;
+    let mut attempts = 0usize;
+    let mut recovered_later_source = false;
+
+    'recovery: while attempts < MAX_RECOVERY_ATTEMPTS {
+        let Some(problem) = working_problems
+            .iter()
+            .find(|problem| problem.range.start >= prior_offset)
+            .cloned()
+        else {
+            break;
+        };
+
+        let mut accepted = false;
+        for &boundary in boundaries
+            .iter()
+            .filter(|boundary| **boundary > problem.range.start)
+        {
+            if !tried.insert((problem.range.start, boundary)) {
+                continue;
+            }
+            if attempts >= MAX_RECOVERY_ATTEMPTS {
+                break 'recovery;
+            }
+            attempts += 1;
+
+            let mut masked = normalized.to_vec();
+            let Some(mask_range) = ByteRange::new(problem.range.start, boundary) else {
+                continue;
+            };
+            mask_preserving_lines(&mut masked, mask_range);
+            let Some(tree) = parser.parse(masked.as_slice(), None) else {
+                continue;
+            };
+            let next_problems = crate::kotlin_ast::syntax_problems_from_tree(tree.root_node());
+            let next_problem_start = next_problems
+                .iter()
+                .find(|next| next.range.start >= boundary)
+                .map_or(normalized.len(), |next| next.range.start);
+            let Some(clean) = ByteRange::new(boundary, next_problem_start) else {
+                continue;
+            };
+            // Accept only when the clean suffix advances past the prior offset and
+            // contains real syntax; failed boundaries try the next later offset.
+            let next_progresses = next_problems
+                .iter()
+                .find(|next| next.range.start >= boundary)
+                .is_none_or(|next| next.range.start > prior_offset);
+            if clean.start >= clean.end
+                || !next_progresses
+                || !contains_named_declaration_or_statement(tree.root_node(), clean)
+            {
+                continue;
+            }
+
+            recovered_later_source = true;
+            recovered.push(ParsePass {
+                tree,
+                clean: vec![clean],
+                priority: (recovered.len() + 1) as u16,
+            });
+            working_problems = next_problems;
+            prior_offset = next_problem_start;
+            accepted = true;
+            if next_problem_start >= normalized.len() {
+                break 'recovery;
+            }
+            break;
+        }
+
+        if !accepted {
+            break;
+        }
+    }
+
+    if recovered_later_source {
+        for problem in &mut unresolved_problems {
+            problem.recovered_later_source = true;
+        }
+    }
+
+    ParseRecovery {
+        primary_clean: complement_problem_ranges(normalized.len(), &primary_ranges),
+        recovered,
+        unresolved_problems,
+    }
+}
+
+fn safe_recovery_boundaries(source: &[u8]) -> Vec<usize> {
+    let Ok(source) = std::str::from_utf8(source) else {
+        return Vec::new();
+    };
+    let lexed = lex_kotlin(source);
+    if !lexed.unbalanced_delimiters.is_empty() {
+        return Vec::new();
+    }
+
+    let mut boundaries = BTreeSet::new();
+    for &token in &lexed.token_starts {
+        let brace_depth = lexed
+            .delimiters
+            .iter()
+            .filter(|delimiter| {
+                delimiter.kind == DelimiterKind::Brace
+                    && delimiter.open < token
+                    && token < delimiter.close
+            })
+            .count();
+        if brace_depth <= 1
+            && [
+                b"class".as_slice(),
+                b"data",
+                b"enum",
+                b"fun",
+                b"interface",
+                b"object",
+                b"typealias",
+                b"val",
+                b"var",
+            ]
+            .iter()
+            .any(|keyword| starts_with_keyword(lexed.bytes, token, keyword))
+        {
+            boundaries.insert(token);
+        }
+        if let Some(statement_start) =
+            statement_start_after_line_or_semicolon(lexed.bytes, token, brace_depth)
+        {
+            boundaries.insert(statement_start);
+        }
+    }
+    boundaries.into_iter().collect()
+}
+
+fn statement_start_after_line_or_semicolon(
+    bytes: &[u8],
+    token: usize,
+    brace_depth: usize,
+) -> Option<usize> {
+    if brace_depth > 1 {
+        return None;
+    }
+    let line_start = bytes[..token]
+        .iter()
+        .rev()
+        .position(|byte| *byte == b'\n')
+        .map_or(0, |offset| token - offset);
+    let prefix = &bytes[..token];
+    let after_semicolon = prefix
+        .iter()
+        .rev()
+        .find(|byte| !byte.is_ascii_whitespace())
+        .is_some_and(|byte| *byte == b';');
+    let at_line_start = bytes[line_start..token]
+        .iter()
+        .all(|byte| byte.is_ascii_whitespace());
+    if after_semicolon || at_line_start {
+        Some(
+            bytes[..token]
+                .iter()
+                .rposition(|byte| *byte == b'\n')
+                .map_or(token, |newline| newline + 1),
+        )
+    } else {
+        None
+    }
+}
+
+fn contains_named_declaration_or_statement(root: tree_sitter::Node<'_>, clean: ByteRange) -> bool {
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.is_named()
+            && clean.contains_node(node)
+            && (node.kind().ends_with("_declaration") || node.kind().ends_with("_statement"))
+        {
+            return true;
+        }
+        let mut cursor = node.walk();
+        stack.extend(node.named_children(&mut cursor));
+    }
+    false
+}
+
+fn complement_problem_ranges(source_len: usize, problems: &[ByteRange]) -> Vec<ByteRange> {
+    let mut clean = Vec::new();
+    let mut start = 0;
+    for problem in merge_clean_ranges(problems.to_vec()) {
+        if start < problem.start {
+            clean.push(ByteRange {
+                start,
+                end: problem.start,
+            });
+        }
+        start = start.max(problem.end);
+    }
+    if start < source_len {
+        clean.push(ByteRange {
+            start,
+            end: source_len,
+        });
+    }
+    clean
 }
 
 fn close_delimiter(
@@ -1104,7 +1330,8 @@ fn skip_quoted_literal(bytes: &[u8], mut index: usize, delimiter: u8) -> usize {
 #[cfg(test)]
 mod tests {
     use super::{
-        ComponentScopePolicy, NormalizedKotlinSource, SyntaxFamily, normalize_kotlin_for_parse,
+        ComponentScopePolicy, MAX_RECOVERY_ATTEMPTS, NormalizedKotlinSource, SyntaxFamily,
+        normalize_kotlin_for_parse, recover_parse_passes, safe_recovery_boundaries,
     };
     use crate::kotlin_ast::{new_parser, parse_kotlin_file_permissive};
 
@@ -1403,5 +1630,48 @@ val character = '@'
             stack.extend(node.children(&mut cursor));
         }
         None
+    }
+
+    #[test]
+    fn recovery_attempts_are_bounded_and_monotonic() {
+        let mut source = String::from("import androidx.compose.runtime.Composable\n\n");
+        for index in 0..80 {
+            source.push_str(&format!("fun Broken{index}() = ()\n\n"));
+            source.push_str("@Composable\n");
+            source.push_str(&format!(
+                "fun After{index}() {{ PrimaryButton(onClick = {{}}) }}\n\n"
+            ));
+        }
+
+        let normalized = normalize_kotlin_for_parse(&source);
+        let mut parser = new_parser().expect("parser");
+        let primary = parser
+            .parse(normalized.bytes.as_slice(), None)
+            .expect("primary tree");
+        let recovery = recover_parse_passes(&mut parser, &normalized.bytes, &primary);
+
+        let mut prior_clean_start = 0usize;
+        for pass in &recovery.recovered {
+            let clean_start = pass
+                .clean
+                .iter()
+                .map(|range| range.start)
+                .min()
+                .expect("recovered pass has clean ranges");
+            assert!(
+                clean_start > prior_clean_start,
+                "accepted recovery passes must advance clean start ({clean_start} <= {prior_clean_start})"
+            );
+            prior_clean_start = clean_start;
+        }
+        assert!(
+            recovery.recovered.len() <= MAX_RECOVERY_ATTEMPTS,
+            "recovered passes exceed attempt cap: {}",
+            recovery.recovered.len()
+        );
+        assert!(
+            safe_recovery_boundaries(b"fun Broken() {").is_empty(),
+            "unbalanced delimiters must not emit recovery boundaries"
+        );
     }
 }
