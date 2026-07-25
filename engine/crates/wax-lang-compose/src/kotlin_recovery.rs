@@ -136,11 +136,6 @@ struct RecoveryTransform {
     family: SyntaxFamily,
     component_scope: ComponentScopePolicy,
     mask_ranges: Vec<ByteRange>,
-    /// Written into the normalized buffer after masking, at the first mask range start.
-    ///
-    /// Used when a masked region must remain a valid expression (for example replacing a
-    /// `when` arm `if` expression with `null`) without changing byte length or newlines.
-    placeholder_prefix: Option<&'static [u8]>,
 }
 
 pub(crate) fn merge_clean_ranges(mut ranges: Vec<ByteRange>) -> Vec<ByteRange> {
@@ -178,10 +173,10 @@ pub(crate) fn normalize_kotlin_for_parse(source: &str) -> NormalizedKotlinSource
         for range in &transform.mask_ranges {
             mask_preserving_lines(&mut bytes, *range);
         }
-        if let Some(prefix) = transform.placeholder_prefix
+        if transform.family == SyntaxFamily::WhenIfBody
             && let Some(range) = transform.mask_ranges.first()
         {
-            write_preserving_lines(&mut bytes, range.start, prefix);
+            write_preserving_lines(&mut bytes, range.start, b"null");
         }
     }
 
@@ -592,34 +587,13 @@ fn collect_suspend_lambda_transforms(lexed: &LexedKotlin<'_>, out: &mut Vec<Reco
             family: SyntaxFamily::SuspendLambda,
             component_scope: ComponentScopePolicy::Exclude,
             mask_ranges: vec![mask],
-            placeholder_prefix: None,
         });
     }
 }
 
 fn collect_when_guard_transforms(lexed: &LexedKotlin<'_>, out: &mut Vec<RecoveryTransform>) {
     for &token_start in &lexed.token_starts {
-        if !starts_with_keyword(lexed.bytes, token_start, b"when") {
-            continue;
-        }
-
-        let Some(condition_open) = next_significant_index(lexed.bytes, token_start + "when".len())
-        else {
-            continue;
-        };
-        if lexed.bytes.get(condition_open) != Some(&b'(') {
-            continue;
-        }
-        let Some(condition_close) = lexed.matching_delimiters.get(&condition_open).copied() else {
-            continue;
-        };
-        let Some(body_open) = next_significant_index(lexed.bytes, condition_close + 1) else {
-            continue;
-        };
-        if lexed.bytes.get(body_open) != Some(&b'{') {
-            continue;
-        }
-        let Some(body_close) = lexed.matching_delimiters.get(&body_open).copied() else {
+        let Some((body_open, body_close)) = when_body_range(lexed, token_start) else {
             continue;
         };
 
@@ -661,7 +635,6 @@ fn collect_when_guard_transforms(lexed: &LexedKotlin<'_>, out: &mut Vec<Recovery
                 family: SyntaxFamily::WhenGuard,
                 component_scope: ComponentScopePolicy::Inherit,
                 mask_ranges: vec![mask],
-                placeholder_prefix: None,
             });
         }
     }
@@ -669,27 +642,7 @@ fn collect_when_guard_transforms(lexed: &LexedKotlin<'_>, out: &mut Vec<Recovery
 
 fn collect_when_if_body_transforms(lexed: &LexedKotlin<'_>, out: &mut Vec<RecoveryTransform>) {
     for &token_start in &lexed.token_starts {
-        if !starts_with_keyword(lexed.bytes, token_start, b"when") {
-            continue;
-        }
-
-        let Some(condition_open) = next_significant_index(lexed.bytes, token_start + "when".len())
-        else {
-            continue;
-        };
-        if lexed.bytes.get(condition_open) != Some(&b'(') {
-            continue;
-        }
-        let Some(condition_close) = lexed.matching_delimiters.get(&condition_open).copied() else {
-            continue;
-        };
-        let Some(body_open) = next_significant_index(lexed.bytes, condition_close + 1) else {
-            continue;
-        };
-        if lexed.bytes.get(body_open) != Some(&b'{') {
-            continue;
-        }
-        let Some(body_close) = lexed.matching_delimiters.get(&body_open).copied() else {
+        let Some((body_open, body_close)) = when_body_range(lexed, token_start) else {
             continue;
         };
 
@@ -706,10 +659,7 @@ fn collect_when_if_body_transforms(lexed: &LexedKotlin<'_>, out: &mut Vec<Recove
             let Some(expr_start) = next_significant_index(lexed.bytes, arrow + 2) else {
                 break;
             };
-            if expr_start >= body_close {
-                break;
-            }
-            if !starts_with_keyword(lexed.bytes, expr_start, b"if") {
+            if expr_start >= body_close || !starts_with_keyword(lexed.bytes, expr_start, b"if") {
                 index = arrow + 2;
                 continue;
             }
@@ -729,11 +679,27 @@ fn collect_when_if_body_transforms(lexed: &LexedKotlin<'_>, out: &mut Vec<Recove
                 family: SyntaxFamily::WhenIfBody,
                 component_scope: ComponentScopePolicy::Exclude,
                 mask_ranges: vec![source],
-                placeholder_prefix: Some(b"null"),
             });
-            index = expr_end.max(arrow + 2);
+            index = expr_end;
         }
     }
+}
+
+fn when_body_range(lexed: &LexedKotlin<'_>, when_start: usize) -> Option<(usize, usize)> {
+    if !starts_with_keyword(lexed.bytes, when_start, b"when") {
+        return None;
+    }
+    let condition_open = next_significant_index(lexed.bytes, when_start + "when".len())?;
+    if lexed.bytes.get(condition_open) != Some(&b'(') {
+        return None;
+    }
+    let condition_close = lexed.matching_delimiters.get(&condition_open).copied()?;
+    let body_open = next_significant_index(lexed.bytes, condition_close + 1)?;
+    if lexed.bytes.get(body_open) != Some(&b'{') {
+        return None;
+    }
+    let body_close = lexed.matching_delimiters.get(&body_open).copied()?;
+    Some((body_open, body_close))
 }
 
 fn collect_annotated_function_type_transforms(
@@ -791,7 +757,6 @@ fn collect_annotated_function_type_transforms(
                 ComponentScopePolicy::Inherit
             },
             mask_ranges: vec![open_mask, close_mask],
-            placeholder_prefix: None,
         });
     }
 }
@@ -843,7 +808,6 @@ fn collect_explicit_backing_field_transforms(
             family: SyntaxFamily::ExplicitBackingField,
             component_scope: ComponentScopePolicy::Exclude,
             mask_ranges: vec![mask],
-            placeholder_prefix: None,
         });
     }
 }
@@ -911,7 +875,6 @@ fn collect_context_transforms(lexed: &LexedKotlin<'_>, out: &mut Vec<RecoveryTra
             },
             component_scope: ComponentScopePolicy::Inherit,
             mask_ranges,
-            placeholder_prefix: None,
         });
     }
 }
@@ -984,7 +947,6 @@ fn collect_annotated_type_argument_transforms(
             family: SyntaxFamily::AnnotatedTypeArgument,
             component_scope: ComponentScopePolicy::Exclude,
             mask_ranges,
-            placeholder_prefix: None,
         });
     }
 }
