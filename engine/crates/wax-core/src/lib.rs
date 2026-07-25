@@ -937,9 +937,14 @@ mod tests {
     #[test]
     fn scan_timeout_defaults_to_ten_minutes() {
         assert_eq!(
+            DEFAULT_SCAN_TIMEOUT,
+            Duration::from_secs(600),
+            "DEFAULT_SCAN_TIMEOUT must remain the spec 10-minute default"
+        );
+        assert_eq!(
             resolve_scan_timeout(None),
             DEFAULT_SCAN_TIMEOUT,
-            "default scan timeout must match the language-pack spec (10 minutes)"
+            "unset WAX_SCAN_TIMEOUT_SECS must use the default"
         );
     }
 
@@ -952,6 +957,8 @@ mod tests {
             DEFAULT_SCAN_TIMEOUT
         );
         assert_eq!(resolve_scan_timeout(Some("")), DEFAULT_SCAN_TIMEOUT);
+        assert_eq!(resolve_scan_timeout(Some("   ")), DEFAULT_SCAN_TIMEOUT);
+        assert_eq!(resolve_scan_timeout(Some("-1")), DEFAULT_SCAN_TIMEOUT);
         assert_eq!(resolve_scan_timeout(Some(" 90 ")), Duration::from_secs(90));
     }
 
