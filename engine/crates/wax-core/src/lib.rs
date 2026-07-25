@@ -53,7 +53,27 @@ use thiserror::Error;
 use wax_contract::{LanguageId, MergedScan, ScanFacts};
 use wax_lang_api::{ScanConfig, ScanRequest, ScanRequestType, WIRE_API_VERSION};
 
-const DEFAULT_SCAN_TIMEOUT: Duration = Duration::from_secs(120);
+/// Spec default: 10 minutes per language pack (`docs/specs/2026-05-16-language-packs-and-distribution.md`).
+const DEFAULT_SCAN_TIMEOUT: Duration = Duration::from_secs(600);
+const SCAN_TIMEOUT_ENV: &str = "WAX_SCAN_TIMEOUT_SECS";
+
+/// Resolves the per-language scan subprocess timeout.
+///
+/// `WAX_SCAN_TIMEOUT_SECS` overrides the default when set to a non-negative integer.
+/// Invalid values fall back to [`DEFAULT_SCAN_TIMEOUT`].
+fn resolve_scan_timeout(raw: Option<&str>) -> Duration {
+    match raw.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => value
+            .parse::<u64>()
+            .map(Duration::from_secs)
+            .unwrap_or(DEFAULT_SCAN_TIMEOUT),
+        None => DEFAULT_SCAN_TIMEOUT,
+    }
+}
+
+fn scan_timeout() -> Duration {
+    resolve_scan_timeout(std::env::var(SCAN_TIMEOUT_ENV).ok().as_deref())
+}
 #[derive(Debug, Deserialize)]
 struct InstalledManifestFile {
     id: LanguageId,
@@ -598,7 +618,7 @@ fn run_scan_job(
 ) -> Result<(LanguageId, ScanFacts), EngineError> {
     let extractor = SubprocessLanguageExtractor::new(SubprocessLanguageManifest {
         command: job.command,
-        timeout: DEFAULT_SCAN_TIMEOUT,
+        timeout: scan_timeout(),
     });
     let request = ScanRequest {
         request_type: ScanRequestType::Scan,
@@ -917,6 +937,27 @@ fn new_snapshot_id() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scan_timeout_defaults_to_ten_minutes() {
+        assert_eq!(
+            resolve_scan_timeout(None),
+            Duration::from_secs(600),
+            "default scan timeout must match the language-pack spec (10 minutes)"
+        );
+    }
+
+    #[test]
+    fn scan_timeout_honors_wax_scan_timeout_secs_override() {
+        assert_eq!(resolve_scan_timeout(Some("45")), Duration::from_secs(45));
+        assert_eq!(resolve_scan_timeout(Some("0")), Duration::ZERO);
+        assert_eq!(
+            resolve_scan_timeout(Some("not-a-number")),
+            Duration::from_secs(600)
+        );
+        assert_eq!(resolve_scan_timeout(Some("")), Duration::from_secs(600));
+        assert_eq!(resolve_scan_timeout(Some(" 90 ")), Duration::from_secs(90));
+    }
 
     #[test]
     fn record_installed_language_cleans_up_when_state_load_fails() {
