@@ -1096,7 +1096,7 @@ fn scan_repository_with_parser(
     }
 
     let mut local_index = LocalComposableIndex::default();
-    let mut local_components = Vec::new();
+    let mut local_with_priority = Vec::new();
     for (relative_file, parsed) in &parsed_files {
         for pass in parsed.passes() {
             for local in index_local_components_from_source(
@@ -1106,16 +1106,17 @@ fn scan_repository_with_parser(
                 &pass.clean,
             ) {
                 local_index.insert(relative_file, local.clone());
-                local_components.push(local);
+                local_with_priority.push((pass.priority, local));
             }
         }
     }
 
-    let mut usage_sites = Vec::new();
-    let mut token_sites = Vec::new();
-    let mut hardcoded_style_sites = Vec::new();
+    let mut usage_with_priority = Vec::new();
+    let mut token_with_priority = Vec::new();
+    let mut style_with_priority = Vec::new();
     for (relative_file, parsed) in &parsed_files {
         for pass in parsed.passes() {
+            let mut pass_usages = Vec::new();
             extract_usage_from_source(
                 pass.tree.root_node(),
                 parsed.source.as_bytes(),
@@ -1124,16 +1125,22 @@ fn scan_repository_with_parser(
                 &local_index,
                 &parsed.syntax_regions,
                 &pass.clean,
-                &mut usage_sites,
+                &mut pass_usages,
             );
+            usage_with_priority.extend(pass_usages.into_iter().map(|fact| (pass.priority, fact)));
+
+            let mut pass_styles = Vec::new();
             extract_hardcoded_style_from_source(
                 pass.tree.root_node(),
                 parsed.source.as_bytes(),
                 relative_file,
                 &pass.clean,
                 &parsed.syntax_regions,
-                &mut hardcoded_style_sites,
+                &mut pass_styles,
             );
+            style_with_priority.extend(pass_styles.into_iter().map(|fact| (pass.priority, fact)));
+
+            let mut pass_tokens = Vec::new();
             extract_token_sites_from_source(
                 pass.tree.root_node(),
                 parsed.source.as_bytes(),
@@ -1141,15 +1148,17 @@ fn scan_repository_with_parser(
                 &registry.token_index,
                 &pass.clean,
                 &parsed.syntax_regions,
-                &mut token_sites,
+                &mut pass_tokens,
             );
+            token_with_priority.extend(pass_tokens.into_iter().map(|fact| (pass.priority, fact)));
         }
     }
 
-    retain_first_by_id(&mut local_components, |fact| &fact.id);
-    retain_first_by_id(&mut usage_sites, |fact| &fact.id);
-    retain_first_by_id(&mut token_sites, |fact| &fact.id);
-    retain_first_by_id(&mut hardcoded_style_sites, |fact| &fact.id);
+    let mut local_components = retain_first_by_priority_id(local_with_priority, |fact| &fact.id);
+    let mut usage_sites = retain_first_by_priority_id(usage_with_priority, |fact| &fact.id);
+    let mut token_sites = retain_first_by_priority_id(token_with_priority, |fact| &fact.id);
+    let mut hardcoded_style_sites =
+        retain_first_by_priority_id(style_with_priority, |fact| &fact.id);
 
     design_system_components.sort_by(|l, r| l.symbol.cmp(&r.symbol));
     local_components.sort_by(|l, r| l.symbol.cmp(&r.symbol));
@@ -1201,12 +1210,13 @@ fn scan_repository_with_parser(
     })
 }
 
-fn retain_first_by_id<T>(facts: &mut Vec<T>, id: impl Fn(&T) -> &str) {
+fn retain_first_by_priority_id<T>(mut facts: Vec<(u16, T)>, id: impl Fn(&T) -> &str) -> Vec<T> {
+    facts.sort_by_key(|(priority, _)| *priority);
     let mut unique = BTreeMap::new();
-    for fact in std::mem::take(facts) {
+    for (_, fact) in facts {
         unique.entry(id(&fact).to_owned()).or_insert(fact);
     }
-    *facts = unique.into_values().collect();
+    unique.into_values().collect()
 }
 
 fn map_root_resolution_error(err: RootResolutionError) -> TreeSitterScanError {
@@ -2162,6 +2172,39 @@ fun Screen() { Button(onClick = {}) }
             "valid file usage facts should survive unrelated parse failures"
         );
         assert_eq!(result.status, ScanStatus::Partial);
+    }
+
+    #[test]
+    fn primary_local_wins_over_earlier_recovered_local_with_same_id() {
+        let (tmp, config) = temp_scan_repo();
+        let source_dir = tmp.path().join("app/src/main/kotlin");
+        std::fs::write(
+            source_dir.join("RecoveredFirst.kt"),
+            "@Composable\nfun BeforeGap() {\n    PrimaryButton(onClick = {})\n}\nfun Broken() = ()\n@Composable\nfun SharedScreen() {\n    PrimaryButton(onClick = {})\n}\n",
+        )
+        .expect("write recovered-first source");
+        std::fs::write(
+            source_dir.join("PrimaryLater.kt"),
+            "@Composable\nfun SharedScreen() {\n    PrimaryButton(onClick = {})\n}\n",
+        )
+        .expect("write primary-later source");
+
+        let result = scan_repository(tmp.path(), &config).expect("scan should succeed");
+        let shared = result
+            .local_components
+            .iter()
+            .filter(|component| component.symbol == "SharedScreen")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            shared.len(),
+            1,
+            "duplicate local ids must collapse to one fact: {shared:?}"
+        );
+        assert!(
+            shared[0].location.file.ends_with("PrimaryLater.kt"),
+            "lower-priority recovered local must not beat a later primary: {:?}",
+            shared[0]
+        );
     }
 
     #[test]

@@ -425,7 +425,8 @@ fn safe_recovery_boundaries(source: &[u8]) -> Vec<usize> {
                     && token < delimiter.close
             })
             .count();
-        if brace_depth <= 1
+        let at_type_member = brace_depth > 0 && is_immediate_type_member(&lexed, token);
+        if (brace_depth == 0 || at_type_member)
             && [
                 b"class".as_slice(),
                 b"data",
@@ -442,8 +443,9 @@ fn safe_recovery_boundaries(source: &[u8]) -> Vec<usize> {
         {
             boundaries.insert(token);
         }
-        if let Some(statement_start) =
-            statement_start_after_line_or_semicolon(lexed.bytes, token, brace_depth)
+        if (brace_depth == 0 || at_type_member)
+            && let Some(statement_start) =
+                statement_start_after_line_or_semicolon(lexed.bytes, token)
         {
             boundaries.insert(statement_start);
         }
@@ -451,14 +453,32 @@ fn safe_recovery_boundaries(source: &[u8]) -> Vec<usize> {
     boundaries.into_iter().collect()
 }
 
-fn statement_start_after_line_or_semicolon(
-    bytes: &[u8],
-    token: usize,
-    brace_depth: usize,
-) -> Option<usize> {
-    if brace_depth > 1 {
-        return None;
+fn is_immediate_type_member(lexed: &LexedKotlin<'_>, token: usize) -> bool {
+    let Some(body) = smallest_enclosing_delimiter(lexed, token, DelimiterKind::Brace) else {
+        return false;
+    };
+    if !is_top_level_in_range(lexed, token, body.start + 1, body.end - 1) {
+        return false;
     }
+
+    let search_start = smallest_enclosing_delimiter(lexed, body.start, DelimiterKind::Brace)
+        .map_or(0, |parent| parent.start + 1);
+    lexed
+        .token_starts
+        .iter()
+        .copied()
+        .filter(|candidate| search_start <= *candidate && *candidate < body.start)
+        .filter(|candidate| is_top_level_in_range(lexed, *candidate, search_start, body.start))
+        .rev()
+        .any(|candidate| {
+            starts_with_keyword(lexed.bytes, candidate, b"class")
+                || starts_with_keyword(lexed.bytes, candidate, b"object")
+                || starts_with_keyword(lexed.bytes, candidate, b"interface")
+                || starts_with_keyword(lexed.bytes, candidate, b"enum")
+        })
+}
+
+fn statement_start_after_line_or_semicolon(bytes: &[u8], token: usize) -> Option<usize> {
     let newline = bytes[..token].iter().rposition(|byte| *byte == b'\n');
     let line_start = newline.map_or(0, |index| index + 1);
     let after_semicolon = bytes[..token]

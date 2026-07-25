@@ -294,6 +294,8 @@ fn broad_error_recovers_later_declaration() {
         "AfterTopLevelGap",
         "BeforeMemberGap",
         "AfterMemberGap",
+        "BeforeNestedGap",
+        "AfterNestedGap",
     ] {
         assert!(
             facts
