@@ -62,13 +62,9 @@ const SCAN_TIMEOUT_ENV: &str = "WAX_SCAN_TIMEOUT_SECS";
 /// `WAX_SCAN_TIMEOUT_SECS` overrides the default when set to a non-negative integer.
 /// Invalid values fall back to [`DEFAULT_SCAN_TIMEOUT`].
 fn resolve_scan_timeout(raw: Option<&str>) -> Duration {
-    match raw.map(str::trim).filter(|value| !value.is_empty()) {
-        Some(value) => value
-            .parse::<u64>()
-            .map(Duration::from_secs)
-            .unwrap_or(DEFAULT_SCAN_TIMEOUT),
-        None => DEFAULT_SCAN_TIMEOUT,
-    }
+    raw.and_then(|value| value.trim().parse().ok())
+        .map(Duration::from_secs)
+        .unwrap_or(DEFAULT_SCAN_TIMEOUT)
 }
 
 fn scan_timeout() -> Duration {
@@ -942,7 +938,7 @@ mod tests {
     fn scan_timeout_defaults_to_ten_minutes() {
         assert_eq!(
             resolve_scan_timeout(None),
-            Duration::from_secs(600),
+            DEFAULT_SCAN_TIMEOUT,
             "default scan timeout must match the language-pack spec (10 minutes)"
         );
     }
@@ -953,9 +949,9 @@ mod tests {
         assert_eq!(resolve_scan_timeout(Some("0")), Duration::ZERO);
         assert_eq!(
             resolve_scan_timeout(Some("not-a-number")),
-            Duration::from_secs(600)
+            DEFAULT_SCAN_TIMEOUT
         );
-        assert_eq!(resolve_scan_timeout(Some("")), Duration::from_secs(600));
+        assert_eq!(resolve_scan_timeout(Some("")), DEFAULT_SCAN_TIMEOUT);
         assert_eq!(resolve_scan_timeout(Some(" 90 ")), Duration::from_secs(90));
     }
 
