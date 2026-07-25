@@ -353,19 +353,18 @@ pub(crate) fn recover_parse_passes(
                 continue;
             };
             let next_problems = crate::kotlin_ast::syntax_problems_from_tree(tree.root_node());
-            let next_problem_start = next_problems
+            let next_after_boundary = next_problems
                 .iter()
-                .find(|next| next.range.start >= boundary)
-                .map_or(normalized.len(), |next| next.range.start);
+                .find(|next| next.range.start >= boundary);
+            let next_problem_start =
+                next_after_boundary.map_or(normalized.len(), |next| next.range.start);
             let Some(clean) = ByteRange::new(boundary, next_problem_start) else {
                 continue;
             };
             // Accept only when the clean suffix advances past the prior offset and
             // contains real syntax; failed boundaries try the next later offset.
-            let next_progresses = next_problems
-                .iter()
-                .find(|next| next.range.start >= boundary)
-                .is_none_or(|next| next.range.start > prior_offset);
+            let next_progresses =
+                next_after_boundary.is_none_or(|next| next.range.start > prior_offset);
             if clean.start >= clean.end
                 || !next_progresses
                 || !contains_named_declaration_or_statement(tree.root_node(), clean)
@@ -460,13 +459,9 @@ fn statement_start_after_line_or_semicolon(
     if brace_depth > 1 {
         return None;
     }
-    let line_start = bytes[..token]
-        .iter()
-        .rev()
-        .position(|byte| *byte == b'\n')
-        .map_or(0, |offset| token - offset);
-    let prefix = &bytes[..token];
-    let after_semicolon = prefix
+    let newline = bytes[..token].iter().rposition(|byte| *byte == b'\n');
+    let line_start = newline.map_or(0, |index| index + 1);
+    let after_semicolon = bytes[..token]
         .iter()
         .rev()
         .find(|byte| !byte.is_ascii_whitespace())
@@ -474,16 +469,7 @@ fn statement_start_after_line_or_semicolon(
     let at_line_start = bytes[line_start..token]
         .iter()
         .all(|byte| byte.is_ascii_whitespace());
-    if after_semicolon || at_line_start {
-        Some(
-            bytes[..token]
-                .iter()
-                .rposition(|byte| *byte == b'\n')
-                .map_or(token, |newline| newline + 1),
-        )
-    } else {
-        None
-    }
+    (after_semicolon || at_line_start).then_some(newline.map_or(token, |index| index + 1))
 }
 
 fn contains_named_declaration_or_statement(root: tree_sitter::Node<'_>, clean: ByteRange) -> bool {

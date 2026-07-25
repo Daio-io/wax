@@ -1096,7 +1096,7 @@ fn scan_repository_with_parser(
     }
 
     let mut local_index = LocalComposableIndex::default();
-    let mut local_with_priority = Vec::new();
+    let mut local_components = Vec::new();
     for (relative_file, parsed) in &parsed_files {
         for pass in parsed.passes() {
             for local in index_local_components_from_source(
@@ -1106,17 +1106,16 @@ fn scan_repository_with_parser(
                 &pass.clean,
             ) {
                 local_index.insert(relative_file, local.clone());
-                local_with_priority.push((pass.priority, local));
+                local_components.push(local);
             }
         }
     }
 
-    let mut usage_with_priority = Vec::new();
-    let mut token_with_priority = Vec::new();
-    let mut style_with_priority = Vec::new();
+    let mut usage_sites = Vec::new();
+    let mut token_sites = Vec::new();
+    let mut hardcoded_style_sites = Vec::new();
     for (relative_file, parsed) in &parsed_files {
         for pass in parsed.passes() {
-            let mut pass_usages = Vec::new();
             extract_usage_from_source(
                 pass.tree.root_node(),
                 parsed.source.as_bytes(),
@@ -1125,22 +1124,16 @@ fn scan_repository_with_parser(
                 &local_index,
                 &parsed.syntax_regions,
                 &pass.clean,
-                &mut pass_usages,
+                &mut usage_sites,
             );
-            usage_with_priority.extend(pass_usages.into_iter().map(|fact| (pass.priority, fact)));
-
-            let mut pass_styles = Vec::new();
             extract_hardcoded_style_from_source(
                 pass.tree.root_node(),
                 parsed.source.as_bytes(),
                 relative_file,
                 &pass.clean,
                 &parsed.syntax_regions,
-                &mut pass_styles,
+                &mut hardcoded_style_sites,
             );
-            style_with_priority.extend(pass_styles.into_iter().map(|fact| (pass.priority, fact)));
-
-            let mut pass_tokens = Vec::new();
             extract_token_sites_from_source(
                 pass.tree.root_node(),
                 parsed.source.as_bytes(),
@@ -1148,16 +1141,15 @@ fn scan_repository_with_parser(
                 &registry.token_index,
                 &pass.clean,
                 &parsed.syntax_regions,
-                &mut pass_tokens,
+                &mut token_sites,
             );
-            token_with_priority.extend(pass_tokens.into_iter().map(|fact| (pass.priority, fact)));
         }
     }
 
-    let mut local_components = retain_first_by_id(local_with_priority, |fact| &fact.id);
-    let mut usage_sites = retain_first_by_id(usage_with_priority, |fact| &fact.id);
-    let mut token_sites = retain_first_by_id(token_with_priority, |fact| &fact.id);
-    let mut hardcoded_style_sites = retain_first_by_id(style_with_priority, |fact| &fact.id);
+    retain_first_by_id(&mut local_components, |fact| &fact.id);
+    retain_first_by_id(&mut usage_sites, |fact| &fact.id);
+    retain_first_by_id(&mut token_sites, |fact| &fact.id);
+    retain_first_by_id(&mut hardcoded_style_sites, |fact| &fact.id);
 
     design_system_components.sort_by(|l, r| l.symbol.cmp(&r.symbol));
     local_components.sort_by(|l, r| l.symbol.cmp(&r.symbol));
@@ -1209,13 +1201,12 @@ fn scan_repository_with_parser(
     })
 }
 
-fn retain_first_by_id<T>(mut facts: Vec<(u16, T)>, id: impl Fn(&T) -> &str) -> Vec<T> {
-    facts.sort_by_key(|(priority, _)| *priority);
+fn retain_first_by_id<T>(facts: &mut Vec<T>, id: impl Fn(&T) -> &str) {
     let mut unique = BTreeMap::new();
-    for (_, fact) in facts {
+    for fact in std::mem::take(facts) {
         unique.entry(id(&fact).to_owned()).or_insert(fact);
     }
-    unique.into_values().collect()
+    *facts = unique.into_values().collect();
 }
 
 fn map_root_resolution_error(err: RootResolutionError) -> TreeSitterScanError {
@@ -1354,6 +1345,24 @@ fn glob_segment_match(segment: &[u8], pattern: &[u8]) -> bool {
 mod tests {
     use super::*;
     use crate::kotlin_recovery::normalize_kotlin_for_parse;
+
+    fn temp_scan_repo() -> (tempfile::TempDir, ComposeScanConfig) {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let registry_dir = tmp.path().join("design-system");
+        std::fs::create_dir_all(&registry_dir).expect("create registry dir");
+        std::fs::write(
+            registry_dir.join("registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"PrimaryButton"}]}"#,
+        )
+        .expect("write registry");
+        std::fs::create_dir_all(tmp.path().join("app/src/main/kotlin")).expect("create source dir");
+        let config = ComposeScanConfig {
+            design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
+            roots: vec![std::path::PathBuf::from("app/src/main/kotlin")],
+            excludes: vec![],
+        };
+        (tmp, config)
+    }
 
     fn make_parser() -> tree_sitter::Parser {
         let mut p = tree_sitter::Parser::new();
@@ -2157,23 +2166,8 @@ fun Screen() { Button(onClick = {}) }
 
     #[test]
     fn no_tree_file_is_skipped_while_neighbors_still_scan() {
-        let config = ComposeScanConfig {
-            design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
-            roots: vec![std::path::PathBuf::from("app/src/main/kotlin")],
-            excludes: vec![],
-        };
-
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let registry_dir = tmp.path().join("design-system");
-        std::fs::create_dir_all(&registry_dir).expect("create registry dir");
-        std::fs::write(
-            registry_dir.join("registry.json"),
-            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"PrimaryButton"}]}"#,
-        )
-        .expect("write registry");
-
+        let (tmp, config) = temp_scan_repo();
         let source_dir = tmp.path().join("app/src/main/kotlin");
-        std::fs::create_dir_all(&source_dir).expect("create source dir");
         std::fs::write(source_dir.join("NoTree.kt"), "fun skipped() {}\n").expect("write no-tree");
         std::fs::write(
             source_dir.join("Partial.kt"),
@@ -2233,25 +2227,9 @@ fun Screen() { Button(onClick = {}) }
 
     #[test]
     fn filesystem_read_errors_abort_the_scan() {
-        let config = ComposeScanConfig {
-            design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
-            roots: vec![std::path::PathBuf::from("app/src/main/kotlin")],
-            excludes: vec![],
-        };
-
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let registry_dir = tmp.path().join("design-system");
-        std::fs::create_dir_all(&registry_dir).expect("create registry dir");
-        std::fs::write(
-            registry_dir.join("registry.json"),
-            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"PrimaryButton"}]}"#,
-        )
-        .expect("write registry");
-
-        let source_dir = tmp.path().join("app/src/main/kotlin");
-        std::fs::create_dir_all(&source_dir).expect("create source dir");
-        let unreadable = source_dir.join("Unreadable.kt");
-        std::fs::write(&unreadable, "@Composable\nfun Screen() {}\n").expect("write source");
+        let (tmp, config) = temp_scan_repo();
+        std::fs::write(tmp.path().join("app/src/main/kotlin/Unreadable.kt"), "")
+            .expect("write source");
 
         fn parse_file_io_error(
             _parser: &mut tree_sitter::Parser,
