@@ -236,6 +236,39 @@ fn known_valid_syntax_is_byte_preserving() {
         member_context_line,
         member_context_column,
     );
+    let (object_context_line, object_context_column) = find_line_and_column_after(
+        &member_syntax_source,
+        "fun ContextualObjectMember",
+        "PrimaryButton(onClick = {})",
+    );
+    assert_fact(
+        &facts,
+        FactKind::Usage,
+        "app/src/main/kotlin/MemberSyntax.kt",
+        "PrimaryButton",
+        object_context_line,
+        object_context_column,
+    );
+    assert!(
+        facts
+            .local_components
+            .iter()
+            .any(|component| component.symbol == "AfterObjectMemberSyntax"),
+        "missing local component after object member context parameter"
+    );
+    let (object_after_line, object_after_column) = find_line_and_column_after(
+        &member_syntax_source,
+        "fun AfterObjectMemberSyntax",
+        COMMON_AFTER_CALL,
+    );
+    assert_fact(
+        &facts,
+        FactKind::Usage,
+        "app/src/main/kotlin/MemberSyntax.kt",
+        "PrimaryButton",
+        object_after_line,
+        object_after_column,
+    );
 
     let (initializer_token_line, initializer_token_column) = find_line_and_column_after(
         &explicit_backing_field_source,

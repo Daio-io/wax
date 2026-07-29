@@ -220,6 +220,9 @@ fn lex_kotlin(source: &str) -> LexedKotlin<'_> {
             b'\'' => {
                 index = skip_quoted_literal(bytes, index + 1, b'\'');
             }
+            b'`' => {
+                index = skip_backticked_identifier(bytes, index + 1);
+            }
             b'(' => {
                 delimiter_stack.push((index, DelimiterKind::Paren));
                 index += 1;
@@ -607,15 +610,15 @@ fn collect_soft_keyword_function_name_transforms(
         {
             continue;
         }
-        let Some(&fun_start) = token_index
-            .checked_sub(1)
-            .and_then(|index| lexed.token_starts.get(index))
+        let Some(fun_start) = lexed.token_starts[..token_index]
+            .iter()
+            .rev()
+            .copied()
+            .find(|start| starts_with_keyword(lexed.bytes, *start, b"fun"))
         else {
             continue;
         };
-        if !starts_with_keyword(lexed.bytes, fun_start, b"fun")
-            || next_significant_index(lexed.bytes, fun_start + "fun".len()) != Some(token_start)
-        {
+        if !function_name_follows_fun(lexed, fun_start, token_start) {
             continue;
         }
 
@@ -631,6 +634,83 @@ fn collect_soft_keyword_function_name_transforms(
             replacement: Some((source, b"suspen_")),
         });
     }
+}
+
+fn function_name_follows_fun(lexed: &LexedKotlin<'_>, fun_start: usize, name_start: usize) -> bool {
+    let Some(mut prefix_start) = next_significant_index(lexed.bytes, fun_start + "fun".len())
+    else {
+        return false;
+    };
+    if lexed.bytes.get(prefix_start) == Some(&b'<') {
+        let Some(type_parameters_end) = lexed.matching_delimiters.get(&prefix_start).copied()
+        else {
+            return false;
+        };
+        let Some(next) = next_significant_index(lexed.bytes, type_parameters_end + 1) else {
+            return false;
+        };
+        prefix_start = next;
+    }
+    if prefix_start == name_start {
+        return true;
+    }
+    if prefix_start > name_start || declaration_prefix_has_barrier(lexed, prefix_start, name_start)
+    {
+        return false;
+    }
+
+    last_significant_byte_in_range(lexed.bytes, prefix_start, name_start) == Some(b'.')
+}
+
+fn declaration_prefix_has_barrier(lexed: &LexedKotlin<'_>, start: usize, end: usize) -> bool {
+    let mut index = start;
+    while index < end {
+        if let Some(close) = lexed.matching_delimiters.get(&index).copied()
+            && close < end
+        {
+            index = close + 1;
+            continue;
+        }
+        match lexed.bytes[index] {
+            b'/' if lexed.bytes.get(index + 1) == Some(&b'/') => {
+                index = skip_line_comment(lexed.bytes, index + 2);
+            }
+            b'/' if lexed.bytes.get(index + 1) == Some(&b'*') => {
+                index = skip_block_comment(lexed.bytes, index + 2);
+            }
+            b'"' if lexed.bytes.get(index + 1) == Some(&b'"')
+                && lexed.bytes.get(index + 2) == Some(&b'"') =>
+            {
+                index = skip_triple_quoted_string(lexed.bytes, index + 3);
+            }
+            b'"' => index = skip_quoted_literal(lexed.bytes, index + 1, b'"'),
+            b'\'' => index = skip_quoted_literal(lexed.bytes, index + 1, b'\''),
+            b'{' | b'}' | b'=' | b';' => return true,
+            _ => index += 1,
+        }
+    }
+    false
+}
+
+fn last_significant_byte_in_range(bytes: &[u8], start: usize, end: usize) -> Option<u8> {
+    let mut last = None;
+    let mut index = start;
+    while index < end {
+        match bytes[index] {
+            byte if byte.is_ascii_whitespace() => index += 1,
+            b'/' if bytes.get(index + 1) == Some(&b'/') => {
+                index = skip_line_comment(bytes, index + 2);
+            }
+            b'/' if bytes.get(index + 1) == Some(&b'*') => {
+                index = skip_block_comment(bytes, index + 2);
+            }
+            byte => {
+                last = Some(byte);
+                index += 1;
+            }
+        }
+    }
+    last
 }
 
 fn collect_when_guard_transforms(lexed: &LexedKotlin<'_>, out: &mut Vec<RecoveryTransform>) {
@@ -1332,11 +1412,11 @@ fn is_annotation_token_byte(byte: u8) -> bool {
 }
 
 fn is_identifier_start_byte(byte: u8) -> bool {
-    byte.is_ascii_alphabetic() || byte == b'_'
+    byte.is_ascii_alphabetic() || byte == b'_' || !byte.is_ascii()
 }
 
 fn is_identifier_byte(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || byte == b'_'
+    byte.is_ascii_alphanumeric() || byte == b'_' || !byte.is_ascii()
 }
 
 fn skip_ascii_whitespace(bytes: &[u8], mut index: usize) -> usize {
@@ -1391,6 +1471,16 @@ fn skip_quoted_literal(bytes: &[u8], mut index: usize, delimiter: u8) -> usize {
             byte if byte == delimiter => return index + 1,
             _ => index += 1,
         }
+    }
+    bytes.len()
+}
+
+fn skip_backticked_identifier(bytes: &[u8], mut index: usize) -> usize {
+    while index < bytes.len() {
+        if bytes[index] == b'`' {
+            return index + 1;
+        }
+        index += 1;
     }
     bytes.len()
 }
@@ -1694,6 +1784,35 @@ val character = '@'
     }
 
     #[test]
+    fn generic_and_extension_soft_keyword_function_names_parse_cleanly() {
+        for source in [
+            "class Controller {\n    fun <T> suspend(value: T): T = value\n}\n",
+            "class Scope\nclass Controller {\n    fun Scope.suspend() = Unit\n}\n",
+        ] {
+            let normalized = normalize_kotlin_for_parse(source);
+            let tree = parse(&normalized);
+
+            assert_eq!(normalized.bytes.len(), source.len());
+            assert_eq!(
+                newline_offsets(&normalized.bytes),
+                newline_offsets(source.as_bytes())
+            );
+            assert!(
+                !tree.root_node().has_error(),
+                "{}",
+                tree.root_node().to_sexp()
+            );
+            assert!(
+                normalized
+                    .regions
+                    .iter()
+                    .any(|region| region.family == SyntaxFamily::SoftKeywordFunctionName),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
     fn member_context_parameter_parses_cleanly_after_normalization() {
         let source = concat!(
             "class Scope\n",
@@ -1754,6 +1873,10 @@ val character = '@'
             "suspend fun render() {}\n",
             "val loader = suspend {}\n",
             "fun render() { suspend() }\n",
+            "fun render() = Scope.suspend()\n",
+            "fun host(`fun`: Scope) = `fun`.suspend()\n",
+            "fun host(λfun: Scope) = λfun.suspend()\n",
+            "fun host(funλ: Scope) = funλ.suspend()\n",
         ] {
             let normalized = normalize_kotlin_for_parse(source);
 

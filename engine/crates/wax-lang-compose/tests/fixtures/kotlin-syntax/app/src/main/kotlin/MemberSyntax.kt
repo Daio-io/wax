@@ -30,6 +30,10 @@ class Controller {
 
     fun suspend() = Unit
 
+    fun <T> suspend(value: T): T = value
+
+    fun ItemScope.suspend() = Unit
+
     context(itemScope: ItemScope)
     @Composable
     fun ContextualMember() {
@@ -39,6 +43,21 @@ class Controller {
 
     @Composable
     fun AfterMemberSyntax() {
+        PrimaryButton(onClick = {}, modifier = Modifier.padding(7.dp))
+        Spacing.small
+    }
+}
+
+object ObjectController {
+    context(itemScope: ItemScope)
+    @Composable
+    fun ContextualObjectMember() {
+        itemScope.hashCode()
+        PrimaryButton(onClick = {})
+    }
+
+    @Composable
+    fun AfterObjectMemberSyntax() {
         PrimaryButton(onClick = {}, modifier = Modifier.padding(7.dp))
         Spacing.small
     }
