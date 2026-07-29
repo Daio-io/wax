@@ -34,6 +34,7 @@ impl ByteRange {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum SyntaxFamily {
     SuspendLambda,
+    SoftKeywordFunctionName,
     WhenGuard,
     AnnotatedFunctionType,
     ExplicitBackingField,
@@ -134,6 +135,7 @@ struct RecoveryTransform {
     family: SyntaxFamily,
     component_scope: ComponentScopePolicy,
     mask_ranges: Vec<ByteRange>,
+    replacement: Option<(ByteRange, &'static [u8])>,
 }
 
 pub(crate) fn merge_clean_ranges(mut ranges: Vec<ByteRange>) -> Vec<ByteRange> {
@@ -156,6 +158,7 @@ pub(crate) fn normalize_kotlin_for_parse(source: &str) -> NormalizedKotlinSource
     let lexed = lex_kotlin(source);
     let mut transforms = Vec::new();
     collect_suspend_lambda_transforms(&lexed, &mut transforms);
+    collect_soft_keyword_function_name_transforms(&lexed, &mut transforms);
     collect_when_guard_transforms(&lexed, &mut transforms);
     collect_annotated_function_type_transforms(&lexed, &mut transforms);
     collect_explicit_backing_field_transforms(&lexed, &mut transforms);
@@ -167,6 +170,11 @@ pub(crate) fn normalize_kotlin_for_parse(source: &str) -> NormalizedKotlinSource
 
     selected.sort_by_key(|transform| Reverse(transform.source.start));
     for transform in &selected {
+        if let Some((range, replacement)) = transform.replacement
+            && range.len() == replacement.len()
+        {
+            bytes[range.start..range.end].copy_from_slice(replacement);
+        }
         for range in &transform.mask_ranges {
             mask_preserving_lines(&mut bytes, *range);
         }
@@ -579,6 +587,48 @@ fn collect_suspend_lambda_transforms(lexed: &LexedKotlin<'_>, out: &mut Vec<Reco
             family: SyntaxFamily::SuspendLambda,
             component_scope: ComponentScopePolicy::Exclude,
             mask_ranges: vec![mask],
+            replacement: None,
+        });
+    }
+}
+
+fn collect_soft_keyword_function_name_transforms(
+    lexed: &LexedKotlin<'_>,
+    out: &mut Vec<RecoveryTransform>,
+) {
+    for (token_index, &token_start) in lexed.token_starts.iter().enumerate() {
+        if !starts_with_keyword(lexed.bytes, token_start, b"suspend") {
+            continue;
+        }
+
+        let keyword_end = token_start + "suspend".len();
+        if next_significant_index(lexed.bytes, keyword_end).and_then(|index| lexed.bytes.get(index))
+            != Some(&b'(')
+        {
+            continue;
+        }
+        let Some(&fun_start) = token_index
+            .checked_sub(1)
+            .and_then(|index| lexed.token_starts.get(index))
+        else {
+            continue;
+        };
+        if !starts_with_keyword(lexed.bytes, fun_start, b"fun")
+            || next_significant_index(lexed.bytes, fun_start + "fun".len()) != Some(token_start)
+        {
+            continue;
+        }
+
+        let Some(source) = ByteRange::new(token_start, keyword_end) else {
+            continue;
+        };
+        out.push(RecoveryTransform {
+            source,
+            body: None,
+            family: SyntaxFamily::SoftKeywordFunctionName,
+            component_scope: ComponentScopePolicy::Inherit,
+            mask_ranges: Vec::new(),
+            replacement: Some((source, b"suspen_")),
         });
     }
 }
@@ -647,6 +697,7 @@ fn collect_when_guard_transforms(lexed: &LexedKotlin<'_>, out: &mut Vec<Recovery
                 family: SyntaxFamily::WhenGuard,
                 component_scope: ComponentScopePolicy::Inherit,
                 mask_ranges: vec![mask],
+                replacement: None,
             });
         }
     }
@@ -707,6 +758,7 @@ fn collect_annotated_function_type_transforms(
                 ComponentScopePolicy::Inherit
             },
             mask_ranges: vec![open_mask, close_mask],
+            replacement: None,
         });
     }
 }
@@ -758,6 +810,7 @@ fn collect_explicit_backing_field_transforms(
             family: SyntaxFamily::ExplicitBackingField,
             component_scope: ComponentScopePolicy::Exclude,
             mask_ranges: vec![mask],
+            replacement: None,
         });
     }
 }
@@ -815,6 +868,10 @@ fn collect_context_transforms(lexed: &LexedKotlin<'_>, out: &mut Vec<RecoveryTra
         let Some(source) = ByteRange::new(token_start, close + 1) else {
             continue;
         };
+        if saw_parameter && enclosing_class_or_object_body(lexed, token_start).is_some() {
+            mask_ranges.clear();
+            mask_ranges.push(source);
+        }
         out.push(RecoveryTransform {
             source,
             body: None,
@@ -825,6 +882,7 @@ fn collect_context_transforms(lexed: &LexedKotlin<'_>, out: &mut Vec<RecoveryTra
             },
             component_scope: ComponentScopePolicy::Inherit,
             mask_ranges,
+            replacement: None,
         });
     }
 }
@@ -897,6 +955,7 @@ fn collect_annotated_type_argument_transforms(
             family: SyntaxFamily::AnnotatedTypeArgument,
             component_scope: ComponentScopePolicy::Exclude,
             mask_ranges,
+            replacement: None,
         });
     }
 }
@@ -1378,6 +1437,11 @@ mod tests {
             "AfterContextReceiver",
         ),
         (
+            "MemberSyntax.kt",
+            include_str!("../tests/fixtures/kotlin-syntax/app/src/main/kotlin/MemberSyntax.kt"),
+            "AfterMemberSyntax",
+        ),
+        (
             "WhenTrailingComma.kt",
             include_str!(
                 "../tests/fixtures/kotlin-syntax/app/src/main/kotlin/WhenTrailingComma.kt"
@@ -1587,6 +1651,112 @@ val character = '@'
                 .any(|region| region.family == SyntaxFamily::ContextReceiver),
             "legacy context receivers should still be recorded as known syntax"
         );
+    }
+
+    #[test]
+    fn soft_keyword_function_name_parses_cleanly_after_normalization() {
+        let source = "class Controller {\n    fun suspend() {}\n}\n";
+
+        let normalized = normalize_kotlin_for_parse(source);
+        let tree = parse(&normalized);
+
+        assert_eq!(normalized.bytes.len(), source.len());
+        assert_eq!(
+            newline_offsets(&normalized.bytes),
+            newline_offsets(source.as_bytes())
+        );
+        assert_eq!(normalized.regions.len(), 1);
+        assert_eq!(
+            normalized.regions[0].family,
+            SyntaxFamily::SoftKeywordFunctionName
+        );
+        assert!(
+            !tree.root_node().has_error(),
+            "{}",
+            tree.root_node().to_sexp()
+        );
+        let function_name = find_function_name_node(tree.root_node(), source.as_bytes(), "suspend")
+            .expect("soft-keyword function name");
+        assert_eq!(
+            function_name
+                .utf8_text(source.as_bytes())
+                .expect("original function name"),
+            "suspend"
+        );
+    }
+
+    #[test]
+    fn member_context_parameter_parses_cleanly_after_normalization() {
+        let source = concat!(
+            "class Scope\n",
+            "class Container {\n",
+            "    context(scope: Scope)\n",
+            "    fun render() {}\n",
+            "}\n",
+        );
+
+        let normalized = normalize_kotlin_for_parse(source);
+        let tree = parse(&normalized);
+
+        assert_eq!(normalized.bytes.len(), source.len());
+        assert_eq!(
+            newline_offsets(&normalized.bytes),
+            newline_offsets(source.as_bytes())
+        );
+        assert!(
+            !tree.root_node().has_error(),
+            "{}",
+            tree.root_node().to_sexp()
+        );
+        let clause_start = source.find("context(").expect("context clause");
+        let clause_end = source[clause_start..]
+            .find(')')
+            .map(|offset| clause_start + offset + 1)
+            .expect("context clause end");
+        assert!(
+            normalized.bytes[clause_start..clause_end]
+                .iter()
+                .all(|byte| *byte == b' ')
+        );
+    }
+
+    #[test]
+    fn interface_context_parameter_parses_cleanly_after_normalization() {
+        let source = concat!(
+            "class Scope\n",
+            "interface Container {\n",
+            "    context(scope: Scope)\n",
+            "    fun render() {}\n",
+            "}\n",
+        );
+
+        let normalized = normalize_kotlin_for_parse(source);
+        let tree = parse(&normalized);
+
+        assert!(
+            !tree.root_node().has_error(),
+            "{}",
+            tree.root_node().to_sexp()
+        );
+    }
+
+    #[test]
+    fn suspend_modifiers_lambdas_and_calls_are_not_function_name_regions() {
+        for source in [
+            "suspend fun render() {}\n",
+            "val loader = suspend {}\n",
+            "fun render() { suspend() }\n",
+        ] {
+            let normalized = normalize_kotlin_for_parse(source);
+
+            assert!(
+                normalized
+                    .regions
+                    .iter()
+                    .all(|region| region.family != SyntaxFamily::SoftKeywordFunctionName),
+                "{source}"
+            );
+        }
     }
 
     fn parse(normalized: &NormalizedKotlinSource) -> tree_sitter::Tree {

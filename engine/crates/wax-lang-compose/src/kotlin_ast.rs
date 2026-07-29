@@ -204,6 +204,7 @@ pub(crate) fn partial_tree_parse_diagnostic(
 fn syntax_family_name(family: SyntaxFamily) -> &'static str {
     match family {
         SyntaxFamily::SuspendLambda => "suspend lambda",
+        SyntaxFamily::SoftKeywordFunctionName => "soft-keyword function name",
         SyntaxFamily::WhenGuard => "when guard",
         SyntaxFamily::AnnotatedFunctionType => "annotated function type",
         SyntaxFamily::ExplicitBackingField => "explicit backing field",
