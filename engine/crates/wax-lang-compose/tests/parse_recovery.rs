@@ -59,6 +59,16 @@ fn known_valid_syntax_is_byte_preserving() {
             "AfterContextReceiver",
         ),
         (
+            "app/src/main/kotlin/MemberSyntax.kt",
+            "BeforeMemberSyntax",
+            "AfterMemberSyntax",
+        ),
+        (
+            "app/src/main/kotlin/MemberSyntax.kt",
+            "ContextualObjectMember",
+            "AfterObjectMemberSyntax",
+        ),
+        (
             "app/src/main/kotlin/WhenTrailingComma.kt",
             "BeforeWhenTrailingComma",
             "AfterWhenTrailingComma",
@@ -215,6 +225,34 @@ fn known_valid_syntax_is_byte_preserving() {
         "PrimaryButton",
         context_receiver_line,
         context_receiver_column,
+    );
+
+    let member_syntax_source = fixture_source(&fixture_root, "app/src/main/kotlin/MemberSyntax.kt");
+    let (member_context_line, member_context_column) = find_line_and_column_after(
+        &member_syntax_source,
+        "fun ContextualMember",
+        "PrimaryButton(onClick = {})",
+    );
+    assert_fact(
+        &facts,
+        FactKind::Usage,
+        "app/src/main/kotlin/MemberSyntax.kt",
+        "PrimaryButton",
+        member_context_line,
+        member_context_column,
+    );
+    let (object_context_line, object_context_column) = find_line_and_column_after(
+        &member_syntax_source,
+        "fun ContextualObjectMember",
+        "PrimaryButton(onClick = {})",
+    );
+    assert_fact(
+        &facts,
+        FactKind::Usage,
+        "app/src/main/kotlin/MemberSyntax.kt",
+        "PrimaryButton",
+        object_context_line,
+        object_context_column,
     );
 
     let (initializer_token_line, initializer_token_column) = find_line_and_column_after(
