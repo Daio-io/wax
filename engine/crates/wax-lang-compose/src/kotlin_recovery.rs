@@ -135,7 +135,6 @@ struct RecoveryTransform {
     family: SyntaxFamily,
     component_scope: ComponentScopePolicy,
     mask_ranges: Vec<ByteRange>,
-    replacement: Option<(ByteRange, &'static [u8])>,
 }
 
 pub(crate) fn merge_clean_ranges(mut ranges: Vec<ByteRange>) -> Vec<ByteRange> {
@@ -170,10 +169,8 @@ pub(crate) fn normalize_kotlin_for_parse(source: &str) -> NormalizedKotlinSource
 
     selected.sort_by_key(|transform| Reverse(transform.source.start));
     for transform in &selected {
-        if let Some((range, replacement)) = transform.replacement
-            && range.len() == replacement.len()
-        {
-            bytes[range.start..range.end].copy_from_slice(replacement);
+        if transform.family == SyntaxFamily::SoftKeywordFunctionName {
+            bytes[transform.source.end - 1] = b'_';
         }
         for range in &transform.mask_ranges {
             mask_preserving_lines(&mut bytes, *range);
@@ -590,7 +587,6 @@ fn collect_suspend_lambda_transforms(lexed: &LexedKotlin<'_>, out: &mut Vec<Reco
             family: SyntaxFamily::SuspendLambda,
             component_scope: ComponentScopePolicy::Exclude,
             mask_ranges: vec![mask],
-            replacement: None,
         });
     }
 }
@@ -631,7 +627,6 @@ fn collect_soft_keyword_function_name_transforms(
             family: SyntaxFamily::SoftKeywordFunctionName,
             component_scope: ComponentScopePolicy::Inherit,
             mask_ranges: Vec::new(),
-            replacement: Some((source, b"suspen_")),
         });
     }
 }
@@ -654,63 +649,40 @@ fn function_name_follows_fun(lexed: &LexedKotlin<'_>, fun_start: usize, name_sta
     if prefix_start == name_start {
         return true;
     }
-    if prefix_start > name_start || declaration_prefix_has_barrier(lexed, prefix_start, name_start)
-    {
+    if prefix_start > name_start {
         return false;
     }
 
-    last_significant_byte_in_range(lexed.bytes, prefix_start, name_start) == Some(b'.')
+    extension_receiver_prefix_is_valid(lexed, prefix_start, name_start)
 }
 
-fn declaration_prefix_has_barrier(lexed: &LexedKotlin<'_>, start: usize, end: usize) -> bool {
+fn extension_receiver_prefix_is_valid(lexed: &LexedKotlin<'_>, start: usize, end: usize) -> bool {
+    let mut last = None;
     let mut index = start;
     while index < end {
         if let Some(close) = lexed.matching_delimiters.get(&index).copied()
             && close < end
         {
+            last = Some(lexed.bytes[close]);
             index = close + 1;
             continue;
         }
         match lexed.bytes[index] {
+            byte if byte.is_ascii_whitespace() => index += 1,
             b'/' if lexed.bytes.get(index + 1) == Some(&b'/') => {
                 index = skip_line_comment(lexed.bytes, index + 2);
             }
             b'/' if lexed.bytes.get(index + 1) == Some(&b'*') => {
                 index = skip_block_comment(lexed.bytes, index + 2);
             }
-            b'"' if lexed.bytes.get(index + 1) == Some(&b'"')
-                && lexed.bytes.get(index + 2) == Some(&b'"') =>
-            {
-                index = skip_triple_quoted_string(lexed.bytes, index + 3);
-            }
-            b'"' => index = skip_quoted_literal(lexed.bytes, index + 1, b'"'),
-            b'\'' => index = skip_quoted_literal(lexed.bytes, index + 1, b'\''),
-            b'{' | b'}' | b'=' | b';' => return true,
-            _ => index += 1,
-        }
-    }
-    false
-}
-
-fn last_significant_byte_in_range(bytes: &[u8], start: usize, end: usize) -> Option<u8> {
-    let mut last = None;
-    let mut index = start;
-    while index < end {
-        match bytes[index] {
-            byte if byte.is_ascii_whitespace() => index += 1,
-            b'/' if bytes.get(index + 1) == Some(&b'/') => {
-                index = skip_line_comment(bytes, index + 2);
-            }
-            b'/' if bytes.get(index + 1) == Some(&b'*') => {
-                index = skip_block_comment(bytes, index + 2);
-            }
+            b'{' | b'}' | b'=' | b';' => return false,
             byte => {
                 last = Some(byte);
                 index += 1;
             }
         }
     }
-    last
+    last == Some(b'.')
 }
 
 fn collect_when_guard_transforms(lexed: &LexedKotlin<'_>, out: &mut Vec<RecoveryTransform>) {
@@ -763,7 +735,6 @@ fn collect_when_guard_transforms(lexed: &LexedKotlin<'_>, out: &mut Vec<Recovery
                 family: SyntaxFamily::WhenGuard,
                 component_scope: ComponentScopePolicy::Inherit,
                 mask_ranges: vec![mask],
-                replacement: None,
             });
         }
     }
@@ -841,7 +812,6 @@ fn collect_annotated_function_type_transforms(
                 ComponentScopePolicy::Inherit
             },
             mask_ranges: vec![open_mask, close_mask],
-            replacement: None,
         });
     }
 }
@@ -893,7 +863,6 @@ fn collect_explicit_backing_field_transforms(
             family: SyntaxFamily::ExplicitBackingField,
             component_scope: ComponentScopePolicy::Exclude,
             mask_ranges: vec![mask],
-            replacement: None,
         });
     }
 }
@@ -965,7 +934,6 @@ fn collect_context_transforms(lexed: &LexedKotlin<'_>, out: &mut Vec<RecoveryTra
             },
             component_scope: ComponentScopePolicy::Inherit,
             mask_ranges,
-            replacement: None,
         });
     }
 }
@@ -1038,7 +1006,6 @@ fn collect_annotated_type_argument_transforms(
             family: SyntaxFamily::AnnotatedTypeArgument,
             component_scope: ComponentScopePolicy::Exclude,
             mask_ranges,
-            replacement: None,
         });
     }
 }
