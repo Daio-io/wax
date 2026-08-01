@@ -188,13 +188,25 @@ pub fn validate_repo_with_progress(
             language_id: entry.id.clone(),
         });
         let registry_field = format!("languages.{}.registry", entry.id.as_str());
+        let source = match entry.registry_source.as_ref() {
+            Some(registry) => {
+                if let Some((git, tag)) = registry.git_parts() {
+                    return Err(ValidateError::RegistrySource {
+                        field: registry_field,
+                        source: crate::registry_source::RegistrySourceError::GitRegistryResolutionNotWired {
+                            git: git.to_owned(),
+                            tag: tag.to_owned(),
+                        },
+                    });
+                }
+                registry.path_or_url_parts().map(|(source, _)| source)
+            }
+            None => None,
+        };
         let resolved = resolve_registry_source_allowing_missing_components(RegistrySourceInput {
             repo_root,
             language_id: entry.id.as_str(),
-            source: entry
-                .registry_source
-                .as_ref()
-                .map(|setting| setting.source.as_str()),
+            source,
         })
         .map_err(|source| ValidateError::RegistrySource {
             field: registry_field.clone(),

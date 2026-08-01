@@ -78,7 +78,7 @@ fn config_v2_parses_language_map_and_design_systems() {
     assert_eq!(language.roots, ["src"]);
     assert_eq!(
         language.registry_source.as_ref().unwrap(),
-        &LanguageRegistrySource {
+        &LanguageRegistrySource::PathOrUrl {
             source: ".wax/registries/acme/react.json".to_owned(),
             upstream: Some("acme/react".to_owned()),
         }
@@ -126,7 +126,13 @@ fn config_v2_preserves_pack_specific_extra_fields() {
     assert_eq!(language.id.as_str(), "basic");
     assert_eq!(language.roots, ["app/src"]);
     assert_eq!(
-        language.registry_source.as_ref().unwrap().source,
+        language
+            .registry_source
+            .as_ref()
+            .unwrap()
+            .path_or_url_parts()
+            .unwrap()
+            .0,
         "design-system/registry.json"
     );
     assert_eq!(
@@ -135,6 +141,105 @@ fn config_v2_preserves_pack_specific_extra_fields() {
     );
     assert!(!language.extra.contains_key("roots"));
     assert!(!language.extra.contains_key("registry"));
+}
+
+#[test]
+fn config_v2_parses_git_registry() {
+    let file = TestFile::new(
+        "git-registry",
+        r#"{
+  "schema_version": 2,
+  "languages": {
+    "react": {
+      "registry": {
+        "git": "git@github.com:acme/design-system.git",
+        "tag": "v2.4.1"
+      }
+    }
+  }
+}"#,
+    );
+
+    assert_eq!(
+        load_waxrc(file.path()).unwrap().languages[0].registry_source,
+        Some(LanguageRegistrySource::Git {
+            git: "git@github.com:acme/design-system.git".to_owned(),
+            tag: "v2.4.1".to_owned(),
+        })
+    );
+}
+
+#[test]
+fn config_v2_accepts_git_urls_and_commit_tags() {
+    for (git, tag) in [
+        ("https://github.com/acme/design-system.git", "release"),
+        ("git@github.com:acme/design-system.git", "0123456789abcdef"),
+    ] {
+        let contents = serde_json::json!({
+            "schema_version": 2,
+            "languages": { "react": { "registry": { "git": git, "tag": tag } } }
+        })
+        .to_string();
+        let file = TestFile::new("git-opaque-values", &contents);
+        assert!(matches!(
+            load_waxrc(file.path()).unwrap().languages[0].registry_source,
+            Some(LanguageRegistrySource::Git { .. })
+        ));
+    }
+}
+
+#[test]
+fn config_v2_rejects_invalid_git_registry_shapes() {
+    for (name, registry, expected) in [
+        ("missing-git", r#"{"tag":"v1"}"#, "git is required"),
+        (
+            "missing-tag",
+            r#"{"git":"https://example.com/repo.git"}"#,
+            "tag is required",
+        ),
+        (
+            "empty-git",
+            r#"{"git":"","tag":"v1"}"#,
+            "git must be a non-empty string",
+        ),
+        (
+            "blank-tag",
+            r#"{"git":"repo","tag":"   "}"#,
+            "tag must be a non-empty string",
+        ),
+        (
+            "null-git",
+            r#"{"git":null,"tag":"v1"}"#,
+            "git cannot be null",
+        ),
+        (
+            "null-tag",
+            r#"{"git":"repo","tag":null}"#,
+            "tag cannot be null",
+        ),
+        (
+            "mixed-source",
+            r#"{"git":"repo","tag":"v1","source":"x"}"#,
+            "cannot mix `git` with `source`",
+        ),
+        (
+            "mixed-upstream",
+            r#"{"git":"repo","tag":"v1","upstream":"acme/react"}"#,
+            "cannot mix `tag` with `upstream`",
+        ),
+        (
+            "unexpected-path",
+            r#"{"git":"repo","tag":"v1","path":"x"}"#,
+            "unknown field `path`",
+        ),
+    ] {
+        let file = TestFile::new(
+            name,
+            &format!(r#"{{"schema_version":2,"languages":{{"react":{{"registry":{registry}}}}}}}"#),
+        );
+        let error = load_waxrc(file.path()).unwrap_err().to_string();
+        assert!(error.contains(expected), "{name}: {error}");
+    }
 }
 
 #[test]

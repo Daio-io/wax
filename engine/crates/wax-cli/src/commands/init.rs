@@ -1285,7 +1285,7 @@ mod tests {
             waxrc.languages[0]
                 .registry_source
                 .as_ref()
-                .map(|source| source.source.as_str()),
+                .and_then(|source| source.path_or_url_parts().map(|(source, _)| source)),
             Some(default_registry_path_for_language(&lang("compose")).as_str())
         );
 

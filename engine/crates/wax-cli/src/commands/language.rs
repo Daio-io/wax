@@ -803,15 +803,10 @@ fn refresh_registry_locks_in_lockfile(
     waxrc: &WaxRc,
 ) -> Result<(), LanguageCommandError> {
     for entry in &waxrc.languages {
-        let resolved = wax_core::registry_source::resolve_registry_source(
-            wax_core::registry_source::RegistrySourceInput {
-                repo_root,
-                language_id: entry.id.as_str(),
-                source: entry
-                    .registry_source
-                    .as_ref()
-                    .map(|setting| setting.source.as_str()),
-            },
+        let resolved = wax_core::registry_source::resolve_language_registry_source(
+            repo_root,
+            entry.id.as_str(),
+            entry.registry_source.as_ref(),
         )?;
         lockfile.registries.insert(
             entry.id.clone(),

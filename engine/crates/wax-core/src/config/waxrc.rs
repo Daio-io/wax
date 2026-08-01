@@ -218,11 +218,44 @@ pub struct LanguageEntry {
 
 /// Parsed registry source setting from a language entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LanguageRegistrySource {
-    /// Registry source string used for scanning.
-    pub source: String,
-    /// Optional upstream design-system reference (`<design-system-id>/<language-id>`).
-    pub upstream: Option<String>,
+pub enum LanguageRegistrySource {
+    /// A repository path or URL, optionally associated with an upstream design system.
+    PathOrUrl {
+        /// Registry source path or URL.
+        source: String,
+        /// Optional upstream design-system reference (`<design-system-id>/<language-id>`).
+        upstream: Option<String>,
+    },
+    /// A registry stored at the fixed path in a remote git repository.
+    Git {
+        /// Git repository URL or scp-style remote.
+        git: String,
+        /// Git tag name or full commit SHA.
+        tag: String,
+    },
+}
+
+impl LanguageRegistrySource {
+    /// Returns the path/URL source and optional upstream, if this is path/URL mode.
+    pub fn path_or_url_parts(&self) -> Option<(&str, Option<&str>)> {
+        match self {
+            Self::PathOrUrl { source, upstream } => Some((source, upstream.as_deref())),
+            Self::Git { .. } => None,
+        }
+    }
+
+    /// Returns the upstream design-system reference, if configured.
+    pub fn upstream(&self) -> Option<&str> {
+        self.path_or_url_parts().and_then(|(_, upstream)| upstream)
+    }
+
+    /// Returns the git repository and tag, if this is git mode.
+    pub fn git_parts(&self) -> Option<(&str, &str)> {
+        match self {
+            Self::PathOrUrl { .. } => None,
+            Self::Git { git, tag } => Some((git, tag)),
+        }
+    }
 }
 
 /// Design-system publication configuration.
@@ -272,14 +305,6 @@ struct LanguageEntryRaw {
     extra: serde_json::Map<String, serde_json::Value>,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RegistryObjectRaw {
-    source: String,
-    #[serde(default, deserialize_with = "deserialize_optional_upstream")]
-    upstream: Option<String>,
-}
-
 fn deserialize_optional_registry<'de, D>(deserializer: D) -> Result<Option<RegistryRaw>, D::Error>
 where
     D: de::Deserializer<'de>,
@@ -291,16 +316,6 @@ where
     RegistryRaw::deserialize(value)
         .map(Some)
         .map_err(D::Error::custom)
-}
-
-fn deserialize_optional_upstream<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
-where
-    D: de::Deserializer<'de>,
-{
-    deserialize_optional_non_null_string(
-        deserializer,
-        "languages.*.registry.upstream cannot be null",
-    )
 }
 
 fn deserialize_optional_published_source<'de, D>(
@@ -346,7 +361,14 @@ fn unexpected_value(value: &serde_json::Value) -> Unexpected<'_> {
 #[derive(Debug)]
 enum RegistryRaw {
     Source(String),
-    Object(RegistryObjectRaw),
+    Object {
+        source: String,
+        upstream: Option<String>,
+    },
+    Git {
+        git: String,
+        tag: String,
+    },
 }
 
 impl<'de> Deserialize<'de> for RegistryRaw {
@@ -358,10 +380,41 @@ impl<'de> Deserialize<'de> for RegistryRaw {
         match value {
             serde_json::Value::String(source) => Ok(Self::Source(source)),
             serde_json::Value::Object(map) => {
-                let object: RegistryObjectRaw =
-                    serde_json::from_value(serde_json::Value::Object(map))
-                        .map_err(D::Error::custom)?;
-                Ok(Self::Object(object))
+                let has_git = map.contains_key("git");
+                let has_source = map.contains_key("source");
+                let has_tag = map.contains_key("tag");
+                let has_upstream = map.contains_key("upstream");
+
+                for key in map.keys() {
+                    if !matches!(key.as_str(), "source" | "upstream" | "git" | "tag") {
+                        return Err(D::Error::custom(format!(
+                            "unknown field `{key}`, expected `source`, `upstream`, `git`, or `tag`"
+                        )));
+                    }
+                }
+
+                if has_git || has_tag {
+                    if has_source {
+                        return Err(D::Error::custom(
+                            "languages.*.registry cannot mix `git` with `source`",
+                        ));
+                    }
+                    if has_upstream {
+                        return Err(D::Error::custom(
+                            "languages.*.registry cannot mix `tag` with `upstream`",
+                        ));
+                    }
+                    let git = required_registry_string(&map, "git", D::Error::custom)?;
+                    let tag = required_registry_string(&map, "tag", D::Error::custom)?;
+                    return Ok(Self::Git { git, tag });
+                }
+
+                let source = required_registry_string(&map, "source", D::Error::custom)?;
+                let upstream = match map.get("upstream") {
+                    None => None,
+                    Some(value) => Some(registry_string(value, "upstream", D::Error::custom)?),
+                };
+                Ok(Self::Object { source, upstream })
             }
             serde_json::Value::Null => Err(D::Error::custom("languages.*.registry cannot be null")),
             _ => Err(D::Error::custom(
@@ -369,6 +422,39 @@ impl<'de> Deserialize<'de> for RegistryRaw {
             )),
         }
     }
+}
+
+fn required_registry_string<E>(
+    map: &serde_json::Map<String, serde_json::Value>,
+    field: &str,
+    custom: impl Fn(String) -> E,
+) -> Result<String, E> {
+    let value = map
+        .get(field)
+        .ok_or_else(|| custom(format!("languages.*.registry.{field} is required")))?;
+    let value = registry_string(value, field, &custom)?;
+    if value.trim().is_empty() {
+        return Err(custom(format!(
+            "languages.*.registry.{field} must be a non-empty string"
+        )));
+    }
+    Ok(value)
+}
+
+fn registry_string<E>(
+    value: &serde_json::Value,
+    field: &str,
+    custom: impl Fn(String) -> E,
+) -> Result<String, E> {
+    if value.is_null() {
+        return Err(custom(format!(
+            "languages.*.registry.{field} cannot be null"
+        )));
+    }
+    value
+        .as_str()
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| custom(format!("languages.*.registry.{field} must be a string")))
 }
 
 #[derive(Debug, Deserialize)]
@@ -547,14 +633,14 @@ impl LanguageEntryRaw {
         }
 
         let registry_source = self.registry.map(|registry| match registry {
-            RegistryRaw::Source(source) => LanguageRegistrySource {
+            RegistryRaw::Source(source) => LanguageRegistrySource::PathOrUrl {
                 source,
                 upstream: None,
             },
-            RegistryRaw::Object(registry) => LanguageRegistrySource {
-                source: registry.source,
-                upstream: registry.upstream,
-            },
+            RegistryRaw::Object { source, upstream } => {
+                LanguageRegistrySource::PathOrUrl { source, upstream }
+            }
+            RegistryRaw::Git { git, tag } => LanguageRegistrySource::Git { git, tag },
         });
 
         Ok(LanguageEntry {
@@ -610,18 +696,18 @@ impl LanguageEntry {
             return Ok(());
         };
 
-        if registry.source.trim().is_empty() {
-            return Err(serde_json::Error::custom(
-                "languages.*.registry.source must be a non-empty string",
-            ));
-        }
+        if let Some((source, upstream)) = registry.path_or_url_parts() {
+            if source.trim().is_empty() {
+                return Err(serde_json::Error::custom(
+                    "languages.*.registry.source must be a non-empty string",
+                ));
+            }
 
-        if let Some(upstream) = &registry.upstream
-            && upstream.trim().is_empty()
-        {
-            return Err(serde_json::Error::custom(
-                "languages.*.registry.upstream must be a non-empty string when set",
-            ));
+            if upstream.is_some_and(|value| value.trim().is_empty()) {
+                return Err(serde_json::Error::custom(
+                    "languages.*.registry.upstream must be a non-empty string when set",
+                ));
+            }
         }
 
         Ok(())

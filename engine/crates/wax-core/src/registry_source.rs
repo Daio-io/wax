@@ -3,6 +3,7 @@
 use crate::config::repo_files::{
     REGISTRY_CACHE_RELATIVE_DIR, default_registry_path_for_language_id,
 };
+use crate::config::waxrc::LanguageRegistrySource;
 use crate::{AtomicWriteError, AtomicWriteOptions, write_atomically};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -78,6 +79,51 @@ pub struct RegistrySourceInput<'a> {
     pub source: Option<&'a str>,
 }
 
+/// Resolves a configured language registry, rejecting git mode until its resolver is wired.
+///
+/// # Errors
+///
+/// Returns [`RegistrySourceError::GitRegistryResolutionNotWired`] for git mode,
+/// or the underlying source resolution error for path/URL mode.
+pub fn resolve_language_registry_source(
+    repo_root: &Path,
+    language_id: &str,
+    registry: Option<&LanguageRegistrySource>,
+) -> Result<ResolvedRegistrySource, RegistrySourceError> {
+    let source = match registry {
+        Some(LanguageRegistrySource::PathOrUrl { source, .. }) => Some(source.as_str()),
+        Some(LanguageRegistrySource::Git { git, tag }) => {
+            return Err(RegistrySourceError::GitRegistryResolutionNotWired {
+                git: git.clone(),
+                tag: tag.clone(),
+            });
+        }
+        None => None,
+    };
+    resolve_registry_source(RegistrySourceInput {
+        repo_root,
+        language_id,
+        source,
+    })
+}
+
+/// Rejects git registry configuration while git resolution is not yet available.
+///
+/// # Errors
+///
+/// Returns [`RegistrySourceError::GitRegistryResolutionNotWired`] for git mode.
+pub fn ensure_language_registry_source_supported(
+    registry: Option<&LanguageRegistrySource>,
+) -> Result<(), RegistrySourceError> {
+    if let Some(LanguageRegistrySource::Git { git, tag }) = registry {
+        return Err(RegistrySourceError::GitRegistryResolutionNotWired {
+            git: git.clone(),
+            tag: tag.clone(),
+        });
+    }
+    Ok(())
+}
+
 /// Resolved registry source ready for downstream config rewriting and locking.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedRegistrySource {
@@ -92,6 +138,14 @@ pub struct ResolvedRegistrySource {
 /// Typed failures while resolving registry sources.
 #[derive(Debug, Error)]
 pub enum RegistrySourceError {
+    /// A git registry was configured before git registry resolution was implemented.
+    #[error("git registry resolution is not wired yet for {git}@{tag}")]
+    GitRegistryResolutionNotWired {
+        /// Git repository configured in waxrc.
+        git: String,
+        /// Git tag or commit configured in waxrc.
+        tag: String,
+    },
     /// Unsupported source URL scheme.
     #[error(
         "unsupported registry source scheme in {input}; use repo-relative path, file://, http://, or https://"
