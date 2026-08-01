@@ -10,6 +10,8 @@ pub const PREFERRED_CONFIG_RELATIVE_PATH: &str = ".wax/wax.config.json";
 pub const PREFERRED_LOCKFILE_RELATIVE_PATH: &str = ".wax/wax.lock.json";
 /// Registry cache directory used for materialized external sources.
 pub const REGISTRY_CACHE_RELATIVE_DIR: &str = ".wax/cache/registries";
+/// Repo-local bare repositories used to cache Git-backed registry objects.
+pub const REGISTRY_GIT_CACHE_RELATIVE_DIR: &str = ".wax/cache/registry-git";
 /// Generated scan output directory.
 pub const SCAN_OUTPUT_RELATIVE_DIR: &str = ".wax/out";
 

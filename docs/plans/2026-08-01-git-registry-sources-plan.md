@@ -17,3 +17,10 @@ keeping fetching, caching, lock pinning, and CLI wiring in follow-on tasks.
 
 Follow-on resolver and lock semantics are tracked separately by THE-279 through
 THE-281.
+
+## Task 2: System-git fetch helper
+
+- [x] Add typed system-git fetch and commit-pinned read helpers in `wax-core`.
+- [x] Add deterministic per-URL bare-repository caching and the dedicated cache path constant.
+- [x] Add system-git fixture coverage for refs, tags, locked commits, errors, safe paths, and cache isolation.
+- [x] Run formatting, focused registry-git tests, and clippy verification.
