@@ -19,7 +19,8 @@ fn accepts_all_three_registry_shapes() {
     for registry in [
         json!(".wax/react.registry.json"),
         json!({ "source": "https://cdn.example.com/react.json", "upstream": "acme/react" }),
-        json!({ "git": "git@github.com:acme/design-system.git", "tag": "v2.4.1" }),
+        json!({ "git": "https://github.com/acme/design-system.git", "tag": "v2.4.1" }),
+        json!({ "git": "git@github.com:acme/design-system.git", "tag": "0123456789abcdef0123456789abcdef01234567" }),
     ] {
         assert!(validator.is_valid(&config(registry)));
     }

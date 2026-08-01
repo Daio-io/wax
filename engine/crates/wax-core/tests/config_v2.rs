@@ -173,7 +173,10 @@ fn config_v2_parses_git_registry() {
 fn config_v2_accepts_git_urls_and_commit_tags() {
     for (git, tag) in [
         ("https://github.com/acme/design-system.git", "release"),
-        ("git@github.com:acme/design-system.git", "0123456789abcdef"),
+        (
+            "git@github.com:acme/design-system.git",
+            "0123456789abcdef0123456789abcdef01234567",
+        ),
     ] {
         let contents = serde_json::json!({
             "schema_version": 2,
