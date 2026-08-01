@@ -49,6 +49,14 @@ pub enum RegistryGitError {
         /// Trimmed diagnostic summary.
         stderr: String,
     },
+    /// A Git process could not be spawned for a reason other than Git being absent.
+    #[error("failed to run git for {operation}: {source}")]
+    GitProcess {
+        /// Operation being attempted.
+        operation: &'static str,
+        /// Process-spawn error.
+        source: io::Error,
+    },
     /// Git fetch returned a non-zero exit status.
     #[error("Git fetch failed for {url:?} and ref {reference:?} (status {status}): {stderr}")]
     FetchFailed {
@@ -115,16 +123,19 @@ pub fn fetch_git_registry(
     validate_input("URL", git_url)?;
     validate_input("ref", tag_or_sha)?;
     let cache_repo = prepare_cache(git_url, cache_dir)?;
-    let output = run_git(&[
-        "--git-dir",
-        path_arg(&cache_repo),
-        "fetch",
-        "--force",
-        "--depth=1",
-        "--no-tags",
-        git_url,
-        tag_or_sha,
-    ])?;
+    let output = run_git(
+        "fetch registry ref",
+        &[
+            "--git-dir",
+            path_arg(&cache_repo),
+            "fetch",
+            "--force",
+            "--depth=1",
+            "--no-tags",
+            git_url,
+            tag_or_sha,
+        ],
+    )?;
     if !output.status.success() {
         return Err(RegistryGitError::FetchFailed {
             url: git_url.to_owned(),
@@ -153,26 +164,32 @@ pub fn fetch_git_registry_at_commit(
     validate_commit(commit)?;
     let cache_repo = prepare_cache(git_url, cache_dir)?;
 
-    let cached = run_git(&[
-        "--git-dir",
-        path_arg(&cache_repo),
-        "rev-parse",
-        "--verify",
-        &format!("{commit}^{{commit}}"),
-    ])?;
+    let cached = run_git(
+        "check cached commit",
+        &[
+            "--git-dir",
+            path_arg(&cache_repo),
+            "rev-parse",
+            "--verify",
+            &format!("{commit}^{{commit}}"),
+        ],
+    )?;
     let resolved = if cached.status.success() {
         parse_commit(&cached)?
     } else {
-        let fetched = run_git(&[
-            "--git-dir",
-            path_arg(&cache_repo),
-            "fetch",
-            "--force",
-            "--depth=1",
-            "--no-tags",
-            git_url,
-            commit,
-        ])?;
+        let fetched = run_git(
+            "fetch locked commit",
+            &[
+                "--git-dir",
+                path_arg(&cache_repo),
+                "fetch",
+                "--force",
+                "--depth=1",
+                "--no-tags",
+                git_url,
+                commit,
+            ],
+        )?;
         if !fetched.status.success() {
             return Err(RegistryGitError::FetchFailed {
                 url: git_url.to_owned(),
@@ -221,6 +238,15 @@ fn validate_commit(commit: &str) -> Result<(), RegistryGitError> {
 }
 
 fn prepare_cache(url: &str, cache_dir: &Path) -> Result<PathBuf, RegistryGitError> {
+    if cache_dir.to_str().is_none() {
+        return Err(RegistryGitError::CacheDirectory {
+            path: cache_dir.to_owned(),
+            source: io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "cache path must be valid UTF-8",
+            ),
+        });
+    }
     let mut digest = Sha256::new();
     digest.update(url.as_bytes());
     let key: String = digest
@@ -234,7 +260,7 @@ fn prepare_cache(url: &str, cache_dir: &Path) -> Result<PathBuf, RegistryGitErro
         source,
     })?;
     if !repo.exists() {
-        let output = run_git(&["init", "--bare", path_arg(&repo)])?;
+        let output = run_git("initialize cache", &["init", "--bare", path_arg(&repo)])?;
         if !output.status.success() {
             return Err(RegistryGitError::CacheInit {
                 path: repo,
@@ -246,13 +272,16 @@ fn prepare_cache(url: &str, cache_dir: &Path) -> Result<PathBuf, RegistryGitErro
 }
 
 fn resolve_fetch_head(repo: &Path) -> Result<String, RegistryGitError> {
-    let output = run_git(&[
-        "--git-dir",
-        path_arg(repo),
-        "rev-parse",
-        "--verify",
-        "FETCH_HEAD^{commit}",
-    ])?;
+    let output = run_git(
+        "resolve fetched commit",
+        &[
+            "--git-dir",
+            path_arg(repo),
+            "rev-parse",
+            "--verify",
+            "FETCH_HEAD^{commit}",
+        ],
+    )?;
     if !output.status.success() {
         return Err(RegistryGitError::CommitResolution {
             stderr: stderr_summary(&output),
@@ -278,14 +307,20 @@ fn read_registry(
 ) -> Result<GitRegistryFetch, RegistryGitError> {
     let path = conventional_git_registry_path(language_id);
     let object = format!("{commit}:{path}");
-    let exists = run_git(&["--git-dir", path_arg(repo), "cat-file", "-e", &object])?;
+    let exists = run_git(
+        "check registry file",
+        &["--git-dir", path_arg(repo), "cat-file", "-e", &object],
+    )?;
     if !exists.status.success() {
         return Err(RegistryGitError::RegistryFileAbsent {
             path,
             commit: commit.to_owned(),
         });
     }
-    let output = run_git(&["--git-dir", path_arg(repo), "show", &object])?;
+    let output = run_git(
+        "read registry file",
+        &["--git-dir", path_arg(repo), "show", &object],
+    )?;
     if !output.status.success() {
         return Err(RegistryGitError::RegistryRead {
             path,
@@ -299,13 +334,14 @@ fn read_registry(
     })
 }
 
-fn run_git(args: &[&str]) -> Result<Output, RegistryGitError> {
+fn run_git(operation: &'static str, args: &[&str]) -> Result<Output, RegistryGitError> {
     Command::new("git").args(args).output().map_err(|error| {
         if error.kind() == io::ErrorKind::NotFound {
             RegistryGitError::GitNotFound
         } else {
-            RegistryGitError::CommitResolution {
-                stderr: error.to_string(),
+            RegistryGitError::GitProcess {
+                operation,
+                source: error,
             }
         }
     })
@@ -337,6 +373,7 @@ mod tests {
 
     struct Fixture {
         root: PathBuf,
+        work: PathBuf,
         remote: PathBuf,
         first: String,
         second: String,
@@ -403,14 +440,21 @@ mod tests {
         command(&["add", "."], &work);
         command(&["commit", "-m", "second", "-q"], &work);
         let second = git_output(&["rev-parse", "HEAD"], &work);
-        command(&["tag", "-f", "v1"], &work);
-        command(&["push", "-q", "--force", "origin", "v1", "HEAD"], &work);
+        command(&["push", "-q", "origin", "HEAD"], &work);
 
         Fixture {
             root,
+            work,
             remote,
             first,
             second,
+        }
+    }
+
+    impl Fixture {
+        fn move_v1_tag(&self) {
+            command(&["tag", "-f", "v1"], &self.work);
+            command(&["push", "-q", "--force", "origin", "v1"], &self.work);
         }
     }
 
@@ -435,8 +479,8 @@ mod tests {
         let result =
             fetch_git_registry(fixture.remote.to_str().unwrap(), "v1", &language(), &cache)
                 .unwrap();
-        assert_eq!(result.commit, fixture.second);
-        assert_eq!(result.bytes, b"second\n");
+        assert_eq!(result.commit, fixture.first);
+        assert_eq!(result.bytes, b"first\n");
         let annotated = fetch_git_registry(
             fixture.remote.to_str().unwrap(),
             "v1-annotated",
@@ -469,7 +513,12 @@ mod tests {
         let cache = fixture.root.join("cache");
         let old = fetch_git_registry(fixture.remote.to_str().unwrap(), "v1", &language(), &cache)
             .unwrap();
-        assert_eq!(old.commit, fixture.second);
+        assert_eq!(old.commit, fixture.first);
+        fixture.move_v1_tag();
+        let moved = fetch_git_registry(fixture.remote.to_str().unwrap(), "v1", &language(), &cache)
+            .unwrap();
+        assert_eq!(moved.commit, fixture.second);
+        assert_eq!(moved.bytes, b"second\n");
         let locked = fetch_git_registry_at_commit(
             fixture.remote.to_str().unwrap(),
             &fixture.first,
@@ -521,6 +570,24 @@ mod tests {
             conventional_git_registry_path(&id),
             ".wax/registries/compose.json"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_non_utf8_cache_paths_without_panicking() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let cache = PathBuf::from(std::ffi::OsString::from_vec(vec![b'c', 0x80]));
+        let result = fetch_git_registry(
+            "https://example.invalid/repo.git",
+            "main",
+            &language(),
+            &cache,
+        );
+        assert!(matches!(
+            result,
+            Err(RegistryGitError::CacheDirectory { .. })
+        ));
     }
 
     #[test]
