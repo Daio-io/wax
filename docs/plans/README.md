@@ -9,7 +9,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 3. Each implementation task remains **one PR per task** inside the active plan, per that plan's execution model.
 4. Update the **Doc status** and **Implementation status** columns when a plan doc PR merges or when implementation of a plan finishes.
 
-**Active plan:** None promoted yet. Adoption Metrics v2 (order 11), Token inference and reporting (order 14), and Compose parse recovery and UI scoping (order 15) are complete and archived; see their [Adoption Metrics v2 archive](./archive/2026-06-20-adoption-metrics-v2-plan.md), [Adoption Metrics v2 ADR](../adr/2026-06-20-adoption-metrics-v2.md), [token inference archive](./archive/2026-07-19-token-inference-reporting-plan.md), [token inference ADR](../adr/2026-07-19-token-inference-reporting.md), [compose parse recovery archive](./archive/2026-07-22-compose-parse-recovery-plan.md), and [compose parse recovery ADR](../adr/2026-07-22-compose-parse-recovery.md). No new active-plan work begins until a maintainer promotes the next plan.
+**Active plan:** [Git registry sources](./2026-08-01-git-registry-sources-plan.md) (Task 1 in progress). Adoption Metrics v2 (order 11), Token inference and reporting (order 14), and Compose parse recovery and UI scoping (order 15) are complete and archived; see their [Adoption Metrics v2 archive](./archive/2026-06-20-adoption-metrics-v2-plan.md), [Adoption Metrics v2 ADR](../adr/2026-06-20-adoption-metrics-v2.md), [token inference archive](./archive/2026-07-19-token-inference-reporting-plan.md), [token inference ADR](../adr/2026-07-19-token-inference-reporting.md), [compose parse recovery archive](./archive/2026-07-22-compose-parse-recovery-plan.md), and [compose parse recovery ADR](../adr/2026-07-22-compose-parse-recovery.md).
 
 ---
 
@@ -32,6 +32,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 | 13 | Token scanning | [archive/2026-07-03-token-scanning-plan.md](./archive/2026-07-03-token-scanning-plan.md) | `merged` | `complete` | [ADR](../adr/2026-07-03-token-scanning.md) |
 | 14 | Token inference and reporting | [archive/2026-07-19-token-inference-reporting-plan.md](./archive/2026-07-19-token-inference-reporting-plan.md) | `merged` | `complete` | [ADR](../adr/2026-07-19-token-inference-reporting.md) |
 | 15 | Compose parse recovery and UI scoping | [archive/2026-07-22-compose-parse-recovery-plan.md](./archive/2026-07-22-compose-parse-recovery-plan.md) | `merged` | `complete` | [ADR](../adr/2026-07-22-compose-parse-recovery.md) |
+| 16 | Git registry sources | [2026-08-01-git-registry-sources-plan.md](./2026-08-01-git-registry-sources-plan.md) | `planned` | `in-progress` | — |
 
 **Doc status:** `pending` -> plan PR open; `merged` -> plan doc on `main`; `planned` -> not yet drafted.
 
@@ -42,11 +43,10 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 ## Which plan should I run?
 
 ```text
--> No active implementation plan is promoted.
--> Do not start a new plan until a maintainer promotes the next roadmap item.
+-> Run the Git registry sources plan, starting with Task 1.
 ```
 
-Orders 1-4, 6-15 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Adoption Metrics v2 shipped in PRs #165, #171, and #172 and is archived. Token inference and reporting finished implementation in PRs #231, #233, #235, #236, and #237 plus closeout PR #238 and is archived. Compose parse recovery and UI scoping finished implementation in PRs #245–#247, #249, and #250 plus this closeout PR and is archived.
+Orders 1-4, 6-15 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Git registry sources (order 16) is in progress. Adoption Metrics v2 shipped in PRs #165, #171, and #172 and is archived. Token inference and reporting finished implementation in PRs #231, #233, #235, #236, and #237 plus closeout PR #238 and is archived. Compose parse recovery and UI scoping finished implementation in PRs #245–#247, #249, and #250 plus this closeout PR and is archived.
 
 ---
 
@@ -88,3 +88,4 @@ Orders 1-4, 6-15 are **complete**. Post-alpha UX (order 5) remains otherwise def
 - [Token scanning design](../specs/2026-07-03-token-scanning-design.md) — additive token references and hard-coded styling candidates (order 13, complete; [ADR](../adr/2026-07-03-token-scanning.md))
 - [Token inference and reporting design](../specs/2026-07-19-token-inference-reporting-design.md) — context-aware exact, near, unmatched, and unassessed token findings (order 14, complete; [ADR](../adr/2026-07-19-token-inference-reporting.md))
 - [Compose parse recovery and UI scope design](../specs/2026-07-22-compose-parse-recovery-design.md) — fault-tolerant Kotlin parsing and Compose-aware usage scoping (order 15, complete; [ADR](../adr/2026-07-22-compose-parse-recovery.md))
+- [Git registry sources plan](./2026-08-01-git-registry-sources-plan.md) — config-v2 Git/tag registry contract and staged resolver rollout (order 16)

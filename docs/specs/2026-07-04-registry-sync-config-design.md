@@ -90,6 +90,10 @@ Rules:
 - `languages.<language>.registry.source` is the registry Wax scans with right now.
 - `registry.source` may be a repo-relative path, `file://` URL, `http://` URL, or `https://` URL.
 - `languages.<language>.registry.upstream` is optional and means `<design-system-id>/<language-id>`.
+- A language may instead use `registry: { "git": "...", "tag": "..." }`.
+  Both values are required non-empty strings, and the remote registry path is
+  fixed at `.wax/registries/<language-id>.json`; configurable paths are not
+  supported.
 - `registry.upstream` is used by `wax sync`; it is not needed for scan.
 - `enabled` is removed. A language key exists only when the language is enabled.
 
