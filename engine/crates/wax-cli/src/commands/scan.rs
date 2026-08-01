@@ -224,7 +224,7 @@ fn attempt_scan_time_registry_sync(
         entry
             .registry_source
             .as_ref()
-            .and_then(|registry| registry.upstream.as_ref())
+            .and_then(|registry| registry.upstream())
             .is_some_and(|upstream| !upstream.trim().is_empty())
     });
     if !has_upstream {
@@ -334,7 +334,7 @@ fn build_ephemeral_scan_config(
         languages.push(LanguageEntry {
             id: language_id.clone(),
             roots,
-            registry_source: Some(LanguageRegistrySource {
+            registry_source: Some(LanguageRegistrySource::PathOrUrl {
                 source: scan_source,
                 upstream: None,
             }),

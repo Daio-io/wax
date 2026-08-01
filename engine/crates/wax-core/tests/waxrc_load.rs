@@ -26,7 +26,13 @@ fn waxrc_preserves_language_extra_config() {
     assert_eq!(rc.engine.scan_concurrency, 4);
     assert_eq!(rc.languages[0].roots, ["app/src"]);
     assert_eq!(
-        rc.languages[0].registry_source.as_ref().unwrap().source,
+        rc.languages[0]
+            .registry_source
+            .as_ref()
+            .unwrap()
+            .path_or_url_parts()
+            .unwrap()
+            .0,
         "design-system/registry.json"
     );
 }
@@ -182,7 +188,7 @@ fn parses_registry_string_without_removing_pack_config() {
 
     assert_eq!(
         language.registry_source.as_ref().unwrap(),
-        &LanguageRegistrySource {
+        &LanguageRegistrySource::PathOrUrl {
             source: ".wax/compose.registry.json".to_owned(),
             upstream: None,
         }
@@ -198,7 +204,7 @@ fn parses_registry_source_object() {
 
     assert_eq!(
         language.registry_source.as_ref().unwrap(),
-        &LanguageRegistrySource {
+        &LanguageRegistrySource::PathOrUrl {
             source: "https://example.com/acme-ds/registry/v2.4.1/compose.json".to_owned(),
             upstream: None,
         }

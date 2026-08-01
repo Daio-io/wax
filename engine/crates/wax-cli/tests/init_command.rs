@@ -396,14 +396,14 @@ fn init_scaffolds_per_language_registry_files_for_multi_language_repo() {
         compose
             .registry_source
             .as_ref()
-            .map(|source| source.source.as_str()),
+            .and_then(|source| source.path_or_url_parts().map(|(source, _)| source)),
         Some(".wax/compose.registry.json")
     );
     assert_eq!(
         react
             .registry_source
             .as_ref()
-            .map(|source| source.source.as_str()),
+            .and_then(|source| source.path_or_url_parts().map(|(source, _)| source)),
         Some(".wax/react.registry.json")
     );
 
@@ -475,7 +475,7 @@ fn init_scaffolds_swift_per_language_registry_and_lock_entry() {
         swift
             .registry_source
             .as_ref()
-            .map(|source| source.source.as_str()),
+            .and_then(|source| source.path_or_url_parts().map(|(source, _)| source)),
         Some(".wax/swift.registry.json")
     );
     assert_eq!(swift.roots, ["App/Sources"]);

@@ -278,6 +278,27 @@ You can also point a language at a hosted registry:
 }
 ```
 
+For a registry published from a design-system Git repository, use the fixed
+remote path `.wax/registries/<language-id>.json` and pin a tag or commit:
+
+```json
+{
+  "schema_version": 2,
+  "languages": {
+    "react": {
+      "roots": ["src"],
+      "registry": {
+        "git": "https://github.com/acme/design-system.git",
+        "tag": "v2.4.1"
+      }
+    }
+  }
+}
+```
+
+The string shorthand and the `source`/`upstream` object form remain supported.
+Git fetching and cache materialization are added in a later release.
+
 After changing registry content or sources, refresh locks:
 
 ```bash

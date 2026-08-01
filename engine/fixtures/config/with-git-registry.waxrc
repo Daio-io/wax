@@ -1,0 +1,12 @@
+{
+  "schema_version": 2,
+  "languages": {
+    "react": {
+      "roots": ["src"],
+      "registry": {
+        "git": "git@github.com:acme/design-system.git",
+        "tag": "v2.4.1"
+      }
+    }
+  }
+}

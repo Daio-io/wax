@@ -15,7 +15,9 @@ use crate::registry_memory::{
     RegistryMemoryError, copy_design_system_registry_to_app, resolve_remembered_registry,
     show_remembered_design_system,
 };
-use crate::registry_source::{RegistrySourceInput, resolve_registry_source};
+use crate::registry_source::{
+    ensure_language_registry_source_supported, resolve_language_registry_source,
+};
 use crate::{AtomicWriteError, AtomicWriteOptions, write_atomically};
 
 /// Options for syncing app registries from remembered design systems.
@@ -179,6 +181,9 @@ pub fn sync_app_registries(options: &SyncOptions) -> Result<Vec<SyncUpdate>, Syn
     ensure_repo_files_exist(&repo_files)?;
 
     let waxrc = load_waxrc(&repo_files.config_path)?;
+    for entry in &waxrc.languages {
+        ensure_language_registry_source_supported(entry.registry_source.as_ref())?;
+    }
     let mut lockfile = load_lockfile(&repo_files.lockfile_path)?;
     let config_path_display = repo_files.config_path.display().to_string();
     let original_config_json = read_config_json(&repo_files.config_path, &config_path_display)?;
@@ -230,6 +235,13 @@ pub fn best_effort_sync_app_registries(options: &SyncOptions) -> BestEffortSyncR
     ensure_repo_files_exist(&repo_files)?;
 
     let waxrc = load_waxrc(&repo_files.config_path)?;
+    for entry in &waxrc.languages {
+        if let Err(error) =
+            ensure_language_registry_source_supported(entry.registry_source.as_ref())
+        {
+            return Err(error.into());
+        }
+    }
     let mut lockfile = load_lockfile(&repo_files.lockfile_path)?;
     let config_path_display = repo_files.config_path.display().to_string();
     let original_config_json = read_config_json(&repo_files.config_path, &config_path_display)?;
@@ -428,7 +440,7 @@ fn upstream_language_entries(waxrc: &WaxRc) -> impl Iterator<Item = (&LanguageEn
         entry
             .registry_source
             .as_ref()
-            .and_then(|registry| registry.upstream.as_deref())
+            .and_then(|registry| registry.upstream())
             .filter(|upstream| !upstream.trim().is_empty())
             .map(|upstream| (entry, upstream))
     })
@@ -549,14 +561,11 @@ fn refresh_registry_locks(
     waxrc: &WaxRc,
 ) -> Result<(), SyncError> {
     for entry in &waxrc.languages {
-        let resolved = resolve_registry_source(RegistrySourceInput {
+        let resolved = resolve_language_registry_source(
             repo_root,
-            language_id: entry.id.as_str(),
-            source: entry
-                .registry_source
-                .as_ref()
-                .map(|setting| setting.source.as_str()),
-        })?;
+            entry.id.as_str(),
+            entry.registry_source.as_ref(),
+        )?;
         lockfile.registries.insert(
             entry.id.clone(),
             LockedRegistry {

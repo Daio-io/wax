@@ -125,6 +125,24 @@
                       "description": "Optional upstream design-system reference as <design-system-id>/<language-id>."
                     }
                   }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["git", "tag"],
+                  "description": "Git registry source. The registry is read from the fixed remote path .wax/registries/<language-id>.json.",
+                  "properties": {
+                    "git": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "\\S"
+                    },
+                    "tag": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "\\S"
+                    }
+                  }
                 }
               ]
             },

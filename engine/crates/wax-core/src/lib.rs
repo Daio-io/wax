@@ -318,15 +318,11 @@ impl Engine {
         let mut enabled_ids = BTreeSet::new();
         let mut language_configs = BTreeMap::new();
         for entry in waxrc.languages {
-            let resolved_registry =
-                registry_source::resolve_registry_source(registry_source::RegistrySourceInput {
-                    repo_root,
-                    language_id: entry.id.as_str(),
-                    source: entry
-                        .registry_source
-                        .as_ref()
-                        .map(|setting| setting.source.as_str()),
-                })?;
+            let resolved_registry = registry_source::resolve_language_registry_source(
+                repo_root,
+                entry.id.as_str(),
+                entry.registry_source.as_ref(),
+            )?;
             registry_lock::verify_registry_lock(&entry.id, &resolved_registry, &lockfile)
                 .map_err(registry_lock_mismatch_to_engine_error)?;
 
