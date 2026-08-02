@@ -157,17 +157,13 @@ fn parse_kotlin_source_permissive(
 
     let (tree, primary_source) = select_primary_parse(normalized_tree, original_tree)
         .ok_or_else(|| ParseKotlinFileError::ParseFailed(path.to_path_buf()))?;
-    let primary_bytes = match primary_source {
-        PrimaryParseSource::Original => original_bytes,
-        PrimaryParseSource::Normalized => normalized.bytes.as_slice(),
+    // Regions describe transforms on the normalized buffer; drop them when the
+    // original tree wins so they cannot mask extraction on the chosen tree.
+    let (primary_bytes, syntax_regions) = match primary_source {
+        PrimaryParseSource::Original => (original_bytes, Vec::new()),
+        PrimaryParseSource::Normalized => (normalized.bytes.as_slice(), normalized.regions),
     };
     let recovery = recover_parse_passes(parser, primary_bytes, &tree);
-    // Regions describe transforms applied to the normalized buffer. When the
-    // original tree wins, those ranges must not mask extraction on the chosen tree.
-    let syntax_regions = match primary_source {
-        PrimaryParseSource::Original => Vec::new(),
-        PrimaryParseSource::Normalized => normalized.regions,
-    };
 
     Ok(ParsedKotlinFile {
         unresolved_problems: recovery.unresolved_problems,
@@ -183,29 +179,20 @@ fn parse_kotlin_source_permissive(
 }
 
 fn select_primary_parse(
-    mut normalized: Option<tree_sitter::Tree>,
-    mut original: Option<tree_sitter::Tree>,
+    normalized: Option<tree_sitter::Tree>,
+    original: Option<tree_sitter::Tree>,
 ) -> Option<(tree_sitter::Tree, PrimaryParseSource)> {
-    if normalized
-        .as_ref()
-        .is_some_and(|tree| !tree.root_node().has_error())
-    {
-        return normalized
-            .take()
-            .map(|tree| (tree, PrimaryParseSource::Normalized));
+    match (normalized, original) {
+        (Some(tree), _) if !tree.root_node().has_error() => {
+            Some((tree, PrimaryParseSource::Normalized))
+        }
+        (_, Some(tree)) if !tree.root_node().has_error() => {
+            Some((tree, PrimaryParseSource::Original))
+        }
+        (Some(tree), _) => Some((tree, PrimaryParseSource::Normalized)),
+        (_, Some(tree)) => Some((tree, PrimaryParseSource::Original)),
+        _ => None,
     }
-    if original
-        .as_ref()
-        .is_some_and(|tree| !tree.root_node().has_error())
-    {
-        return original
-            .take()
-            .map(|tree| (tree, PrimaryParseSource::Original));
-    }
-    if let Some(tree) = normalized {
-        return Some((tree, PrimaryParseSource::Normalized));
-    }
-    original.map(|tree| (tree, PrimaryParseSource::Original))
 }
 
 #[allow(dead_code)]
@@ -704,39 +691,46 @@ mod tests {
 
     #[test]
     fn primary_parse_selection_is_monotonic() {
-        let clean_original = parse_tree("fun Original() {}\n");
-        let clean_normalized = parse_tree("fun Normalized() {}\n");
-        let broken_original = parse_tree("fun Original( {\n");
-        let broken_normalized = parse_tree("fun Normalized( {\n");
+        let cases = [
+            (
+                Some("fun Normalized() {}\n"),
+                Some("fun Original() {}\n"),
+                PrimaryParseSource::Normalized,
+                false,
+            ),
+            (
+                Some("fun Normalized( {\n"),
+                Some("fun Original() {}\n"),
+                PrimaryParseSource::Original,
+                false,
+            ),
+            (
+                Some("fun Normalized() {}\n"),
+                Some("fun Original( {\n"),
+                PrimaryParseSource::Normalized,
+                false,
+            ),
+            (
+                Some("fun Normalized( {\n"),
+                Some("fun Original( {\n"),
+                PrimaryParseSource::Normalized,
+                true,
+            ),
+            (
+                None,
+                Some("fun Original() {}\n"),
+                PrimaryParseSource::Original,
+                false,
+            ),
+        ];
 
-        let (tree, source) =
-            select_primary_parse(Some(clean_normalized.clone()), Some(clean_original.clone()))
-                .expect("both clean");
-        assert_eq!(source, PrimaryParseSource::Normalized);
-        assert!(!tree.root_node().has_error());
-
-        let (tree, source) = select_primary_parse(
-            Some(broken_normalized.clone()),
-            Some(clean_original.clone()),
-        )
-        .expect("clean original fallback");
-        assert_eq!(source, PrimaryParseSource::Original);
-        assert!(!tree.root_node().has_error());
-
-        let (tree, source) =
-            select_primary_parse(Some(clean_normalized), Some(broken_original.clone()))
-                .expect("clean normalized recovery");
-        assert_eq!(source, PrimaryParseSource::Normalized);
-        assert!(!tree.root_node().has_error());
-
-        let (tree, source) = select_primary_parse(Some(broken_normalized), Some(broken_original))
-            .expect("both partial");
-        assert_eq!(source, PrimaryParseSource::Normalized);
-        assert!(tree.root_node().has_error());
-
-        let (_, source) = select_primary_parse(None, Some(clean_original))
-            .expect("normalized parser returned no tree");
-        assert_eq!(source, PrimaryParseSource::Original);
+        for (normalized, original, want_source, want_error) in cases {
+            let (tree, source) =
+                select_primary_parse(normalized.map(parse_tree), original.map(parse_tree))
+                    .expect("selected");
+            assert_eq!(source, want_source);
+            assert_eq!(tree.root_node().has_error(), want_error);
+        }
 
         assert!(select_primary_parse(None, None).is_none());
     }
