@@ -147,10 +147,11 @@ fn validate_repo_rejects_missing_per_language_registry_file() {
     let err = validate_repo(&root.path).expect_err("missing per-language registry should fail");
     assert!(matches!(
         err,
-        ValidateError::RegistrySource {
-            source: wax_core::registry_source::RegistrySourceError::Read { .. },
-            ..
-        }
+        ValidateError::RegistrySource { source, .. }
+            if matches!(
+                source.as_ref(),
+                wax_core::registry_source::RegistrySourceError::Read { .. }
+            )
     ));
 }
 
@@ -164,10 +165,11 @@ fn validate_repo_rejects_absolute_registry_path() {
     let err = validate_repo(&root.path).expect_err("absolute path should fail");
     assert!(matches!(
         err,
-        ValidateError::RegistrySource {
-            source: wax_core::registry_source::RegistrySourceError::PlainAbsolutePath { .. },
-            ..
-        }
+        ValidateError::RegistrySource { source, .. }
+            if matches!(
+                source.as_ref(),
+                wax_core::registry_source::RegistrySourceError::PlainAbsolutePath { .. }
+            )
     ));
 }
 
@@ -180,10 +182,11 @@ fn validate_repo_rejects_parent_dir_registry_path() {
     let err = validate_repo(&root.path).expect_err("parent dir path should fail");
     assert!(matches!(
         err,
-        ValidateError::RegistrySource {
-            source: wax_core::registry_source::RegistrySourceError::PathEscapesRepo { .. },
-            ..
-        }
+        ValidateError::RegistrySource { source, .. }
+            if matches!(
+                source.as_ref(),
+                wax_core::registry_source::RegistrySourceError::PathEscapesRepo { .. }
+            )
     ));
 }
 
@@ -196,10 +199,11 @@ fn validate_repo_rejects_missing_registry_file() {
     let err = validate_repo(&root.path).expect_err("missing registry file should fail");
     assert!(matches!(
         err,
-        ValidateError::RegistrySource {
-            source: wax_core::registry_source::RegistrySourceError::Read { .. },
-            ..
-        }
+        ValidateError::RegistrySource { source, .. }
+            if matches!(
+                source.as_ref(),
+                wax_core::registry_source::RegistrySourceError::Read { .. }
+            )
     ));
 }
 
@@ -235,10 +239,11 @@ fn validate_repo_rejects_symlink_registry_that_escapes_repo_root() {
     let _ = fs::remove_file(outside_registry);
     assert!(matches!(
         err,
-        ValidateError::RegistrySource {
-            source: wax_core::registry_source::RegistrySourceError::PathEscapesRepo { .. },
-            ..
-        }
+        ValidateError::RegistrySource { source, .. }
+            if matches!(
+                source.as_ref(),
+                wax_core::registry_source::RegistrySourceError::PathEscapesRepo { .. }
+            )
     ));
 }
 

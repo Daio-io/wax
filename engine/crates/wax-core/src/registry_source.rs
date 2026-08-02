@@ -81,12 +81,12 @@ pub struct RegistrySourceInput<'a> {
     pub source: Option<&'a str>,
 }
 
-/// Resolves a configured language registry, rejecting git mode until its resolver is wired.
+/// Resolves a configured language registry source, honoring lock pins unless upgrading.
 ///
 /// # Errors
 ///
-/// Returns [`RegistrySourceError::GitRegistryResolutionNotWired`] for git mode,
-/// or the underlying source resolution error for path/URL mode.
+/// Returns a [`RegistrySourceError`] when the source cannot be fetched, validated,
+/// materialized, or does not match a non-upgrade lock pin.
 pub fn resolve_language_registry_source(
     repo_root: &Path,
     language_id: &str,
@@ -255,21 +255,26 @@ pub enum RegistrySourceError {
         language_id: String,
     },
     /// A locked Git registry's bytes or commit changed unexpectedly.
-    #[error(
-        "locked Git registry mismatch for {language_id}: expected commit {expected_commit} and digest {expected_digest}, got commit {actual_commit} and digest {actual_digest}"
-    )]
-    LockedGitMismatch {
-        /// Language whose pinned content changed.
-        language_id: String,
-        /// Commit recorded in the lock.
-        expected_commit: String,
-        /// Digest recorded in the lock.
-        expected_digest: String,
-        /// Commit read from Git.
-        actual_commit: String,
-        /// Digest read from Git.
-        actual_digest: String,
-    },
+    #[error(transparent)]
+    LockedGitMismatch(Box<LockedGitMismatch>),
+}
+
+/// Details for a Git registry lock pin mismatch.
+#[derive(Debug, Error)]
+#[error(
+    "locked Git registry mismatch for {language_id}: expected commit {expected_commit} and digest {expected_digest}, got commit {actual_commit} and digest {actual_digest}"
+)]
+pub struct LockedGitMismatch {
+    /// Language whose pinned content changed.
+    pub language_id: String,
+    /// Commit recorded in the lock.
+    pub expected_commit: String,
+    /// Digest recorded in the lock.
+    pub expected_digest: String,
+    /// Commit read from Git.
+    pub actual_commit: String,
+    /// Digest read from Git.
+    pub actual_digest: String,
 }
 
 /// Resolves a registry source and returns the local repo-relative materialized path.
@@ -387,19 +392,18 @@ fn resolve_registry_source_with_options(
         };
         validate_registry_json(&canonical_source, &fetch.bytes, allow_missing_components)?;
         let sha256 = hex_lower_sha256(&fetch.bytes);
-        if let Some(lock) = input
-            .locked
-            .filter(|lock| lock.source == canonical_source && !upgrade)
+        if let Some(lock) = locked.filter(|lock| lock.source == canonical_source && !upgrade)
+            && (lock.commit.as_deref() != Some(fetch.commit.as_str()) || lock.sha256 != sha256)
         {
-            if lock.commit.as_deref() != Some(fetch.commit.as_str()) || lock.sha256 != sha256 {
-                return Err(RegistrySourceError::LockedGitMismatch {
+            return Err(RegistrySourceError::LockedGitMismatch(Box::new(
+                LockedGitMismatch {
                     language_id: input.language_id.to_owned(),
                     expected_commit: lock.commit.clone().unwrap_or_default(),
                     expected_digest: lock.sha256.clone(),
                     actual_commit: fetch.commit,
                     actual_digest: sha256,
-                });
-            }
+                },
+            )));
         }
         let path = materialize_external_registry(
             input.repo_root,
@@ -796,5 +800,213 @@ fn from_hex(byte: u8) -> Option<u8> {
         b'a'..=b'f' => Some(byte - b'a' + 10),
         b'A'..=b'F' => Some(byte - b'A' + 10),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sha2::{Digest, Sha256};
+    use std::process::{Command, Output};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+
+    struct Fixture {
+        root: PathBuf,
+        work: PathBuf,
+        remote: PathBuf,
+        first: String,
+        second: String,
+        first_sha256: String,
+        second_sha256: String,
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn git_available() -> bool {
+        match Command::new("git").arg("--version").output() {
+            Ok(output) if output.status.success() => true,
+            Ok(_) | Err(_) => false,
+        }
+    }
+
+    fn command(args: &[&str], cwd: &Path) -> Output {
+        let output = Command::new("git")
+            .args([
+                "-c",
+                "user.name=Wax Test",
+                "-c",
+                "user.email=wax-test@example.com",
+            ])
+            .args(args)
+            .current_dir(cwd)
+            .output()
+            .expect("git command should spawn");
+        assert!(
+            output.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        output
+    }
+
+    fn git_output(args: &[&str], cwd: &Path) -> String {
+        String::from_utf8(command(args, cwd).stdout)
+            .expect("git output is UTF-8")
+            .trim()
+            .to_ascii_lowercase()
+    }
+
+    fn registry_json(symbol: &str) -> Vec<u8> {
+        format!(r#"{{"schema_version":1,"components":[{{"id":"ds.button","symbol":"{symbol}"}}]}}"#)
+            .into_bytes()
+    }
+
+    fn sha256_hex(bytes: &[u8]) -> String {
+        Sha256::digest(bytes)
+            .iter()
+            .fold(String::with_capacity(64), |mut hex, byte| {
+                use std::fmt::Write;
+                let _ = write!(hex, "{byte:02x}");
+                hex
+            })
+    }
+
+    fn fixture() -> Fixture {
+        let id = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!(
+            "wax-registry-source-git-{}-{id}",
+            std::process::id()
+        ));
+        let work = root.join("work");
+        let remote = root.join("remote.git");
+        fs::create_dir_all(&work).expect("fixture worktree");
+        command(&["init", "-q"], &work);
+        command(
+            &["init", "--bare", "-q", "--", remote.to_str().unwrap()],
+            &root,
+        );
+        fs::create_dir_all(work.join(".wax/registries")).expect("registry directory");
+        let first_bytes = registry_json("ButtonV1");
+        let first_sha256 = sha256_hex(&first_bytes);
+        fs::write(work.join(".wax/registries/compose.json"), &first_bytes).expect("first registry");
+        command(&["add", "."], &work);
+        command(&["commit", "-m", "first", "-q"], &work);
+        let first = git_output(&["rev-parse", "HEAD"], &work);
+        command(&["tag", "v1"], &work);
+        command(
+            &["remote", "add", "origin", remote.to_str().unwrap()],
+            &work,
+        );
+        command(&["push", "-q", "origin", "--tags", "HEAD"], &work);
+
+        let second_bytes = registry_json("ButtonV2");
+        let second_sha256 = sha256_hex(&second_bytes);
+        fs::write(work.join(".wax/registries/compose.json"), &second_bytes)
+            .expect("second registry");
+        command(&["add", "."], &work);
+        command(&["commit", "-m", "second", "-q"], &work);
+        let second = git_output(&["rev-parse", "HEAD"], &work);
+        command(&["push", "-q", "origin", "HEAD"], &work);
+
+        Fixture {
+            root,
+            work,
+            remote,
+            first,
+            second,
+            first_sha256,
+            second_sha256,
+        }
+    }
+
+    impl Fixture {
+        fn move_v1_tag(&self) {
+            command(&["tag", "-f", "v1"], &self.work);
+            command(&["push", "-q", "--force", "origin", "v1"], &self.work);
+        }
+
+        fn remote_url(&self) -> String {
+            self.remote.to_str().unwrap().to_owned()
+        }
+
+        fn locked(&self, commit: &str, sha256: &str) -> LockedRegistry {
+            let git = self.remote_url();
+            LockedRegistry {
+                source: format!("git:{git}#v1"),
+                sha256: sha256.to_owned(),
+                git: Some(git),
+                tag: Some("v1".to_owned()),
+                commit: Some(commit.to_owned()),
+            }
+        }
+    }
+
+    #[test]
+    fn upgrade_resolves_moving_git_tag_instead_of_locked_commit() {
+        if !git_available() {
+            return;
+        }
+        let fixture = fixture();
+        let repo = fixture.root.join("app");
+        fs::create_dir_all(&repo).expect("app repo");
+        let registry = LanguageRegistrySource::Git {
+            git: fixture.remote_url(),
+            tag: "v1".to_owned(),
+        };
+        let locked = fixture.locked(&fixture.first, &fixture.first_sha256);
+
+        let pinned = resolve_language_registry_source(
+            &repo,
+            "compose",
+            Some(&registry),
+            Some(&locked),
+            false,
+        )
+        .unwrap();
+        assert_eq!(pinned.git_commit.as_deref(), Some(fixture.first.as_str()));
+        assert_eq!(pinned.sha256, fixture.first_sha256);
+
+        fixture.move_v1_tag();
+
+        let still_pinned = resolve_language_registry_source(
+            &repo,
+            "compose",
+            Some(&registry),
+            Some(&locked),
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            still_pinned.git_commit.as_deref(),
+            Some(fixture.first.as_str())
+        );
+        assert_eq!(still_pinned.sha256, fixture.first_sha256);
+
+        let upgraded = resolve_language_registry_source(
+            &repo,
+            "compose",
+            Some(&registry),
+            Some(&locked),
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            upgraded.git_commit.as_deref(),
+            Some(fixture.second.as_str())
+        );
+        assert_eq!(upgraded.sha256, fixture.second_sha256);
+        assert_eq!(
+            upgraded.repo_relative_path,
+            format!(
+                "{REGISTRY_CACHE_RELATIVE_DIR}/compose-{}.json",
+                fixture.second_sha256
+            )
+        );
     }
 }

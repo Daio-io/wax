@@ -97,7 +97,7 @@ pub enum ValidateError {
         field: String,
         /// Source error.
         #[source]
-        source: crate::registry_source::RegistrySourceError,
+        source: Box<crate::registry_source::RegistrySourceError>,
     },
     /// Configured language registry is missing from lockfile.
     #[error("enabled language {language_id} registry is missing from wax lockfile")]
@@ -193,10 +193,10 @@ pub fn validate_repo_with_progress(
                 if let Some((git, tag)) = registry.git_parts() {
                     return Err(ValidateError::RegistrySource {
                         field: registry_field,
-                        source: crate::registry_source::RegistrySourceError::GitRegistryResolutionNotWired {
+                        source: Box::new(crate::registry_source::RegistrySourceError::GitRegistryResolutionNotWired {
                             git: git.to_owned(),
                             tag: tag.to_owned(),
-                        },
+                        }),
                     });
                 }
                 registry.path_or_url_parts().map(|(source, _)| source)
@@ -210,7 +210,7 @@ pub fn validate_repo_with_progress(
         })
         .map_err(|source| ValidateError::RegistrySource {
             field: registry_field.clone(),
-            source,
+            source: Box::new(source),
         })?;
 
         if let Some(lockfile) = &lockfile {

@@ -290,9 +290,6 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
                     repo_root: &options.repo_root,
                     language_id: resolved.manifest.id.as_str(),
                     source: Some(&remembered_registry.config_source),
-                    registry: None,
-                    locked: None,
-                    upgrade: false,
                 })?;
                 LockedRegistry {
                     source: registry_source.source,
@@ -315,9 +312,6 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
                     repo_root: &options.repo_root,
                     language_id: resolved.manifest.id.as_str(),
                     source: Some(&repo_relative),
-                    registry: None,
-                    locked: None,
-                    upgrade: false,
                 })?;
                 LockedRegistry {
                     source: registry_source.source,

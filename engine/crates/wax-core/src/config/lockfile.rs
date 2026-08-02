@@ -187,7 +187,7 @@ pub fn load_lockfile(path: impl AsRef<Path>) -> Result<WaxLock, LockfileError> {
         || version.schema_version > WAX_LOCK_SCHEMA_VERSION
     {
         return Err(LockfileError::UnsupportedSchemaVersion {
-            path: path_display.clone(),
+            path: path_display,
             found: version.schema_version,
             min_supported: MIN_SUPPORTED_WAX_LOCK_SCHEMA_VERSION,
             max_supported: WAX_LOCK_SCHEMA_VERSION,

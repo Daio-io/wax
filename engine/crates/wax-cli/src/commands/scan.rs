@@ -328,9 +328,6 @@ fn build_ephemeral_scan_config(
             repo_root: &options.repo_root,
             language_id: language_id.as_str(),
             source: Some(&scan_source),
-            registry: None,
-            locked: None,
-            upgrade: false,
         })
         .map_err(EngineError::from)?;
 

@@ -301,6 +301,7 @@ impl Engine {
         let repo_root = repo_root.as_ref();
         let progress = options.progress.clone();
         progress.emit(ScanProgressEvent::Preparing);
+        let is_ephemeral = options.ephemeral.is_some();
         let (waxrc, mut lockfile) = if let Some(ephemeral) = options.ephemeral.take() {
             (ephemeral.waxrc, ephemeral.lockfile)
         } else {
@@ -373,7 +374,7 @@ impl Engine {
             language_configs.insert(entry.id.clone(), config);
             enabled_ids.insert(entry.id);
         }
-        if registry_lock_changed && options.ephemeral.is_none() {
+        if registry_lock_changed && !is_ephemeral {
             let path = config::repo_files::discover_repo_files(repo_root).lockfile_path;
             let contents = serde_json::to_string_pretty(&lockfile).map_err(|source| {
                 EngineError::Lockfile(LockfileError::InvalidConfig {

@@ -808,7 +808,7 @@ fn refresh_registry_locks_in_lockfile(
             entry.id.as_str(),
             entry.registry_source.as_ref(),
             lockfile.registries.get(&entry.id),
-            false,
+            true,
         )?;
         lockfile.registries.insert(
             entry.id.clone(),
