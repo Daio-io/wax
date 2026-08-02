@@ -7,15 +7,16 @@ use std::path::{Path, PathBuf};
 use wax_contract::{Diagnostic, DiagnosticSeverity, SourceLocation};
 
 use crate::kotlin_recovery::{
-    ByteRange, ParsePass, SyntaxFamily, SyntaxProblem, SyntaxRegion, normalize_kotlin_for_parse,
-    recover_parse_passes,
+    ByteRange, NormalizedKotlinSource, ParsePass, SyntaxFamily, SyntaxProblem, SyntaxRegion,
+    normalize_kotlin_for_parse, recover_parse_passes,
 };
 
 /// Parsed Kotlin source and syntax trees.
 ///
-/// `source` is always the original file text. `primary.tree` may be parsed
-/// from a byte-preserving normalized buffer that works around known
-/// tree-sitter Kotlin grammar gaps.
+/// `source` is always the original file text. `primary.tree` is usually
+/// parsed from a byte-preserving normalized buffer that works around known
+/// tree-sitter Kotlin grammar gaps, but falls back to the original parse when
+/// normalization would degrade a clean tree.
 #[derive(Debug)]
 pub(crate) struct ParsedKotlinFile {
     pub(crate) source: String,
@@ -25,6 +26,12 @@ pub(crate) struct ParsedKotlinFile {
     #[allow(dead_code)]
     pub(crate) syntax_regions: Vec<SyntaxRegion>,
     pub(crate) unresolved_problems: Vec<SyntaxProblem>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PrimaryParseSource {
+    Original,
+    Normalized,
 }
 
 impl ParsedKotlinFile {
@@ -129,10 +136,34 @@ pub(crate) fn parse_kotlin_file_permissive(
         source,
     })?;
     let normalized = normalize_kotlin_for_parse(&source);
-    let tree = parser
-        .parse(normalized.bytes.as_slice(), None)
+    parse_kotlin_source_permissive(parser, path, source, normalized)
+}
+
+fn parse_kotlin_source_permissive(
+    parser: &mut tree_sitter::Parser,
+    path: &Path,
+    source: String,
+    normalized: NormalizedKotlinSource,
+) -> Result<ParsedKotlinFile, ParseKotlinFileError> {
+    let original_bytes = source.as_bytes();
+    let normalized_tree = parser.parse(normalized.bytes.as_slice(), None);
+    let should_validate_original = normalized.bytes.as_slice() != original_bytes
+        && normalized_tree
+            .as_ref()
+            .is_none_or(|tree| tree.root_node().has_error());
+    let original_tree = should_validate_original
+        .then(|| parser.parse(original_bytes, None))
+        .flatten();
+
+    let (tree, primary_source) = select_primary_parse(normalized_tree, original_tree)
         .ok_or_else(|| ParseKotlinFileError::ParseFailed(path.to_path_buf()))?;
-    let recovery = recover_parse_passes(parser, &normalized.bytes, &tree);
+    // Regions describe transforms on the normalized buffer; drop them when the
+    // original tree wins so they cannot mask extraction on the chosen tree.
+    let (primary_bytes, syntax_regions) = match primary_source {
+        PrimaryParseSource::Original => (original_bytes, Vec::new()),
+        PrimaryParseSource::Normalized => (normalized.bytes.as_slice(), normalized.regions),
+    };
+    let recovery = recover_parse_passes(parser, primary_bytes, &tree);
 
     Ok(ParsedKotlinFile {
         unresolved_problems: recovery.unresolved_problems,
@@ -143,8 +174,25 @@ pub(crate) fn parse_kotlin_file_permissive(
             priority: 0,
         },
         recovered: recovery.recovered,
-        syntax_regions: normalized.regions,
+        syntax_regions,
     })
+}
+
+fn select_primary_parse(
+    normalized: Option<tree_sitter::Tree>,
+    original: Option<tree_sitter::Tree>,
+) -> Option<(tree_sitter::Tree, PrimaryParseSource)> {
+    match (normalized, original) {
+        (Some(tree), _) if !tree.root_node().has_error() => {
+            Some((tree, PrimaryParseSource::Normalized))
+        }
+        (_, Some(tree)) if !tree.root_node().has_error() => {
+            Some((tree, PrimaryParseSource::Original))
+        }
+        (Some(tree), _) => Some((tree, PrimaryParseSource::Normalized)),
+        (_, Some(tree)) => Some((tree, PrimaryParseSource::Original)),
+        _ => None,
+    }
 }
 
 #[allow(dead_code)]
@@ -634,6 +682,93 @@ fn simple_identifier_from_expression(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kotlin_recovery::ComponentScopePolicy;
+
+    fn parse_tree(source: &str) -> tree_sitter::Tree {
+        let mut parser = new_parser().expect("parser");
+        parser.parse(source.as_bytes(), None).expect("tree")
+    }
+
+    #[test]
+    fn primary_parse_selection_is_monotonic() {
+        let cases = [
+            (
+                Some("fun Normalized() {}\n"),
+                Some("fun Original() {}\n"),
+                PrimaryParseSource::Normalized,
+                false,
+            ),
+            (
+                Some("fun Normalized( {\n"),
+                Some("fun Original() {}\n"),
+                PrimaryParseSource::Original,
+                false,
+            ),
+            (
+                Some("fun Normalized() {}\n"),
+                Some("fun Original( {\n"),
+                PrimaryParseSource::Normalized,
+                false,
+            ),
+            (
+                Some("fun Normalized( {\n"),
+                Some("fun Original( {\n"),
+                PrimaryParseSource::Normalized,
+                true,
+            ),
+            (
+                None,
+                Some("fun Original() {}\n"),
+                PrimaryParseSource::Original,
+                false,
+            ),
+        ];
+
+        for (normalized, original, want_source, want_error) in cases {
+            let (tree, source) =
+                select_primary_parse(normalized.map(parse_tree), original.map(parse_tree))
+                    .expect("selected");
+            assert_eq!(source, want_source);
+            assert_eq!(tree.root_node().has_error(), want_error);
+        }
+
+        assert!(select_primary_parse(None, None).is_none());
+    }
+
+    #[test]
+    fn permissive_parse_prefers_clean_original_over_degraded_normalization() {
+        let source = "fun Host() {}\n".to_owned();
+        let host_body = ByteRange::new(11, 13).expect("body range");
+        let normalized = NormalizedKotlinSource {
+            bytes: b"fun Host(  {}\n".to_vec(),
+            // Stale Exclude region from an unused rewrite — must be dropped on Original.
+            regions: vec![SyntaxRegion {
+                source: ByteRange::new(0, source.len()).expect("source range"),
+                body: Some(host_body),
+                family: SyntaxFamily::SuspendLambda,
+                component_scope: ComponentScopePolicy::Exclude,
+            }],
+        };
+        assert_eq!(source.len(), normalized.bytes.len());
+
+        let mut parser = new_parser().expect("parser");
+        let parsed = parse_kotlin_source_permissive(
+            &mut parser,
+            Path::new("Host.kt"),
+            source.clone(),
+            normalized,
+        )
+        .expect("fallback parse");
+
+        assert_eq!(parsed.source, source);
+        assert!(!parsed.primary_tree().root_node().has_error());
+        assert!(!parsed.is_partial());
+        assert!(parsed.unresolved_problems.is_empty());
+        assert!(
+            parsed.syntax_regions.is_empty(),
+            "Original fallback must not retain normalized rewrite regions"
+        );
+    }
 
     fn first_node_of_kind<'a>(
         root: tree_sitter::Node<'a>,
