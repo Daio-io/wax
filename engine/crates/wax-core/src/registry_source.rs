@@ -99,11 +99,16 @@ pub fn resolve_language_registry_source(
         Some(LanguageRegistrySource::Git { .. }) => None,
         None => None,
     };
-    resolve_registry_source_with_lock(RegistrySourceInput {
-        repo_root,
-        language_id,
-        source,
-    }, registry, locked, upgrade)
+    resolve_registry_source_with_lock(
+        RegistrySourceInput {
+            repo_root,
+            language_id,
+            source,
+        },
+        registry,
+        locked,
+        upgrade,
+    )
 }
 
 /// Rejects git registry configuration while git resolution is not yet available.
@@ -294,7 +299,12 @@ pub(crate) fn resolve_registry_source_allowing_missing_components(
     resolve_registry_source_with_options(input, None, None, false, true)
 }
 
-fn resolve_registry_source_with_lock(input: RegistrySourceInput<'_>, registry: Option<&LanguageRegistrySource>, locked: Option<&LockedRegistry>, upgrade: bool) -> Result<ResolvedRegistrySource, RegistrySourceError> {
+fn resolve_registry_source_with_lock(
+    input: RegistrySourceInput<'_>,
+    registry: Option<&LanguageRegistrySource>,
+    locked: Option<&LockedRegistry>,
+    upgrade: bool,
+) -> Result<ResolvedRegistrySource, RegistrySourceError> {
     resolve_registry_source_with_options(input, registry, locked, upgrade, false)
 }
 
