@@ -220,13 +220,17 @@ fn attempt_scan_time_registry_sync(
     }
 
     let waxrc = load_waxrc(&config_path)?;
-    let has_syncable_registry = waxrc.languages.iter().any(|entry| match entry.registry_source.as_ref() {
-        Some(wax_core::config::waxrc::LanguageRegistrySource::Git { .. }) => true,
-        Some(registry) => registry
-            .upstream()
-            .is_some_and(|upstream| !upstream.trim().is_empty()),
-        None => false,
-    });
+    let has_syncable_registry =
+        waxrc
+            .languages
+            .iter()
+            .any(|entry| match entry.registry_source.as_ref() {
+                Some(wax_core::config::waxrc::LanguageRegistrySource::Git { .. }) => true,
+                Some(registry) => registry
+                    .upstream()
+                    .is_some_and(|upstream| !upstream.trim().is_empty()),
+                None => false,
+            });
     if !has_syncable_registry {
         return Ok(());
     }

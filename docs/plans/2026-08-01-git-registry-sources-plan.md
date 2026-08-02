@@ -24,3 +24,16 @@ THE-281.
 - [x] Add deterministic per-URL bare-repository caching and the dedicated cache path constant.
 - [x] Add system-git fixture coverage for refs, tags, locked commits, errors, safe paths, and cache isolation.
 - [x] Run formatting, focused registry-git tests, and clippy verification.
+
+## Task 4: Wax sync upgrade and offline validation
+
+- [x] Wire `wax sync --upgrade` through the CLI and core sync options.
+- [x] Keep ordinary Git sync pinned and make upgrade output report the tag and
+  old/new commits without exposing remote credentials.
+- [x] Make Git-only sync independent of global remembered-design-system state;
+  preserve lazy state resolution for upstream registries.
+- [x] Validate Git registry locks offline using canonical source, identity,
+  digest, and full lowercase commit metadata.
+- [x] Preserve transactional sync behavior and avoid lockfile rewrites when
+  resolved pins are unchanged.
+- [x] Run the focused core and CLI sync/validate/help checks.

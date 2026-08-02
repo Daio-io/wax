@@ -49,17 +49,28 @@ pub fn run_sync_cli(
     })?;
 
     if updates.is_empty() {
-        writeln!(writer, "No registry upstreams configured; nothing to sync.")
+        writeln!(writer, "Registry pins are already up to date.")
             .map_err(|source| SyncCommandError::Io { source })?;
         return Ok(());
     }
 
     for update in updates {
-        writeln!(
-            writer,
-            "updated {} registry from {} -> {}",
-            update.language_id, update.upstream, update.source
-        )
+        if let (Some(_git), Some(tag), Some(new_commit)) =
+            (update.git, update.tag, update.new_commit)
+        {
+            let old = update.old_commit.as_deref().unwrap_or("<none>");
+            writeln!(
+                writer,
+                "updated {} git registry tag {}: {} -> {}",
+                update.language_id, tag, old, new_commit
+            )
+        } else {
+            writeln!(
+                writer,
+                "updated {} registry from {} -> {}",
+                update.language_id, update.upstream, update.source
+            )
+        }
         .map_err(|source| SyncCommandError::Io { source })?;
     }
     Ok(())

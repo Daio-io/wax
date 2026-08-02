@@ -1,6 +1,6 @@
 //! Repository validation rules for `wax validate`.
 
-use crate::config::lockfile::{LockedRegistry, LockfileError, WaxLock, load_lockfile};
+use crate::config::lockfile::{LockedRegistry, LockfileError, load_lockfile};
 use crate::config::repo_files::discover_repo_files;
 use crate::config::waxrc::{LanguageRegistrySource, WaxRcError, load_waxrc};
 use crate::progress::{ValidateProgress, ValidateProgressEvent};
@@ -296,8 +296,20 @@ fn validate_git_registry_lock(
     tag: &str,
     locked: &LockedRegistry,
 ) -> Result<(), ValidateError> {
-    validate_git_lock_string(field, "git", locked.git.as_deref(), git, "must match config")?;
-    validate_git_lock_string(field, "tag", locked.tag.as_deref(), tag, "must match config")?;
+    validate_git_lock_string(
+        field,
+        "git",
+        locked.git.as_deref(),
+        git,
+        "must match config",
+    )?;
+    validate_git_lock_string(
+        field,
+        "tag",
+        locked.tag.as_deref(),
+        tag,
+        "must match config",
+    )?;
     validate_git_lock_string(
         field,
         "source",
@@ -309,18 +321,21 @@ fn validate_git_registry_lock(
     let Some(commit) = locked.commit.as_deref() else {
         return Err(invalid_git_lock(field, "commit", "is required"));
     };
-    if commit.len() != 40 || !commit.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+    if !matches!(commit.len(), 40 | 64)
+        || !commit
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
         return Err(invalid_git_lock(
             field,
             "commit",
-            "must be a full 40-character hexadecimal commit id",
+            "must be a full lowercase 40- or 64-character hexadecimal commit id",
         ));
     }
     if locked.sha256.len() != 64
-        || !locked
-            .sha256
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (byte.is_ascii_lowercase() && byte.is_ascii_hexdigit()))
+        || !locked.sha256.bytes().all(|byte| {
+            byte.is_ascii_digit() || (byte.is_ascii_lowercase() && byte.is_ascii_hexdigit())
+        })
     {
         return Err(invalid_git_lock(
             field,

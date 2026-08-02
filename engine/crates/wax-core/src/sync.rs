@@ -15,9 +15,7 @@ use crate::registry_memory::{
     RegistryMemoryError, copy_design_system_registry_to_app, resolve_remembered_registry,
     show_remembered_design_system,
 };
-use crate::registry_source::{
-    resolve_language_registry_source,
-};
+use crate::registry_source::resolve_language_registry_source;
 use crate::{AtomicWriteError, AtomicWriteOptions, paths::PathsError, write_atomically};
 
 /// Options for syncing app registries from remembered design systems.
@@ -42,6 +40,14 @@ pub struct SyncUpdate {
     pub upstream: String,
     /// Registry source written to app config after sync.
     pub source: String,
+    /// Configured Git remote when this update came from a Git registry.
+    pub git: Option<String>,
+    /// Configured Git tag when this update came from a Git registry.
+    pub tag: Option<String>,
+    /// Commit pinned before this sync, when present.
+    pub old_commit: Option<String>,
+    /// Commit pinned by this sync, when this is a Git registry.
+    pub new_commit: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -211,11 +217,12 @@ pub fn sync_app_registries(options: &SyncOptions) -> Result<Vec<SyncUpdate>, Syn
                 &mut config_json,
                 &mut config_changed,
             )?);
-        } else if entry
-            .registry_source
-            .as_ref()
-            .is_some_and(|registry| matches!(registry, crate::config::waxrc::LanguageRegistrySource::Git { .. }))
-        {
+        } else if entry.registry_source.as_ref().is_some_and(|registry| {
+            matches!(
+                registry,
+                crate::config::waxrc::LanguageRegistrySource::Git { .. }
+            )
+        }) {
             prepared_updates.push(prepare_language_git_sync(options, entry, &lockfile)?);
         }
     }
@@ -270,8 +277,8 @@ pub fn best_effort_sync_app_registries(options: &SyncOptions) -> BestEffortSyncR
             .and_then(|registry| registry.upstream())
             .filter(|upstream| !upstream.trim().is_empty())
         {
-            let prepared = resolve_upstream_state_path(&mut resolved_state_path).and_then(
-                |state_path| {
+            let prepared =
+                resolve_upstream_state_path(&mut resolved_state_path).and_then(|state_path| {
                     prepare_language_upstream_sync(
                         state_path,
                         entry,
@@ -279,17 +286,17 @@ pub fn best_effort_sync_app_registries(options: &SyncOptions) -> BestEffortSyncR
                         &mut config_json,
                         &mut config_changed,
                     )
-                },
-            );
+                });
             match prepared {
                 Ok(prepared) => prepared_updates.push(prepared),
                 Err(error) => failures.push((upstream.to_owned(), error)),
             }
-        } else if entry
-            .registry_source
-            .as_ref()
-            .is_some_and(|registry| matches!(registry, crate::config::waxrc::LanguageRegistrySource::Git { .. }))
-        {
+        } else if entry.registry_source.as_ref().is_some_and(|registry| {
+            matches!(
+                registry,
+                crate::config::waxrc::LanguageRegistrySource::Git { .. }
+            )
+        }) {
             match prepare_language_git_sync(options, entry, &lockfile) {
                 Ok(prepared) => prepared_updates.push(prepared),
                 Err(error) => failures.push((git_sync_label(entry), error)),
@@ -506,6 +513,10 @@ fn prepare_language_upstream_sync(
             language_id: entry.id.clone(),
             upstream: resolved.upstream,
             source: resolved.config_source,
+            git: None,
+            tag: None,
+            old_commit: None,
+            new_commit: None,
         },
         registry_copy,
     })
@@ -534,11 +545,24 @@ fn prepare_language_git_sync(
         lockfile.registries.get(&entry.id),
         options.upgrade,
     )?;
+    let (git, tag) = match entry.registry_source.as_ref() {
+        Some(crate::config::waxrc::LanguageRegistrySource::Git { git, tag }) => {
+            (Some(git.clone()), Some(tag.clone()))
+        }
+        _ => (None, None),
+    };
     Ok(PreparedSync {
         update: SyncUpdate {
             language_id: entry.id.clone(),
             upstream: git_sync_label(entry),
             source: resolved.source,
+            git,
+            tag,
+            old_commit: lockfile
+                .registries
+                .get(&entry.id)
+                .and_then(|lock| lock.commit.clone()),
+            new_commit: resolved.git_commit,
         },
         registry_copy: None,
     })
@@ -644,10 +668,12 @@ fn refresh_registry_locks(
             .iter()
             .any(|prepared| prepared.update.language_id == entry.id)
     }) {
-        let is_git = entry
-            .registry_source
-            .as_ref()
-            .is_some_and(|source| matches!(source, crate::config::waxrc::LanguageRegistrySource::Git { .. }));
+        let is_git = entry.registry_source.as_ref().is_some_and(|source| {
+            matches!(
+                source,
+                crate::config::waxrc::LanguageRegistrySource::Git { .. }
+            )
+        });
         let resolved = resolve_language_registry_source(
             repo_root,
             entry.id.as_str(),
@@ -658,14 +684,24 @@ fn refresh_registry_locks(
         let refreshed = LockedRegistry {
             source: resolved.source,
             sha256: resolved.sha256,
-            git: entry.registry_source.as_ref().and_then(|source| match source {
-                crate::config::waxrc::LanguageRegistrySource::Git { git, .. } => Some(git.clone()),
-                _ => None,
-            }),
-            tag: entry.registry_source.as_ref().and_then(|source| match source {
-                crate::config::waxrc::LanguageRegistrySource::Git { tag, .. } => Some(tag.clone()),
-                _ => None,
-            }),
+            git: entry
+                .registry_source
+                .as_ref()
+                .and_then(|source| match source {
+                    crate::config::waxrc::LanguageRegistrySource::Git { git, .. } => {
+                        Some(git.clone())
+                    }
+                    _ => None,
+                }),
+            tag: entry
+                .registry_source
+                .as_ref()
+                .and_then(|source| match source {
+                    crate::config::waxrc::LanguageRegistrySource::Git { tag, .. } => {
+                        Some(tag.clone())
+                    }
+                    _ => None,
+                }),
             commit: resolved.git_commit,
         };
         if lockfile.registries.get(&entry.id) != Some(&refreshed) {
@@ -838,7 +874,10 @@ mod sync_tests {
         let git_repo = root.join("git-registry");
         fs::create_dir_all(git_repo.join(".wax/registries"))
             .expect("create git registry directory");
-        run_git(root, &["init", git_repo.to_str().expect("git registry path")]);
+        run_git(
+            root,
+            &["init", git_repo.to_str().expect("git registry path")],
+        );
         run_git(&git_repo, &["config", "user.email", "wax@example.invalid"]);
         run_git(&git_repo, &["config", "user.name", "Wax Test"]);
         fs::write(
@@ -1151,12 +1190,18 @@ mod sync_tests {
 
         assert_eq!(updates.len(), 1);
         assert_eq!(updates[0].language_id.as_str(), "compose");
-        assert_eq!(updates[0].upstream, format!("{}@v1", git_registry.display()));
+        assert_eq!(
+            updates[0].upstream,
+            format!("{}@v1", git_registry.display())
+        );
         let lockfile_path = app_repo.join(".wax/wax.lock.json");
         let first_lockfile = fs::read(&lockfile_path).expect("read first git lockfile");
         let lockfile = load_lockfile(&lockfile_path).expect("load git lockfile");
         let registry = lockfile.registries.get("compose").expect("git lock entry");
-        assert_eq!(registry.git.as_deref(), Some(git_registry.to_str().unwrap()));
+        assert_eq!(
+            registry.git.as_deref(),
+            Some(git_registry.to_str().unwrap())
+        );
         assert_eq!(registry.tag.as_deref(), Some("v1"));
         assert!(registry.commit.is_some());
 

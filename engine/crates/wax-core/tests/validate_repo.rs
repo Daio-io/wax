@@ -353,7 +353,11 @@ fn validate_repo_rejects_registry_digest_drift() {
 #[test]
 fn validate_repo_accepts_git_registry_without_a_lock_or_network_access() {
     let root = TestDir::new("validate-repo-git-without-lock");
-    write_repo_with_git_registry(&root.path, "https://example.invalid/design-system.git", "v1");
+    write_repo_with_git_registry(
+        &root.path,
+        "https://example.invalid/design-system.git",
+        "v1",
+    );
 
     let report = validate_repo(&root.path).expect("git validation should remain offline");
 
@@ -363,7 +367,11 @@ fn validate_repo_accepts_git_registry_without_a_lock_or_network_access() {
 #[test]
 fn validate_repo_rejects_git_lock_source_drift_with_registry_field() {
     let root = TestDir::new("validate-repo-git-lock-source-drift");
-    write_repo_with_git_registry(&root.path, "https://example.invalid/design-system.git", "v1");
+    write_repo_with_git_registry(
+        &root.path,
+        "https://example.invalid/design-system.git",
+        "v1",
+    );
     fs::write(
         root.path.join(".wax/wax.lock.json"),
         git_lockfile_json(
