@@ -296,8 +296,47 @@ remote path `.wax/registries/<language-id>.json` and pin a tag or commit:
 }
 ```
 
-The string shorthand and the `source`/`upstream` object form remain supported.
-Git fetching and cache materialization are added in a later release.
+`tag` accepts either a Git tag name or a full commit SHA. Wax always reads
+`.wax/registries/<language-id>.json` for that language; there is no `path`
+option. Each language can choose its own registry mode. The string shorthand
+and the `source`/`upstream` object form remain supported.
+
+Git registries are resolved and materialized as follows:
+
+1. The first scan or sync resolves the configured ref to a full commit.
+2. Wax validates the registry JSON, stores operational data under
+   `.wax/cache/`, and records the commit and SHA-256 digest in
+   `.wax/wax.lock.json`.
+3. Ordinary `wax scan` and `wax sync` reuse the locked commit, even if the
+   remote tag moves.
+4. `wax sync --upgrade` deliberately re-resolves tags and updates the pins.
+5. Editing `git` or `tag` changes the registry identity and causes a new
+   resolution.
+
+Git fetch or read failures are hard scan/sync failures. `wax validate` is
+offline for Git mode: it checks config and lock metadata only and does not
+prove that the remote is reachable.
+
+Commit `.wax/wax.config.json` and `.wax/wax.lock.json`. The lockfile remains
+required for language-pack reproducibility; a missing Git registry entry may
+be auto-pinned, but a missing language-pack pin is not. Do not commit copied
+registry files for Git-mode languages, `.wax/cache/`, or `.wax/out/`; the
+existing `.gitignore` already ignores the operational cache and output paths.
+
+In CI, install the required language packs and run:
+
+```bash
+wax validate
+wax scan --no-auto-install
+```
+
+CI needs system Git, credentials and network access when the pinned commit is
+not already cached, and the committed lockfile. Wax delegates HTTPS/SSH
+authentication to system Git, the user's SSH agent, and configured credential
+helpers; it does not store Git credentials. Commit pins and registry SHA-256
+digests provide reproducibility, but this plan does not add signed-tag or
+signed-commit verification. Private repositories use normal system-Git
+authentication.
 
 After changing registry content or sources, refresh locks:
 
@@ -386,7 +425,6 @@ auto-installing packs:
 
 ```bash
 wax validate
-wax language install react
 wax scan --no-auto-install
 ```
 

@@ -1,5 +1,9 @@
 # Git registry sources implementation plan
 
+**Status:** Implementation complete through Task 4; Task 5 documentation
+closeout in progress. The plan remains active until the maintainer workflow
+promotes and archives it.
+
 **Goal:** Add the config-v2 contract for Git-backed language registries while
 keeping fetching, caching, lock pinning, and CLI wiring in follow-on tasks.
 
@@ -37,3 +41,17 @@ THE-281.
 - [x] Preserve transactional sync behavior and avoid lockfile rewrites when
   resolved pins are unchanged.
 - [x] Run the focused core and CLI sync/validate/help checks.
+
+## Task 5: Docs and README examples
+
+- [x] **Task 5 complete**
+
+- [x] Document the config-v2 Git/tag shape, fixed registry path, and supported
+  string, source, upstream, and per-language modes.
+- [x] Document locked commit/digest lifecycle, ordinary sync versus
+  `wax sync --upgrade`, and offline Git-mode validation.
+- [x] Document committed config/lock files, operational ignore paths, CI
+  requirements, and system-Git authentication boundaries.
+- [x] Update the changelog and cross-reference the existing registry-sync and
+  language-pack lock contracts.
+- [x] Verify documentation against the shipped CLI and focused engine tests.
