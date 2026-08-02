@@ -181,8 +181,7 @@ fn known_valid_syntax_is_byte_preserving() {
             .usage_sites
             .iter()
             .find(|site| {
-                site.location.file
-                    == "app/src/main/kotlin/AnnotatedHigherOrderFunctionType.kt"
+                site.location.file == "app/src/main/kotlin/AnnotatedHigherOrderFunctionType.kt"
                     && site.symbol == "PrimaryButton"
                     && site.location.line == line
                     && site.location.column == Some(column)

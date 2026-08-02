@@ -780,12 +780,10 @@ fn collect_annotated_function_type_transforms(
         let Some(type_close) = lexed.matching_delimiters.get(&type_open).copied() else {
             continue;
         };
-        let direct_outer_arrow = next_significant_index(lexed.bytes, type_close + 1).filter(
-            |index| {
-                lexed.bytes.get(*index) == Some(&b'-')
-                    && lexed.bytes.get(*index + 1) == Some(&b'>')
-            },
-        );
+        let direct_outer_arrow =
+            next_significant_index(lexed.bytes, type_close + 1).filter(|index| {
+                lexed.bytes.get(*index) == Some(&b'-') && lexed.bytes.get(*index + 1) == Some(&b'>')
+            });
 
         let (source_end, mask_ranges) = if let Some(arrow) = direct_outer_arrow {
             // The first parentheses are the outer function type's parameter list.
@@ -1656,6 +1654,83 @@ mod tests {
                 component_scope: ComponentScopePolicy::Exclude,
             }
         );
+    }
+
+    #[test]
+    fn direct_outer_annotated_function_types_are_metadata_only() {
+        for source in [
+            "fun host(\n    content: @Composable (onDone: () -> Unit) -> Unit,\n) {}\n",
+            "fun host(content: @Composable (onDone: () -> Unit) -> Unit) {}\n",
+            "fun host(content: @Composable (() -> Unit) -> Unit) {}\n",
+            "fun host(content: @Composable (onDone: () -> Unit, onCancel: () -> Unit) -> Unit) {}\n",
+            "fun host(content: @Composable (onDone: (() -> Unit)?) -> Unit) {}\n",
+        ] {
+            let normalized = normalize_kotlin_for_parse(source);
+            let tree = parse(&normalized);
+
+            assert_eq!(normalized.bytes, source.as_bytes(), "{source}");
+            assert_eq!(normalized.regions.len(), 1, "{source}");
+            assert_eq!(
+                normalized.regions[0].family,
+                SyntaxFamily::AnnotatedFunctionType,
+                "{source}"
+            );
+            assert_eq!(
+                normalized.regions[0].component_scope,
+                ComponentScopePolicy::Inherit,
+                "{source}"
+            );
+            assert!(
+                !tree.root_node().has_error(),
+                "{}",
+                tree.root_node().to_sexp()
+            );
+        }
+    }
+
+    #[test]
+    fn direct_outer_annotated_property_lambda_keeps_composable_scope() {
+        let source = concat!(
+            "val content: @Composable (onDone: () -> Unit) -> Unit = { onDone ->\n",
+            "    PrimaryButton(onClick = onDone)\n",
+            "}\n",
+        );
+        let normalized = normalize_kotlin_for_parse(source);
+        let tree = parse(&normalized);
+        let body_start = source.find("{ onDone ->").expect("lambda body");
+        let body_end = source.rfind('}').expect("lambda end") + 1;
+
+        assert_eq!(normalized.bytes, source.as_bytes());
+        assert_eq!(normalized.regions.len(), 1);
+        assert_eq!(
+            normalized.regions[0].body,
+            Some(super::ByteRange {
+                start: body_start,
+                end: body_end,
+            })
+        );
+        assert_eq!(
+            normalized.regions[0].component_scope,
+            ComponentScopePolicy::ComposableLambda
+        );
+        assert!(
+            !tree.root_node().has_error(),
+            "{}",
+            tree.root_node().to_sexp()
+        );
+    }
+
+    #[test]
+    fn redundant_wrapper_annotated_function_type_still_masks_only_wrapper() {
+        let source = "val content: @Composable (() -> Unit) = {}\n";
+        let normalized = normalize_kotlin_for_parse(source);
+
+        assert_ne!(normalized.bytes, source.as_bytes());
+        assert_eq!(
+            String::from_utf8_lossy(&normalized.bytes),
+            "val content: @Composable  () -> Unit  = {}\n"
+        );
+        assert_eq!(normalized.regions.len(), 1);
     }
 
     #[test]
