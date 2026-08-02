@@ -147,7 +147,7 @@ Source `roots` are repo-relative directories. Language packs may also expand pat
 
 Pins resolved artifacts and design-system registry digests for reproducible local and CI scans. Canonical path: **`.wax/wax.lock.json`**. **Required for repositories using language packs**; `wax init` writes it after resolving selected pack artifacts.
 
-Lockfile schema version **2** adds top-level `registries` entries keyed by language id (`source` + `sha256`). A published JSON Schema for the lockfile is tracked separately; this spec documents the shape only.
+Lockfile schema version **2** adds top-level `registries` entries keyed by language id. Each registry entry always carries `source` and `sha256`. Git-backed registries also pin optional `git`, `tag`, and `commit` (all three together, or all omitted). A published JSON Schema for the lockfile is tracked separately; this spec documents the shape only.
 
 ```json
 {
@@ -159,6 +159,13 @@ Lockfile schema version **2** adds top-level `registries` entries keyed by langu
     "compose": {
       "source": ".wax/compose.registry.json",
       "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "react": {
+      "source": "git:https://github.com/acme/design-system.git#v2.4.1",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "git": "https://github.com/acme/design-system.git",
+      "tag": "v2.4.1",
+      "commit": "0123456789012345678901234567890123456789"
     }
   },
   "languages": {
@@ -181,6 +188,8 @@ Lockfile schema version **2** adds top-level `registries` entries keyed by langu
 - **`resolved`** — host triple, url, and sha256 for the machine that produced the lock (CI must match triple or use a matrix).
 - **`resolved.signature`** — reserved for Sigstore/cosign metadata in v1.1; `null` in v1.
 - **`source`** — pack index URL or mirror id for audit.
+- **`registries.<id>.source` / `sha256`** — resolved registry locator and content digest.
+- **`registries.<id>.git` / `tag` / `commit`** — present together for Git-backed pins; `commit` is the exact object id used for scans until an explicit upgrade refreshes the tag.
 - **`wax_version`** — engine that wrote the lock; `doctor` warns on skew.
 - **`locked_at`** — when the lock was produced; optional audit field.
 

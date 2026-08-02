@@ -30,7 +30,7 @@ pub mod validate;
 
 use adoption_merge::{MergeOptions, merge_language_scans_with_options};
 use auto_install::{AutoInstallPolicyInput, InstalledManifest, PackIndexArtifact};
-use config::lockfile::{LockfileError, WaxLock, load_lockfile};
+use config::lockfile::{LockfileError, WAX_LOCK_SCHEMA_VERSION, WaxLock, load_lockfile};
 use config::waxrc::{WaxRc, WaxRcError, load_waxrc};
 use global_state::{GlobalStateError, InstalledLanguagePack, load_global_state, save_global_state};
 use install::{InstallError, LanguagePackManifestSpec, install_language};
@@ -375,6 +375,7 @@ impl Engine {
             enabled_ids.insert(entry.id);
         }
         if registry_lock_changed && !is_ephemeral {
+            lockfile.schema_version = WAX_LOCK_SCHEMA_VERSION;
             let path = config::repo_files::discover_repo_files(repo_root).lockfile_path;
             let contents = serde_json::to_string_pretty(&lockfile).map_err(|source| {
                 EngineError::Lockfile(LockfileError::InvalidConfig {
