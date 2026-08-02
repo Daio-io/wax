@@ -807,12 +807,27 @@ fn refresh_registry_locks_in_lockfile(
             repo_root,
             entry.id.as_str(),
             entry.registry_source.as_ref(),
+            lockfile.registries.get(&entry.id),
+            false,
         )?;
         lockfile.registries.insert(
             entry.id.clone(),
             LockedRegistry {
                 source: resolved.source,
                 sha256: resolved.sha256,
+                git: entry.registry_source.as_ref().and_then(|s| match s {
+                    wax_core::config::waxrc::LanguageRegistrySource::Git { git, .. } => {
+                        Some(git.clone())
+                    }
+                    _ => None,
+                }),
+                tag: entry.registry_source.as_ref().and_then(|s| match s {
+                    wax_core::config::waxrc::LanguageRegistrySource::Git { tag, .. } => {
+                        Some(tag.clone())
+                    }
+                    _ => None,
+                }),
+                commit: resolved.git_commit,
             },
         );
     }

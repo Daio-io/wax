@@ -328,6 +328,9 @@ fn build_ephemeral_scan_config(
             repo_root: &options.repo_root,
             language_id: language_id.as_str(),
             source: Some(&scan_source),
+            registry: None,
+            locked: None,
+            upgrade: false,
         })
         .map_err(EngineError::from)?;
 
@@ -345,6 +348,9 @@ fn build_ephemeral_scan_config(
             LockedRegistry {
                 source: registry_source.source,
                 sha256: registry_source.sha256,
+                git: None,
+                tag: None,
+                commit: None,
             },
         );
 

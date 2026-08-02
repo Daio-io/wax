@@ -1,6 +1,7 @@
 //! `wax.lock.json` repository lockfile parsing and consistency checks.
 
 use crate::config::waxrc::WaxRc;
+use serde::de::Error as DeError;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -40,6 +41,15 @@ pub struct LockedRegistry {
     pub source: String,
     /// SHA-256 digest of the exact registry JSON content.
     pub sha256: String,
+    /// Exact Git URL when this registry was resolved from Git.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git: Option<String>,
+    /// Configured Git tag or ref that produced this pin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tag: Option<String>,
+    /// Full Git commit object id that produced this pin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
 }
 
 /// Lockfile entry for one resolved language pack.
@@ -177,7 +187,7 @@ pub fn load_lockfile(path: impl AsRef<Path>) -> Result<WaxLock, LockfileError> {
         || version.schema_version > WAX_LOCK_SCHEMA_VERSION
     {
         return Err(LockfileError::UnsupportedSchemaVersion {
-            path: path_display,
+            path: path_display.clone(),
             found: version.schema_version,
             min_supported: MIN_SUPPORTED_WAX_LOCK_SCHEMA_VERSION,
             max_supported: WAX_LOCK_SCHEMA_VERSION,
@@ -195,9 +205,25 @@ pub fn load_lockfile(path: impl AsRef<Path>) -> Result<WaxLock, LockfileError> {
 
     let lock: WaxLock =
         serde_json::from_value(value).map_err(|source| LockfileError::InvalidConfig {
-            path: path_display,
+            path: path_display.clone(),
             source,
         })?;
+
+    for (language_id, registry) in &lock.registries {
+        let metadata = [
+            registry.git.is_some(),
+            registry.tag.is_some(),
+            registry.commit.is_some(),
+        ];
+        if metadata.iter().any(|present| *present) && !metadata.iter().all(|present| *present) {
+            return Err(LockfileError::InvalidConfig {
+                path: path_display,
+                source: serde_json::Error::custom(format!(
+                    "registry lock for {language_id} has partial git metadata"
+                )),
+            });
+        }
+    }
 
     Ok(lock)
 }
