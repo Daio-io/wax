@@ -1026,8 +1026,12 @@ fn collect_annotated_type_argument_transforms(
 fn select_non_overlapping_transforms(
     mut transforms: Vec<RecoveryTransform>,
 ) -> Vec<RecoveryTransform> {
+    // Prefer initializer-bearing transforms so nested annotated function types keep the
+    // outer ComposableLambda body when an inner parameter type also matches. Among peers,
+    // keep the shorter (more specific) span.
     transforms.sort_by_key(|transform| {
         (
+            Reverse(transform.body.is_some()),
             transform.source.len(),
             transform.source.start,
             transform.source.end,
@@ -1365,11 +1369,36 @@ fn find_lambda_initializer_equal(lexed: &LexedKotlin<'_>, source_end: usize) -> 
                 while end < lexed.bytes.len() && is_identifier_byte(lexed.bytes[end]) {
                     end += 1;
                 }
+                // A following member/top-level declaration is not a type continuation.
+                if is_declaration_boundary_keyword(lexed.bytes, next) {
+                    return None;
+                }
                 index = end;
             }
             _ => return None,
         }
     }
+}
+
+fn is_declaration_boundary_keyword(bytes: &[u8], start: usize) -> bool {
+    [
+        b"annotation".as_slice(),
+        b"class",
+        b"companion",
+        b"constructor",
+        b"enum",
+        b"fun",
+        b"import",
+        b"init",
+        b"interface",
+        b"object",
+        b"package",
+        b"typealias",
+        b"val",
+        b"var",
+    ]
+    .iter()
+    .any(|keyword| starts_with_keyword(bytes, start, keyword))
 }
 
 fn expression_end(lexed: &LexedKotlin<'_>, start: usize, limit: usize) -> usize {
@@ -1801,6 +1830,55 @@ mod tests {
         let body_start = source.find("{ onDone ->").expect("lambda body");
         let body_end = source.rfind('}').expect("lambda end") + 1;
 
+        assert_eq!(normalized.regions.len(), 1);
+        assert_eq!(
+            normalized.regions[0].body,
+            Some(super::ByteRange {
+                start: body_start,
+                end: body_end,
+            })
+        );
+        assert_eq!(
+            normalized.regions[0].component_scope,
+            ComponentScopePolicy::ComposableLambda
+        );
+    }
+
+    #[test]
+    fn initializer_search_stops_at_following_declaration() {
+        let source = concat!(
+            "abstract val content: @Composable (onDone: () -> Unit) -> Unit\n",
+            "val unrelated = { PrimaryButton(onClick = {}) }\n",
+        );
+        let normalized = normalize_kotlin_for_parse(source);
+
+        assert_eq!(normalized.regions.len(), 1);
+        assert_eq!(normalized.regions[0].body, None);
+        assert_eq!(
+            normalized.regions[0].component_scope,
+            ComponentScopePolicy::Inherit
+        );
+        assert!(
+            !normalized
+                .regions
+                .iter()
+                .any(|region| { region.component_scope == ComponentScopePolicy::ComposableLambda })
+        );
+    }
+
+    #[test]
+    fn nested_annotated_callback_keeps_outer_composable_lambda_scope() {
+        let source = concat!(
+            "val content: @Composable (child: @Composable () -> Unit) -> Unit = { child ->\n",
+            "    PrimaryButton(onClick = {})\n",
+            "    child()\n",
+            "}\n",
+        );
+        let normalized = normalize_kotlin_for_parse(source);
+        let body_start = source.find("{ child ->").expect("lambda body");
+        let body_end = source.rfind('}').expect("lambda end") + 1;
+
+        assert_eq!(normalized.bytes, source.as_bytes());
         assert_eq!(normalized.regions.len(), 1);
         assert_eq!(
             normalized.regions[0].body,
