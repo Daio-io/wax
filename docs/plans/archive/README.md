@@ -25,5 +25,6 @@ Completed implementation plans live here. Each plan has a corresponding **ADR** 
 | 13 | [Token scanning](./2026-07-03-token-scanning-plan.md) | [ADR](../../adr/2026-07-03-token-scanning.md) | Complete |
 | 14 | [Token inference and reporting](./2026-07-19-token-inference-reporting-plan.md) | [ADR](../../adr/2026-07-19-token-inference-reporting.md) | Complete |
 | 15 | [Compose parse recovery and UI scoping](./2026-07-22-compose-parse-recovery-plan.md) | [ADR](../../adr/2026-07-22-compose-parse-recovery.md) | Complete |
+| 16 | [Git registry sources](./2026-08-01-git-registry-sources-plan.md) | [ADR](../../adr/2026-08-01-git-registry-sources.md) | Complete |
 
 **Active plans** remain in [`docs/plans/`](../README.md).

@@ -102,8 +102,9 @@ Rules:
 Git sources are resolved at a locked commit and registry digest. Ordinary
 `wax sync` reuses that pin; `wax sync --upgrade` deliberately refreshes a
 configured tag. Git-mode `wax validate` checks the committed identity and
-digest metadata offline. See the [Git registry sources implementation
-plan](../plans/2026-08-01-git-registry-sources-plan.md) for the staged rollout.
+digest metadata offline. See the
+[Git registry sources ADR](../adr/2026-08-01-git-registry-sources.md) and
+[archived implementation plan](../plans/archive/2026-08-01-git-registry-sources-plan.md).
 
 ### Design-System Publishing Config
 

@@ -1,8 +1,7 @@
 # Git registry sources implementation plan
 
-**Status:** Implementation complete through Task 4; Task 5 documentation
-closeout in progress. The plan remains active until the maintainer workflow
-promotes and archives it.
+**Status:** Complete and archived. See
+[ADR](../../adr/2026-08-01-git-registry-sources.md).
 
 **Goal:** Add the config-v2 contract for Git-backed language registries while
 keeping fetching, caching, lock pinning, and CLI wiring in follow-on tasks.
