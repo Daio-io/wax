@@ -780,26 +780,41 @@ fn collect_annotated_function_type_transforms(
         let Some(type_close) = lexed.matching_delimiters.get(&type_open).copied() else {
             continue;
         };
-        if find_top_level_arrow(lexed, type_open + 1, type_close).is_none() {
-            continue;
-        }
+        let direct_outer_arrow = next_significant_index(lexed.bytes, type_close + 1).filter(
+            |index| {
+                lexed.bytes.get(*index) == Some(&b'-')
+                    && lexed.bytes.get(*index + 1) == Some(&b'>')
+            },
+        );
 
-        let source_end = if next_significant_index(lexed.bytes, type_close + 1)
-            .is_some_and(|index| lexed.bytes[index] == b'?')
-        {
-            next_significant_index(lexed.bytes, type_close + 1)
-                .map_or(type_close + 1, |index| index + 1)
+        let (source_end, mask_ranges) = if let Some(arrow) = direct_outer_arrow {
+            // The first parentheses are the outer function type's parameter list.
+            // The pinned grammar already accepts this shape, so record metadata only.
+            (arrow + 2, Vec::new())
         } else {
-            type_close + 1
+            // The first parentheses wrap the whole annotated function type.
+            // This is the existing grammar-gap recovery and still needs masking.
+            if find_top_level_arrow(lexed, type_open + 1, type_close).is_none() {
+                continue;
+            }
+            let source_end = if next_significant_index(lexed.bytes, type_close + 1)
+                .is_some_and(|index| lexed.bytes[index] == b'?')
+            {
+                next_significant_index(lexed.bytes, type_close + 1)
+                    .map_or(type_close + 1, |index| index + 1)
+            } else {
+                type_close + 1
+            };
+            let Some(open_mask) = ByteRange::new(type_open, type_open + 1) else {
+                continue;
+            };
+            let Some(close_mask) = ByteRange::new(type_close, type_close + 1) else {
+                continue;
+            };
+            (source_end, vec![open_mask, close_mask])
         };
         let initializer_body = lambda_initializer_body(lexed, source_end);
         let Some(source) = ByteRange::new(annotation_start, source_end) else {
-            continue;
-        };
-        let Some(open_mask) = ByteRange::new(type_open, type_open + 1) else {
-            continue;
-        };
-        let Some(close_mask) = ByteRange::new(type_close, type_close + 1) else {
             continue;
         };
         out.push(RecoveryTransform {
@@ -811,7 +826,7 @@ fn collect_annotated_function_type_transforms(
             } else {
                 ComponentScopePolicy::Inherit
             },
-            mask_ranges: vec![open_mask, close_mask],
+            mask_ranges,
         });
     }
 }
@@ -1483,6 +1498,13 @@ mod tests {
                 "../tests/fixtures/kotlin-syntax/app/src/main/kotlin/AnnotatedFunctionType.kt"
             ),
             "AfterAnnotatedFunctionType",
+        ),
+        (
+            "AnnotatedHigherOrderFunctionType.kt",
+            include_str!(
+                "../tests/fixtures/kotlin-syntax/app/src/main/kotlin/AnnotatedHigherOrderFunctionType.kt"
+            ),
+            "AfterAnnotatedHigherOrderFunctionType",
         ),
         (
             "ExplicitBackingField.kt",
