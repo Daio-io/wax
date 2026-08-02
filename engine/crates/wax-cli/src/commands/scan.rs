@@ -178,9 +178,10 @@ pub fn run_scan_cli(
 /// # Errors
 ///
 /// Returns [`ScanCommandError::Config`] when pre-scan sync cannot load the wax
-/// config. If that config has a non-empty registry upstream and no state-path
-/// override, returns [`ScanCommandError::Paths`] when the global state path
-/// cannot be resolved. Returns [`ScanCommandError::Engine`] when scanning fails,
+/// config. Best-effort sync warns and continues when an upstream cannot resolve
+/// global state; scan itself may still return [`ScanCommandError::Engine`] with
+/// [`PathsError::HomeUnavailable`] when later engine work needs `~/.wax`.
+/// Returns [`ScanCommandError::Engine`] when scanning fails,
 /// [`ScanCommandError::TokenInferenceJoin`] when token inference cannot be
 /// joined uniquely to its raw observation,
 /// or [`ScanCommandError::Io`] when a sync warning or scan summary cannot be
@@ -1602,7 +1603,7 @@ mod tests {
 
         let stdout = String::from_utf8(output).unwrap();
         assert!(stdout.contains(
-            "warning: registry sync failed; scanning with current registry source. Run `wax sync` for details."
+            "warning: registry sync failed for acme/react; scanning with current registry source. Run `wax sync` for details."
         ));
         assert!(
             matches!(
