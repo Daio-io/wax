@@ -13,9 +13,10 @@ use crate::kotlin_recovery::{
 
 /// Parsed Kotlin source and syntax trees.
 ///
-/// `source` is always the original file text. `primary.tree` may be parsed
-/// from a byte-preserving normalized buffer that works around known
-/// tree-sitter Kotlin grammar gaps.
+/// `source` is always the original file text. `primary.tree` is usually
+/// parsed from a byte-preserving normalized buffer that works around known
+/// tree-sitter Kotlin grammar gaps, but falls back to the original parse when
+/// normalization would degrade a clean tree.
 #[derive(Debug)]
 pub(crate) struct ParsedKotlinFile {
     pub(crate) source: String,
@@ -161,6 +162,12 @@ fn parse_kotlin_source_permissive(
         PrimaryParseSource::Normalized => normalized.bytes.as_slice(),
     };
     let recovery = recover_parse_passes(parser, primary_bytes, &tree);
+    // Regions describe transforms applied to the normalized buffer. When the
+    // original tree wins, those ranges must not mask extraction on the chosen tree.
+    let syntax_regions = match primary_source {
+        PrimaryParseSource::Original => Vec::new(),
+        PrimaryParseSource::Normalized => normalized.regions,
+    };
 
     Ok(ParsedKotlinFile {
         unresolved_problems: recovery.unresolved_problems,
@@ -171,7 +178,7 @@ fn parse_kotlin_source_permissive(
             priority: 0,
         },
         recovered: recovery.recovered,
-        syntax_regions: normalized.regions,
+        syntax_regions,
     })
 }
 
@@ -688,6 +695,7 @@ fn simple_identifier_from_expression(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kotlin_recovery::ComponentScopePolicy;
 
     fn parse_tree(source: &str) -> tree_sitter::Tree {
         let mut parser = new_parser().expect("parser");
@@ -736,9 +744,16 @@ mod tests {
     #[test]
     fn permissive_parse_prefers_clean_original_over_degraded_normalization() {
         let source = "fun Host() {}\n".to_owned();
+        let host_body = ByteRange::new(11, 13).expect("body range");
         let normalized = NormalizedKotlinSource {
             bytes: b"fun Host(  {}\n".to_vec(),
-            regions: Vec::new(),
+            // Stale Exclude region from an unused rewrite — must be dropped on Original.
+            regions: vec![SyntaxRegion {
+                source: ByteRange::new(0, source.len()).expect("source range"),
+                body: Some(host_body),
+                family: SyntaxFamily::SuspendLambda,
+                component_scope: ComponentScopePolicy::Exclude,
+            }],
         };
         assert_eq!(source.len(), normalized.bytes.len());
 
@@ -755,6 +770,10 @@ mod tests {
         assert!(!parsed.primary_tree().root_node().has_error());
         assert!(!parsed.is_partial());
         assert!(parsed.unresolved_problems.is_empty());
+        assert!(
+            parsed.syntax_regions.is_empty(),
+            "Original fallback must not retain normalized rewrite regions"
+        );
     }
 
     fn first_node_of_kind<'a>(
