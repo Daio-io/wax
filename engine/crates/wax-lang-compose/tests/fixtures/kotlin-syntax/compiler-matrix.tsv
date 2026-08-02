@@ -11,3 +11,4 @@
 2.4.0	-	app/src/main/kotlin/WhenTrailingComma.kt
 2.4.0	-	app/src/main/kotlin/WhenIfBody.kt
 2.4.0	-	app/src/main/kotlin/AnnotatedTypeArgument.kt
+2.4.0	-	app/src/main/kotlin/AnnotatedHigherOrderFunctionType.kt

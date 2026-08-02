@@ -44,6 +44,11 @@ fn known_valid_syntax_is_byte_preserving() {
             "AfterAnnotatedFunctionType",
         ),
         (
+            "app/src/main/kotlin/AnnotatedHigherOrderFunctionType.kt",
+            "BeforeAnnotatedHigherOrderFunctionType",
+            "AfterAnnotatedHigherOrderFunctionType",
+        ),
+        (
             "app/src/main/kotlin/ExplicitBackingField.kt",
             "BeforeExplicitBackingField",
             "AfterExplicitBackingField",
@@ -153,6 +158,40 @@ fn known_valid_syntax_is_byte_preserving() {
         slot_usage.parent.is_none(),
         "top-level composable property lambda usages must not invent a parent"
     );
+
+    let higher_order_source = fixture_source(
+        &fixture_root,
+        "app/src/main/kotlin/AnnotatedHigherOrderFunctionType.kt",
+    );
+    for anchor in ["val higherOrderContent", "fun higherOrderFactory"] {
+        let (line, column) = find_line_and_column_after(
+            &higher_order_source,
+            anchor,
+            "PrimaryButton(onClick = onDone)",
+        );
+        assert_fact(
+            &facts,
+            FactKind::Usage,
+            "app/src/main/kotlin/AnnotatedHigherOrderFunctionType.kt",
+            "PrimaryButton",
+            line,
+            column,
+        );
+        let usage = facts
+            .usage_sites
+            .iter()
+            .find(|site| {
+                site.location.file == "app/src/main/kotlin/AnnotatedHigherOrderFunctionType.kt"
+                    && site.symbol == "PrimaryButton"
+                    && site.location.line == line
+                    && site.location.column == Some(column)
+            })
+            .expect("annotated higher-order composable lambda usage");
+        assert!(
+            usage.parent.is_none(),
+            "composable lambda usage must not invent a parent: {usage:?}"
+        );
+    }
     let (ordinary_slot_line, _) = find_line_and_column_after(
         &annotated_function_type_source,
         "val ordinaryContent",
