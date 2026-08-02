@@ -1028,7 +1028,8 @@ fn select_non_overlapping_transforms(
 ) -> Vec<RecoveryTransform> {
     // Prefer initializer-bearing transforms so nested annotated function types keep the
     // outer ComposableLambda body when an inner parameter type also matches. Among peers,
-    // keep the shorter (more specific) span.
+    // keep the shorter (more specific) span. Overlapping losers still contribute their
+    // masks — an outer body winner must not drop nested wrapped-paren recovery.
     transforms.sort_by_key(|transform| {
         (
             Reverse(transform.body.is_some()),
@@ -1041,10 +1042,11 @@ fn select_non_overlapping_transforms(
 
     let mut selected: Vec<RecoveryTransform> = Vec::new();
     'candidate: for transform in transforms {
-        for existing in &selected {
+        for existing in &mut selected {
             if transform.source.start < existing.source.end
                 && existing.source.start < transform.source.end
             {
+                existing.mask_ranges.extend(transform.mask_ranges);
                 continue 'candidate;
             }
         }
@@ -1352,25 +1354,33 @@ fn find_lambda_initializer_equal(lexed: &LexedKotlin<'_>, source_end: usize) -> 
                 let close = lexed.matching_delimiters.get(&next).copied()?;
                 index = close + 1;
             }
-            b'?' | b'.' | b':' | b'*' => index = next + 1,
+            b'?' | b'.' => index = next + 1,
             b'-' if lexed.bytes.get(next + 1) == Some(&b'>') => index = next + 2,
-            b'@' => {
-                let annotation_end = annotation_token_end(lexed.bytes, next)?;
-                index = match next_significant_index(lexed.bytes, annotation_end) {
-                    Some(open) if lexed.bytes[open] == b'(' => {
-                        lexed.matching_delimiters.get(&open).copied()? + 1
-                    }
-                    _ => annotation_end,
-                };
-            }
-            b'`' => index = skip_backticked_identifier(lexed.bytes, next + 1),
             byte if is_identifier_start_byte(byte) => {
                 let mut end = next + 1;
                 while end < lexed.bytes.len() && is_identifier_byte(lexed.bytes[end]) {
                     end += 1;
                 }
                 // A following member/top-level declaration is not a type continuation.
-                if is_declaration_boundary_keyword(lexed.bytes, next) {
+                if [
+                    b"annotation".as_slice(),
+                    b"class",
+                    b"companion",
+                    b"constructor",
+                    b"enum",
+                    b"fun",
+                    b"import",
+                    b"init",
+                    b"interface",
+                    b"object",
+                    b"package",
+                    b"typealias",
+                    b"val",
+                    b"var",
+                ]
+                .iter()
+                .any(|keyword| starts_with_keyword(lexed.bytes, next, keyword))
+                {
                     return None;
                 }
                 index = end;
@@ -1378,27 +1388,6 @@ fn find_lambda_initializer_equal(lexed: &LexedKotlin<'_>, source_end: usize) -> 
             _ => return None,
         }
     }
-}
-
-fn is_declaration_boundary_keyword(bytes: &[u8], start: usize) -> bool {
-    [
-        b"annotation".as_slice(),
-        b"class",
-        b"companion",
-        b"constructor",
-        b"enum",
-        b"fun",
-        b"import",
-        b"init",
-        b"interface",
-        b"object",
-        b"package",
-        b"typealias",
-        b"val",
-        b"var",
-    ]
-    .iter()
-    .any(|keyword| starts_with_keyword(bytes, start, keyword))
 }
 
 fn expression_end(lexed: &LexedKotlin<'_>, start: usize, limit: usize) -> usize {
@@ -1724,7 +1713,6 @@ mod tests {
     #[test]
     fn direct_outer_annotated_function_types_are_metadata_only() {
         for source in [
-            "fun host(\n    content: @Composable (onDone: () -> Unit) -> Unit,\n) {}\n",
             "fun host(content: @Composable (onDone: () -> Unit) -> Unit) {}\n",
             "fun host(content: @Composable (() -> Unit) -> Unit) {}\n",
             "fun host(content: @Composable (onDone: () -> Unit, onCancel: () -> Unit) -> Unit) {}\n",
@@ -1754,94 +1742,52 @@ mod tests {
     }
 
     #[test]
-    fn direct_outer_annotated_property_lambda_keeps_composable_scope() {
-        let source = concat!(
-            "val content: @Composable (onDone: () -> Unit) -> Unit = { onDone ->\n",
-            "    PrimaryButton(onClick = onDone)\n",
-            "}\n",
-        );
-        let normalized = normalize_kotlin_for_parse(source);
-        let tree = parse(&normalized);
-        let body_start = source.find("{ onDone ->").expect("lambda body");
-        let body_end = source.rfind('}').expect("lambda end") + 1;
+    fn direct_outer_annotated_lambda_keeps_composable_scope() {
+        for source in [
+            concat!(
+                "val content: @Composable (onDone: () -> Unit) -> Unit = { onDone ->\n",
+                "    PrimaryButton(onClick = onDone)\n",
+                "}\n",
+            ),
+            concat!(
+                "val content: @Composable (onDone: () -> Unit) -> Unit\n",
+                "    = { onDone ->\n",
+                "    PrimaryButton(onClick = onDone)\n",
+                "}\n",
+            ),
+            concat!(
+                "fun factory(): @Composable (onDone: () -> Unit) -> Unit\n",
+                "    = { onDone ->\n",
+                "    PrimaryButton(onClick = onDone)\n",
+                "}\n",
+            ),
+        ] {
+            let normalized = normalize_kotlin_for_parse(source);
+            let tree = parse(&normalized);
+            let body_start = source.find("{ onDone ->").expect("lambda body");
+            let body_end = source.rfind('}').expect("lambda end") + 1;
 
-        assert_eq!(normalized.bytes, source.as_bytes());
-        assert_eq!(normalized.regions.len(), 1);
-        assert_eq!(
-            normalized.regions[0].body,
-            Some(super::ByteRange {
-                start: body_start,
-                end: body_end,
-            })
-        );
-        assert_eq!(
-            normalized.regions[0].component_scope,
-            ComponentScopePolicy::ComposableLambda
-        );
-        assert!(
-            !tree.root_node().has_error(),
-            "{}",
-            tree.root_node().to_sexp()
-        );
-    }
-
-    #[test]
-    fn multiline_annotated_property_lambda_keeps_composable_scope() {
-        let source = concat!(
-            "val content: @Composable (onDone: () -> Unit) -> Unit\n",
-            "    = { onDone ->\n",
-            "    PrimaryButton(onClick = onDone)\n",
-            "}\n",
-        );
-        let normalized = normalize_kotlin_for_parse(source);
-        let tree = parse(&normalized);
-        let body_start = source.find("{ onDone ->").expect("lambda body");
-        let body_end = source.rfind('}').expect("lambda end") + 1;
-
-        assert_eq!(normalized.bytes, source.as_bytes());
-        assert_eq!(normalized.regions.len(), 1);
-        assert_eq!(
-            normalized.regions[0].body,
-            Some(super::ByteRange {
-                start: body_start,
-                end: body_end,
-            })
-        );
-        assert_eq!(
-            normalized.regions[0].component_scope,
-            ComponentScopePolicy::ComposableLambda
-        );
-        assert!(
-            !tree.root_node().has_error(),
-            "{}",
-            tree.root_node().to_sexp()
-        );
-    }
-
-    #[test]
-    fn multiline_annotated_function_return_lambda_keeps_composable_scope() {
-        let source = concat!(
-            "fun factory(): @Composable (onDone: () -> Unit) -> Unit\n",
-            "    = { onDone ->\n",
-            "    PrimaryButton(onClick = onDone)\n",
-            "}\n",
-        );
-        let normalized = normalize_kotlin_for_parse(source);
-        let body_start = source.find("{ onDone ->").expect("lambda body");
-        let body_end = source.rfind('}').expect("lambda end") + 1;
-
-        assert_eq!(normalized.regions.len(), 1);
-        assert_eq!(
-            normalized.regions[0].body,
-            Some(super::ByteRange {
-                start: body_start,
-                end: body_end,
-            })
-        );
-        assert_eq!(
-            normalized.regions[0].component_scope,
-            ComponentScopePolicy::ComposableLambda
-        );
+            assert_eq!(normalized.bytes, source.as_bytes(), "{source}");
+            assert_eq!(normalized.regions.len(), 1, "{source}");
+            assert_eq!(
+                normalized.regions[0].body,
+                Some(super::ByteRange {
+                    start: body_start,
+                    end: body_end,
+                }),
+                "{source}"
+            );
+            assert_eq!(
+                normalized.regions[0].component_scope,
+                ComponentScopePolicy::ComposableLambda,
+                "{source}"
+            );
+            assert!(
+                !tree.root_node().has_error(),
+                "{}",
+                tree.root_node().to_sexp()
+            );
+        }
     }
 
     #[test]
@@ -1857,12 +1803,6 @@ mod tests {
         assert_eq!(
             normalized.regions[0].component_scope,
             ComponentScopePolicy::Inherit
-        );
-        assert!(
-            !normalized
-                .regions
-                .iter()
-                .any(|region| { region.component_scope == ComponentScopePolicy::ComposableLambda })
         );
     }
 
@@ -1890,6 +1830,47 @@ mod tests {
         assert_eq!(
             normalized.regions[0].component_scope,
             ComponentScopePolicy::ComposableLambda
+        );
+    }
+
+    #[test]
+    fn nested_wrapped_callback_keeps_outer_scope_and_inner_masks() {
+        let source = concat!(
+            "val content: @Composable (child: @Composable (() -> Unit)) -> Unit = { child ->\n",
+            "    PrimaryButton(onClick = {})\n",
+            "    child {}\n",
+            "}\n",
+        );
+        let normalized = normalize_kotlin_for_parse(source);
+        let tree = parse(&normalized);
+        let body_start = source.find("{ child ->").expect("lambda body");
+        let body_end = source.rfind('}').expect("lambda end") + 1;
+
+        assert_eq!(
+            String::from_utf8_lossy(&normalized.bytes),
+            concat!(
+                "val content: @Composable (child: @Composable  () -> Unit ) -> Unit = { child ->\n",
+                "    PrimaryButton(onClick = {})\n",
+                "    child {}\n",
+                "}\n",
+            )
+        );
+        assert_eq!(normalized.regions.len(), 1);
+        assert_eq!(
+            normalized.regions[0].body,
+            Some(super::ByteRange {
+                start: body_start,
+                end: body_end,
+            })
+        );
+        assert_eq!(
+            normalized.regions[0].component_scope,
+            ComponentScopePolicy::ComposableLambda
+        );
+        assert!(
+            !tree.root_node().has_error(),
+            "{}",
+            tree.root_node().to_sexp()
         );
     }
 

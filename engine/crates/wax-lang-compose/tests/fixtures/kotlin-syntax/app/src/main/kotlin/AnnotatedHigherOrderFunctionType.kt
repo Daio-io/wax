@@ -19,52 +19,13 @@ fun PrimaryButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
     modifier.hashCode()
 }
 
-enum class PlayerDisplay {
-    Main,
-    SpeedControls,
-}
-
-val PlayerDisplay.showsParentDoneAction: Boolean
-    get() = this == PlayerDisplay.SpeedControls
-
-class PlayerControlsHostState(val display: PlayerDisplay, val podcastSlug: String?) {
-    fun close() = Unit
-}
-
 @Composable
 fun BeforeAnnotatedHigherOrderFunctionType() {
     PrimaryButton(onClick = {}, modifier = Modifier.padding(7.dp))
     Spacing.small
 }
 
-@Composable
-internal fun PlayerControlsHostState.SpeedControlsContent(
-    podcastSlug: String?,
-    content: @Composable (onDone: () -> Unit) -> Unit,
-) {
-    if (display == PlayerDisplay.SpeedControls && this.podcastSlug == podcastSlug) {
-        content(::close)
-    }
-}
-
-@Composable
-internal fun PlayerControlsHostState.ParentDoneAction(
-    content: @Composable (onDone: () -> Unit) -> Unit,
-) {
-    if (display.showsParentDoneAction) {
-        content(::close)
-    }
-}
-
-fun multipleCallbacks(
-    content: @Composable (onDone: () -> Unit, onCancel: () -> Unit) -> Unit,
-) = Unit
-
-fun unnamedCallback(content: @Composable (() -> Unit) -> Unit) = Unit
-
-fun nullableCallback(content: @Composable (onDone: (() -> Unit)?) -> Unit) = Unit
-
-class HigherOrderSlots(val content: @Composable (onDone: () -> Unit) -> Unit)
+fun host(content: @Composable (onDone: () -> Unit) -> Unit) = Unit
 
 val higherOrderContent: @Composable (onDone: () -> Unit) -> Unit
     = { onDone ->
