@@ -388,11 +388,13 @@ and `wax scan` again to reclassify the affected observations.
 
 ### CI
 
-Commit `.wax/wax.lock.json`. In CI, install each configured pack at its locked
-version, then validate and scan without auto-install:
+Commit `.wax/wax.lock.json`. In CI, install each configured pack with the
+version from that lockfile (`languages.<id>.version`), then validate and scan
+without auto-install. Unversioned `wax language install <id>` installs the
+latest pack-index release and will miss an older lock pin:
 
 ```bash
-wax language install react
+wax language install react@0.1.0-alpha.0
 wax validate
 wax scan --no-auto-install
 ```

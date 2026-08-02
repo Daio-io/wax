@@ -20,8 +20,10 @@ had to stay aligned with the existing language-pack lock contract.
    required. The remote registry path is fixed at
    `.wax/registries/<language-id>.json`; there is no configurable `path`.
 2. **System Git only** — Resolve and fetch through the host `git` binary. Cache
-   bare clones under `.wax/cache/`, materialize registry JSON for scans, and
-   never store Git credentials inside Wax.
+   bare clones under `.wax/cache/` and materialize registry JSON for scans.
+   Authenticate through system Git helpers (SSH agent, credential helpers); do
+   not put credentials in the `git` URL. Config and `.wax/wax.lock.json` persist
+   that URL for commit, and Wax only redacts userinfo in error/output labels.
 3. **Lock pins** — Record canonical Git identity, full lowercase commit, and
    registry SHA-256 digest in `.wax/wax.lock.json`. Ordinary `wax scan` /
    `wax sync` reuse the locked commit even when a remote tag moves.
@@ -58,6 +60,9 @@ had to stay aligned with the existing language-pack lock contract.
 
 - Requires system Git plus credentials/network when the pinned commit is not
   already cached.
+- HTTPS URLs that embed userinfo are accepted today and copied into committed
+  lock metadata; operators must keep secrets out of the URL rather than relying
+  on Wax to strip them on write.
 - No signed-tag or signed-commit verification in this change; authenticity rests
   on commit pins, digests, and host Git authentication.
 - Fixed remote registry path only; packs that publish elsewhere need a different

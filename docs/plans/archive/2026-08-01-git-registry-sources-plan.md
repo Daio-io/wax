@@ -28,6 +28,23 @@ THE-281.
 - [x] Add system-git fixture coverage for refs, tags, locked commits, errors, safe paths, and cache isolation.
 - [x] Run formatting, focused registry-git tests, and clippy verification.
 
+## Task 3: Resolve + lock pins
+
+- [x] **Task 3 complete**
+
+- [x] Resolve Git registries during scan/sync, materialize registry JSON, and
+  record canonical source, digest, and full lowercase commit in
+  `.wax/wax.lock.json`.
+- [x] Reuse locked commits on ordinary scan/sync; auto-pin missing Git registry
+  entries while keeping language-pack pins required.
+- [x] Persist `git` / `tag` / `commit` lock metadata, upgrade schema on first Git
+  pin, and keep ephemeral scans from writing lockfiles.
+- [x] Pass upgrade on `wax language update` so moving tags can advance past a
+  prior pin.
+- [x] Document Git lock fields in the distribution spec and add load/round-trip
+  fixtures.
+- [x] Run the focused core and CLI lock, registry-source, and validate checks.
+
 ## Task 4: Wax sync upgrade and offline validation
 
 - [x] Wire `wax sync --upgrade` through the CLI and core sync options.
