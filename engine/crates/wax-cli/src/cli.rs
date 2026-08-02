@@ -243,6 +243,9 @@ pub struct SyncArgs {
     /// Repository root containing wax config and lock files.
     #[arg(long, default_value = ".")]
     pub repo_root: PathBuf,
+    /// Refresh Git-backed registry tags instead of using their locked commits.
+    #[arg(long)]
+    pub upgrade: bool,
 }
 
 /// Arguments for `wax validate`.

@@ -350,6 +350,39 @@ fn validate_repo_rejects_registry_digest_drift() {
     ));
 }
 
+#[test]
+fn validate_repo_accepts_git_registry_without_a_lock_or_network_access() {
+    let root = TestDir::new("validate-repo-git-without-lock");
+    write_repo_with_git_registry(&root.path, "https://example.invalid/design-system.git", "v1");
+
+    let report = validate_repo(&root.path).expect("git validation should remain offline");
+
+    assert!(report.warnings.is_empty());
+}
+
+#[test]
+fn validate_repo_rejects_git_lock_source_drift_with_registry_field() {
+    let root = TestDir::new("validate-repo-git-lock-source-drift");
+    write_repo_with_git_registry(&root.path, "https://example.invalid/design-system.git", "v1");
+    fs::write(
+        root.path.join(".wax/wax.lock.json"),
+        git_lockfile_json(
+            "git:https://example.invalid/other.git#v1",
+            "https://example.invalid/design-system.git",
+            "v1",
+            "0123456789012345678901234567890123456789",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ),
+    )
+    .unwrap();
+
+    let error = validate_repo(&root.path).expect_err("git source drift should fail validation");
+
+    let message = error.to_string();
+    assert!(message.contains("languages.compose.registry"));
+    assert!(message.contains("source"));
+}
+
 fn write_valid_repo(repo_root: &Path, registry_path: &str, components: &str) {
     write_repo_with_registry_json(
         repo_root,
@@ -378,6 +411,44 @@ fn write_repo_with_registry_path(repo_root: &Path, registry_path: &str) {
         ),
     )
     .unwrap();
+}
+
+fn write_repo_with_git_registry(repo_root: &Path, git: &str, tag: &str) {
+    fs::create_dir_all(repo_root.join(".wax")).unwrap();
+    fs::write(
+        repo_root.join(".wax/wax.config.json"),
+        format!(
+            r#"{{
+  "schema_version": 2,
+  "languages": {{"compose": {{"registry": {{"git": "{git}", "tag": "{tag}"}}}}}}
+}}
+"#
+        ),
+    )
+    .unwrap();
+    write_lockfile(repo_root);
+}
+
+fn git_lockfile_json(source: &str, git: &str, tag: &str, commit: &str, sha256: &str) -> String {
+    format!(
+        r#"{{
+  "schema_version": 2,
+  "engine_api_version": 1,
+  "wax_version": "0.0.0",
+  "locked_at": null,
+  "registries": {{
+    "compose": {{
+      "source": "{source}",
+      "sha256": "{sha256}",
+      "git": "{git}",
+      "tag": "{tag}",
+      "commit": "{commit}"
+    }}
+  }},
+  "languages": {{}}
+}}
+"#
+    )
 }
 
 fn write_lockfile(repo_root: &Path) {

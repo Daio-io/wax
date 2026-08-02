@@ -147,6 +147,7 @@ fn main() {
             SyncCommandOptions {
                 repo_root: args.repo_root,
                 state_path: None,
+                upgrade: args.upgrade,
             },
             &mut stdout,
         )

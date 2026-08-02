@@ -220,27 +220,21 @@ fn attempt_scan_time_registry_sync(
     }
 
     let waxrc = load_waxrc(&config_path)?;
-    let has_upstream = waxrc.languages.iter().any(|entry| {
-        entry
-            .registry_source
-            .as_ref()
-            .and_then(|registry| registry.upstream())
-            .is_some_and(|upstream| !upstream.trim().is_empty())
+    let has_syncable_registry = waxrc.languages.iter().any(|entry| match entry.registry_source.as_ref() {
+        Some(wax_core::config::waxrc::LanguageRegistrySource::Git { .. }) => true,
+        Some(registry) => registry
+            .upstream()
+            .is_some_and(|upstream| !upstream.trim().is_empty()),
+        None => false,
     });
-    if !has_upstream {
+    if !has_syncable_registry {
         return Ok(());
     }
 
-    let state_path = match resolve_state_path(options.state_path.as_deref()) {
-        Ok(path) => path,
-        Err(_error) => {
-            write_scan_sync_warning(writer)?;
-            return Ok(());
-        }
-    };
     match best_effort_sync_app_registries(&SyncOptions {
         repo_root: options.repo_root.clone(),
-        state_path,
+        state_path: options.state_path.clone(),
+        upgrade: false,
     }) {
         Ok((_updates, failures)) => {
             for (upstream, _error) in failures {
