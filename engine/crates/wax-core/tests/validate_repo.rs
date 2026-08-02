@@ -351,7 +351,7 @@ fn validate_repo_rejects_registry_digest_drift() {
 }
 
 #[test]
-fn validate_repo_accepts_git_registry_without_a_lock_or_network_access() {
+fn validate_repo_rejects_git_registry_missing_lock_without_network_access() {
     let root = TestDir::new("validate-repo-git-without-lock");
     write_repo_with_git_registry(
         &root.path,
@@ -359,7 +359,34 @@ fn validate_repo_accepts_git_registry_without_a_lock_or_network_access() {
         "v1",
     );
 
-    let report = validate_repo(&root.path).expect("git validation should remain offline");
+    let err = validate_repo(&root.path).expect_err("missing git registry lock should fail");
+
+    assert!(
+        matches!(err, ValidateError::MissingRegistryLock { language_id } if language_id.as_str() == "compose")
+    );
+}
+
+#[test]
+fn validate_repo_accepts_valid_git_registry_lock_offline() {
+    let root = TestDir::new("validate-repo-git-valid-lock");
+    write_repo_with_git_registry(
+        &root.path,
+        "https://example.invalid/design-system.git",
+        "v1",
+    );
+    fs::write(
+        root.path.join(".wax/wax.lock.json"),
+        git_lockfile_json(
+            "git:https://example.invalid/design-system.git#v1",
+            "https://example.invalid/design-system.git",
+            "v1",
+            "0123456789012345678901234567890123456789",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ),
+    )
+    .unwrap();
+
+    let report = validate_repo(&root.path).expect("valid git lock should validate offline");
 
     assert!(report.warnings.is_empty());
 }

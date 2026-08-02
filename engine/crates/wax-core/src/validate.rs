@@ -199,11 +199,17 @@ pub fn validate_repo_with_progress(
         });
         let registry_field = format!("languages.{}.registry", entry.id.as_str());
         if let Some(LanguageRegistrySource::Git { git, tag }) = entry.registry_source.as_ref() {
-            if let Some(lockfile) = &lockfile
-                && let Some(locked) = lockfile.registries.get(&entry.id)
-            {
-                validate_git_registry_lock(&registry_field, git, tag, locked)?;
-            }
+            let Some(lockfile) = &lockfile else {
+                return Err(ValidateError::MissingRegistryLock {
+                    language_id: entry.id.clone(),
+                });
+            };
+            let Some(locked) = lockfile.registries.get(&entry.id) else {
+                return Err(ValidateError::MissingRegistryLock {
+                    language_id: entry.id.clone(),
+                });
+            };
+            validate_git_registry_lock(&registry_field, git, tag, locked)?;
             continue;
         }
 

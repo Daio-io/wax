@@ -586,26 +586,10 @@ fn prepare_language_git_sync(
 fn git_sync_label(entry: &LanguageEntry) -> String {
     match entry.registry_source.as_ref() {
         Some(crate::config::waxrc::LanguageRegistrySource::Git { git, tag }) => {
-            format!("{}@{tag}", redact_git_remote(git))
+            format!("{}@{tag}", crate::registry_git::redact_git_remote(git))
         }
         _ => unreachable!("git sync labels require a Git registry source"),
     }
-}
-
-/// Strips URL userinfo so sync labels and warnings never echo embedded credentials.
-fn redact_git_remote(git: &str) -> String {
-    let Some(scheme_end) = git.find("://") else {
-        return git.to_owned();
-    };
-    let after_scheme = scheme_end + 3;
-    let Some(at_offset) = git[after_scheme..].find('@') else {
-        return git.to_owned();
-    };
-    let host_start = after_scheme + at_offset + 1;
-    if git[host_start..].is_empty() {
-        return git.to_owned();
-    }
-    format!("{}{}", &git[..after_scheme], &git[host_start..])
 }
 
 fn parse_upstream_design_system_id<'a>(
@@ -1266,15 +1250,17 @@ mod sync_tests {
     #[test]
     fn redact_git_remote_strips_https_userinfo() {
         assert_eq!(
-            redact_git_remote("https://user:ghp_secret@github.com/org/repo.git"),
+            crate::registry_git::redact_git_remote(
+                "https://user:ghp_secret@github.com/org/repo.git"
+            ),
             "https://github.com/org/repo.git"
         );
         assert_eq!(
-            redact_git_remote("https://github.com/org/repo.git"),
+            crate::registry_git::redact_git_remote("https://github.com/org/repo.git"),
             "https://github.com/org/repo.git"
         );
         assert_eq!(
-            redact_git_remote("git@github.com:org/repo.git"),
+            crate::registry_git::redact_git_remote("git@github.com:org/repo.git"),
             "git@github.com:org/repo.git"
         );
     }
