@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use wax_contract::{Diagnostic, DiagnosticSeverity, SourceLocation};
 
 use crate::kotlin_recovery::{
-    ByteRange, ParsePass, SyntaxFamily, SyntaxProblem, SyntaxRegion, normalize_kotlin_for_parse,
-    recover_parse_passes,
+    ByteRange, NormalizedKotlinSource, ParsePass, SyntaxFamily, SyntaxProblem, SyntaxRegion,
+    normalize_kotlin_for_parse, recover_parse_passes,
 };
 
 /// Parsed Kotlin source and syntax trees.
@@ -25,6 +25,12 @@ pub(crate) struct ParsedKotlinFile {
     #[allow(dead_code)]
     pub(crate) syntax_regions: Vec<SyntaxRegion>,
     pub(crate) unresolved_problems: Vec<SyntaxProblem>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PrimaryParseSource {
+    Original,
+    Normalized,
 }
 
 impl ParsedKotlinFile {
@@ -129,10 +135,32 @@ pub(crate) fn parse_kotlin_file_permissive(
         source,
     })?;
     let normalized = normalize_kotlin_for_parse(&source);
-    let tree = parser
-        .parse(normalized.bytes.as_slice(), None)
+    parse_kotlin_source_permissive(parser, path, source, normalized)
+}
+
+fn parse_kotlin_source_permissive(
+    parser: &mut tree_sitter::Parser,
+    path: &Path,
+    source: String,
+    normalized: NormalizedKotlinSource,
+) -> Result<ParsedKotlinFile, ParseKotlinFileError> {
+    let original_bytes = source.as_bytes();
+    let normalized_tree = parser.parse(normalized.bytes.as_slice(), None);
+    let should_validate_original = normalized.bytes.as_slice() != original_bytes
+        && normalized_tree
+            .as_ref()
+            .is_none_or(|tree| tree.root_node().has_error());
+    let original_tree = should_validate_original
+        .then(|| parser.parse(original_bytes, None))
+        .flatten();
+
+    let (tree, primary_source) = select_primary_parse(normalized_tree, original_tree)
         .ok_or_else(|| ParseKotlinFileError::ParseFailed(path.to_path_buf()))?;
-    let recovery = recover_parse_passes(parser, &normalized.bytes, &tree);
+    let primary_bytes = match primary_source {
+        PrimaryParseSource::Original => original_bytes,
+        PrimaryParseSource::Normalized => normalized.bytes.as_slice(),
+    };
+    let recovery = recover_parse_passes(parser, primary_bytes, &tree);
 
     Ok(ParsedKotlinFile {
         unresolved_problems: recovery.unresolved_problems,
@@ -145,6 +173,32 @@ pub(crate) fn parse_kotlin_file_permissive(
         recovered: recovery.recovered,
         syntax_regions: normalized.regions,
     })
+}
+
+fn select_primary_parse(
+    mut normalized: Option<tree_sitter::Tree>,
+    mut original: Option<tree_sitter::Tree>,
+) -> Option<(tree_sitter::Tree, PrimaryParseSource)> {
+    if normalized
+        .as_ref()
+        .is_some_and(|tree| !tree.root_node().has_error())
+    {
+        return normalized
+            .take()
+            .map(|tree| (tree, PrimaryParseSource::Normalized));
+    }
+    if original
+        .as_ref()
+        .is_some_and(|tree| !tree.root_node().has_error())
+    {
+        return original
+            .take()
+            .map(|tree| (tree, PrimaryParseSource::Original));
+    }
+    if let Some(tree) = normalized {
+        return Some((tree, PrimaryParseSource::Normalized));
+    }
+    original.map(|tree| (tree, PrimaryParseSource::Original))
 }
 
 #[allow(dead_code)]
@@ -634,6 +688,74 @@ fn simple_identifier_from_expression(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn parse_tree(source: &str) -> tree_sitter::Tree {
+        let mut parser = new_parser().expect("parser");
+        parser.parse(source.as_bytes(), None).expect("tree")
+    }
+
+    #[test]
+    fn primary_parse_selection_is_monotonic() {
+        let clean_original = parse_tree("fun Original() {}\n");
+        let clean_normalized = parse_tree("fun Normalized() {}\n");
+        let broken_original = parse_tree("fun Original( {\n");
+        let broken_normalized = parse_tree("fun Normalized( {\n");
+
+        let (tree, source) =
+            select_primary_parse(Some(clean_normalized.clone()), Some(clean_original.clone()))
+                .expect("both clean");
+        assert_eq!(source, PrimaryParseSource::Normalized);
+        assert!(!tree.root_node().has_error());
+
+        let (tree, source) = select_primary_parse(
+            Some(broken_normalized.clone()),
+            Some(clean_original.clone()),
+        )
+        .expect("clean original fallback");
+        assert_eq!(source, PrimaryParseSource::Original);
+        assert!(!tree.root_node().has_error());
+
+        let (tree, source) =
+            select_primary_parse(Some(clean_normalized), Some(broken_original.clone()))
+                .expect("clean normalized recovery");
+        assert_eq!(source, PrimaryParseSource::Normalized);
+        assert!(!tree.root_node().has_error());
+
+        let (tree, source) = select_primary_parse(Some(broken_normalized), Some(broken_original))
+            .expect("both partial");
+        assert_eq!(source, PrimaryParseSource::Normalized);
+        assert!(tree.root_node().has_error());
+
+        let (_, source) = select_primary_parse(None, Some(clean_original))
+            .expect("normalized parser returned no tree");
+        assert_eq!(source, PrimaryParseSource::Original);
+
+        assert!(select_primary_parse(None, None).is_none());
+    }
+
+    #[test]
+    fn permissive_parse_prefers_clean_original_over_degraded_normalization() {
+        let source = "fun Host() {}\n".to_owned();
+        let normalized = NormalizedKotlinSource {
+            bytes: b"fun Host(  {}\n".to_vec(),
+            regions: Vec::new(),
+        };
+        assert_eq!(source.len(), normalized.bytes.len());
+
+        let mut parser = new_parser().expect("parser");
+        let parsed = parse_kotlin_source_permissive(
+            &mut parser,
+            Path::new("Host.kt"),
+            source.clone(),
+            normalized,
+        )
+        .expect("fallback parse");
+
+        assert_eq!(parsed.source, source);
+        assert!(!parsed.primary_tree().root_node().has_error());
+        assert!(!parsed.is_partial());
+        assert!(parsed.unresolved_problems.is_empty());
+    }
 
     fn first_node_of_kind<'a>(
         root: tree_sitter::Node<'a>,
