@@ -296,8 +296,15 @@ remote path `.wax/registries/<language-id>.json` and pin a tag or commit:
 }
 ```
 
-The string shorthand and the `source`/`upstream` object form remain supported.
-Git fetching and cache materialization are added in a later release.
+`tag` accepts a Git tag or full commit SHA. Wax always reads
+`.wax/registries/<language-id>.json` for that language. The string shorthand
+and the `source`/`upstream` object form remain supported.
+
+The first scan or sync pins the resolved commit and registry digest in
+`.wax/wax.lock.json`. Ordinary `wax sync` reuses that pin; `wax sync --upgrade`
+refreshes tags. `wax validate` checks Git registry locks offline. Commit
+`.wax/wax.config.json` and `.wax/wax.lock.json`; leave `.wax/cache/` and
+`.wax/out/` untracked.
 
 After changing registry content or sources, refresh locks:
 
@@ -381,12 +388,14 @@ and `wax scan` again to reclassify the affected observations.
 
 ### CI
 
-Commit `.wax/wax.lock.json`. In CI, use committed locks and scan without
-auto-installing packs:
+Commit `.wax/wax.lock.json`. In CI, install each configured pack with the
+version from that lockfile (`languages.<id>.version`), then validate and scan
+without auto-install. Unversioned `wax language install <id>` installs the
+latest pack-index release and will miss an older lock pin:
 
 ```bash
+wax language install react@0.1.0-alpha.0
 wax validate
-wax language install react
 wax scan --no-auto-install
 ```
 

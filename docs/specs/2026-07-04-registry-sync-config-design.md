@@ -1,5 +1,7 @@
 # Registry Sync and Config v2 Design
 
+**Status:** Accepted (implemented; Git registry sources are additive)
+
 **Related:** [Token inference and reporting design](./2026-07-19-token-inference-reporting-design.md) — the `wax-registry-discover` skill uses this design's `design_systems` config and remembered upstream metadata to resolve the publisher registry it proposes reviewed canonical token `value` updates against, then hands back to `wax sync` / `wax scan` for the app repo.
 
 ## Context
@@ -96,6 +98,13 @@ Rules:
   supported.
 - `registry.upstream` is used by `wax sync`; it is not needed for scan.
 - `enabled` is removed. A language key exists only when the language is enabled.
+
+Git sources are resolved at a locked commit and registry digest. Ordinary
+`wax sync` reuses that pin; `wax sync --upgrade` deliberately refreshes a
+configured tag. Git-mode `wax validate` checks the committed identity and
+digest metadata offline. See the
+[Git registry sources ADR](../adr/2026-08-01-git-registry-sources.md) and
+[archived implementation plan](../plans/archive/2026-08-01-git-registry-sources-plan.md).
 
 ### Design-System Publishing Config
 

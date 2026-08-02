@@ -147,7 +147,7 @@ Source `roots` are repo-relative directories. Language packs may also expand pat
 
 Pins resolved artifacts and design-system registry digests for reproducible local and CI scans. Canonical path: **`.wax/wax.lock.json`**. **Required for repositories using language packs**; `wax init` writes it after resolving selected pack artifacts.
 
-Lockfile schema version **2** adds top-level `registries` entries keyed by language id. Each registry entry always carries `source` and `sha256`. Git-backed registries also pin optional `git`, `tag`, and `commit` (all three together, or all omitted). A published JSON Schema for the lockfile is tracked separately; this spec documents the shape only.
+Lockfile schema version **2** adds top-level `registries` entries keyed by language id. Each registry entry always carries `source` and `sha256`. Git-backed registries also pin optional `git`, `tag`, and `commit` (all three together, or all omitted). A missing Git registry entry may be auto-pinned during scan/sync, but language-pack entries remain required for reproducible CI scans. A published JSON Schema for the lockfile is tracked separately; this spec documents the shape only.
 
 ```json
 {

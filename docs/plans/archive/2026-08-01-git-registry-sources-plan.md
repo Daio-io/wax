@@ -1,5 +1,8 @@
 # Git registry sources implementation plan
 
+**Status:** Complete and archived. See
+[ADR](../../adr/2026-08-01-git-registry-sources.md).
+
 **Goal:** Add the config-v2 contract for Git-backed language registries while
 keeping fetching, caching, lock pinning, and CLI wiring in follow-on tasks.
 
@@ -25,6 +28,23 @@ THE-281.
 - [x] Add system-git fixture coverage for refs, tags, locked commits, errors, safe paths, and cache isolation.
 - [x] Run formatting, focused registry-git tests, and clippy verification.
 
+## Task 3: Resolve + lock pins
+
+- [x] **Task 3 complete**
+
+- [x] Resolve Git registries during scan/sync, materialize registry JSON, and
+  record canonical source, digest, and full lowercase commit in
+  `.wax/wax.lock.json`.
+- [x] Reuse locked commits on ordinary scan/sync; auto-pin missing Git registry
+  entries while keeping language-pack pins required.
+- [x] Persist `git` / `tag` / `commit` lock metadata, upgrade schema on first Git
+  pin, and keep ephemeral scans from writing lockfiles.
+- [x] Pass upgrade on `wax language update` so moving tags can advance past a
+  prior pin.
+- [x] Document Git lock fields in the distribution spec and add load/round-trip
+  fixtures.
+- [x] Run the focused core and CLI lock, registry-source, and validate checks.
+
 ## Task 4: Wax sync upgrade and offline validation
 
 - [x] Wire `wax sync --upgrade` through the CLI and core sync options.
@@ -37,3 +57,17 @@ THE-281.
 - [x] Preserve transactional sync behavior and avoid lockfile rewrites when
   resolved pins are unchanged.
 - [x] Run the focused core and CLI sync/validate/help checks.
+
+## Task 5: Docs and README examples
+
+- [x] **Task 5 complete**
+
+- [x] Document the config-v2 Git/tag shape, fixed registry path, and supported
+  string, source, upstream, and per-language modes.
+- [x] Document locked commit/digest lifecycle, ordinary sync versus
+  `wax sync --upgrade`, and offline Git-mode validation.
+- [x] Document committed config/lock files, operational ignore paths, CI
+  requirements, and system-Git authentication boundaries.
+- [x] Update the changelog and cross-reference the existing registry-sync and
+  language-pack lock contracts.
+- [x] Verify documentation against the shipped CLI and focused engine tests.
