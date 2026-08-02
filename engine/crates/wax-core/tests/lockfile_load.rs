@@ -166,6 +166,67 @@ fn parses_registry_locks() {
         registry.sha256,
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     );
+    assert!(registry.git.is_none());
+}
+
+#[test]
+fn loads_git_registry_lockfile_fixture() {
+    let lock = load_lockfile(fixture_path("git-registry.wax.lock.json")).unwrap();
+
+    assert_eq!(lock.schema_version, 2);
+    let registry = lock
+        .registries
+        .get(&LanguageId::try_from("compose").unwrap())
+        .expect("compose registry lock should exist");
+    assert_eq!(registry.source, "git:https://example.com/design.git#v1");
+    assert_eq!(
+        registry.sha256,
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    assert_eq!(
+        registry.git.as_deref(),
+        Some("https://example.com/design.git")
+    );
+    assert_eq!(registry.tag.as_deref(), Some("v1"));
+    assert_eq!(
+        registry.commit.as_deref(),
+        Some("0123456789012345678901234567890123456789")
+    );
+}
+
+#[test]
+fn git_registry_lock_round_trips_all_metadata() {
+    let lock = load_lockfile(fixture_path("git-registry.wax.lock.json")).unwrap();
+    let registry = &lock.registries[&LanguageId::try_from("compose").unwrap()];
+    assert_eq!(
+        registry.git.as_deref(),
+        Some("https://example.com/design.git")
+    );
+    assert_eq!(registry.tag.as_deref(), Some("v1"));
+    assert_eq!(
+        registry.commit.as_deref(),
+        Some("0123456789012345678901234567890123456789")
+    );
+    let encoded = serde_json::to_value(&lock).unwrap();
+    assert_eq!(
+        encoded["registries"]["compose"]["commit"],
+        "0123456789012345678901234567890123456789"
+    );
+    assert_eq!(
+        encoded["registries"]["compose"]["git"],
+        "https://example.com/design.git"
+    );
+    assert_eq!(encoded["registries"]["compose"]["tag"], "v1");
+}
+
+#[test]
+fn partial_git_registry_lock_is_rejected() {
+    let lockfile = TestFile::new(
+        "partial-git-lock",
+        r#"{"schema_version":2,"engine_api_version":1,"wax_version":"0.1.0","locked_at":null,"registries":{"compose":{"source":"git:https://example.com/design.git#v1","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","git":"https://example.com/design.git"}},"languages":{}}"#,
+    );
+    let err = load_lockfile(lockfile.path()).unwrap_err();
+    assert!(err.to_string().contains("partial git metadata"));
 }
 
 #[test]

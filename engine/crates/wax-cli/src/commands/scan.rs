@@ -345,6 +345,9 @@ fn build_ephemeral_scan_config(
             LockedRegistry {
                 source: registry_source.source,
                 sha256: registry_source.sha256,
+                git: None,
+                tag: None,
+                commit: None,
             },
         );
 

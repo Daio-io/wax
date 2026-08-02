@@ -294,11 +294,17 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
                 LockedRegistry {
                     source: registry_source.source,
                     sha256: registry_source.sha256,
+                    git: None,
+                    tag: None,
+                    commit: None,
                 }
             } else if let Some(scaffold) = scaffold_by_language.get(&resolved.manifest.id) {
                 LockedRegistry {
                     source: default_registry_path_for_language(&resolved.manifest.id),
                     sha256: scaffold.sha256.clone(),
+                    git: None,
+                    tag: None,
+                    commit: None,
                 }
             } else {
                 let repo_relative = default_registry_path_for_language(&resolved.manifest.id);
@@ -310,6 +316,9 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
                 LockedRegistry {
                     source: registry_source.source,
                     sha256: registry_source.sha256,
+                    git: None,
+                    tag: None,
+                    commit: None,
                 }
             };
         lockfile

@@ -30,7 +30,7 @@ pub mod validate;
 
 use adoption_merge::{MergeOptions, merge_language_scans_with_options};
 use auto_install::{AutoInstallPolicyInput, InstalledManifest, PackIndexArtifact};
-use config::lockfile::{LockfileError, WaxLock, load_lockfile};
+use config::lockfile::{LockfileError, WAX_LOCK_SCHEMA_VERSION, WaxLock, load_lockfile};
 use config::waxrc::{WaxRc, WaxRcError, load_waxrc};
 use global_state::{GlobalStateError, InstalledLanguagePack, load_global_state, save_global_state};
 use install::{InstallError, LanguagePackManifestSpec, install_language};
@@ -301,7 +301,8 @@ impl Engine {
         let repo_root = repo_root.as_ref();
         let progress = options.progress.clone();
         progress.emit(ScanProgressEvent::Preparing);
-        let (waxrc, lockfile) = if let Some(ephemeral) = options.ephemeral.take() {
+        let is_ephemeral = options.ephemeral.is_some();
+        let (waxrc, mut lockfile) = if let Some(ephemeral) = options.ephemeral.take() {
             (ephemeral.waxrc, ephemeral.lockfile)
         } else {
             let repo_files = config::repo_files::discover_repo_files(repo_root);
@@ -318,14 +319,40 @@ impl Engine {
 
         let mut enabled_ids = BTreeSet::new();
         let mut language_configs = BTreeMap::new();
+        let mut registry_lock_changed = false;
         for entry in waxrc.languages {
             let resolved_registry = registry_source::resolve_language_registry_source(
                 repo_root,
                 entry.id.as_str(),
                 entry.registry_source.as_ref(),
+                lockfile.registries.get(&entry.id),
+                false,
             )?;
-            registry_lock::verify_registry_lock(&entry.id, &resolved_registry, &lockfile)
-                .map_err(registry_lock_mismatch_to_engine_error)?;
+            if entry.registry_source.as_ref().is_some_and(|source| {
+                matches!(source, config::waxrc::LanguageRegistrySource::Git { .. })
+            }) && !lockfile.registries.contains_key(&entry.id)
+            {
+                let (git, tag) = match entry.registry_source.as_ref().unwrap() {
+                    config::waxrc::LanguageRegistrySource::Git { git, tag } => {
+                        (git.clone(), tag.clone())
+                    }
+                    _ => unreachable!(),
+                };
+                lockfile.registries.insert(
+                    entry.id.clone(),
+                    config::lockfile::LockedRegistry {
+                        source: resolved_registry.source.clone(),
+                        sha256: resolved_registry.sha256.clone(),
+                        git: Some(git),
+                        tag: Some(tag),
+                        commit: resolved_registry.git_commit.clone(),
+                    },
+                );
+                registry_lock_changed = true;
+            } else {
+                registry_lock::verify_registry_lock(&entry.id, &resolved_registry, &lockfile)
+                    .map_err(registry_lock_mismatch_to_engine_error)?;
+            }
 
             let mut config = entry.extra;
             if !entry.roots.is_empty() {
@@ -346,6 +373,27 @@ impl Engine {
             );
             language_configs.insert(entry.id.clone(), config);
             enabled_ids.insert(entry.id);
+        }
+        if registry_lock_changed && !is_ephemeral {
+            lockfile.schema_version = WAX_LOCK_SCHEMA_VERSION;
+            let path = config::repo_files::discover_repo_files(repo_root).lockfile_path;
+            let contents = serde_json::to_string_pretty(&lockfile).map_err(|source| {
+                EngineError::Lockfile(LockfileError::InvalidConfig {
+                    path: path.display().to_string(),
+                    source,
+                })
+            })?;
+            write_atomically(
+                &path,
+                format!("{contents}\n").as_bytes(),
+                AtomicWriteOptions::default(),
+            )
+            .map_err(|_| {
+                EngineError::Lockfile(LockfileError::Read {
+                    path: path.display().to_string(),
+                    source: io::Error::other("failed to write lockfile"),
+                })
+            })?;
         }
 
         let installed_manifests = collect_installed_manifests(&enabled_ids, &lockfile, &state)?;

@@ -906,9 +906,16 @@ fn patch_lockfile_registry(
 ) -> Result<(), RegistryDiscoverError> {
     let path_display = lockfile_path.display().to_string();
     let mut lockfile = existing_lockfile.clone();
-    lockfile
-        .registries
-        .insert(language_id, LockedRegistry { source, sha256 });
+    lockfile.registries.insert(
+        language_id,
+        LockedRegistry {
+            source,
+            sha256,
+            git: None,
+            tag: None,
+            commit: None,
+        },
+    );
     lockfile.schema_version = WAX_LOCK_SCHEMA_VERSION;
     let serialized = serde_json::to_string_pretty(&lockfile).map_err(|source| {
         RegistryDiscoverError::LockfilePatch {

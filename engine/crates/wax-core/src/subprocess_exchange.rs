@@ -543,7 +543,9 @@ while :; do sleep 1; done
     fn timeout_terminates_descendants_that_hold_output_pipes_open() {
         let temp_dir = TestDir::new("timeout-descendant-pipe");
         let script_path = temp_dir.path().join("pack.sh");
-        write_script(&script_path, "#!/bin/sh\n(sleep 30) &\nexit 0\n");
+        // Drain stdin before exiting so a broken-pipe WriteRequest cannot race the
+        // timeout/cancel paths. The background sleep keeps stdout/stderr open.
+        write_script(&script_path, "#!/bin/sh\n(sleep 30) &\ncat >/dev/null\n");
         let command = [script_path.to_string_lossy().into_owned()];
         let cancellation = LanguageCancellationToken::new();
         let started_at = std::time::Instant::now();
@@ -565,7 +567,9 @@ while :; do sleep 1; done
     fn cancellation_terminates_descendants_that_hold_output_pipes_open() {
         let temp_dir = TestDir::new("cancel-descendant-pipe");
         let script_path = temp_dir.path().join("pack.sh");
-        write_script(&script_path, "#!/bin/sh\n(sleep 30) &\nexit 0\n");
+        // Drain stdin before exiting so a broken-pipe WriteRequest cannot race the
+        // timeout/cancel paths. The background sleep keeps stdout/stderr open.
+        write_script(&script_path, "#!/bin/sh\n(sleep 30) &\ncat >/dev/null\n");
         let command = [script_path.to_string_lossy().into_owned()];
         let cancellation = LanguageCancellationToken::new();
         let cancellation_for_thread = cancellation.clone();
@@ -584,7 +588,10 @@ while :; do sleep 1; done
         })
         .unwrap_err();
 
-        assert!(matches!(error, ExchangeError::Cancelled { .. }));
+        assert!(
+            matches!(error, ExchangeError::Cancelled { .. }),
+            "got {error:?}"
+        );
         assert!(started_at.elapsed() < Duration::from_secs(10));
     }
 
