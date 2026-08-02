@@ -1326,14 +1326,50 @@ fn has_safe_initializer_boundary(
 }
 
 fn lambda_initializer_body(lexed: &LexedKotlin<'_>, source_end: usize) -> Option<ByteRange> {
-    let line_limit = line_end(lexed.bytes, source_end);
-    let equal_index = find_top_level_byte(lexed, source_end, line_limit, b'=')?;
+    let equal_index = find_lambda_initializer_equal(lexed, source_end)?;
     let body_start = next_significant_index(lexed.bytes, equal_index + 1)?;
     if lexed.bytes.get(body_start) != Some(&b'{') {
         return None;
     }
     let body_end = lexed.matching_delimiters.get(&body_start).copied()?;
     ByteRange::new(body_start, body_end + 1)
+}
+
+/// Find `=` after an annotated function type, including when assignment starts on a later line.
+fn find_lambda_initializer_equal(lexed: &LexedKotlin<'_>, source_end: usize) -> Option<usize> {
+    let mut index = source_end;
+    loop {
+        let next = next_significant_index(lexed.bytes, index)?;
+        match lexed.bytes[next] {
+            b'=' if lexed.bytes.get(next + 1) != Some(&b'=') => return Some(next),
+            // Not a type continuation — declaration ended without an expression-body lambda.
+            b'{' | b',' | b')' | b';' => return None,
+            b'(' | b'[' | b'<' => {
+                let close = lexed.matching_delimiters.get(&next).copied()?;
+                index = close + 1;
+            }
+            b'?' | b'.' | b':' | b'*' => index = next + 1,
+            b'-' if lexed.bytes.get(next + 1) == Some(&b'>') => index = next + 2,
+            b'@' => {
+                let annotation_end = annotation_token_end(lexed.bytes, next)?;
+                index = match next_significant_index(lexed.bytes, annotation_end) {
+                    Some(open) if lexed.bytes[open] == b'(' => {
+                        lexed.matching_delimiters.get(&open).copied()? + 1
+                    }
+                    _ => annotation_end,
+                };
+            }
+            b'`' => index = skip_backticked_identifier(lexed.bytes, next + 1),
+            byte if is_identifier_start_byte(byte) => {
+                let mut end = next + 1;
+                while end < lexed.bytes.len() && is_identifier_byte(lexed.bytes[end]) {
+                    end += 1;
+                }
+                index = end;
+            }
+            _ => return None,
+        }
+    }
 }
 
 fn expression_end(lexed: &LexedKotlin<'_>, start: usize, limit: usize) -> usize {
@@ -1717,6 +1753,65 @@ mod tests {
             !tree.root_node().has_error(),
             "{}",
             tree.root_node().to_sexp()
+        );
+    }
+
+    #[test]
+    fn multiline_annotated_property_lambda_keeps_composable_scope() {
+        let source = concat!(
+            "val content: @Composable (onDone: () -> Unit) -> Unit\n",
+            "    = { onDone ->\n",
+            "    PrimaryButton(onClick = onDone)\n",
+            "}\n",
+        );
+        let normalized = normalize_kotlin_for_parse(source);
+        let tree = parse(&normalized);
+        let body_start = source.find("{ onDone ->").expect("lambda body");
+        let body_end = source.rfind('}').expect("lambda end") + 1;
+
+        assert_eq!(normalized.bytes, source.as_bytes());
+        assert_eq!(normalized.regions.len(), 1);
+        assert_eq!(
+            normalized.regions[0].body,
+            Some(super::ByteRange {
+                start: body_start,
+                end: body_end,
+            })
+        );
+        assert_eq!(
+            normalized.regions[0].component_scope,
+            ComponentScopePolicy::ComposableLambda
+        );
+        assert!(
+            !tree.root_node().has_error(),
+            "{}",
+            tree.root_node().to_sexp()
+        );
+    }
+
+    #[test]
+    fn multiline_annotated_function_return_lambda_keeps_composable_scope() {
+        let source = concat!(
+            "fun factory(): @Composable (onDone: () -> Unit) -> Unit\n",
+            "    = { onDone ->\n",
+            "    PrimaryButton(onClick = onDone)\n",
+            "}\n",
+        );
+        let normalized = normalize_kotlin_for_parse(source);
+        let body_start = source.find("{ onDone ->").expect("lambda body");
+        let body_end = source.rfind('}').expect("lambda end") + 1;
+
+        assert_eq!(normalized.regions.len(), 1);
+        assert_eq!(
+            normalized.regions[0].body,
+            Some(super::ByteRange {
+                start: body_start,
+                end: body_end,
+            })
+        );
+        assert_eq!(
+            normalized.regions[0].component_scope,
+            ComponentScopePolicy::ComposableLambda
         );
     }
 

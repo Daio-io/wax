@@ -66,13 +66,15 @@ fun nullableCallback(content: @Composable (onDone: (() -> Unit)?) -> Unit) = Uni
 
 class HigherOrderSlots(val content: @Composable (onDone: () -> Unit) -> Unit)
 
-val higherOrderContent: @Composable (onDone: () -> Unit) -> Unit = { onDone ->
-    PrimaryButton(onClick = onDone)
-}
+val higherOrderContent: @Composable (onDone: () -> Unit) -> Unit
+    = { onDone ->
+        PrimaryButton(onClick = onDone)
+    }
 
-fun higherOrderFactory(): @Composable (onDone: () -> Unit) -> Unit = { onDone ->
-    PrimaryButton(onClick = onDone)
-}
+fun higherOrderFactory(): @Composable (onDone: () -> Unit) -> Unit
+    = { onDone ->
+        PrimaryButton(onClick = onDone)
+    }
 
 @Composable
 fun AfterAnnotatedHigherOrderFunctionType() {
