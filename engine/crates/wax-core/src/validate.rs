@@ -1,8 +1,8 @@
 //! Repository validation rules for `wax validate`.
 
-use crate::config::lockfile::{LockfileError, load_lockfile};
+use crate::config::lockfile::{LockedRegistry, LockfileError, load_lockfile};
 use crate::config::repo_files::discover_repo_files;
-use crate::config::waxrc::{WaxRcError, load_waxrc};
+use crate::config::waxrc::{LanguageRegistrySource, WaxRcError, load_waxrc};
 use crate::progress::{ValidateProgress, ValidateProgressEvent};
 use crate::registry_lock::{self, RegistryLockMismatch};
 use crate::registry_source::{
@@ -129,6 +129,16 @@ pub enum ValidateError {
         /// Resolved digest.
         resolved_sha256: String,
     },
+    /// Git registry lock metadata is invalid for the configured Git source.
+    #[error("invalid Git registry lock field {lock_field} for {field}: {reason}")]
+    InvalidGitRegistryLock {
+        /// Config field path.
+        field: String,
+        /// Invalid lockfile field name.
+        lock_field: &'static str,
+        /// Validation reason.
+        reason: String,
+    },
 }
 
 /// Validates repository-local wax configuration for CI workflows.
@@ -188,21 +198,25 @@ pub fn validate_repo_with_progress(
             language_id: entry.id.clone(),
         });
         let registry_field = format!("languages.{}.registry", entry.id.as_str());
-        let source = match entry.registry_source.as_ref() {
-            Some(registry) => {
-                if let Some((git, tag)) = registry.git_parts() {
-                    return Err(ValidateError::RegistrySource {
-                        field: registry_field,
-                        source: Box::new(crate::registry_source::RegistrySourceError::GitRegistryResolutionNotWired {
-                            git: git.to_owned(),
-                            tag: tag.to_owned(),
-                        }),
-                    });
-                }
-                registry.path_or_url_parts().map(|(source, _)| source)
-            }
-            None => None,
-        };
+        if let Some(LanguageRegistrySource::Git { git, tag }) = entry.registry_source.as_ref() {
+            let Some(lockfile) = &lockfile else {
+                return Err(ValidateError::MissingRegistryLock {
+                    language_id: entry.id.clone(),
+                });
+            };
+            let Some(locked) = lockfile.registries.get(&entry.id) else {
+                return Err(ValidateError::MissingRegistryLock {
+                    language_id: entry.id.clone(),
+                });
+            };
+            validate_git_registry_lock(&registry_field, git, tag, locked)?;
+            continue;
+        }
+
+        let source = entry
+            .registry_source
+            .as_ref()
+            .and_then(|registry| registry.path_or_url_parts().map(|(source, _)| source));
         let resolved = resolve_registry_source_allowing_missing_components(RegistrySourceInput {
             repo_root,
             language_id: entry.id.as_str(),
@@ -280,6 +294,90 @@ pub fn validate_repo_with_progress(
     }
 
     Ok(ValidateReport { warnings })
+}
+
+fn validate_git_registry_lock(
+    field: &str,
+    git: &str,
+    tag: &str,
+    locked: &LockedRegistry,
+) -> Result<(), ValidateError> {
+    validate_git_lock_string(
+        field,
+        "git",
+        locked.git.as_deref(),
+        git,
+        "must match config",
+    )?;
+    validate_git_lock_string(
+        field,
+        "tag",
+        locked.tag.as_deref(),
+        tag,
+        "must match config",
+    )?;
+    validate_git_lock_string(
+        field,
+        "source",
+        Some(&locked.source),
+        &format!("git:{}#{}", git.trim(), tag.trim()),
+        "must be the canonical Git source",
+    )?;
+
+    let Some(commit) = locked.commit.as_deref() else {
+        return Err(invalid_git_lock(field, "commit", "is required"));
+    };
+    if !matches!(commit.len(), 40 | 64)
+        || !commit
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err(invalid_git_lock(
+            field,
+            "commit",
+            "must be a full lowercase 40- or 64-character hexadecimal commit id",
+        ));
+    }
+    if locked.sha256.len() != 64
+        || !locked.sha256.bytes().all(|byte| {
+            byte.is_ascii_digit() || (byte.is_ascii_lowercase() && byte.is_ascii_hexdigit())
+        })
+    {
+        return Err(invalid_git_lock(
+            field,
+            "sha256",
+            "must be a lowercase 64-character hexadecimal SHA-256 digest",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_git_lock_string(
+    field: &str,
+    lock_field: &'static str,
+    actual: Option<&str>,
+    expected: &str,
+    mismatch_reason: &'static str,
+) -> Result<(), ValidateError> {
+    let Some(actual) = actual else {
+        return Err(invalid_git_lock(field, lock_field, "is required"));
+    };
+    if actual != expected {
+        return Err(invalid_git_lock(field, lock_field, mismatch_reason));
+    }
+    Ok(())
+}
+
+fn invalid_git_lock(
+    field: &str,
+    lock_field: &'static str,
+    reason: impl Into<String>,
+) -> ValidateError {
+    ValidateError::InvalidGitRegistryLock {
+        field: field.to_owned(),
+        lock_field,
+        reason: reason.into(),
+    }
 }
 
 fn registry_lock_mismatch_to_validate_error(mismatch: RegistryLockMismatch) -> ValidateError {

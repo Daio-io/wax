@@ -263,6 +263,7 @@ fn sync_command_fails_when_upstream_design_system_is_not_remembered() {
 #[test]
 fn sync_without_home_returns_typed_error_instead_of_panicking() {
     let root = TestDir::new("sync-without-home");
+    write_app_repo(&root.path, "acme/react", ".wax/registries/acme/react.json");
 
     let output = Command::new(env!("CARGO_BIN_EXE_wax"))
         .args(["sync", "--repo-root"])

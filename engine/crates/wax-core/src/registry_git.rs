@@ -154,12 +154,7 @@ pub fn fetch_git_registry(
         ],
     )?;
     if !output.status.success() {
-        return Err(RegistryGitError::FetchFailed {
-            url: git_url.to_owned(),
-            reference: tag_or_sha.to_owned(),
-            status: status_string(&output),
-            stderr: stderr_summary(&output),
-        });
+        return Err(fetch_failed(git_url, tag_or_sha, &output));
     }
     let commit = resolve_fetch_head(&cache_repo)?;
     read_registry(&cache_repo, &commit, language_id)
@@ -210,12 +205,7 @@ pub fn fetch_git_registry_at_commit(
             ],
         )?;
         if !fetched.status.success() {
-            return Err(RegistryGitError::FetchFailed {
-                url: git_url.to_owned(),
-                reference: commit,
-                status: status_string(&fetched),
-                stderr: stderr_summary(&fetched),
-            });
+            return Err(fetch_failed(git_url, &commit, &fetched));
         }
         let fetched_commit = resolve_fetch_head(&cache_repo)?;
         if fetched_commit != commit {
@@ -237,12 +227,44 @@ pub fn fetch_git_registry_at_commit(
 
 fn validate_input(kind: &'static str, value: &str) -> Result<(), RegistryGitError> {
     if value.trim().is_empty() || value.starts_with('-') || value.chars().any(char::is_control) {
-        return Err(RegistryGitError::InvalidInput {
-            kind,
-            value: value.to_owned(),
-        });
+        let value = if kind == "URL" {
+            redact_git_remote(value)
+        } else {
+            value.to_owned()
+        };
+        return Err(RegistryGitError::InvalidInput { kind, value });
     }
     Ok(())
+}
+
+/// Strips URL userinfo so Git remotes never echo embedded credentials in errors or labels.
+pub(crate) fn redact_git_remote(git: &str) -> String {
+    let Some(scheme_end) = git.find("://") else {
+        return git.to_owned();
+    };
+    let after_scheme = scheme_end + 3;
+    let Some(at_offset) = git[after_scheme..].find('@') else {
+        return git.to_owned();
+    };
+    let host_start = after_scheme + at_offset + 1;
+    if git[host_start..].is_empty() {
+        return git.to_owned();
+    }
+    format!("{}{}", &git[..after_scheme], &git[host_start..])
+}
+
+fn fetch_failed(url: &str, reference: &str, output: &Output) -> RegistryGitError {
+    let redacted_url = redact_git_remote(url);
+    let mut stderr = stderr_summary(output);
+    if url != redacted_url.as_str() {
+        stderr = stderr.replace(url, &redacted_url);
+    }
+    RegistryGitError::FetchFailed {
+        url: redacted_url,
+        reference: reference.to_owned(),
+        status: status_string(output),
+        stderr,
+    }
 }
 
 fn validate_commit(commit: &str) -> Result<String, RegistryGitError> {
@@ -812,6 +834,50 @@ mod tests {
             ),
             Err(RegistryGitError::FetchFailed { .. })
         ));
+    }
+
+    #[test]
+    fn fetch_failed_redacts_https_userinfo_from_url_and_stderr() {
+        let url = "https://user:ghp_secret@github.com/org/repo.git";
+        let output = Output {
+            status: std::process::Command::new("false")
+                .output()
+                .expect("run false")
+                .status,
+            stdout: Vec::new(),
+            stderr: format!("fatal: repository '{url}' not found\n").into_bytes(),
+        };
+        let error = fetch_failed(url, "v1", &output);
+        let message = error.to_string();
+        let RegistryGitError::FetchFailed {
+            url: reported_url,
+            stderr,
+            ..
+        } = error
+        else {
+            panic!("expected FetchFailed");
+        };
+        assert_eq!(reported_url, "https://github.com/org/repo.git");
+        assert!(!reported_url.contains("secret"));
+        assert!(!stderr.contains("secret"));
+        assert!(stderr.contains("https://github.com/org/repo.git"));
+        assert!(!message.contains("secret"));
+    }
+
+    #[test]
+    fn redact_git_remote_strips_https_userinfo() {
+        assert_eq!(
+            redact_git_remote("https://user:ghp_secret@github.com/org/repo.git"),
+            "https://github.com/org/repo.git"
+        );
+        assert_eq!(
+            redact_git_remote("https://github.com/org/repo.git"),
+            "https://github.com/org/repo.git"
+        );
+        assert_eq!(
+            redact_git_remote("git@github.com:org/repo.git"),
+            "git@github.com:org/repo.git"
+        );
     }
 
     #[test]

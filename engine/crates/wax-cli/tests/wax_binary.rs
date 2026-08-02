@@ -63,3 +63,24 @@ fn wax_binary_exposes_cli_version() {
         "expected wax version output to contain build version {expected_version}, got: {stdout}"
     );
 }
+
+#[test]
+fn sync_help_documents_upgrade() {
+    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .args(["sync", "--help"])
+        .output()
+        .expect("failed to spawn wax sync --help");
+
+    assert!(
+        output.status.success(),
+        "wax sync --help exited with {:?}; stderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout must be valid UTF-8");
+    assert!(
+        stdout.contains("--upgrade"),
+        "expected wax sync help to document --upgrade, got: {stdout}"
+    );
+}

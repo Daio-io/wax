@@ -15,18 +15,20 @@ use crate::registry_memory::{
     RegistryMemoryError, copy_design_system_registry_to_app, resolve_remembered_registry,
     show_remembered_design_system,
 };
-use crate::registry_source::{
-    ensure_language_registry_source_supported, resolve_language_registry_source,
-};
-use crate::{AtomicWriteError, AtomicWriteOptions, write_atomically};
+use crate::registry_source::resolve_language_registry_source;
+use crate::{AtomicWriteError, AtomicWriteOptions, paths::PathsError, write_atomically};
 
 /// Options for syncing app registries from remembered design systems.
 #[derive(Debug, Clone)]
 pub struct SyncOptions {
     /// Repository root containing `.wax/wax.config.json` and `.wax/wax.lock.json`.
     pub repo_root: PathBuf,
-    /// Global wax state path containing remembered design systems.
-    pub state_path: PathBuf,
+    /// Optional global wax state path override containing remembered design systems.
+    ///
+    /// When absent, global state is resolved only if an upstream registry needs it.
+    pub state_path: Option<PathBuf>,
+    /// Refresh Git-backed registry tags instead of using their locked commits.
+    pub upgrade: bool,
 }
 
 /// One language registry refreshed during sync.
@@ -38,6 +40,14 @@ pub struct SyncUpdate {
     pub upstream: String,
     /// Registry source written to app config after sync.
     pub source: String,
+    /// Configured Git remote when this update came from a Git registry.
+    pub git: Option<String>,
+    /// Configured Git tag when this update came from a Git registry.
+    pub tag: Option<String>,
+    /// Commit pinned before this sync, when present.
+    pub old_commit: Option<String>,
+    /// Commit pinned by this sync, when this is a Git registry.
+    pub new_commit: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -48,9 +58,18 @@ struct RegistryCopyPlan {
 }
 
 #[derive(Debug, Clone)]
-struct PreparedUpstreamSync {
+struct PreparedLockFields {
+    source: String,
+    sha256: String,
+    git_commit: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct PreparedSync {
     update: SyncUpdate,
     registry_copy: Option<RegistryCopyPlan>,
+    /// Prepare-time resolution reused when writing the lock, when present.
+    prepared_lock: Option<PreparedLockFields>,
 }
 
 #[derive(Debug, Clone)]
@@ -67,7 +86,7 @@ struct PersistSyncInput<'a> {
     config_changed: bool,
     original_config_json: &'a Value,
     lockfile: &'a mut WaxLock,
-    prepared_updates: &'a [PreparedUpstreamSync],
+    prepared_updates: &'a [PreparedSync],
 }
 
 type BestEffortSyncResult = Result<(Vec<SyncUpdate>, Vec<(String, SyncError)>), SyncError>;
@@ -75,6 +94,9 @@ type BestEffortSyncResult = Result<(Vec<SyncUpdate>, Vec<(String, SyncError)>), 
 /// Errors returned while syncing app registries.
 #[derive(Debug, Error)]
 pub enum SyncError {
+    /// Global wax paths could not be resolved for an upstream registry.
+    #[error(transparent)]
+    Paths(#[from] PathsError),
     /// Wax config could not be loaded.
     #[error(transparent)]
     Config(#[from] WaxRcError),
@@ -164,7 +186,7 @@ pub enum SyncError {
     },
 }
 
-/// Refreshes app registry inputs for every configured upstream reference.
+/// Refreshes app registry inputs for configured upstream and Git references.
 ///
 /// # Errors
 ///
@@ -181,24 +203,37 @@ pub fn sync_app_registries(options: &SyncOptions) -> Result<Vec<SyncUpdate>, Syn
     ensure_repo_files_exist(&repo_files)?;
 
     let waxrc = load_waxrc(&repo_files.config_path)?;
-    for entry in &waxrc.languages {
-        ensure_language_registry_source_supported(entry.registry_source.as_ref())?;
-    }
     let mut lockfile = load_lockfile(&repo_files.lockfile_path)?;
     let config_path_display = repo_files.config_path.display().to_string();
     let original_config_json = read_config_json(&repo_files.config_path, &config_path_display)?;
     let mut config_json = original_config_json.clone();
     let mut config_changed = false;
     let mut prepared_updates = Vec::new();
+    let mut resolved_state_path = options.state_path.clone();
 
-    for (entry, upstream) in upstream_language_entries(&waxrc) {
-        prepared_updates.push(prepare_language_upstream_sync(
-            options,
-            entry,
-            upstream,
-            &mut config_json,
-            &mut config_changed,
-        )?);
+    for entry in &waxrc.languages {
+        if let Some(upstream) = entry
+            .registry_source
+            .as_ref()
+            .and_then(|registry| registry.upstream())
+            .filter(|upstream| !upstream.trim().is_empty())
+        {
+            let state_path = resolve_upstream_state_path(&mut resolved_state_path)?;
+            prepared_updates.push(prepare_language_upstream_sync(
+                state_path,
+                entry,
+                upstream,
+                &mut config_json,
+                &mut config_changed,
+            )?);
+        } else if entry.registry_source.as_ref().is_some_and(|registry| {
+            matches!(
+                registry,
+                crate::config::waxrc::LanguageRegistrySource::Git { .. }
+            )
+        }) {
+            prepared_updates.push(prepare_language_git_sync(options, entry, &lockfile)?);
+        }
     }
 
     let updates: Vec<SyncUpdate> = prepared_updates
@@ -235,13 +270,6 @@ pub fn best_effort_sync_app_registries(options: &SyncOptions) -> BestEffortSyncR
     ensure_repo_files_exist(&repo_files)?;
 
     let waxrc = load_waxrc(&repo_files.config_path)?;
-    for entry in &waxrc.languages {
-        if let Err(error) =
-            ensure_language_registry_source_supported(entry.registry_source.as_ref())
-        {
-            return Err(error.into());
-        }
-    }
     let mut lockfile = load_lockfile(&repo_files.lockfile_path)?;
     let config_path_display = repo_files.config_path.display().to_string();
     let original_config_json = read_config_json(&repo_files.config_path, &config_path_display)?;
@@ -249,17 +277,39 @@ pub fn best_effort_sync_app_registries(options: &SyncOptions) -> BestEffortSyncR
     let mut config_changed = false;
     let mut failures = Vec::new();
     let mut prepared_updates = Vec::new();
+    let mut resolved_state_path = options.state_path.clone();
 
-    for (entry, upstream) in upstream_language_entries(&waxrc) {
-        match prepare_language_upstream_sync(
-            options,
-            entry,
-            upstream,
-            &mut config_json,
-            &mut config_changed,
-        ) {
-            Ok(prepared) => prepared_updates.push(prepared),
-            Err(error) => failures.push((upstream.to_owned(), error)),
+    for entry in &waxrc.languages {
+        if let Some(upstream) = entry
+            .registry_source
+            .as_ref()
+            .and_then(|registry| registry.upstream())
+            .filter(|upstream| !upstream.trim().is_empty())
+        {
+            let prepared =
+                resolve_upstream_state_path(&mut resolved_state_path).and_then(|state_path| {
+                    prepare_language_upstream_sync(
+                        state_path,
+                        entry,
+                        upstream,
+                        &mut config_json,
+                        &mut config_changed,
+                    )
+                });
+            match prepared {
+                Ok(prepared) => prepared_updates.push(prepared),
+                Err(error) => failures.push((upstream.to_owned(), error)),
+            }
+        } else if entry.registry_source.as_ref().is_some_and(|registry| {
+            matches!(
+                registry,
+                crate::config::waxrc::LanguageRegistrySource::Git { .. }
+            )
+        }) {
+            match prepare_language_git_sync(options, entry, &lockfile) {
+                Ok(prepared) => prepared_updates.push(prepared),
+                Err(error) => failures.push((git_sync_label(entry), error)),
+            }
         }
     }
 
@@ -335,18 +385,29 @@ fn persist_sync_updates(input: &mut PersistSyncInput<'_>) -> Result<(), SyncErro
     }
 
     let waxrc = load_waxrc(&input.repo_files.config_path)?;
-    if let Err(error) = refresh_registry_locks(input.lockfile, &input.options.repo_root, &waxrc) {
-        restore_sync_rollback(
-            &input.repo_files.config_path,
-            input.config_path_display,
-            input.original_config_json,
-            input.config_changed,
-            &registry_backups,
-        )?;
-        return Err(error);
-    }
+    let lockfile_changed = match refresh_registry_locks(
+        input.lockfile,
+        &input.options.repo_root,
+        &waxrc,
+        input.prepared_updates,
+        input.options.upgrade,
+    ) {
+        Ok(changed) => changed,
+        Err(error) => {
+            restore_sync_rollback(
+                &input.repo_files.config_path,
+                input.config_path_display,
+                input.original_config_json,
+                input.config_changed,
+                &registry_backups,
+            )?;
+            return Err(error);
+        }
+    };
 
-    if let Err(error) = save_lockfile(&input.repo_files.lockfile_path, input.lockfile) {
+    if lockfile_changed
+        && let Err(error) = save_lockfile(&input.repo_files.lockfile_path, input.lockfile)
+    {
         restore_sync_rollback(
             &input.repo_files.config_path,
             input.config_path_display,
@@ -435,26 +496,15 @@ fn ensure_repo_files_exist(
     Ok(())
 }
 
-fn upstream_language_entries(waxrc: &WaxRc) -> impl Iterator<Item = (&LanguageEntry, &str)> {
-    waxrc.languages.iter().filter_map(|entry| {
-        entry
-            .registry_source
-            .as_ref()
-            .and_then(|registry| registry.upstream())
-            .filter(|upstream| !upstream.trim().is_empty())
-            .map(|upstream| (entry, upstream))
-    })
-}
-
 fn prepare_language_upstream_sync(
-    options: &SyncOptions,
+    state_path: &Path,
     entry: &LanguageEntry,
     upstream: &str,
     config_json: &mut Value,
     config_changed: &mut bool,
-) -> Result<PreparedUpstreamSync, SyncError> {
+) -> Result<PreparedSync, SyncError> {
     let design_system_id = parse_upstream_design_system_id(upstream, &entry.id)?;
-    let remembered = show_remembered_design_system(&options.state_path, design_system_id)?;
+    let remembered = show_remembered_design_system(state_path, design_system_id)?;
     let resolved = resolve_remembered_registry(&remembered, &entry.id)?;
     let registry_copy = resolved
         .design_system_local_source
@@ -467,14 +517,79 @@ fn prepare_language_upstream_sync(
     if update_config_registry_source(config_json, &entry.id, &resolved.config_source) {
         *config_changed = true;
     }
-    Ok(PreparedUpstreamSync {
+    Ok(PreparedSync {
         update: SyncUpdate {
             language_id: entry.id.clone(),
             upstream: resolved.upstream,
             source: resolved.config_source,
+            git: None,
+            tag: None,
+            old_commit: None,
+            new_commit: None,
         },
         registry_copy,
+        prepared_lock: None,
     })
+}
+
+fn resolve_upstream_state_path(
+    resolved_state_path: &mut Option<PathBuf>,
+) -> Result<&Path, SyncError> {
+    if resolved_state_path.is_none() {
+        *resolved_state_path = Some(crate::paths::state_file()?);
+    }
+    Ok(resolved_state_path
+        .as_deref()
+        .expect("state path is initialized before borrowing"))
+}
+
+fn prepare_language_git_sync(
+    options: &SyncOptions,
+    entry: &LanguageEntry,
+    lockfile: &WaxLock,
+) -> Result<PreparedSync, SyncError> {
+    let resolved = resolve_language_registry_source(
+        &options.repo_root,
+        entry.id.as_str(),
+        entry.registry_source.as_ref(),
+        lockfile.registries.get(&entry.id),
+        options.upgrade,
+    )?;
+    let (git, tag) = match entry.registry_source.as_ref() {
+        Some(crate::config::waxrc::LanguageRegistrySource::Git { git, tag }) => {
+            (Some(git.clone()), Some(tag.clone()))
+        }
+        _ => (None, None),
+    };
+    Ok(PreparedSync {
+        update: SyncUpdate {
+            language_id: entry.id.clone(),
+            upstream: git_sync_label(entry),
+            source: resolved.source.clone(),
+            git,
+            tag,
+            old_commit: lockfile
+                .registries
+                .get(&entry.id)
+                .and_then(|lock| lock.commit.clone()),
+            new_commit: resolved.git_commit.clone(),
+        },
+        registry_copy: None,
+        prepared_lock: Some(PreparedLockFields {
+            source: resolved.source,
+            sha256: resolved.sha256,
+            git_commit: resolved.git_commit,
+        }),
+    })
+}
+
+fn git_sync_label(entry: &LanguageEntry) -> String {
+    match entry.registry_source.as_ref() {
+        Some(crate::config::waxrc::LanguageRegistrySource::Git { git, tag }) => {
+            format!("{}@{tag}", crate::registry_git::redact_git_remote(git))
+        }
+        _ => unreachable!("git sync labels require a Git registry source"),
+    }
 }
 
 fn parse_upstream_design_system_id<'a>(
@@ -559,44 +674,74 @@ fn refresh_registry_locks(
     lockfile: &mut WaxLock,
     repo_root: &Path,
     waxrc: &WaxRc,
-) -> Result<(), SyncError> {
-    for entry in &waxrc.languages {
-        let resolved = resolve_language_registry_source(
-            repo_root,
-            entry.id.as_str(),
-            entry.registry_source.as_ref(),
-            lockfile.registries.get(&entry.id),
-            false,
-        )?;
-        lockfile.registries.insert(
-            entry.id.clone(),
-            LockedRegistry {
-                source: resolved.source,
-                sha256: resolved.sha256,
-                git: entry
-                    .registry_source
-                    .as_ref()
-                    .and_then(|source| match source {
-                        crate::config::waxrc::LanguageRegistrySource::Git { git, .. } => {
-                            Some(git.clone())
-                        }
-                        _ => None,
-                    }),
-                tag: entry
-                    .registry_source
-                    .as_ref()
-                    .and_then(|source| match source {
-                        crate::config::waxrc::LanguageRegistrySource::Git { tag, .. } => {
-                            Some(tag.clone())
-                        }
-                        _ => None,
-                    }),
-                commit: resolved.git_commit,
-            },
-        );
+    refreshed_languages: &[PreparedSync],
+    upgrade: bool,
+) -> Result<bool, SyncError> {
+    let mut changed = false;
+    for entry in waxrc.languages.iter().filter(|entry| {
+        refreshed_languages
+            .iter()
+            .any(|prepared| prepared.update.language_id == entry.id)
+    }) {
+        let prepared = refreshed_languages
+            .iter()
+            .find(|prepared| prepared.update.language_id == entry.id);
+        let (source, sha256, git_commit) = if let Some(prepared_lock) =
+            prepared.and_then(|prepared| prepared.prepared_lock.as_ref())
+        {
+            (
+                prepared_lock.source.clone(),
+                prepared_lock.sha256.clone(),
+                prepared_lock.git_commit.clone(),
+            )
+        } else {
+            let is_git = entry.registry_source.as_ref().is_some_and(|source| {
+                matches!(
+                    source,
+                    crate::config::waxrc::LanguageRegistrySource::Git { .. }
+                )
+            });
+            let resolved = resolve_language_registry_source(
+                repo_root,
+                entry.id.as_str(),
+                entry.registry_source.as_ref(),
+                lockfile.registries.get(&entry.id),
+                is_git && upgrade,
+            )?;
+            (resolved.source, resolved.sha256, resolved.git_commit)
+        };
+        let refreshed = LockedRegistry {
+            source,
+            sha256,
+            git: entry
+                .registry_source
+                .as_ref()
+                .and_then(|source| match source {
+                    crate::config::waxrc::LanguageRegistrySource::Git { git, .. } => {
+                        Some(git.clone())
+                    }
+                    _ => None,
+                }),
+            tag: entry
+                .registry_source
+                .as_ref()
+                .and_then(|source| match source {
+                    crate::config::waxrc::LanguageRegistrySource::Git { tag, .. } => {
+                        Some(tag.clone())
+                    }
+                    _ => None,
+                }),
+            commit: git_commit,
+        };
+        if lockfile.registries.get(&entry.id) != Some(&refreshed) {
+            lockfile.registries.insert(entry.id.clone(), refreshed);
+            changed = true;
+        }
     }
-    lockfile.schema_version = WAX_LOCK_SCHEMA_VERSION;
-    Ok(())
+    if changed && lockfile.schema_version != WAX_LOCK_SCHEMA_VERSION {
+        lockfile.schema_version = WAX_LOCK_SCHEMA_VERSION;
+    }
+    Ok(changed)
 }
 
 fn save_lockfile(path: &Path, lockfile: &WaxLock) -> Result<(), SyncError> {
@@ -622,6 +767,7 @@ fn save_lockfile(path: &Path, lockfile: &WaxLock) -> Result<(), SyncError> {
 mod sync_tests {
     use super::*;
     use crate::registry_memory::remember_design_system;
+    use std::process::Command;
     use std::sync::{Mutex, MutexGuard};
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -733,6 +879,78 @@ mod sync_tests {
         (ds_repo, state_path)
     }
 
+    fn git_available() -> bool {
+        Command::new("git")
+            .arg("--version")
+            .output()
+            .is_ok_and(|output| output.status.success())
+    }
+
+    fn run_git(repo: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(repo)
+            .output()
+            .expect("run git command");
+        assert!(
+            output.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn setup_git_registry(root: &Path) -> PathBuf {
+        let git_repo = root.join("git-registry");
+        fs::create_dir_all(git_repo.join(".wax/registries"))
+            .expect("create git registry directory");
+        run_git(
+            root,
+            &["init", git_repo.to_str().expect("git registry path")],
+        );
+        run_git(&git_repo, &["config", "user.email", "wax@example.invalid"]);
+        run_git(&git_repo, &["config", "user.name", "Wax Test"]);
+        fs::write(
+            git_repo.join(".wax/registries/compose.json"),
+            r#"{"schema_version":1,"components":[{"name":"Button"}]}"#,
+        )
+        .expect("write Git registry");
+        run_git(&git_repo, &["add", "."]);
+        run_git(&git_repo, &["commit", "-m", "initial registry"]);
+        run_git(&git_repo, &["tag", "v1"]);
+        git_repo
+    }
+
+    fn write_git_app_repo(app_repo: &Path, git: &Path) {
+        fs::create_dir_all(app_repo.join(".wax")).expect("create app wax directory");
+        fs::write(
+            app_repo.join(".wax/wax.config.json"),
+            format!(
+                r#"{{
+  "schema_version": 2,
+  "languages": {{
+    "compose": {{"registry": {{"git": "{}", "tag": "v1"}}}}
+  }}
+}}
+"#,
+                git.display()
+            ),
+        )
+        .expect("write git app config");
+        fs::write(
+            app_repo.join(".wax/wax.lock.json"),
+            r#"{
+  "schema_version": 2,
+  "engine_api_version": 1,
+  "wax_version": "0.0.0-test",
+  "locked_at": null,
+  "registries": {},
+  "languages": {}
+}
+"#,
+        )
+        .expect("write git app lockfile");
+    }
+
     #[test]
     fn restore_registry_backup_preserves_exact_bytes() {
         let root = TestDir::new("restore-exact-bytes");
@@ -783,7 +1001,8 @@ mod sync_tests {
 
         let updates = sync_app_registries(&SyncOptions {
             repo_root: app_repo.clone(),
-            state_path,
+            state_path: Some(state_path),
+            upgrade: false,
         })
         .expect("sync app registries");
 
@@ -832,7 +1051,8 @@ mod sync_tests {
 
         let updates = sync_app_registries(&SyncOptions {
             repo_root: app_repo.clone(),
-            state_path,
+            state_path: Some(state_path),
+            upgrade: false,
         })
         .expect("sync app registries");
 
@@ -873,7 +1093,8 @@ mod sync_tests {
 
         let result = best_effort_sync_app_registries(&SyncOptions {
             repo_root: app_repo.clone(),
-            state_path,
+            state_path: Some(state_path),
+            upgrade: false,
         })
         .expect("best-effort sync should not abort");
 
@@ -941,7 +1162,8 @@ mod sync_tests {
 
         let result = best_effort_sync_app_registries(&SyncOptions {
             repo_root: app_repo.clone(),
-            state_path,
+            state_path: Some(state_path),
+            upgrade: false,
         })
         .expect("best-effort sync should not abort");
 
@@ -969,10 +1191,163 @@ mod sync_tests {
 
         let error = sync_app_registries(&SyncOptions {
             repo_root: app_repo,
-            state_path,
+            state_path: Some(state_path),
+            upgrade: false,
         })
         .expect_err("sync should fail for missing remembered design system");
 
         assert!(error.to_string().contains("acme"));
+    }
+
+    #[test]
+    fn sync_git_registry_uses_no_global_state_and_skips_unchanged_lockfile_writes() {
+        if !git_available() {
+            eprintln!("skipping git-dependent sync test: system git was not found");
+            return;
+        }
+        let root = TestDir::new("git-no-global-state");
+        let git_registry = setup_git_registry(&root.path);
+        let app_repo = root.path.join("app");
+        write_git_app_repo(&app_repo, &git_registry);
+
+        let updates = sync_app_registries(&SyncOptions {
+            repo_root: app_repo.clone(),
+            state_path: Some(root.path.join("missing-global-state.json")),
+            upgrade: false,
+        })
+        .expect("git-only sync should not resolve global state");
+
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0].language_id.as_str(), "compose");
+        assert_eq!(
+            updates[0].upstream,
+            format!("{}@v1", git_registry.display())
+        );
+        let lockfile_path = app_repo.join(".wax/wax.lock.json");
+        let first_lockfile = fs::read(&lockfile_path).expect("read first git lockfile");
+        let lockfile = load_lockfile(&lockfile_path).expect("load git lockfile");
+        let registry = lockfile.registries.get("compose").expect("git lock entry");
+        assert_eq!(
+            registry.git.as_deref(),
+            Some(git_registry.to_str().unwrap())
+        );
+        assert_eq!(registry.tag.as_deref(), Some("v1"));
+        assert!(registry.commit.is_some());
+
+        sync_app_registries(&SyncOptions {
+            repo_root: app_repo,
+            state_path: Some(root.path.join("missing-global-state.json")),
+            upgrade: false,
+        })
+        .expect("locked git sync should succeed");
+        assert_eq!(
+            fs::read(&lockfile_path).expect("read unchanged git lockfile"),
+            first_lockfile,
+            "unchanged Git pins must not rewrite the lockfile"
+        );
+    }
+
+    #[test]
+    fn redact_git_remote_strips_https_userinfo() {
+        assert_eq!(
+            crate::registry_git::redact_git_remote(
+                "https://user:ghp_secret@github.com/org/repo.git"
+            ),
+            "https://github.com/org/repo.git"
+        );
+        assert_eq!(
+            crate::registry_git::redact_git_remote("https://github.com/org/repo.git"),
+            "https://github.com/org/repo.git"
+        );
+        assert_eq!(
+            crate::registry_git::redact_git_remote("git@github.com:org/repo.git"),
+            "git@github.com:org/repo.git"
+        );
+    }
+
+    #[test]
+    fn git_sync_label_redacts_credentials_in_failure_labels() {
+        let entry = LanguageEntry {
+            id: LanguageId::try_from("compose").expect("language id"),
+            roots: Vec::new(),
+            registry_source: Some(crate::config::waxrc::LanguageRegistrySource::Git {
+                git: "https://x-access-token:secret@github.com/org/repo.git".to_owned(),
+                tag: "v1".to_owned(),
+            }),
+            extra: serde_json::Map::new(),
+        };
+        assert_eq!(git_sync_label(&entry), "https://github.com/org/repo.git@v1");
+        assert!(!git_sync_label(&entry).contains("secret"));
+    }
+
+    #[test]
+    fn refresh_registry_locks_reuses_prepared_git_commit_without_resolving_again() {
+        let language_id = LanguageId::try_from("compose").expect("language id");
+        let mut lockfile = WaxLock {
+            schema_version: WAX_LOCK_SCHEMA_VERSION,
+            engine_api_version: 1,
+            wax_version: "0.0.0-test".to_owned(),
+            locked_at: None,
+            registries: Default::default(),
+            languages: Default::default(),
+        };
+        let waxrc = WaxRc {
+            schema_version: 2,
+            engine: crate::config::waxrc::EngineConfig::default(),
+            adoption: crate::config::waxrc::AdoptionConfig::default(),
+            token_inference: crate::config::waxrc::TokenInferenceConfig::default(),
+            languages: vec![LanguageEntry {
+                id: language_id.clone(),
+                roots: Vec::new(),
+                registry_source: Some(crate::config::waxrc::LanguageRegistrySource::Git {
+                    git: "https://example.invalid/repo.git".to_owned(),
+                    tag: "v1".to_owned(),
+                }),
+                extra: serde_json::Map::new(),
+            }],
+            design_systems: Default::default(),
+        };
+        let prepared = [PreparedSync {
+            update: SyncUpdate {
+                language_id: language_id.clone(),
+                upstream: "https://example.invalid/repo.git@v1".to_owned(),
+                source: "git:https://example.invalid/repo.git#v1".to_owned(),
+                git: Some("https://example.invalid/repo.git".to_owned()),
+                tag: Some("v1".to_owned()),
+                old_commit: None,
+                new_commit: Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned()),
+            },
+            registry_copy: None,
+            prepared_lock: Some(PreparedLockFields {
+                source: "git:https://example.invalid/repo.git#v1".to_owned(),
+                sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                    .to_owned(),
+                git_commit: Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned()),
+            }),
+        }];
+
+        let changed = refresh_registry_locks(
+            &mut lockfile,
+            Path::new("/tmp/unused-repo-root"),
+            &waxrc,
+            &prepared,
+            true,
+        )
+        .expect("prepared lock fields should skip remote resolution");
+
+        assert!(changed);
+        let registry = lockfile
+            .registries
+            .get(&language_id)
+            .expect("lock entry written from prepared fields");
+        assert_eq!(
+            registry.commit.as_deref(),
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        );
+        assert_eq!(
+            registry.sha256,
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        );
+        assert_eq!(registry.source, "git:https://example.invalid/repo.git#v1");
     }
 }

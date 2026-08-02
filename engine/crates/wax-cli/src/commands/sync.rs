@@ -1,11 +1,9 @@
 //! `wax sync` command implementation.
 
-use super::state_path::resolve_state_path;
 use std::io::Write;
 use std::path::PathBuf;
 
 use thiserror::Error;
-use wax_core::paths::PathsError;
 use wax_core::sync::{SyncError, SyncOptions, sync_app_registries};
 
 /// Options for `wax sync`.
@@ -15,14 +13,13 @@ pub struct SyncCommandOptions {
     pub repo_root: PathBuf,
     /// Global state path override for tests.
     pub state_path: Option<PathBuf>,
+    /// Refresh Git-backed registry tags instead of using their locked commits.
+    pub upgrade: bool,
 }
 
 /// Errors returned by `wax sync`.
 #[derive(Debug, Error)]
 pub enum SyncCommandError {
-    /// Global wax paths could not be resolved.
-    #[error(transparent)]
-    Paths(#[from] PathsError),
     /// Registry sync orchestration failed.
     #[error(transparent)]
     Sync(#[from] SyncError),
@@ -39,31 +36,41 @@ pub enum SyncCommandError {
 ///
 /// # Errors
 ///
-/// Returns [`SyncCommandError::Paths`] when global state cannot be located,
-/// [`SyncCommandError::Sync`] when registry sync fails, or
+/// Returns [`SyncCommandError::Sync`] when registry sync fails, or
 /// [`SyncCommandError::Io`] when output cannot be written.
 pub fn run_sync_cli(
     options: SyncCommandOptions,
     writer: &mut impl Write,
 ) -> Result<(), SyncCommandError> {
-    let state_path = resolve_state_path(options.state_path.as_deref())?;
     let updates = sync_app_registries(&SyncOptions {
         repo_root: options.repo_root,
-        state_path,
+        state_path: options.state_path,
+        upgrade: options.upgrade,
     })?;
 
     if updates.is_empty() {
-        writeln!(writer, "No registry upstreams configured; nothing to sync.")
+        writeln!(writer, "Registry pins are already up to date.")
             .map_err(|source| SyncCommandError::Io { source })?;
         return Ok(());
     }
 
     for update in updates {
-        writeln!(
-            writer,
-            "updated {} registry from {} -> {}",
-            update.language_id, update.upstream, update.source
-        )
+        if let (Some(_git), Some(tag), Some(new_commit)) =
+            (update.git, update.tag, update.new_commit)
+        {
+            let old = update.old_commit.as_deref().unwrap_or("<none>");
+            writeln!(
+                writer,
+                "updated {} git registry tag {}: {} -> {}",
+                update.language_id, tag, old, new_commit
+            )
+        } else {
+            writeln!(
+                writer,
+                "updated {} registry from {} -> {}",
+                update.language_id, update.upstream, update.source
+            )
+        }
         .map_err(|source| SyncCommandError::Io { source })?;
     }
     Ok(())
