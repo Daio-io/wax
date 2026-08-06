@@ -604,29 +604,29 @@ fn resolve_discover_output_path(
     entry: &LanguageEntry,
 ) -> Result<PathBuf, RegistryDiscoverError> {
     let repo_relative = match &entry.registry_source {
-        Some(source) if source.git_parts().is_some() => {
-            let (git, tag) = source.git_parts().expect("checked above");
-            return Err(RegistryDiscoverError::RegistryExternalSource {
-                language_id: language_id.clone(),
-                registry_source: format!("git registry resolution is not wired yet: {git}@{tag}"),
-            });
+        Some(source) => {
+            if let Some((git, tag)) = source.git_parts() {
+                return Err(RegistryDiscoverError::RegistryExternalSource {
+                    language_id: language_id.clone(),
+                    registry_source: format!(
+                        "git registry resolution is not wired yet: {git}@{tag}"
+                    ),
+                });
+            }
+            let Some((path_or_url, _)) = source.path_or_url_parts() else {
+                return Err(RegistryDiscoverError::RegistryExternalSource {
+                    language_id: language_id.clone(),
+                    registry_source: "unsupported registry source".to_owned(),
+                });
+            };
+            if is_external_registry_source(path_or_url) {
+                return Err(RegistryDiscoverError::RegistryExternalSource {
+                    language_id: language_id.clone(),
+                    registry_source: path_or_url.to_owned(),
+                });
+            }
+            path_or_url.to_owned()
         }
-        Some(source)
-            if source
-                .path_or_url_parts()
-                .is_some_and(|(source, _)| is_external_registry_source(source)) =>
-        {
-            let source = source.path_or_url_parts().expect("checked above").0;
-            return Err(RegistryDiscoverError::RegistryExternalSource {
-                language_id: language_id.clone(),
-                registry_source: source.to_owned(),
-            });
-        }
-        Some(source) => source
-            .path_or_url_parts()
-            .expect("git handled above")
-            .0
-            .to_owned(),
         None => default_registry_path_for_language(language_id),
     };
     validate_repo_relative_registry_path(language_id, &repo_relative)?;

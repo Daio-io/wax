@@ -538,9 +538,10 @@ fn resolve_upstream_state_path(
     if resolved_state_path.is_none() {
         *resolved_state_path = Some(crate::paths::state_file()?);
     }
-    Ok(resolved_state_path
-        .as_deref()
-        .expect("state path is initialized before borrowing"))
+    let Some(path) = resolved_state_path.as_deref() else {
+        unreachable!("state path is initialized before borrowing");
+    };
+    Ok(path)
 }
 
 fn prepare_language_git_sync(

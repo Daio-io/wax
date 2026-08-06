@@ -328,16 +328,11 @@ impl Engine {
                 lockfile.registries.get(&entry.id),
                 false,
             )?;
-            if entry.registry_source.as_ref().is_some_and(|source| {
-                matches!(source, config::waxrc::LanguageRegistrySource::Git { .. })
-            }) && !lockfile.registries.contains_key(&entry.id)
-            {
-                let (git, tag) = match entry.registry_source.as_ref().unwrap() {
-                    config::waxrc::LanguageRegistrySource::Git { git, tag } => {
-                        (git.clone(), tag.clone())
-                    }
-                    _ => unreachable!(),
-                };
+            if let (Some(config::waxrc::LanguageRegistrySource::Git { git, tag }), false) = (
+                entry.registry_source.as_ref(),
+                lockfile.registries.contains_key(&entry.id),
+            ) {
+                let (git, tag) = (git.clone(), tag.clone());
                 lockfile.registries.insert(
                     entry.id.clone(),
                     config::lockfile::LockedRegistry {
@@ -568,7 +563,10 @@ fn run_scan_jobs(
             let tx = tx.clone();
             thread::spawn(move || {
                 while !stop.load(Ordering::SeqCst) {
-                    let job = queue.lock().expect("scan job queue poisoned").pop_front();
+                    let job = match queue.lock() {
+                        Ok(mut queue_guard) => queue_guard.pop_front(),
+                        Err(_) => break,
+                    };
                     let Some(job) = job else {
                         break;
                     };
