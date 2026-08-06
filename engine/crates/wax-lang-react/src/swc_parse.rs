@@ -11,6 +11,7 @@ use swc_ecma_parser::{
     EsSyntax, Parser, StringInput, Syntax, TsSyntax, error::SyntaxError, lexer::Lexer,
 };
 use wax_contract::{Diagnostic, DiagnosticSeverity, SourceLocation};
+use wax_lang_api::normalize_repo_relative_path;
 
 use crate::diagnostics::PARSE_FAILED;
 
@@ -217,10 +218,6 @@ fn source_location_from_span(
         line,
         column: Some(column),
     })
-}
-
-fn normalize_repo_relative_path(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
 }
 
 #[cfg(test)]

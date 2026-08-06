@@ -5,9 +5,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use wax_contract::{Diagnostic, DiagnosticSeverity};
-use wax_lang_api::{RootPatternKind, RootResolutionError, resolve_source_roots};
-
-use crate::diagnostics::{ROOT_GLOB_NOT_FOUND, ROOT_NOT_FOUND};
+use wax_lang_api::{
+    RootResolutionError, normalize_repo_relative_path, path_matches_any, resolve_source_roots,
+    root_not_found_code, root_not_found_message,
+};
 
 /// Default ignore glob patterns applied before configured `ignore` entries.
 pub const DEFAULT_IGNORE_PATTERNS: &[&str] = &[
@@ -167,111 +168,6 @@ fn is_supported_react_source(path: &Path) -> bool {
         || name.ends_with(".ts")
 }
 
-fn normalize_repo_relative_path(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
-}
-
-fn path_matches_any(path: &str, patterns: &[String]) -> bool {
-    patterns
-        .iter()
-        .any(|pattern| path_matches_glob(path, pattern))
-}
-
-fn path_matches_glob(path: &str, pattern: &str) -> bool {
-    expand_brace_groups(pattern)
-        .iter()
-        .any(|expanded| path_matches_glob_no_brace(path, expanded))
-}
-
-fn expand_brace_groups(pattern: &str) -> Vec<String> {
-    let Some(start) = pattern.find('{') else {
-        return vec![pattern.to_owned()];
-    };
-    let Some(end_offset) = pattern[start..].find('}') else {
-        return vec![pattern.to_owned()];
-    };
-    let end = start + end_offset;
-    let prefix = &pattern[..start];
-    let suffix = &pattern[end + 1..];
-    let alternatives = pattern[start + 1..end].split(',');
-    let mut expanded = Vec::new();
-    for alternative in alternatives {
-        expanded.extend(expand_brace_groups(&format!(
-            "{prefix}{alternative}{suffix}"
-        )));
-    }
-    expanded
-}
-
-fn path_matches_glob_no_brace(path: &str, pattern: &str) -> bool {
-    let path_segments = split_path_segments(path);
-    let pattern_segments = split_path_segments(pattern);
-    segments_match(&path_segments, &pattern_segments)
-}
-
-fn split_path_segments(path: &str) -> Vec<&str> {
-    path.split('/')
-        .filter(|segment| !segment.is_empty())
-        .collect()
-}
-
-fn segments_match(path_segments: &[&str], pattern_segments: &[&str]) -> bool {
-    let mut path_idx = 0;
-    let mut pattern_idx = 0;
-
-    while pattern_idx < pattern_segments.len() {
-        if pattern_segments[pattern_idx] == "**" {
-            if pattern_idx == pattern_segments.len() - 1 {
-                return true;
-            }
-            for skip in 0..=(path_segments.len().saturating_sub(path_idx)) {
-                if segments_match(
-                    &path_segments[path_idx + skip..],
-                    &pattern_segments[pattern_idx + 1..],
-                ) {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        if path_idx >= path_segments.len()
-            || !segment_matches(path_segments[path_idx], pattern_segments[pattern_idx])
-        {
-            return false;
-        }
-
-        path_idx += 1;
-        pattern_idx += 1;
-    }
-
-    path_idx == path_segments.len()
-}
-
-fn segment_matches(segment: &str, pattern: &str) -> bool {
-    if pattern == "*" {
-        return true;
-    }
-    glob_segment_match(segment.as_bytes(), pattern.as_bytes())
-}
-
-fn glob_segment_match(segment: &[u8], pattern: &[u8]) -> bool {
-    match (segment.first(), pattern.first()) {
-        (None, None) => true,
-        (Some(_), None) => false,
-        (None, Some(b'*')) => glob_segment_match(segment, &pattern[1..]),
-        (None, Some(_)) => false,
-        (Some(_), Some(b'*')) => {
-            glob_segment_match(&segment[1..], pattern) || glob_segment_match(segment, &pattern[1..])
-        }
-        (Some(segment_byte), Some(pattern_byte)) if segment_byte == pattern_byte => {
-            glob_segment_match(&segment[1..], &pattern[1..])
-        }
-        _ => false,
-    }
-}
-
-// Root diagnostic helpers mirror wax-lang-compose and wax-lang-basic until shared in wax-lang-api.
 fn map_root_resolution_error(err: RootResolutionError) -> ReactFileCollectionError {
     match err {
         RootResolutionError::Io { context, source } => {
@@ -280,30 +176,11 @@ fn map_root_resolution_error(err: RootResolutionError) -> ReactFileCollectionErr
     }
 }
 
-fn root_not_found_code(kind: RootPatternKind) -> &'static str {
-    match kind {
-        RootPatternKind::Literal => ROOT_NOT_FOUND,
-        RootPatternKind::Wildcard => ROOT_GLOB_NOT_FOUND,
-    }
-}
-
-fn root_not_found_message(root: &Path, kind: RootPatternKind) -> String {
-    match kind {
-        RootPatternKind::Literal => format!(
-            "configured root '{}' does not exist under repo root; no files scanned from it",
-            root.display()
-        ),
-        RootPatternKind::Wildcard => format!(
-            "configured root pattern '{}' matched no directories under repo root; no files scanned from it",
-            root.display()
-        ),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
+    use wax_lang_api::path_matches_glob;
 
     #[test]
     fn files_collects_supported_extensions() {

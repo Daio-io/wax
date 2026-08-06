@@ -23,6 +23,7 @@
 pub mod build_info;
 pub mod discover;
 pub mod import_resolution;
+pub mod path_glob;
 pub mod protocol;
 pub mod root_patterns;
 pub mod server;
@@ -38,6 +39,11 @@ pub use discover::{
 };
 
 pub use import_resolution::{npm_import_package_root, resolve_import_aware_match};
+
+pub use path_glob::{
+    ROOT_GLOB_NOT_FOUND, ROOT_NOT_FOUND, normalize_repo_relative_path, path_matches_any,
+    path_matches_glob, root_not_found_code, root_not_found_message,
+};
 
 pub use protocol::{
     DiscoverRequest, DiscoverRequestType, NotDiscoverRequest, ScanConfig, ScanRequest,

@@ -2,10 +2,7 @@
 
 /// SWC parse failed for a single file; scanning continues for other files.
 pub const PARSE_FAILED: &str = "parse_failed";
-/// Configured literal root path does not exist under the repo root.
-pub const ROOT_NOT_FOUND: &str = "root_not_found";
-/// Configured wildcard root pattern matched no directories.
-pub const ROOT_GLOB_NOT_FOUND: &str = "root_glob_not_found";
+pub use wax_lang_api::{ROOT_GLOB_NOT_FOUND, ROOT_NOT_FOUND};
 /// Design-system default import could not be resolved in the module graph.
 pub const DS_IMPORT_UNRESOLVED: &str = "ds_import_unresolved";
 /// Design-system named export could not be resolved in the module graph.
