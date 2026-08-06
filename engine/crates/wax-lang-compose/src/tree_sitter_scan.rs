@@ -374,7 +374,7 @@ fn resolve_registry_match(
             .component_packages
             .get(registry_symbol)
             .and_then(|package| package.as_deref()),
-        imports.package_for_symbol(call_symbol).as_deref(),
+        imports.package_for_symbol(call_symbol),
     )
     .or_else(|| {
         if registry
@@ -1014,8 +1014,9 @@ fn scan_repository_with_parser(
     config: &ComposeScanConfig,
     parse_file: ParseFileFn,
 ) -> Result<TreeSitterScanResult, TreeSitterScanError> {
-    let mut parser =
-        new_parser().map_err(|reason| TreeSitterScanError::ParserInitFailed { reason })?;
+    let mut parser = new_parser().map_err(|error| TreeSitterScanError::ParserInitFailed {
+        reason: error.to_string(),
+    })?;
 
     let registry_path = repo_root.join(&config.design_system_registry);
     let registry = load_registry(&registry_path)?;

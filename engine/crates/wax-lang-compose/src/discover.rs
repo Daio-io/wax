@@ -84,7 +84,8 @@ pub fn discover_registry_symbols(
     parse_root: &Path,
     roots: &[PathBuf],
 ) -> Result<DiscoverRegistryResult, ComposeDiscoverError> {
-    let mut parser = new_parser().map_err(ComposeDiscoverError::ParserInitFailed)?;
+    let mut parser =
+        new_parser().map_err(|error| ComposeDiscoverError::ParserInitFailed(error.to_string()))?;
 
     let mut kotlin_files = Vec::new();
     for root in roots {
