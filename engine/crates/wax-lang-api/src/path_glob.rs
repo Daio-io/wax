@@ -181,3 +181,5 @@ mod tests {
         );
     }
 }
+
+// ci: path-filter retrigger
