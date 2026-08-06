@@ -79,11 +79,28 @@ impl std::error::Error for ParseKotlinFileError {
     }
 }
 
-pub(crate) fn new_parser() -> Result<tree_sitter::Parser, String> {
+/// Errors produced while initialising the Kotlin tree-sitter parser.
+#[derive(Debug)]
+pub(crate) enum KotlinAstError {
+    /// The parser rejected the grammar language version.
+    SetLanguage(String),
+}
+
+impl std::fmt::Display for KotlinAstError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SetLanguage(reason) => write!(f, "failed to configure parser: {reason}"),
+        }
+    }
+}
+
+impl std::error::Error for KotlinAstError {}
+
+pub(crate) fn new_parser() -> Result<tree_sitter::Parser, KotlinAstError> {
     let mut parser = tree_sitter::Parser::new();
     parser
         .set_language(&tree_sitter_kotlin_ng::LANGUAGE.into())
-        .map_err(|err| err.to_string())?;
+        .map_err(|err| KotlinAstError::SetLanguage(err.to_string()))?;
     Ok(parser)
 }
 
@@ -472,14 +489,14 @@ pub(crate) struct ImportBindings {
 
 impl ImportBindings {
     /// Returns the package prefix for a symbol used at a call site, when known.
-    pub(crate) fn package_for_symbol(&self, symbol: &str) -> Option<String> {
+    pub(crate) fn package_for_symbol(&self, symbol: &str) -> Option<&str> {
         if let Some(package) = self.symbol_packages.get(symbol) {
-            return Some(package.clone());
+            return Some(package.as_str());
         }
 
         match self.wildcard_packages.len() {
             0 => None,
-            1 => Some(self.wildcard_packages[0].clone()),
+            1 => Some(self.wildcard_packages[0].as_str()),
             _ => None,
         }
     }
@@ -821,11 +838,11 @@ fun Screen() {}
         );
         assert_eq!(
             bindings.package_for_symbol("Button"),
-            Some("com.acme.designsystem".to_owned())
+            Some("com.acme.designsystem")
         );
         assert_eq!(
             bindings.package_for_symbol("Icon"),
-            Some("com.foundation.ui".to_owned())
+            Some("com.foundation.ui")
         );
     }
 

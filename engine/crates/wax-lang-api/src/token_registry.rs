@@ -84,12 +84,7 @@ pub fn parse_registry_tokens(
             return Err(TokenRegistryError::DuplicateTokenId { id: id.to_owned() });
         }
         let key = required_non_empty_string(token, index, "key")?;
-        let category = parse_category(required_non_empty_string(token, index, "category")?)
-            .map_err(|reason| TokenRegistryError::InvalidTokenField {
-                index,
-                field: "category",
-                reason,
-            })?;
+        let category = parse_category(index, required_non_empty_string(token, index, "category")?)?;
         let aliases = parse_aliases(token, index)?;
         let value = optional_non_empty_string(token, index, "value")?;
         tokens.push(DesignSystemToken {
@@ -302,7 +297,7 @@ fn parse_aliases(
     Ok(parsed)
 }
 
-fn parse_category(value: &str) -> Result<TokenCategory, String> {
+fn parse_category(index: usize, value: &str) -> Result<TokenCategory, TokenRegistryError> {
     match value {
         "color" => Ok(TokenCategory::Color),
         "spacing" => Ok(TokenCategory::Spacing),
@@ -310,7 +305,11 @@ fn parse_category(value: &str) -> Result<TokenCategory, String> {
         "radius" => Ok(TokenCategory::Radius),
         "elevation" => Ok(TokenCategory::Elevation),
         "unknown" => Ok(TokenCategory::Unknown),
-        other => Err(format!("unsupported category {other:?}")),
+        other => Err(TokenRegistryError::InvalidTokenField {
+            index,
+            field: "category",
+            reason: format!("unsupported category {other:?}"),
+        }),
     }
 }
 
