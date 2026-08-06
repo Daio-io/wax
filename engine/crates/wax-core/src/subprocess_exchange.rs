@@ -792,3 +792,5 @@ while :; do sleep 1; done
         }
     }
 }
+
+// ci: path-filter retrigger
