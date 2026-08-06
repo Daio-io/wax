@@ -1,10 +1,14 @@
 use clap::Parser;
-use std::io::{self, BufRead, Write};
+#[cfg(test)]
+use std::io::{BufRead, Write};
 use wax_contract::LanguageId;
 use wax_lang_api::{
-    DiscoverRequest, DiscoveredRegistrySymbol, ScanRequest, WireErrorCode, WirePackHandler,
-    WirePackResponse, WireServerError, serve_one,
+    DiscoverRequest, ScanRequest, WireErrorCode, WirePackHandler, WirePackResponse,
+    discover_symbols_response, pack_language_id, require_stdio, scan_facts_response, serve_stdio,
+    wire_error_response,
 };
+#[cfg(test)]
+use wax_lang_api::{WireServerError, serve_one};
 use wax_lang_compose::{ComposeDiscoverError, ComposeLanguage, ComposeScanError};
 
 #[derive(Debug, Parser)]
@@ -17,21 +21,11 @@ struct Cli {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
-
-    if !cli.stdio {
-        eprintln!("usage: wax-lang-compose --stdio");
-        std::process::exit(2);
-    }
-
-    run_stdio()
+    require_stdio(cli.stdio, "wax-lang-compose");
+    Ok(serve_stdio(&ComposeWireHandler(ComposeLanguage::new()))?)
 }
 
-fn run_stdio() -> Result<(), Box<dyn std::error::Error>> {
-    let stdin = io::stdin();
-    let mut stdout = io::stdout().lock();
-    Ok(run_stdio_with_reader(stdin.lock(), &mut stdout)?)
-}
-
+#[cfg(test)]
 fn run_stdio_with_reader<R: BufRead, W: Write>(
     reader: R,
     writer: &mut W,
@@ -43,29 +37,21 @@ struct ComposeWireHandler(ComposeLanguage);
 
 impl WirePackHandler for ComposeWireHandler {
     fn language_id(&self) -> LanguageId {
-        compose_language_id()
+        pack_language_id("compose")
     }
 
     fn scan(&self, request: ScanRequest) -> WirePackResponse {
         match self.0.scan(&request) {
-            Ok(facts) => WirePackResponse::ScanFacts {
-                api_version: request.api_version,
-                language_id: request.language_id,
-                facts: Box::new(facts),
-            },
+            Ok(facts) => scan_facts_response(&request, facts),
             Err(err) => scan_error_response(request.api_version, request.language_id, err),
         }
     }
 
     fn discover(&self, request: DiscoverRequest) -> WirePackResponse {
         match self.0.discover(&request) {
-            Ok(result) => WirePackResponse::DiscoverSymbols {
-                api_version: request.api_version,
-                language_id: request.language_id,
-                symbols: DiscoveredRegistrySymbol::symbol_names(&result.components),
-                components: result.components,
-                diagnostics: result.diagnostics,
-            },
+            Ok(result) => {
+                discover_symbols_response(&request, result.components, result.diagnostics)
+            }
             Err(err) => discover_error_response(request.api_version, request.language_id, err),
         }
     }
@@ -81,13 +67,7 @@ fn scan_error_response(
         ComposeScanError::ParserInitFailed(_) => WireErrorCode::ParserInitFailed,
         _ => WireErrorCode::ScanFailed,
     };
-    WirePackResponse::Error {
-        api_version,
-        language_id,
-        code,
-        message: err.to_string(),
-        diagnostics: Vec::new(),
-    }
+    wire_error_response(api_version, language_id, code, err.to_string())
 }
 
 fn discover_error_response(
@@ -102,24 +82,14 @@ fn discover_error_response(
         ComposeDiscoverError::ParserInitFailed(_) => WireErrorCode::ParserInitFailed,
         ComposeDiscoverError::Io { .. } => WireErrorCode::ScanFailed,
     };
-    WirePackResponse::Error {
-        api_version,
-        language_id,
-        code,
-        message: err.to_string(),
-        diagnostics: Vec::new(),
-    }
-}
-
-fn compose_language_id() -> LanguageId {
-    LanguageId::try_from("compose").expect("hardcoded compose id must be valid")
+    wire_error_response(api_version, language_id, code, err.to_string())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::run_stdio_with_reader;
+    use super::{run_stdio_with_reader, scan_error_response};
     use std::io::Cursor;
-    use wax_lang_api::{WIRE_API_VERSION, WireErrorCode, WirePackResponse};
+    use wax_lang_api::{WIRE_API_VERSION, WireErrorCode, WirePackResponse, pack_language_id};
 
     #[test]
     fn invalid_json_returns_tagged_error_response() {
@@ -169,10 +139,8 @@ mod tests {
 
     #[test]
     fn parser_init_failed_maps_to_correct_wire_error_code() {
-        use super::{compose_language_id, scan_error_response};
-
         let err = wax_lang_compose::ComposeScanError::ParserInitFailed("test".to_owned());
-        let response = scan_error_response(WIRE_API_VERSION, compose_language_id(), err);
+        let response = scan_error_response(WIRE_API_VERSION, pack_language_id("compose"), err);
         match response {
             WirePackResponse::Error { code, .. } => {
                 assert_eq!(code, WireErrorCode::ParserInitFailed);

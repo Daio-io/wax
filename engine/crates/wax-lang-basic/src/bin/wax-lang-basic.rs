@@ -1,10 +1,14 @@
 use clap::Parser;
-use std::io::{self, BufRead, Write};
+#[cfg(test)]
+use std::io::{BufRead, Write};
 use wax_contract::LanguageId;
 use wax_lang_api::{
     DiscoverRequest, ScanRequest, WIRE_API_VERSION, WireErrorCode, WirePackHandler,
-    WirePackResponse, WireServerError, serve_one,
+    WirePackResponse, pack_language_id, require_stdio, scan_facts_response, serve_stdio,
+    wire_error_response,
 };
+#[cfg(test)]
+use wax_lang_api::{WireServerError, serve_one};
 use wax_lang_basic::{BasicLanguage, BasicScanError};
 
 #[derive(Debug, Parser)]
@@ -17,21 +21,11 @@ struct Cli {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
-
-    if !cli.stdio {
-        eprintln!("usage: wax-lang-basic --stdio");
-        std::process::exit(2);
-    }
-
-    run_stdio()
+    require_stdio(cli.stdio, "wax-lang-basic");
+    Ok(serve_stdio(&BasicWireHandler(BasicLanguage::new()))?)
 }
 
-fn run_stdio() -> Result<(), Box<dyn std::error::Error>> {
-    let stdin = io::stdin();
-    let mut stdout = io::stdout().lock();
-    Ok(run_stdio_with_reader(stdin.lock(), &mut stdout)?)
-}
-
+#[cfg(test)]
 fn run_stdio_with_reader<R: BufRead, W: Write>(
     reader: R,
     writer: &mut W,
@@ -43,16 +37,12 @@ struct BasicWireHandler(BasicLanguage);
 
 impl WirePackHandler for BasicWireHandler {
     fn language_id(&self) -> LanguageId {
-        basic_language_id()
+        pack_language_id("basic")
     }
 
     fn scan(&self, request: ScanRequest) -> WirePackResponse {
         match self.0.scan(&request) {
-            Ok(facts) => WirePackResponse::ScanFacts {
-                api_version: request.api_version,
-                language_id: request.language_id,
-                facts: Box::new(facts),
-            },
+            Ok(facts) => scan_facts_response(&request, facts),
             Err(err) => {
                 let code = match &err {
                     BasicScanError::InvalidConfig(_) | BasicScanError::InvalidLanguageId(_) => {
@@ -60,13 +50,12 @@ impl WirePackHandler for BasicWireHandler {
                     }
                     _ => WireErrorCode::ScanFailed,
                 };
-                WirePackResponse::Error {
-                    api_version: request.api_version,
-                    language_id: request.language_id,
+                wire_error_response(
+                    request.api_version,
+                    request.language_id,
                     code,
-                    message: err.to_string(),
-                    diagnostics: Vec::new(),
-                }
+                    err.to_string(),
+                )
             }
         }
     }
@@ -76,18 +65,13 @@ impl WirePackHandler for BasicWireHandler {
             "{} does not support registry discovery yet",
             request.language_id
         );
-        WirePackResponse::Error {
-            api_version: WIRE_API_VERSION,
-            language_id: request.language_id,
-            code: WireErrorCode::DiscoverUnsupported,
+        wire_error_response(
+            WIRE_API_VERSION,
+            request.language_id,
+            WireErrorCode::DiscoverUnsupported,
             message,
-            diagnostics: Vec::new(),
-        }
+        )
     }
-}
-
-fn basic_language_id() -> LanguageId {
-    LanguageId::try_from("basic").expect("hardcoded basic id must be valid")
 }
 
 #[cfg(test)]

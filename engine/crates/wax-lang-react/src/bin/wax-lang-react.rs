@@ -1,10 +1,14 @@
 use clap::Parser;
-use std::io::{self, BufRead, Write};
+#[cfg(test)]
+use std::io::{BufRead, Write};
 use wax_contract::LanguageId;
 use wax_lang_api::{
     DiscoverRequest, ScanRequest, WireErrorCode, WirePackHandler, WirePackResponse,
-    WireServerError, serve_one,
+    discover_symbols_response, pack_language_id, require_stdio, scan_facts_response, serve_stdio,
+    wire_error_response,
 };
+#[cfg(test)]
+use wax_lang_api::{WireServerError, serve_one};
 use wax_lang_react::{ReactDiscoverError, ReactLanguage, ReactScanError, RegistryErrorKind};
 
 #[derive(Debug, Parser)]
@@ -17,21 +21,11 @@ struct Cli {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
-
-    if !cli.stdio {
-        eprintln!("usage: wax-lang-react --stdio");
-        std::process::exit(2);
-    }
-
-    run_stdio()
+    require_stdio(cli.stdio, "wax-lang-react");
+    Ok(serve_stdio(&ReactWireHandler(ReactLanguage::new()))?)
 }
 
-fn run_stdio() -> Result<(), Box<dyn std::error::Error>> {
-    let stdin = io::stdin();
-    let mut stdout = io::stdout().lock();
-    Ok(run_stdio_with_reader(stdin.lock(), &mut stdout)?)
-}
-
+#[cfg(test)]
 fn run_stdio_with_reader<R: BufRead, W: Write>(
     reader: R,
     writer: &mut W,
@@ -43,16 +37,12 @@ struct ReactWireHandler(ReactLanguage);
 
 impl WirePackHandler for ReactWireHandler {
     fn language_id(&self) -> LanguageId {
-        react_language_id()
+        pack_language_id("react")
     }
 
     fn scan(&self, request: ScanRequest) -> WirePackResponse {
         match self.0.scan(&request) {
-            Ok(facts) => WirePackResponse::ScanFacts {
-                api_version: request.api_version,
-                language_id: request.language_id,
-                facts: Box::new(facts),
-            },
+            Ok(facts) => scan_facts_response(&request, facts),
             Err(err) => {
                 let code = match &err {
                     ReactScanError::InvalidConfig(_) => WireErrorCode::ConfigInvalid,
@@ -65,26 +55,21 @@ impl WirePackHandler for ReactWireHandler {
                     ReactScanError::InvalidLanguageId(_) => WireErrorCode::ScanFailed,
                     ReactScanError::InvalidFacts(_) => WireErrorCode::ScanFailed,
                 };
-                WirePackResponse::Error {
-                    api_version: request.api_version,
-                    language_id: request.language_id,
+                wire_error_response(
+                    request.api_version,
+                    request.language_id,
                     code,
-                    message: err.to_string(),
-                    diagnostics: Vec::new(),
-                }
+                    err.to_string(),
+                )
             }
         }
     }
 
     fn discover(&self, request: DiscoverRequest) -> WirePackResponse {
         match self.0.discover(&request) {
-            Ok(result) => WirePackResponse::DiscoverSymbols {
-                api_version: request.api_version,
-                language_id: request.language_id,
-                symbols: wax_lang_api::DiscoveredRegistrySymbol::symbol_names(&result.components),
-                components: result.components,
-                diagnostics: result.diagnostics,
-            },
+            Ok(result) => {
+                discover_symbols_response(&request, result.components, result.diagnostics)
+            }
             Err(err) => discover_error_response(request.api_version, request.language_id, err),
         }
     }
@@ -101,17 +86,7 @@ fn discover_error_response(
         }
         ReactDiscoverError::Io { .. } => WireErrorCode::ScanFailed,
     };
-    WirePackResponse::Error {
-        api_version,
-        language_id,
-        code,
-        message: err.to_string(),
-        diagnostics: Vec::new(),
-    }
-}
-
-fn react_language_id() -> LanguageId {
-    LanguageId::try_from("react").expect("hardcoded react id must be valid")
+    wire_error_response(api_version, language_id, code, err.to_string())
 }
 
 #[cfg(test)]
