@@ -3,11 +3,11 @@
 use std::io::{self, BufRead, Write};
 
 use thiserror::Error;
-use wax_contract::LanguageId;
+use wax_contract::{Diagnostic, LanguageId, ScanFacts};
 
 use crate::{
-    DiscoverRequest, DiscoverRequestType, ScanRequest, ScanRequestType, WIRE_API_VERSION,
-    WireErrorCode, WirePackRequest, WirePackResponse,
+    DiscoverRequest, DiscoverRequestType, DiscoveredRegistrySymbol, ScanRequest, ScanRequestType,
+    WIRE_API_VERSION, WireErrorCode, WirePackRequest, WirePackResponse,
 };
 
 /// Handles language-specific scan and registry discovery requests over the wire protocol.
@@ -107,6 +107,81 @@ where
         .map_err(|source| WireServerError::Flush { source })?;
 
     Ok(())
+}
+
+/// Exits with status 2 unless `--stdio` was requested.
+pub fn require_stdio(stdio: bool, binary_name: &str) {
+    if !stdio {
+        eprintln!("usage: {binary_name} --stdio");
+        std::process::exit(2);
+    }
+}
+
+/// Serves one wire request from process stdin to stdout.
+///
+/// # Errors
+///
+/// Returns [`WireServerError`] when host IO or response serialization fails.
+pub fn serve_stdio(handler: &impl WirePackHandler) -> Result<(), WireServerError> {
+    let stdin = io::stdin();
+    let mut stdout = io::stdout().lock();
+    serve_one(stdin.lock(), &mut stdout, handler)
+}
+
+/// Builds a hard-coded language id for pack binaries.
+///
+/// # Panics
+///
+/// Panics if `id` is not a valid [`LanguageId`]. Pack binaries use fixed ids that
+/// are validated by pack unit tests.
+#[must_use]
+pub fn pack_language_id(id: &'static str) -> LanguageId {
+    LanguageId::try_from(id).unwrap_or_else(|error| {
+        panic!("hardcoded language id {id:?} must be valid: {error}");
+    })
+}
+
+/// Builds a successful scan-facts wire response.
+#[must_use]
+pub fn scan_facts_response(request: &ScanRequest, facts: ScanFacts) -> WirePackResponse {
+    WirePackResponse::ScanFacts {
+        api_version: request.api_version,
+        language_id: request.language_id.clone(),
+        facts: Box::new(facts),
+    }
+}
+
+/// Builds a successful discover-symbols wire response.
+#[must_use]
+pub fn discover_symbols_response(
+    request: &DiscoverRequest,
+    components: Vec<DiscoveredRegistrySymbol>,
+    diagnostics: Vec<Diagnostic>,
+) -> WirePackResponse {
+    WirePackResponse::DiscoverSymbols {
+        api_version: request.api_version,
+        language_id: request.language_id.clone(),
+        symbols: DiscoveredRegistrySymbol::symbol_names(&components),
+        components,
+        diagnostics,
+    }
+}
+
+/// Builds a wire error response for a language-pack failure.
+#[must_use]
+pub fn wire_error_response(
+    api_version: u32,
+    language_id: LanguageId,
+    code: WireErrorCode,
+    message: impl Into<String>,
+) -> WirePackResponse {
+    WirePackResponse::Error {
+        api_version,
+        language_id,
+        code,
+        message: message.into(),
+        diagnostics: Vec::new(),
+    }
 }
 
 fn read_request_line<R: BufRead>(reader: &mut R) -> Result<Option<String>, WireServerError> {
