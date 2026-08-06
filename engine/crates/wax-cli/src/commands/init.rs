@@ -5,7 +5,6 @@ use super::language::{
     resolve_registry_url, save_lockfile, update_lockfile_entry,
 };
 use super::state_path::resolve_state_path;
-use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, IsTerminal, Write};
@@ -18,6 +17,7 @@ use wax_core::config::repo_files::{
     default_registry_path_for_language,
 };
 use wax_core::config::waxrc::WAXRC_SCHEMA_VERSION;
+use wax_core::digest::sha256_hex;
 use wax_core::paths::PathsError;
 use wax_core::registry::{
     RegistryArtifact, RegistryError, RegistryManifest, fetch_pack_index, select_target_artifact,
@@ -829,16 +829,6 @@ fn rendered_file_contents(contents: &str) -> String {
     } else {
         format!("{contents}\n")
     }
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .fold(String::with_capacity(64), |mut hex, byte| {
-            use std::fmt::Write;
-            let _ = write!(hex, "{byte:02x}");
-            hex
-        })
 }
 
 #[cfg(test)]

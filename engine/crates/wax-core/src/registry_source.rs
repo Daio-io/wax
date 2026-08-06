@@ -8,7 +8,6 @@ use crate::config::waxrc::LanguageRegistrySource;
 use crate::registry_git::{RegistryGitError, fetch_git_registry, fetch_git_registry_at_commit};
 use crate::{AtomicWriteError, AtomicWriteOptions, write_atomically};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
@@ -391,7 +390,7 @@ fn resolve_registry_source_with_options(
             )?
         };
         validate_registry_json(&canonical_source, &fetch.bytes, allow_missing_components)?;
-        let sha256 = hex_lower_sha256(&fetch.bytes);
+        let sha256 = crate::digest::sha256_hex(&fetch.bytes);
         if let Some(lock) = locked.filter(|lock| lock.source == canonical_source && !upgrade)
             && (lock.commit.as_deref() != Some(fetch.commit.as_str()) || lock.sha256 != sha256)
         {
@@ -427,7 +426,7 @@ fn resolve_registry_source_with_options(
         .unwrap_or_else(|| default_registry_path_for_language_id(input.language_id));
     let (bytes, repo_relative_path, external) = read_source(input.repo_root, &source)?;
     validate_registry_json(&source, &bytes, allow_missing_components)?;
-    let sha256 = hex_lower_sha256(&bytes);
+    let sha256 = crate::digest::sha256_hex(&bytes);
 
     let repo_relative_path = if external {
         materialize_external_registry(input.repo_root, input.language_id, &source, &sha256, &bytes)?
@@ -586,17 +585,6 @@ fn materialize_external_registry(
     })?;
 
     Ok(repo_relative_path)
-}
-
-fn hex_lower_sha256(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    digest
-        .iter()
-        .fold(String::with_capacity(64), |mut hex, byte| {
-            use std::fmt::Write;
-            let _ = write!(hex, "{byte:02x}");
-            hex
-        })
 }
 
 fn resolve_repo_relative_path(

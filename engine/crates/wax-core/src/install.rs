@@ -2,7 +2,6 @@
 
 use flate2::read::GzDecoder;
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 use std::fs;
 use std::fs::OpenOptions;
 use std::io::{self, Cursor, Write};
@@ -227,7 +226,7 @@ pub fn install_language(
 
     let bytes = fetch_artifact_bytes(artifact_url)?;
 
-    let computed_digest = hex_lower_sha256(&bytes);
+    let computed_digest = crate::digest::sha256_hex(&bytes);
     if computed_digest != expected_digest {
         return Err(InstallError::ShaMismatch {
             url: artifact_url.to_owned(),
@@ -289,17 +288,6 @@ fn normalize_sha256_hex(hex: &str) -> Result<String, InstallError> {
         });
     }
     Ok(trimmed.to_ascii_lowercase())
-}
-
-fn hex_lower_sha256(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    digest
-        .iter()
-        .fold(String::with_capacity(64), |mut hex, byte| {
-            use std::fmt::Write;
-            let _ = write!(hex, "{byte:02x}");
-            hex
-        })
 }
 
 fn fetch_artifact_bytes(url: &str) -> Result<Vec<u8>, InstallError> {

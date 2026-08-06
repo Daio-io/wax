@@ -456,7 +456,7 @@ pub fn discover_registry(
             lockfile,
             language_id,
             output_source,
-            sha256_hex(written_bytes.as_bytes()),
+            crate::digest::sha256_hex(written_bytes.as_bytes()),
         )?;
     }
 
@@ -933,19 +933,6 @@ fn patch_lockfile_registry(
         source,
     })?;
     Ok(())
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    use sha2::{Digest, Sha256};
-
-    let digest = Sha256::digest(bytes);
-    digest
-        .iter()
-        .fold(String::with_capacity(64), |mut hex, byte| {
-            use std::fmt::Write;
-            let _ = write!(hex, "{byte:02x}");
-            hex
-        })
 }
 
 fn build_registry(
