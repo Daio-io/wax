@@ -13,3 +13,5 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
             hex
         })
 }
+
+// ci: path-filter retrigger
