@@ -263,3 +263,5 @@ fn unsupported_api_version_response(api_version: u32, language_id: LanguageId) -
         diagnostics: Vec::new(),
     }
 }
+
+// ci: path-filter retrigger 3
