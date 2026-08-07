@@ -250,6 +250,12 @@ fn map_exchange_error(error: ExchangeError) -> DiscoverError {
         ExchangeError::Wait { source } => DiscoverError::Wait { source },
         ExchangeError::Timeout { timeout, .. } => DiscoverError::Timeout { timeout },
         ExchangeError::Cancelled { .. } => DiscoverError::Cancelled,
+        ExchangeError::MissingPipe { stream } => DiscoverError::WriteRequest {
+            source: Box::new(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                format!("{stream} pipe was not configured"),
+            )),
+        },
     }
 }
 

@@ -294,6 +294,12 @@ fn map_exchange_error(error: ExchangeError) -> LanguageError {
         ExchangeError::Wait { source } => LanguageError::Wait { source },
         ExchangeError::Timeout { timeout, .. } => LanguageError::Timeout { timeout },
         ExchangeError::Cancelled { .. } => LanguageError::Cancelled,
+        ExchangeError::MissingPipe { stream } => LanguageError::WriteRequest {
+            source: Box::new(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                format!("{stream} pipe was not configured"),
+            )),
+        },
     }
 }
 

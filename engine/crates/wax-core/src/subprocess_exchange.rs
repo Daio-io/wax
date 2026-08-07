@@ -80,6 +80,12 @@ pub(crate) enum ExchangeError {
         #[source]
         source: io::Error,
     },
+    /// Child stdin/stdout/stderr was not configured as a pipe.
+    #[error("language subprocess {stream} pipe was not configured")]
+    MissingPipe {
+        /// Stream that was missing.
+        stream: &'static str,
+    },
     /// The request could not be written to child stdin.
     #[error("failed to write language subprocess request: {source}")]
     WriteRequest {
@@ -163,9 +169,18 @@ pub(crate) fn run_exchange(request: ExchangeRequest<'_>) -> Result<ExchangeOutpu
         }
     };
 
-    let stdin = child.stdin.take().expect("stdin was configured as piped");
-    let child_stdout = child.stdout.take().expect("stdout was configured as piped");
-    let child_stderr = child.stderr.take().expect("stderr was configured as piped");
+    let stdin = child
+        .stdin
+        .take()
+        .ok_or(ExchangeError::MissingPipe { stream: "stdin" })?;
+    let child_stdout = child
+        .stdout
+        .take()
+        .ok_or(ExchangeError::MissingPipe { stream: "stdout" })?;
+    let child_stderr = child
+        .stderr
+        .take()
+        .ok_or(ExchangeError::MissingPipe { stream: "stderr" })?;
 
     thread::scope(|scope| {
         let (stream_tx, stream_rx) = mpsc::channel();
@@ -777,3 +792,5 @@ while :; do sleep 1; done
         }
     }
 }
+
+// ci: path-filter retrigger 3
