@@ -68,13 +68,7 @@ fn scan_error_response(
         SwiftScanError::RegistryNotFound(_) => (WireErrorCode::RegistryNotFound, err.to_string()),
         _ => (WireErrorCode::ScanFailed, err.to_string()),
     };
-    WirePackResponse::Error {
-        api_version,
-        language_id,
-        code,
-        message,
-        diagnostics: Vec::new(),
-    }
+    wire_error_response(api_version, language_id, code, message)
 }
 
 fn discover_error_response(
