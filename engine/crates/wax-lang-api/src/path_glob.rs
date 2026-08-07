@@ -180,6 +180,18 @@ mod tests {
             ROOT_GLOB_NOT_FOUND
         );
     }
-}
 
-// ci: path-filter retrigger 3
+    #[test]
+    fn root_not_found_messages_are_language_agnostic() {
+        // Shared wording is intentional Language Pack Parity: packs must not drift
+        // to language-specific text (e.g. historical Swift "no Swift files…").
+        assert_eq!(
+            root_not_found_message(Path::new("missing"), RootPatternKind::Literal),
+            "configured root 'missing' does not exist under repo root; no files scanned from it"
+        );
+        assert_eq!(
+            root_not_found_message(Path::new("apps/*"), RootPatternKind::Wildcard),
+            "configured root pattern 'apps/*' matched no directories under repo root; no files scanned from it"
+        );
+    }
+}
