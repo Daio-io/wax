@@ -54,7 +54,10 @@ pub use root_patterns::{
     RootPatternKind, RootResolution, RootResolutionError, has_wildcard_segment,
     resolve_source_roots,
 };
-pub use server::{WirePackHandler, WireServerError, serve_one};
+pub use server::{
+    WirePackHandler, WireServerError, discover_symbols_response, pack_language_id, require_stdio,
+    scan_facts_response, serve_one, serve_stdio, wire_error_response,
+};
 pub use timing::parse_extract_millis;
 pub use token_registry::{
     RegistryTokenIndex, TokenMatch, TokenRegistryError, find_token_matches, parse_registry_tokens,
