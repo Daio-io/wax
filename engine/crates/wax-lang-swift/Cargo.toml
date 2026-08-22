@@ -23,7 +23,6 @@ wax-lang-api = { path = "../wax-lang-api" }
 toml = "0.9"
 
 [dev-dependencies]
-toml = "0.9"
 tempfile = "3"
 
 [lints]
