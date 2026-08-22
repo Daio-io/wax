@@ -21,14 +21,13 @@ pub(crate) fn normalize_swift_source(source: &[u8]) -> NormalizedSwiftSource {
             continue;
         }
 
-        if starts_token(source, index, b"@available")
-            && let Some(attribute_end) = available_attribute_end(source, index)
-        {
+        if starts_token(source, index, b"@available") {
+            let (attribute_end, attribute_count) = available_preview_prefix(source, index);
             let preview_start = skip_trivia(source, attribute_end);
             if starts_token(source, preview_start, b"#Preview") {
                 mask_non_newline_bytes(&mut bytes, index, attribute_end);
                 recovered_available_preview_count =
-                    recovered_available_preview_count.saturating_add(1);
+                    recovered_available_preview_count.saturating_add(attribute_count);
                 index = attribute_end;
                 continue;
             }
@@ -43,13 +42,26 @@ pub(crate) fn normalize_swift_source(source: &[u8]) -> NormalizedSwiftSource {
     }
 }
 
+fn available_preview_prefix(source: &[u8], start: usize) -> (usize, u32) {
+    let mut end = start;
+    let mut count = 0;
+    while starts_token(source, end, b"@available") {
+        let Some(attribute_end) = available_attribute_end(source, end) else {
+            break;
+        };
+        end = skip_trivia(source, attribute_end);
+        count += 1;
+    }
+    (if count == 0 { start } else { end }, count)
+}
+
 fn available_attribute_end(source: &[u8], start: usize) -> Option<usize> {
     let mut index = skip_trivia(source, start + b"@available".len());
     if source.get(index) != Some(&b'(') {
         return None;
     }
 
-    let mut depth = 0_u32;
+    let mut delimiters = Vec::new();
     while index < source.len() {
         if let Some(end) = skip_comment_or_string(source, index) {
             index = end;
@@ -57,10 +69,16 @@ fn available_attribute_end(source: &[u8], start: usize) -> Option<usize> {
         }
 
         match source[index] {
-            b'(' => depth = depth.saturating_add(1),
-            b')' => {
-                depth = depth.checked_sub(1)?;
-                if depth == 0 {
+            b'(' | b'[' | b'{' => delimiters.push(source[index]),
+            b')' | b']' | b'}' => {
+                let opening = delimiters.pop()?;
+                if !matches!(
+                    (opening, source[index]),
+                    (b'(', b')') | (b'[', b']') | (b'{', b'}')
+                ) {
+                    return None;
+                }
+                if delimiters.is_empty() {
                     return Some(index + 1);
                 }
             }
@@ -250,6 +268,26 @@ let escaped = "escaped \" @available(iOS 18.0, *) #Preview"
             normalize_swift_source(source).recovered_available_preview_count,
             0
         );
+    }
+
+    #[test]
+    fn masks_contiguous_available_attributes_before_preview() {
+        let source = b"@available(iOS 18, *)\n@available(macOS 15, *)\n#Preview { }\n";
+
+        let normalized = normalize_swift_source(source);
+
+        assert_eq!(normalized.recovered_available_preview_count, 2);
+        assert_eq!(&normalized.bytes[source.len() - 13..], b"#Preview { }\n");
+    }
+
+    #[test]
+    fn preserves_invalid_balanced_available_attribute() {
+        let source = b"@available(])\n#Preview { }\n";
+
+        let normalized = normalize_swift_source(source);
+
+        assert_eq!(normalized.recovered_available_preview_count, 0);
+        assert_eq!(normalized.bytes, source);
     }
 
     #[test]
