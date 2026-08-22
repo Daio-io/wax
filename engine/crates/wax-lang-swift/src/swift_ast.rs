@@ -6,13 +6,15 @@ use std::path::{Path, PathBuf};
 
 use wax_contract::{Diagnostic, DiagnosticSeverity, SourceLocation};
 
+use crate::swift_recovery::normalize_swift_source;
+
 /// Parsed Swift file.
 #[derive(Debug)]
 #[allow(dead_code)]
 pub(crate) struct ParsedSwiftFile {
     /// Parsed tree-sitter syntax tree.
     pub(crate) tree: tree_sitter::Tree,
-    /// Source text used to parse the file.
+    /// Original source text retained for extraction and diagnostics.
     pub(crate) source: String,
 }
 
@@ -136,8 +138,9 @@ pub(crate) fn collect_swift_files(
 
 /// Parses a Swift file and keeps partial trees when tree-sitter can recover.
 ///
-/// Unlike strict parsing, recoverable syntax errors do not fail the parse. Callers
-/// should extract symbols from the returned tree even when `tree.root_node().has_error()`.
+/// Recoverable Swift syntax is normalized in a byte-preserving buffer before parsing.
+/// Unlike strict parsing, remaining syntax errors do not fail the parse. Callers should
+/// extract symbols from the returned tree even when `tree.root_node().has_error()`.
 pub(crate) fn parse_swift_file_permissive(
     parser: &mut tree_sitter::Parser,
     path: &Path,
@@ -146,8 +149,9 @@ pub(crate) fn parse_swift_file_permissive(
         context: format!("read Swift source {}", path.display()),
         source,
     })?;
+    let normalized = normalize_swift_source(source.as_bytes());
     let tree = parser
-        .parse(source.as_bytes(), None)
+        .parse(&normalized.bytes, None)
         .ok_or_else(|| ParseSwiftFileError::ParseFailed(path.to_path_buf()))?;
 
     Ok(ParsedSwiftFile { tree, source })
@@ -427,6 +431,21 @@ struct Screen: View {
                 .expect("parse");
 
         assert!(parsed.source.contains("struct Card"));
+        assert!(!parsed.tree.root_node().has_error());
+    }
+
+    #[test]
+    fn parse_swift_file_recovers_available_preview_and_retains_original_source() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        fs::create_dir_all(tempdir.path().join("Sources")).unwrap();
+        let source = "struct Before: View {}\r\n@available(iOS 18.0, *)\r\n#Preview { Before() }\r\nstruct After: View {}\r\n";
+        let path = tempdir.path().join("Sources/Preview.swift");
+        fs::write(&path, source).unwrap();
+
+        let mut parser = new_parser().expect("parser");
+        let parsed = parse_swift_file_permissive(&mut parser, &path).expect("parse");
+
+        assert_eq!(parsed.source, source);
         assert!(!parsed.tree.root_node().has_error());
     }
 }

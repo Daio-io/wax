@@ -599,6 +599,7 @@ fn extract_usage_from_source(
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
         if is_call_expression_node(node)
+            && !is_inside_preview_macro(node, source)
             && let Some(call_site) = resolve_call_site(node, source)
             && is_pascal_case_symbol(&call_site.symbol)
         {
@@ -668,6 +669,33 @@ fn extract_usage_from_source(
     }
 }
 
+fn is_inside_preview_macro(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    let mut current = node.parent();
+    while let Some(ancestor) = current {
+        if ancestor.kind() == "macro_invocation"
+            && ancestor
+                .utf8_text(source)
+                .ok()
+                .is_some_and(is_preview_macro_text)
+        {
+            return true;
+        }
+        current = ancestor.parent();
+    }
+    false
+}
+
+fn is_preview_macro_text(text: &str) -> bool {
+    text.trim_start()
+        .strip_prefix("#Preview")
+        .is_some_and(|suffix| {
+            suffix
+                .as_bytes()
+                .first()
+                .is_none_or(|byte| !byte.is_ascii_alphanumeric() && *byte != b'_')
+        })
+}
+
 fn swift_style_metadata(call_symbol: &str) -> Option<(TokenCategory, StyleContext)> {
     match call_symbol {
         "Color" | "foregroundStyle" | "foregroundColor" | "background" => {
@@ -720,7 +748,7 @@ fn extract_hardcoded_style_from_source(
     let mut candidates = Vec::new();
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
-        if is_call_expression_node(node) {
+        if is_call_expression_node(node) && !is_inside_preview_macro(node, source) {
             collect_hardcoded_literals_from_call(node, source, &mut candidates);
         }
         for index in (0..node.child_count()).rev() {
@@ -1097,7 +1125,8 @@ fn extract_token_sites_from_source(
     let mut candidates = Vec::new();
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
-        if is_token_reference_node(node)
+        if !is_inside_preview_macro(node, source)
+            && is_token_reference_node(node)
             && let Ok(text) = node.utf8_text(source)
             && let Some(token_match) = token_index.matches.get(text)
         {
@@ -1519,20 +1548,23 @@ mod tests {
         source: &str,
         registry: &RegistryIndex,
     ) -> (Vec<LocalComponent>, Vec<UsageSite>) {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let path = tempdir.path().join("Test.swift");
+        std::fs::write(&path, source).expect("source");
         let mut parser = make_parser();
-        let tree = parser.parse(source.as_bytes(), None).expect("parse");
+        let parsed = parse_swift_file_permissive(&mut parser, &path).expect("parse");
+        let source = parsed.source.as_bytes();
+        let tree = parsed.tree;
         let mut local_index = LocalViewIndex::default();
         let mut locals = Vec::new();
-        for local in
-            index_local_components_from_source(tree.root_node(), source.as_bytes(), "Test.swift")
-        {
+        for local in index_local_components_from_source(tree.root_node(), source, "Test.swift") {
             local_index.insert("Test.swift", local.clone());
             locals.push(local);
         }
         let mut usages = Vec::new();
         extract_usage_from_source(
             tree.root_node(),
-            source.as_bytes(),
+            source,
             "Test.swift",
             registry,
             &local_index,
@@ -1591,6 +1623,48 @@ mod tests {
         }
         "#,
             &registry,
+        );
+
+        assert!(usages.is_empty());
+    }
+
+    #[test]
+    fn unrelated_macro_bodies_are_not_treated_as_preview_bodies() {
+        let registry = registry_without_packages(&[("PreviewOnlyButton", "PreviewOnlyButton")]);
+        let (_, usages) = parse_and_extract("#PreviewFoo { PreviewOnlyButton() }", &registry);
+
+        assert_eq!(usages.len(), 1);
+    }
+
+    #[test]
+    fn preview_macro_bodies_are_not_usage_sites() {
+        let registry = registry_without_packages(&[("PreviewOnlyButton", "PreviewOnlyButton")]);
+        let (_, usages) = parse_and_extract("#Preview { PreviewOnlyButton() }", &registry);
+        assert!(usages.is_empty());
+    }
+
+    #[test]
+    fn recovered_available_preview_bodies_are_not_usage_sites() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let path = tempdir.path().join("Test.swift");
+        std::fs::write(
+            &path,
+            "@available(iOS 18.0, *)\n#Preview { PreviewOnlyButton() }",
+        )
+        .expect("source");
+        let mut parser = make_parser();
+        let parsed = parse_swift_file_permissive(&mut parser, &path).expect("parse");
+        let registry = registry_without_packages(&[("PreviewOnlyButton", "PreviewOnlyButton")]);
+        let local_index = LocalViewIndex::default();
+        let mut usages = Vec::new();
+
+        extract_usage_from_source(
+            parsed.tree.root_node(),
+            parsed.source.as_bytes(),
+            "Test.swift",
+            &registry,
+            &local_index,
+            &mut usages,
         );
 
         assert!(usages.is_empty());
@@ -2008,6 +2082,15 @@ struct Screen: View {
     }
 
     #[test]
+    fn preview_macro_bodies_are_excluded_from_token_sites() {
+        let index = token_index_from_json(
+            r#"[{"id":"color.primary","key":"Theme.colors.primary","category":"color"}]"#,
+        );
+        let sites = extract_tokens("#Preview { Text(Theme.colors.primary) }", &index);
+        assert!(sites.is_empty());
+    }
+
+    #[test]
     fn nested_and_labeled_swiftui_style_literals_are_detected() {
         let source = r#"
 import SwiftUI
@@ -2113,6 +2196,7 @@ struct Screen: View {
     var body: some View {
         Text("Hi").cornerRadius(8)
     }
+
 }
 "#;
         let sites = extract_hardcoded(source);
@@ -2135,5 +2219,11 @@ struct Screen: View {
             .unwrap();
         assert_eq!(site.location.column, Some(eight_col));
         assert_ne!(site.location.column, Some(corner_col));
+    }
+
+    #[test]
+    fn preview_macro_bodies_are_excluded_from_hardcoded_sites() {
+        let sites = extract_hardcoded(r#"#Preview { Text("Preview only").padding(8) }"#);
+        assert!(sites.is_empty());
     }
 }
