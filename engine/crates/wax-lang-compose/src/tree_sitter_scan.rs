@@ -739,13 +739,8 @@ fn visit_component_usage(
                             },
                         ),
                     };
-                let qualified_symbol = import_package.map(|package| {
-                    let symbol = registry_symbol
-                        .as_deref()
-                        .or(registry_target.map(String::as_str))
-                        .unwrap_or(&call_symbol);
-                    qualified_composable_symbol(Some(package), symbol)
-                });
+                let qualified_symbol = import_package
+                    .map(|package| qualified_composable_symbol(Some(package), imported_symbol));
                 ctx.usage_sites.push(UsageSite {
                     id: format!("usage.compose:{}:{line}:{column}:{call_symbol}", ctx.file),
                     location,
@@ -1670,6 +1665,29 @@ class Holder {
         assert_eq!(
             usages[0].resolution_evidence.package.as_deref(),
             Some("com.other.widgets")
+        );
+    }
+
+    #[test]
+    fn package_mismatch_keeps_the_imported_symbol_for_an_alias() {
+        let mut registry = registry_with_package("Button", "com.acme.designsystem");
+        registry
+            .resolve_targets
+            .insert("DsButton".to_owned(), "Button".to_owned());
+        let (_, usages) = parse_and_extract(
+            "import com.other.widgets.RealButton as DsButton\n@Composable\nfun Screen() { DsButton() }",
+            &registry,
+        );
+
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].match_status, MatchStatus::Unresolved);
+        assert_eq!(
+            usages[0].qualified_symbol.as_deref(),
+            Some("com.other.widgets.RealButton")
+        );
+        assert_eq!(
+            usages[0].resolution_evidence.kind,
+            ResolutionEvidenceKind::PackageMismatch
         );
     }
 
