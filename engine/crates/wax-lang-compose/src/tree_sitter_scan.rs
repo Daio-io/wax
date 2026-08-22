@@ -612,12 +612,17 @@ fn visit_component_usage(
         };
 
         let import_package = ctx.imports.package_for_symbol(&call_symbol);
+        let imported_symbol = ctx
+            .imports
+            .symbol_names
+            .get(&call_symbol)
+            .unwrap_or(&call_symbol);
         if let Some(local) = ctx
             .local_index
             .same_file(ctx.file, &call_symbol)
             .or_else(|| {
                 ctx.local_index
-                    .qualified_package(import_package, &call_symbol)
+                    .qualified_package(import_package, imported_symbol)
             })
             .or_else(|| ctx.local_index.current_package(ctx.package, &call_symbol))
         {
@@ -637,19 +642,16 @@ fn visit_component_usage(
                 resolve_registry_match(&call_symbol, registry_symbol, ctx.registry, ctx.imports)
             });
             {
-                let (match_status, registry_symbol) = match (registry_symbol, registry_match) {
-                    (Some(registry_symbol), Some(RegistryImportMatch::Resolved)) => {
-                        (MatchStatus::Resolved, Some(registry_symbol.clone()))
+                let (match_status, registry_symbol) = match registry_match {
+                    Some(RegistryImportMatch::Resolved) => {
+                        (MatchStatus::Resolved, registry_symbol.cloned())
                     }
-                    (Some(registry_symbol), Some(RegistryImportMatch::Candidate)) => {
-                        (MatchStatus::Candidate, Some(registry_symbol.clone()))
+                    Some(RegistryImportMatch::Candidate) => {
+                        (MatchStatus::Candidate, registry_symbol.cloned())
                     }
-                    (Some(_), None) | (None, _) => (MatchStatus::Unresolved, None),
-                    (Some(_), Some(RegistryImportMatch::Mismatch)) => {
-                        (MatchStatus::Unresolved, None)
-                    }
-                    (Some(registry_symbol), Some(RegistryImportMatch::LegacyNameOnly)) => {
-                        (MatchStatus::Resolved, Some(registry_symbol.clone()))
+                    None | Some(RegistryImportMatch::Mismatch) => (MatchStatus::Unresolved, None),
+                    Some(RegistryImportMatch::LegacyNameOnly) => {
+                        (MatchStatus::Resolved, registry_symbol.cloned())
                     }
                 };
                 let qualified_symbol = import_package.and_then(|package| {
@@ -1654,6 +1656,55 @@ class Holder {
                 start: 0,
                 end: source.len(),
             }],
+            &mut usages,
+        );
+
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].match_status, MatchStatus::Local);
+        assert_eq!(
+            usages[0].local_definition_id.as_deref(),
+            Some(local.id.as_str())
+        );
+    }
+
+    #[test]
+    fn imported_local_component_resolves_with_import_alias() {
+        let registry = registry_without_packages(&[]);
+        let mut parser = make_parser();
+        let local_source = "package feature\n@Composable\nfun LocalCard() {}";
+        let local_tree = parser
+            .parse(local_source.as_bytes(), None)
+            .expect("parse local");
+        let clean = [ByteRange {
+            start: 0,
+            end: local_source.len(),
+        }];
+        let local = index_local_components_from_source(
+            local_tree.root_node(),
+            local_source.as_bytes(),
+            "feature/Local.kt",
+            &clean,
+        )[0]
+        .clone();
+        let mut local_index = LocalComposableIndex::default();
+        local_index.insert("feature/Local.kt", local.clone());
+
+        let source =
+            "package app\nimport feature.LocalCard as Card\n@Composable\nfun Screen() { Card() }";
+        let tree = parser.parse(source.as_bytes(), None).expect("parse caller");
+        let caller_clean = [ByteRange {
+            start: 0,
+            end: source.len(),
+        }];
+        let mut usages = Vec::new();
+        extract_usage_from_source(
+            tree.root_node(),
+            source.as_bytes(),
+            "app/Screen.kt",
+            &registry,
+            &local_index,
+            &[],
+            &caller_clean,
             &mut usages,
         );
 

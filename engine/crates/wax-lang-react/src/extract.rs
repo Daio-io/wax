@@ -1156,20 +1156,13 @@ fn classify_jsx_usage(
             .get(&registry_symbol)
             .and_then(|package| package.as_deref());
         if registry_package.is_none() {
-            if module_graph
-                .import_binding(&parsed.file, &candidate.binding_name)
-                .is_some_and(|import| import.source_module.is_none())
-            {
-                return None;
-            }
             return Some((registry_symbol, MatchStatus::Resolved));
         }
         return match resolve_import_aware_match(registry_package, import_package.as_deref()) {
-            RegistryImportMatch::Resolved | RegistryImportMatch::LegacyNameOnly => {
-                Some((registry_symbol, MatchStatus::Resolved))
-            }
+            RegistryImportMatch::Resolved => Some((registry_symbol, MatchStatus::Resolved)),
             RegistryImportMatch::Candidate => Some((registry_symbol, MatchStatus::Candidate)),
             RegistryImportMatch::Mismatch => None,
+            RegistryImportMatch::LegacyNameOnly => unreachable!(),
         };
     }
 
