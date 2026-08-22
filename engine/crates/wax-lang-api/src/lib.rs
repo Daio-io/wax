@@ -38,7 +38,9 @@ pub use discover::{
     npm_package_name_for_roots, swift_module_from_source_path,
 };
 
-pub use import_resolution::{npm_import_package_root, resolve_import_aware_match};
+pub use import_resolution::{
+    RegistryImportMatch, npm_import_package_root, resolve_import_aware_match,
+};
 
 pub use path_glob::{
     ROOT_GLOB_NOT_FOUND, ROOT_NOT_FOUND, normalize_repo_relative_path, path_matches_any,

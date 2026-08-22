@@ -1,25 +1,36 @@
 //! Shared import-aware registry resolution helpers for parser-backed language packs.
 
-use wax_contract::MatchStatus;
+/// Classifies a registry-backed usage site against the package implied by its import.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegistryImportMatch {
+    /// The import package exactly matches the registry package.
+    Resolved,
+    /// The registry package is present, but import evidence is missing or ambiguous.
+    Candidate,
+    /// Import evidence explicitly names a different package.
+    Mismatch,
+    /// The registry has no package and therefore uses legacy name-only matching.
+    LegacyNameOnly,
+}
 
-/// Classifies a registry-backed usage site when the component declares an optional `package`.
-///
-/// When `registry_package` is absent, returns `None` so packs can apply legacy resolution rules.
+/// Classifies a registry-backed usage site against the package implied by its import.
 #[must_use]
 pub fn resolve_import_aware_match(
     registry_package: Option<&str>,
     import_package: Option<&str>,
-) -> Option<MatchStatus> {
-    let registry_package = registry_package?;
+) -> RegistryImportMatch {
+    let Some(registry_package) = registry_package else {
+        return RegistryImportMatch::LegacyNameOnly;
+    };
 
     let Some(import_package) = import_package else {
-        return Some(MatchStatus::Candidate);
+        return RegistryImportMatch::Candidate;
     };
 
     if import_package == registry_package {
-        Some(MatchStatus::Resolved)
+        RegistryImportMatch::Resolved
     } else {
-        None
+        RegistryImportMatch::Mismatch
     }
 }
 
@@ -53,17 +64,20 @@ mod tests {
                 Some("com.acme.designsystem"),
                 Some("com.acme.designsystem"),
             ),
-            Some(MatchStatus::Resolved)
+            RegistryImportMatch::Resolved
         );
         assert_eq!(
             resolve_import_aware_match(Some("com.acme.designsystem"), Some("com.foundation.ui"),),
-            None
+            RegistryImportMatch::Mismatch
         );
         assert_eq!(
             resolve_import_aware_match(Some("com.acme.designsystem"), None),
-            Some(MatchStatus::Candidate)
+            RegistryImportMatch::Candidate
         );
-        assert_eq!(resolve_import_aware_match(None, Some("SwiftUI")), None);
+        assert_eq!(
+            resolve_import_aware_match(None, Some("SwiftUI")),
+            RegistryImportMatch::LegacyNameOnly
+        );
     }
 
     #[test]

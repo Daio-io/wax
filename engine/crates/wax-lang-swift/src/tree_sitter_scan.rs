@@ -19,9 +19,10 @@ use crate::swift_ast::{
     unparseable_file_diagnostic,
 };
 use wax_lang_api::{
-    RegistryTokenIndex, RootResolutionError, ScanConfig, normalize_repo_relative_path,
-    parse_registry_tokens, path_matches_any, resolve_import_aware_match, resolve_source_roots,
-    root_not_found_code, root_not_found_message, swift_module_from_source_path, token_index,
+    RegistryImportMatch, RegistryTokenIndex, RootResolutionError, ScanConfig,
+    normalize_repo_relative_path, parse_registry_tokens, path_matches_any,
+    resolve_import_aware_match, resolve_source_roots, root_not_found_code, root_not_found_message,
+    swift_module_from_source_path, token_index,
 };
 
 /// Parsed Swift scan configuration from the engine request payload.
@@ -370,7 +371,7 @@ fn resolve_registry_match(
     registry_symbol: &str,
     registry: &RegistryIndex,
     imports: &ImportBindings,
-) -> Option<MatchStatus> {
+) -> RegistryImportMatch {
     resolve_import_aware_match(
         registry
             .component_packages
@@ -380,18 +381,6 @@ fn resolve_registry_match(
             .package_for_call(call_symbol, call_qualifier)
             .as_deref(),
     )
-    .or_else(|| {
-        if registry
-            .component_packages
-            .get(registry_symbol)
-            .and_then(|package| package.as_deref())
-            .is_none()
-        {
-            Some(MatchStatus::Resolved)
-        } else {
-            None
-        }
-    })
 }
 
 fn module_identity_for_file(file: &str) -> (String, bool) {
@@ -491,15 +480,19 @@ impl LocalViewIndex {
             .insert((file.to_owned(), component.symbol.clone()), component);
     }
 
-    fn resolve(&self, file: &str, module_identity: &str, symbol: &str) -> Option<&LocalComponent> {
-        if let Some(component) = self
-            .by_file_symbol
+    fn same_file(&self, file: &str, symbol: &str) -> Option<&LocalComponent> {
+        self.by_file_symbol
             .get(&(file.to_owned(), symbol.to_owned()))
-        {
-            return Some(component);
-        }
-        let qualified = qualified_view_symbol(module_identity, symbol);
+    }
+
+    fn qualified_module(&self, module: Option<&str>, symbol: &str) -> Option<&LocalComponent> {
+        let module = module?;
+        let qualified = qualified_view_symbol(module, symbol);
         self.by_qualified.get(&qualified)
+    }
+
+    fn current_module(&self, module: &str, symbol: &str) -> Option<&LocalComponent> {
+        self.qualified_module(Some(module), symbol)
     }
 }
 
@@ -614,27 +607,23 @@ fn extract_usage_from_source(
                 parent_scope_for_view(file, &module_identity, semantic_module, &name, parent_pos)
             });
 
-            if let Some(registry_symbol) = registry.resolve_targets.get(&call_site.symbol) {
-                if let Some(match_status) = resolve_registry_match(
-                    &call_site.symbol,
-                    call_site.qualifier.as_deref(),
-                    registry_symbol,
-                    registry,
-                    &imports,
-                ) {
-                    usage_sites.push(UsageSite {
-                        id: format!("usage.swift:{file}:{line}:{column}:{}", call_site.symbol),
-                        location: location.clone(),
-                        symbol: call_site.symbol.clone(),
-                        qualified_symbol: None,
-                        match_status,
-                        registry_symbol: Some(registry_symbol.clone()),
-                        local_definition_id: None,
-                        parent,
-                    });
-                }
-            } else if let Some(local) =
-                local_index.resolve(file, &module_identity, &call_site.symbol)
+            let import_package =
+                imports.package_for_call(&call_site.symbol, call_site.qualifier.as_deref());
+            if let Some(local) = call_site
+                .qualifier
+                .is_none()
+                .then(|| local_index.same_file(file, &call_site.symbol))
+                .flatten()
+                .or_else(|| {
+                    local_index.qualified_module(import_package.as_deref(), &call_site.symbol)
+                })
+                .or_else(|| {
+                    call_site
+                        .qualifier
+                        .is_none()
+                        .then(|| local_index.current_module(&module_identity, &call_site.symbol))
+                        .flatten()
+                })
             {
                 usage_sites.push(UsageSite {
                     id: format!("usage.swift:{file}:{line}:{column}:{}", call_site.symbol),
@@ -646,13 +635,45 @@ fn extract_usage_from_source(
                     local_definition_id: Some(local.id.clone()),
                     parent,
                 });
-            } else if parent.is_some() && unresolved_symbol_is_swiftui_shaped(&call_site, &imports)
-            {
+            } else if let Some(registry_symbol) = registry.resolve_targets.get(&call_site.symbol) {
+                let registry_match = resolve_registry_match(
+                    &call_site.symbol,
+                    call_site.qualifier.as_deref(),
+                    registry_symbol,
+                    registry,
+                    &imports,
+                );
+                let (match_status, registry_symbol) = match registry_match {
+                    RegistryImportMatch::Resolved | RegistryImportMatch::LegacyNameOnly => {
+                        (MatchStatus::Resolved, Some(registry_symbol.clone()))
+                    }
+                    RegistryImportMatch::Candidate => {
+                        (MatchStatus::Candidate, Some(registry_symbol.clone()))
+                    }
+                    RegistryImportMatch::Mismatch => (MatchStatus::Unresolved, None),
+                };
                 usage_sites.push(UsageSite {
                     id: format!("usage.swift:{file}:{line}:{column}:{}", call_site.symbol),
                     location,
-                    symbol: call_site.symbol,
-                    qualified_symbol: None,
+                    symbol: call_site.symbol.clone(),
+                    qualified_symbol: import_package
+                        .as_deref()
+                        .map(|package| qualified_view_symbol(package, &call_site.symbol)),
+                    match_status,
+                    registry_symbol,
+                    local_definition_id: None,
+                    parent,
+                });
+            } else if parent.is_some() && unresolved_symbol_is_swiftui_shaped(&call_site, &imports)
+            {
+                let symbol = call_site.symbol.clone();
+                usage_sites.push(UsageSite {
+                    id: format!("usage.swift:{file}:{line}:{column}:{}", call_site.symbol),
+                    location,
+                    symbol: symbol.clone(),
+                    qualified_symbol: import_package
+                        .as_deref()
+                        .map(|package| qualified_view_symbol(package, &symbol)),
                     match_status: MatchStatus::Unresolved,
                     registry_symbol: None,
                     local_definition_id: None,
@@ -1544,6 +1565,16 @@ mod tests {
         registry_index(resolve_targets, component_packages)
     }
 
+    fn registry_with_package(symbol: &str, package: &str) -> RegistryIndex {
+        RegistryIndex {
+            canonical_symbols: vec![symbol.to_owned()],
+            resolve_targets: BTreeMap::from([(symbol.to_owned(), symbol.to_owned())]),
+            component_packages: BTreeMap::from([(symbol.to_owned(), Some(package.to_owned()))]),
+            tokens: Vec::new(),
+            token_index: RegistryTokenIndex::default(),
+        }
+    }
+
     fn parse_and_extract(
         source: &str,
         registry: &RegistryIndex,
@@ -1609,6 +1640,89 @@ mod tests {
         assert_eq!(usages[0].registry_symbol.as_deref(), Some("PrimaryButton"));
         assert_eq!(usages[1].registry_symbol.as_deref(), Some("PrimaryButton"));
         assert_eq!(usages[2].registry_symbol.as_deref(), Some("Card"));
+    }
+
+    #[test]
+    fn same_file_local_view_wins_over_registry_name_collision() {
+        let registry = registry_with_package("Button", "AcmeDesignSystem");
+        let (_, usages) = parse_and_extract(
+            "import SwiftUI\nstruct Button: View { var body: some View { Text(\"local\") } }\nstruct Screen: View { var body: some View { Button() } }",
+            &registry,
+        );
+
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].match_status, MatchStatus::Local);
+        assert_eq!(usages[0].registry_symbol, None);
+    }
+
+    #[test]
+    fn matching_module_import_resolves_with_a_qualified_symbol() {
+        let registry = registry_with_package("Button", "AcmeDesignSystem");
+        let (_, usages) = parse_and_extract(
+            "import AcmeDesignSystem\nstruct Screen: View { var body: some View { Button() } }",
+            &registry,
+        );
+
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].match_status, MatchStatus::Resolved);
+        assert_eq!(
+            usages[0].qualified_symbol.as_deref(),
+            Some("AcmeDesignSystem.Button")
+        );
+    }
+
+    #[test]
+    fn package_mismatch_keeps_a_qualified_unresolved_usage() {
+        let registry = registry_with_package("Button", "AcmeDesignSystem");
+        let (_, usages) = parse_and_extract(
+            "import OtherWidgets\nstruct Screen: View { var body: some View { Button() } }",
+            &registry,
+        );
+
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].match_status, MatchStatus::Unresolved);
+        assert_eq!(
+            usages[0].qualified_symbol.as_deref(),
+            Some("OtherWidgets.Button")
+        );
+    }
+
+    #[test]
+    fn imported_local_view_resolves_by_explicit_module_import() {
+        let registry = registry_without_packages(&[]);
+        let mut parser = make_parser();
+        let local_source =
+            "import SwiftUI\nstruct LocalCard: View { var body: some View { Text(\"local\") } }";
+        let local_tree = parser
+            .parse(local_source.as_bytes(), None)
+            .expect("parse local");
+        let local = index_local_components_from_source(
+            local_tree.root_node(),
+            local_source.as_bytes(),
+            "Sources/Feature/Local.swift",
+        )[0]
+        .clone();
+        let mut local_index = LocalViewIndex::default();
+        local_index.insert("Sources/Feature/Local.swift", local.clone());
+
+        let source = "import Feature\nstruct Screen: View { var body: some View { LocalCard() } }";
+        let tree = parser.parse(source.as_bytes(), None).expect("parse caller");
+        let mut usages = Vec::new();
+        extract_usage_from_source(
+            tree.root_node(),
+            source.as_bytes(),
+            "Sources/App/Screen.swift",
+            &registry,
+            &local_index,
+            &mut usages,
+        );
+
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].match_status, MatchStatus::Local);
+        assert_eq!(
+            usages[0].local_definition_id.as_deref(),
+            Some(local.id.as_str())
+        );
     }
 
     #[test]
@@ -1733,7 +1847,7 @@ mod tests {
     }
 
     #[test]
-    fn non_ds_module_import_is_not_counted_when_package_is_configured() {
+    fn non_ds_module_import_is_retained_as_unresolved_when_package_is_configured() {
         let mut component_packages = BTreeMap::new();
         component_packages.insert("Button".to_owned(), Some("AcmeDesignSystem".to_owned()));
         let registry = registry_index(resolve_map(&[("Button", "Button")]), component_packages);
@@ -1747,11 +1861,12 @@ struct Screen: View {
 }
 "#;
         let (_, usages) = parse_and_extract(source, &registry);
-        assert_eq!(usages.len(), 0);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].match_status, MatchStatus::Unresolved);
     }
 
     #[test]
-    fn qualified_non_ds_call_is_not_counted_when_package_is_configured() {
+    fn qualified_non_ds_call_is_retained_as_unresolved_when_package_is_configured() {
         let mut component_packages = BTreeMap::new();
         component_packages.insert("Button".to_owned(), Some("AcmeDesignSystem".to_owned()));
         let registry = registry_index(resolve_map(&[("Button", "Button")]), component_packages);
@@ -1766,7 +1881,8 @@ struct Screen: View {
 }
 "#;
         let (_, usages) = parse_and_extract(source, &registry);
-        assert_eq!(usages.len(), 0);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].match_status, MatchStatus::Unresolved);
     }
 
     #[test]

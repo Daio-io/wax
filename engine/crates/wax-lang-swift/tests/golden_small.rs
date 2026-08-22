@@ -163,8 +163,9 @@ struct Screen: View {
 
     let facts = SwiftLanguage::new().scan(&request).unwrap();
 
-    assert_eq!(facts.counts.raw_invocations.total, 0);
+    assert_eq!(facts.counts.raw_invocations.total, 1);
     assert_eq!(facts.counts.raw_invocations.resolved, 0);
+    assert_eq!(facts.counts.raw_invocations.unresolved, 1);
     assert_eq!(facts.counts.raw_invocations.candidate, 0);
 }
 
