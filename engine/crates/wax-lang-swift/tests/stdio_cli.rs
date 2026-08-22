@@ -75,6 +75,7 @@ fn stdio_scan_with_empty_config_returns_swift_scaffold_facts() {
             assert_eq!(facts.language.id.as_str(), "swift");
             assert_eq!(facts.language.ecosystem, "swiftui");
             assert_eq!(facts.language.parser_name, "tree-sitter-swift");
+            assert_eq!(facts.language.parser_version, "0.7.3");
             assert_eq!(facts.snapshot_id, "snap-swift-scaffold");
             assert_eq!(facts.counts.raw_invocations.total, 0);
             assert!(
@@ -182,6 +183,7 @@ fn stdio_cli_emits_one_scan_facts_response() {
             assert_eq!(facts.snapshot_id, "snap-cli");
             assert_eq!(facts.status, ScanStatus::Complete);
             assert_eq!(facts.language.parser_name, "tree-sitter-swift");
+            assert_eq!(facts.language.parser_version, "0.7.3");
             assert_eq!(facts.counts.raw_invocations.total, 8);
             assert_eq!(facts.counts.raw_invocations.resolved, 6);
             assert_eq!(facts.counts.raw_invocations.local, 2);
