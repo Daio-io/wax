@@ -7,13 +7,19 @@ pub(crate) struct NormalizedSwiftSource {
     pub(crate) bytes: Vec<u8>,
 }
 
-/// Masks attribute clauses immediately followed by `#Preview`.
+/// Recovers unsupported Swift syntax without changing source byte offsets.
 pub(crate) fn normalize_swift_source(source: &[u8]) -> NormalizedSwiftSource {
     let mut bytes = source.to_vec();
     let mut index = 0;
+    let mut previous_significant = None;
 
     while index < source.len() {
-        if let Some(end) = skip_comment_or_string(source, index) {
+        if let Some(end) = skip_comment(source, index) {
+            index = end;
+            continue;
+        }
+        if let Some(end) = skip_string(source, index) {
+            previous_significant = Some((index, end));
             index = end;
             continue;
         }
@@ -28,10 +34,278 @@ pub(crate) fn normalize_swift_source(source: &[u8]) -> NormalizedSwiftSource {
             }
         }
 
-        index += 1;
+        if source.get(index) == Some(&b'(')
+            && let Some(end) = unit_expression_end(source, index)
+            && can_recover_unit_expression(source, index, end, previous_significant)
+        {
+            bytes[index] = b'{';
+            bytes[end - 1] = b'}';
+            index = end;
+            continue;
+        }
+
+        if source[index].is_ascii_whitespace() {
+            index += 1;
+        } else if let Some((start, end)) = next_word(source, index) {
+            previous_significant = Some((start, end));
+            index = end;
+        } else {
+            previous_significant = Some((index, index + 1));
+            index += 1;
+        }
     }
 
     NormalizedSwiftSource { bytes }
+}
+
+fn unit_expression_end(source: &[u8], opening_index: usize) -> Option<usize> {
+    let mut index = opening_index + 1;
+    while index < source.len() {
+        if let Some(end) = skip_comment(source, index) {
+            index = end;
+        } else if skip_string(source, index).is_some() {
+            return None;
+        } else if source[index].is_ascii_whitespace() {
+            index += 1;
+        } else if source[index] == b')' {
+            return Some(index + 1);
+        } else {
+            return None;
+        }
+    }
+    None
+}
+
+fn can_recover_unit_expression(
+    source: &[u8],
+    opening_index: usize,
+    end: usize,
+    previous_significant: Option<(usize, usize)>,
+) -> bool {
+    if follows_function_type(source, end) || precedes_type_annotation(source, opening_index) {
+        return false;
+    }
+
+    let Some((start, token_end)) = previous_significant else {
+        return false;
+    };
+
+    !is_pattern_context(source, opening_index)
+        && !can_end_callable_expression(&source[start..token_end])
+}
+
+fn is_pattern_context(source: &[u8], opening_index: usize) -> bool {
+    let previous = previous_token(source, opening_index);
+    if matches!(previous, Some(b"case" | b"let" | b"var")) {
+        return true;
+    }
+
+    if source[..opening_index]
+        .iter()
+        .rev()
+        .find(|byte| !byte.is_ascii_whitespace())
+        .is_some_and(|byte| *byte == b',')
+    {
+        let line_start = source[..opening_index]
+            .iter()
+            .rposition(|byte| *byte == b'\n')
+            .map_or(0, |index| index + 1);
+        return source[line_start..opening_index]
+            .windows(4)
+            .any(|window| window == b"case");
+    }
+
+    false
+}
+
+fn previous_token(source: &[u8], index: usize) -> Option<&[u8]> {
+    let mut end = index;
+    while end > 0 && source[end - 1].is_ascii_whitespace() {
+        end -= 1;
+    }
+    let start = source[..end]
+        .iter()
+        .rposition(|byte| !is_word_byte(*byte))
+        .map_or(0, |position| position + 1);
+    (start < end).then_some(&source[start..end])
+}
+
+fn precedes_type_annotation(source: &[u8], opening_index: usize) -> bool {
+    let mut index = opening_index;
+    while index > 0 && source[index - 1].is_ascii_whitespace() {
+        index -= 1;
+    }
+    if index >= 1 && source[index - 1] == b':' {
+        return !is_call_argument_label(source, index - 1);
+    }
+    if index >= 2 && source[index - 2..index] == *b"->" {
+        return true;
+    }
+
+    if index >= 2 && source[index - 2..index] == *b"?." {
+        return true;
+    }
+
+    if index >= 1 && source[index - 1] == b'(' {
+        return true;
+    }
+
+    matches!(source.get(index.wrapping_sub(1)), Some(b'<') | Some(b'['))
+        || is_nested_type_tuple(source, opening_index)
+        || is_typealias_value(source, opening_index)
+        || is_where_or_associated_type(source, opening_index)
+}
+
+fn is_where_or_associated_type(source: &[u8], opening_index: usize) -> bool {
+    let line_start = source[..opening_index]
+        .iter()
+        .rposition(|byte| *byte == b'\n')
+        .map_or(0, |index| index + 1);
+    let line = &source[line_start..opening_index];
+    line.windows(5).any(|window| window == b"where")
+        || line.windows(14).any(|window| window == b"associatedtype")
+}
+
+fn is_call_argument_label(source: &[u8], colon: usize) -> bool {
+    let mut depth = 0;
+    let mut index = colon;
+    while index > 0 {
+        index -= 1;
+        match source[index] {
+            b')' | b']' | b'}' => depth += 1,
+            b'(' | b'[' | b'{' if depth > 0 => depth -= 1,
+            b'(' if depth == 0 => {
+                let prefix = &source[..index];
+                let mut words = prefix
+                    .split(|byte| !is_identifier_byte(*byte))
+                    .filter(|word| !word.is_empty());
+                let _function_name = words.next_back();
+                return words.next_back() != Some(b"func");
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+fn is_nested_type_tuple(source: &[u8], opening_index: usize) -> bool {
+    let mut depth = 0;
+    let mut index = opening_index;
+    while index > 0 {
+        index -= 1;
+        match source[index] {
+            b')' => depth += 1,
+            b'(' if depth > 0 => depth -= 1,
+            b'(' if depth == 0 => {
+                let mut before = index;
+                while before > 0 && source[before - 1].is_ascii_whitespace() {
+                    before -= 1;
+                }
+                return before > 0
+                    && (matches!(source[before - 1], b':' | b'<' | b'[')
+                        && (source[before - 1] != b':'
+                            || !is_call_argument_label(source, before - 1)));
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+fn is_typealias_value(source: &[u8], opening_index: usize) -> bool {
+    let mut before = opening_index;
+    while before > 0 && source[before - 1].is_ascii_whitespace() {
+        before -= 1;
+    }
+    if source.get(before.wrapping_sub(1)) != Some(&b'=') {
+        return false;
+    }
+    let line_start = source[..before]
+        .iter()
+        .rposition(|byte| *byte == b'\n')
+        .map_or(0, |index| index + 1);
+    source[line_start..before]
+        .windows(9)
+        .any(|window| window == b"typealias")
+}
+
+fn follows_function_type(source: &[u8], end: usize) -> bool {
+    let mut index = skip_trivia(source, end);
+    loop {
+        if source.get(index..index + 2) == Some(b"->") {
+            return true;
+        }
+
+        let Some((token_start, token_end)) = next_word(source, index) else {
+            return false;
+        };
+        if !matches!(
+            &source[token_start..token_end],
+            b"async" | b"throws" | b"rethrows"
+        ) {
+            return false;
+        }
+        index = skip_trivia(source, token_end);
+    }
+}
+
+fn next_word(source: &[u8], start: usize) -> Option<(usize, usize)> {
+    if !is_word_byte(*source.get(start)?) {
+        return None;
+    }
+    let mut end = start + 1;
+    while source.get(end).is_some_and(|byte| is_word_byte(*byte)) {
+        end += 1;
+    }
+    Some((start, end))
+}
+
+fn can_end_callable_expression(token: &[u8]) -> bool {
+    if token.len() == 1 {
+        return matches!(token[0], b')' | b']' | b'}' | b'?' | b'!') || is_word_byte(token[0]);
+    }
+    if token
+        .first()
+        .is_some_and(|byte| *byte == b'"' || *byte == b'#')
+    {
+        return true;
+    }
+    if token.iter().all(|byte| is_word_byte(*byte)) {
+        return !matches!(
+            token,
+            b"return"
+                | b"throw"
+                | b"yield"
+                | b"case"
+                | b"else"
+                | b"do"
+                | b"defer"
+                | b"guard"
+                | b"if"
+                | b"while"
+                | b"for"
+                | b"switch"
+                | b"catch"
+                | b"repeat"
+                | b"in"
+                | b"is"
+                | b"as"
+                | b"let"
+                | b"var"
+                | b"await"
+                | b"try"
+                | b"some"
+                | b"any"
+                | b"async"
+                | b"throws"
+                | b"rethrows"
+        );
+    }
+    false
+}
+
+fn is_word_byte(byte: u8) -> bool {
+    is_identifier_byte(byte) || byte >= 0x80
 }
 
 fn preview_attribute_prefix(source: &[u8], start: usize) -> usize {
@@ -335,6 +609,104 @@ let multiline = """
 #Preview { }
 """
 "###;
+
+        assert_eq!(normalize_swift_source(source).bytes, source.to_vec());
+    }
+
+    #[test]
+    fn normalizes_unit_expression_to_empty_closure_token() {
+        let source = b"let value: Void = ();";
+
+        assert_eq!(
+            normalize_swift_source(source).bytes,
+            b"let value: Void = {};"
+        );
+    }
+
+    #[test]
+    fn normalizes_unit_expression_after_return() {
+        let source = b"func finish() { return () }";
+
+        assert_eq!(
+            normalize_swift_source(source).bytes,
+            b"func finish() { return {} }"
+        );
+    }
+
+    #[test]
+    fn normalizes_labeled_and_nested_unit_expressions() {
+        let source = b"resume(returning: (before, ()));";
+
+        assert_eq!(
+            normalize_swift_source(source).bytes,
+            b"resume(returning: (before, {}));"
+        );
+    }
+
+    #[test]
+    fn preserves_newlines_inside_multiline_unit_expression() {
+        let source = b"let value = (\n);";
+
+        assert_eq!(normalize_swift_source(source).bytes, b"let value = {\n};");
+    }
+
+    #[test]
+    fn leaves_callable_parentheses_and_function_types_unchanged() {
+        let source = b"foo(); func f(); #macro(); let closure: () -> Void = {};";
+
+        assert_eq!(normalize_swift_source(source).bytes, source.to_vec());
+    }
+
+    #[test]
+    fn leaves_empty_tuple_types_unchanged() {
+        let source = b"func returnsUnit() -> () {}\nfunc takesUnit(_ value: ()) {}";
+
+        assert_eq!(normalize_swift_source(source).bytes, source.to_vec());
+    }
+
+    #[test]
+    fn preserves_empty_tuple_types_in_aliases_generics_collections_and_nested_tuples() {
+        let source = b"typealias Unit = ()\nlet a: [()] = []\nlet b: Result<(), Error> = fatalError()\nlet c: ((), Int) = fatalError()";
+
+        assert_eq!(normalize_swift_source(source).bytes, source.to_vec());
+    }
+
+    #[test]
+    fn preserves_unit_patterns_and_other_ambiguous_parentheses() {
+        let source = b"foo?.()\nwhere T == ()\nassociatedtype T = ()\ncase (_, ())\nlet () = value\nprint(())";
+
+        assert_eq!(normalize_swift_source(source).bytes, source.to_vec());
+    }
+
+    #[test]
+    fn recovers_empty_tuple_labeled_call_arguments() {
+        let source = b"continuation.resume(returning: ())";
+
+        assert_eq!(
+            normalize_swift_source(source).bytes,
+            b"continuation.resume(returning: {})"
+        );
+    }
+
+    #[test]
+    fn ignores_unit_like_parentheses_in_comments_and_strings() {
+        let source = br###"// ()
+let text = "()"
+/* () */
+let value: Void = ();"###;
+
+        assert_eq!(
+            normalize_swift_source(source).bytes,
+            br###"// ()
+let text = "()"
+/* () */
+let value: Void = {};"###
+        );
+    }
+
+    #[test]
+    fn leaves_unbalanced_parentheses_unchanged() {
+        let source = b"let value: Void = (";
 
         assert_eq!(normalize_swift_source(source).bytes, source.to_vec());
     }
