@@ -748,7 +748,7 @@ fn extract_hardcoded_style_from_source(
     let mut candidates = Vec::new();
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
-        if is_call_expression_node(node) {
+        if is_call_expression_node(node) && !is_inside_preview_macro(node, source) {
             collect_hardcoded_literals_from_call(node, source, &mut candidates);
         }
         for index in (0..node.child_count()).rev() {
@@ -1125,7 +1125,8 @@ fn extract_token_sites_from_source(
     let mut candidates = Vec::new();
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
-        if is_token_reference_node(node)
+        if !is_inside_preview_macro(node, source)
+            && is_token_reference_node(node)
             && let Ok(text) = node.utf8_text(source)
             && let Some(token_match) = token_index.matches.get(text)
         {
@@ -1633,6 +1634,13 @@ mod tests {
     }
 
     #[test]
+    fn preview_macro_bodies_are_not_usage_sites() {
+        let registry = registry_without_packages(&[("PreviewOnlyButton", "PreviewOnlyButton")]);
+        let (_, usages) = parse_and_extract("#Preview { PreviewOnlyButton() }", &registry);
+        assert!(usages.is_empty());
+    }
+
+    #[test]
     fn unknown_pascal_case_view_call_becomes_unresolved() {
         let registry = registry_without_packages(&[("PrimaryButton", "PrimaryButton")]);
         let (_, usages) = parse_and_extract(
@@ -2044,6 +2052,15 @@ struct Screen: View {
     }
 
     #[test]
+    fn preview_macro_bodies_are_excluded_from_token_sites() {
+        let index = token_index_from_json(
+            r#"[{"id":"color.primary","key":"Theme.colors.primary","category":"color"}]"#,
+        );
+        let sites = extract_tokens("#Preview { Text(Theme.colors.primary) }", &index);
+        assert!(sites.is_empty());
+    }
+
+    #[test]
     fn nested_and_labeled_swiftui_style_literals_are_detected() {
         let source = r#"
 import SwiftUI
@@ -2149,6 +2166,7 @@ struct Screen: View {
     var body: some View {
         Text("Hi").cornerRadius(8)
     }
+
 }
 "#;
         let sites = extract_hardcoded(source);
@@ -2171,5 +2189,11 @@ struct Screen: View {
             .unwrap();
         assert_eq!(site.location.column, Some(eight_col));
         assert_ne!(site.location.column, Some(corner_col));
+    }
+
+    #[test]
+    fn preview_macro_bodies_are_excluded_from_hardcoded_sites() {
+        let sites = extract_hardcoded(r#"#Preview { Text("Preview only").padding(8) }"#);
+        assert!(sites.is_empty());
     }
 }

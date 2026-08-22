@@ -5,14 +5,11 @@
 pub(crate) struct NormalizedSwiftSource {
     /// Source bytes passed to tree-sitter.
     pub(crate) bytes: Vec<u8>,
-    /// Number of `@available(...)` attributes masked before `#Preview`.
-    pub(crate) recovered_available_preview_count: u32,
 }
 
 /// Masks `@available(...)` attributes immediately followed by `#Preview`.
 pub(crate) fn normalize_swift_source(source: &[u8]) -> NormalizedSwiftSource {
     let mut bytes = source.to_vec();
-    let mut recovered_available_preview_count = 0_u32;
     let mut index = 0;
 
     while index < source.len() {
@@ -22,12 +19,10 @@ pub(crate) fn normalize_swift_source(source: &[u8]) -> NormalizedSwiftSource {
         }
 
         if starts_token(source, index, b"@available") {
-            let (attribute_end, attribute_count) = available_preview_prefix(source, index);
+            let (attribute_end, _) = available_preview_prefix(source, index);
             let preview_start = skip_trivia(source, attribute_end);
             if starts_token(source, preview_start, b"#Preview") {
                 mask_non_newline_bytes(&mut bytes, index, attribute_end);
-                recovered_available_preview_count =
-                    recovered_available_preview_count.saturating_add(attribute_count);
                 index = attribute_end;
                 continue;
             }
@@ -36,10 +31,7 @@ pub(crate) fn normalize_swift_source(source: &[u8]) -> NormalizedSwiftSource {
         index += 1;
     }
 
-    NormalizedSwiftSource {
-        bytes,
-        recovered_available_preview_count,
-    }
+    NormalizedSwiftSource { bytes }
 }
 
 fn available_preview_prefix(source: &[u8], start: usize) -> (usize, u32) {
@@ -60,6 +52,7 @@ fn available_attribute_end(source: &[u8], start: usize) -> Option<usize> {
     if source.get(index) != Some(&b'(') {
         return None;
     }
+    let argument_start = index + 1;
 
     let mut delimiters = Vec::new();
     while index < source.len() {
@@ -79,7 +72,8 @@ fn available_attribute_end(source: &[u8], start: usize) -> Option<usize> {
                     return None;
                 }
                 if delimiters.is_empty() {
-                    return Some(index + 1);
+                    return availability_arguments_are_valid(source, argument_start, index)
+                        .then_some(index + 1);
                 }
             }
             _ => {}
@@ -88,6 +82,11 @@ fn available_attribute_end(source: &[u8], start: usize) -> Option<usize> {
     }
 
     None
+}
+
+fn availability_arguments_are_valid(source: &[u8], start: usize, end: usize) -> bool {
+    let arguments = &source[start..end];
+    !arguments.iter().all(u8::is_ascii_whitespace)
 }
 
 fn skip_trivia(source: &[u8], mut index: usize) -> usize {
@@ -225,7 +224,6 @@ mod tests {
 
         let normalized = normalize_swift_source(source);
 
-        assert_eq!(normalized.recovered_available_preview_count, 1);
         assert_eq!(normalized.bytes.len(), source.len());
         assert_eq!(normalized.bytes[23], b'\r');
         assert_eq!(normalized.bytes[24], b'\n');
@@ -240,7 +238,6 @@ mod tests {
             normalize_swift_source(source),
             NormalizedSwiftSource {
                 bytes: source.to_vec(),
-                recovered_available_preview_count: 0,
             }
         );
     }
@@ -254,20 +251,14 @@ let escaped = "escaped \" @available(iOS 18.0, *) #Preview"
 "#available(iOS 18.0, *) #Preview"
 "##;
 
-        assert_eq!(
-            normalize_swift_source(source).recovered_available_preview_count,
-            0
-        );
+        assert_eq!(normalize_swift_source(source).bytes, source.to_vec());
     }
 
     #[test]
     fn ignores_unbalanced_available_attribute() {
         let source = b"@available(iOS 18.0, *\n#Preview { }\n";
 
-        assert_eq!(
-            normalize_swift_source(source).recovered_available_preview_count,
-            0
-        );
+        assert_eq!(normalize_swift_source(source).bytes, source.to_vec());
     }
 
     #[test]
@@ -276,7 +267,6 @@ let escaped = "escaped \" @available(iOS 18.0, *) #Preview"
 
         let normalized = normalize_swift_source(source);
 
-        assert_eq!(normalized.recovered_available_preview_count, 2);
         assert_eq!(&normalized.bytes[source.len() - 13..], b"#Preview { }\n");
     }
 
@@ -286,18 +276,31 @@ let escaped = "escaped \" @available(iOS 18.0, *) #Preview"
 
         let normalized = normalize_swift_source(source);
 
-        assert_eq!(normalized.recovered_available_preview_count, 0);
         assert_eq!(normalized.bytes, source);
+    }
+
+    #[test]
+    fn preserves_empty_available_attribute() {
+        let source = b"@available()\n#Preview { }\n";
+
+        assert_eq!(normalize_swift_source(source).bytes, source);
+    }
+
+    #[test]
+    fn masks_available_attribute_with_comment_trivia_before_preview() {
+        let source = b"@available(iOS 18.0, *)\n// comment\n#Preview { }\n";
+
+        let normalized = normalize_swift_source(source);
+
+        assert_eq!(normalized.bytes.len(), source.len());
+        assert_eq!(&normalized.bytes[source.len() - 13..], b"#Preview { }\n");
     }
 
     #[test]
     fn ignores_unrelated_freestanding_macros() {
         let source = b"@available(iOS 18.0, *)\n#OtherMacro { }\n";
 
-        assert_eq!(
-            normalize_swift_source(source).recovered_available_preview_count,
-            0
-        );
+        assert_eq!(normalize_swift_source(source).bytes, source.to_vec());
     }
 
     #[test]
@@ -309,9 +312,6 @@ let multiline = """
 """
 "###;
 
-        assert_eq!(
-            normalize_swift_source(source).recovered_available_preview_count,
-            0
-        );
+        assert_eq!(normalize_swift_source(source).bytes, source.to_vec());
     }
 }
