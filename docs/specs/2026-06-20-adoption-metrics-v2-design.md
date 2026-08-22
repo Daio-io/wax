@@ -105,7 +105,7 @@ Every detected UI invocation must have exactly one `match_status`.
 | `resolved` | Callee matches a DS registry entry. | Included | Included |
 | `local` | Callee matches a scanned local UI definition. | Included | Excluded |
 | `candidate` | Callee may be DS but needs review because import, alias, or package evidence is ambiguous. | Excluded by default | Excluded |
-| `unresolved` | Invocation has UI shape, but callee is neither registry nor local. | Included | Excluded |
+| `unresolved` | Invocation has UI shape, but callee is neither registry nor local. Framework/external origins are excluded; application/unknown origins are included. | Origin-dependent | Origin-dependent |
 
 Candidate policy is explicit. v2 defaults to reporting candidates separately rather than counting them as DS or non-DS adoption.
 
@@ -170,7 +170,7 @@ need to reconstruct `qualified_symbol` by concatenating fields.
 
 | Value | Brief description |
 |-------|-------------------|
-| `report_separately` | Default. Exclude candidates from the primary adoption numerator and denominator, and expose candidate counters separately. |
+| `report_separately` | Default. Exclude candidates and known framework/external invocations from the primary adoption numerator and denominator, and expose their counters separately. |
 | `count_as_non_adopted` | Include candidates in the primary denominator but not the numerator. Reserved for stricter teams. |
 | `count_as_adopted` | Include candidates in numerator and denominator. Not recommended; reports must label the policy because this can overstate adoption. |
 
@@ -178,9 +178,9 @@ Candidate policy formulas:
 
 | Policy | `eligible_invocation_count` | `adopted_invocation_count` |
 |--------|-----------------------------|----------------------------|
-| `report_separately` | `resolved + local + unresolved` | `resolved` |
-| `count_as_non_adopted` | `resolved + local + unresolved + candidate` | `resolved` |
-| `count_as_adopted` | `resolved + local + unresolved + candidate` | `resolved + candidate` |
+| `report_separately` | `resolved + local + application + unknown` | `resolved` |
+| `count_as_non_adopted` | `resolved + local + application + unknown + candidate` | `resolved` |
+| `count_as_adopted` | `resolved + local + application + unknown + candidate` | `resolved + candidate` |
 
 ### `parent_scope_limit`
 
@@ -219,6 +219,7 @@ These fields are new or newly clarified in v2. Schemas and public Rust docs shou
 | `adoption.eligible_invocation_count` | Denominator for primary invocation adoption after candidate policy is applied. |
 | `adoption.adopted_invocation_count` | Numerator for primary invocation adoption; resolved invocations by default. |
 | `adoption.non_adopted_invocation_count` | Adoption-eligible invocations that are not counted as adopted. |
+| `adoption.adoption_excluded_invocation_count` | Framework and external invocations excluded from primary adoption. |
 | `parent_scopes.total` | Number of unique parent scopes found in attributed usage sites. |
 | `parent_scopes.with_resolved_invocations` | Number of parent scopes containing at least one resolved invocation. |
 | `parent_scopes.with_local_invocations` | Number of parent scopes containing at least one local invocation. |
@@ -418,7 +419,8 @@ v2 should expose raw counters by purpose rather than forcing consumers to infer 
     "adoption": {
       "eligible_invocation_count": 1050,
       "adopted_invocation_count": 831,
-      "non_adopted_invocation_count": 219
+      "non_adopted_invocation_count": 219,
+      "adoption_excluded_invocation_count": 0
     },
     "parent_scopes": {
       "total": 84,
@@ -433,8 +435,10 @@ v2 should expose raw counters by purpose rather than forcing consumers to infer 
 Rules:
 
 - `raw_invocations.total = resolved + local + candidate + unresolved`.
-- `adoption.eligible_invocation_count = resolved + local + unresolved` by default.
+- `adoption.eligible_invocation_count = resolved + local + application + unknown` by default; framework and external origins are excluded.
 - `adoption.adopted_invocation_count = resolved`.
+- `adoption.adoption_excluded_invocation_count = framework + external` non-candidate invocations.
+- Unresolved migration debt for reporting means application/unknown origins only — never framework or external calls.
 - `registry.resolved_raw_invocation_count` is the raw DS primitive invocation counter.
 - Merged scans sum counts across languages and recompute ratios. They must never average per-language percentages.
 
@@ -496,7 +500,8 @@ Reporting labels must distinguish:
 - Registry resolution
 - Raw DS invocations
 - Local definitions in repo
-- Unresolved UI calls
+- Framework and external invocations
+- Unresolved application/unknown UI calls
 
 Reports must not present registry resolution as unqualified "design system coverage."
 

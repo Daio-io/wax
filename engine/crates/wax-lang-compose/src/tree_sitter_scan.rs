@@ -1,6 +1,6 @@
 //! Tree-sitter-kotlin backed Compose scanner.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
@@ -387,36 +387,36 @@ fn qualified_composable_symbol(package: Option<&str>, symbol: &str) -> String {
         .unwrap_or_else(|| symbol.to_owned())
 }
 
-fn unresolved_origin(package: Option<&str>) -> CalleeOrigin {
-    match package {
-        Some(package) if package.starts_with("androidx.compose") => CalleeOrigin::Framework,
-        Some(package) if package.starts_with("androidx.ui") => CalleeOrigin::Framework,
-        Some(_) => CalleeOrigin::External,
-        None => CalleeOrigin::Application,
-    }
+fn is_framework_compose_package(package: &str) -> bool {
+    package == "androidx.compose"
+        || package.starts_with("androidx.compose.")
+        || package == "androidx.activity.compose"
+        || package.starts_with("androidx.activity.compose.")
 }
 
-fn unresolved_origin_for_symbol(symbol: &str, package: Option<&str>) -> CalleeOrigin {
-    if package.is_none()
-        && matches!(
-            symbol,
-            "Box"
-                | "Button"
-                | "Color"
-                | "Column"
-                | "Image"
-                | "Row"
-                | "Text"
-                | "TextField"
-                | "TextStyle"
-                | "RoundedCornerShape"
-                | "Surface"
-                | "Spacer"
-        )
-    {
-        CalleeOrigin::Framework
-    } else {
-        unresolved_origin(package)
+fn is_scanned_compose_package(package: &str, scanned_packages: &BTreeSet<String>) -> bool {
+    scanned_packages.iter().any(|scanned| {
+        package == scanned
+            || package
+                .strip_prefix(scanned)
+                .is_some_and(|suffix| suffix.starts_with('.'))
+    })
+}
+
+fn unresolved_origin(
+    package: Option<&str>,
+    current_package: Option<&str>,
+    scanned_packages: &BTreeSet<String>,
+    identity_ambiguous: bool,
+) -> CalleeOrigin {
+    match package {
+        Some(package) if is_framework_compose_package(package) => CalleeOrigin::Framework,
+        Some(package) if is_scanned_compose_package(package, scanned_packages) => {
+            CalleeOrigin::Application
+        }
+        Some(_) => CalleeOrigin::External,
+        None if current_package.is_some() && !identity_ambiguous => CalleeOrigin::Application,
+        None => CalleeOrigin::Unknown,
     }
 }
 
@@ -450,6 +450,7 @@ fn parent_scope_for_composable(
 struct LocalComposableIndex {
     by_file_symbol: BTreeMap<(String, String), LocalComponent>,
     by_qualified: BTreeMap<String, LocalComponent>,
+    scanned_packages: BTreeSet<String>,
 }
 
 impl LocalComposableIndex {
@@ -714,7 +715,13 @@ fn visit_component_usage(
                         Some(RegistryImportMatch::Mismatch) => (
                             MatchStatus::Unresolved,
                             None,
-                            unresolved_origin(import_package),
+                            unresolved_origin(
+                                import_package,
+                                ctx.package,
+                                &ctx.local_index.scanned_packages,
+                                ctx.imports.wildcard_packages.len() > 1
+                                    && !ctx.imports.symbol_packages.contains_key(&call_symbol),
+                            ),
                             ResolutionEvidence {
                                 kind: ResolutionEvidenceKind::PackageMismatch,
                                 package: import_package.map(str::to_owned),
@@ -732,7 +739,13 @@ fn visit_component_usage(
                         None => (
                             MatchStatus::Unresolved,
                             None,
-                            unresolved_origin_for_symbol(&call_symbol, import_package),
+                            unresolved_origin(
+                                import_package,
+                                ctx.package,
+                                &ctx.local_index.scanned_packages,
+                                ctx.imports.wildcard_packages.len() > 1
+                                    && !ctx.imports.symbol_packages.contains_key(&call_symbol),
+                            ),
                             ResolutionEvidence {
                                 kind: ResolutionEvidenceKind::NoMatchingDefinition,
                                 package: import_package.map(str::to_owned),
@@ -1197,8 +1210,14 @@ fn scan_repository_with_parser(
     }
 
     let mut local_index = LocalComposableIndex::default();
+    let mut scanned_packages = BTreeSet::new();
     let mut local_with_priority = Vec::new();
     for (relative_file, parsed) in &parsed_files {
+        if let Some(package) =
+            package_name_from_source(parsed.primary_tree().root_node(), parsed.source.as_bytes())
+        {
+            scanned_packages.insert(package);
+        }
         for pass in parsed.passes() {
             for local in index_local_components_from_source(
                 pass.tree.root_node(),
@@ -1211,6 +1230,7 @@ fn scan_repository_with_parser(
             }
         }
     }
+    local_index.scanned_packages = scanned_packages;
 
     let mut usage_with_priority = Vec::new();
     let mut token_with_priority = Vec::new();
@@ -1403,6 +1423,14 @@ mod tests {
         }
     }
 
+    #[test]
+    fn compose_framework_catalog_uses_exact_package_prefixes() {
+        assert!(is_framework_compose_package("androidx.compose.foundation"));
+        assert!(is_framework_compose_package("androidx.activity.compose"));
+        assert!(!is_framework_compose_package("androidx.composeful"));
+        assert!(!is_framework_compose_package("androidx.activity"));
+    }
+
     fn parse_and_extract(
         source: &str,
         registry: &RegistryIndex,
@@ -1419,6 +1447,9 @@ mod tests {
         let mut locals = Vec::new();
         let mut usages = Vec::new();
         let mut local_index = LocalComposableIndex::default();
+        if let Some(package) = package_name_from_source(root, bytes) {
+            local_index.scanned_packages.insert(package);
+        }
         for local in index_local_components_from_source(root, bytes, "Test.kt", &clean) {
             local_index.insert("Test.kt", local.clone());
             locals.push(local);
@@ -2198,6 +2229,39 @@ fun Screen() { Button(onClick = {}) }
 "#;
         let (_, usages) = parse_and_extract(source, &registry);
         assert_eq!(usages[0].match_status, MatchStatus::Unresolved);
+        assert_eq!(usages[0].callee_origin, CalleeOrigin::Framework);
+    }
+
+    #[test]
+    fn coil_compose_import_is_external_not_framework() {
+        let registry = registry_without_packages(&[]);
+        let source = r#"
+package com.example.app
+import coil.compose.AsyncImage
+
+@Composable
+fun Screen() { AsyncImage() }
+"#;
+        let (_, usages) = parse_and_extract(source, &registry);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].match_status, MatchStatus::Unresolved);
+        assert_eq!(usages[0].callee_origin, CalleeOrigin::External);
+    }
+
+    #[test]
+    fn import_into_scanned_package_is_application_not_external() {
+        let registry = registry_without_packages(&[]);
+        let source = r#"
+package com.example.app
+import com.example.app.MissingCard
+
+@Composable
+fun Screen() { MissingCard() }
+"#;
+        let (_, usages) = parse_and_extract(source, &registry);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].match_status, MatchStatus::Unresolved);
+        assert_eq!(usages[0].callee_origin, CalleeOrigin::Application);
     }
 
     #[test]
@@ -2230,6 +2294,7 @@ fun Screen() { Button(onClick = {}) }
 "#;
         let (_, usages) = parse_and_extract(source, &registry);
         assert_eq!(usages[0].match_status, MatchStatus::Unresolved);
+        assert_eq!(usages[0].callee_origin, CalleeOrigin::External);
     }
 
     #[test]

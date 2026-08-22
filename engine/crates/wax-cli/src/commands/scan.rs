@@ -630,6 +630,9 @@ fn write_scan_summary(
     )
     .map_err(write_error)?;
     writeln!(writer, "  Local invocations: {}", raw.local).map_err(write_error)?;
+    let origins = &repo.counts.invocation_origins;
+    writeln!(writer, "  Framework invocations: {}", origins.framework).map_err(write_error)?;
+    writeln!(writer, "  External invocations: {}", origins.external).map_err(write_error)?;
     writeln!(
         writer,
         "  Local definitions: {} defined, {} invoked",
@@ -637,7 +640,13 @@ fn write_scan_summary(
         repo.counts.definitions.invoked_local_definition_count
     )
     .map_err(write_error)?;
-    writeln!(writer, "  Unresolved UI calls: {}", raw.unresolved).map_err(write_error)?;
+    writeln!(
+        writer,
+        "  Unresolved application/unknown UI calls: {}",
+        raw.unresolved
+            .saturating_sub(repo.counts.adoption.adoption_excluded_invocation_count)
+    )
+    .map_err(write_error)?;
 
     writeln!(writer, "token metrics:").map_err(write_error)?;
     writeln!(
@@ -1190,7 +1199,7 @@ mod tests {
         assert!(stdout.contains("UI invocation adoption: 87.5%"));
         assert!(stdout.contains("Registry resolution: 70.0%"));
         assert!(stdout.contains("Raw DS invocations: 7 resolved, 1 candidate"));
-        assert!(stdout.contains("Unresolved UI calls: 1"));
+        assert!(stdout.contains("Unresolved application/unknown UI calls: 1"));
         assert!(stdout.contains("token metrics:"));
         assert!(stdout.contains("Token references: 3"));
         assert!(stdout.contains("Assessed observations: 0 of 0"));
@@ -1841,6 +1850,7 @@ mod tests {
                 eligible_invocation_count: 8,
                 adopted_invocation_count: 7,
                 non_adopted_invocation_count: 1,
+                adoption_excluded_invocation_count: 0,
             },
             parent_scopes: ParentScopeCounts {
                 total: 2,

@@ -717,6 +717,9 @@ pub struct AdoptionCounts {
     pub adopted_invocation_count: u32,
     /// Adoption-eligible invocations that are not counted as adopted.
     pub non_adopted_invocation_count: u32,
+    /// Framework and external invocations excluded from primary adoption.
+    #[serde(default)]
+    pub adoption_excluded_invocation_count: u32,
 }
 
 /// Parent-scope aggregate counters.
@@ -2198,6 +2201,11 @@ fn checked_add_count_summaries(
                 left.adoption.non_adopted_invocation_count,
                 right.adoption.non_adopted_invocation_count,
             )?,
+            adoption_excluded_invocation_count: checked_add_count(
+                &format!("{field}.adoption.adoption_excluded_invocation_count"),
+                left.adoption.adoption_excluded_invocation_count,
+                right.adoption.adoption_excluded_invocation_count,
+            )?,
         },
         parent_scopes: ParentScopeCounts {
             total: checked_add_count(
@@ -2386,6 +2394,7 @@ fn derive_counts_and_metrics(
     let mut local = 0_u32;
     let mut candidate = 0_u32;
     let mut unresolved = 0_u32;
+    let mut adoption_excluded = 0_u32;
     let mut used_registry_symbols = BTreeSet::new();
     let mut invoked_local_ids = BTreeSet::new();
     let mut parent_ids = BTreeSet::new();
@@ -2504,6 +2513,17 @@ fn derive_counts_and_metrics(
         };
         increment_count("counts.invocation_origins", origin_count)?;
 
+        if matches!(
+            site.callee_origin,
+            CalleeOrigin::Framework | CalleeOrigin::External
+        ) && site.match_status != MatchStatus::Candidate
+        {
+            increment_count(
+                "counts.adoption.adoption_excluded_invocation_count",
+                &mut adoption_excluded,
+            )?;
+        }
+
         match site.match_status {
             MatchStatus::Resolved => {
                 increment_count("counts.raw_invocations.resolved", &mut resolved)?;
@@ -2548,7 +2568,12 @@ fn derive_counts_and_metrics(
     )?;
     let eligible = checked_add_many(
         "counts.adoption.eligible_invocation_count",
-        &[resolved, local, unresolved],
+        &[
+            resolved,
+            local,
+            invocation_origins.application,
+            invocation_origins.unknown,
+        ],
     )?;
     let adopted = resolved;
     let non_adopted = eligible.checked_sub(adopted).ok_or_else(|| {
@@ -2598,6 +2623,7 @@ fn derive_counts_and_metrics(
             eligible_invocation_count: eligible,
             adopted_invocation_count: adopted,
             non_adopted_invocation_count: non_adopted,
+            adoption_excluded_invocation_count: adoption_excluded,
         },
         parent_scopes: ParentScopeCounts {
             total: checked_len("counts.parent_scopes.total", parent_ids.len())?,

@@ -2,6 +2,13 @@ package com.example.app
 
 import com.example.ds.PrimaryButton
 import com.example.ds.TextField
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.RoundedCornerShape
+import androidx.compose.material3.Text
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import coil.compose.AsyncImage
 
 @Composable
 fun LocalCard(content: @Composable () -> Unit) {
@@ -11,6 +18,7 @@ fun LocalCard(content: @Composable () -> Unit) {
 
 @Composable
 fun SampleScreen() {
+    LocalCard {}
     PrimaryButton(onClick = {})
     TextField(value = "", onValueChange = {})
     val primary = Theme.colors.primary
@@ -28,6 +36,8 @@ fun SampleScreen() {
         )
         Text(text = "Hello", style = TextStyle(fontSize = 4.sp))
     }
+    AsyncImage(model = "")
+    UnknownProjectCard()
 }
 
 @Preview

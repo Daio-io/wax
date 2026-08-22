@@ -38,6 +38,7 @@ fn golden_small_swiftui_fixture_matches_counts() {
     );
     assert_eq!(facts.counts.invocation_origins.registry, 6);
     assert_eq!(facts.counts.invocation_origins.local, 2);
+    assert_eq!(facts.counts.invocation_origins.framework, 11);
     let alias_sites = facts
         .usage_sites
         .iter()

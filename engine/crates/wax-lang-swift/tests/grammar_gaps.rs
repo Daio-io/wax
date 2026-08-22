@@ -391,8 +391,9 @@ fn scan_recovers_available_preview_without_preview_adoption_or_location_shift() 
                     column: Some(8),
                 }
     }));
-    assert!(
-        facts.usage_sites.is_empty(),
-        "preview-body design-system calls must not count as adoption"
-    );
+    assert_eq!(facts.usage_sites.len(), 2);
+    assert!(facts.usage_sites.iter().all(|usage| {
+        usage.callee_origin == wax_contract::CalleeOrigin::Framework
+            && usage.registry_symbol.is_none()
+    }));
 }

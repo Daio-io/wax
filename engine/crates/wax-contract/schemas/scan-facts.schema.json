@@ -996,7 +996,8 @@
       "required": [
         "eligible_invocation_count",
         "adopted_invocation_count",
-        "non_adopted_invocation_count"
+        "non_adopted_invocation_count",
+        "adoption_excluded_invocation_count"
       ],
       "properties": {
         "eligible_invocation_count": {
@@ -1013,6 +1014,12 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 4294967295
+        },
+        "adoption_excluded_invocation_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295,
+          "description": "Framework and external invocations excluded from primary adoption."
         }
       }
     },

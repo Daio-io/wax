@@ -1,10 +1,10 @@
 {
   "raw_invocations": {
-    "total": 11,
+    "total": 14,
     "resolved": 5,
-    "local": 0,
+    "local": 1,
     "candidate": 0,
-    "unresolved": 6
+    "unresolved": 8
   },
   "registry": {
     "component_count": 2,
@@ -14,16 +14,22 @@
   },
   "definitions": {
     "local_definition_count": 4,
-    "invoked_local_definition_count": 0,
-    "unused_local_definition_count": 4
+    "invoked_local_definition_count": 1,
+    "unused_local_definition_count": 3
   },
   "invocation_origins": {
     "registry": 5,
-    "local": 0,
+    "local": 1,
     "framework": 6,
-    "external": 0,
-    "application": 0,
+    "external": 1,
+    "application": 1,
     "unknown": 0
+  },
+  "adoption": {
+    "eligible_invocation_count": 7,
+    "adopted_invocation_count": 5,
+    "non_adopted_invocation_count": 2,
+    "adoption_excluded_invocation_count": 7
   },
   "tokens": {
     "configured_token_count": 2,
