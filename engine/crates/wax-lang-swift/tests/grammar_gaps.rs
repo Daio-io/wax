@@ -169,7 +169,9 @@ fn continuation_reproductions_scan_completely_and_retain_later_facts() {
     for optional_binding in ["if let error", "if let error = error"] {
         let source = continuation_reproduction(optional_binding);
         let facts = scan_source(&source);
-        let baseline = scan_source(&source.replace("returning: ()", "returning: {}"));
+        let baseline_source = source.replacen("returning: ()", "returning: {}", 1);
+        assert_ne!(baseline_source, source);
+        let baseline = scan_source(&baseline_source);
 
         assert_eq!(facts.status, ScanStatus::Complete);
         assert!(

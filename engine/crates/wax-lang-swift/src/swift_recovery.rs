@@ -87,10 +87,47 @@ fn can_recover_unit_expression(
     }
 
     let Some((start, token_end)) = previous_significant else {
-        return true;
+        return false;
     };
 
-    !can_end_callable_expression(&source[start..token_end])
+    !is_pattern_context(source, opening_index)
+        && !can_end_callable_expression(&source[start..token_end])
+}
+
+fn is_pattern_context(source: &[u8], opening_index: usize) -> bool {
+    let previous = previous_token(source, opening_index);
+    if matches!(previous, Some(b"case" | b"let" | b"var")) {
+        return true;
+    }
+
+    if source[..opening_index]
+        .iter()
+        .rev()
+        .find(|byte| !byte.is_ascii_whitespace())
+        .is_some_and(|byte| *byte == b',')
+    {
+        let line_start = source[..opening_index]
+            .iter()
+            .rposition(|byte| *byte == b'\n')
+            .map_or(0, |index| index + 1);
+        return source[line_start..opening_index]
+            .windows(4)
+            .any(|window| window == b"case");
+    }
+
+    false
+}
+
+fn previous_token(source: &[u8], index: usize) -> Option<&[u8]> {
+    let mut end = index;
+    while end > 0 && source[end - 1].is_ascii_whitespace() {
+        end -= 1;
+    }
+    let start = source[..end]
+        .iter()
+        .rposition(|byte| !is_word_byte(*byte))
+        .map_or(0, |position| position + 1);
+    (start < end).then_some(&source[start..end])
 }
 
 fn precedes_type_annotation(source: &[u8], opening_index: usize) -> bool {
@@ -105,9 +142,28 @@ fn precedes_type_annotation(source: &[u8], opening_index: usize) -> bool {
         return true;
     }
 
+    if index >= 2 && source[index - 2..index] == *b"?." {
+        return true;
+    }
+
+    if index >= 1 && source[index - 1] == b'(' {
+        return true;
+    }
+
     matches!(source.get(index.wrapping_sub(1)), Some(b'<') | Some(b'['))
         || is_nested_type_tuple(source, opening_index)
         || is_typealias_value(source, opening_index)
+        || is_where_or_associated_type(source, opening_index)
+}
+
+fn is_where_or_associated_type(source: &[u8], opening_index: usize) -> bool {
+    let line_start = source[..opening_index]
+        .iter()
+        .rposition(|byte| *byte == b'\n')
+        .map_or(0, |index| index + 1);
+    let line = &source[line_start..opening_index];
+    line.windows(5).any(|window| window == b"where")
+        || line.windows(14).any(|window| window == b"associatedtype")
 }
 
 fn is_call_argument_label(source: &[u8], colon: usize) -> bool {
@@ -611,6 +667,13 @@ let multiline = """
     #[test]
     fn preserves_empty_tuple_types_in_aliases_generics_collections_and_nested_tuples() {
         let source = b"typealias Unit = ()\nlet a: [()] = []\nlet b: Result<(), Error> = fatalError()\nlet c: ((), Int) = fatalError()";
+
+        assert_eq!(normalize_swift_source(source).bytes, source.to_vec());
+    }
+
+    #[test]
+    fn preserves_unit_patterns_and_other_ambiguous_parentheses() {
+        let source = b"foo?.()\nwhere T == ()\nassociatedtype T = ()\ncase (_, ())\nlet () = value\nprint(())";
 
         assert_eq!(normalize_swift_source(source).bytes, source.to_vec());
     }
