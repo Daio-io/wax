@@ -1548,20 +1548,23 @@ mod tests {
         source: &str,
         registry: &RegistryIndex,
     ) -> (Vec<LocalComponent>, Vec<UsageSite>) {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let path = tempdir.path().join("Test.swift");
+        std::fs::write(&path, source).expect("source");
         let mut parser = make_parser();
-        let tree = parser.parse(source.as_bytes(), None).expect("parse");
+        let parsed = parse_swift_file_permissive(&mut parser, &path).expect("parse");
+        let source = parsed.source.as_bytes();
+        let tree = parsed.tree;
         let mut local_index = LocalViewIndex::default();
         let mut locals = Vec::new();
-        for local in
-            index_local_components_from_source(tree.root_node(), source.as_bytes(), "Test.swift")
-        {
+        for local in index_local_components_from_source(tree.root_node(), source, "Test.swift") {
             local_index.insert("Test.swift", local.clone());
             locals.push(local);
         }
         let mut usages = Vec::new();
         extract_usage_from_source(
             tree.root_node(),
-            source.as_bytes(),
+            source,
             "Test.swift",
             registry,
             &local_index,

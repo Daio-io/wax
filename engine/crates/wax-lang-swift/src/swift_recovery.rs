@@ -7,7 +7,7 @@ pub(crate) struct NormalizedSwiftSource {
     pub(crate) bytes: Vec<u8>,
 }
 
-/// Masks `@available(...)` attributes immediately followed by `#Preview`.
+/// Masks attribute clauses immediately followed by `#Preview`.
 pub(crate) fn normalize_swift_source(source: &[u8]) -> NormalizedSwiftSource {
     let mut bytes = source.to_vec();
     let mut index = 0;
@@ -18,10 +18,10 @@ pub(crate) fn normalize_swift_source(source: &[u8]) -> NormalizedSwiftSource {
             continue;
         }
 
-        if starts_token(source, index, b"@available") {
-            let (attribute_end, _) = available_preview_prefix(source, index);
+        if source.get(index) == Some(&b'@') {
+            let attribute_end = preview_attribute_prefix(source, index);
             let preview_start = skip_trivia(source, attribute_end);
-            if starts_token(source, preview_start, b"#Preview") {
+            if attribute_end != index && starts_token(source, preview_start, b"#Preview") {
                 mask_non_newline_bytes(&mut bytes, index, attribute_end);
                 index = attribute_end;
                 continue;
@@ -34,25 +34,39 @@ pub(crate) fn normalize_swift_source(source: &[u8]) -> NormalizedSwiftSource {
     NormalizedSwiftSource { bytes }
 }
 
-fn available_preview_prefix(source: &[u8], start: usize) -> (usize, u32) {
+fn preview_attribute_prefix(source: &[u8], start: usize) -> usize {
     let mut end = start;
-    let mut count = 0;
-    while starts_token(source, end, b"@available") {
-        let Some(attribute_end) = available_attribute_end(source, end) else {
-            break;
-        };
+    while let Some(attribute_end) = attribute_end(source, end) {
         end = skip_trivia(source, attribute_end);
-        count += 1;
     }
-    (if count == 0 { start } else { end }, count)
+    end
 }
 
-fn available_attribute_end(source: &[u8], start: usize) -> Option<usize> {
-    let mut index = skip_trivia(source, start + b"@available".len());
-    if source.get(index) != Some(&b'(') {
+fn attribute_end(source: &[u8], start: usize) -> Option<usize> {
+    if source.get(start) != Some(&b'@') {
         return None;
     }
+    let name_end = source[start + 1..]
+        .iter()
+        .position(|byte| !is_identifier_byte(*byte))
+        .map_or(source.len(), |offset| start + 1 + offset);
+    if name_end == start + 1 {
+        return None;
+    }
+    let index = skip_trivia(source, name_end);
+    if source.get(index) != Some(&b'(') {
+        return Some(name_end);
+    }
     let argument_start = index + 1;
+    balanced_delimited_end(source, index, argument_start)
+}
+
+fn balanced_delimited_end(
+    source: &[u8],
+    opening_index: usize,
+    argument_start: usize,
+) -> Option<usize> {
+    let mut index = opening_index;
 
     let mut delimiters = Vec::new();
     while index < source.len() {
@@ -72,8 +86,14 @@ fn available_attribute_end(source: &[u8], start: usize) -> Option<usize> {
                     return None;
                 }
                 if delimiters.is_empty() {
-                    return availability_arguments_are_valid(source, argument_start, index)
-                        .then_some(index + 1);
+                    if source.get(opening_index) == Some(&b'(')
+                        && source
+                            .get(argument_start..index)
+                            .is_some_and(|arguments| !arguments.iter().all(u8::is_ascii_whitespace))
+                    {
+                        return Some(index + 1);
+                    }
+                    return None;
                 }
             }
             _ => {}
@@ -82,11 +102,6 @@ fn available_attribute_end(source: &[u8], start: usize) -> Option<usize> {
     }
 
     None
-}
-
-fn availability_arguments_are_valid(source: &[u8], start: usize, end: usize) -> bool {
-    let arguments = &source[start..end];
-    !arguments.iter().all(u8::is_ascii_whitespace)
 }
 
 fn skip_trivia(source: &[u8], mut index: usize) -> usize {
@@ -264,6 +279,15 @@ let escaped = "escaped \" @available(iOS 18.0, *) #Preview"
     #[test]
     fn masks_contiguous_available_attributes_before_preview() {
         let source = b"@available(iOS 18, *)\n@available(macOS 15, *)\n#Preview { }\n";
+
+        let normalized = normalize_swift_source(source);
+
+        assert_eq!(&normalized.bytes[source.len() - 13..], b"#Preview { }\n");
+    }
+
+    #[test]
+    fn masks_generic_attributes_between_available_and_preview() {
+        let source = b"@available(iOS 18.0, *)\n@MainActor\n#Preview { }\n";
 
         let normalized = normalize_swift_source(source);
 
