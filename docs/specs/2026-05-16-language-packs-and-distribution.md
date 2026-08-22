@@ -407,7 +407,7 @@ Language packs are **native executables** downloaded from a remote index. v1 ass
 | Artifact tampered in transit | HTTPS to index/releases; sha256 verified against index entry at install time |
 | Index serves a newer digest for the same version string | Lockfile pins `resolved.sha256`; auto-install and `wax language install` **refuse digest drift** |
 | Silent upgrade to a newer pack version on scan | Lockfile pins `version`; auto-install installs the locked version only |
-| CI pulls “latest” instead of team-approved packs | CI **MUST** commit `.wax/wax.lock.json` and run `wax scan --no-auto-install` |
+| CI pulls “latest” instead of team-approved packs | CI **MUST** commit `.wax/wax.lock.json` and run `wax scan --no-auto-install --strict` |
 | Wrong host triple installed | Lockfile `resolved.target` must match install host; policy treats target mismatch as not ready |
 | Malicious pack binary at rest | No v1 signature check; operator trusts download source + lockfile audit |
 
@@ -431,7 +431,10 @@ Evaluation order for each **enabled** language id (engine policy; see `wax-core`
 | Index rotated digest for same version | committed pin | any | any | **fail** (digest drift) |
 | Enable language without lock entry | absent entry | any | any | **fail** (missing lock) |
 
-Auto-install default: **on** for local `wax scan`. CI **MUST** use `wax scan --no-auto-install` with the committed `.wax/wax.lock.json`.
+Auto-install default: **on** for local `wax scan`. CI **MUST** use
+`wax scan --no-auto-install --strict` with the committed `.wax/wax.lock.json`;
+`--strict` rejects partial or failed language results after writing the scan
+artifact.
 
 `wax init` writes `.wax/wax.config.json`, `.wax/wax.lock.json`, and per-language `.wax/<language-id>.registry.json` scaffold files after resolving concrete pack artifacts from the index (same digest rules apply).
 
@@ -466,6 +469,7 @@ All language lifecycle commands use the **`wax language`** group (singular):
 Flags:
 
 - `wax scan --no-auto-install` — fail if enabled language missing (CI)
+- `wax scan --strict` — fail if any enabled language is `partial` or `failed`; the scan artifact and summary are still written
 - `wax scan --concurrency=N` — override wax config `engine.scan_concurrency`
 - `WAX_LANG_INDEX` — pack index URL for air-gapped / mirror installs
 

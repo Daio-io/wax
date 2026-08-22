@@ -132,6 +132,132 @@ fn scan_command_prints_full_summary_and_writes_output() {
 }
 
 #[test]
+fn scan_command_strict_complete_status_succeeds() {
+    let (root, output) = run_fixture_scan(
+        "scan-command-strict-complete",
+        &[("compose", "complete", "0.5", "", "")],
+        true,
+    );
+
+    assert!(
+        output.status.success(),
+        "strict complete scan failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(root.path.join("repo/.wax/out/scan-merged.json").exists());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("compose: complete"));
+}
+
+#[test]
+fn scan_command_strict_partial_status_fails_after_writing_summary() {
+    let (root, output) = run_fixture_scan(
+        "scan-command-strict-partial",
+        &[("react", "partial", "null", "", "")],
+        true,
+    );
+
+    assert_strict_failure_output(&root, &output, &["react: partial"], 0);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains(
+        "strict scan failed: 1 partial language(s), 0 failed language(s), 0 failure diagnostic(s); partial: [\"react\"]; failed: []"
+    ));
+}
+
+#[test]
+fn scan_command_strict_failed_status_fails_after_writing_summary() {
+    let (root, output) = run_fixture_scan(
+        "scan-command-strict-failed",
+        &[("swift", "failed", "null", "PACK_CRASH", "process exited")],
+        true,
+    );
+
+    assert_strict_failure_output(&root, &output, &["swift: failed"], 1);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains(
+        "strict scan failed: 0 partial language(s), 1 failed language(s), 1 failure diagnostic(s); partial: []; failed: [\"swift\"]"
+    ));
+}
+
+#[test]
+fn scan_command_strict_mixed_status_fails_after_writing_summary() {
+    let (root, output) = run_fixture_scan(
+        "scan-command-strict-mixed",
+        &[
+            ("compose", "complete", "0.5", "", ""),
+            ("react", "partial", "null", "PACK_TIMEOUT", "timed out"),
+            ("swift", "failed", "null", "PACK_CRASH", "process exited"),
+        ],
+        true,
+    );
+
+    assert_strict_failure_output(
+        &root,
+        &output,
+        &["compose: complete", "react: partial", "swift: failed"],
+        2,
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains(
+        "strict scan failed: 1 partial language(s), 1 failed language(s), 2 failure diagnostic(s); partial: [\"react\"]; failed: [\"swift\"]"
+    ));
+}
+
+fn run_fixture_scan(
+    name: &str,
+    specs: &[(&str, &str, &str, &str, &str)],
+    strict: bool,
+) -> (TestDir, std::process::Output) {
+    let _guard = env_lock();
+    let root = TestDir::new(name);
+    let repo = root.path.join("repo");
+    let wax_home = root.path.join("wax-home");
+    fs::create_dir_all(&repo).expect("create repo fixture");
+    fs::create_dir_all(&wax_home).expect("create wax-home fixture");
+
+    let registry_file = root.path.join("registry.json");
+    write_pack_index(&registry_file);
+    let languages = specs
+        .iter()
+        .map(|(language, ..)| *language)
+        .collect::<Vec<_>>();
+    write_repo_files(&repo, &registry_file, &languages);
+    write_installed_packs(&wax_home, specs);
+
+    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
+    let mut command = Command::new(env!("CARGO_BIN_EXE_wax"));
+    command.args(["scan", "--repo-root"]).arg(&repo);
+    if strict {
+        command.arg("--strict");
+    }
+    let output = command.output().expect("spawn wax scan");
+    (root, output)
+}
+
+fn assert_strict_failure_output(
+    root: &TestDir,
+    output: &std::process::Output,
+    statuses: &[&str],
+    diagnostic_count: usize,
+) {
+    assert!(!output.status.success());
+    let output_path = root.path.join("repo/.wax/out/scan-merged.json");
+    assert!(output_path.exists(), "missing scan output file");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for status in statuses {
+        assert!(
+            stdout.contains(status),
+            "missing {status} in stdout: {stdout}"
+        );
+    }
+    assert!(
+        stdout.contains(&format!(
+            "failure diagnostics ({diagnostic_count} total; showing {diagnostic_count}):"
+        )) || (diagnostic_count == 0 && stdout.contains("failure diagnostics: none"))
+    );
+}
+
+#[test]
 fn scan_command_no_auto_install_fails_when_pack_missing() {
     let _guard = env_lock();
     let root = TestDir::new("scan-command-no-auto-install");
