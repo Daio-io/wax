@@ -717,6 +717,23 @@ fn rejects_v2_schema_version() {
 }
 
 #[test]
+fn rejects_v3_schema_version() {
+    let mut facts = minimal_facts();
+    facts.recompute_counts().unwrap();
+    let mut value = serde_json::to_value(&facts).unwrap();
+    value["schema_version"] = serde_json::json!(3);
+
+    let err = wax_contract::scan_facts_from_json(&value.to_string()).unwrap_err();
+    assert!(matches!(
+        err,
+        wax_contract::ScanFactsError::UnsupportedSchemaVersion {
+            found: 3,
+            supported: 4
+        }
+    ));
+}
+
+#[test]
 fn rejects_missing_invocation_adoption_ratio() {
     let mut facts = minimal_facts();
     facts.usage_sites.clear();

@@ -1,4 +1,4 @@
-//! Cross-pack parity for schema v3 origin and resolution evidence fields.
+//! Cross-pack parity for schema v4 origin and resolution evidence fields.
 
 use std::fs;
 use std::path::Path;

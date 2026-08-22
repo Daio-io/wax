@@ -10,7 +10,7 @@
 
 Wax currently reports adoption from registry-resolved primitive usage sites. That makes component-based applications look healthier than they are: a screen can call local wrappers everywhere while those wrappers call design-system primitives internally, and the scan can still show 100% adoption.
 
-Adoption Metrics v2 changes the contract from "one hero ratio" to "facts first, metrics second." The current scan-facts contract is schema v3: language packs emit every detected UI invocation, classify each invocation as design-system, local, candidate, or unresolved, and attach deterministic callee-origin and resolution-evidence objects alongside optional parent-scope attribution. The engine should preserve raw counters and derived summaries so reporting layers can choose honest decision metrics without reverse-engineering thousands of call sites.
+Adoption Metrics v2 changes the contract from "one hero ratio" to "facts first, metrics second." The current scan-facts contract is schema v4: language packs emit every detected UI invocation, classify each invocation as design-system, local, candidate, or unresolved, and attach deterministic callee-origin and resolution-evidence objects alongside optional parent-scope attribution. The engine should preserve raw counters and derived summaries so reporting layers can choose honest decision metrics without reverse-engineering thousands of call sites.
 
 The core rule is:
 
@@ -126,7 +126,7 @@ Every new enum-like field must be documented in schemas, Rust API docs, and repo
 
 ### `callee_origin`
 
-Schema v3 records the origin selected by the same resolver decision as
+Schema v4 records the origin selected by the same resolver decision as
 `match_status`. The closed enum is `registry`, `local`, `framework`, `external`,
 `application`, or `unknown`. Resolved and candidate rows use `registry`; local
 rows use `local`; unresolved rows retain whether they came from a known
@@ -318,9 +318,9 @@ Allowed `identity_stability` values:
 
 v2 does not guarantee perfect stability across renames or path-sensitive module moves. Aggregate counters remain valid when a move preserves invocations; identity-level trend reports may show churn.
 
-## Usage Site v3
+## Usage Site v4
 
-`usage_sites[]` remains the lossless event stream. Schema v3 extends the v2 rows with explicit origin and evidence so a classification can be explained without re-parsing source:
+`usage_sites[]` remains the lossless event stream. Schema v4 extends the v2 rows with explicit origin and evidence so a classification can be explained without re-parsing source:
 
 ```json
 {
@@ -739,19 +739,19 @@ Candidate future fact families include:
 | Imports | Import source, alias, package/module evidence used for resolution. |
 | Ownership | File/module/team tags when configured by the repository. |
 
-## Schema v3 Cutover
+## Schema v4 Cutover
 
-Wax is still alpha, so schema v3 moves directly to the new scan format instead of emitting compatibility aliases.
+Wax is still alpha, so schema v4 moves directly to the new scan format instead of emitting compatibility aliases.
 
 Cutover rules:
 
-- Bump `schema_version` for `ScanFacts` and `MergedScan` to `3`; `.waxrc`, lockfile, and language wire API versions are unchanged.
+- Bump `schema_version` for `ScanFacts` and `MergedScan` to `4`; `.waxrc`, lockfile, and language wire API versions are unchanged.
 - Require `callee_origin` and `resolution_evidence` on every `usage_sites[]` row and derive `counts.invocation_origins` only from those rows.
 - Reject schema-v2 facts as unsupported rather than silently interpreting them as v3.
 - Remove `adoption_coverage_ratio` from the v2 metrics shape.
 - Emit `invocation_adoption_ratio` and `registry_resolution_ratio` from explicit counters.
 - Update CLI, reports, fixtures, and scan analytics to read v2 fields directly.
-- v2 consumers should reject `schema_version: 3` rather than silently interpreting it as v2.
+- v3 consumers should reject `schema_version: 4` rather than silently interpreting it as v3.
 
 ## Reporting Contract
 

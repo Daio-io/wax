@@ -31,11 +31,11 @@ jq -e '
   ' "$ACTUAL" >/dev/null
 
 # A schema-v2 baseline lacks inference classifications, so it must be treated
-# as incompatible rather than silently mixed with v3 denominators.
+# as incompatible rather than silently mixed with v4 denominators.
 "$EXTRACTOR" "$SCAN" --baseline "$BASELINE_SCHEMA_V2" \
   | jq -e '.baseline_deltas == null' >/dev/null
 
-jq '.schema_version = 3' "$BASELINE_SCHEMA_V2" >"$BASELINE_V3"
+jq '.schema_version = 4' "$BASELINE_SCHEMA_V2" >"$BASELINE_V3"
 "$EXTRACTOR" "$SCAN" --baseline "$BASELINE_V3" \
   | jq -e '
       .baseline_deltas.symbol_usage_summary
