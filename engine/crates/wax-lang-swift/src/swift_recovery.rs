@@ -5,34 +5,11 @@
 pub(crate) struct NormalizedSwiftSource {
     /// Source bytes passed to tree-sitter.
     pub(crate) bytes: Vec<u8>,
-    /// Source regions changed only for parser recovery.
-    pub(crate) regions: Vec<RecoveryRegion>,
-}
-
-/// The syntax family recovered in a normalized source buffer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RecoveryFamily {
-    /// An attribute clause immediately before a `#Preview` macro.
-    PreviewAttribute,
-    /// A Swift empty-tuple unit expression.
-    UnitExpression,
-}
-
-/// A byte range changed only in the parser-facing source buffer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RecoveryRegion {
-    /// Inclusive start byte and exclusive end byte in the original source.
-    pub(crate) start: usize,
-    /// Exclusive end byte in the original source.
-    pub(crate) end: usize,
-    /// The recovery family applied to this range.
-    pub(crate) family: RecoveryFamily,
 }
 
 /// Recovers unsupported Swift syntax without changing source byte offsets.
 pub(crate) fn normalize_swift_source(source: &[u8]) -> NormalizedSwiftSource {
     let mut bytes = source.to_vec();
-    let mut regions = Vec::new();
     let mut index = 0;
     let mut previous_significant = None;
 
@@ -52,11 +29,6 @@ pub(crate) fn normalize_swift_source(source: &[u8]) -> NormalizedSwiftSource {
             let preview_start = skip_trivia(source, attribute_end);
             if attribute_end != index && starts_token(source, preview_start, b"#Preview") {
                 mask_non_newline_bytes(&mut bytes, index, attribute_end);
-                regions.push(RecoveryRegion {
-                    start: index,
-                    end: attribute_end,
-                    family: RecoveryFamily::PreviewAttribute,
-                });
                 index = attribute_end;
                 continue;
             }
@@ -68,11 +40,6 @@ pub(crate) fn normalize_swift_source(source: &[u8]) -> NormalizedSwiftSource {
         {
             bytes[index] = b'{';
             bytes[end - 1] = b'}';
-            regions.push(RecoveryRegion {
-                start: index,
-                end,
-                family: RecoveryFamily::UnitExpression,
-            });
             index = end;
             continue;
         }
@@ -88,7 +55,7 @@ pub(crate) fn normalize_swift_source(source: &[u8]) -> NormalizedSwiftSource {
         }
     }
 
-    NormalizedSwiftSource { bytes, regions }
+    NormalizedSwiftSource { bytes }
 }
 
 fn unit_expression_end(source: &[u8], opening_index: usize) -> Option<usize> {
@@ -132,9 +99,78 @@ fn precedes_type_annotation(source: &[u8], opening_index: usize) -> bool {
         index -= 1;
     }
     if index >= 1 && source[index - 1] == b':' {
+        return !is_call_argument_label(source, index - 1);
+    }
+    if index >= 2 && source[index - 2..index] == *b"->" {
         return true;
     }
-    index >= 2 && source[index - 2..index] == *b"->"
+
+    matches!(source.get(index.wrapping_sub(1)), Some(b'<') | Some(b'['))
+        || is_nested_type_tuple(source, opening_index)
+        || is_typealias_value(source, opening_index)
+}
+
+fn is_call_argument_label(source: &[u8], colon: usize) -> bool {
+    let mut depth = 0;
+    let mut index = colon;
+    while index > 0 {
+        index -= 1;
+        match source[index] {
+            b')' | b']' | b'}' => depth += 1,
+            b'(' | b'[' | b'{' if depth > 0 => depth -= 1,
+            b'(' if depth == 0 => {
+                let prefix = &source[..index];
+                let mut words = prefix
+                    .split(|byte| !is_identifier_byte(*byte))
+                    .filter(|word| !word.is_empty());
+                let _function_name = words.next_back();
+                return words.next_back() != Some(b"func");
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+fn is_nested_type_tuple(source: &[u8], opening_index: usize) -> bool {
+    let mut depth = 0;
+    let mut index = opening_index;
+    while index > 0 {
+        index -= 1;
+        match source[index] {
+            b')' => depth += 1,
+            b'(' if depth > 0 => depth -= 1,
+            b'(' if depth == 0 => {
+                let mut before = index;
+                while before > 0 && source[before - 1].is_ascii_whitespace() {
+                    before -= 1;
+                }
+                return before > 0
+                    && (matches!(source[before - 1], b':' | b'<' | b'[')
+                        && (source[before - 1] != b':'
+                            || !is_call_argument_label(source, before - 1)));
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+fn is_typealias_value(source: &[u8], opening_index: usize) -> bool {
+    let mut before = opening_index;
+    while before > 0 && source[before - 1].is_ascii_whitespace() {
+        before -= 1;
+    }
+    if source.get(before.wrapping_sub(1)) != Some(&b'=') {
+        return false;
+    }
+    let line_start = source[..before]
+        .iter()
+        .rposition(|byte| *byte == b'\n')
+        .map_or(0, |index| index + 1);
+    source[line_start..before]
+        .windows(9)
+        .any(|window| window == b"typealias")
 }
 
 fn follows_function_type(source: &[u8], end: usize) -> bool {
@@ -413,7 +449,7 @@ fn mask_non_newline_bytes(bytes: &mut [u8], start: usize, end: usize) {
 
 #[cfg(test)]
 mod tests {
-    use super::{NormalizedSwiftSource, RecoveryFamily, normalize_swift_source};
+    use super::{NormalizedSwiftSource, normalize_swift_source};
 
     #[test]
     fn masks_available_attribute_before_preview_without_changing_offsets() {
@@ -435,7 +471,6 @@ mod tests {
             normalize_swift_source(source),
             NormalizedSwiftSource {
                 bytes: source.to_vec(),
-                regions: Vec::new(),
             }
         );
     }
@@ -574,6 +609,23 @@ let multiline = """
     }
 
     #[test]
+    fn preserves_empty_tuple_types_in_aliases_generics_collections_and_nested_tuples() {
+        let source = b"typealias Unit = ()\nlet a: [()] = []\nlet b: Result<(), Error> = fatalError()\nlet c: ((), Int) = fatalError()";
+
+        assert_eq!(normalize_swift_source(source).bytes, source.to_vec());
+    }
+
+    #[test]
+    fn recovers_empty_tuple_labeled_call_arguments() {
+        let source = b"continuation.resume(returning: ())";
+
+        assert_eq!(
+            normalize_swift_source(source).bytes,
+            b"continuation.resume(returning: {})"
+        );
+    }
+
+    #[test]
     fn ignores_unit_like_parentheses_in_comments_and_strings() {
         let source = br###"// ()
 let text = "()"
@@ -594,30 +646,5 @@ let value: Void = {};"###
         let source = b"let value: Void = (";
 
         assert_eq!(normalize_swift_source(source).bytes, source.to_vec());
-    }
-
-    #[test]
-    fn records_unit_expression_recovery_regions_without_changing_source_offsets() {
-        let source = b"let first: Void = ();\nreturn ();";
-
-        let normalized = normalize_swift_source(source);
-
-        assert_eq!(normalized.regions.len(), 2);
-        assert_eq!(
-            normalized.regions,
-            vec![
-                super::RecoveryRegion {
-                    start: 18,
-                    end: 20,
-                    family: RecoveryFamily::UnitExpression,
-                },
-                super::RecoveryRegion {
-                    start: 29,
-                    end: 31,
-                    family: RecoveryFamily::UnitExpression,
-                },
-            ]
-        );
-        assert_eq!(normalized.bytes.len(), source.len());
     }
 }
