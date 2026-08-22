@@ -96,7 +96,7 @@ jobs:
             --repo-root fixture-repo
 
           "${WAX_BIN}" validate --repo-root fixture-repo
-          "${WAX_BIN}" scan --repo-root fixture-repo
+          "${WAX_BIN}" scan --repo-root fixture-repo --strict
 
       - name: Assert scan output contract
         run: |

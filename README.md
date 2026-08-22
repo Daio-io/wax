@@ -166,6 +166,14 @@ wax scan
 ```
 
 Wax writes results under `.wax/out/`, including `.wax/out/scan-merged.json`.
+The default scan is best effort: it exits zero when the scan artifact is
+produced, even if a language reports `partial` or `failed`. For CI, add
+`--strict` to make either status fail the command after the artifact and
+human-readable summary have been written:
+
+```bash
+wax scan --no-auto-install --strict
+```
 
 The terminal summary includes token metrics for every scan:
 

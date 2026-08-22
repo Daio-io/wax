@@ -303,6 +303,7 @@ fn ephemeral_scan_does_not_write_repo_config_or_registries() {
     run_scan_cli(
         ScanCommandOptions {
             repo_root: repo.clone(),
+            strict: true,
             allow_auto_install: false,
             scan_concurrency: None,
             state_path: Some(state_path),

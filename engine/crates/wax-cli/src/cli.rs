@@ -229,6 +229,9 @@ pub struct ScanArgs {
     /// Repository root containing wax config and lock files.
     #[arg(long, default_value = ".")]
     pub repo_root: PathBuf,
+    /// Exit nonzero when any language scan is partial or failed.
+    #[arg(long)]
+    pub strict: bool,
     /// Disable automatic install of missing language packs before scan.
     #[arg(long)]
     pub no_auto_install: bool,

@@ -55,6 +55,8 @@ pub struct EphemeralScanSelections {
 pub struct ScanCommandOptions {
     /// Repository root containing `.wax/wax.config.json` and `.wax/wax.lock.json`.
     pub repo_root: PathBuf,
+    /// Whether incomplete language results should fail the command.
+    pub strict: bool,
     /// Whether missing packs may be auto-installed.
     pub allow_auto_install: bool,
     /// Optional scan concurrency override.
@@ -113,6 +115,22 @@ pub enum ScanCommandError {
         #[source]
         source: io::Error,
     },
+    /// Strict mode found one or more incomplete language results after writing output.
+    #[error(
+        "strict scan failed: {partial_count} partial language(s), {failed_count} failed language(s), {failure_diagnostic_count} parser diagnostic(s); scan output: {output_path}",
+        partial_count = partial_languages.len(),
+        failed_count = failed_languages.len()
+    )]
+    IncompleteScan {
+        /// Language ids whose scans were partial, in deterministic order.
+        partial_languages: Vec<String>,
+        /// Language ids whose scans failed, in deterministic order.
+        failed_languages: Vec<String>,
+        /// Count of error or parse-failure diagnostics across all language results.
+        failure_diagnostic_count: usize,
+        /// Path to the persisted merged scan artifact.
+        output_path: PathBuf,
+    },
     /// A token inference row did not resolve to exactly one raw hard-coded style site.
     #[error(
         "token inference row for language {language:?} site {site_id:?} did not resolve to exactly one raw hard-coded style site; suppressing token report"
@@ -144,6 +162,8 @@ pub enum ScanCommandError {
 /// ephemeral pack metadata cannot be resolved;
 /// [`ScanCommandError::RegistryMemory`] when remembered registry state cannot be
 /// listed or resolved; [`ScanCommandError::Engine`] when the scan fails; or
+/// [`ScanCommandError::IncompleteScan`] when strict mode finds a partial or
+/// failed language result after output is written; or
 /// [`ScanCommandError::TokenInferenceJoin`] when token inference cannot be
 /// joined uniquely to its raw observation; or
 /// [`ScanCommandError::Io`] when prompts, sync warnings, or summary output cannot
@@ -182,6 +202,8 @@ pub fn run_scan_cli(
 /// global state; scan itself may still return [`ScanCommandError::Engine`] with
 /// [`PathsError::HomeUnavailable`] when later engine work needs `~/.wax`.
 /// Returns [`ScanCommandError::Engine`] when scanning fails,
+/// [`ScanCommandError::IncompleteScan`] when strict mode finds a partial or
+/// failed language result after output is written,
 /// [`ScanCommandError::TokenInferenceJoin`] when token inference cannot be
 /// joined uniquely to its raw observation,
 /// or [`ScanCommandError::Io`] when a sync warning or scan summary cannot be
@@ -208,7 +230,20 @@ pub fn run_scan(
     progress.finish();
 
     let output_path = options.repo_root.join(SCAN_OUTPUT_RELATIVE_PATH);
-    write_scan_summary(writer, &merged, &output_path, ephemeral)
+    write_scan_summary(writer, &merged, &output_path, ephemeral)?;
+    if options.strict {
+        let summary = incomplete_scan_summary(&merged);
+        if summary.has_incomplete_languages() {
+            return Err(ScanCommandError::IncompleteScan {
+                partial_languages: summary.partial_languages,
+                failed_languages: summary.failed_languages,
+                failure_diagnostic_count: summary.failure_diagnostic_count,
+                output_path,
+            });
+        }
+    }
+
+    Ok(())
 }
 
 fn attempt_scan_time_registry_sync(
@@ -278,7 +313,20 @@ fn run_ephemeral_scan(
     progress.finish();
 
     let output_path = options.repo_root.join(SCAN_OUTPUT_RELATIVE_PATH);
-    write_scan_summary(writer, &merged, &output_path, true)
+    write_scan_summary(writer, &merged, &output_path, true)?;
+    if options.strict {
+        let summary = incomplete_scan_summary(&merged);
+        if summary.has_incomplete_languages() {
+            return Err(ScanCommandError::IncompleteScan {
+                partial_languages: summary.partial_languages,
+                failed_languages: summary.failed_languages,
+                failure_diagnostic_count: summary.failure_diagnostic_count,
+                output_path,
+            });
+        }
+    }
+
+    Ok(())
 }
 
 fn build_ephemeral_scan_config(
@@ -503,6 +551,52 @@ fn write_scan_sync_warning(writer: &mut impl Write) -> Result<(), ScanCommandErr
     .map_err(write_error)
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct IncompleteScanSummary {
+    partial_languages: Vec<String>,
+    failed_languages: Vec<String>,
+    failure_diagnostic_count: usize,
+}
+
+impl IncompleteScanSummary {
+    fn has_incomplete_languages(&self) -> bool {
+        !self.partial_languages.is_empty() || !self.failed_languages.is_empty()
+    }
+}
+
+fn incomplete_scan_summary(merged: &MergedScan) -> IncompleteScanSummary {
+    let mut partial_languages = Vec::new();
+    let mut failed_languages = Vec::new();
+    for (language_id, facts) in &merged.languages {
+        match facts.status {
+            ScanStatus::Partial => partial_languages.push(language_id.as_str().to_owned()),
+            ScanStatus::Failed => failed_languages.push(language_id.as_str().to_owned()),
+            ScanStatus::Complete => {}
+        }
+    }
+    partial_languages.sort();
+    failed_languages.sort();
+
+    IncompleteScanSummary {
+        partial_languages,
+        failed_languages,
+        failure_diagnostic_count: failure_diagnostics(merged).len(),
+    }
+}
+
+fn is_failure_diagnostic(diagnostic: &Diagnostic) -> bool {
+    diagnostic.severity == DiagnosticSeverity::Error || diagnostic.code == "parse_failed"
+}
+
+fn failure_diagnostics(merged: &MergedScan) -> Vec<&Diagnostic> {
+    merged
+        .languages
+        .values()
+        .flat_map(|facts| facts.diagnostics.iter())
+        .filter(|diagnostic| is_failure_diagnostic(diagnostic))
+        .collect()
+}
+
 fn write_scan_summary(
     writer: &mut impl Write,
     merged: &MergedScan,
@@ -558,14 +652,7 @@ fn write_scan_summary(
     .map_err(write_error)?;
     write_token_inference_summary(writer, merged)?;
 
-    let diagnostics = merged
-        .languages
-        .values()
-        .flat_map(|facts| facts.diagnostics.iter())
-        .filter(|diagnostic| {
-            diagnostic.severity == DiagnosticSeverity::Error || diagnostic.code == "parse_failed"
-        })
-        .collect::<Vec<_>>();
+    let diagnostics = failure_diagnostics(merged);
     write_failure_diagnostics(writer, &diagnostics, output_path)?;
 
     if ephemeral {
@@ -910,8 +997,8 @@ pub fn repo_relative_dir_has_entries(repo_root: &Path, relative: &str) -> bool {
 mod tests {
     use super::{
         EphemeralScanSelections, ScanCommandError, ScanCommandOptions,
-        attempt_scan_time_registry_sync, run_scan_cli, write_failure_diagnostics,
-        write_scan_summary,
+        attempt_scan_time_registry_sync, incomplete_scan_summary, run_scan_cli,
+        write_failure_diagnostics, write_scan_summary,
     };
     use crate::testing::env_lock;
     use std::collections::BTreeMap;
@@ -1122,6 +1209,89 @@ mod tests {
         ));
         assert!(stdout.contains("PACK_CRASH: process exited"));
         assert!(!stdout.contains("PACK_WARN: warn"));
+    }
+
+    #[test]
+    fn incomplete_scan_summary_sorts_languages_and_counts_selected_diagnostics() {
+        let merged = MergedScan {
+            schema_version: SCHEMA_VERSION,
+            recorded_at: OffsetDateTime::UNIX_EPOCH,
+            repo_summary: RepoSummary {
+                languages: vec![],
+                counts: CountSummary::default(),
+                metrics: Metrics {
+                    invocation_adoption_ratio: None,
+                    registry_resolution_ratio: None,
+                    parse_extract_ms: 0,
+                    files_scanned: 0,
+                },
+            },
+            symbol_usage_summary: vec![],
+            token_usage_summary: vec![],
+            token_inference: TokenInferenceReport::empty(2.0),
+            languages: BTreeMap::from([
+                (
+                    LanguageId::from_str("swift").unwrap(),
+                    facts_with_status(
+                        ScanStatus::Failed,
+                        None,
+                        vec![
+                            diagnostic(DiagnosticSeverity::Warning, "PACK_WARN", "warn"),
+                            diagnostic(DiagnosticSeverity::Error, "PACK_CRASH", "crashed"),
+                        ],
+                    ),
+                ),
+                (
+                    LanguageId::from_str("compose").unwrap(),
+                    facts_with_status(ScanStatus::Partial, None, vec![]),
+                ),
+                (
+                    LanguageId::from_str("react").unwrap(),
+                    facts_with_status(
+                        ScanStatus::Partial,
+                        None,
+                        vec![diagnostic(
+                            DiagnosticSeverity::Error,
+                            "parse_failed",
+                            "parse failed",
+                        )],
+                    ),
+                ),
+            ]),
+        };
+
+        let summary = incomplete_scan_summary(&merged);
+
+        assert_eq!(summary.partial_languages, ["compose", "react"]);
+        assert_eq!(summary.failed_languages, ["swift"]);
+        assert_eq!(summary.failure_diagnostic_count, 2);
+    }
+
+    #[test]
+    fn incomplete_scan_summary_reports_zero_diagnostics_for_partial_status() {
+        let merged = MergedScan {
+            schema_version: SCHEMA_VERSION,
+            recorded_at: OffsetDateTime::UNIX_EPOCH,
+            repo_summary: RepoSummary {
+                languages: vec![],
+                counts: CountSummary::default(),
+                metrics: Metrics {
+                    invocation_adoption_ratio: None,
+                    registry_resolution_ratio: None,
+                    parse_extract_ms: 0,
+                    files_scanned: 0,
+                },
+            },
+            symbol_usage_summary: vec![],
+            token_usage_summary: vec![],
+            token_inference: TokenInferenceReport::empty(2.0),
+            languages: BTreeMap::from([(
+                LanguageId::from_str("compose").unwrap(),
+                facts_with_status(ScanStatus::Partial, None, vec![]),
+            )]),
+        };
+
+        assert_eq!(incomplete_scan_summary(&merged).failure_diagnostic_count, 0);
     }
 
     #[test]
@@ -1519,6 +1689,7 @@ mod tests {
         attempt_scan_time_registry_sync(
             &ScanCommandOptions {
                 repo_root: app_repo,
+                strict: false,
                 allow_auto_install: false,
                 scan_concurrency: None,
                 state_path: Some(wax_home.join("state.json")),
@@ -1550,6 +1721,7 @@ mod tests {
         let err = run_scan_cli(
             ScanCommandOptions {
                 repo_root: root.path.clone(),
+                strict: false,
                 allow_auto_install: false,
                 scan_concurrency: None,
                 state_path: None,
@@ -1590,6 +1762,7 @@ mod tests {
         let err = run_scan_cli(
             ScanCommandOptions {
                 repo_root: app_repo,
+                strict: false,
                 allow_auto_install: false,
                 scan_concurrency: None,
                 state_path: None,

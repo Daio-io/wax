@@ -8,6 +8,9 @@
 
 ### Features
 
+- Add `wax scan --strict` for CI: partial or failed language results return a
+  nonzero exit after writing the merged scan artifact and human-readable
+  summary. The default `wax scan` behavior remains best effort.
 - Add config-v2 Git/tag registry sources using the conventional
   `.wax/registries/<language-id>.json` path.
 - Materialize Git registries at locked commits with registry SHA-256 digests;

@@ -133,6 +133,7 @@ fn main() {
         Commands::Scan(args) => run_scan_cli(
             ScanCommandOptions {
                 repo_root: args.repo_root,
+                strict: args.strict,
                 allow_auto_install: !args.no_auto_install,
                 scan_concurrency: args.scan_concurrency,
                 state_path: None,
