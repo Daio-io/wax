@@ -14,7 +14,7 @@ use wax_contract::{
     Diagnostic, HardcodedStyleSite, IdentityStability, LocalComponent, MatchStatus, ParentScope,
     SourceLocation, TokenSite, UsageSite,
 };
-use wax_lang_api::{npm_import_package_root, resolve_import_aware_match};
+use wax_lang_api::{RegistryImportMatch, npm_import_package_root, resolve_import_aware_match};
 
 use crate::component_detect::{
     class_returns_jsx, expression_returns_jsx, function_returns_jsx, is_pascal_case,
@@ -184,7 +184,12 @@ pub fn collect_usage_sites(
         }
 
         for candidate in &candidates {
-            if candidate.shadowed {
+            if candidate.shadowed
+                || candidate
+                    .parent_component
+                    .as_ref()
+                    .is_some_and(|(parent, _)| parent == &candidate.binding_name)
+            {
                 continue;
             }
 
@@ -209,6 +214,31 @@ pub fn collect_usage_sites(
                     local_definition_id: Some(local.id.clone()),
                     parent,
                 });
+            } else if let Some(local) = local_index
+                .resolve_with_import(
+                    module_graph,
+                    parsed,
+                    &candidate.binding_name,
+                    &candidate.symbol,
+                )
+                .filter(|_| {
+                    !module_graph.import_resolves_through_configured_package(
+                        &parsed.file,
+                        &candidate.binding_name,
+                        config,
+                    )
+                })
+            {
+                extraction.usage_sites.push(UsageSite {
+                    id: usage_site_id(&location, &candidate.symbol),
+                    location,
+                    symbol: candidate.symbol.clone(),
+                    qualified_symbol: local.qualified_symbol.clone(),
+                    match_status: MatchStatus::Local,
+                    registry_symbol: None,
+                    local_definition_id: Some(local.id.clone()),
+                    parent,
+                });
             } else if let Some((registry_symbol, match_status)) =
                 classify_jsx_usage(parsed, module_graph, config, registry, candidate)
             {
@@ -220,22 +250,6 @@ pub fn collect_usage_sites(
                     match_status,
                     registry_symbol: Some(registry_symbol),
                     local_definition_id: None,
-                    parent,
-                });
-            } else if let Some(local) = local_index.resolve_with_import(
-                module_graph,
-                parsed,
-                &candidate.binding_name,
-                &candidate.symbol,
-            ) {
-                extraction.usage_sites.push(UsageSite {
-                    id: usage_site_id(&location, &candidate.symbol),
-                    location,
-                    symbol: candidate.symbol.clone(),
-                    qualified_symbol: local.qualified_symbol.clone(),
-                    match_status: MatchStatus::Local,
-                    registry_symbol: None,
-                    local_definition_id: Some(local.id.clone()),
                     parent,
                 });
             } else if unresolved_usage_is_design_system_relevant(
@@ -1127,10 +1141,21 @@ fn classify_jsx_usage(
             .get(&registry_symbol)
             .and_then(|package| package.as_deref());
         if registry_package.is_none() {
+            if module_graph
+                .import_binding(&parsed.file, &candidate.binding_name)
+                .is_some_and(|import| import.source_module.is_none())
+            {
+                return None;
+            }
             return Some((registry_symbol, MatchStatus::Resolved));
         }
-        return resolve_import_aware_match(registry_package, import_package.as_deref())
-            .map(|match_status| (registry_symbol, match_status));
+        return match resolve_import_aware_match(registry_package, import_package.as_deref()) {
+            RegistryImportMatch::Resolved | RegistryImportMatch::LegacyNameOnly => {
+                Some((registry_symbol, MatchStatus::Resolved))
+            }
+            RegistryImportMatch::Candidate => Some((registry_symbol, MatchStatus::Candidate)),
+            RegistryImportMatch::Mismatch => None,
+        };
     }
 
     let registry_symbol =
@@ -1140,8 +1165,13 @@ fn classify_jsx_usage(
         .get(&registry_symbol)
         .and_then(|package| package.as_deref());
 
-    resolve_import_aware_match(registry_package, import_package.as_deref())
-        .map(|match_status| (registry_symbol, match_status))
+    match resolve_import_aware_match(registry_package, import_package.as_deref()) {
+        RegistryImportMatch::Resolved | RegistryImportMatch::LegacyNameOnly => {
+            Some((registry_symbol, MatchStatus::Resolved))
+        }
+        RegistryImportMatch::Candidate => Some((registry_symbol, MatchStatus::Candidate)),
+        RegistryImportMatch::Mismatch => None,
+    }
 }
 
 fn registry_symbol_for_candidate(
@@ -1258,6 +1288,15 @@ fn unresolved_usage_is_design_system_relevant(
     }
 
     if let Some(import) = module_graph.import_binding(&parsed.file, &candidate.binding_name) {
+        if registry_import_is_explicitly_mismatched(
+            parsed,
+            module_graph,
+            config,
+            registry,
+            candidate,
+        ) {
+            return true;
+        }
         if import.source_module.is_some() {
             return module_graph.import_resolves_through_configured_package(
                 &parsed.file,
@@ -1278,6 +1317,33 @@ fn unresolved_usage_is_design_system_relevant(
         || registry
             .resolve_targets
             .contains_key(&candidate.binding_name)
+}
+
+fn registry_import_is_explicitly_mismatched(
+    parsed: &ParsedReactModule,
+    module_graph: &ReactModuleGraph,
+    config: &ReactScanConfig,
+    registry: &ReactRegistryIndex,
+    candidate: &JsxUsageCandidate,
+) -> bool {
+    let Some(registry_symbol) =
+        registry_symbol_for_candidate(parsed, module_graph, config, registry, candidate)
+            .or_else(|| lookup_registry_symbol_by_name(parsed, module_graph, registry, candidate))
+    else {
+        return false;
+    };
+    let registry_package = registry
+        .component_packages
+        .get(&registry_symbol)
+        .and_then(|package| package.as_deref());
+    let import_package = module_graph
+        .import_binding(&parsed.file, &candidate.binding_name)
+        .map(|import| npm_import_package_root(&import.source_specifier));
+
+    matches!(
+        resolve_import_aware_match(registry_package, import_package.as_deref()),
+        RegistryImportMatch::Mismatch
+    )
 }
 
 fn binding_is_shadowed(binding_name: &str, scopes: &[BTreeSet<String>]) -> bool {
@@ -1994,7 +2060,7 @@ mod tests {
     }
 
     #[test]
-    fn extract_usage_scopes_unresolved_diagnostics_to_design_system_candidates() {
+    fn extract_usage_preserves_legacy_registry_name_resolution() {
         let fixture = Fixture::new();
         fixture.write(
             "src/App.tsx",
@@ -2028,7 +2094,7 @@ mod tests {
             extraction
                 .usage_sites
                 .iter()
-                .filter(|site| site.match_status == MatchStatus::Unresolved)
+                .filter(|site| site.match_status == MatchStatus::Resolved)
                 .count(),
             2
         );
@@ -2111,7 +2177,7 @@ mod tests {
     }
 
     #[test]
-    fn extract_usage_does_not_warn_for_unresolved_third_party_import_named_like_registry() {
+    fn extract_usage_uses_legacy_name_only_registry_matching() {
         let fixture = Fixture::new();
         fixture.write(
             "src/App.tsx",
@@ -2128,8 +2194,65 @@ mod tests {
             registry_with_aliases(&[("Button", &[])]),
         );
 
-        assert!(extraction.usage_sites.is_empty());
+        assert_eq!(extraction.usage_sites.len(), 1);
+        assert_eq!(
+            extraction.usage_sites[0].match_status,
+            MatchStatus::Resolved
+        );
         assert!(extraction.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn extract_usage_keeps_package_mismatch_as_unresolved_usage() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "src/App.tsx",
+            r#"
+            import { Button } from "third-party";
+
+            export const App = () => <Button />;
+            "#,
+        );
+
+        let extraction = fixture.extract_usage(
+            vec!["src/App.tsx"],
+            base_config(),
+            registry_with_package("Button", "@acme/design-system"),
+        );
+
+        assert_eq!(extraction.usage_sites.len(), 1);
+        assert_eq!(
+            extraction.usage_sites[0].match_status,
+            MatchStatus::Unresolved
+        );
+        assert_eq!(extraction.usage_sites[0].registry_symbol, None);
+    }
+
+    #[test]
+    fn extract_usage_resolves_imported_local_before_legacy_registry_name() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "src/App.tsx",
+            r#"
+            import { Button } from "./LocalButton";
+
+            export const App = () => <Button />;
+            "#,
+        );
+        fixture.write(
+            "src/LocalButton.tsx",
+            "export const Button = () => <button />;",
+        );
+
+        let extraction = fixture.extract_usage(
+            vec!["src/App.tsx", "src/LocalButton.tsx"],
+            base_config(),
+            registry_with_aliases(&[("Button", &[])]),
+        );
+
+        assert_eq!(extraction.usage_sites.len(), 1);
+        assert_eq!(extraction.usage_sites[0].match_status, MatchStatus::Local);
+        assert_eq!(extraction.usage_sites[0].registry_symbol, None);
     }
 
     #[test]
@@ -2586,7 +2709,7 @@ mod tests {
     }
 
     #[test]
-    fn non_ds_import_is_not_counted_when_registry_package_is_set() {
+    fn non_ds_import_is_retained_as_unresolved_when_registry_package_is_set() {
         let fixture = Fixture::new();
         fixture.write(
             "src/Screen.tsx",
@@ -2604,11 +2727,15 @@ mod tests {
             registry_with_package("Button", "@acme/design-system"),
         );
 
-        assert!(extraction.usage_sites.is_empty());
+        assert_eq!(extraction.usage_sites.len(), 1);
+        assert_eq!(
+            extraction.usage_sites[0].match_status,
+            MatchStatus::Unresolved
+        );
     }
 
     #[test]
-    fn namespace_non_ds_import_is_not_counted_when_registry_package_is_set() {
+    fn namespace_non_ds_import_is_retained_as_unresolved_when_registry_package_is_set() {
         let fixture = Fixture::new();
         fixture.write(
             "src/Screen.tsx",
@@ -2627,7 +2754,11 @@ mod tests {
             registry_with_package("Button", "@acme/design-system"),
         );
 
-        assert!(extraction.usage_sites.is_empty());
+        assert_eq!(extraction.usage_sites.len(), 1);
+        assert_eq!(
+            extraction.usage_sites[0].match_status,
+            MatchStatus::Unresolved
+        );
     }
 
     struct Fixture {

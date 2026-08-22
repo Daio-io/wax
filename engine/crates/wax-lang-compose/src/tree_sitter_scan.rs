@@ -26,9 +26,10 @@ use wax_contract::{
     StyleContext, TokenCategory, TokenSite, UsageSite,
 };
 use wax_lang_api::{
-    RegistryTokenIndex, RootResolutionError, ScanConfig, normalize_repo_relative_path,
-    parse_registry_tokens, path_matches_any, resolve_import_aware_match, resolve_source_roots,
-    root_not_found_code, root_not_found_message, token_index,
+    RegistryImportMatch, RegistryTokenIndex, RootResolutionError, ScanConfig,
+    normalize_repo_relative_path, parse_registry_tokens, path_matches_any,
+    resolve_import_aware_match, resolve_source_roots, root_not_found_code, root_not_found_message,
+    token_index,
 };
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -369,7 +370,7 @@ fn resolve_registry_match(
     registry_symbol: &str,
     registry: &RegistryIndex,
     imports: &ImportBindings,
-) -> Option<MatchStatus> {
+) -> RegistryImportMatch {
     resolve_import_aware_match(
         registry
             .component_packages
@@ -377,18 +378,6 @@ fn resolve_registry_match(
             .and_then(|package| package.as_deref()),
         imports.package_for_symbol(call_symbol),
     )
-    .or_else(|| {
-        if registry
-            .component_packages
-            .get(registry_symbol)
-            .and_then(|package| package.as_deref())
-            .is_none()
-        {
-            Some(MatchStatus::Resolved)
-        } else {
-            None
-        }
-    })
 }
 
 fn qualified_composable_symbol(package: Option<&str>, symbol: &str) -> String {
@@ -439,15 +428,19 @@ impl LocalComposableIndex {
             .insert((file.to_owned(), component.symbol.clone()), component);
     }
 
-    fn resolve(&self, file: &str, package: Option<&str>, symbol: &str) -> Option<&LocalComponent> {
-        if let Some(component) = self
-            .by_file_symbol
+    fn same_file(&self, file: &str, symbol: &str) -> Option<&LocalComponent> {
+        self.by_file_symbol
             .get(&(file.to_owned(), symbol.to_owned()))
-        {
-            return Some(component);
-        }
-        let qualified = qualified_composable_symbol(package, symbol);
+    }
+
+    fn qualified_package(&self, package: Option<&str>, symbol: &str) -> Option<&LocalComponent> {
+        let package = package?;
+        let qualified = qualified_composable_symbol(Some(package), symbol);
         self.by_qualified.get(&qualified)
+    }
+
+    fn current_package(&self, package: Option<&str>, symbol: &str) -> Option<&LocalComponent> {
+        self.qualified_package(package, symbol)
     }
 }
 
@@ -618,22 +611,16 @@ fn visit_component_usage(
             UiScope::ComposableLambda | UiScope::NonUi => None,
         };
 
-        if let Some(registry_symbol) = ctx.registry.resolve_targets.get(&call_symbol) {
-            if let Some(match_status) =
-                resolve_registry_match(&call_symbol, registry_symbol, ctx.registry, ctx.imports)
-            {
-                ctx.usage_sites.push(UsageSite {
-                    id: format!("usage.compose:{}:{line}:{column}:{call_symbol}", ctx.file),
-                    location,
-                    symbol: call_symbol.clone(),
-                    qualified_symbol: None,
-                    match_status,
-                    registry_symbol: Some(registry_symbol.clone()),
-                    local_definition_id: None,
-                    parent,
-                });
-            }
-        } else if let Some(local) = ctx.local_index.resolve(ctx.file, ctx.package, &call_symbol) {
+        let import_package = ctx.imports.package_for_symbol(&call_symbol);
+        if let Some(local) = ctx
+            .local_index
+            .same_file(ctx.file, &call_symbol)
+            .or_else(|| {
+                ctx.local_index
+                    .qualified_package(import_package, &call_symbol)
+            })
+            .or_else(|| ctx.local_index.current_package(ctx.package, &call_symbol))
+        {
             ctx.usage_sites.push(UsageSite {
                 id: format!("usage.compose:{}:{line}:{column}:{call_symbol}", ctx.file),
                 location,
@@ -645,13 +632,34 @@ fn visit_component_usage(
                 parent,
             });
         } else {
+            let registry_symbol = ctx.registry.resolve_targets.get(&call_symbol);
+            let registry_match = registry_symbol.map(|registry_symbol| {
+                resolve_registry_match(&call_symbol, registry_symbol, ctx.registry, ctx.imports)
+            });
+            let (match_status, registry_symbol) = match (registry_symbol, registry_match) {
+                (Some(registry_symbol), Some(RegistryImportMatch::Resolved)) => {
+                    (MatchStatus::Resolved, Some(registry_symbol.clone()))
+                }
+                (Some(registry_symbol), Some(RegistryImportMatch::Candidate)) => {
+                    (MatchStatus::Candidate, Some(registry_symbol.clone()))
+                }
+                (Some(_), Some(RegistryImportMatch::Mismatch)) | (Some(_), None) | (None, _) => {
+                    (MatchStatus::Unresolved, None)
+                }
+                (Some(registry_symbol), Some(RegistryImportMatch::LegacyNameOnly)) => {
+                    (MatchStatus::Resolved, Some(registry_symbol.clone()))
+                }
+            };
+            let qualified_symbol = import_package
+                .or(ctx.package)
+                .map(|package| qualified_composable_symbol(Some(package), &call_symbol));
             ctx.usage_sites.push(UsageSite {
                 id: format!("usage.compose:{}:{line}:{column}:{call_symbol}", ctx.file),
                 location,
                 symbol: call_symbol,
-                qualified_symbol: None,
-                match_status: MatchStatus::Unresolved,
-                registry_symbol: None,
+                qualified_symbol,
+                match_status,
+                registry_symbol,
                 local_definition_id: None,
                 parent,
             });
@@ -1294,6 +1302,16 @@ mod tests {
         registry_index(resolve_targets, component_packages)
     }
 
+    fn registry_with_package(symbol: &str, package: &str) -> RegistryIndex {
+        RegistryIndex {
+            canonical_symbols: vec![symbol.to_owned()],
+            resolve_targets: BTreeMap::from([(symbol.to_owned(), symbol.to_owned())]),
+            component_packages: BTreeMap::from([(symbol.to_owned(), Some(package.to_owned()))]),
+            tokens: Vec::new(),
+            token_index: RegistryTokenIndex::default(),
+        }
+    }
+
     fn parse_and_extract(
         source: &str,
         registry: &RegistryIndex,
@@ -1515,6 +1533,129 @@ class Holder {
         assert_eq!(usages[0].symbol, "PrimaryButton");
         assert_eq!(usages[0].registry_symbol.as_deref(), Some("PrimaryButton"));
         assert_eq!(usages[0].match_status, MatchStatus::Resolved);
+    }
+
+    #[test]
+    fn same_file_local_component_wins_over_registry_name_collision() {
+        let registry = registry_with_package("Button", "com.acme.designsystem");
+        let (_, usages) = parse_and_extract(
+            "@Composable\nfun Button() {}\n@Composable\nfun Screen() { Button() }",
+            &registry,
+        );
+
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].match_status, MatchStatus::Local);
+        assert_eq!(usages[0].registry_symbol, None);
+    }
+
+    #[test]
+    fn package_mismatch_keeps_a_qualified_unresolved_usage() {
+        let registry = registry_with_package("Button", "com.acme.designsystem");
+        let (_, usages) = parse_and_extract(
+            "import com.other.widgets.Button\n@Composable\nfun Screen() { Button() }",
+            &registry,
+        );
+
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].match_status, MatchStatus::Unresolved);
+        assert_eq!(
+            usages[0].qualified_symbol.as_deref(),
+            Some("com.other.widgets.Button")
+        );
+    }
+
+    #[test]
+    fn matching_named_alias_and_wildcard_imports_resolve_with_qualified_symbols() {
+        let registry = RegistryIndex {
+            canonical_symbols: vec!["Button".to_owned()],
+            resolve_targets: BTreeMap::from([
+                ("Button".to_owned(), "Button".to_owned()),
+                ("DsButton".to_owned(), "Button".to_owned()),
+            ]),
+            component_packages: BTreeMap::from([(
+                "Button".to_owned(),
+                Some("com.acme.designsystem".to_owned()),
+            )]),
+            tokens: Vec::new(),
+            token_index: RegistryTokenIndex::default(),
+        };
+        let (_, usages) = parse_and_extract(
+            "import com.acme.designsystem.Button as DsButton\nimport com.acme.designsystem.*\n@Composable\nfun Screen() { DsButton(); Button() }",
+            &registry,
+        );
+
+        assert_eq!(usages.len(), 2);
+        assert_eq!(usages[0].match_status, MatchStatus::Resolved);
+        assert_eq!(
+            usages[0].qualified_symbol.as_deref(),
+            Some("com.acme.designsystem.DsButton")
+        );
+        assert_eq!(usages[1].match_status, MatchStatus::Resolved);
+        assert_eq!(
+            usages[1].qualified_symbol.as_deref(),
+            Some("com.acme.designsystem.Button")
+        );
+    }
+
+    #[test]
+    fn ambiguous_wildcard_import_is_a_candidate_with_no_qualified_symbol() {
+        let registry = registry_with_package("Button", "com.acme.designsystem");
+        let (_, usages) = parse_and_extract(
+            "import com.acme.designsystem.*\nimport com.other.widgets.*\n@Composable\nfun Screen() { Button() }",
+            &registry,
+        );
+
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].match_status, MatchStatus::Candidate);
+        assert_eq!(usages[0].qualified_symbol, None);
+    }
+
+    #[test]
+    fn imported_local_component_resolves_by_imported_package() {
+        let registry = registry_without_packages(&[]);
+        let mut parser = make_parser();
+        let local_source = "package feature\n@Composable\nfun LocalCard() {}";
+        let local_tree = parser
+            .parse(local_source.as_bytes(), None)
+            .expect("parse local");
+        let clean = [ByteRange {
+            start: 0,
+            end: local_source.len(),
+        }];
+        let local = index_local_components_from_source(
+            local_tree.root_node(),
+            local_source.as_bytes(),
+            "feature/Local.kt",
+            &clean,
+        )[0]
+        .clone();
+        let mut local_index = LocalComposableIndex::default();
+        local_index.insert("feature/Local.kt", local.clone());
+
+        let source =
+            "package app\nimport feature.LocalCard\n@Composable\nfun Screen() { LocalCard() }";
+        let tree = parser.parse(source.as_bytes(), None).expect("parse caller");
+        let mut usages = Vec::new();
+        extract_usage_from_source(
+            tree.root_node(),
+            source.as_bytes(),
+            "app/Screen.kt",
+            &registry,
+            &local_index,
+            &[],
+            &[ByteRange {
+                start: 0,
+                end: source.len(),
+            }],
+            &mut usages,
+        );
+
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].match_status, MatchStatus::Local);
+        assert_eq!(
+            usages[0].local_definition_id.as_deref(),
+            Some(local.id.as_str())
+        );
     }
 
     #[test]
@@ -1841,7 +1982,7 @@ fun Screen() { Button(onClick = {}) }
     }
 
     #[test]
-    fn non_ds_import_is_not_counted_when_package_is_configured() {
+    fn non_ds_import_is_retained_as_unresolved_when_package_is_configured() {
         let mut component_packages = BTreeMap::new();
         component_packages.insert(
             "Button".to_owned(),
@@ -1855,11 +1996,12 @@ import com.foundation.ui.Button
 fun Screen() { Button(onClick = {}) }
 "#;
         let (_, usages) = parse_and_extract(source, &registry);
-        assert_eq!(usages.len(), 0);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].match_status, MatchStatus::Unresolved);
     }
 
     #[test]
-    fn framework_subpackage_import_is_not_counted_when_package_is_configured() {
+    fn framework_subpackage_import_is_retained_as_unresolved_when_package_is_configured() {
         let mut component_packages = BTreeMap::new();
         component_packages.insert(
             "Button".to_owned(),
@@ -1873,7 +2015,8 @@ import androidx.compose.material3.Button
 fun Screen() { Button(onClick = {}) }
 "#;
         let (_, usages) = parse_and_extract(source, &registry);
-        assert_eq!(usages.len(), 0);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].match_status, MatchStatus::Unresolved);
     }
 
     #[test]
@@ -1891,7 +2034,7 @@ fun Screen() { Button(onClick = {}) }
     }
 
     #[test]
-    fn third_party_import_is_not_counted_when_package_is_configured() {
+    fn third_party_import_is_retained_as_unresolved_when_package_is_configured() {
         let mut component_packages = BTreeMap::new();
         component_packages.insert(
             "Button".to_owned(),
@@ -1905,7 +2048,8 @@ import com.other.vendor.Button
 fun Screen() { Button(onClick = {}) }
 "#;
         let (_, usages) = parse_and_extract(source, &registry);
-        assert_eq!(usages.len(), 0);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].match_status, MatchStatus::Unresolved);
     }
 
     #[test]
