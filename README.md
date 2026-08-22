@@ -404,7 +404,7 @@ latest pack-index release and will miss an older lock pin:
 ```bash
 wax language install react@0.1.0-alpha.0
 wax validate
-wax scan --no-auto-install
+wax scan --no-auto-install --strict
 ```
 
 ### Local Builds
