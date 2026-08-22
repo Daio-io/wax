@@ -9,4 +9,11 @@ struct AvailablePreviewCard: View {
 @available(iOS 18.0, *)
 #Preview {
     AvailablePreviewCard()
+    PreviewOnlyButton()
+}
+
+struct AfterAvailablePreviewCard: View {
+    var body: some View {
+        Text("after")
+    }
 }

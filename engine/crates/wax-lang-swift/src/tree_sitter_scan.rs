@@ -599,6 +599,7 @@ fn extract_usage_from_source(
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
         if is_call_expression_node(node)
+            && !is_inside_preview_macro(node, source)
             && let Some(call_site) = resolve_call_site(node, source)
             && is_pascal_case_symbol(&call_site.symbol)
         {
@@ -666,6 +667,33 @@ fn extract_usage_from_source(
             }
         }
     }
+}
+
+fn is_inside_preview_macro(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    let mut current = node.parent();
+    while let Some(ancestor) = current {
+        if ancestor.kind() == "macro_invocation"
+            && ancestor
+                .utf8_text(source)
+                .ok()
+                .is_some_and(is_preview_macro_text)
+        {
+            return true;
+        }
+        current = ancestor.parent();
+    }
+    false
+}
+
+fn is_preview_macro_text(text: &str) -> bool {
+    text.trim_start()
+        .strip_prefix("#Preview")
+        .is_some_and(|suffix| {
+            suffix
+                .as_bytes()
+                .first()
+                .is_none_or(|byte| !byte.is_ascii_alphanumeric() && *byte != b'_')
+        })
 }
 
 fn swift_style_metadata(call_symbol: &str) -> Option<(TokenCategory, StyleContext)> {
@@ -1594,6 +1622,14 @@ mod tests {
         );
 
         assert!(usages.is_empty());
+    }
+
+    #[test]
+    fn unrelated_macro_bodies_are_not_treated_as_preview_bodies() {
+        let registry = registry_without_packages(&[("PreviewOnlyButton", "PreviewOnlyButton")]);
+        let (_, usages) = parse_and_extract("#PreviewFoo { PreviewOnlyButton() }", &registry);
+
+        assert_eq!(usages.len(), 1);
     }
 
     #[test]

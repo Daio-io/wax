@@ -28,6 +28,7 @@
 mod component_detect;
 pub mod discover;
 mod swift_ast;
+mod swift_recovery;
 mod tree_sitter_scan;
 
 use std::path::Path;
