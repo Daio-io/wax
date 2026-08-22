@@ -636,10 +636,7 @@ fn visit_component_usage(
             let registry_match = registry_symbol.map(|registry_symbol| {
                 resolve_registry_match(&call_symbol, registry_symbol, ctx.registry, ctx.imports)
             });
-            if matches!(registry_match, Some(RegistryImportMatch::Mismatch)) {
-                // A registry name imported from a different package is an external
-                // symbol, not an unresolved design-system usage.
-            } else {
+            {
                 let (match_status, registry_symbol) = match (registry_symbol, registry_match) {
                     (Some(registry_symbol), Some(RegistryImportMatch::Resolved)) => {
                         (MatchStatus::Resolved, Some(registry_symbol.clone()))
@@ -648,14 +645,19 @@ fn visit_component_usage(
                         (MatchStatus::Candidate, Some(registry_symbol.clone()))
                     }
                     (Some(_), None) | (None, _) => (MatchStatus::Unresolved, None),
-                    (Some(_), Some(RegistryImportMatch::Mismatch)) => unreachable!(),
+                    (Some(_), Some(RegistryImportMatch::Mismatch)) => {
+                        (MatchStatus::Unresolved, None)
+                    }
                     (Some(registry_symbol), Some(RegistryImportMatch::LegacyNameOnly)) => {
                         (MatchStatus::Resolved, Some(registry_symbol.clone()))
                     }
                 };
-                let qualified_symbol = import_package
-                    .or(ctx.package)
-                    .map(|package| qualified_composable_symbol(Some(package), &call_symbol));
+                let qualified_symbol = import_package.and_then(|package| {
+                    ctx.imports.symbol_names.get(&call_symbol).map_or_else(
+                        || Some(qualified_composable_symbol(Some(package), &call_symbol)),
+                        |symbol| Some(qualified_composable_symbol(Some(package), symbol)),
+                    )
+                });
                 ctx.usage_sites.push(UsageSite {
                     id: format!("usage.compose:{}:{line}:{column}:{call_symbol}", ctx.file),
                     location,
@@ -1553,14 +1555,20 @@ class Holder {
     }
 
     #[test]
-    fn package_mismatch_omits_external_usage() {
+    fn package_mismatch_keeps_a_qualified_unresolved_usage() {
         let registry = registry_with_package("Button", "com.acme.designsystem");
         let (_, usages) = parse_and_extract(
             "import com.other.widgets.Button\n@Composable\nfun Screen() { Button() }",
             &registry,
         );
 
-        assert!(usages.is_empty());
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].match_status, MatchStatus::Unresolved);
+        assert_eq!(usages[0].registry_symbol, None);
+        assert_eq!(
+            usages[0].qualified_symbol.as_deref(),
+            Some("com.other.widgets.Button")
+        );
     }
 
     #[test]
@@ -1587,7 +1595,7 @@ class Holder {
         assert_eq!(usages[0].match_status, MatchStatus::Resolved);
         assert_eq!(
             usages[0].qualified_symbol.as_deref(),
-            Some("com.acme.designsystem.DsButton")
+            Some("com.acme.designsystem.Button")
         );
         assert_eq!(usages[1].match_status, MatchStatus::Resolved);
         assert_eq!(
@@ -1981,7 +1989,7 @@ fun Screen() { Button(onClick = {}) }
     }
 
     #[test]
-    fn non_ds_import_is_omitted_when_package_is_configured() {
+    fn non_ds_import_is_unresolved_when_package_is_configured() {
         let mut component_packages = BTreeMap::new();
         component_packages.insert(
             "Button".to_owned(),
@@ -1995,11 +2003,11 @@ import com.foundation.ui.Button
 fun Screen() { Button(onClick = {}) }
 "#;
         let (_, usages) = parse_and_extract(source, &registry);
-        assert!(usages.is_empty());
+        assert_eq!(usages[0].match_status, MatchStatus::Unresolved);
     }
 
     #[test]
-    fn framework_subpackage_import_is_omitted_when_package_is_configured() {
+    fn framework_subpackage_import_is_unresolved_when_package_is_configured() {
         let mut component_packages = BTreeMap::new();
         component_packages.insert(
             "Button".to_owned(),
@@ -2013,7 +2021,7 @@ import androidx.compose.material3.Button
 fun Screen() { Button(onClick = {}) }
 "#;
         let (_, usages) = parse_and_extract(source, &registry);
-        assert!(usages.is_empty());
+        assert_eq!(usages[0].match_status, MatchStatus::Unresolved);
     }
 
     #[test]
@@ -2031,7 +2039,7 @@ fun Screen() { Button(onClick = {}) }
     }
 
     #[test]
-    fn third_party_import_is_omitted_when_package_is_configured() {
+    fn third_party_import_is_unresolved_when_package_is_configured() {
         let mut component_packages = BTreeMap::new();
         component_packages.insert(
             "Button".to_owned(),
@@ -2045,7 +2053,7 @@ import com.other.vendor.Button
 fun Screen() { Button(onClick = {}) }
 "#;
         let (_, usages) = parse_and_extract(source, &registry);
-        assert!(usages.is_empty());
+        assert_eq!(usages[0].match_status, MatchStatus::Unresolved);
     }
 
     #[test]

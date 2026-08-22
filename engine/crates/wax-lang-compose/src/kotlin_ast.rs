@@ -483,6 +483,8 @@ pub(crate) fn function_name_from_decl(
 pub(crate) struct ImportBindings {
     /// Maps local symbol names to the package prefix they were imported from.
     pub symbol_packages: BTreeMap<String, String>,
+    /// Imported declaration names keyed by local symbol name.
+    pub symbol_names: BTreeMap<String, String>,
     /// Package prefixes imported with a wildcard (`import com.example.*`).
     pub wildcard_packages: Vec<String>,
 }
@@ -517,8 +519,10 @@ pub(crate) fn collect_import_bindings(
                     ParsedImport::Named {
                         local_name,
                         package,
+                        symbol,
                     } => {
-                        bindings.symbol_packages.insert(local_name, package);
+                        bindings.symbol_packages.insert(local_name.clone(), package);
+                        bindings.symbol_names.insert(local_name, symbol);
                     }
                     ParsedImport::Wildcard { package } => {
                         bindings.wildcard_packages.push(package);
@@ -540,8 +544,14 @@ pub(crate) fn collect_import_bindings(
 }
 
 enum ParsedImport {
-    Named { local_name: String, package: String },
-    Wildcard { package: String },
+    Named {
+        local_name: String,
+        package: String,
+        symbol: String,
+    },
+    Wildcard {
+        package: String,
+    },
 }
 
 fn parse_import_directive(
@@ -580,6 +590,7 @@ fn parse_import_directive(
     Some(ParsedImport::Named {
         local_name,
         package,
+        symbol: symbol_from_qualified(&qualified_name),
     })
 }
 

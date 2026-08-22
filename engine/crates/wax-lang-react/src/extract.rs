@@ -153,6 +153,21 @@ fn qualified_component_symbol(module_identity: &str, symbol: &str) -> String {
     format!("{module_identity}#{symbol}")
 }
 
+fn imported_qualified_symbol(
+    module_graph: &ReactModuleGraph,
+    parsed: &ParsedReactModule,
+    candidate: &JsxUsageCandidate,
+) -> Option<String> {
+    let import = module_graph.import_binding(&parsed.file, &candidate.binding_name)?;
+    let package = npm_import_package_root(&import.source_specifier);
+    let symbol = match &import.imported_symbol {
+        ImportedSymbol::Named(symbol) => symbol,
+        ImportedSymbol::Default => &candidate.binding_name,
+        ImportedSymbol::Namespace => return None,
+    };
+    Some(format!("{package}#{symbol}"))
+}
+
 fn local_definition_id(module_identity: &str, symbol: &str) -> String {
     format!("react:component:{module_identity}#{symbol}")
 }
@@ -264,7 +279,7 @@ pub fn collect_usage_sites(
                     id: usage_site_id(&location, &candidate.symbol),
                     location,
                     symbol: candidate.symbol.clone(),
-                    qualified_symbol: None,
+                    qualified_symbol: imported_qualified_symbol(module_graph, parsed, candidate),
                     match_status: MatchStatus::Unresolved,
                     registry_symbol: None,
                     local_definition_id: None,
