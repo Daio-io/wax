@@ -14,7 +14,7 @@ Output: versioned insights JSON consumed by the agent when rendering terminal an
 
 | Field | Description |
 |-------|-------------|
-| `schema_version` | Insights contract version (`3` for token inference reporting) |
+| `schema_version` | Insights contract version (`3` for token inference reporting; source scan schema is `4`) |
 | `generated_at` | RFC3339 timestamp |
 | `source_scan` | Path to merged scan input |
 | `repo_summary` | Repository-level DS-vs-local coverage, invocation adoption, registry resolution, raw invocation counters, local definitions, and parent-scope totals |

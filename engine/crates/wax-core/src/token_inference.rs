@@ -811,7 +811,7 @@ fn parse_hex_byte(hex: &str, index: usize) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wax_contract::{SourceLocation, TokenCategory};
+    use wax_contract::{SCHEMA_VERSION, SourceLocation, TokenCategory};
 
     fn language(id: &str) -> LanguageId {
         LanguageId::try_from(id).unwrap()
@@ -857,7 +857,7 @@ mod tests {
         sites: Vec<HardcodedStyleSite>,
     ) -> ScanFacts {
         let mut facts = ScanFacts {
-            schema_version: 3,
+            schema_version: SCHEMA_VERSION,
             language: wax_contract::LanguageMetadata {
                 id: language_id.clone(),
                 version: "0.1.0".into(),

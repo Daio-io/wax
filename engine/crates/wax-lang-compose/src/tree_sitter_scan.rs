@@ -21,9 +21,10 @@ use crate::kotlin_recovery::{
 pub const TREE_SITTER_KOTLIN_GRAMMAR_VERSION: &str = "1.1.0";
 
 use wax_contract::{
-    DesignSystemComponent, DesignSystemToken, Diagnostic, DiagnosticSeverity, HardcodedStyleSite,
-    IdentityStability, LocalComponent, MatchStatus, ParentScope, ScanStatus, SourceLocation,
-    StyleContext, TokenCategory, TokenSite, UsageSite,
+    CalleeOrigin, DesignSystemComponent, DesignSystemToken, Diagnostic, DiagnosticSeverity,
+    HardcodedStyleSite, IdentityStability, LocalComponent, MatchStatus, ParentScope,
+    ResolutionEvidence, ResolutionEvidenceKind, ScanStatus, SourceLocation, StyleContext,
+    TokenCategory, TokenSite, UsageSite,
 };
 use wax_lang_api::{
     RegistryImportMatch, RegistryTokenIndex, RootResolutionError, ScanConfig,
@@ -386,6 +387,39 @@ fn qualified_composable_symbol(package: Option<&str>, symbol: &str) -> String {
         .unwrap_or_else(|| symbol.to_owned())
 }
 
+fn unresolved_origin(package: Option<&str>) -> CalleeOrigin {
+    match package {
+        Some(package) if package.starts_with("androidx.compose") => CalleeOrigin::Framework,
+        Some(package) if package.starts_with("androidx.ui") => CalleeOrigin::Framework,
+        Some(_) => CalleeOrigin::External,
+        None => CalleeOrigin::Application,
+    }
+}
+
+fn unresolved_origin_for_symbol(symbol: &str, package: Option<&str>) -> CalleeOrigin {
+    if package.is_none()
+        && matches!(
+            symbol,
+            "Box"
+                | "Button"
+                | "Color"
+                | "Column"
+                | "Image"
+                | "Row"
+                | "Text"
+                | "TextField"
+                | "TextStyle"
+                | "RoundedCornerShape"
+                | "Surface"
+                | "Spacer"
+        )
+    {
+        CalleeOrigin::Framework
+    } else {
+        unresolved_origin(package)
+    }
+}
+
 fn local_definition_id(qualified_symbol: &str) -> String {
     format!("local.compose:{qualified_symbol}")
 }
@@ -631,40 +665,89 @@ fn visit_component_usage(
                 location,
                 symbol: call_symbol.clone(),
                 qualified_symbol: local.qualified_symbol.clone(),
+                callee_origin: CalleeOrigin::Local,
+                resolution_evidence: ResolutionEvidence {
+                    kind: if ctx.local_index.same_file(ctx.file, &call_symbol).is_some() {
+                        ResolutionEvidenceKind::LocalSameFile
+                    } else {
+                        ResolutionEvidenceKind::LocalPackageMatch
+                    },
+                    package: import_package.map(str::to_owned),
+                },
                 match_status: MatchStatus::Local,
                 registry_symbol: None,
                 local_definition_id: Some(local.id.clone()),
                 parent,
             });
         } else {
-            let registry_symbol = ctx.registry.resolve_targets.get(&call_symbol);
-            let registry_match = registry_symbol.map(|registry_symbol| {
+            let registry_target = ctx.registry.resolve_targets.get(&call_symbol);
+            let registry_match = registry_target.map(|registry_symbol| {
                 resolve_registry_match(&call_symbol, registry_symbol, ctx.registry, ctx.imports)
             });
             {
-                let (match_status, registry_symbol) = match registry_match {
-                    Some(RegistryImportMatch::Resolved) => {
-                        (MatchStatus::Resolved, registry_symbol.cloned())
-                    }
-                    Some(RegistryImportMatch::Candidate) => {
-                        (MatchStatus::Candidate, registry_symbol.cloned())
-                    }
-                    None | Some(RegistryImportMatch::Mismatch) => (MatchStatus::Unresolved, None),
-                    Some(RegistryImportMatch::LegacyNameOnly) => {
-                        (MatchStatus::Resolved, registry_symbol.cloned())
-                    }
-                };
-                let qualified_symbol = import_package.and_then(|package| {
-                    ctx.imports.symbol_names.get(&call_symbol).map_or_else(
-                        || Some(qualified_composable_symbol(Some(package), &call_symbol)),
-                        |symbol| Some(qualified_composable_symbol(Some(package), symbol)),
-                    )
-                });
+                let (match_status, registry_symbol, callee_origin, resolution_evidence) =
+                    match registry_match {
+                        Some(RegistryImportMatch::Resolved) => (
+                            MatchStatus::Resolved,
+                            registry_target.cloned(),
+                            CalleeOrigin::Registry,
+                            ResolutionEvidence {
+                                kind: ResolutionEvidenceKind::RegistryPackageMatch,
+                                package: import_package.map(str::to_owned),
+                            },
+                        ),
+                        Some(RegistryImportMatch::Candidate) => (
+                            MatchStatus::Candidate,
+                            registry_target.cloned(),
+                            CalleeOrigin::Registry,
+                            ResolutionEvidence {
+                                kind: if ctx.imports.wildcard_packages.len() > 1
+                                    && !ctx.imports.symbol_packages.contains_key(&call_symbol)
+                                {
+                                    ResolutionEvidenceKind::RegistryImportAmbiguous
+                                } else {
+                                    ResolutionEvidenceKind::RegistryImportMissing
+                                },
+                                package: import_package.map(str::to_owned),
+                            },
+                        ),
+                        Some(RegistryImportMatch::Mismatch) => (
+                            MatchStatus::Unresolved,
+                            None,
+                            unresolved_origin(import_package),
+                            ResolutionEvidence {
+                                kind: ResolutionEvidenceKind::PackageMismatch,
+                                package: import_package.map(str::to_owned),
+                            },
+                        ),
+                        Some(RegistryImportMatch::LegacyNameOnly) => (
+                            MatchStatus::Resolved,
+                            registry_target.cloned(),
+                            CalleeOrigin::Registry,
+                            ResolutionEvidence {
+                                kind: ResolutionEvidenceKind::RegistryNameOnlyLegacy,
+                                package: import_package.map(str::to_owned),
+                            },
+                        ),
+                        None => (
+                            MatchStatus::Unresolved,
+                            None,
+                            unresolved_origin_for_symbol(&call_symbol, import_package),
+                            ResolutionEvidence {
+                                kind: ResolutionEvidenceKind::NoMatchingDefinition,
+                                package: import_package.map(str::to_owned),
+                            },
+                        ),
+                    };
+                let qualified_symbol = import_package
+                    .map(|package| qualified_composable_symbol(Some(package), imported_symbol));
                 ctx.usage_sites.push(UsageSite {
                     id: format!("usage.compose:{}:{line}:{column}:{call_symbol}", ctx.file),
                     location,
                     symbol: call_symbol,
                     qualified_symbol,
+                    callee_origin,
+                    resolution_evidence,
                     match_status,
                     registry_symbol,
                     local_definition_id: None,
@@ -1554,6 +1637,10 @@ class Holder {
         assert_eq!(usages.len(), 1);
         assert_eq!(usages[0].match_status, MatchStatus::Local);
         assert_eq!(usages[0].registry_symbol, None);
+        assert_eq!(
+            usages[0].resolution_evidence.kind,
+            ResolutionEvidenceKind::LocalSameFile
+        );
     }
 
     #[test]
@@ -1570,6 +1657,37 @@ class Holder {
         assert_eq!(
             usages[0].qualified_symbol.as_deref(),
             Some("com.other.widgets.Button")
+        );
+        assert_eq!(
+            usages[0].resolution_evidence.kind,
+            ResolutionEvidenceKind::PackageMismatch
+        );
+        assert_eq!(
+            usages[0].resolution_evidence.package.as_deref(),
+            Some("com.other.widgets")
+        );
+    }
+
+    #[test]
+    fn package_mismatch_keeps_the_imported_symbol_for_an_alias() {
+        let mut registry = registry_with_package("Button", "com.acme.designsystem");
+        registry
+            .resolve_targets
+            .insert("DsButton".to_owned(), "Button".to_owned());
+        let (_, usages) = parse_and_extract(
+            "import com.other.widgets.RealButton as DsButton\n@Composable\nfun Screen() { DsButton() }",
+            &registry,
+        );
+
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].match_status, MatchStatus::Unresolved);
+        assert_eq!(
+            usages[0].qualified_symbol.as_deref(),
+            Some("com.other.widgets.RealButton")
+        );
+        assert_eq!(
+            usages[0].resolution_evidence.kind,
+            ResolutionEvidenceKind::PackageMismatch
         );
     }
 
@@ -1604,6 +1722,9 @@ class Holder {
             usages[1].qualified_symbol.as_deref(),
             Some("com.acme.designsystem.Button")
         );
+        assert!(usages.iter().all(|usage| {
+            usage.resolution_evidence.kind == ResolutionEvidenceKind::RegistryPackageMatch
+        }));
     }
 
     #[test]
@@ -1617,6 +1738,10 @@ class Holder {
         assert_eq!(usages.len(), 1);
         assert_eq!(usages[0].match_status, MatchStatus::Candidate);
         assert_eq!(usages[0].qualified_symbol, None);
+        assert_eq!(
+            usages[0].resolution_evidence.kind,
+            ResolutionEvidenceKind::RegistryImportAmbiguous
+        );
     }
 
     #[test]

@@ -26,7 +26,7 @@ use thiserror::Error;
 use time::OffsetDateTime;
 
 /// Current JSON schema version for [`ScanFacts`] and [`MergedScan`].
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 /// Maximum parser/extraction duration accepted by the frozen JSON contract.
 ///
@@ -227,6 +227,57 @@ pub enum MatchStatus {
     Local,
     /// The invocation has UI shape but could not match registry or local definitions.
     Unresolved,
+}
+
+/// Origin of the callee used at a usage site.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum CalleeOrigin {
+    /// The callee resolved to a configured design-system registry component.
+    Registry,
+    /// The callee resolved to a component declared in the scanned repository.
+    Local,
+    /// The callee is provided by a known framework package.
+    Framework,
+    /// The callee is imported from a non-design-system package.
+    External,
+    /// The callee is unqualified but belongs to the scanned application scope.
+    Application,
+    /// The callee origin could not be determined.
+    Unknown,
+}
+
+/// Evidence explaining how a usage site's callee was classified.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum ResolutionEvidenceKind {
+    /// The observed import package matches the registry package.
+    RegistryPackageMatch,
+    /// The registry component has no package and matched by legacy name-only rules.
+    RegistryNameOnlyLegacy,
+    /// A registry component matched by name but no import package was observed.
+    RegistryImportMissing,
+    /// A registry component matched by name but multiple imports could explain it.
+    RegistryImportAmbiguous,
+    /// The usage resolved to a component declared in the same source file.
+    LocalSameFile,
+    /// The usage resolved to a local component through its package or module.
+    LocalPackageMatch,
+    /// An explicit imported package does not match the registry package.
+    PackageMismatch,
+    /// No registry or local definition matched the usage.
+    NoMatchingDefinition,
+}
+
+/// Structured evidence attached to a usage-site resolution decision.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ResolutionEvidence {
+    /// Specific evidence supporting the usage-site classification.
+    pub kind: ResolutionEvidenceKind,
+    /// Observed package or module when the evidence supplies one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub package: Option<String>,
 }
 
 /// Kind of symbol represented by a [`SymbolUsageSummary`] row.
@@ -568,6 +619,10 @@ pub struct UsageSite {
     /// Best-effort semantic callee identity when available.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub qualified_symbol: Option<String>,
+    /// Origin of the callee used at this site.
+    pub callee_origin: CalleeOrigin,
+    /// Evidence explaining the resolution decision at this site.
+    pub resolution_evidence: ResolutionEvidence,
     /// Resolution status against registry and local definitions.
     pub match_status: MatchStatus,
     /// Registry symbol for resolved and candidate usage.
@@ -678,6 +733,24 @@ pub struct ParentScopeCounts {
     pub with_unresolved_invocations: u32,
 }
 
+/// Usage-site counts grouped by callee origin.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct InvocationOriginCounts {
+    /// Usage sites resolved to configured registry components.
+    pub registry: u32,
+    /// Usage sites resolved to repository-local components.
+    pub local: u32,
+    /// Usage sites attributed to a known framework.
+    pub framework: u32,
+    /// Usage sites imported from external packages.
+    pub external: u32,
+    /// Unqualified usage sites attributed to the scanned application.
+    pub application: u32,
+    /// Usage sites whose origin could not be determined.
+    pub unknown: u32,
+}
+
 /// Token counts grouped by category.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(deny_unknown_fields)]
@@ -732,6 +805,8 @@ pub struct CountSummary {
     pub adoption: AdoptionCounts,
     /// Parent-scope aggregate counters.
     pub parent_scopes: ParentScopeCounts,
+    /// Usage-site counters grouped by callee origin.
+    pub invocation_origins: InvocationOriginCounts,
     /// Design-token scan counters.
     #[serde(default)]
     pub tokens: TokenCounts,
@@ -1871,8 +1946,23 @@ fn validate_location(field: &str, location: &SourceLocation) -> Result<(), ScanF
 }
 
 fn validate_usage_site_linkage(field: &str, site: &UsageSite) -> Result<(), ScanFactsError> {
+    if let Some(package) = &site.resolution_evidence.package
+        && package.is_empty()
+    {
+        return Err(contract_violation(
+            &format!("{field}.resolution_evidence.package"),
+            "package must not be empty when present",
+        ));
+    }
+
     match site.match_status {
         MatchStatus::Resolved | MatchStatus::Candidate => {
+            if site.callee_origin != CalleeOrigin::Registry {
+                return Err(contract_violation(
+                    &format!("{field}.callee_origin"),
+                    "resolved and candidate usage must have registry origin",
+                ));
+            }
             require_non_empty(
                 &format!("{field}.registry_symbol"),
                 site.registry_symbol.as_deref().unwrap_or(""),
@@ -1883,8 +1973,42 @@ fn validate_usage_site_linkage(field: &str, site: &UsageSite) -> Result<(), Scan
                     "local_definition_id must be absent for resolved and candidate usage",
                 ));
             }
+
+            let expected_evidence = match site.match_status {
+                MatchStatus::Resolved => matches!(
+                    site.resolution_evidence.kind,
+                    ResolutionEvidenceKind::RegistryPackageMatch
+                        | ResolutionEvidenceKind::RegistryNameOnlyLegacy
+                ),
+                MatchStatus::Candidate => matches!(
+                    site.resolution_evidence.kind,
+                    ResolutionEvidenceKind::RegistryImportMissing
+                        | ResolutionEvidenceKind::RegistryImportAmbiguous
+                ),
+                _ => false,
+            };
+            if !expected_evidence {
+                return Err(contract_violation(
+                    &format!("{field}.resolution_evidence.kind"),
+                    "registry status must use matching registry evidence",
+                ));
+            }
+            if site.resolution_evidence.kind == ResolutionEvidenceKind::RegistryPackageMatch
+                && site.resolution_evidence.package.is_none()
+            {
+                return Err(contract_violation(
+                    &format!("{field}.resolution_evidence.package"),
+                    "registry package match requires an observed package",
+                ));
+            }
         }
         MatchStatus::Local => {
+            if site.callee_origin != CalleeOrigin::Local {
+                return Err(contract_violation(
+                    &format!("{field}.callee_origin"),
+                    "local usage must have local origin",
+                ));
+            }
             require_non_empty(
                 &format!("{field}.local_definition_id"),
                 site.local_definition_id.as_deref().unwrap_or(""),
@@ -1895,8 +2019,26 @@ fn validate_usage_site_linkage(field: &str, site: &UsageSite) -> Result<(), Scan
                     "registry_symbol must be absent for local usage",
                 ));
             }
+            if !matches!(
+                site.resolution_evidence.kind,
+                ResolutionEvidenceKind::LocalSameFile | ResolutionEvidenceKind::LocalPackageMatch
+            ) {
+                return Err(contract_violation(
+                    &format!("{field}.resolution_evidence.kind"),
+                    "local status must use local evidence",
+                ));
+            }
         }
         MatchStatus::Unresolved => {
+            if matches!(
+                site.callee_origin,
+                CalleeOrigin::Registry | CalleeOrigin::Local
+            ) {
+                return Err(contract_violation(
+                    &format!("{field}.callee_origin"),
+                    "unresolved usage cannot have registry or local origin",
+                ));
+            }
             if site.registry_symbol.is_some() {
                 return Err(contract_violation(
                     &format!("{field}.registry_symbol"),
@@ -1907,6 +2049,30 @@ fn validate_usage_site_linkage(field: &str, site: &UsageSite) -> Result<(), Scan
                 return Err(contract_violation(
                     &format!("{field}.local_definition_id"),
                     "local_definition_id must be absent for unresolved usage",
+                ));
+            }
+            if matches!(
+                site.resolution_evidence.kind,
+                ResolutionEvidenceKind::RegistryPackageMatch
+                    | ResolutionEvidenceKind::RegistryNameOnlyLegacy
+                    | ResolutionEvidenceKind::RegistryImportMissing
+                    | ResolutionEvidenceKind::RegistryImportAmbiguous
+                    | ResolutionEvidenceKind::LocalSameFile
+                    | ResolutionEvidenceKind::LocalPackageMatch
+            ) {
+                return Err(contract_violation(
+                    &format!("{field}.resolution_evidence.kind"),
+                    "unresolved usage cannot use registry or local success evidence",
+                ));
+            }
+            if !matches!(
+                site.resolution_evidence.kind,
+                ResolutionEvidenceKind::PackageMismatch
+                    | ResolutionEvidenceKind::NoMatchingDefinition
+            ) {
+                return Err(contract_violation(
+                    &format!("{field}.resolution_evidence.kind"),
+                    "unresolved usage must identify package mismatch or no matching definition",
                 ));
             }
         }
@@ -2055,6 +2221,38 @@ fn checked_add_count_summaries(
                 right.parent_scopes.with_unresolved_invocations,
             )?,
         },
+        invocation_origins: InvocationOriginCounts {
+            registry: checked_add_count(
+                &format!("{field}.invocation_origins.registry"),
+                left.invocation_origins.registry,
+                right.invocation_origins.registry,
+            )?,
+            local: checked_add_count(
+                &format!("{field}.invocation_origins.local"),
+                left.invocation_origins.local,
+                right.invocation_origins.local,
+            )?,
+            framework: checked_add_count(
+                &format!("{field}.invocation_origins.framework"),
+                left.invocation_origins.framework,
+                right.invocation_origins.framework,
+            )?,
+            external: checked_add_count(
+                &format!("{field}.invocation_origins.external"),
+                left.invocation_origins.external,
+                right.invocation_origins.external,
+            )?,
+            application: checked_add_count(
+                &format!("{field}.invocation_origins.application"),
+                left.invocation_origins.application,
+                right.invocation_origins.application,
+            )?,
+            unknown: checked_add_count(
+                &format!("{field}.invocation_origins.unknown"),
+                left.invocation_origins.unknown,
+                right.invocation_origins.unknown,
+            )?,
+        },
         tokens: TokenCounts {
             configured_token_count: checked_add_count(
                 &format!("{field}.tokens.configured_token_count"),
@@ -2194,6 +2392,7 @@ fn derive_counts_and_metrics(
     let mut parents_with_resolved = BTreeSet::new();
     let mut parents_with_local = BTreeSet::new();
     let mut parents_with_unresolved = BTreeSet::new();
+    let mut invocation_origins = InvocationOriginCounts::default();
 
     let mut token_by_id = BTreeMap::new();
     for (index, token) in facts.design_system_tokens.iter().enumerate() {
@@ -2295,6 +2494,16 @@ fn derive_counts_and_metrics(
     }
 
     for site in &facts.usage_sites {
+        let origin_count = match site.callee_origin {
+            CalleeOrigin::Registry => &mut invocation_origins.registry,
+            CalleeOrigin::Local => &mut invocation_origins.local,
+            CalleeOrigin::Framework => &mut invocation_origins.framework,
+            CalleeOrigin::External => &mut invocation_origins.external,
+            CalleeOrigin::Application => &mut invocation_origins.application,
+            CalleeOrigin::Unknown => &mut invocation_origins.unknown,
+        };
+        increment_count("counts.invocation_origins", origin_count)?;
+
         match site.match_status {
             MatchStatus::Resolved => {
                 increment_count("counts.raw_invocations.resolved", &mut resolved)?;
@@ -2405,6 +2614,7 @@ fn derive_counts_and_metrics(
                 parents_with_unresolved.len(),
             )?,
         },
+        invocation_origins,
         tokens: TokenCounts {
             configured_token_count: checked_len(
                 "counts.tokens.configured_token_count",

@@ -17,6 +17,14 @@
     "invoked_local_definition_count": 0,
     "unused_local_definition_count": 4
   },
+  "invocation_origins": {
+    "registry": 5,
+    "local": 0,
+    "framework": 6,
+    "external": 0,
+    "application": 0,
+    "unknown": 0
+  },
   "tokens": {
     "configured_token_count": 2,
     "used_token_count": 1,

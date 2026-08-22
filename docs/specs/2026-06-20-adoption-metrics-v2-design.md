@@ -10,7 +10,7 @@
 
 Wax currently reports adoption from registry-resolved primitive usage sites. That makes component-based applications look healthier than they are: a screen can call local wrappers everywhere while those wrappers call design-system primitives internally, and the scan can still show 100% adoption.
 
-Adoption Metrics v2 changes the contract from "one hero ratio" to "facts first, metrics second." Language packs should emit every detected UI invocation, classify each invocation as design-system, local, candidate, or unresolved, and attach optional parent-scope attribution. The engine should preserve raw counters and derived summaries so reporting layers can choose honest decision metrics without reverse-engineering thousands of call sites.
+Adoption Metrics v2 changes the contract from "one hero ratio" to "facts first, metrics second." The current scan-facts contract is schema v4: language packs emit every detected UI invocation, classify each invocation as design-system, local, candidate, or unresolved, and attach deterministic callee-origin and resolution-evidence objects alongside optional parent-scope attribution. The engine should preserve raw counters and derived summaries so reporting layers can choose honest decision metrics without reverse-engineering thousands of call sites.
 
 The core rule is:
 
@@ -124,6 +124,25 @@ Every new enum-like field must be documented in schemas, Rust API docs, and repo
 | `candidate` | The invocation may refer to a design-system component, but import/package/alias evidence is ambiguous and needs review. |
 | `unresolved` | The invocation has UI shape, but Wax could not match it to the registry or local definition catalog. |
 
+### `callee_origin`
+
+Schema v4 records the origin selected by the same resolver decision as
+`match_status`. The closed enum is `registry`, `local`, `framework`, `external`,
+`application`, or `unknown`. Resolved and candidate rows use `registry`; local
+rows use `local`; unresolved rows retain whether they came from a known
+framework, an imported external package, the application scope, or no
+determinable origin.
+
+### `resolution_evidence`
+
+Every usage site carries a closed evidence kind and an optional observed
+package/module. The kinds are `registry_package_match`,
+`registry_name_only_legacy`, `registry_import_missing`,
+`registry_import_ambiguous`, `local_same_file`, `local_package_match`,
+`package_mismatch`, and `no_matching_definition`. A package mismatch keeps the
+observed package/module in `resolution_evidence.package`; consumers do not
+need to reconstruct `qualified_symbol` by concatenating fields.
+
 ### `symbol_kind`
 
 `symbol_kind` describes what a `symbol_usage_summary[]` row represents after grouping usage sites.
@@ -204,6 +223,7 @@ These fields are new or newly clarified in v2. Schemas and public Rust docs shou
 | `parent_scopes.with_resolved_invocations` | Number of parent scopes containing at least one resolved invocation. |
 | `parent_scopes.with_local_invocations` | Number of parent scopes containing at least one local invocation. |
 | `parent_scopes.with_unresolved_invocations` | Number of parent scopes containing at least one unresolved invocation. |
+| `invocation_origins` | Counts of usage sites by `callee_origin`; derived exclusively from `usage_sites[]`. |
 | `invocation_adoption_ratio` | Primary adoption ratio from explicit adoption numerator and denominator counters. |
 | `registry_resolution_ratio` | Resolved raw invocations divided by all raw invocations. |
 | `symbol_usage_summary[]` | Derived per-callee summary rows grouped from `usage_sites[]`. |
@@ -298,9 +318,9 @@ Allowed `identity_stability` values:
 
 v2 does not guarantee perfect stability across renames or path-sensitive module moves. Aggregate counters remain valid when a move preserves invocations; identity-level trend reports may show churn.
 
-## Usage Site v2
+## Usage Site v4
 
-`usage_sites[]` remains the lossless event stream. v2 extends it with local matching and optional parent attribution:
+`usage_sites[]` remains the lossless event stream. Schema v4 extends the v2 rows with explicit origin and evidence so a classification can be explained without re-parsing source:
 
 ```json
 {
@@ -312,6 +332,11 @@ v2 does not guarantee perfect stability across renames or path-sensitive module 
   },
   "symbol": "EpisodeCard",
   "qualified_symbol": "com.example.discover.EpisodeCard",
+  "callee_origin": "local",
+  "resolution_evidence": {
+    "kind": "local_package_match",
+    "package": "com.example.discover"
+  },
   "match_status": "local",
   "registry_symbol": null,
   "local_definition_id": "local.compose:com.example.discover.EpisodeCard",
@@ -339,6 +364,8 @@ Field rules:
 | `location` | Yes | Navigation only. Repo-relative file, one-based line/column. |
 | `symbol` | Yes | Source-level callee text. |
 | `qualified_symbol` | Best effort | Semantic callee identity when language can provide it. |
+| `callee_origin` | Yes | `registry`, `local`, `framework`, `external`, `application`, or `unknown`; derived from the same resolution decision as the status. |
+| `resolution_evidence` | Yes | Closed evidence object explaining package match, import ambiguity/missingness, local linkage, mismatch, or no definition. |
 | `match_status` | Yes | `resolved`, `local`, `candidate`, or `unresolved`. |
 | `registry_symbol` | If `resolved` or `candidate` | Canonical registry symbol. |
 | `local_definition_id` | If `local` | Links to `local_components[].id`. |
@@ -417,7 +444,7 @@ Repo-level totals should live on the `MergedScan` root so consumers do not need 
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "recorded_at": "2026-06-20T12:00:00Z",
   "repo_summary": {
     "languages": ["compose", "react", "swift"],
@@ -712,17 +739,19 @@ Candidate future fact families include:
 | Imports | Import source, alias, package/module evidence used for resolution. |
 | Ownership | File/module/team tags when configured by the repository. |
 
-## Alpha Cutover
+## Schema v4 Cutover
 
-Wax is still alpha, so v2 should move directly to the new scan format instead of emitting v1 compatibility aliases.
+Wax is still alpha, so schema v4 moves directly to the new scan format instead of emitting compatibility aliases.
 
 Cutover rules:
 
-- Bump `schema_version` for `ScanFacts` and `MergedScan`.
+- Bump `schema_version` for `ScanFacts` and `MergedScan` to `4`; `.waxrc`, lockfile, and language wire API versions are unchanged.
+- Require `callee_origin` and `resolution_evidence` on every `usage_sites[]` row and derive `counts.invocation_origins` only from those rows.
+- Reject schema-v2 facts as unsupported rather than silently interpreting them as v3.
 - Remove `adoption_coverage_ratio` from the v2 metrics shape.
 - Emit `invocation_adoption_ratio` and `registry_resolution_ratio` from explicit counters.
 - Update CLI, reports, fixtures, and scan analytics to read v2 fields directly.
-- v1 consumers should reject `schema_version: 2` rather than silently interpreting it as v1.
+- v3 consumers should reject `schema_version: 4` rather than silently interpreting it as v3.
 
 ## Reporting Contract
 

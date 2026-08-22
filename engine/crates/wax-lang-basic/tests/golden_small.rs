@@ -56,6 +56,7 @@ fn small_fixture_matches_golden_counts() {
         facts.counts.raw_invocations.local, golden.raw_invocations_local,
         "raw_invocations.local drifted from golden"
     );
+    assert_eq!(facts.counts.invocation_origins.registry, 3);
     assert_eq!(
         facts.counts.registry.component_count, golden.registry_component_count,
         "registry.component_count drifted from golden"

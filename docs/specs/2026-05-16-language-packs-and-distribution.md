@@ -85,6 +85,9 @@ The production `wax-contract` crate is the stable boundary for language packs an
 - for **Adoption Metrics v2** (`ScanFacts.schema_version` 2), use explicit v2 counter groups and derived metrics instead of v1 `adoption_coverage_ratio`; see [Adoption Metrics v2 design](./2026-06-20-adoption-metrics-v2-design.md). Schema v2 outputs supersede v1 adoption coverage semantics during the alpha cutover;
 - reserve extension fields only where the engine has a known compatibility need.
 
+Scan-facts schema v4 adds explicit callee-origin and resolution-evidence fields
+to every `usage_sites[]` row; schema-v2 payloads are rejected as unsupported.
+
 ### `ScanFacts` contract fields
 
 `ScanFacts.language` is a `LanguageMetadata` object describing the language pack that produced the facts:
