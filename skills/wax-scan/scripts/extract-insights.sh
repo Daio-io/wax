@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deterministic insights extractor for wax-scan skill (scan schema v3).
+# Deterministic insights extractor for wax-scan skill (scan schema v4).
 set -euo pipefail
 
 usage() {
@@ -50,8 +50,8 @@ if ! jq -e '
 fi
 
 SCAN_SCHEMA="$(jq -r '.schema_version' "$SCAN")"
-if [[ "$SCAN_SCHEMA" != "3" ]]; then
-  echo "extract-insights.sh: unsupported scan schema_version ${SCAN_SCHEMA}; expected 3" >&2
+if [[ "$SCAN_SCHEMA" != "4" ]]; then
+  echo "extract-insights.sh: unsupported scan schema_version ${SCAN_SCHEMA}; expected 4" >&2
   exit 1
 fi
 
@@ -590,8 +590,8 @@ compute_baseline_deltas() {
   local baseline_schema
   baseline_schema="$(jq -r '.schema_version' "$baseline_file")"
 
-  if [[ "$baseline_schema" != "3" ]]; then
-    jq --arg reason "Baseline schema_version ${baseline_schema} is incompatible with current v3 scan output; older baselines lack inference classifications and cannot be mixed with v3 denominators" '
+  if [[ "$baseline_schema" != "4" ]]; then
+    jq --arg reason "Baseline schema_version ${baseline_schema} is incompatible with current v4 scan output; older baselines lack inference classifications and cannot be mixed with v4 denominators" '
       .limits += [{
         metric: "Baseline comparison",
         missing_capability: $reason

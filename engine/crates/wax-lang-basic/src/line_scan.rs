@@ -6,8 +6,9 @@ use std::path::{Component, Path, PathBuf};
 
 use thiserror::Error;
 use wax_contract::{
-    DesignSystemComponent, DesignSystemToken, Diagnostic, DiagnosticSeverity, MatchStatus,
-    ScanStatus, SourceLocation, TokenSite, UsageSite,
+    CalleeOrigin, DesignSystemComponent, DesignSystemToken, Diagnostic, DiagnosticSeverity,
+    MatchStatus, ResolutionEvidence, ResolutionEvidenceKind, ScanStatus, SourceLocation, TokenSite,
+    UsageSite,
 };
 use wax_lang_api::{
     RegistryTokenIndex, RootResolutionError, ScanConfig, find_token_matches,
@@ -267,6 +268,7 @@ pub fn scan_repository(
             &source,
             &relative_file,
             &registry.resolve_targets,
+            &registry.packaged_symbols,
             &mut usage_sites,
         );
 
@@ -365,6 +367,7 @@ pub enum LineScanError {
 struct RegistryIndex {
     canonical_symbols: Vec<String>,
     resolve_targets: BTreeMap<String, String>,
+    packaged_symbols: std::collections::BTreeSet<String>,
     tokens: Vec<DesignSystemToken>,
     token_index: RegistryTokenIndex,
 }
@@ -389,6 +392,7 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, LineScanError> {
 
     let mut canonical_symbols = Vec::new();
     let mut resolve_targets = BTreeMap::new();
+    let mut packaged_symbols = std::collections::BTreeSet::new();
     for (index, component) in components.iter().enumerate() {
         let symbol = component
             .get("symbol")
@@ -398,6 +402,13 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, LineScanError> {
                 reason: format!("components[{index}] is missing symbol"),
             })?;
         canonical_symbols.push(symbol.to_owned());
+        if component
+            .get("package")
+            .and_then(serde_json::Value::as_str)
+            .is_some()
+        {
+            packaged_symbols.insert(symbol.to_owned());
+        }
         resolve_targets.insert(symbol.to_owned(), symbol.to_owned());
         if let Some(aliases) = component
             .get("aliases")
@@ -439,6 +450,7 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, LineScanError> {
     Ok(RegistryIndex {
         canonical_symbols,
         resolve_targets,
+        packaged_symbols,
         tokens,
         token_index,
     })
@@ -529,6 +541,7 @@ fn extract_usage_sites(
     source: &str,
     file: &str,
     resolve_targets: &BTreeMap<String, String>,
+    packaged_symbols: &std::collections::BTreeSet<String>,
     out: &mut Vec<UsageSite>,
 ) {
     for (line_index, line) in source.lines().enumerate() {
@@ -556,7 +569,20 @@ fn extract_usage_sites(
                     },
                     symbol: call_symbol.clone(),
                     qualified_symbol: None,
-                    match_status: MatchStatus::Resolved,
+                    callee_origin: CalleeOrigin::Registry,
+                    resolution_evidence: ResolutionEvidence {
+                        kind: if packaged_symbols.contains(registry_symbol) {
+                            ResolutionEvidenceKind::RegistryImportMissing
+                        } else {
+                            ResolutionEvidenceKind::RegistryNameOnlyLegacy
+                        },
+                        package: None,
+                    },
+                    match_status: if packaged_symbols.contains(registry_symbol) {
+                        MatchStatus::Candidate
+                    } else {
+                        MatchStatus::Resolved
+                    },
                     registry_symbol: Some(registry_symbol.clone()),
                     local_definition_id: None,
                     parent: None,
@@ -629,6 +655,7 @@ mod tests {
             "function Screen() { PrimaryBtn() }",
             "Screen.src",
             &resolve_targets,
+            &std::collections::BTreeSet::new(),
             &mut usage_sites,
         );
         assert_eq!(usage_sites.len(), 1);

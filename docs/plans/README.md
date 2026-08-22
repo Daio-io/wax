@@ -9,7 +9,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 3. Each implementation task remains **one PR per task** inside the active plan, per that plan's execution model.
 4. Update the **Doc status** and **Implementation status** columns when a plan doc PR merges or when implementation of a plan finishes.
 
-**Active plan:** None promoted yet. Adoption Metrics v2 (order 11), Token inference and reporting (order 14), Compose parse recovery and UI scoping (order 15), and Git registry sources (order 16) are complete and archived; see their [Adoption Metrics v2 archive](./archive/2026-06-20-adoption-metrics-v2-plan.md), [Adoption Metrics v2 ADR](../adr/2026-06-20-adoption-metrics-v2.md), [token inference archive](./archive/2026-07-19-token-inference-reporting-plan.md), [token inference ADR](../adr/2026-07-19-token-inference-reporting.md), [compose parse recovery archive](./archive/2026-07-22-compose-parse-recovery-plan.md), [compose parse recovery ADR](../adr/2026-07-22-compose-parse-recovery.md), [Git registry sources archive](./archive/2026-08-01-git-registry-sources-plan.md), and [Git registry sources ADR](../adr/2026-08-01-git-registry-sources.md). No new active-plan work begins until a maintainer promotes the next plan.
+**Active plan:** Phase 2B — explicit resolution evidence and callee origin (order 17), documented in [the Phase 2B plan](./2026-08-22-phase-2b-resolution-evidence-plan.md). Adoption Metrics v2 (order 11), Token inference and reporting (order 14), Compose parse recovery and UI scoping (order 15), and Git registry sources (order 16) are complete and archived; see their [Adoption Metrics v2 archive](./archive/2026-06-20-adoption-metrics-v2-plan.md), [Adoption Metrics v2 ADR](../adr/2026-06-20-adoption-metrics-v2.md), [token inference archive](./archive/2026-07-19-token-inference-reporting-plan.md), [token inference ADR](../adr/2026-07-19-token-inference-reporting.md), [compose parse recovery archive](./archive/2026-07-22-compose-parse-recovery-plan.md), [compose parse recovery ADR](../adr/2026-07-22-compose-parse-recovery.md), [Git registry sources archive](./archive/2026-08-01-git-registry-sources-plan.md), and [Git registry sources ADR](../adr/2026-08-01-git-registry-sources.md).
 
 ---
 
@@ -33,6 +33,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 | 14 | Token inference and reporting | [archive/2026-07-19-token-inference-reporting-plan.md](./archive/2026-07-19-token-inference-reporting-plan.md) | `merged` | `complete` | [ADR](../adr/2026-07-19-token-inference-reporting.md) |
 | 15 | Compose parse recovery and UI scoping | [archive/2026-07-22-compose-parse-recovery-plan.md](./archive/2026-07-22-compose-parse-recovery-plan.md) | `merged` | `complete` | [ADR](../adr/2026-07-22-compose-parse-recovery.md) |
 | 16 | Git registry sources | [archive/2026-08-01-git-registry-sources-plan.md](./archive/2026-08-01-git-registry-sources-plan.md) | `merged` | `complete` | [ADR](../adr/2026-08-01-git-registry-sources.md) |
+| 17 | Phase 2B — explicit resolution evidence and callee origin | [2026-08-22-phase-2b-resolution-evidence-plan.md](./2026-08-22-phase-2b-resolution-evidence-plan.md) | `merged` | `in-progress` | — |
 
 **Doc status:** `pending` -> plan PR open; `merged` -> plan doc on `main`; `planned` -> not yet drafted.
 
@@ -43,8 +44,8 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 ## Which plan should I run?
 
 ```text
--> No active implementation plan is promoted.
--> Do not start a new plan until a maintainer promotes the next roadmap item.
+-> Phase 2B — explicit resolution evidence and callee origin.
+-> Follow the task boundaries and verification gates in the active plan.
 ```
 
 Orders 1-4, 6-16 are **complete**. Post-alpha UX (order 5) remains otherwise deferred. Adoption Metrics v2 shipped in PRs #165, #171, and #172 and is archived. Token inference and reporting finished implementation in PRs #231, #233, #235, #236, and #237 plus closeout PR #238 and is archived. Compose parse recovery and UI scoping finished implementation in PRs #245–#247, #249, and #250 plus closeout PR #251 and is archived. Git registry sources finished implementation in PRs #262–#265 plus this closeout PR and is archived.

@@ -44,6 +44,8 @@ fn small_fixture_matches_golden_counts() {
         facts.counts.definitions.local_definition_count, golden.definitions_local_definition_count,
         "definitions.local_definition_count drifted from golden"
     );
+    assert_eq!(facts.counts.invocation_origins.registry, 5);
+    assert_eq!(facts.counts.invocation_origins.framework, 6);
 
     let usage_columns = facts
         .usage_sites

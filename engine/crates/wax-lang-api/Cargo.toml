@@ -14,6 +14,9 @@ wax-contract = { path = "../wax-contract" }
 [dev-dependencies]
 tempfile = "3"
 time = { version = "0.3", features = ["macros"] }
+wax-lang-compose = { path = "../wax-lang-compose" }
+wax-lang-react = { path = "../wax-lang-react" }
+wax-lang-swift = { path = "../wax-lang-swift" }
 
 [lints]
 workspace = true

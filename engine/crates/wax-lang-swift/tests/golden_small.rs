@@ -36,6 +36,8 @@ fn golden_small_swiftui_fixture_matches_counts() {
         facts.counts.registry.component_count,
         golden["registry"]["component_count"].as_u64().unwrap() as u32
     );
+    assert_eq!(facts.counts.invocation_origins.registry, 6);
+    assert_eq!(facts.counts.invocation_origins.local, 2);
     let alias_sites = facts
         .usage_sites
         .iter()
@@ -166,6 +168,14 @@ struct Screen: View {
     assert_eq!(facts.counts.raw_invocations.total, 1);
     assert_eq!(facts.counts.raw_invocations.resolved, 0);
     assert_eq!(facts.counts.raw_invocations.unresolved, 1);
+    assert_eq!(
+        facts.usage_sites[0].resolution_evidence.kind,
+        wax_contract::ResolutionEvidenceKind::PackageMismatch
+    );
+    assert_eq!(
+        facts.usage_sites[0].resolution_evidence.package.as_deref(),
+        Some("SwiftUI")
+    );
     assert_eq!(facts.counts.raw_invocations.candidate, 0);
 }
 

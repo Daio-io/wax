@@ -427,8 +427,8 @@ observations with usage context, and a deterministic `token_inference` report
 (exact, near, unmatched, and unassessed classifications with confidence and
 suggested replacements).
 
-For the full output contract, see
-[Adoption Metrics v2](docs/specs/2026-06-20-adoption-metrics-v2-design.md).
+For the full output contract, including scan-facts schema v4 resolution evidence
+and callee origins, see [Adoption Metrics v2](docs/specs/2026-06-20-adoption-metrics-v2-design.md).
 For raw token facts, see
 [Token scanning](docs/specs/2026-07-03-token-scanning-design.md). For
 inference classifications, confidence, and reviewed registry maintenance, see
