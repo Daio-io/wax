@@ -608,12 +608,21 @@ fn extract_usage_from_source(
 
             let import_package =
                 imports.package_for_call(&call_site.symbol, call_site.qualifier.as_deref());
-            if let Some(local) = local_index
-                .same_file(file, &call_site.symbol)
+            if let Some(local) = call_site
+                .qualifier
+                .is_none()
+                .then(|| local_index.same_file(file, &call_site.symbol))
+                .flatten()
                 .or_else(|| {
                     local_index.qualified_module(import_package.as_deref(), &call_site.symbol)
                 })
-                .or_else(|| local_index.current_module(&module_identity, &call_site.symbol))
+                .or_else(|| {
+                    call_site
+                        .qualifier
+                        .is_none()
+                        .then(|| local_index.current_module(&module_identity, &call_site.symbol))
+                        .flatten()
+                })
             {
                 usage_sites.push(UsageSite {
                     id: format!("usage.swift:{file}:{line}:{column}:{}", call_site.symbol),
