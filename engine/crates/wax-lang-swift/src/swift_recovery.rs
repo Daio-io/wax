@@ -5,15 +5,44 @@
 pub(crate) struct NormalizedSwiftSource {
     /// Source bytes passed to tree-sitter.
     pub(crate) bytes: Vec<u8>,
+    /// Source regions changed only for parser recovery.
+    pub(crate) regions: Vec<RecoveryRegion>,
 }
 
-/// Masks attribute clauses immediately followed by `#Preview`.
+/// The syntax family recovered in a normalized source buffer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RecoveryFamily {
+    /// An attribute clause immediately before a `#Preview` macro.
+    PreviewAttribute,
+    /// A Swift empty-tuple unit expression.
+    UnitExpression,
+}
+
+/// A byte range changed only in the parser-facing source buffer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RecoveryRegion {
+    /// Inclusive start byte and exclusive end byte in the original source.
+    pub(crate) start: usize,
+    /// Exclusive end byte in the original source.
+    pub(crate) end: usize,
+    /// The recovery family applied to this range.
+    pub(crate) family: RecoveryFamily,
+}
+
+/// Recovers unsupported Swift syntax without changing source byte offsets.
 pub(crate) fn normalize_swift_source(source: &[u8]) -> NormalizedSwiftSource {
     let mut bytes = source.to_vec();
+    let mut regions = Vec::new();
     let mut index = 0;
+    let mut previous_significant = None;
 
     while index < source.len() {
-        if let Some(end) = skip_comment_or_string(source, index) {
+        if let Some(end) = skip_comment(source, index) {
+            index = end;
+            continue;
+        }
+        if let Some(end) = skip_string(source, index) {
+            previous_significant = Some((index, end));
             index = end;
             continue;
         }
@@ -23,15 +52,156 @@ pub(crate) fn normalize_swift_source(source: &[u8]) -> NormalizedSwiftSource {
             let preview_start = skip_trivia(source, attribute_end);
             if attribute_end != index && starts_token(source, preview_start, b"#Preview") {
                 mask_non_newline_bytes(&mut bytes, index, attribute_end);
+                regions.push(RecoveryRegion {
+                    start: index,
+                    end: attribute_end,
+                    family: RecoveryFamily::PreviewAttribute,
+                });
                 index = attribute_end;
                 continue;
             }
         }
 
-        index += 1;
+        if source.get(index) == Some(&b'(')
+            && let Some(end) = unit_expression_end(source, index)
+            && can_recover_unit_expression(source, end, previous_significant)
+        {
+            bytes[index] = b'{';
+            bytes[end - 1] = b'}';
+            regions.push(RecoveryRegion {
+                start: index,
+                end,
+                family: RecoveryFamily::UnitExpression,
+            });
+            index = end;
+            continue;
+        }
+
+        if source[index].is_ascii_whitespace() {
+            index += 1;
+        } else if let Some((start, end)) = next_word(source, index) {
+            previous_significant = Some((start, end));
+            index = end;
+        } else {
+            previous_significant = Some((index, index + 1));
+            index += 1;
+        }
     }
 
-    NormalizedSwiftSource { bytes }
+    NormalizedSwiftSource { bytes, regions }
+}
+
+fn unit_expression_end(source: &[u8], opening_index: usize) -> Option<usize> {
+    let mut index = opening_index + 1;
+    while index < source.len() {
+        if let Some(end) = skip_comment(source, index) {
+            index = end;
+        } else if skip_string(source, index).is_some() {
+            return None;
+        } else if source[index].is_ascii_whitespace() {
+            index += 1;
+        } else if source[index] == b')' {
+            return Some(index + 1);
+        } else {
+            return None;
+        }
+    }
+    None
+}
+
+fn can_recover_unit_expression(
+    source: &[u8],
+    end: usize,
+    previous_significant: Option<(usize, usize)>,
+) -> bool {
+    if follows_function_type(source, end) {
+        return false;
+    }
+
+    let Some((start, token_end)) = previous_significant else {
+        return true;
+    };
+
+    !can_end_callable_expression(&source[start..token_end])
+}
+
+fn follows_function_type(source: &[u8], end: usize) -> bool {
+    let mut index = skip_trivia(source, end);
+    loop {
+        if source.get(index..index + 2) == Some(b"->") {
+            return true;
+        }
+
+        let Some((token_start, token_end)) = next_word(source, index) else {
+            return false;
+        };
+        if !matches!(
+            &source[token_start..token_end],
+            b"async" | b"throws" | b"rethrows"
+        ) {
+            return false;
+        }
+        index = skip_trivia(source, token_end);
+    }
+}
+
+fn next_word(source: &[u8], start: usize) -> Option<(usize, usize)> {
+    if !is_word_byte(*source.get(start)?) {
+        return None;
+    }
+    let mut end = start + 1;
+    while source.get(end).is_some_and(|byte| is_word_byte(*byte)) {
+        end += 1;
+    }
+    Some((start, end))
+}
+
+fn can_end_callable_expression(token: &[u8]) -> bool {
+    if token.len() == 1 {
+        return matches!(token[0], b')' | b']' | b'}' | b'?' | b'!') || is_word_byte(token[0]);
+    }
+    if token
+        .first()
+        .is_some_and(|byte| *byte == b'"' || *byte == b'#')
+    {
+        return true;
+    }
+    if token.iter().all(|byte| is_word_byte(*byte)) {
+        return !matches!(
+            token,
+            b"return"
+                | b"throw"
+                | b"yield"
+                | b"case"
+                | b"else"
+                | b"do"
+                | b"defer"
+                | b"guard"
+                | b"if"
+                | b"while"
+                | b"for"
+                | b"switch"
+                | b"catch"
+                | b"repeat"
+                | b"in"
+                | b"is"
+                | b"as"
+                | b"let"
+                | b"var"
+                | b"await"
+                | b"try"
+                | b"some"
+                | b"any"
+                | b"async"
+                | b"throws"
+                | b"rethrows"
+        );
+    }
+    false
+}
+
+fn is_word_byte(byte: u8) -> bool {
+    is_identifier_byte(byte) || byte >= 0x80
 }
 
 fn preview_attribute_prefix(source: &[u8], start: usize) -> usize {
@@ -231,7 +401,7 @@ fn mask_non_newline_bytes(bytes: &mut [u8], start: usize, end: usize) {
 
 #[cfg(test)]
 mod tests {
-    use super::{NormalizedSwiftSource, normalize_swift_source};
+    use super::{NormalizedSwiftSource, RecoveryFamily, normalize_swift_source};
 
     #[test]
     fn masks_available_attribute_before_preview_without_changing_offsets() {
@@ -253,6 +423,7 @@ mod tests {
             normalize_swift_source(source),
             NormalizedSwiftSource {
                 bytes: source.to_vec(),
+                regions: Vec::new(),
             }
         );
     }
@@ -337,5 +508,97 @@ let multiline = """
 "###;
 
         assert_eq!(normalize_swift_source(source).bytes, source.to_vec());
+    }
+
+    #[test]
+    fn normalizes_unit_expression_to_empty_closure_token() {
+        let source = b"let value: Void = ();";
+
+        assert_eq!(
+            normalize_swift_source(source).bytes,
+            b"let value: Void = {};"
+        );
+    }
+
+    #[test]
+    fn normalizes_unit_expression_after_return() {
+        let source = b"func finish() { return () }";
+
+        assert_eq!(
+            normalize_swift_source(source).bytes,
+            b"func finish() { return {} }"
+        );
+    }
+
+    #[test]
+    fn normalizes_labeled_and_nested_unit_expressions() {
+        let source = b"resume(returning: (before, ()));";
+
+        assert_eq!(
+            normalize_swift_source(source).bytes,
+            b"resume(returning: (before, {}));"
+        );
+    }
+
+    #[test]
+    fn preserves_newlines_inside_multiline_unit_expression() {
+        let source = b"let value = (\n);";
+
+        assert_eq!(normalize_swift_source(source).bytes, b"let value = {\n};");
+    }
+
+    #[test]
+    fn leaves_callable_parentheses_and_function_types_unchanged() {
+        let source = b"foo(); func f(); #macro(); let closure: () -> Void = {};";
+
+        assert_eq!(normalize_swift_source(source).bytes, source.to_vec());
+    }
+
+    #[test]
+    fn ignores_unit_like_parentheses_in_comments_and_strings() {
+        let source = br###"// ()
+let text = "()"
+/* () */
+let value: Void = ();"###;
+
+        assert_eq!(
+            normalize_swift_source(source).bytes,
+            br###"// ()
+let text = "()"
+/* () */
+let value: Void = {};"###
+        );
+    }
+
+    #[test]
+    fn leaves_unbalanced_parentheses_unchanged() {
+        let source = b"let value: Void = (";
+
+        assert_eq!(normalize_swift_source(source).bytes, source.to_vec());
+    }
+
+    #[test]
+    fn records_unit_expression_recovery_regions_without_changing_source_offsets() {
+        let source = b"let first: Void = ();\nreturn ();";
+
+        let normalized = normalize_swift_source(source);
+
+        assert_eq!(normalized.regions.len(), 2);
+        assert_eq!(
+            normalized.regions,
+            vec![
+                super::RecoveryRegion {
+                    start: 18,
+                    end: 20,
+                    family: RecoveryFamily::UnitExpression,
+                },
+                super::RecoveryRegion {
+                    start: 29,
+                    end: 31,
+                    family: RecoveryFamily::UnitExpression,
+                },
+            ]
+        );
+        assert_eq!(normalized.bytes.len(), source.len());
     }
 }
