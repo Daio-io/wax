@@ -160,7 +160,7 @@ fn scan_command_strict_partial_status_fails_after_writing_summary() {
     assert_strict_failure_output(&root, &output, &["react: partial"], 0);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains(
-        "strict scan failed: 1 partial language(s), 0 failed language(s), 0 parser diagnostic(s)"
+        "strict scan failed: 1 partial language(s), 0 failed language(s), 0 failure diagnostic(s); partial: [\"react\"]; failed: []"
     ));
 }
 
@@ -175,7 +175,7 @@ fn scan_command_strict_failed_status_fails_after_writing_summary() {
     assert_strict_failure_output(&root, &output, &["swift: failed"], 1);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains(
-        "strict scan failed: 0 partial language(s), 1 failed language(s), 1 parser diagnostic(s)"
+        "strict scan failed: 0 partial language(s), 1 failed language(s), 1 failure diagnostic(s); partial: []; failed: [\"swift\"]"
     ));
 }
 
@@ -199,7 +199,7 @@ fn scan_command_strict_mixed_status_fails_after_writing_summary() {
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains(
-        "strict scan failed: 1 partial language(s), 1 failed language(s), 2 parser diagnostic(s)"
+        "strict scan failed: 1 partial language(s), 1 failed language(s), 2 failure diagnostic(s); partial: [\"react\"]; failed: [\"swift\"]"
     ));
 }
 

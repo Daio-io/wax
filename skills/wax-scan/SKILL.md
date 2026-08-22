@@ -4,7 +4,7 @@ description: >-
   Use when running Wax scans and producing design system adoption analytics reports.
   Validates config, optionally runs wax sync, runs a fresh scan, outputs a section-by-section terminal report by default.
   Supports --html for branded HTML at .wax/out/report/index.html, --baseline for trend deltas,
-  --no-auto-install for CI, and --html-only to skip terminal output.
+  --no-auto-install and --strict for CI, and --html-only to skip terminal output.
 ---
 
 # Wax Scan
@@ -30,6 +30,7 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
 | `--html-only` | Write HTML only; skip terminal report |
 | `--baseline <path>` | Compare against a prior `scan-merged.json` for limited trend deltas |
 | `--no-auto-install` | Pass through to `wax scan` for CI runs with committed lockfiles |
+| `--strict` | Make partial or failed language results fail the CI scan after writing output |
 
 ## Workflow
 
@@ -47,7 +48,7 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
 3. Run `wax validate`.
    - Failures: stop, show validation errors, do not scan.
 4. Run a fresh `wax scan`.
-   - Pass `--no-auto-install` when the user requests CI mode.
+   - Pass `--no-auto-install --strict` when the user requests CI mode.
 5. Read `.wax/out/scan-merged.json`.
    - If `--baseline <path>` is provided, read the baseline file for trend deltas.
 6. Run the deterministic extractor:

@@ -117,7 +117,7 @@ pub enum ScanCommandError {
     },
     /// Strict mode found one or more incomplete language results after writing output.
     #[error(
-        "strict scan failed: {partial_count} partial language(s), {failed_count} failed language(s), {failure_diagnostic_count} parser diagnostic(s); scan output: {output_path}",
+        "strict scan failed: {partial_count} partial language(s), {failed_count} failed language(s), {failure_diagnostic_count} failure diagnostic(s); partial: {partial_languages:?}; failed: {failed_languages:?}; scan output: {output_path}",
         partial_count = partial_languages.len(),
         failed_count = failed_languages.len()
     )]
@@ -231,19 +231,7 @@ pub fn run_scan(
 
     let output_path = options.repo_root.join(SCAN_OUTPUT_RELATIVE_PATH);
     write_scan_summary(writer, &merged, &output_path, ephemeral)?;
-    if options.strict {
-        let summary = incomplete_scan_summary(&merged);
-        if summary.has_incomplete_languages() {
-            return Err(ScanCommandError::IncompleteScan {
-                partial_languages: summary.partial_languages,
-                failed_languages: summary.failed_languages,
-                failure_diagnostic_count: summary.failure_diagnostic_count,
-                output_path,
-            });
-        }
-    }
-
-    Ok(())
+    enforce_strict_scan(options.strict, &merged, output_path)
 }
 
 fn attempt_scan_time_registry_sync(
@@ -314,18 +302,26 @@ fn run_ephemeral_scan(
 
     let output_path = options.repo_root.join(SCAN_OUTPUT_RELATIVE_PATH);
     write_scan_summary(writer, &merged, &output_path, true)?;
-    if options.strict {
-        let summary = incomplete_scan_summary(&merged);
-        if summary.has_incomplete_languages() {
-            return Err(ScanCommandError::IncompleteScan {
-                partial_languages: summary.partial_languages,
-                failed_languages: summary.failed_languages,
-                failure_diagnostic_count: summary.failure_diagnostic_count,
-                output_path,
-            });
-        }
-    }
+    enforce_strict_scan(options.strict, &merged, output_path)
+}
 
+fn enforce_strict_scan(
+    strict: bool,
+    merged: &MergedScan,
+    output_path: PathBuf,
+) -> Result<(), ScanCommandError> {
+    if !strict {
+        return Ok(());
+    }
+    let summary = incomplete_scan_summary(merged);
+    if summary.has_incomplete_languages() {
+        return Err(ScanCommandError::IncompleteScan {
+            partial_languages: summary.partial_languages,
+            failed_languages: summary.failed_languages,
+            failure_diagnostic_count: summary.failure_diagnostic_count,
+            output_path,
+        });
+    }
     Ok(())
 }
 

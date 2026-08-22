@@ -59,6 +59,7 @@ or natural language such as “scan this repo and report on design system adopti
 | `--html-only` | Write HTML only; skip terminal report |
 | `--baseline <path>` | Compare against a prior `scan-merged.json` for limited trend deltas |
 | `--no-auto-install` | Pass through to `wax scan` for CI-style runs with committed lockfiles |
+| `--strict` | Fail after writing output when any language result is partial or failed |
 
 ### Workflow
 
