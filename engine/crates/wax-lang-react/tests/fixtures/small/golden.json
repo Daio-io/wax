@@ -370,7 +370,7 @@
     "invocation_adoption_ratio": 1.0,
     "registry_resolution_ratio": 1.0
   },
-  "schema_version": 3,
+  "schema_version": 4,
   "status": "complete",
   "token_sites": [
     {
@@ -400,13 +400,13 @@
   ],
   "usage_sites": [
     {
+      "callee_origin": "registry",
       "id": "usage.src/Extended.tsx:5:5:PrimaryButton",
       "location": {
         "column": 5,
         "file": "src/Extended.tsx",
         "line": 5
       },
-      "callee_origin": "registry",
       "match_status": "resolved",
       "qualified_symbol": "@acme/design-system#PrimaryButton",
       "registry_symbol": "PrimaryButton",
@@ -417,15 +417,15 @@
       "symbol": "PrimaryButton"
     },
     {
+      "callee_origin": "registry",
       "id": "usage.src/Extended.tsx:8:5:PrimaryBtn",
       "location": {
         "column": 5,
         "file": "src/Extended.tsx",
         "line": 8
       },
-      "callee_origin": "registry",
       "match_status": "resolved",
-      "qualified_symbol": "@acme/design-system#PrimaryButton",
+      "qualified_symbol": "@acme/design-system#PrimaryBtn",
       "registry_symbol": "PrimaryButton",
       "resolution_evidence": {
         "kind": "registry_name_only_legacy",
@@ -434,13 +434,13 @@
       "symbol": "PrimaryBtn"
     },
     {
+      "callee_origin": "registry",
       "id": "usage.src/Sample.tsx:5:5:PrimaryButton",
       "location": {
         "column": 5,
         "file": "src/Sample.tsx",
         "line": 5
       },
-      "callee_origin": "registry",
       "match_status": "resolved",
       "qualified_symbol": "@acme/design-system#PrimaryButton",
       "registry_symbol": "PrimaryButton",
@@ -451,13 +451,13 @@
       "symbol": "PrimaryButton"
     },
     {
+      "callee_origin": "registry",
       "id": "usage.src/Sample.tsx:15:7:PrimaryButton",
       "location": {
         "column": 7,
         "file": "src/Sample.tsx",
         "line": 15
       },
-      "callee_origin": "registry",
       "match_status": "resolved",
       "qualified_symbol": "@acme/design-system#PrimaryButton",
       "registry_symbol": "PrimaryButton",
@@ -468,13 +468,13 @@
       "symbol": "PrimaryButton"
     },
     {
+      "callee_origin": "registry",
       "id": "usage.src/Sample.tsx:16:7:TextField",
       "location": {
         "column": 7,
         "file": "src/Sample.tsx",
         "line": 16
       },
-      "callee_origin": "registry",
       "match_status": "resolved",
       "qualified_symbol": "@acme/design-system#TextField",
       "registry_symbol": "TextField",
