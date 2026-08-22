@@ -64,7 +64,7 @@ pub(crate) fn normalize_swift_source(source: &[u8]) -> NormalizedSwiftSource {
 
         if source.get(index) == Some(&b'(')
             && let Some(end) = unit_expression_end(source, index)
-            && can_recover_unit_expression(source, end, previous_significant)
+            && can_recover_unit_expression(source, index, end, previous_significant)
         {
             bytes[index] = b'{';
             bytes[end - 1] = b'}';
@@ -111,10 +111,11 @@ fn unit_expression_end(source: &[u8], opening_index: usize) -> Option<usize> {
 
 fn can_recover_unit_expression(
     source: &[u8],
+    opening_index: usize,
     end: usize,
     previous_significant: Option<(usize, usize)>,
 ) -> bool {
-    if follows_function_type(source, end) {
+    if follows_function_type(source, end) || precedes_type_annotation(source, opening_index) {
         return false;
     }
 
@@ -123,6 +124,17 @@ fn can_recover_unit_expression(
     };
 
     !can_end_callable_expression(&source[start..token_end])
+}
+
+fn precedes_type_annotation(source: &[u8], opening_index: usize) -> bool {
+    let mut index = opening_index;
+    while index > 0 && source[index - 1].is_ascii_whitespace() {
+        index -= 1;
+    }
+    if index >= 1 && source[index - 1] == b':' {
+        return true;
+    }
+    index >= 2 && source[index - 2..index] == *b"->"
 }
 
 fn follows_function_type(source: &[u8], end: usize) -> bool {
@@ -550,6 +562,13 @@ let multiline = """
     #[test]
     fn leaves_callable_parentheses_and_function_types_unchanged() {
         let source = b"foo(); func f(); #macro(); let closure: () -> Void = {};";
+
+        assert_eq!(normalize_swift_source(source).bytes, source.to_vec());
+    }
+
+    #[test]
+    fn leaves_empty_tuple_types_unchanged() {
+        let source = b"func returnsUnit() -> () {}\nfunc takesUnit(_ value: ()) {}";
 
         assert_eq!(normalize_swift_source(source).bytes, source.to_vec());
     }
