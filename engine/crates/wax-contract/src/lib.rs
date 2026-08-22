@@ -26,7 +26,7 @@ use thiserror::Error;
 use time::OffsetDateTime;
 
 /// Current JSON schema version for [`ScanFacts`] and [`MergedScan`].
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 /// Maximum parser/extraction duration accepted by the frozen JSON contract.
 ///
@@ -2063,6 +2063,16 @@ fn validate_usage_site_linkage(field: &str, site: &UsageSite) -> Result<(), Scan
                 return Err(contract_violation(
                     &format!("{field}.resolution_evidence.kind"),
                     "unresolved usage cannot use registry or local success evidence",
+                ));
+            }
+            if !matches!(
+                site.resolution_evidence.kind,
+                ResolutionEvidenceKind::PackageMismatch
+                    | ResolutionEvidenceKind::NoMatchingDefinition
+            ) {
+                return Err(contract_violation(
+                    &format!("{field}.resolution_evidence.kind"),
+                    "unresolved usage must identify package mismatch or no matching definition",
                 ));
             }
         }

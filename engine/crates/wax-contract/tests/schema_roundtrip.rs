@@ -711,7 +711,7 @@ fn rejects_v2_schema_version() {
         err,
         wax_contract::ScanFactsError::UnsupportedSchemaVersion {
             found: 2,
-            supported: 3
+            supported: 4
         }
     ));
 }

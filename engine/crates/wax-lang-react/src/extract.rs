@@ -1226,9 +1226,17 @@ fn classify_jsx_usage(
             registry_symbol: (match_status != MatchStatus::Unresolved)
                 .then_some(registry_symbol.clone()),
             match_status,
-            qualified_symbol: import_package
-                .as_deref()
-                .map(|package| format!("{package}#{registry_symbol}")),
+            qualified_symbol: import_package.as_deref().map(|package| {
+                format!(
+                    "{package}#{}",
+                    imported_symbol_for_candidate(
+                        parsed,
+                        module_graph,
+                        candidate,
+                        &registry_symbol
+                    )
+                )
+            }),
             callee_origin,
             resolution_evidence: ResolutionEvidence {
                 kind: evidence_kind,
@@ -1271,15 +1279,33 @@ fn classify_jsx_usage(
         registry_symbol: (match_status != MatchStatus::Unresolved)
             .then_some(registry_symbol.clone()),
         match_status,
-        qualified_symbol: import_package
-            .as_deref()
-            .map(|package| format!("{package}#{registry_symbol}")),
+        qualified_symbol: import_package.as_deref().map(|package| {
+            format!(
+                "{package}#{}",
+                imported_symbol_for_candidate(parsed, module_graph, candidate, &registry_symbol)
+            )
+        }),
         callee_origin,
         resolution_evidence: ResolutionEvidence {
             kind: evidence_kind,
             package: import_package,
         },
     })
+}
+
+fn imported_symbol_for_candidate(
+    parsed: &ParsedReactModule,
+    module_graph: &ReactModuleGraph,
+    candidate: &JsxUsageCandidate,
+    fallback: &str,
+) -> String {
+    module_graph
+        .import_binding(&parsed.file, &candidate.binding_name)
+        .and_then(|binding| match &binding.imported_symbol {
+            ImportedSymbol::Named(symbol) => Some(symbol.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| fallback.to_owned())
 }
 
 fn registry_symbol_for_candidate(

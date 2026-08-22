@@ -19,7 +19,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": 3
+      "const": 4
     },
     "language": {
       "$ref": "#/$defs/language_metadata"

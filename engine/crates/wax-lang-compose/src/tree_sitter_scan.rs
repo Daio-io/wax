@@ -726,7 +726,7 @@ fn visit_component_usage(
                             CalleeOrigin::Registry,
                             ResolutionEvidence {
                                 kind: ResolutionEvidenceKind::RegistryNameOnlyLegacy,
-                                package: None,
+                                package: import_package.map(str::to_owned),
                             },
                         ),
                         None => (

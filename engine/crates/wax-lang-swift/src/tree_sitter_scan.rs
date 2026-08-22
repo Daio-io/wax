@@ -680,7 +680,7 @@ fn extract_usage_from_source(
                             CalleeOrigin::Registry,
                             ResolutionEvidence {
                                 kind: ResolutionEvidenceKind::RegistryNameOnlyLegacy,
-                                package: None,
+                                package: import_package.clone(),
                             },
                         ),
                         RegistryImportMatch::Candidate => (
