@@ -2,9 +2,9 @@ use serde_json::{Map, Value, json};
 use std::str::FromStr;
 use time::macros::datetime;
 use wax_contract::{
-    CountSummary, DesignSystemComponent, Diagnostic, DiagnosticSeverity, LanguageId,
-    LanguageMetadata, LocalComponent, MatchStatus, Metrics, SCHEMA_VERSION, ScanFacts, ScanStatus,
-    SourceLocation, UsageSite,
+    CalleeOrigin, CountSummary, DesignSystemComponent, Diagnostic, DiagnosticSeverity, LanguageId,
+    LanguageMetadata, LocalComponent, MatchStatus, Metrics, ResolutionEvidence,
+    ResolutionEvidenceKind, SCHEMA_VERSION, ScanFacts, ScanStatus, SourceLocation, UsageSite,
 };
 use wax_lang_api::{
     ScanRequest, ScanRequestType, WIRE_API_VERSION, WireErrorCode, WireScanRequest,
@@ -348,6 +348,11 @@ fn sample_scan_facts() -> ScanFacts {
             },
             symbol: "Button".to_owned(),
             qualified_symbol: None,
+            callee_origin: CalleeOrigin::Registry,
+            resolution_evidence: ResolutionEvidence {
+                kind: ResolutionEvidenceKind::RegistryNameOnlyLegacy,
+                package: None,
+            },
             match_status: MatchStatus::Resolved,
             registry_symbol: Some("ds.Button".to_owned()),
             local_definition_id: None,

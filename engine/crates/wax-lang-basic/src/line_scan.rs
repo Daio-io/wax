@@ -6,8 +6,9 @@ use std::path::{Component, Path, PathBuf};
 
 use thiserror::Error;
 use wax_contract::{
-    DesignSystemComponent, DesignSystemToken, Diagnostic, DiagnosticSeverity, MatchStatus,
-    ScanStatus, SourceLocation, TokenSite, UsageSite,
+    CalleeOrigin, DesignSystemComponent, DesignSystemToken, Diagnostic, DiagnosticSeverity,
+    MatchStatus, ResolutionEvidence, ResolutionEvidenceKind, ScanStatus, SourceLocation, TokenSite,
+    UsageSite,
 };
 use wax_lang_api::{
     RegistryTokenIndex, RootResolutionError, ScanConfig, find_token_matches,
@@ -556,6 +557,11 @@ fn extract_usage_sites(
                     },
                     symbol: call_symbol.clone(),
                     qualified_symbol: None,
+                    callee_origin: CalleeOrigin::Registry,
+                    resolution_evidence: ResolutionEvidence {
+                        kind: ResolutionEvidenceKind::RegistryNameOnlyLegacy,
+                        package: None,
+                    },
                     match_status: MatchStatus::Resolved,
                     registry_symbol: Some(registry_symbol.clone()),
                     local_definition_id: None,

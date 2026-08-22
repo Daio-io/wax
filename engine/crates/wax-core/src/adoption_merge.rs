@@ -269,6 +269,31 @@ pub(crate) fn sum_count_summaries<'a>(
             .with_unresolved_invocations
             .saturating_add(counts.parent_scopes.with_unresolved_invocations);
 
+        total.invocation_origins.registry = total
+            .invocation_origins
+            .registry
+            .saturating_add(counts.invocation_origins.registry);
+        total.invocation_origins.local = total
+            .invocation_origins
+            .local
+            .saturating_add(counts.invocation_origins.local);
+        total.invocation_origins.framework = total
+            .invocation_origins
+            .framework
+            .saturating_add(counts.invocation_origins.framework);
+        total.invocation_origins.external = total
+            .invocation_origins
+            .external
+            .saturating_add(counts.invocation_origins.external);
+        total.invocation_origins.application = total
+            .invocation_origins
+            .application
+            .saturating_add(counts.invocation_origins.application);
+        total.invocation_origins.unknown = total
+            .invocation_origins
+            .unknown
+            .saturating_add(counts.invocation_origins.unknown);
+
         total.tokens.configured_token_count = total
             .tokens
             .configured_token_count
@@ -614,9 +639,9 @@ mod tests {
     use super::*;
     use time::macros::datetime;
     use wax_contract::{
-        DesignSystemToken, HardcodedStyleSite, LanguageMetadata, ParentScope, ScanStatus,
-        SourceLocation, StyleContext, TokenCategory, TokenInferenceClassification, TokenSite,
-        UsageSite,
+        CalleeOrigin, DesignSystemToken, HardcodedStyleSite, LanguageMetadata, MatchStatus,
+        ParentScope, ResolutionEvidence, ResolutionEvidenceKind, ScanStatus, SourceLocation,
+        StyleContext, TokenCategory, TokenInferenceClassification, TokenSite, UsageSite,
     };
 
     fn usage_site(status: MatchStatus, symbol: &str, registry: Option<&str>) -> UsageSite {
@@ -629,6 +654,20 @@ mod tests {
             },
             symbol: symbol.into(),
             qualified_symbol: None,
+            callee_origin: match status {
+                MatchStatus::Resolved | MatchStatus::Candidate => CalleeOrigin::Registry,
+                MatchStatus::Local => CalleeOrigin::Local,
+                MatchStatus::Unresolved => CalleeOrigin::Unknown,
+            },
+            resolution_evidence: ResolutionEvidence {
+                kind: match status {
+                    MatchStatus::Resolved => ResolutionEvidenceKind::RegistryPackageMatch,
+                    MatchStatus::Candidate => ResolutionEvidenceKind::RegistryImportMissing,
+                    MatchStatus::Local => ResolutionEvidenceKind::LocalSameFile,
+                    MatchStatus::Unresolved => ResolutionEvidenceKind::NoMatchingDefinition,
+                },
+                package: (status == MatchStatus::Resolved).then(|| "test".to_owned()),
+            },
             match_status: status,
             registry_symbol: registry.map(str::to_owned),
             local_definition_id: None,

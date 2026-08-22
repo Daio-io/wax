@@ -175,6 +175,46 @@
       ],
       "description": "How one UI invocation resolved: resolved (registry), local (in-repo), candidate (ambiguous), unresolved (UI-shaped but unmatched)."
     },
+    "callee_origin": {
+      "type": "string",
+      "enum": [
+        "registry",
+        "local",
+        "framework",
+        "external",
+        "application",
+        "unknown"
+      ]
+    },
+    "resolution_evidence_kind": {
+      "type": "string",
+      "enum": [
+        "registry_package_match",
+        "registry_name_only_legacy",
+        "registry_import_missing",
+        "registry_import_ambiguous",
+        "local_same_file",
+        "local_package_match",
+        "package_mismatch",
+        "no_matching_definition"
+      ]
+    },
+    "resolution_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/resolution_evidence_kind"
+        },
+        "package": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "symbol_kind": {
       "type": "string",
       "enum": [
@@ -304,6 +344,8 @@
         "id",
         "location",
         "symbol",
+        "callee_origin",
+        "resolution_evidence",
         "match_status"
       ],
       "properties": {
@@ -317,6 +359,12 @@
         "symbol": {
           "type": "string",
           "minLength": 1
+        },
+        "callee_origin": {
+          "$ref": "#/$defs/callee_origin"
+        },
+        "resolution_evidence": {
+          "$ref": "#/$defs/resolution_evidence"
         },
         "qualified_symbol": {
           "type": "string",
@@ -341,17 +389,33 @@
         {
           "if": {
             "properties": {
-              "match_status": {
-                "const": "resolved"
-              }
+            "match_status": {
+              "const": "resolved"
+            }
             },
             "required": [
               "match_status"
             ]
           },
           "then": {
+            "properties": {
+              "callee_origin": {
+                "const": "registry"
+              },
+              "resolution_evidence": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "registry_package_match",
+                      "registry_name_only_legacy"
+                    ]
+                  }
+                }
+              }
+            },
             "required": [
-              "registry_symbol"
+              "registry_symbol",
+              "resolution_evidence"
             ],
             "not": {
               "required": [
@@ -372,8 +436,24 @@
             ]
           },
           "then": {
+            "properties": {
+              "callee_origin": {
+                "const": "registry"
+              },
+              "resolution_evidence": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "registry_import_missing",
+                      "registry_import_ambiguous"
+                    ]
+                  }
+                }
+              }
+            },
             "required": [
-              "registry_symbol"
+              "registry_symbol",
+              "resolution_evidence"
             ],
             "not": {
               "required": [
@@ -394,8 +474,24 @@
             ]
           },
           "then": {
+            "properties": {
+              "callee_origin": {
+                "const": "local"
+              },
+              "resolution_evidence": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "local_same_file",
+                      "local_package_match"
+                    ]
+                  }
+                }
+              }
+            },
             "required": [
-              "local_definition_id"
+              "local_definition_id",
+              "resolution_evidence"
             ],
             "not": {
               "required": [
@@ -416,6 +512,26 @@
             ]
           },
           "then": {
+            "properties": {
+              "callee_origin": {
+                "enum": [
+                  "framework",
+                  "external",
+                  "application",
+                  "unknown"
+                ]
+              },
+              "resolution_evidence": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "package_mismatch",
+                      "no_matching_definition"
+                    ]
+                  }
+                }
+              }
+            },
             "not": {
               "anyOf": [
                 {
@@ -429,6 +545,38 @@
                   ]
                 }
               ]
+            }
+          }
+        }
+        ,
+        {
+          "if": {
+            "properties": {
+              "resolution_evidence": {
+                "properties": {
+                  "kind": {
+                    "const": "registry_package_match"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            "required": [
+              "resolution_evidence"
+            ]
+          },
+          "then": {
+            "required": [
+              "resolution_evidence"
+            ],
+            "properties": {
+              "resolution_evidence": {
+                "required": [
+                  "package"
+                ]
+              }
             }
           }
         }
@@ -900,6 +1048,50 @@
         }
       }
     },
+    "invocation_origin_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "registry",
+        "local",
+        "framework",
+        "external",
+        "application",
+        "unknown"
+      ],
+      "properties": {
+        "registry": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "local": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "framework": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "external": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "application": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "unknown": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
+      }
+    },
     "token_category": {
       "type": "string",
       "enum": [
@@ -1160,7 +1352,8 @@
         "definitions",
         "raw_invocations",
         "adoption",
-        "parent_scopes"
+        "parent_scopes",
+        "invocation_origins"
       ],
       "properties": {
         "registry": {
@@ -1177,6 +1370,9 @@
         },
         "parent_scopes": {
           "$ref": "#/$defs/parent_scope_counts"
+        },
+        "invocation_origins": {
+          "$ref": "#/$defs/invocation_origin_counts"
         },
         "tokens": {
           "$ref": "#/$defs/token_counts"

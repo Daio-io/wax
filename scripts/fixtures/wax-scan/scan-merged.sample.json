@@ -35,6 +35,14 @@
         "with_resolved_invocations": 0,
         "with_local_invocations": 0,
         "with_unresolved_invocations": 0
+      },
+      "invocation_origins": {
+        "registry": 7,
+        "local": 3,
+        "framework": 0,
+        "external": 0,
+        "application": 1,
+        "unknown": 0
       }
     },
     "metrics": {
@@ -281,9 +289,15 @@
         "file": "src/Home.kt",
         "line": 12
       },
-      "symbol": "Button",
-      "match_status": "resolved",
-      "registry_symbol": "com.ds.Button",
+          "symbol": "Button",
+          "callee_origin": "registry",
+          "qualified_symbol": "com.ds.Button",
+          "match_status": "resolved",
+          "registry_symbol": "com.ds.Button",
+          "resolution_evidence": {
+            "kind": "registry_package_match",
+            "package": "com.ds"
+          },
       "parent": {
         "parent_id": "compose:screen:src/Home#HomeScreen",
         "symbol": "HomeScreen",
@@ -296,9 +310,15 @@
             "file": "src/Home.kt",
             "line": 18
       },
-      "symbol": "Button",
-      "match_status": "resolved",
-      "registry_symbol": "com.ds.Button",
+          "symbol": "Button",
+          "callee_origin": "registry",
+          "qualified_symbol": "com.ds.Button",
+          "match_status": "resolved",
+          "registry_symbol": "com.ds.Button",
+          "resolution_evidence": {
+            "kind": "registry_package_match",
+            "package": "com.ds"
+          },
       "parent": {
         "parent_id": "compose:screen:src/Home#HomeScreen",
         "symbol": "HomeScreen",
@@ -312,8 +332,14 @@
             "line": 24
       },
       "symbol": "Card",
+      "callee_origin": "registry",
+      "qualified_symbol": "com.ds.Card",
       "match_status": "resolved",
       "registry_symbol": "com.ds.Card",
+      "resolution_evidence": {
+        "kind": "registry_package_match",
+        "package": "com.ds"
+      },
       "parent": {
         "parent_id": "compose:screen:src/Details#DetailsScreen",
         "symbol": "DetailsScreen",
@@ -327,8 +353,12 @@
             "line": 30
           },
           "symbol": "Modal",
+          "callee_origin": "registry",
           "match_status": "candidate",
-          "registry_symbol": "com.ds.Modal"
+          "registry_symbol": "com.ds.Modal",
+          "resolution_evidence": {
+            "kind": "registry_import_missing"
+          }
         },
         {
           "id": "c:5:PrimaryButton:local",
@@ -337,8 +367,12 @@
             "line": 36
       },
       "symbol": "PrimaryButton",
+      "callee_origin": "local",
       "match_status": "local",
       "local_definition_id": "local.primary-button",
+      "resolution_evidence": {
+        "kind": "local_same_file"
+      },
       "parent": {
         "parent_id": "compose:screen:src/Home#HomeScreen",
         "symbol": "HomeScreen",
@@ -352,7 +386,11 @@
             "line": 42
       },
       "symbol": "UnknownWidget",
+      "callee_origin": "application",
       "match_status": "unresolved",
+      "resolution_evidence": {
+        "kind": "no_matching_definition"
+      },
       "parent": {
         "parent_id": "compose:screen:src/Home#HomeScreen",
         "symbol": "HomeScreen",
@@ -391,11 +429,19 @@
           "adopted_invocation_count": 3,
           "non_adopted_invocation_count": 2
         },
-        "parent_scopes": {
-          "total": 0,
-          "with_resolved_invocations": 0,
-          "with_local_invocations": 0,
-          "with_unresolved_invocations": 0
+      "parent_scopes": {
+        "total": 0,
+        "with_resolved_invocations": 0,
+        "with_local_invocations": 0,
+        "with_unresolved_invocations": 0
+        },
+        "invocation_origins": {
+          "registry": 4,
+          "local": 1,
+          "framework": 0,
+          "external": 0,
+          "application": 1,
+          "unknown": 0
         }
       },
       "symbol_usage_summary": []
@@ -445,8 +491,14 @@
             "line": 10
       },
       "symbol": "Button",
+      "callee_origin": "registry",
+      "qualified_symbol": "@acme/design-system#Button",
       "match_status": "resolved",
       "registry_symbol": "Button",
+      "resolution_evidence": {
+        "kind": "registry_name_only_legacy",
+        "package": "@acme/design-system"
+      },
       "parent": {
         "parent_id": "react:component:src/App#App",
         "symbol": "App",
@@ -460,8 +512,14 @@
             "line": 16
       },
       "symbol": "Button",
+      "callee_origin": "registry",
+      "qualified_symbol": "@acme/design-system#Button",
       "match_status": "resolved",
       "registry_symbol": "Button",
+      "resolution_evidence": {
+        "kind": "registry_name_only_legacy",
+        "package": "@acme/design-system"
+      },
       "parent": {
         "parent_id": "react:component:src/App#App",
         "symbol": "App",
@@ -475,8 +533,14 @@
             "line": 22
       },
       "symbol": "Button",
+      "callee_origin": "registry",
+      "qualified_symbol": "@acme/design-system#Button",
       "match_status": "resolved",
       "registry_symbol": "Button",
+      "resolution_evidence": {
+        "kind": "registry_name_only_legacy",
+        "package": "@acme/design-system"
+      },
       "parent": {
         "parent_id": "react:component:src/App#App",
         "symbol": "App",
@@ -490,8 +554,12 @@
             "line": 28
       },
       "symbol": "IconButton",
+      "callee_origin": "local",
       "match_status": "local",
       "local_definition_id": "local.icon-button",
+      "resolution_evidence": {
+        "kind": "local_same_file"
+      },
       "parent": {
         "parent_id": "react:component:src/App#App",
         "symbol": "App",
@@ -505,8 +573,12 @@
             "line": 34
       },
       "symbol": "ConfirmModal",
+      "callee_origin": "local",
       "match_status": "local",
       "local_definition_id": "local.confirm-modal",
+      "resolution_evidence": {
+        "kind": "local_same_file"
+      },
       "parent": {
         "parent_id": "react:component:src/App#App",
         "symbol": "App",
@@ -607,11 +679,19 @@
           "adopted_invocation_count": 3,
           "non_adopted_invocation_count": 2
         },
-        "parent_scopes": {
-          "total": 0,
-          "with_resolved_invocations": 0,
-          "with_local_invocations": 0,
-          "with_unresolved_invocations": 0
+      "parent_scopes": {
+        "total": 0,
+        "with_resolved_invocations": 0,
+        "with_local_invocations": 0,
+        "with_unresolved_invocations": 0
+        },
+        "invocation_origins": {
+          "registry": 3,
+          "local": 2,
+          "framework": 0,
+          "external": 0,
+          "application": 0,
+          "unknown": 0
         }
       },
       "symbol_usage_summary": []

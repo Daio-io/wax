@@ -10,6 +10,14 @@
       "local_definition_count": 4,
       "unused_local_definition_count": 4
     },
+    "invocation_origins": {
+      "application": 0,
+      "external": 0,
+      "framework": 0,
+      "local": 0,
+      "registry": 5,
+      "unknown": 0
+    },
     "parent_scopes": {
       "total": 0,
       "with_local_invocations": 0,
@@ -398,8 +406,14 @@
         "file": "src/Extended.tsx",
         "line": 5
       },
+      "callee_origin": "registry",
       "match_status": "resolved",
+      "qualified_symbol": "@acme/design-system#PrimaryButton",
       "registry_symbol": "PrimaryButton",
+      "resolution_evidence": {
+        "kind": "registry_name_only_legacy",
+        "package": "@acme/design-system"
+      },
       "symbol": "PrimaryButton"
     },
     {
@@ -409,8 +423,14 @@
         "file": "src/Extended.tsx",
         "line": 8
       },
+      "callee_origin": "registry",
       "match_status": "resolved",
+      "qualified_symbol": "@acme/design-system#PrimaryButton",
       "registry_symbol": "PrimaryButton",
+      "resolution_evidence": {
+        "kind": "registry_name_only_legacy",
+        "package": "@acme/design-system"
+      },
       "symbol": "PrimaryBtn"
     },
     {
@@ -420,8 +440,14 @@
         "file": "src/Sample.tsx",
         "line": 5
       },
+      "callee_origin": "registry",
       "match_status": "resolved",
+      "qualified_symbol": "@acme/design-system#PrimaryButton",
       "registry_symbol": "PrimaryButton",
+      "resolution_evidence": {
+        "kind": "registry_name_only_legacy",
+        "package": "@acme/design-system"
+      },
       "symbol": "PrimaryButton"
     },
     {
@@ -431,8 +457,14 @@
         "file": "src/Sample.tsx",
         "line": 15
       },
+      "callee_origin": "registry",
       "match_status": "resolved",
+      "qualified_symbol": "@acme/design-system#PrimaryButton",
       "registry_symbol": "PrimaryButton",
+      "resolution_evidence": {
+        "kind": "registry_name_only_legacy",
+        "package": "@acme/design-system"
+      },
       "symbol": "PrimaryButton"
     },
     {
@@ -442,8 +474,14 @@
         "file": "src/Sample.tsx",
         "line": 16
       },
+      "callee_origin": "registry",
       "match_status": "resolved",
+      "qualified_symbol": "@acme/design-system#TextField",
       "registry_symbol": "TextField",
+      "resolution_evidence": {
+        "kind": "registry_name_only_legacy",
+        "package": "@acme/design-system"
+      },
       "symbol": "TextField"
     }
   ]

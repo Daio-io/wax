@@ -5,9 +5,10 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use wax_contract::{
-    DesignSystemComponent, DesignSystemToken, Diagnostic, DiagnosticSeverity, HardcodedStyleSite,
-    IdentityStability, LocalComponent, MatchStatus, ParentScope, ScanStatus, SourceLocation,
-    StyleContext, TokenCategory, TokenSite, UsageSite,
+    CalleeOrigin, DesignSystemComponent, DesignSystemToken, Diagnostic, DiagnosticSeverity,
+    HardcodedStyleSite, IdentityStability, LocalComponent, MatchStatus, ParentScope,
+    ResolutionEvidence, ResolutionEvidenceKind, ScanStatus, SourceLocation, StyleContext,
+    TokenCategory, TokenSite, UsageSite,
 };
 
 use crate::component_detect::{
@@ -523,6 +524,14 @@ fn unresolved_symbol_is_swiftui_shaped(
     true
 }
 
+fn unresolved_origin(package: Option<&str>) -> CalleeOrigin {
+    match package {
+        Some("SwiftUI") => CalleeOrigin::Framework,
+        Some(_) => CalleeOrigin::External,
+        None => CalleeOrigin::Application,
+    }
+}
+
 fn is_framework_swiftui_symbol(symbol: &str) -> bool {
     matches!(
         symbol,
@@ -630,6 +639,17 @@ fn extract_usage_from_source(
                     location: location.clone(),
                     symbol: call_site.symbol.clone(),
                     qualified_symbol: local.qualified_symbol.clone(),
+                    callee_origin: CalleeOrigin::Local,
+                    resolution_evidence: ResolutionEvidence {
+                        kind: if call_site.qualifier.is_none()
+                            && local_index.same_file(file, &call_site.symbol).is_some()
+                        {
+                            ResolutionEvidenceKind::LocalSameFile
+                        } else {
+                            ResolutionEvidenceKind::LocalPackageMatch
+                        },
+                        package: import_package.clone(),
+                    },
                     match_status: MatchStatus::Local,
                     registry_symbol: None,
                     local_definition_id: Some(local.id.clone()),
@@ -643,22 +663,64 @@ fn extract_usage_from_source(
                     registry,
                     &imports,
                 );
-                let (match_status, registry_symbol) = match registry_match {
-                    RegistryImportMatch::Resolved | RegistryImportMatch::LegacyNameOnly => {
-                        (MatchStatus::Resolved, Some(registry_symbol.clone()))
-                    }
-                    RegistryImportMatch::Candidate => {
-                        (MatchStatus::Candidate, Some(registry_symbol.clone()))
-                    }
-                    RegistryImportMatch::Mismatch => (MatchStatus::Unresolved, None),
-                };
+                let (match_status, registry_symbol, callee_origin, resolution_evidence) =
+                    match registry_match {
+                        RegistryImportMatch::Resolved => (
+                            MatchStatus::Resolved,
+                            Some(registry_symbol.clone()),
+                            CalleeOrigin::Registry,
+                            ResolutionEvidence {
+                                kind: ResolutionEvidenceKind::RegistryPackageMatch,
+                                package: import_package.clone(),
+                            },
+                        ),
+                        RegistryImportMatch::LegacyNameOnly => (
+                            MatchStatus::Resolved,
+                            Some(registry_symbol.clone()),
+                            CalleeOrigin::Registry,
+                            ResolutionEvidence {
+                                kind: ResolutionEvidenceKind::RegistryNameOnlyLegacy,
+                                package: None,
+                            },
+                        ),
+                        RegistryImportMatch::Candidate => (
+                            MatchStatus::Candidate,
+                            Some(registry_symbol.clone()),
+                            CalleeOrigin::Registry,
+                            ResolutionEvidence {
+                                kind: if imports.module_imports.len() > 1
+                                    && call_site.qualifier.is_none()
+                                    && !imports.symbol_packages.contains_key(&call_site.symbol)
+                                {
+                                    ResolutionEvidenceKind::RegistryImportAmbiguous
+                                } else {
+                                    ResolutionEvidenceKind::RegistryImportMissing
+                                },
+                                package: import_package.clone(),
+                            },
+                        ),
+                        RegistryImportMatch::Mismatch => (
+                            MatchStatus::Unresolved,
+                            None,
+                            unresolved_origin(import_package.as_deref()),
+                            ResolutionEvidence {
+                                kind: ResolutionEvidenceKind::PackageMismatch,
+                                package: import_package.clone(),
+                            },
+                        ),
+                    };
                 usage_sites.push(UsageSite {
                     id: format!("usage.swift:{file}:{line}:{column}:{}", call_site.symbol),
                     location,
                     symbol: call_site.symbol.clone(),
-                    qualified_symbol: import_package
-                        .as_deref()
-                        .map(|package| qualified_view_symbol(package, &call_site.symbol)),
+                    qualified_symbol: import_package.as_deref().map(|package| {
+                        qualified_view_symbol(
+                            package,
+                            registry_symbol.as_deref().unwrap_or(&call_site.symbol),
+                        )
+                    }),
+                    callee_origin,
+                    resolution_evidence,
                     match_status,
                     registry_symbol,
                     local_definition_id: None,
@@ -674,6 +736,11 @@ fn extract_usage_from_source(
                     qualified_symbol: import_package
                         .as_deref()
                         .map(|package| qualified_view_symbol(package, &symbol)),
+                    callee_origin: unresolved_origin(import_package.as_deref()),
+                    resolution_evidence: ResolutionEvidence {
+                        kind: ResolutionEvidenceKind::NoMatchingDefinition,
+                        package: import_package.clone(),
+                    },
                     match_status: MatchStatus::Unresolved,
                     registry_symbol: None,
                     local_definition_id: None,

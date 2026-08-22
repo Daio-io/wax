@@ -11,8 +11,8 @@ use swc_ecma_ast::{
     Stmt, VarDecl, VarDeclOrExpr, VarDeclarator,
 };
 use wax_contract::{
-    Diagnostic, HardcodedStyleSite, IdentityStability, LocalComponent, MatchStatus, ParentScope,
-    SourceLocation, TokenSite, UsageSite,
+    CalleeOrigin, Diagnostic, HardcodedStyleSite, IdentityStability, LocalComponent, MatchStatus,
+    ParentScope, ResolutionEvidence, ResolutionEvidenceKind, SourceLocation, TokenSite, UsageSite,
 };
 use wax_lang_api::{RegistryImportMatch, npm_import_package_root, resolve_import_aware_match};
 
@@ -168,6 +168,24 @@ fn imported_qualified_symbol(
     Some(format!("{package}#{symbol}"))
 }
 
+fn import_package(
+    module_graph: &ReactModuleGraph,
+    parsed: &ParsedReactModule,
+    binding_name: &str,
+) -> Option<String> {
+    module_graph
+        .import_binding(&parsed.file, binding_name)
+        .map(|import| npm_import_package_root(&import.source_specifier))
+}
+
+fn unresolved_origin(package: Option<&str>) -> CalleeOrigin {
+    match package {
+        Some("react" | "react-dom") => CalleeOrigin::Framework,
+        Some(_) => CalleeOrigin::External,
+        None => CalleeOrigin::Application,
+    }
+}
+
 fn local_definition_id(module_identity: &str, symbol: &str) -> String {
     format!("react:component:{module_identity}#{symbol}")
 }
@@ -224,6 +242,11 @@ pub fn collect_usage_sites(
                     location,
                     symbol: candidate.symbol.clone(),
                     qualified_symbol: local.qualified_symbol.clone(),
+                    callee_origin: CalleeOrigin::Local,
+                    resolution_evidence: ResolutionEvidence {
+                        kind: ResolutionEvidenceKind::LocalSameFile,
+                        package: None,
+                    },
                     match_status: MatchStatus::Local,
                     registry_symbol: None,
                     local_definition_id: Some(local.id.clone()),
@@ -249,21 +272,28 @@ pub fn collect_usage_sites(
                     location,
                     symbol: candidate.symbol.clone(),
                     qualified_symbol: local.qualified_symbol.clone(),
+                    callee_origin: CalleeOrigin::Local,
+                    resolution_evidence: ResolutionEvidence {
+                        kind: ResolutionEvidenceKind::LocalPackageMatch,
+                        package: import_package(module_graph, parsed, &candidate.binding_name),
+                    },
                     match_status: MatchStatus::Local,
                     registry_symbol: None,
                     local_definition_id: Some(local.id.clone()),
                     parent,
                 });
-            } else if let Some((registry_symbol, match_status)) =
+            } else if let Some(classified) =
                 classify_jsx_usage(parsed, module_graph, config, registry, candidate)
             {
                 extraction.usage_sites.push(UsageSite {
                     id: usage_site_id(&location, &candidate.symbol),
                     location,
                     symbol: candidate.symbol.clone(),
-                    qualified_symbol: None,
-                    match_status,
-                    registry_symbol: Some(registry_symbol),
+                    qualified_symbol: classified.qualified_symbol,
+                    callee_origin: classified.callee_origin,
+                    resolution_evidence: classified.resolution_evidence,
+                    match_status: classified.match_status,
+                    registry_symbol: classified.registry_symbol,
                     local_definition_id: None,
                     parent,
                 });
@@ -280,6 +310,13 @@ pub fn collect_usage_sites(
                     location,
                     symbol: candidate.symbol.clone(),
                     qualified_symbol: imported_qualified_symbol(module_graph, parsed, candidate),
+                    callee_origin: unresolved_origin(
+                        import_package(module_graph, parsed, &candidate.binding_name).as_deref(),
+                    ),
+                    resolution_evidence: ResolutionEvidence {
+                        kind: ResolutionEvidenceKind::NoMatchingDefinition,
+                        package: import_package(module_graph, parsed, &candidate.binding_name),
+                    },
                     match_status: MatchStatus::Unresolved,
                     registry_symbol: None,
                     local_definition_id: None,
@@ -1133,20 +1170,26 @@ fn collect_jsx_usage_candidates_from_key(
     }
 }
 
+struct ClassifiedJsxUsage {
+    registry_symbol: Option<String>,
+    match_status: MatchStatus,
+    qualified_symbol: Option<String>,
+    callee_origin: CalleeOrigin,
+    resolution_evidence: ResolutionEvidence,
+}
+
 fn classify_jsx_usage(
     parsed: &ParsedReactModule,
     module_graph: &ReactModuleGraph,
     config: &ReactScanConfig,
     registry: &ReactRegistryIndex,
     candidate: &JsxUsageCandidate,
-) -> Option<(String, MatchStatus)> {
+) -> Option<ClassifiedJsxUsage> {
     if candidate.shadowed {
         return None;
     }
 
-    let import_package = module_graph
-        .import_binding(&parsed.file, &candidate.binding_name)
-        .map(|import| npm_import_package_root(&import.source_specifier));
+    let import_package = import_package(module_graph, parsed, &candidate.binding_name);
 
     if let Some(registry_symbol) =
         registry_symbol_for_candidate(parsed, module_graph, config, registry, candidate)
@@ -1155,15 +1198,43 @@ fn classify_jsx_usage(
             .component_packages
             .get(&registry_symbol)
             .and_then(|package| package.as_deref());
-        if registry_package.is_none() {
-            return Some((registry_symbol, MatchStatus::Resolved));
-        }
-        return match resolve_import_aware_match(registry_package, import_package.as_deref()) {
-            RegistryImportMatch::Resolved => Some((registry_symbol, MatchStatus::Resolved)),
-            RegistryImportMatch::Candidate => Some((registry_symbol, MatchStatus::Candidate)),
-            RegistryImportMatch::Mismatch => None,
-            RegistryImportMatch::LegacyNameOnly => unreachable!(),
+        let registry_match =
+            resolve_import_aware_match(registry_package, import_package.as_deref());
+        let (match_status, callee_origin, evidence_kind) = match registry_match {
+            RegistryImportMatch::Resolved => (
+                MatchStatus::Resolved,
+                CalleeOrigin::Registry,
+                ResolutionEvidenceKind::RegistryPackageMatch,
+            ),
+            RegistryImportMatch::Candidate => (
+                MatchStatus::Candidate,
+                CalleeOrigin::Registry,
+                ResolutionEvidenceKind::RegistryImportMissing,
+            ),
+            RegistryImportMatch::Mismatch => (
+                MatchStatus::Unresolved,
+                unresolved_origin(import_package.as_deref()),
+                ResolutionEvidenceKind::PackageMismatch,
+            ),
+            RegistryImportMatch::LegacyNameOnly => (
+                MatchStatus::Resolved,
+                CalleeOrigin::Registry,
+                ResolutionEvidenceKind::RegistryNameOnlyLegacy,
+            ),
         };
+        return Some(ClassifiedJsxUsage {
+            registry_symbol: (match_status != MatchStatus::Unresolved)
+                .then_some(registry_symbol.clone()),
+            match_status,
+            qualified_symbol: import_package
+                .as_deref()
+                .map(|package| format!("{package}#{registry_symbol}")),
+            callee_origin,
+            resolution_evidence: ResolutionEvidence {
+                kind: evidence_kind,
+                package: import_package,
+            },
+        });
     }
 
     let registry_symbol =
@@ -1173,13 +1244,42 @@ fn classify_jsx_usage(
         .get(&registry_symbol)
         .and_then(|package| package.as_deref());
 
-    match resolve_import_aware_match(registry_package, import_package.as_deref()) {
-        RegistryImportMatch::Resolved | RegistryImportMatch::LegacyNameOnly => {
-            Some((registry_symbol, MatchStatus::Resolved))
-        }
-        RegistryImportMatch::Candidate => Some((registry_symbol, MatchStatus::Candidate)),
-        RegistryImportMatch::Mismatch => None,
-    }
+    let registry_match = resolve_import_aware_match(registry_package, import_package.as_deref());
+    let (match_status, callee_origin, evidence_kind) = match registry_match {
+        RegistryImportMatch::Resolved => (
+            MatchStatus::Resolved,
+            CalleeOrigin::Registry,
+            ResolutionEvidenceKind::RegistryPackageMatch,
+        ),
+        RegistryImportMatch::LegacyNameOnly => (
+            MatchStatus::Resolved,
+            CalleeOrigin::Registry,
+            ResolutionEvidenceKind::RegistryNameOnlyLegacy,
+        ),
+        RegistryImportMatch::Candidate => (
+            MatchStatus::Candidate,
+            CalleeOrigin::Registry,
+            ResolutionEvidenceKind::RegistryImportMissing,
+        ),
+        RegistryImportMatch::Mismatch => (
+            MatchStatus::Unresolved,
+            unresolved_origin(import_package.as_deref()),
+            ResolutionEvidenceKind::PackageMismatch,
+        ),
+    };
+    Some(ClassifiedJsxUsage {
+        registry_symbol: (match_status != MatchStatus::Unresolved)
+            .then_some(registry_symbol.clone()),
+        match_status,
+        qualified_symbol: import_package
+            .as_deref()
+            .map(|package| format!("{package}#{registry_symbol}")),
+        callee_origin,
+        resolution_evidence: ResolutionEvidence {
+            kind: evidence_kind,
+            package: import_package,
+        },
+    })
 }
 
 fn registry_symbol_for_candidate(

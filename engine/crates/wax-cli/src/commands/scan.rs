@@ -1848,6 +1848,7 @@ mod tests {
                 with_local_invocations: 0,
                 with_unresolved_invocations: 1,
             },
+            invocation_origins: Default::default(),
             tokens: wax_contract::TokenCounts {
                 configured_token_count: 2,
                 used_token_count: 1,

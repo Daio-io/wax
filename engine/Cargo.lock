@@ -2742,6 +2742,9 @@ dependencies = [
  "thiserror",
  "time",
  "wax-contract",
+ "wax-lang-compose",
+ "wax-lang-react",
+ "wax-lang-swift",
 ]
 
 [[package]]

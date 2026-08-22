@@ -2,9 +2,10 @@ use std::collections::BTreeMap;
 
 use time::macros::datetime;
 use wax_contract::{
-    CountSummary, Diagnostic, DiagnosticSeverity, IdentityStability, LanguageId, LanguageMetadata,
-    MatchStatus, MergedScan, Metrics, ParentScope, RepoSummary, SCHEMA_VERSION, ScanFacts,
-    ScanStatus, SourceLocation, SymbolKind, SymbolUsageSummary, TokenInferenceReport, UsageSite,
+    CalleeOrigin, CountSummary, Diagnostic, DiagnosticSeverity, IdentityStability, LanguageId,
+    LanguageMetadata, MatchStatus, MergedScan, Metrics, ParentScope, RepoSummary,
+    ResolutionEvidence, ResolutionEvidenceKind, SCHEMA_VERSION, ScanFacts, ScanStatus,
+    SourceLocation, SymbolKind, SymbolUsageSummary, TokenInferenceReport, UsageSite,
 };
 
 fn scan_facts_schema() -> jsonschema::Validator {
@@ -27,6 +28,19 @@ fn assert_schema_rejects(value: &serde_json::Value) {
 
 fn empty_counts() -> CountSummary {
     CountSummary::default()
+}
+
+#[test]
+fn resolution_evidence_serializes_with_closed_snake_case_enums() {
+    let evidence = ResolutionEvidence {
+        kind: ResolutionEvidenceKind::RegistryPackageMatch,
+        package: Some("com.acme.design_system".into()),
+    };
+    let value = serde_json::to_value((&CalleeOrigin::Registry, &evidence)).unwrap();
+
+    assert_eq!(value[0], "registry");
+    assert_eq!(value[1]["kind"], "registry_package_match");
+    assert_eq!(value[1]["package"], "com.acme.design_system");
 }
 
 fn minimal_facts() -> ScanFacts {
@@ -54,6 +68,11 @@ fn minimal_facts() -> ScanFacts {
                 },
                 symbol: "Button".into(),
                 qualified_symbol: None,
+                callee_origin: CalleeOrigin::Registry,
+                resolution_evidence: ResolutionEvidence {
+                    kind: ResolutionEvidenceKind::RegistryPackageMatch,
+                    package: Some("com.ds".into()),
+                },
                 match_status: MatchStatus::Resolved,
                 registry_symbol: Some("com.ds.Button".into()),
                 local_definition_id: None,
@@ -68,6 +87,11 @@ fn minimal_facts() -> ScanFacts {
                 },
                 symbol: "Card".into(),
                 qualified_symbol: None,
+                callee_origin: CalleeOrigin::Registry,
+                resolution_evidence: ResolutionEvidence {
+                    kind: ResolutionEvidenceKind::RegistryImportMissing,
+                    package: None,
+                },
                 match_status: MatchStatus::Candidate,
                 registry_symbol: Some("com.ds.Card".into()),
                 local_definition_id: None,
@@ -133,6 +157,11 @@ fn schema_v2_local_usage_and_symbol_summary_roundtrip() {
         },
         symbol: "EpisodeCard".into(),
         qualified_symbol: Some("com.example.EpisodeCard".into()),
+        callee_origin: CalleeOrigin::Local,
+        resolution_evidence: ResolutionEvidence {
+            kind: ResolutionEvidenceKind::LocalPackageMatch,
+            package: Some("com.example".into()),
+        },
         match_status: MatchStatus::Local,
         registry_symbol: None,
         local_definition_id: Some("local.compose:com.example.EpisodeCard".into()),
@@ -383,6 +412,11 @@ fn requires_local_definition_id_for_local_usage() {
         },
         symbol: "EpisodeCard".into(),
         qualified_symbol: None,
+        callee_origin: CalleeOrigin::Local,
+        resolution_evidence: ResolutionEvidence {
+            kind: ResolutionEvidenceKind::LocalSameFile,
+            package: None,
+        },
         match_status: MatchStatus::Local,
         registry_symbol: None,
         local_definition_id: None,
@@ -399,6 +433,11 @@ fn rejects_registry_symbol_for_unresolved_usage() {
     let mut facts = minimal_facts();
     facts.usage_sites[0].match_status = MatchStatus::Unresolved;
     facts.usage_sites[0].registry_symbol = None;
+    facts.usage_sites[0].callee_origin = CalleeOrigin::Unknown;
+    facts.usage_sites[0].resolution_evidence = ResolutionEvidence {
+        kind: ResolutionEvidenceKind::NoMatchingDefinition,
+        package: None,
+    };
     facts.recompute_counts().unwrap();
     let value = serde_json::to_value(&facts).unwrap();
 
@@ -422,6 +461,11 @@ fn rejects_registry_symbol_for_local_usage() {
         },
         symbol: "EpisodeCard".into(),
         qualified_symbol: None,
+        callee_origin: CalleeOrigin::Local,
+        resolution_evidence: ResolutionEvidence {
+            kind: ResolutionEvidenceKind::LocalSameFile,
+            package: None,
+        },
         match_status: MatchStatus::Local,
         registry_symbol: Some("com.ds.EpisodeCard".into()),
         local_definition_id: Some("local.compose:EpisodeCard".into()),
@@ -697,6 +741,7 @@ fn rejects_missing_invocation_adoption_ratio() {
 fn all_candidate_usage_has_zero_adoption() {
     let mut facts = minimal_facts();
     facts.usage_sites[0].match_status = MatchStatus::Candidate;
+    facts.usage_sites[0].resolution_evidence.kind = ResolutionEvidenceKind::RegistryImportMissing;
     facts.recompute_counts().unwrap();
 
     let json = serde_json::to_string(&facts).unwrap();
@@ -706,6 +751,45 @@ fn all_candidate_usage_has_zero_adoption() {
     assert_eq!(back.counts.raw_invocations.resolved, 0);
     assert_eq!(back.counts.raw_invocations.candidate, 2);
     assert_eq!(back.counts.adoption.eligible_invocation_count, 0);
+}
+
+#[test]
+fn invocation_origin_counts_are_derived_from_usage_sites() {
+    let mut facts = minimal_facts();
+    facts.usage_sites[0].match_status = MatchStatus::Unresolved;
+    facts.usage_sites[0].callee_origin = CalleeOrigin::Application;
+    facts.usage_sites[0].registry_symbol = None;
+    facts.usage_sites[0].resolution_evidence = ResolutionEvidence {
+        kind: ResolutionEvidenceKind::NoMatchingDefinition,
+        package: None,
+    };
+    facts.recompute_counts().unwrap();
+
+    assert_eq!(facts.counts.invocation_origins.registry, 1);
+    assert_eq!(facts.counts.invocation_origins.application, 1);
+    assert_eq!(
+        facts
+            .counts
+            .invocation_origins
+            .registry
+            .saturating_add(facts.counts.invocation_origins.application),
+        facts.usage_sites.len() as u32
+    );
+    facts.validate().unwrap();
+}
+
+#[test]
+fn rejects_resolution_evidence_that_does_not_match_status() {
+    let mut facts = minimal_facts();
+    facts.usage_sites[0].callee_origin = CalleeOrigin::External;
+
+    let error = facts.validate().unwrap_err();
+
+    assert!(matches!(
+        error,
+        wax_contract::ScanFactsError::ContractViolation { field, .. }
+            if field == "usage_sites[0].callee_origin"
+    ));
 }
 
 #[test]
