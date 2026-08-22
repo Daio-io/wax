@@ -238,10 +238,7 @@ fn scan_recovers_available_preview_without_preview_adoption_or_location_shift() 
                 }
     }));
     assert!(
-        facts
-            .usage_sites
-            .iter()
-            .all(|site| site.symbol != "PreviewOnlyButton"),
-        "preview-only design-system calls must not count as adoption"
+        facts.usage_sites.is_empty(),
+        "preview-body design-system calls must not count as adoption"
     );
 }

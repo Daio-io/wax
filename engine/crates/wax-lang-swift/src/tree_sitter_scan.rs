@@ -1641,6 +1641,33 @@ mod tests {
     }
 
     #[test]
+    fn recovered_available_preview_bodies_are_not_usage_sites() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let path = tempdir.path().join("Test.swift");
+        std::fs::write(
+            &path,
+            "@available(iOS 18.0, *)\n#Preview { PreviewOnlyButton() }",
+        )
+        .expect("source");
+        let mut parser = make_parser();
+        let parsed = parse_swift_file_permissive(&mut parser, &path).expect("parse");
+        let registry = registry_without_packages(&[("PreviewOnlyButton", "PreviewOnlyButton")]);
+        let local_index = LocalViewIndex::default();
+        let mut usages = Vec::new();
+
+        extract_usage_from_source(
+            parsed.tree.root_node(),
+            parsed.source.as_bytes(),
+            "Test.swift",
+            &registry,
+            &local_index,
+            &mut usages,
+        );
+
+        assert!(usages.is_empty());
+    }
+
+    #[test]
     fn unknown_pascal_case_view_call_becomes_unresolved() {
         let registry = registry_without_packages(&[("PrimaryButton", "PrimaryButton")]);
         let (_, usages) = parse_and_extract(
