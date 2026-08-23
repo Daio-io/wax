@@ -105,12 +105,20 @@ pub fn npm_package_name_for_path(
 /// Infers a Swift module name from a source file path under `Sources/<Module>/`.
 #[must_use]
 pub fn swift_module_from_source_path(file_path: &std::path::Path) -> Option<String> {
-    let parent = file_path.parent()?;
-    if parent.file_name()?.to_str()? != "Sources" {
-        let grandparent = parent.parent()?;
-        if grandparent.file_name()?.to_str()? == "Sources" {
-            return parent.file_name()?.to_str().map(str::to_owned);
+    let file_parent = file_path.parent()?;
+    let mut ancestor = file_parent;
+    while let Some(parent) = ancestor.parent() {
+        if ancestor.file_name().and_then(|name| name.to_str()) == Some("Sources") {
+            return file_parent
+                .strip_prefix(ancestor)
+                .ok()?
+                .components()
+                .next()
+                .and_then(|component| component.as_os_str().to_str())
+                .filter(|module| !module.is_empty())
+                .map(str::to_owned);
         }
+        ancestor = parent;
     }
 
     None
@@ -155,6 +163,15 @@ mod tests {
     #[test]
     fn swift_module_is_inferred_from_sources_layout() {
         let path = PathBuf::from("design-system/Sources/AcmeDesignSystem/Button.swift");
+        assert_eq!(
+            swift_module_from_source_path(&path).as_deref(),
+            Some("AcmeDesignSystem")
+        );
+    }
+
+    #[test]
+    fn swift_module_is_inferred_for_nested_source_directories() {
+        let path = PathBuf::from("design-system/Sources/AcmeDesignSystem/Views/Button.swift");
         assert_eq!(
             swift_module_from_source_path(&path).as_deref(),
             Some("AcmeDesignSystem")

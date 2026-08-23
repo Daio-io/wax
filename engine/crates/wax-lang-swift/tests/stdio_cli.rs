@@ -190,9 +190,10 @@ fn stdio_cli_emits_one_scan_facts_response() {
                 facts.language.parser_version,
                 wax_lang_swift::TREE_SITTER_SWIFT_GRAMMAR_VERSION
             );
-            assert_eq!(facts.counts.raw_invocations.total, 8);
+            assert_eq!(facts.counts.raw_invocations.total, 19);
             assert_eq!(facts.counts.raw_invocations.resolved, 6);
             assert_eq!(facts.counts.raw_invocations.local, 2);
+            assert_eq!(facts.counts.invocation_origins.framework, 11);
             assert_eq!(facts.counts.registry.component_count, 2);
             assert_eq!(facts.counts.definitions.local_definition_count, 5);
         }

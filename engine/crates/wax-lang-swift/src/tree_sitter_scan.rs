@@ -1,6 +1,6 @@
 //! Tree-sitter-swift backed SwiftUI scanner.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
@@ -469,6 +469,7 @@ fn parent_scope_for_view(
 struct LocalViewIndex {
     by_file_symbol: BTreeMap<(String, String), LocalComponent>,
     by_qualified: BTreeMap<String, LocalComponent>,
+    scanned_modules: BTreeSet<String>,
 }
 
 impl LocalViewIndex {
@@ -497,39 +498,8 @@ impl LocalViewIndex {
     }
 }
 
-fn unresolved_symbol_is_swiftui_shaped(
-    call_site: &ResolvedCallSite,
-    imports: &ImportBindings,
-) -> bool {
-    if call_site.qualifier.as_deref() == Some("SwiftUI") {
-        return false;
-    }
-    if is_framework_swiftui_symbol(&call_site.symbol) {
-        return false;
-    }
-    if !imports
-        .module_imports
-        .iter()
-        .any(|module| module == "SwiftUI")
-    {
-        return false;
-    }
-    if imports
-        .package_for_call(&call_site.symbol, call_site.qualifier.as_deref())
-        .as_deref()
-        .is_some_and(|package| package != "SwiftUI")
-    {
-        return false;
-    }
-    true
-}
-
-fn unresolved_origin(package: Option<&str>) -> CalleeOrigin {
-    match package {
-        Some("SwiftUI") => CalleeOrigin::Framework,
-        Some(_) => CalleeOrigin::External,
-        None => CalleeOrigin::Application,
-    }
+fn is_framework_swiftui_module(module: &str) -> bool {
+    module == "SwiftUI"
 }
 
 fn is_framework_swiftui_symbol(symbol: &str) -> bool {
@@ -571,6 +541,59 @@ fn is_framework_swiftui_symbol(symbol: &str) -> bool {
             | "VStack"
             | "ZStack"
     )
+}
+
+fn is_scanned_swift_module(module: &str, scanned_modules: &BTreeSet<String>) -> bool {
+    scanned_modules.contains(module)
+}
+
+fn has_explicit_swiftui_framework_evidence(
+    package: Option<&str>,
+    symbol: &str,
+    qualifier: Option<&str>,
+    selective_swiftui_import: bool,
+) -> bool {
+    package.is_some_and(is_framework_swiftui_module)
+        && (qualifier == Some("SwiftUI")
+            || selective_swiftui_import
+            || is_framework_swiftui_symbol(symbol))
+}
+
+fn unresolved_origin(
+    package: Option<&str>,
+    symbol: &str,
+    explicit_swiftui_framework: bool,
+    swiftui_imported: bool,
+    current_module_known: bool,
+    scanned_modules: &BTreeSet<String>,
+    identity_ambiguous: bool,
+) -> CalleeOrigin {
+    match package {
+        Some(_) if explicit_swiftui_framework => CalleeOrigin::Framework,
+        None if swiftui_imported && is_framework_swiftui_symbol(symbol) => CalleeOrigin::Framework,
+        Some(package) if is_scanned_swift_module(package, scanned_modules) => {
+            CalleeOrigin::Application
+        }
+        // Sole-module `import SwiftUI` can weakly attribute uncatalogued symbols to SwiftUI.
+        // Prefer application/unknown over framework so those calls stay adoption-eligible.
+        Some(package)
+            if is_framework_swiftui_module(package)
+                && current_module_known
+                && !identity_ambiguous =>
+        {
+            CalleeOrigin::Application
+        }
+        Some(package) if is_framework_swiftui_module(package) => CalleeOrigin::Unknown,
+        Some(_) => CalleeOrigin::External,
+        None if current_module_known && !identity_ambiguous => CalleeOrigin::Application,
+        None => CalleeOrigin::Unknown,
+    }
+}
+
+fn import_identity_is_ambiguous(call_site: &ResolvedCallSite, imports: &ImportBindings) -> bool {
+    call_site.qualifier.is_none()
+        && !imports.symbol_packages.contains_key(&call_site.symbol)
+        && imports.module_imports.len() > 1
 }
 
 fn index_local_components_from_source(
@@ -618,6 +641,7 @@ fn extract_usage_from_source(
 
             let import_package =
                 imports.package_for_call(&call_site.symbol, call_site.qualifier.as_deref());
+            let unresolved_package = import_package.clone();
             if let Some(local) = call_site
                 .qualifier
                 .is_none()
@@ -702,7 +726,25 @@ fn extract_usage_from_source(
                         RegistryImportMatch::Mismatch => (
                             MatchStatus::Unresolved,
                             None,
-                            unresolved_origin(import_package.as_deref()),
+                            unresolved_origin(
+                                unresolved_package.as_deref(),
+                                &call_site.symbol,
+                                has_explicit_swiftui_framework_evidence(
+                                    import_package.as_deref(),
+                                    &call_site.symbol,
+                                    call_site.qualifier.as_deref(),
+                                    imports.symbol_packages.get(&call_site.symbol).is_some_and(
+                                        |package| is_framework_swiftui_module(package),
+                                    ),
+                                ),
+                                imports
+                                    .module_imports
+                                    .iter()
+                                    .any(|module| is_framework_swiftui_module(module)),
+                                semantic_module,
+                                &local_index.scanned_modules,
+                                import_identity_is_ambiguous(&call_site, &imports),
+                            ),
                             ResolutionEvidence {
                                 kind: ResolutionEvidenceKind::PackageMismatch,
                                 package: import_package.clone(),
@@ -726,8 +768,7 @@ fn extract_usage_from_source(
                     local_definition_id: None,
                     parent,
                 });
-            } else if parent.is_some() && unresolved_symbol_is_swiftui_shaped(&call_site, &imports)
-            {
+            } else if parent.is_some() {
                 let symbol = call_site.symbol.clone();
                 usage_sites.push(UsageSite {
                     id: format!("usage.swift:{file}:{line}:{column}:{}", call_site.symbol),
@@ -736,7 +777,26 @@ fn extract_usage_from_source(
                     qualified_symbol: import_package
                         .as_deref()
                         .map(|package| qualified_view_symbol(package, &symbol)),
-                    callee_origin: unresolved_origin(import_package.as_deref()),
+                    callee_origin: unresolved_origin(
+                        unresolved_package.as_deref(),
+                        &symbol,
+                        has_explicit_swiftui_framework_evidence(
+                            import_package.as_deref(),
+                            &symbol,
+                            call_site.qualifier.as_deref(),
+                            imports
+                                .symbol_packages
+                                .get(&symbol)
+                                .is_some_and(|package| is_framework_swiftui_module(package)),
+                        ),
+                        imports
+                            .module_imports
+                            .iter()
+                            .any(|module| is_framework_swiftui_module(module)),
+                        semantic_module,
+                        &local_index.scanned_modules,
+                        import_identity_is_ambiguous(&call_site, &imports),
+                    ),
                     resolution_evidence: ResolutionEvidence {
                         kind: ResolutionEvidenceKind::NoMatchingDefinition,
                         package: import_package.clone(),
@@ -770,7 +830,153 @@ fn is_inside_preview_macro(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
         }
         current = ancestor.parent();
     }
+    preview_macro_body_contains(node.start_byte(), source)
+}
+
+fn preview_macro_body_contains(offset: usize, source: &[u8]) -> bool {
+    let marker = b"#Preview";
+    let mut index = 0;
+    let mut line_comment = false;
+    let mut block_comment_depth = 0_u32;
+    let mut string_literal = false;
+    let mut escaped = false;
+    while index < source.len() {
+        let byte = source[index];
+        if line_comment {
+            line_comment = byte != b'\n';
+            index += 1;
+            continue;
+        }
+        if block_comment_depth > 0 {
+            if source.get(index..index + 2) == Some(b"/*") {
+                block_comment_depth += 1;
+                index += 2;
+            } else if source.get(index..index + 2) == Some(b"*/") {
+                block_comment_depth -= 1;
+                index += 2;
+            } else {
+                index += 1;
+            }
+            continue;
+        }
+        if string_literal {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                string_literal = false;
+            }
+            index += 1;
+            continue;
+        }
+        if source.get(index..index + 2) == Some(b"//") {
+            line_comment = true;
+            index += 2;
+            continue;
+        }
+        if source.get(index..index + 2) == Some(b"/*") {
+            block_comment_depth = 1;
+            index += 2;
+            continue;
+        }
+        if byte == b'"' {
+            string_literal = true;
+            index += 1;
+            continue;
+        }
+        if !source[index..].starts_with(marker) {
+            index += 1;
+            continue;
+        }
+
+        let start = index;
+        let end = start + marker.len();
+        let is_marker = source
+            .get(end)
+            .is_none_or(|byte| !byte.is_ascii_alphanumeric() && *byte != b'_');
+        if !is_marker {
+            index = end;
+            continue;
+        }
+
+        let Some(relative_open_brace) = source[end..].iter().position(|byte| *byte == b'{') else {
+            break;
+        };
+        let open_brace = end + relative_open_brace;
+        let Some(close_brace) = matching_brace(source, open_brace) else {
+            break;
+        };
+        if open_brace < offset && offset < close_brace {
+            return true;
+        }
+        index = close_brace + 1;
+    }
     false
+}
+
+fn matching_brace(source: &[u8], open_brace: usize) -> Option<usize> {
+    let mut depth = 0_u32;
+    let mut index = open_brace;
+    let mut line_comment = false;
+    let mut block_comment_depth = 0_u32;
+    let mut string_literal = false;
+    let mut escaped = false;
+
+    while index < source.len() {
+        let byte = source[index];
+        if line_comment {
+            line_comment = byte != b'\n';
+            index += 1;
+            continue;
+        }
+        if block_comment_depth > 0 {
+            if source.get(index..index + 2) == Some(b"/*") {
+                block_comment_depth += 1;
+                index += 2;
+            } else if source.get(index..index + 2) == Some(b"*/") {
+                block_comment_depth -= 1;
+                index += 2;
+            } else {
+                index += 1;
+            }
+            continue;
+        }
+        if string_literal {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                string_literal = false;
+            }
+            index += 1;
+            continue;
+        }
+
+        if source.get(index..index + 2) == Some(b"//") {
+            line_comment = true;
+            index += 2;
+        } else if source.get(index..index + 2) == Some(b"/*") {
+            block_comment_depth = 1;
+            index += 2;
+        } else if byte == b'"' {
+            string_literal = true;
+            index += 1;
+        } else if byte == b'{' {
+            depth += 1;
+            index += 1;
+        } else if byte == b'}' {
+            depth = depth.checked_sub(1)?;
+            if depth == 0 {
+                return Some(index);
+            }
+            index += 1;
+        } else {
+            index += 1;
+        }
+    }
+    None
 }
 
 fn is_preview_macro_text(text: &str) -> bool {
@@ -1494,7 +1700,12 @@ pub fn scan_repository(
     }
 
     let mut local_index = LocalViewIndex::default();
+    let mut scanned_modules = BTreeSet::new();
     for (relative_file, parsed) in &parsed_files {
+        let (module_identity, semantic_module) = module_identity_for_file(relative_file);
+        if semantic_module {
+            scanned_modules.insert(module_identity);
+        }
         for local in index_local_components_from_source(
             parsed.tree.root_node(),
             parsed.source.as_bytes(),
@@ -1504,6 +1715,7 @@ pub fn scan_repository(
             local_components.push(local);
         }
     }
+    local_index.scanned_modules = scanned_modules;
 
     for (relative_file, parsed) in &parsed_files {
         let root = parsed.tree.root_node();
@@ -1642,6 +1854,28 @@ mod tests {
         }
     }
 
+    #[test]
+    fn swift_framework_catalog_matches_only_swiftui_module() {
+        assert!(is_framework_swiftui_module("SwiftUI"));
+        assert!(!is_framework_swiftui_module("SwiftUIExtras"));
+        assert!(!is_framework_swiftui_module("UIKit"));
+    }
+
+    #[test]
+    fn qualified_call_from_swiftui_module_is_framework_origin() {
+        let registry = registry_without_packages(&[]);
+        let (_, usages) = parse_and_extract(
+            "import SwiftUI\nstruct Screen: View { var body: some View { SwiftUI.PlatformOnlyView() } }",
+            &registry,
+        );
+
+        let usage = usages
+            .iter()
+            .find(|usage| usage.symbol == "PlatformOnlyView")
+            .expect("SwiftUI call should be retained");
+        assert_eq!(usage.callee_origin, CalleeOrigin::Framework);
+    }
+
     fn parse_and_extract(
         source: &str,
         registry: &RegistryIndex,
@@ -1703,10 +1937,14 @@ mod tests {
             &registry,
         );
 
-        assert_eq!(usages.len(), 3);
-        assert_eq!(usages[0].registry_symbol.as_deref(), Some("PrimaryButton"));
-        assert_eq!(usages[1].registry_symbol.as_deref(), Some("PrimaryButton"));
-        assert_eq!(usages[2].registry_symbol.as_deref(), Some("Card"));
+        assert_eq!(usages.len(), 5);
+        assert_eq!(
+            usages
+                .iter()
+                .filter(|usage| usage.registry_symbol.is_some())
+                .count(),
+            3
+        );
     }
 
     #[test]
@@ -1717,9 +1955,14 @@ mod tests {
             &registry,
         );
 
-        assert_eq!(usages.len(), 1);
-        assert_eq!(usages[0].match_status, MatchStatus::Local);
-        assert_eq!(usages[0].registry_symbol, None);
+        assert_eq!(usages.len(), 2);
+        assert_eq!(
+            usages
+                .iter()
+                .filter(|usage| usage.match_status == MatchStatus::Local)
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -1806,7 +2049,8 @@ mod tests {
             &registry,
         );
 
-        assert!(usages.is_empty());
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].callee_origin, wax_contract::CalleeOrigin::Unknown);
     }
 
     #[test]
@@ -1822,6 +2066,20 @@ mod tests {
         let registry = registry_without_packages(&[("PreviewOnlyButton", "PreviewOnlyButton")]);
         let (_, usages) = parse_and_extract("#Preview { PreviewOnlyButton() }", &registry);
         assert!(usages.is_empty());
+    }
+
+    #[test]
+    fn preview_markers_in_comments_and_strings_are_ignored() {
+        let source = br###"// #Preview { CommentButton() }
+let text = "#Preview { StringButton() }"
+CommentButton()
+"###;
+        let call = source
+            .windows(b"CommentButton()".len())
+            .rposition(|window| window == b"CommentButton()")
+            .expect("call after comment");
+
+        assert!(!preview_macro_body_contains(call, source));
     }
 
     #[test]
@@ -1869,13 +2127,17 @@ mod tests {
             &registry,
         );
 
-        assert_eq!(usages.len(), 1);
-        assert_eq!(usages[0].symbol, "UnknownCard");
-        assert_eq!(usages[0].match_status, MatchStatus::Unresolved);
+        assert_eq!(usages.len(), 3);
+        let unknown = usages
+            .iter()
+            .find(|usage| usage.symbol == "UnknownCard")
+            .expect("unknown call should be retained");
+        assert_eq!(unknown.match_status, MatchStatus::Unresolved);
+        assert_eq!(unknown.callee_origin, wax_contract::CalleeOrigin::Unknown);
     }
 
     #[test]
-    fn framework_swiftui_calls_are_not_unresolved() {
+    fn framework_swiftui_calls_are_reported_separately() {
         let registry = registry_without_packages(&[("PrimaryButton", "PrimaryButton")]);
         let (_, usages) = parse_and_extract(
             r#"
@@ -1892,7 +2154,35 @@ mod tests {
             &registry,
         );
 
-        assert!(usages.is_empty());
+        assert_eq!(usages.len(), 3);
+        assert!(usages.iter().all(|usage| {
+            usage.callee_origin == wax_contract::CalleeOrigin::Framework
+                && usage.match_status == MatchStatus::Unresolved
+        }));
+    }
+
+    #[test]
+    fn any_swiftui_module_import_is_framework_even_for_uncatalogued_symbols() {
+        let registry = registry_without_packages(&[("PrimaryButton", "PrimaryButton")]);
+        let (_, usages) = parse_and_extract(
+            r#"
+        import SwiftUI
+        struct Screen: View {
+            var body: some View {
+                SwiftUI.NonStandardChrome()
+            }
+        }
+        "#,
+            &registry,
+        );
+
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].symbol, "NonStandardChrome");
+        assert_eq!(usages[0].match_status, MatchStatus::Unresolved);
+        assert_eq!(
+            usages[0].callee_origin,
+            wax_contract::CalleeOrigin::Framework
+        );
     }
 
     #[test]

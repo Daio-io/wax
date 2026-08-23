@@ -3,7 +3,8 @@
     "adoption": {
       "adopted_invocation_count": 5,
       "eligible_invocation_count": 5,
-      "non_adopted_invocation_count": 0
+      "non_adopted_invocation_count": 0,
+      "adoption_excluded_invocation_count": 0
     },
     "definitions": {
       "invoked_local_definition_count": 0,

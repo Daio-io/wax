@@ -1,16 +1,22 @@
 {
   "raw_invocations": {
-    "total": 8,
+    "total": 19,
     "resolved": 6,
     "local": 2,
     "candidate": 0,
-    "unresolved": 0
+    "unresolved": 11
   },
   "registry": {
     "component_count": 2,
     "used_component_count": 2,
     "resolved_raw_invocation_count": 6,
     "candidate_raw_invocation_count": 0
+  },
+  "adoption": {
+    "eligible_invocation_count": 8,
+    "adopted_invocation_count": 6,
+    "non_adopted_invocation_count": 2,
+    "adoption_excluded_invocation_count": 11
   },
   "definitions": {
     "local_definition_count": 5,
@@ -20,7 +26,7 @@
   "invocation_origins": {
     "registry": 6,
     "local": 2,
-    "framework": 0,
+    "framework": 11,
     "external": 0,
     "application": 0,
     "unknown": 0

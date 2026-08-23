@@ -796,6 +796,45 @@ fn invocation_origin_counts_are_derived_from_usage_sites() {
 }
 
 #[test]
+fn framework_and_external_invocations_are_excluded_from_adoption() {
+    let mut facts = minimal_facts();
+    for (index, origin, package) in [
+        (2, CalleeOrigin::Framework, Some("androidx.compose")),
+        (3, CalleeOrigin::External, Some("coil.compose")),
+        (4, CalleeOrigin::Application, Some("com.example.app")),
+        (5, CalleeOrigin::Unknown, None),
+    ] {
+        facts.usage_sites.push(UsageSite {
+            id: format!("a:{index}:call:unresolved"),
+            location: SourceLocation {
+                file: "a.kt".into(),
+                line: index,
+                column: Some(1),
+            },
+            symbol: "Call".into(),
+            qualified_symbol: package.map(|value| format!("{value}.Call")),
+            callee_origin: origin,
+            resolution_evidence: ResolutionEvidence {
+                kind: ResolutionEvidenceKind::NoMatchingDefinition,
+                package: package.map(str::to_owned),
+            },
+            match_status: MatchStatus::Unresolved,
+            registry_symbol: None,
+            local_definition_id: None,
+            parent: None,
+        });
+    }
+    facts.recompute_counts().unwrap();
+
+    assert_eq!(facts.counts.raw_invocations.total, 6);
+    assert_eq!(facts.counts.invocation_origins.framework, 1);
+    assert_eq!(facts.counts.invocation_origins.external, 1);
+    assert_eq!(facts.counts.adoption.eligible_invocation_count, 3);
+    assert_eq!(facts.counts.adoption.adoption_excluded_invocation_count, 2);
+    assert_eq!(facts.metrics.invocation_adoption_ratio, Some(1.0 / 3.0));
+}
+
+#[test]
 fn rejects_resolution_evidence_that_does_not_match_status() {
     let mut facts = minimal_facts();
     facts.usage_sites[0].callee_origin = CalleeOrigin::External;

@@ -97,7 +97,10 @@ fn scan_react(source: &str, registry_package: Option<&str>, with_packages: bool)
 
     let mut config = serde_json::json!({
         "registry": "design-system/registry.json",
-        "roots": ["src"]
+        "roots": ["src"],
+        "aliases": {
+            "@/*": ["src/*"]
+        }
     });
     if with_packages {
         config["packages"] = serde_json::json!({
@@ -128,8 +131,8 @@ fn scan_swift(source: &str, registry_package: Option<&str>) -> ScanFacts {
         registry_package,
     );
     let source_dir = tmp.path().join("app/Sources");
-    fs::create_dir_all(&source_dir).unwrap();
-    fs::write(source_dir.join("Screen.swift"), source).unwrap();
+    fs::create_dir_all(source_dir.join("App")).unwrap();
+    fs::write(source_dir.join("App/Screen.swift"), source).unwrap();
 
     scan_request(
         tmp.path(),
@@ -172,6 +175,118 @@ fn first_usage(facts: &ScanFacts) -> &UsageSite {
         .iter()
         .find(|site| site.symbol == "DsButton")
         .unwrap_or_else(|| panic!("expected DsButton usage site, got {:?}", facts.usage_sites))
+}
+
+fn usage_for<'a>(facts: &'a ScanFacts, symbol: &str) -> &'a UsageSite {
+    facts
+        .usage_sites
+        .iter()
+        .find(|site| site.symbol == symbol)
+        .unwrap_or_else(|| panic!("expected {symbol} usage site, got {:?}", facts.usage_sites))
+}
+
+#[test]
+fn parity_classifies_framework_external_and_application_calls() {
+    let compose = scan_compose(
+        "package app\nimport androidx.compose.foundation.layout.Box\nimport coil.compose.AsyncImage\n@Composable\nfun Screen() { Box(); AsyncImage(); UnknownCard() }",
+        Some("com.acme.designsystem"),
+    );
+    assert_parity(
+        usage_for(&compose, "Box"),
+        ExpectedOutcome {
+            match_status: MatchStatus::Unresolved,
+            callee_origin: CalleeOrigin::Framework,
+            evidence_kind: ResolutionEvidenceKind::NoMatchingDefinition,
+        },
+        "compose",
+        "framework",
+    );
+    assert_parity(
+        usage_for(&compose, "AsyncImage"),
+        ExpectedOutcome {
+            match_status: MatchStatus::Unresolved,
+            callee_origin: CalleeOrigin::External,
+            evidence_kind: ResolutionEvidenceKind::NoMatchingDefinition,
+        },
+        "compose",
+        "external",
+    );
+    assert_parity(
+        usage_for(&compose, "UnknownCard"),
+        ExpectedOutcome {
+            match_status: MatchStatus::Unresolved,
+            callee_origin: CalleeOrigin::Application,
+            evidence_kind: ResolutionEvidenceKind::NoMatchingDefinition,
+        },
+        "compose",
+        "application",
+    );
+
+    let react = scan_react(
+        r#"import { View } from "react-native";
+import { AsyncImage } from "coil";
+import { MissingCard } from "@/MissingCard";
+
+export function Screen() {
+  return <><View /><AsyncImage /><MissingCard /><UnknownCard /></>;
+}"#,
+        Some("@acme/design-system"),
+        false,
+    );
+    for (symbol, origin, scenario) in [
+        ("View", CalleeOrigin::Framework, "framework"),
+        ("AsyncImage", CalleeOrigin::External, "external"),
+        ("MissingCard", CalleeOrigin::Unknown, "path_alias"),
+        ("UnknownCard", CalleeOrigin::Application, "application"),
+    ] {
+        assert_parity(
+            usage_for(&react, symbol),
+            ExpectedOutcome {
+                match_status: MatchStatus::Unresolved,
+                callee_origin: origin,
+                evidence_kind: ResolutionEvidenceKind::NoMatchingDefinition,
+            },
+            "react",
+            scenario,
+        );
+    }
+    assert_eq!(react.counts.invocation_origins.external, 1);
+    assert_eq!(react.counts.invocation_origins.unknown, 1);
+    assert_eq!(react.counts.adoption.adoption_excluded_invocation_count, 2);
+
+    let swift = scan_swift(
+        r#"import SwiftUI
+import Kingfisher
+
+struct Screen: View {
+    var body: some View {
+        SwiftUI.Text("Title")
+        KFImage()
+        UnknownCard()
+    }
+}"#,
+        Some("AcmeDesignSystem"),
+    );
+    for (symbol, origin, scenario) in [
+        ("Text", CalleeOrigin::Framework, "framework"),
+        ("KFImage", CalleeOrigin::Unknown, "unknown_without_binding"),
+        (
+            "UnknownCard",
+            CalleeOrigin::Unknown,
+            "unknown_without_import",
+        ),
+    ] {
+        assert_parity(
+            usage_for(&swift, symbol),
+            ExpectedOutcome {
+                match_status: MatchStatus::Unresolved,
+                callee_origin: origin,
+                evidence_kind: ResolutionEvidenceKind::NoMatchingDefinition,
+            },
+            "swift",
+            scenario,
+        );
+    }
 }
 
 #[test]

@@ -84,7 +84,7 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
      - local invocations (`raw_invocations.local`)
      - local definitions (`definitions.local_definition_count`)
      - registry usage (`registry.used_component_count` / `registry.component_count`)
-     - unresolved UI calls (`raw_invocations.unresolved`) as diagnostics context, not migration debt
+   - framework/external invocations as diagnostics context, plus application/unknown unresolved UI calls as migration context
      - registry resolution as diagnostics context, not a hero KPI
      - named unused registry components when available
      - parent-scope hotspots with resolved/local/unresolved counts when available
@@ -202,7 +202,7 @@ Report:
 - DS vs local UI coverage as the primary headline
 - DS invocations, local invocations, and local definitions as supporting migration signals
 - Registry resolution as a secondary scanner/registry health metric
-- Raw invocation breakdown by `resolved`, `local`, `candidate`, and `unresolved`
+- Raw invocation breakdown by `resolved`, `local`, `candidate`, and `unresolved`, with framework/external origin counts called out separately
 - Named unused registry components when they exist
 - Parent-scope hotspots when attribution is available
 - Adoption by feature area, screen, route, package/module, or team when those boundaries are available

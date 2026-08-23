@@ -251,6 +251,10 @@ pub(crate) fn sum_count_summaries<'a>(
             .adoption
             .non_adopted_invocation_count
             .saturating_add(counts.adoption.non_adopted_invocation_count);
+        total.adoption.adoption_excluded_invocation_count = total
+            .adoption
+            .adoption_excluded_invocation_count
+            .saturating_add(counts.adoption.adoption_excluded_invocation_count);
 
         total.parent_scopes.total = total
             .parent_scopes
@@ -761,6 +765,41 @@ mod tests {
             .registry_resolution_ratio
             .unwrap();
         assert!((resolution - (800.0 / 1005.0)).abs() <= 1e-12);
+    }
+
+    #[test]
+    fn merged_counts_preserve_framework_and_external_exclusions() {
+        let mut framework = usage_site(MatchStatus::Unresolved, "Box", None);
+        framework.callee_origin = CalleeOrigin::Framework;
+        let mut external = usage_site(MatchStatus::Unresolved, "AsyncImage", None);
+        external.callee_origin = CalleeOrigin::External;
+
+        let facts = language_facts("compose", vec![framework, external]);
+        let merged = merge_language_scans(BTreeMap::from([(
+            LanguageId::try_from("compose").unwrap(),
+            facts,
+        )]))
+        .unwrap();
+
+        assert_eq!(merged.repo_summary.counts.invocation_origins.framework, 1);
+        assert_eq!(merged.repo_summary.counts.invocation_origins.external, 1);
+        assert_eq!(
+            merged
+                .repo_summary
+                .counts
+                .adoption
+                .adoption_excluded_invocation_count,
+            2
+        );
+        assert_eq!(
+            merged
+                .repo_summary
+                .counts
+                .adoption
+                .eligible_invocation_count,
+            0
+        );
+        assert_eq!(merged.repo_summary.metrics.invocation_adoption_ratio, None);
     }
 
     #[test]

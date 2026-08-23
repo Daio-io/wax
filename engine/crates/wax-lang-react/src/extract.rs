@@ -178,11 +178,42 @@ fn import_package(
         .map(|import| npm_import_package_root(&import.source_specifier))
 }
 
-fn unresolved_origin(package: Option<&str>) -> CalleeOrigin {
-    match package {
-        Some("react" | "react-dom") => CalleeOrigin::Framework,
-        Some(_) => CalleeOrigin::External,
-        None => CalleeOrigin::Application,
+fn is_framework_react_package(package: &str) -> bool {
+    matches!(package, "react" | "react-dom" | "react-native")
+}
+
+fn is_relative_import(specifier: &str) -> bool {
+    specifier == "."
+        || specifier == ".."
+        || specifier.starts_with("./")
+        || specifier.starts_with("../")
+}
+
+fn is_path_like_import(specifier: &str) -> bool {
+    is_relative_import(specifier)
+        || specifier.starts_with("@/")
+        || specifier.starts_with("~/")
+        || specifier.starts_with('/')
+}
+
+fn unresolved_origin(
+    module_graph: &ReactModuleGraph,
+    parsed: &ParsedReactModule,
+    binding_name: &str,
+) -> CalleeOrigin {
+    let Some(import) = module_graph.import_binding(&parsed.file, binding_name) else {
+        return CalleeOrigin::Application;
+    };
+
+    let package = npm_import_package_root(&import.source_specifier);
+    if is_framework_react_package(&package) {
+        CalleeOrigin::Framework
+    } else if import.source_module.is_some() {
+        CalleeOrigin::Application
+    } else if is_path_like_import(&import.source_specifier) {
+        CalleeOrigin::Unknown
+    } else {
+        CalleeOrigin::External
     }
 }
 
@@ -297,22 +328,13 @@ pub fn collect_usage_sites(
                     local_definition_id: None,
                     parent,
                 });
-            } else if unresolved_usage_is_design_system_relevant(
-                parsed,
-                module_graph,
-                config,
-                registry,
-                candidate,
-                &local_declared_bindings(parsed),
-            ) {
+            } else if candidate.parent_component.is_some() {
                 extraction.usage_sites.push(UsageSite {
                     id: usage_site_id(&location, &candidate.symbol),
                     location,
                     symbol: candidate.symbol.clone(),
                     qualified_symbol: imported_qualified_symbol(module_graph, parsed, candidate),
-                    callee_origin: unresolved_origin(
-                        import_package(module_graph, parsed, &candidate.binding_name).as_deref(),
-                    ),
+                    callee_origin: unresolved_origin(module_graph, parsed, &candidate.binding_name),
                     resolution_evidence: ResolutionEvidence {
                         kind: ResolutionEvidenceKind::NoMatchingDefinition,
                         package: import_package(module_graph, parsed, &candidate.binding_name),
@@ -1213,7 +1235,7 @@ fn classify_jsx_usage(
             ),
             RegistryImportMatch::Mismatch => (
                 MatchStatus::Unresolved,
-                unresolved_origin(import_package.as_deref()),
+                unresolved_origin(module_graph, parsed, &candidate.binding_name),
                 ResolutionEvidenceKind::PackageMismatch,
             ),
             RegistryImportMatch::LegacyNameOnly => (
@@ -1271,7 +1293,7 @@ fn classify_jsx_usage(
         ),
         RegistryImportMatch::Mismatch => (
             MatchStatus::Unresolved,
-            unresolved_origin(import_package.as_deref()),
+            unresolved_origin(module_graph, parsed, &candidate.binding_name),
             ResolutionEvidenceKind::PackageMismatch,
         ),
     };
@@ -1409,77 +1431,6 @@ fn namespace_member_symbol(candidate: &JsxUsageCandidate) -> Option<String> {
     candidate.symbol.strip_prefix(&prefix).map(str::to_owned)
 }
 
-fn unresolved_usage_is_design_system_relevant(
-    parsed: &ParsedReactModule,
-    module_graph: &ReactModuleGraph,
-    config: &ReactScanConfig,
-    registry: &ReactRegistryIndex,
-    candidate: &JsxUsageCandidate,
-    local_bindings: &BTreeSet<String>,
-) -> bool {
-    if candidate.shadowed || local_bindings.contains(&candidate.binding_name) {
-        return false;
-    }
-
-    if let Some(import) = module_graph.import_binding(&parsed.file, &candidate.binding_name) {
-        if registry_import_is_explicitly_mismatched(
-            parsed,
-            module_graph,
-            config,
-            registry,
-            candidate,
-        ) {
-            return true;
-        }
-        if import.source_module.is_some() {
-            return module_graph.import_resolves_through_configured_package(
-                &parsed.file,
-                &candidate.binding_name,
-                config,
-            );
-        }
-
-        return module_graph.unresolved_import_is_design_system_relevant(
-            &parsed.file,
-            &candidate.binding_name,
-            registry,
-            config,
-        );
-    }
-
-    registry.resolve_targets.contains_key(&candidate.symbol)
-        || registry
-            .resolve_targets
-            .contains_key(&candidate.binding_name)
-}
-
-fn registry_import_is_explicitly_mismatched(
-    parsed: &ParsedReactModule,
-    module_graph: &ReactModuleGraph,
-    config: &ReactScanConfig,
-    registry: &ReactRegistryIndex,
-    candidate: &JsxUsageCandidate,
-) -> bool {
-    let Some(registry_symbol) =
-        registry_symbol_for_candidate(parsed, module_graph, config, registry, candidate)
-            .or_else(|| lookup_registry_symbol_by_name(parsed, module_graph, registry, candidate))
-    else {
-        return false;
-    };
-    let registry_package = registry
-        .component_packages
-        .get(&registry_symbol)
-        .and_then(|package| package.as_deref());
-    let import_package = module_graph
-        .import_binding(&parsed.file, &candidate.binding_name)
-        .map(|import| npm_import_package_root(&import.source_specifier));
-
-    matches!(
-        resolve_import_aware_match(registry_package, import_package.as_deref()),
-        RegistryImportMatch::Mismatch
-    )
-}
-
 fn binding_is_shadowed(binding_name: &str, scopes: &[BTreeSet<String>]) -> bool {
     scopes
         .iter()
@@ -1501,6 +1452,19 @@ fn collect_stmt_declared_bindings(stmt: &Stmt, bindings: &mut BTreeSet<String>) 
     }
 }
 
+fn collect_declared_bindings(decl: &Decl, bindings: &mut BTreeSet<String>) {
+    match decl {
+        Decl::Class(class_decl) => {
+            bindings.insert(class_decl.ident.sym.to_string());
+        }
+        Decl::Fn(fn_decl) => {
+            bindings.insert(fn_decl.ident.sym.to_string());
+        }
+        Decl::Var(var_decl) => collect_var_decl_bindings(var_decl, bindings),
+        _ => {}
+    }
+}
+
 fn for_declared_bindings(for_stmt: &swc_ecma_ast::ForStmt) -> BTreeSet<String> {
     let mut bindings = BTreeSet::new();
     if let Some(VarDeclOrExpr::VarDecl(var_decl)) = &for_stmt.init {
@@ -1517,50 +1481,6 @@ fn for_head_declared_bindings(for_head: &ForHead) -> BTreeSet<String> {
         ForHead::Pat(pat) => collect_pat_bindings(pat, &mut bindings),
     }
     bindings
-}
-
-fn local_declared_bindings(parsed: &ParsedReactModule) -> BTreeSet<String> {
-    let mut bindings = BTreeSet::new();
-    for item in &parsed.module.body {
-        match item {
-            ModuleItem::Stmt(Stmt::Decl(decl)) => collect_declared_bindings(decl, &mut bindings),
-            ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(export_decl)) => {
-                collect_declared_bindings(&export_decl.decl, &mut bindings);
-            }
-            ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultDecl(default_decl)) => {
-                match &default_decl.decl {
-                    DefaultDecl::Fn(fn_expr) => {
-                        if let Some(ident) = &fn_expr.ident {
-                            bindings.insert(ident.sym.to_string());
-                        }
-                    }
-                    DefaultDecl::Class(class_expr) => {
-                        if let Some(ident) = &class_expr.ident {
-                            bindings.insert(ident.sym.to_string());
-                        }
-                    }
-                    DefaultDecl::TsInterfaceDecl(_) => {}
-                }
-            }
-            _ => {}
-        }
-    }
-    bindings
-}
-
-fn collect_declared_bindings(decl: &Decl, bindings: &mut BTreeSet<String>) {
-    match decl {
-        Decl::Class(class_decl) => {
-            bindings.insert(class_decl.ident.sym.to_string());
-        }
-        Decl::Fn(fn_decl) => {
-            bindings.insert(fn_decl.ident.sym.to_string());
-        }
-        Decl::Var(var_decl) => {
-            collect_var_decl_bindings(var_decl, bindings);
-        }
-        _ => {}
-    }
 }
 
 fn collect_var_decl_bindings(var_decl: &VarDecl, bindings: &mut BTreeSet<String>) {
@@ -1881,7 +1801,7 @@ fn normalize_file(path: &std::path::Path) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_usage_sites, discover_local_components};
+    use super::{collect_usage_sites, discover_local_components, is_framework_react_package};
     use crate::config::{PackageConfig, ReactScanConfig};
     use crate::files::ReactSourceFileCollection;
     use crate::module_graph::build_react_module_graph;
@@ -1891,6 +1811,15 @@ mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
     use wax_contract::MatchStatus;
+
+    #[test]
+    fn react_framework_catalog_matches_react_packages() {
+        assert!(is_framework_react_package("react"));
+        assert!(is_framework_react_package("react-dom"));
+        assert!(is_framework_react_package("react-native"));
+        assert!(!is_framework_react_package("react-native-web"));
+        assert!(!is_framework_react_package("@vendor/react-native"));
+    }
 
     #[test]
     fn extract_local_component_detects_jsx_returning_declarations() {
@@ -2360,6 +2289,33 @@ mod tests {
             MatchStatus::Unresolved
         );
         assert_eq!(extraction.usage_sites[0].registry_symbol, None);
+    }
+
+    #[test]
+    fn extract_usage_classifies_unresolved_relative_import_as_application() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "src/App.tsx",
+            r#"
+            import { MissingCard } from "./MissingCard";
+
+            export const App = () => <MissingCard />;
+            "#,
+        );
+        fixture.write("src/MissingCard.tsx", "export const helper = 1;");
+
+        let extraction = fixture.extract_usage(
+            vec!["src/App.tsx", "src/MissingCard.tsx"],
+            base_config(),
+            registry_with_package("MissingCard", "@acme/design-system"),
+        );
+
+        let usage = extraction
+            .usage_sites
+            .iter()
+            .find(|usage| usage.symbol == "MissingCard")
+            .expect("relative import should be retained");
+        assert_eq!(usage.callee_origin, wax_contract::CalleeOrigin::Application);
     }
 
     #[test]

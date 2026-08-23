@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use wax_contract::{LanguageId, MatchStatus, StyleContext, TokenCategory};
+use wax_contract::{CalleeOrigin, LanguageId, MatchStatus, StyleContext, TokenCategory};
 use wax_lang_api::{ScanRequest, ScanRequestType, WIRE_API_VERSION};
 use wax_lang_compose::ComposeLanguage;
 
@@ -9,8 +9,15 @@ struct GoldenCounts {
     raw_invocations_total: u32,
     raw_invocations_resolved: u32,
     raw_invocations_local: u32,
+    raw_invocations_unresolved: u32,
     registry_component_count: u32,
     definitions_local_definition_count: u32,
+    definitions_invoked_local_definition_count: u32,
+    framework_origin_count: u32,
+    external_origin_count: u32,
+    application_origin_count: u32,
+    eligible_invocation_count: u32,
+    adoption_excluded_invocation_count: u32,
     configured_token_count: u32,
     used_token_count: u32,
     token_reference_site_count: u32,
@@ -37,6 +44,10 @@ fn small_fixture_matches_golden_counts() {
         "raw_invocations.local drifted from golden"
     );
     assert_eq!(
+        facts.counts.raw_invocations.unresolved, golden.raw_invocations_unresolved,
+        "raw_invocations.unresolved drifted from golden"
+    );
+    assert_eq!(
         facts.counts.registry.component_count, golden.registry_component_count,
         "registry.component_count drifted from golden"
     );
@@ -44,8 +55,78 @@ fn small_fixture_matches_golden_counts() {
         facts.counts.definitions.local_definition_count, golden.definitions_local_definition_count,
         "definitions.local_definition_count drifted from golden"
     );
-    assert_eq!(facts.counts.invocation_origins.registry, 5);
-    assert_eq!(facts.counts.invocation_origins.framework, 6);
+    assert_eq!(
+        facts.counts.definitions.invoked_local_definition_count,
+        golden.definitions_invoked_local_definition_count,
+        "definitions.invoked_local_definition_count drifted from golden"
+    );
+    assert_eq!(
+        facts.counts.invocation_origins.registry,
+        golden.raw_invocations_resolved
+    );
+    assert_eq!(
+        facts.counts.invocation_origins.framework,
+        golden.framework_origin_count
+    );
+    assert_eq!(
+        facts.counts.invocation_origins.external,
+        golden.external_origin_count
+    );
+    assert_eq!(
+        facts.counts.invocation_origins.application,
+        golden.application_origin_count
+    );
+    assert_eq!(
+        facts.counts.adoption.eligible_invocation_count,
+        golden.eligible_invocation_count
+    );
+    assert_eq!(
+        facts.counts.adoption.adoption_excluded_invocation_count,
+        golden.adoption_excluded_invocation_count
+    );
+    assert_eq!(
+        facts.counts.adoption.adoption_excluded_invocation_count,
+        facts.counts.invocation_origins.framework + facts.counts.invocation_origins.external,
+        "excluded count must equal framework + external origins"
+    );
+    assert_eq!(
+        facts.counts.raw_invocations.unresolved,
+        facts.counts.invocation_origins.framework
+            + facts.counts.invocation_origins.external
+            + facts.counts.invocation_origins.application
+            + facts.counts.invocation_origins.unknown,
+        "framework/external remain in raw unresolved even when excluded from adoption"
+    );
+    assert!(
+        facts
+            .usage_sites
+            .iter()
+            .any(|site| site.symbol == "AsyncImage" && site.callee_origin == CalleeOrigin::External),
+        "Coil AsyncImage must remain a navigable external usage site"
+    );
+    assert!(
+        facts.usage_sites.iter().any(|site| {
+            site.symbol == "UnknownProjectCard" && site.callee_origin == CalleeOrigin::Application
+        }),
+        "unknown project calls must remain eligible application debt"
+    );
+    assert!(
+        facts
+            .usage_sites
+            .iter()
+            .any(|site| site.symbol == "Box" && site.callee_origin == CalleeOrigin::Framework),
+        "AndroidX primitives must remain navigable framework usage sites"
+    );
+    assert_eq!(
+        facts.metrics.invocation_adoption_ratio,
+        Some(5.0 / 7.0),
+        "mobile adoption must not be dominated by AndroidX/third-party calls"
+    );
+    assert_eq!(
+        facts.metrics.registry_resolution_ratio,
+        Some(5.0 / 14.0),
+        "registry_resolution_ratio remains a raw diagnostic over all invocations"
+    );
 
     let usage_columns = facts
         .usage_sites
@@ -304,6 +385,10 @@ fn load_golden(path: &Path) -> GoldenCounts {
             .as_u64()
             .expect("golden raw_invocations.local must be a number")
             as u32,
+        raw_invocations_unresolved: value["raw_invocations"]["unresolved"]
+            .as_u64()
+            .expect("golden raw_invocations.unresolved must be a number")
+            as u32,
         registry_component_count: value["registry"]["component_count"]
             .as_u64()
             .expect("golden registry.component_count must be a number")
@@ -311,6 +396,31 @@ fn load_golden(path: &Path) -> GoldenCounts {
         definitions_local_definition_count: value["definitions"]["local_definition_count"]
             .as_u64()
             .expect("golden definitions.local_definition_count must be a number")
+            as u32,
+        definitions_invoked_local_definition_count:
+            value["definitions"]["invoked_local_definition_count"]
+                .as_u64()
+                .expect("golden definitions.invoked_local_definition_count must be a number")
+                as u32,
+        framework_origin_count: value["invocation_origins"]["framework"]
+            .as_u64()
+            .expect("golden invocation_origins.framework must be a number")
+            as u32,
+        external_origin_count: value["invocation_origins"]["external"]
+            .as_u64()
+            .expect("golden invocation_origins.external must be a number")
+            as u32,
+        application_origin_count: value["invocation_origins"]["application"]
+            .as_u64()
+            .expect("golden invocation_origins.application must be a number")
+            as u32,
+        eligible_invocation_count: value["adoption"]["eligible_invocation_count"]
+            .as_u64()
+            .expect("golden adoption.eligible_invocation_count must be a number")
+            as u32,
+        adoption_excluded_invocation_count: value["adoption"]["adoption_excluded_invocation_count"]
+            .as_u64()
+            .expect("golden adoption.adoption_excluded_invocation_count must be a number")
             as u32,
         configured_token_count: value["tokens"]["configured_token_count"]
             .as_u64()
