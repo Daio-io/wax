@@ -834,18 +834,68 @@ fn is_inside_preview_macro(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
 
 fn preview_macro_body_contains(offset: usize, source: &[u8]) -> bool {
     let marker = b"#Preview";
-    let mut search_from = 0;
-    while let Some(relative_start) = source[search_from..]
-        .windows(marker.len())
-        .position(|window| window == marker)
-    {
-        let start = search_from + relative_start;
+    let mut index = 0;
+    let mut line_comment = false;
+    let mut block_comment_depth = 0_u32;
+    let mut string_literal = false;
+    let mut escaped = false;
+    while index < source.len() {
+        let byte = source[index];
+        if line_comment {
+            line_comment = byte != b'\n';
+            index += 1;
+            continue;
+        }
+        if block_comment_depth > 0 {
+            if source.get(index..index + 2) == Some(b"/*") {
+                block_comment_depth += 1;
+                index += 2;
+            } else if source.get(index..index + 2) == Some(b"*/") {
+                block_comment_depth -= 1;
+                index += 2;
+            } else {
+                index += 1;
+            }
+            continue;
+        }
+        if string_literal {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                string_literal = false;
+            }
+            index += 1;
+            continue;
+        }
+        if source.get(index..index + 2) == Some(b"//") {
+            line_comment = true;
+            index += 2;
+            continue;
+        }
+        if source.get(index..index + 2) == Some(b"/*") {
+            block_comment_depth = 1;
+            index += 2;
+            continue;
+        }
+        if byte == b'"' {
+            string_literal = true;
+            index += 1;
+            continue;
+        }
+        if !source[index..].starts_with(marker) {
+            index += 1;
+            continue;
+        }
+
+        let start = index;
         let end = start + marker.len();
         let is_marker = source
             .get(end)
             .is_none_or(|byte| !byte.is_ascii_alphanumeric() && *byte != b'_');
         if !is_marker {
-            search_from = end;
+            index = end;
             continue;
         }
 
@@ -859,7 +909,7 @@ fn preview_macro_body_contains(offset: usize, source: &[u8]) -> bool {
         if open_brace < offset && offset < close_brace {
             return true;
         }
-        search_from = close_brace + 1;
+        index = close_brace + 1;
     }
     false
 }
@@ -2015,6 +2065,20 @@ mod tests {
         let registry = registry_without_packages(&[("PreviewOnlyButton", "PreviewOnlyButton")]);
         let (_, usages) = parse_and_extract("#Preview { PreviewOnlyButton() }", &registry);
         assert!(usages.is_empty());
+    }
+
+    #[test]
+    fn preview_markers_in_comments_and_strings_are_ignored() {
+        let source = br###"// #Preview { CommentButton() }
+let text = "#Preview { StringButton() }"
+CommentButton()
+"###;
+        let call = source
+            .windows(b"CommentButton()".len())
+            .rposition(|window| window == b"CommentButton()")
+            .expect("call after comment");
+
+        assert!(!preview_macro_body_contains(call, source));
     }
 
     #[test]

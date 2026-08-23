@@ -179,7 +179,7 @@ fn import_package(
 }
 
 fn is_framework_react_package(package: &str) -> bool {
-    package == "react-native"
+    matches!(package, "react" | "react-dom" | "react-native")
 }
 
 fn is_relative_import(specifier: &str) -> bool {
@@ -1806,7 +1806,9 @@ mod tests {
     use wax_contract::MatchStatus;
 
     #[test]
-    fn react_framework_catalog_matches_react_native_only() {
+    fn react_framework_catalog_matches_react_packages() {
+        assert!(is_framework_react_package("react"));
+        assert!(is_framework_react_package("react-dom"));
         assert!(is_framework_react_package("react-native"));
         assert!(!is_framework_react_package("react-native-web"));
         assert!(!is_framework_react_package("@vendor/react-native"));

@@ -996,8 +996,7 @@
       "required": [
         "eligible_invocation_count",
         "adopted_invocation_count",
-        "non_adopted_invocation_count",
-        "adoption_excluded_invocation_count"
+        "non_adopted_invocation_count"
       ],
       "properties": {
         "eligible_invocation_count": {
