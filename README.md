@@ -334,7 +334,9 @@ declaration order; the first matching boundary wins. An exclude match skips that
 boundary and continues searching later declarations. Omit `languages` to apply
 a boundary to every configured pack. Screen-level grouping continues to use
 pack-emitted parent scopes. Generic route inference is ecosystem-specific
-future work and is not inferred by Wax.
+future work and is not inferred by Wax. Boundary summaries currently cover
+usage-site invocation/adoption metrics; token and hard-coded-style attribution
+is retained on their locations but is not included in those summaries.
 
 The first scan or sync pins the resolved commit and registry digest in
 `.wax/wax.lock.json`. Ordinary `wax sync` reuses that pin; `wax sync --upgrade`

@@ -683,33 +683,23 @@ fn write_source_boundary_summary(
     }
 
     writeln!(writer, "source boundaries:").map_err(write_error)?;
-    for boundary in &merged.source_boundaries {
-        let languages = boundary
-            .languages
-            .clone()
-            .unwrap_or_else(|| merged.languages.keys().cloned().collect());
-        for language in languages {
-            let ratio = merged
-                .source_boundary_summary
-                .iter()
-                .find(|summary| summary.boundary_id == boundary.id && summary.language == language)
-                .and_then(|summary| summary.invocation_adoption_ratio);
-            match ratio {
-                Some(ratio) => writeln!(
-                    writer,
-                    "  {}/{}: UI invocation adoption: {:.1}%",
-                    boundary.id,
-                    language,
-                    ratio * 100.0
-                ),
-                None => writeln!(
-                    writer,
-                    "  {}/{}: UI invocation adoption: n/a",
-                    boundary.id, language
-                ),
-            }
-            .map_err(write_error)?;
+    for summary in &merged.source_boundary_summary {
+        let ratio = summary.invocation_adoption_ratio;
+        match ratio {
+            Some(ratio) => writeln!(
+                writer,
+                "  {}/{}: UI invocation adoption: {:.1}%",
+                summary.boundary_id,
+                summary.language,
+                ratio * 100.0
+            ),
+            None => writeln!(
+                writer,
+                "  {}/{}: UI invocation adoption: n/a",
+                summary.boundary_id, summary.language
+            ),
         }
+        .map_err(write_error)?;
     }
     Ok(())
 }

@@ -54,15 +54,15 @@
   },
   "source_boundaries": [
     {
+      "id": "feature/empty",
+      "include": ["src/**/Missing.kt"],
+      "exclude": []
+    },
+    {
       "id": "feature/home",
       "languages": ["compose"],
       "include": ["src/**/Home.kt"],
       "exclude": ["**/generated/**"]
-    },
-    {
-      "id": "feature/empty",
-      "include": ["src/**/Missing.kt"],
-      "exclude": []
     }
   ],
   "source_boundary_summary": [
