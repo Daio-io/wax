@@ -61,6 +61,8 @@ pub struct ScanCommandOptions {
     pub allow_auto_install: bool,
     /// Optional scan concurrency override.
     pub scan_concurrency: Option<u32>,
+    /// Restrict a grouped-root scan to one repository-wide root group.
+    pub root_group: Option<String>,
     /// Global state path override for tests.
     pub state_path: Option<PathBuf>,
     /// Pack index URL override for ephemeral scans.
@@ -222,6 +224,7 @@ pub fn run_scan(
         &options.repo_root,
         ScanOptions {
             scan_concurrency: options.scan_concurrency,
+            root_group: options.root_group.clone(),
             allow_auto_install: options.allow_auto_install,
             progress: optional_scan_progress_sink(&progress),
             ephemeral: None,
@@ -293,6 +296,7 @@ fn run_ephemeral_scan(
         &options.repo_root,
         ScanOptions {
             scan_concurrency: options.scan_concurrency,
+            root_group: options.root_group.clone(),
             allow_auto_install: options.allow_auto_install,
             progress: optional_scan_progress_sink(&progress),
             ephemeral: Some(ephemeral),
@@ -377,6 +381,7 @@ fn build_ephemeral_scan_config(
         languages.push(LanguageEntry {
             id: language_id.clone(),
             roots,
+            root_groups: Default::default(),
             registry_source: Some(LanguageRegistrySource::PathOrUrl {
                 source: scan_source,
                 upstream: None,
@@ -405,7 +410,6 @@ fn build_ephemeral_scan_config(
             engine: EngineConfig::default(),
             adoption: AdoptionConfig::default(),
             token_inference: Default::default(),
-            reporting: Default::default(),
             languages,
             design_systems: BTreeMap::new(),
         },
@@ -648,7 +652,7 @@ fn write_scan_summary(
     )
     .map_err(write_error)?;
 
-    write_source_boundary_summary(writer, merged)?;
+    write_root_group_summary(writer, merged)?;
 
     writeln!(writer, "token metrics:").map_err(write_error)?;
     writeln!(
@@ -674,29 +678,29 @@ fn write_scan_summary(
     Ok(())
 }
 
-fn write_source_boundary_summary(
+fn write_root_group_summary(
     writer: &mut impl Write,
     merged: &MergedScan,
 ) -> Result<(), ScanCommandError> {
-    if merged.source_boundaries.is_empty() {
+    if merged.root_groups.is_empty() {
         return Ok(());
     }
 
-    writeln!(writer, "source boundaries:").map_err(write_error)?;
-    for summary in &merged.source_boundary_summary {
+    writeln!(writer, "root groups:").map_err(write_error)?;
+    for summary in &merged.root_group_summary {
         let ratio = summary.invocation_adoption_ratio;
         match ratio {
             Some(ratio) => writeln!(
                 writer,
                 "  {}/{}: UI invocation adoption: {:.1}%",
-                summary.boundary_id,
+                summary.root_group,
                 summary.language,
                 ratio * 100.0
             ),
             None => writeln!(
                 writer,
                 "  {}/{}: UI invocation adoption: n/a",
-                summary.boundary_id, summary.language
+                summary.root_group, summary.language
             ),
         }
         .map_err(write_error)?;
@@ -1049,8 +1053,8 @@ mod tests {
         AdoptionCounts, CountSummary, DefinitionCounts, Diagnostic, DiagnosticSeverity,
         HardcodedStyleInference, HardcodedStyleSite, LanguageId, LanguageMetadata, MergedScan,
         Metrics, ParentScopeCounts, RawInvocationCounts, RegistryCounts, RepoSummary,
-        SCHEMA_VERSION, ScanFacts, ScanStatus, SourceBoundaryMetadata, SourceBoundarySummary,
-        SourceLocation, StyleContext, StyleContextCounts, TokenCategory, TokenCategoryCounts,
+        RootGroupMetadata, RootGroupSummary, SCHEMA_VERSION, ScanFacts, ScanStatus, SourceLocation,
+        StyleContext, StyleContextCounts, TokenCategory, TokenCategoryCounts,
         TokenConfidenceCounts, TokenInferenceClassification, TokenInferenceConfidence,
         TokenInferenceCounts, TokenInferenceEvidence, TokenInferenceReport, TokenMatchKind,
         TokenReplacementSuggestion,
@@ -1174,15 +1178,14 @@ mod tests {
             },
             symbol_usage_summary: vec![],
             token_usage_summary: vec![],
+            scan_scope: Default::default(),
             token_inference: wax_contract::TokenInferenceReport::empty(2.0),
-            source_boundaries: vec![SourceBoundaryMetadata {
+            root_groups: vec![RootGroupMetadata {
                 id: "feature/home".to_owned(),
-                languages: Some(vec![LanguageId::from_str("compose").unwrap()]),
-                include: vec!["src/**/Home.kt".to_owned()],
-                exclude: vec![],
+                languages: vec![LanguageId::from_str("compose").unwrap()],
             }],
-            source_boundary_summary: vec![SourceBoundarySummary {
-                boundary_id: "feature/home".to_owned(),
+            root_group_summary: vec![RootGroupSummary {
+                root_group: "feature/home".to_owned(),
                 language: LanguageId::from_str("compose").unwrap(),
                 files_scanned: 1,
                 files_represented: 1,
@@ -1223,7 +1226,7 @@ mod tests {
                                     file: "src/Broken.tsx".to_owned(),
                                     line: 4,
                                     column: Some(12),
-                                    boundary_id: None,
+                                    root_group: None,
                                 }),
                             },
                         ],
@@ -1261,7 +1264,7 @@ mod tests {
         assert!(stdout.contains("Registry resolution: 70.0%"));
         assert!(stdout.contains("Raw DS invocations: 7 resolved, 1 candidate"));
         assert!(stdout.contains("Unresolved application/unknown UI calls: 1"));
-        assert!(stdout.contains("source boundaries:"));
+        assert!(stdout.contains("root groups:"));
         assert!(stdout.contains("feature/home/compose: UI invocation adoption: 100.0%"));
         assert!(stdout.contains("token metrics:"));
         assert!(stdout.contains("Token references: 3"));
@@ -1296,9 +1299,10 @@ mod tests {
             },
             symbol_usage_summary: vec![],
             token_usage_summary: vec![],
+            scan_scope: Default::default(),
             token_inference: TokenInferenceReport::empty(2.0),
-            source_boundaries: vec![],
-            source_boundary_summary: vec![],
+            root_groups: vec![],
+            root_group_summary: vec![],
             languages: BTreeMap::from([
                 (
                     LanguageId::from_str("swift").unwrap(),
@@ -1354,9 +1358,10 @@ mod tests {
             },
             symbol_usage_summary: vec![],
             token_usage_summary: vec![],
+            scan_scope: Default::default(),
             token_inference: TokenInferenceReport::empty(2.0),
-            source_boundaries: vec![],
-            source_boundary_summary: vec![],
+            root_groups: vec![],
+            root_group_summary: vec![],
             languages: BTreeMap::from([(
                 LanguageId::from_str("compose").unwrap(),
                 facts_with_status(ScanStatus::Partial, None, vec![]),
@@ -1411,7 +1416,7 @@ mod tests {
                 file: file.to_owned(),
                 line,
                 column: None,
-                boundary_id: None,
+                root_group: None,
             },
             value: value.to_owned(),
             category: TokenCategory::Spacing,
@@ -1527,6 +1532,7 @@ mod tests {
             },
             symbol_usage_summary: vec![],
             token_usage_summary: vec![],
+            scan_scope: Default::default(),
             token_inference: TokenInferenceReport {
                 numeric_tolerance: 2.0,
                 counts: TokenInferenceCounts {
@@ -1554,8 +1560,8 @@ mod tests {
                 },
                 sites,
             },
-            source_boundaries: vec![],
-            source_boundary_summary: vec![],
+            root_groups: vec![],
+            root_group_summary: vec![],
             languages: BTreeMap::from([(react, facts)]),
         };
 
@@ -1629,6 +1635,7 @@ mod tests {
             },
             symbol_usage_summary: vec![],
             token_usage_summary: vec![],
+            scan_scope: Default::default(),
             token_inference: TokenInferenceReport {
                 numeric_tolerance: 2.0,
                 counts: TokenInferenceCounts {
@@ -1644,8 +1651,8 @@ mod tests {
                 },
                 sites,
             },
-            source_boundaries: vec![],
-            source_boundary_summary: vec![],
+            root_groups: vec![],
+            root_group_summary: vec![],
             languages: BTreeMap::from([(react, facts)]),
         };
 
@@ -1709,6 +1716,7 @@ mod tests {
             },
             symbol_usage_summary: vec![],
             token_usage_summary: vec![],
+            scan_scope: Default::default(),
             token_inference: TokenInferenceReport {
                 numeric_tolerance: 2.0,
                 counts: TokenInferenceCounts {
@@ -1731,8 +1739,8 @@ mod tests {
                     evidence: vec![],
                 }],
             },
-            source_boundaries: vec![],
-            source_boundary_summary: vec![],
+            root_groups: vec![],
+            root_group_summary: vec![],
             languages: BTreeMap::from([(react, facts)]),
         };
 
@@ -1771,6 +1779,7 @@ mod tests {
                 strict: false,
                 allow_auto_install: false,
                 scan_concurrency: None,
+                root_group: None,
                 state_path: Some(wax_home.join("state.json")),
                 pack_index_url: None,
                 target_triple: None,
@@ -1803,6 +1812,7 @@ mod tests {
                 strict: false,
                 allow_auto_install: false,
                 scan_concurrency: None,
+                root_group: None,
                 state_path: None,
                 pack_index_url: None,
                 target_triple: None,
@@ -1844,6 +1854,7 @@ mod tests {
                 strict: false,
                 allow_auto_install: false,
                 scan_concurrency: None,
+                root_group: None,
                 state_path: None,
                 pack_index_url: None,
                 target_triple: None,
@@ -1884,9 +1895,10 @@ mod tests {
             },
             symbol_usage_summary: vec![],
             token_usage_summary: vec![],
+            scan_scope: Default::default(),
             token_inference: wax_contract::TokenInferenceReport::empty(2.0),
-            source_boundaries: vec![],
-            source_boundary_summary: vec![],
+            root_groups: vec![],
+            root_group_summary: vec![],
             languages: BTreeMap::new(),
         };
 

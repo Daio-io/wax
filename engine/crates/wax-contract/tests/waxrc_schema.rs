@@ -47,18 +47,13 @@ fn rejects_invalid_git_registry_shapes() {
 }
 
 #[test]
-fn accepts_ordered_source_boundary_reporting_config() {
+fn accepts_grouped_roots_config() {
     let validator = validator();
     let value = json!({
         "schema_version": 2,
-        "languages": {"compose": {}, "react": {}},
-        "reporting": {
-            "source_boundaries": [{
-                "id": "feature/devices",
-                "languages": ["compose"],
-                "include": ["mobile/**/feature/devices/**/*.kt"],
-                "exclude": ["**/generated/**"]
-            }]
+        "languages": {
+            "compose": {"roots": {"feature/devices": ["mobile/**/feature/devices"]}},
+            "react": {}
         }
     });
 
@@ -66,18 +61,11 @@ fn accepts_ordered_source_boundary_reporting_config() {
 }
 
 #[test]
-fn accepts_null_source_boundary_languages() {
+fn accepts_ungrouped_roots_for_backward_compatibility() {
     let validator = validator();
     let value = json!({
         "schema_version": 2,
-        "languages": {"compose": {}},
-        "reporting": {
-            "source_boundaries": [{
-                "id": "feature/devices",
-                "languages": null,
-                "include": ["mobile/**/feature/devices/**/*.kt"]
-            }]
-        }
+        "languages": {"compose": {"roots": ["mobile/src"]}}
     });
 
     assert!(validator.is_valid(&value));

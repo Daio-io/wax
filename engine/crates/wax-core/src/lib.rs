@@ -22,7 +22,7 @@ pub mod registry_git;
 pub mod registry_lock;
 pub mod registry_memory;
 pub mod registry_source;
-mod source_boundary;
+mod root_group;
 pub mod subprocess_discover;
 mod subprocess_exchange;
 pub mod subprocess_lang;
@@ -38,6 +38,7 @@ use global_state::{GlobalStateError, InstalledLanguagePack, load_global_state, s
 use install::{InstallError, LanguagePackManifestSpec, install_language};
 use paths::{PathsError, state_file};
 use progress::{ScanProgress, ScanProgressEvent};
+use root_group::RootGroups;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
@@ -118,6 +119,8 @@ pub struct ScanOptions {
     ///
     /// Values less than 1 are treated as serial execution.
     pub scan_concurrency: Option<u32>,
+    /// Restricts a configured grouped-root scan to one repository-wide root group.
+    pub root_group: Option<String>,
     /// Allows scan to install missing locked language packs before execution.
     pub allow_auto_install: bool,
     /// Optional progress callbacks for CLI or tooling.
@@ -139,6 +142,7 @@ impl Default for ScanOptions {
     fn default() -> Self {
         Self {
             scan_concurrency: None,
+            root_group: None,
             allow_auto_install: true,
             progress: ScanProgress::default(),
             ephemeral: None,
@@ -241,6 +245,14 @@ pub enum EngineError {
     /// A language scan worker thread panicked.
     #[error("language scan worker panicked")]
     ScanWorkerPanicked,
+    /// The requested root group is not configured in any language entry.
+    #[error("unknown root group `{root_group}`; configured root groups: {configured:?}")]
+    UnknownRootGroup {
+        /// Group requested by the scan invocation.
+        root_group: String,
+        /// Configured repository-wide group ids in deterministic order.
+        configured: Vec<String>,
+    },
 }
 
 impl Engine {
@@ -316,7 +328,23 @@ impl Engine {
         let scan_concurrency = effective_scan_concurrency(&waxrc.engine, &options);
         let parent_scope_limit = waxrc.adoption.symbol_usage_summary.parent_scope_limit;
         let token_inference = waxrc.token_inference.clone();
-        let source_boundaries = waxrc.reporting.source_boundaries.clone();
+        let mut root_groups = RootGroups::new();
+        for entry in &waxrc.languages {
+            for (group, roots) in &entry.root_groups {
+                root_groups
+                    .entry(group.clone())
+                    .or_default()
+                    .insert(entry.id.clone(), roots.clone());
+            }
+        }
+        if let Some(root_group) = &options.root_group
+            && !root_groups.contains_key(root_group)
+        {
+            return Err(EngineError::UnknownRootGroup {
+                root_group: root_group.clone(),
+                configured: root_groups.keys().cloned().collect(),
+            });
+        }
         let state_path = state_file()?;
         let mut state = load_global_state(&state_path)?;
 
@@ -324,6 +352,16 @@ impl Engine {
         let mut language_configs = BTreeMap::new();
         let mut registry_lock_changed = false;
         for entry in waxrc.languages {
+            let roots = if let Some(root_group) = &options.root_group {
+                let Some(roots) = entry.root_groups.get(root_group) else {
+                    continue;
+                };
+                roots.clone()
+            } else if entry.root_groups.is_empty() {
+                entry.roots.clone()
+            } else {
+                entry.root_groups.values().flatten().cloned().collect()
+            };
             let resolved_registry = registry_source::resolve_language_registry_source(
                 repo_root,
                 entry.id.as_str(),
@@ -353,15 +391,11 @@ impl Engine {
             }
 
             let mut config = entry.extra;
-            if !entry.roots.is_empty() {
+            if !roots.is_empty() {
                 config.insert(
                     "roots".to_owned(),
                     serde_json::Value::Array(
-                        entry
-                            .roots
-                            .into_iter()
-                            .map(serde_json::Value::String)
-                            .collect(),
+                        roots.into_iter().map(serde_json::Value::String).collect(),
                     ),
                 );
             }
@@ -484,7 +518,8 @@ impl Engine {
             &MergeOptions {
                 parent_scope_limit,
                 token_inference,
-                source_boundaries,
+                root_groups,
+                scan_scope: options.root_group,
             },
         )
         .map_err(EngineError::ScanFacts)?;

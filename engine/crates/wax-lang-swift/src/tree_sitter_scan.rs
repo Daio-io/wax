@@ -430,7 +430,7 @@ fn local_component_for_declaration(
             file: file.to_owned(),
             line: component.line,
             column: Some(component.column),
-            boundary_id: None,
+            root_group: None,
         },
     }
 }
@@ -462,7 +462,7 @@ fn parent_scope_for_view(
             file: file.to_owned(),
             line: pos.row as u32 + 1,
             column: Some(pos.column as u32 + 1),
-            boundary_id: None,
+            root_group: None,
         }),
     }
 }
@@ -636,7 +636,7 @@ fn extract_usage_from_source(
                 file: file.to_owned(),
                 line,
                 column: Some(column),
-                boundary_id: None,
+                root_group: None,
             };
             let parent = nearest_enclosing_view(node, source).map(|(name, parent_pos)| {
                 parent_scope_for_view(file, &module_identity, semantic_module, &name, parent_pos)
@@ -1074,7 +1074,7 @@ fn extract_hardcoded_style_from_source(
                 file: file.to_owned(),
                 line,
                 column: Some(column),
-                boundary_id: None,
+                root_group: None,
             },
             value: literal.value,
             category: literal.category,
@@ -1446,7 +1446,7 @@ fn extract_token_sites_from_source(
                         file: file.to_owned(),
                         line,
                         column: Some(column),
-                        boundary_id: None,
+                        root_group: None,
                     },
                     token_id: token_match.token_id.clone(),
                     key: text.to_owned(),

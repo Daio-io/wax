@@ -217,7 +217,7 @@ fn source_location_from_span(
         file: normalize_repo_relative_path(relative_path),
         line,
         column: Some(column),
-        boundary_id: None,
+        root_group: None,
     })
 }
 

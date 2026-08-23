@@ -565,12 +565,13 @@ extract_core() {
       schema_version: 3,
       generated_at: $generated_at,
       source_scan: $source_scan,
+      scan_scope: (.scan_scope // {root_group: null}),
       repo_summary: repo_summary_block,
       per_language: per_language,
-      source_boundaries: (.source_boundaries // [] | sort_by(.id)),
-      source_boundary_summary: (
-        .source_boundary_summary // []
-        | sort_by([.boundary_id, (.language | tostring)])
+      root_groups: (.root_groups // [] | sort_by(.id)),
+      root_group_summary: (
+        .root_group_summary // []
+        | sort_by([.root_group, (.language | tostring)])
       ),
       symbol_rollups: symbol_rollups_block,
       top_local_symbols: top_symbols_by_kind("local"; 5),
@@ -580,7 +581,7 @@ extract_core() {
       fragmentation_candidates: suffix_families,
       token_inference: token_inference_block,
       limits: ($limits
-        | if (($scan.source_boundary_summary // []) | length) > 0
+        | if (($scan.root_group_summary // []) | length) > 0
           then map(select(.metric != "Coverage by feature/screen/route/module/team" and .metric != "Feature-level coverage"))
           else .
           end),

@@ -63,7 +63,7 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
    skills/wax-scan/scripts/extract-insights.sh .wax/out/scan-merged.json --baseline <path>
    ```
 
-   Use native `source_boundary_summary` rows from the extractor before any path-based fallback grouping. Fall back to reading `.wax/out/scan-merged.json` directly only if the script is missing or fails.
+   Use native `root_group_summary` rows from the extractor before any path-based fallback grouping. Fall back to reading `.wax/out/scan-merged.json` directly only if the script is missing or fails.
 
 7. Produce the terminal report unless `--html-only` was requested.
    - Walk sections in the analytics spec order below.
@@ -88,7 +88,7 @@ AI interpretation is an authoring aid only. Do not make `wax scan` or `wax valid
      - registry resolution as diagnostics context, not a hero KPI
      - named unused registry components when available
      - parent-scope hotspots with resolved/local/unresolved counts when available
-     - configured source-boundary summaries with adoption and raw/origin counts when available; these are the stable application/module/feature grouping contract
+     - configured root-group summaries with adoption and raw/origin counts when available; these are the stable application/module/feature grouping contract
      - ranked local migration candidates and fragmentation families
      - deterministic token inference from insights `token_inference` (confirmed/possible candidates and metadata gaps)
      - deterministic key findings driven by migration opportunity
@@ -205,11 +205,11 @@ Report:
 - Registry resolution as a secondary scanner/registry health metric
 - Raw invocation breakdown by `resolved`, `local`, `candidate`, and `unresolved`, with framework/external origin counts called out separately
 - Named unused registry components when they exist
-- Native `source_boundary_summary` rows when configured, before any fallback path grouping
+- Native `root_group_summary` rows when configured, before any fallback path grouping
 - Parent-scope hotspots when attribution is available
 - Adoption by feature area, screen, route, package/module, or team when those boundaries are available
 
-Source boundaries cover explicit application, module, feature, and source-root
+Root groups cover explicit application, module, feature, and source-root
 grouping. Parent scopes remain the supported screen-level primitive; generic
 route inference is ecosystem-specific future work.
 

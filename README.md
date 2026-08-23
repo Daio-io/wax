@@ -308,35 +308,37 @@ remote path `.wax/registries/<language-id>.json` and pin a tag or commit:
 `.wax/registries/<language-id>.json` for that language. The string shorthand
 and the `source`/`upstream` object form remain supported.
 
-### Source-boundary reporting
+### Grouped scan roots
 
-Add explicit application, module, feature, or source-root boundaries under
-`reporting.source_boundaries` when scan consumers need stable grouping:
+Keep scan scope and reporting in one place by optionally keying each language's
+`roots` by a repository-wide group id:
 
 ```json
 {
   "schema_version": 2,
-  "reporting": {
-    "source_boundaries": [
-      {
-        "id": "feature/devices",
-        "languages": ["compose"],
-        "include": ["mobile/**/feature/devices/**/*.kt"],
-        "exclude": ["**/generated/**"]
+  "languages": {
+    "compose": {
+      "roots": {
+        "mobile": ["mobile/**/src/main/kotlin"],
+        "shared": ["shared/src/main/kotlin"]
       }
-    ]
+    },
+    "react": {
+      "roots": {
+        "mobile": ["apps/mobile/src"]
+      }
+    }
   }
 }
 ```
 
-Boundary declarations are repo-relative, deterministic, and evaluated in
-declaration order; the first matching boundary wins. An exclude match skips that
-boundary and continues searching later declarations. Omit `languages` to apply
-a boundary to every configured pack. Screen-level grouping continues to use
-pack-emitted parent scopes. Generic route inference is ecosystem-specific
-future work and is not inferred by Wax. Boundary summaries currently cover
-usage-site invocation/adoption metrics; token and hard-coded-style attribution
-is retained on their locations but is not included in those summaries.
+The array form remains valid and means an ungrouped full scan. Grouped roots are
+scanned together by default, and `wax scan --root-group mobile` selects the
+`mobile` roots across all configured languages. Unknown groups are errors. Scan
+JSON records the selected scope and emits root-group/language summaries derived
+from the same configured roots. Screen-level grouping continues to use
+pack-emitted parent scopes; generic route inference is ecosystem-specific future
+work and is not inferred by Wax.
 
 The first scan or sync pins the resolved commit and registry digest in
 `.wax/wax.lock.json`. Ordinary `wax sync` reuses that pin; `wax sync --upgrade`

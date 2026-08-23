@@ -155,7 +155,7 @@
           "minimum": 1,
           "maximum": 4294967295
         },
-        "boundary_id": {
+        "root_group": {
           "type": "string",
           "minLength": 1
         }

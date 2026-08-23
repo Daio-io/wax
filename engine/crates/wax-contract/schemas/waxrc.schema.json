@@ -84,57 +84,6 @@
         }
       }
     },
-    "reporting": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "Explicit source-boundary reporting configuration.",
-      "properties": {
-        "source_boundaries": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["id", "include"],
-            "properties": {
-              "id": {
-                "type": "string",
-                "minLength": 1
-              },
-              "languages": {
-                "oneOf": [
-                  {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "pattern": "^[a-z][a-z0-9-]*$"
-                    },
-                    "minItems": 1
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "include": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "minItems": 1
-              },
-              "exclude": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "languages": {
       "type": "object",
       "description": "Scan configuration keyed by language id. Presence of a key enables that language.",
@@ -149,11 +98,30 @@
           },
           "properties": {
             "roots": {
-              "type": "array",
-              "items": {
-                "type": "string",
-                "minLength": 1
-              }
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                {
+                  "type": "object",
+                  "description": "Repository-wide root groups keyed by stable group id.",
+                  "propertyNames": {
+                    "minLength": 1
+                  },
+                  "additionalProperties": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              ]
             },
             "registry": {
               "oneOf": [

@@ -136,6 +136,7 @@ fn main() {
                 strict: args.strict,
                 allow_auto_install: !args.no_auto_install,
                 scan_concurrency: args.scan_concurrency,
+                root_group: args.root_group,
                 state_path: None,
                 pack_index_url: None,
                 target_triple: None,

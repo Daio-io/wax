@@ -337,7 +337,7 @@ fn sample_scan_facts() -> ScanFacts {
                 file: "src/Card.kt".to_owned(),
                 line: 10,
                 column: Some(5),
-                boundary_id: None,
+                root_group: None,
             },
         }],
         usage_sites: vec![UsageSite {
@@ -346,7 +346,7 @@ fn sample_scan_facts() -> ScanFacts {
                 file: "src/Screen.kt".to_owned(),
                 line: 21,
                 column: Some(3),
-                boundary_id: None,
+                root_group: None,
             },
             symbol: "Button".to_owned(),
             qualified_symbol: None,

@@ -175,7 +175,7 @@ pub fn find_token_matches(
                     file: file.to_owned(),
                     line: line_number,
                     column: Some(column),
-                    boundary_id: None,
+                    root_group: None,
                 },
                 token_id: token_match.token_id.clone(),
                 key: key.clone(),

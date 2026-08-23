@@ -110,7 +110,7 @@ cp -R "$FIXTURE_SRC/." "$WORK_DIR/"
   fi
 
   config_tmp="$(mktemp)"
-  jq '.reporting = {source_boundaries: [{id: "app/smoke", languages: ["compose"], include: ["app/**/main/kotlin/**/*.kt"], exclude: ["**/generated/**"]}]}' .wax/wax.config.json >"$config_tmp"
+  jq '.languages.compose.roots = {"app/smoke": ["app/**/main/kotlin"]}' .wax/wax.config.json >"$config_tmp"
   mv "$config_tmp" .wax/wax.config.json
 
   if ! "$WAX_BIN" validate --repo-root . >/dev/null 2>&1; then
@@ -137,9 +137,9 @@ cp -R "$FIXTURE_SRC/." "$WORK_DIR/"
     fail "expected insights schema_version 3, got ${schema_version}"
   fi
 
-  boundary_rows="$(jq '.source_boundary_summary | length' "$INSIGHTS_PATH")"
+  boundary_rows="$(jq '.root_group_summary | length' "$INSIGHTS_PATH")"
   if [[ "$boundary_rows" -lt 1 ]]; then
-    fail "expected native source-boundary summary rows, got ${boundary_rows}"
+    fail "expected native root-group summary rows, got ${boundary_rows}"
   fi
 
   resolved="$(jq -r '.repo_summary.raw_invocations.resolved' "$INSIGHTS_PATH")"

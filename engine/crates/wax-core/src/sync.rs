@@ -1271,6 +1271,7 @@ mod sync_tests {
         let entry = LanguageEntry {
             id: LanguageId::try_from("compose").expect("language id"),
             roots: Vec::new(),
+            root_groups: Default::default(),
             registry_source: Some(crate::config::waxrc::LanguageRegistrySource::Git {
                 git: "https://x-access-token:secret@github.com/org/repo.git".to_owned(),
                 tag: "v1".to_owned(),
@@ -1297,10 +1298,10 @@ mod sync_tests {
             engine: crate::config::waxrc::EngineConfig::default(),
             adoption: crate::config::waxrc::AdoptionConfig::default(),
             token_inference: crate::config::waxrc::TokenInferenceConfig::default(),
-            reporting: crate::config::waxrc::ReportingConfig::default(),
             languages: vec![LanguageEntry {
                 id: language_id.clone(),
                 roots: Vec::new(),
+                root_groups: Default::default(),
                 registry_source: Some(crate::config::waxrc::LanguageRegistrySource::Git {
                     git: "https://example.invalid/repo.git".to_owned(),
                     tag: "v1".to_owned(),

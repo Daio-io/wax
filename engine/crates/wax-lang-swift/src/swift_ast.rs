@@ -186,7 +186,7 @@ pub(crate) fn unparseable_file_diagnostic(relative_file: &str) -> Diagnostic {
             file: relative_file.to_owned(),
             line: 1,
             column: None,
-            boundary_id: None,
+            root_group: None,
         }),
     }
 }
@@ -216,7 +216,7 @@ fn first_syntax_error_location(
         file: relative_file.to_owned(),
         line: u32::try_from(start.row.saturating_add(1)).unwrap_or(u32::MAX),
         column: Some(u32::try_from(start.column.saturating_add(1)).unwrap_or(u32::MAX)),
-        boundary_id: None,
+        root_group: None,
     })
 }
 

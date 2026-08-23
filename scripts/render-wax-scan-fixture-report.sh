@@ -137,7 +137,7 @@ raw = summary["raw_invocations"]
 definitions = summary["definitions"]
 registry = summary["registry"]
 
-boundary_rows = data.get("source_boundary_summary", [])
+boundary_rows = data.get("root_group_summary", [])
 if boundary_rows:
     boundary_table_rows = []
     for item in boundary_rows:
@@ -145,7 +145,7 @@ if boundary_rows:
         origins = item.get("invocation_origins") or {}
         boundary_table_rows.append(
             "<tr>"
-            f"<td><code>{esc(item.get('boundary_id', ''))}</code></td>"
+            f"<td><code>{esc(item.get('root_group', ''))}</code></td>"
             f"<td>{esc(item.get('language', ''))}</td>"
             f'<td class="num">{num(item.get("files_represented", item.get("files_scanned", 0)))}</td>'
             f"<td>{esc(pct(item.get('invocation_adoption_ratio')))}</td>"
@@ -156,16 +156,16 @@ if boundary_rows:
             f'<td class="num">{num(origins.get("framework", 0) + origins.get("external", 0))}</td>'
             "</tr>"
         )
-    source_boundary_table_html = (
+    root_group_table_html = (
         "<table><thead><tr>"
-        "<th>Boundary</th><th>Language</th><th>Files</th><th>Adoption</th>"
+        "<th>Root group</th><th>Language</th><th>Files</th><th>Adoption</th>"
         "<th>Resolved</th><th>Local</th><th>Candidate</th><th>Unresolved</th><th>Framework/external</th>"
         "</tr></thead><tbody>"
         + "".join(boundary_table_rows)
         + "</tbody></table>"
     )
 else:
-    source_boundary_table_html = '<p class="muted">No source-boundary summaries were emitted for this scan.</p>'
+    root_group_table_html = '<p class="muted">No root-group summaries were emitted for this scan.</p>'
 
 ds_vs_local_pct = pct(summary.get("ds_vs_local_ratio"))
 registry_resolution_pct = pct(summary.get("registry_resolution_ratio"))
@@ -538,7 +538,7 @@ replacements = {
     "unused_components_table_html": unused_components_table_html,
     "parent_scope_chart_svg": parent_scope_chart_svg,
     "parent_scope_table_html": parent_scope_table_html,
-    "source_boundary_table_html": source_boundary_table_html,
+    "root_group_table_html": root_group_table_html,
     "adoption_gaps_chart_svg": adoption_gaps_chart_svg,
     "adoption_gaps_table_html": adoption_gaps_table_html,
     "duplicate_components_table_html": duplicate_components_table_html,

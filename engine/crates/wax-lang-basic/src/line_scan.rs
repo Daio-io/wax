@@ -566,7 +566,7 @@ fn extract_usage_sites(
                         file: file.to_owned(),
                         line,
                         column: Some(column),
-                        boundary_id: None,
+                        root_group: None,
                     },
                     symbol: call_symbol.clone(),
                     qualified_symbol: None,

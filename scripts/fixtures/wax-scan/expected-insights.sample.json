@@ -172,28 +172,22 @@
     "registry_resolution_ratio": 0.5454545454545454
   },
   "schema_version": 3,
-  "source_boundaries": [
+  "root_groups": [
     {
-      "exclude": [],
       "id": "feature/empty",
-      "include": [
-        "src/**/Missing.kt"
-      ]
+      "languages": ["compose"]
     },
     {
-      "exclude": [
-        "**/generated/**"
-      ],
       "id": "feature/home",
-      "include": [
-        "src/**/Home.kt"
-      ],
       "languages": [
         "compose"
       ]
     }
   ],
-  "source_boundary_summary": [
+  "scan_scope": {
+    "root_group": null
+  },
+  "root_group_summary": [
     {
       "adoption": {
         "adopted_invocation_count": 3,
@@ -201,7 +195,7 @@
         "eligible_invocation_count": 5,
         "non_adopted_invocation_count": 2
       },
-      "boundary_id": "feature/home",
+      "root_group": "feature/home",
       "files_represented": 1,
       "files_scanned": 1,
       "invocation_adoption_ratio": 0.6,

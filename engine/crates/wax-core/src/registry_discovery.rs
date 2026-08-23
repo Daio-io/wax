@@ -349,6 +349,7 @@ pub fn discover_registry(
     let fallback_entry = LanguageEntry {
         id: language_id.clone(),
         roots: Vec::new(),
+        root_groups: Default::default(),
         registry_source: None,
         extra: serde_json::Map::new(),
     };

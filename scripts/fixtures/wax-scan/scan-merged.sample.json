@@ -52,22 +52,22 @@
       "files_scanned": 5
     }
   },
-  "source_boundaries": [
+  "root_groups": [
     {
       "id": "feature/empty",
-      "include": ["src/**/Missing.kt"],
-      "exclude": []
+      "languages": ["compose"]
     },
     {
       "id": "feature/home",
-      "languages": ["compose"],
-      "include": ["src/**/Home.kt"],
-      "exclude": ["**/generated/**"]
+      "languages": ["compose"]
     }
   ],
-  "source_boundary_summary": [
+  "scan_scope": {
+    "root_group": null
+  },
+  "root_group_summary": [
     {
-      "boundary_id": "feature/home",
+      "root_group": "feature/home",
       "language": "compose",
       "files_scanned": 1,
       "files_represented": 1,
@@ -330,7 +330,7 @@
           "id": "c:1:Button:resolved",
           "location": {
         "file": "src/Home.kt",
-        "boundary_id": "feature/home",
+        "root_group": "feature/home",
         "line": 12
       },
           "symbol": "Button",
@@ -352,7 +352,7 @@
           "id": "c:2:Button:resolved",
           "location": {
             "file": "src/Home.kt",
-            "boundary_id": "feature/home",
+            "root_group": "feature/home",
             "line": 18
       },
           "symbol": "Button",
@@ -374,7 +374,7 @@
           "id": "c:3:Card:resolved",
           "location": {
             "file": "src/Home.kt",
-            "boundary_id": "feature/home",
+            "root_group": "feature/home",
             "line": 24
       },
       "symbol": "Card",
@@ -396,7 +396,7 @@
           "id": "c:4:Modal:candidate",
           "location": {
             "file": "src/Home.kt",
-            "boundary_id": "feature/home",
+            "root_group": "feature/home",
             "line": 30
           },
           "symbol": "Modal",
@@ -411,7 +411,7 @@
           "id": "c:5:PrimaryButton:local",
           "location": {
             "file": "src/Home.kt",
-            "boundary_id": "feature/home",
+            "root_group": "feature/home",
             "line": 36
       },
       "symbol": "PrimaryButton",
@@ -431,7 +431,7 @@
           "id": "c:6:UnknownWidget:unresolved",
           "location": {
             "file": "src/Home.kt",
-            "boundary_id": "feature/home",
+            "root_group": "feature/home",
             "line": 42
       },
       "symbol": "UnknownWidget",

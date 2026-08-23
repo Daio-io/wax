@@ -235,7 +235,7 @@ pub(crate) fn unparseable_file_diagnostic(relative_file: &str) -> Diagnostic {
             file: relative_file.to_owned(),
             line: 1,
             column: None,
-            boundary_id: None,
+            root_group: None,
         }),
     }
 }
@@ -263,7 +263,7 @@ pub(crate) fn partial_tree_parse_diagnostic(
             file: relative_file.to_owned(),
             line: problem.line,
             column: Some(problem.column),
-            boundary_id: None,
+            root_group: None,
         }),
     }
 }
