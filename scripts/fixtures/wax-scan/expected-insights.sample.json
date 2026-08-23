@@ -21,10 +21,6 @@
   ],
   "limits": [
     {
-      "metric": "Coverage by feature/screen/route/module/team",
-      "missing_capability": "Reporting boundary metadata in usage sites"
-    },
-    {
       "metric": "Override rate / override patterns",
       "missing_capability": "Override detection in language packs"
     },
@@ -39,10 +35,6 @@
     {
       "metric": "Wrapper proliferation",
       "missing_capability": "Composition/wrapper edges in facts"
-    },
-    {
-      "metric": "Feature-level coverage",
-      "missing_capability": "Feature/module attribution"
     },
     {
       "metric": "LOC reduction estimates",

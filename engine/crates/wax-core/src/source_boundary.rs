@@ -61,11 +61,11 @@ fn attribute_location(
     boundaries: &[PreparedBoundary<'_>],
 ) {
     location.boundary_id = None;
+    let path = normalize_repo_relative_path(Path::new(&location.file));
     for boundary in boundaries {
         if !language_matches(boundary.config, language_id) {
             continue;
         }
-        let path = normalize_repo_relative_path(Path::new(&location.file));
         if !path_matches_any(&path, &boundary.include) {
             continue;
         }

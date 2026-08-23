@@ -559,7 +559,8 @@ extract_core() {
       | sort_by(-.count, .pattern)
       | map(select(.count >= 2));
 
-    validate_token_inference
+    . as $scan
+    | validate_token_inference
     | {
       schema_version: 3,
       generated_at: $generated_at,
@@ -579,8 +580,8 @@ extract_core() {
       fragmentation_candidates: suffix_families,
       token_inference: token_inference_block,
       limits: ($limits
-        | if ((.source_boundary_summary // []) | length) > 0
-          then map(select(.metric != "Coverage by feature/screen/route/module" and .metric != "Feature-level coverage"))
+        | if (($scan.source_boundary_summary // []) | length) > 0
+          then map(select(.metric != "Coverage by feature/screen/route/module/team" and .metric != "Feature-level coverage"))
           else .
           end),
       baseline_deltas: null

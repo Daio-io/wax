@@ -330,6 +330,7 @@
           "id": "c:1:Button:resolved",
           "location": {
         "file": "src/Home.kt",
+        "boundary_id": "feature/home",
         "line": 12
       },
           "symbol": "Button",
@@ -351,6 +352,7 @@
           "id": "c:2:Button:resolved",
           "location": {
             "file": "src/Home.kt",
+            "boundary_id": "feature/home",
             "line": 18
       },
           "symbol": "Button",
@@ -372,6 +374,7 @@
           "id": "c:3:Card:resolved",
           "location": {
             "file": "src/Home.kt",
+            "boundary_id": "feature/home",
             "line": 24
       },
       "symbol": "Card",
@@ -393,6 +396,7 @@
           "id": "c:4:Modal:candidate",
           "location": {
             "file": "src/Home.kt",
+            "boundary_id": "feature/home",
             "line": 30
           },
           "symbol": "Modal",
@@ -407,6 +411,7 @@
           "id": "c:5:PrimaryButton:local",
           "location": {
             "file": "src/Home.kt",
+            "boundary_id": "feature/home",
             "line": 36
       },
       "symbol": "PrimaryButton",
@@ -426,6 +431,7 @@
           "id": "c:6:UnknownWidget:unresolved",
           "location": {
             "file": "src/Home.kt",
+            "boundary_id": "feature/home",
             "line": 42
       },
       "symbol": "UnknownWidget",
