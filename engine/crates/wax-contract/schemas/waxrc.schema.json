@@ -101,12 +101,19 @@
                 "minLength": 1
               },
               "languages": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "pattern": "^[a-z][a-z0-9-]*$"
-                },
-                "minItems": 1
+                "oneOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]*$"
+                    },
+                    "minItems": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "include": {
                 "type": "array",

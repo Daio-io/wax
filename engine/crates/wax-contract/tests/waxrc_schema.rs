@@ -64,3 +64,21 @@ fn accepts_ordered_source_boundary_reporting_config() {
 
     assert!(validator.is_valid(&value));
 }
+
+#[test]
+fn accepts_null_source_boundary_languages() {
+    let validator = validator();
+    let value = json!({
+        "schema_version": 2,
+        "languages": {"compose": {}},
+        "reporting": {
+            "source_boundaries": [{
+                "id": "feature/devices",
+                "languages": null,
+                "include": ["mobile/**/feature/devices/**/*.kt"]
+            }]
+        }
+    });
+
+    assert!(validator.is_valid(&value));
+}

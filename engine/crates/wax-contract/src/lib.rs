@@ -1363,6 +1363,15 @@ fn validate_source_boundary_summaries(merged: &MergedScan) -> Result<(), ScanFac
                 &site.location,
                 &boundary_ids,
             )?;
+            if let Some(parent) = &site.parent
+                && let Some(location) = &parent.location
+            {
+                validate_boundary_reference(
+                    &format!("languages.{language}.token_sites[{index}].parent.location"),
+                    location,
+                    &boundary_ids,
+                )?;
+            }
         }
         for (index, site) in facts.hardcoded_style_sites.iter().enumerate() {
             validate_boundary_reference(
@@ -1370,6 +1379,15 @@ fn validate_source_boundary_summaries(merged: &MergedScan) -> Result<(), ScanFac
                 &site.location,
                 &boundary_ids,
             )?;
+            if let Some(parent) = &site.parent
+                && let Some(location) = &parent.location
+            {
+                validate_boundary_reference(
+                    &format!("languages.{language}.hardcoded_style_sites[{index}].parent.location"),
+                    location,
+                    &boundary_ids,
+                )?;
+            }
         }
         for (index, diagnostic) in facts.diagnostics.iter().enumerate() {
             if let Some(location) = &diagnostic.location {
