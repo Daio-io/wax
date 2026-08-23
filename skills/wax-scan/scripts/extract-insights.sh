@@ -102,7 +102,12 @@ extract_core() {
           adoption: {
             eligible_invocation_count: 0,
             adopted_invocation_count: 0,
-            non_adopted_invocation_count: 0
+            non_adopted_invocation_count: 0,
+            adoption_excluded_invocation_count: 0
+          },
+          invocation_origins: {
+            registry: 0, local: 0, framework: 0, external: 0,
+            application: 0, unknown: 0
           },
           parent_scopes: {
             total: 0,
@@ -126,6 +131,13 @@ extract_core() {
         | .adoption.eligible_invocation_count += ($counts.adoption.eligible_invocation_count // 0)
         | .adoption.adopted_invocation_count += ($counts.adoption.adopted_invocation_count // 0)
         | .adoption.non_adopted_invocation_count += ($counts.adoption.non_adopted_invocation_count // 0)
+        | .adoption.adoption_excluded_invocation_count += ($counts.adoption.adoption_excluded_invocation_count // 0)
+        | .invocation_origins.registry += ($counts.invocation_origins.registry // 0)
+        | .invocation_origins.local += ($counts.invocation_origins.local // 0)
+        | .invocation_origins.framework += ($counts.invocation_origins.framework // 0)
+        | .invocation_origins.external += ($counts.invocation_origins.external // 0)
+        | .invocation_origins.application += ($counts.invocation_origins.application // 0)
+        | .invocation_origins.unknown += ($counts.invocation_origins.unknown // 0)
         | .parent_scopes.total += ($counts.parent_scopes.total // 0)
         | .parent_scopes.with_resolved_invocations += ($counts.parent_scopes.with_resolved_invocations // 0)
         | .parent_scopes.with_local_invocations += ($counts.parent_scopes.with_local_invocations // 0)
@@ -163,6 +175,7 @@ extract_core() {
             definitions: $counts.definitions,
             registry: $counts.registry,
             adoption: $counts.adoption,
+            invocation_origins: $counts.invocation_origins,
             parent_scopes: $counts.parent_scopes
           }
       else
@@ -176,6 +189,7 @@ extract_core() {
             definitions: $counts.definitions,
             registry: $counts.registry,
             adoption: $counts.adoption,
+            invocation_origins: $counts.invocation_origins,
             parent_scopes: $counts.parent_scopes
           }
       end;
@@ -283,6 +297,7 @@ extract_core() {
           qualified_symbol: .[0].qualified_symbol,
           symbol_kind: .[0].symbol_kind,
           match_status: .[0].match_status,
+          callee_origin: .[0].callee_origin,
           registry_symbol: .[0].registry_symbol,
           local_definition_id: .[0].local_definition_id,
           identity_basis: .[0].identity_basis,
@@ -335,6 +350,7 @@ extract_core() {
     def top_symbols_by_kind($kind; $limit):
       [symbol_usage_summary_rows[]
         | select(.symbol_kind == $kind)
+        | select($kind != "unresolved" or .callee_origin == "application" or .callee_origin == "unknown")
       ]
       | sort_by(-.raw_invocation_count, .symbol)
       | .[0:$limit];

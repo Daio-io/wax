@@ -643,8 +643,7 @@ fn write_scan_summary(
     writeln!(
         writer,
         "  Unresolved application/unknown UI calls: {}",
-        raw.unresolved
-            .saturating_sub(repo.counts.adoption.adoption_excluded_invocation_count)
+        origins.application + origins.unknown
     )
     .map_err(write_error)?;
 
@@ -1858,7 +1857,12 @@ mod tests {
                 with_local_invocations: 0,
                 with_unresolved_invocations: 1,
             },
-            invocation_origins: Default::default(),
+            invocation_origins: wax_contract::InvocationOriginCounts {
+                registry: 7,
+                local: 1,
+                application: 1,
+                ..Default::default()
+            },
             tokens: wax_contract::TokenCounts {
                 configured_token_count: 2,
                 used_token_count: 1,

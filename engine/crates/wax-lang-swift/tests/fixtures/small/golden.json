@@ -12,6 +12,12 @@
     "resolved_raw_invocation_count": 6,
     "candidate_raw_invocation_count": 0
   },
+  "adoption": {
+    "eligible_invocation_count": 8,
+    "adopted_invocation_count": 6,
+    "non_adopted_invocation_count": 2,
+    "adoption_excluded_invocation_count": 11
+  },
   "definitions": {
     "local_definition_count": 5,
     "invoked_local_definition_count": 1,

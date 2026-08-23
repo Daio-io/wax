@@ -229,18 +229,22 @@ export function Screen() {
         Some("@acme/design-system"),
         false,
     );
-    assert_eq!(
-        usage_for(&react, "View").callee_origin,
-        CalleeOrigin::Framework
-    );
-    assert_eq!(
-        usage_for(&react, "AsyncImage").callee_origin,
-        CalleeOrigin::External
-    );
-    assert_eq!(
-        usage_for(&react, "UnknownCard").callee_origin,
-        CalleeOrigin::Application
-    );
+    for (symbol, origin, scenario) in [
+        ("View", CalleeOrigin::Framework, "framework"),
+        ("AsyncImage", CalleeOrigin::External, "external"),
+        ("UnknownCard", CalleeOrigin::Application, "application"),
+    ] {
+        assert_parity(
+            usage_for(&react, symbol),
+            ExpectedOutcome {
+                match_status: MatchStatus::Unresolved,
+                callee_origin: origin,
+                evidence_kind: ResolutionEvidenceKind::NoMatchingDefinition,
+            },
+            "react",
+            scenario,
+        );
+    }
 
     let swift = scan_swift(
         r#"import SwiftUI
@@ -254,18 +258,22 @@ struct Screen: View {
 }"#,
         Some("AcmeDesignSystem"),
     );
-    assert_eq!(
-        usage_for(&swift, "Text").callee_origin,
-        CalleeOrigin::Framework
-    );
-    assert_eq!(
-        usage_for(&swift, "KFImage").callee_origin,
-        CalleeOrigin::External
-    );
-    assert_eq!(
-        usage_for(&swift, "UnknownCard").callee_origin,
-        CalleeOrigin::Application
-    );
+    for (symbol, origin, scenario) in [
+        ("Text", CalleeOrigin::Framework, "framework"),
+        ("KFImage", CalleeOrigin::External, "external"),
+        ("UnknownCard", CalleeOrigin::Application, "application"),
+    ] {
+        assert_parity(
+            usage_for(&swift, symbol),
+            ExpectedOutcome {
+                match_status: MatchStatus::Unresolved,
+                callee_origin: origin,
+                evidence_kind: ResolutionEvidenceKind::NoMatchingDefinition,
+            },
+            "swift",
+            scenario,
+        );
+    }
 }
 
 #[test]

@@ -139,7 +139,7 @@ The template is the approved visual source of truth for the report UI. It uses t
 | `{{raw_invocation_total}}` | Deterministic | `repo_summary.raw_invocations.total` |
 | `{{registry_resolution_percent}}` | Deterministic | `repo_summary.registry_resolution_ratio` |
 | `{{local_definition_count}}` | Deterministic | `repo_summary.definitions.local_definition_count` |
-| `{{unresolved_count}}` | Deterministic | `repo_summary.raw_invocations.unresolved` |
+| `{{unresolved_count}}` | Deterministic | `repo_summary.invocation_origins.application + repo_summary.invocation_origins.unknown` |
 | `{{caveat_html}}` | Renderer-built HTML | Explain DS-vs-local headline semantics and keep unresolved counts contextual |
 
 Do not render UI invocation adoption as a primary KPI in the HTML report. Keep unresolved counts and registry resolution as supporting context.

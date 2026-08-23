@@ -392,6 +392,8 @@ fn is_framework_compose_package(package: &str) -> bool {
         || package.starts_with("androidx.compose.")
         || package == "androidx.activity.compose"
         || package.starts_with("androidx.activity.compose.")
+        || package == "androidx.ui"
+        || package.starts_with("androidx.ui.")
 }
 
 fn is_scanned_compose_package(package: &str, scanned_packages: &BTreeSet<String>) -> bool {
