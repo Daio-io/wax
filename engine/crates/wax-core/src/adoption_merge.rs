@@ -1003,7 +1003,10 @@ mod tests {
             .map(|site| site.location.boundary_id.clone())
             .collect::<Vec<_>>();
 
-        assert_eq!(site_boundaries, [Some("mobile".into()), None, None]);
+        assert_eq!(
+            site_boundaries,
+            [Some("mobile".into()), Some("devices".into()), None]
+        );
         assert_eq!(
             merged
                 .source_boundaries
@@ -1012,15 +1015,15 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["devices", "mobile"]
         );
-        assert_eq!(merged.source_boundary_summary.len(), 1);
-        assert_eq!(merged.source_boundary_summary[0].boundary_id, "mobile");
+        assert_eq!(merged.source_boundary_summary.len(), 2);
+        assert_eq!(merged.source_boundary_summary[0].boundary_id, "devices");
         assert_eq!(merged.source_boundary_summary[0].raw_invocations.total, 1);
         assert_eq!(
-            merged.source_boundary_summary[0].raw_invocations.resolved,
+            merged.source_boundary_summary[1].raw_invocations.resolved,
             1
         );
         assert_eq!(
-            merged.source_boundary_summary[0]
+            merged.source_boundary_summary[1]
                 .adoption
                 .adopted_invocation_count,
             1

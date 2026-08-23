@@ -578,7 +578,11 @@ extract_core() {
       parent_scope_hotspots: parent_scope_hotspots(5),
       fragmentation_candidates: suffix_families,
       token_inference: token_inference_block,
-      limits: $limits,
+      limits: ($limits
+        | if ((.source_boundary_summary // []) | length) > 0
+          then map(select(.metric != "Coverage by feature/screen/route/module" and .metric != "Feature-level coverage"))
+          else .
+          end),
       baseline_deltas: null
     }
   ' "$input"

@@ -330,7 +330,8 @@ Add explicit application, module, feature, or source-root boundaries under
 ```
 
 Boundary declarations are repo-relative, deterministic, and evaluated in
-declaration order; the first matching boundary wins. Omit `languages` to apply
+declaration order; the first matching boundary wins. An exclude match skips that
+boundary and continues searching later declarations. Omit `languages` to apply
 a boundary to every configured pack. Screen-level grouping continues to use
 pack-emitted parent scopes. Generic route inference is ecosystem-specific
 future work and is not inferred by Wax.

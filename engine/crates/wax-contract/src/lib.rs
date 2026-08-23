@@ -831,6 +831,10 @@ pub struct RepoSummary {
 }
 
 /// Configured source-boundary metadata embedded in a merged scan.
+///
+/// Metadata is sorted by id for deterministic output; declaration order is not
+/// an attribution priority. Site `boundary_id` values and grouped summaries
+/// are authoritative for attribution.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct SourceBoundaryMetadata {
@@ -854,9 +858,9 @@ pub struct SourceBoundarySummary {
     pub boundary_id: String,
     /// Language contributing the row.
     pub language: LanguageId,
-    /// Number of distinct files with attributed usage sites.
+    /// Number of distinct files with attributed usage sites (same as `files_represented`; retained for the v2 contract).
     pub files_scanned: u32,
-    /// Number of distinct files represented by attributed usage sites.
+    /// Number of distinct files represented by attributed usage sites (same as `files_scanned`; retained for the v2 contract).
     pub files_represented: u32,
     /// Raw usage counts grouped by match status.
     pub raw_invocations: RawInvocationCounts,
@@ -1339,6 +1343,8 @@ fn validate_source_boundary_summaries(merged: &MergedScan) -> Result<(), ScanFac
                 &format!("languages.{language}.local_components[{index}].location"),
                 &component.location,
                 &boundary_ids,
+                language,
+                &merged.source_boundaries,
             )?;
         }
         for (index, site) in facts.usage_sites.iter().enumerate() {
@@ -1346,6 +1352,8 @@ fn validate_source_boundary_summaries(merged: &MergedScan) -> Result<(), ScanFac
                 &format!("languages.{language}.usage_sites[{index}].location"),
                 &site.location,
                 &boundary_ids,
+                language,
+                &merged.source_boundaries,
             )?;
             if let Some(parent) = &site.parent
                 && let Some(location) = &parent.location
@@ -1354,6 +1362,8 @@ fn validate_source_boundary_summaries(merged: &MergedScan) -> Result<(), ScanFac
                     &format!("languages.{language}.usage_sites[{index}].parent.location"),
                     location,
                     &boundary_ids,
+                    language,
+                    &merged.source_boundaries,
                 )?;
             }
         }
@@ -1362,6 +1372,8 @@ fn validate_source_boundary_summaries(merged: &MergedScan) -> Result<(), ScanFac
                 &format!("languages.{language}.token_sites[{index}].location"),
                 &site.location,
                 &boundary_ids,
+                language,
+                &merged.source_boundaries,
             )?;
             if let Some(parent) = &site.parent
                 && let Some(location) = &parent.location
@@ -1370,6 +1382,8 @@ fn validate_source_boundary_summaries(merged: &MergedScan) -> Result<(), ScanFac
                     &format!("languages.{language}.token_sites[{index}].parent.location"),
                     location,
                     &boundary_ids,
+                    language,
+                    &merged.source_boundaries,
                 )?;
             }
         }
@@ -1378,6 +1392,8 @@ fn validate_source_boundary_summaries(merged: &MergedScan) -> Result<(), ScanFac
                 &format!("languages.{language}.hardcoded_style_sites[{index}].location"),
                 &site.location,
                 &boundary_ids,
+                language,
+                &merged.source_boundaries,
             )?;
             if let Some(parent) = &site.parent
                 && let Some(location) = &parent.location
@@ -1386,6 +1402,8 @@ fn validate_source_boundary_summaries(merged: &MergedScan) -> Result<(), ScanFac
                     &format!("languages.{language}.hardcoded_style_sites[{index}].parent.location"),
                     location,
                     &boundary_ids,
+                    language,
+                    &merged.source_boundaries,
                 )?;
             }
         }
@@ -1395,6 +1413,8 @@ fn validate_source_boundary_summaries(merged: &MergedScan) -> Result<(), ScanFac
                     &format!("languages.{language}.diagnostics[{index}].location"),
                     location,
                     &boundary_ids,
+                    language,
+                    &merged.source_boundaries,
                 )?;
             }
         }
@@ -1455,6 +1475,8 @@ fn validate_boundary_reference(
     field: &str,
     location: &SourceLocation,
     boundary_ids: &BTreeSet<&str>,
+    language: &LanguageId,
+    boundaries: &[SourceBoundaryMetadata],
 ) -> Result<(), ScanFactsError> {
     if let Some(boundary_id) = &location.boundary_id
         && !boundary_ids.contains(boundary_id.as_str())
@@ -1462,6 +1484,20 @@ fn validate_boundary_reference(
         return Err(contract_violation(
             &format!("{field}.boundary_id"),
             "location must reference configured boundary metadata",
+        ));
+    }
+    if let Some(boundary_id) = &location.boundary_id
+        && let Some(boundary) = boundaries
+            .iter()
+            .find(|boundary| boundary.id == *boundary_id)
+        && boundary
+            .languages
+            .as_ref()
+            .is_some_and(|languages| !languages.iter().any(|id| id == language))
+    {
+        return Err(contract_violation(
+            &format!("{field}.boundary_id"),
+            "location boundary must apply to its fact language",
         ));
     }
     Ok(())

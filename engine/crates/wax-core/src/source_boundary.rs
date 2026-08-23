@@ -13,36 +13,44 @@ pub fn attribute_scan_facts(
     language_id: &LanguageId,
     boundaries: &[SourceBoundaryConfig],
 ) {
+    let boundaries = boundaries
+        .iter()
+        .map(|config| PreparedBoundary {
+            config,
+            include: normalized_patterns(&config.include),
+            exclude: normalized_patterns(&config.exclude),
+        })
+        .collect::<Vec<_>>();
     for component in &mut facts.local_components {
-        attribute_location(&mut component.location, language_id, boundaries);
+        attribute_location(&mut component.location, language_id, &boundaries);
     }
     for site in &mut facts.usage_sites {
-        attribute_location(&mut site.location, language_id, boundaries);
+        attribute_location(&mut site.location, language_id, &boundaries);
         if let Some(parent) = &mut site.parent
             && let Some(location) = &mut parent.location
         {
-            attribute_location(location, language_id, boundaries);
+            attribute_location(location, language_id, &boundaries);
         }
     }
     for site in &mut facts.token_sites {
-        attribute_location(&mut site.location, language_id, boundaries);
+        attribute_location(&mut site.location, language_id, &boundaries);
         if let Some(parent) = &mut site.parent
             && let Some(location) = &mut parent.location
         {
-            attribute_location(location, language_id, boundaries);
+            attribute_location(location, language_id, &boundaries);
         }
     }
     for site in &mut facts.hardcoded_style_sites {
-        attribute_location(&mut site.location, language_id, boundaries);
+        attribute_location(&mut site.location, language_id, &boundaries);
         if let Some(parent) = &mut site.parent
             && let Some(location) = &mut parent.location
         {
-            attribute_location(location, language_id, boundaries);
+            attribute_location(location, language_id, &boundaries);
         }
     }
     for diagnostic in &mut facts.diagnostics {
         if let Some(location) = &mut diagnostic.location {
-            attribute_location(location, language_id, boundaries);
+            attribute_location(location, language_id, &boundaries);
         }
     }
 }
@@ -50,25 +58,29 @@ pub fn attribute_scan_facts(
 fn attribute_location(
     location: &mut SourceLocation,
     language_id: &LanguageId,
-    boundaries: &[SourceBoundaryConfig],
+    boundaries: &[PreparedBoundary<'_>],
 ) {
     location.boundary_id = None;
     for boundary in boundaries {
-        if !language_matches(boundary, language_id) {
+        if !language_matches(boundary.config, language_id) {
             continue;
         }
         let path = normalize_repo_relative_path(Path::new(&location.file));
-        let includes = normalized_patterns(&boundary.include);
-        let excludes = normalized_patterns(&boundary.exclude);
-        if !path_matches_any(&path, &includes) {
+        if !path_matches_any(&path, &boundary.include) {
             continue;
         }
-        if path_matches_any(&path, &excludes) {
-            break;
+        if path_matches_any(&path, &boundary.exclude) {
+            continue;
         }
-        location.boundary_id = Some(boundary.id.clone());
+        location.boundary_id = Some(boundary.config.id.clone());
         break;
     }
+}
+
+struct PreparedBoundary<'a> {
+    config: &'a SourceBoundaryConfig,
+    include: Vec<String>,
+    exclude: Vec<String>,
 }
 
 fn language_matches(boundary: &SourceBoundaryConfig, language_id: &LanguageId) -> bool {
