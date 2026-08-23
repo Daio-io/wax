@@ -1810,6 +1810,21 @@ mod tests {
         assert!(!is_framework_swiftui_module("UIKit"));
     }
 
+    #[test]
+    fn qualified_call_from_swiftui_module_is_framework_origin() {
+        let registry = registry_without_packages(&[]);
+        let (_, usages) = parse_and_extract(
+            "import SwiftUI\nstruct Screen: View { var body: some View { SwiftUI.PlatformOnlyView() } }",
+            &registry,
+        );
+
+        let usage = usages
+            .iter()
+            .find(|usage| usage.symbol == "PlatformOnlyView")
+            .expect("SwiftUI call should be retained");
+        assert_eq!(usage.callee_origin, CalleeOrigin::Framework);
+    }
+
     fn parse_and_extract(
         source: &str,
         registry: &RegistryIndex,

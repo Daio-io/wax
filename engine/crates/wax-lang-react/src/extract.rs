@@ -2283,6 +2283,33 @@ mod tests {
     }
 
     #[test]
+    fn extract_usage_classifies_unresolved_relative_import_as_application() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "src/App.tsx",
+            r#"
+            import { MissingCard } from "./MissingCard";
+
+            export const App = () => <MissingCard />;
+            "#,
+        );
+        fixture.write("src/MissingCard.tsx", "export const helper = 1;");
+
+        let extraction = fixture.extract_usage(
+            vec!["src/App.tsx", "src/MissingCard.tsx"],
+            base_config(),
+            registry_with_package("MissingCard", "@acme/design-system"),
+        );
+
+        let usage = extraction
+            .usage_sites
+            .iter()
+            .find(|usage| usage.symbol == "MissingCard")
+            .expect("relative import should be retained");
+        assert_eq!(usage.callee_origin, wax_contract::CalleeOrigin::Application);
+    }
+
+    #[test]
     fn extract_usage_resolves_imported_local_before_legacy_registry_name() {
         let fixture = Fixture::new();
         fixture.write(

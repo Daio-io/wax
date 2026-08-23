@@ -643,7 +643,8 @@ fn write_installed_packs(wax_home: &Path, specs: &[(&str, &str, &str, &str, &str
                     "adoption": {
                         "eligible_invocation_count": 0,
                         "adopted_invocation_count": 0,
-                        "non_adopted_invocation_count": 0
+                        "non_adopted_invocation_count": 0,
+                        "adoption_excluded_invocation_count": 0
                     },
                     "parent_scopes": {
                         "total": 0,
@@ -711,7 +712,8 @@ fn write_installed_packs(wax_home: &Path, specs: &[(&str, &str, &str, &str, &str
                     "adoption": {
                         "eligible_invocation_count": 1,
                         "adopted_invocation_count": 1,
-                        "non_adopted_invocation_count": 0
+                        "non_adopted_invocation_count": 0,
+                        "adoption_excluded_invocation_count": 0
                     },
                     "parent_scopes": {
                         "total": 0,
