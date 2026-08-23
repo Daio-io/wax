@@ -308,6 +308,39 @@ remote path `.wax/registries/<language-id>.json` and pin a tag or commit:
 `.wax/registries/<language-id>.json` for that language. The string shorthand
 and the `source`/`upstream` object form remain supported.
 
+### Grouped scan roots
+
+Keep scan scope and reporting in one place by optionally keying each language's
+`roots` by a repository-wide group id:
+
+```json
+{
+  "schema_version": 2,
+  "languages": {
+    "compose": {
+      "roots": {
+        "mobile": ["mobile/**/src/main/kotlin"],
+        "shared": ["shared/src/main/kotlin"]
+      }
+    },
+    "react": {
+      "roots": {
+        "mobile": ["apps/mobile/src"]
+      }
+    }
+  }
+}
+```
+
+The array form remains valid and means an ungrouped full scan. Grouped roots are
+scanned together by default, and `wax scan --root-group mobile` selects the
+`mobile` roots across all configured languages. Unknown groups are errors. Scan
+JSON records the selected scope and emits root-group/language summaries derived
+from the same configured roots. Screen-level grouping continues to use
+pack-emitted parent scopes; generic route inference is ecosystem-specific future
+work and is not inferred by Wax. If groups overlap, the lexicographically first
+group id wins attribution so the result is deterministic.
+
 The first scan or sync pins the resolved commit and registry digest in
 `.wax/wax.lock.json`. Ordinary `wax sync` reuses that pin; `wax sync --upgrade`
 refreshes tags. `wax validate` checks Git registry locks offline. Commit

@@ -4,12 +4,15 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use time::OffsetDateTime;
 use wax_contract::{
-    CountSummary, DesignSystemToken, IdentityStability, LanguageId, MatchStatus, MergedScan,
-    Metrics, RepoSummary, SCHEMA_VERSION, ScanFacts, ScanFactsError, SymbolKind,
-    SymbolParentScopeSummary, SymbolUsageSummary, TokenCategoryCounts, TokenUsageSummary,
+    AdoptionCounts, CalleeOrigin, CountSummary, DesignSystemToken, IdentityStability,
+    InvocationOriginCounts, LanguageId, MatchStatus, MergedScan, Metrics, RawInvocationCounts,
+    RepoSummary, RootGroupMetadata, RootGroupSummary, SCHEMA_VERSION, ScanFacts, ScanFactsError,
+    ScanScope, SymbolKind, SymbolParentScopeSummary, SymbolUsageSummary, TokenCategoryCounts,
+    TokenUsageSummary,
 };
 
 use crate::config::waxrc::TokenInferenceConfig;
+use crate::root_group::{RootGroups, attribute_scan_facts};
 use crate::token_inference::build_token_inference;
 
 /// Default parent scope row limit when config omits an explicit value.
@@ -22,6 +25,10 @@ pub struct MergeOptions {
     pub parent_scope_limit: Option<u32>,
     /// Token inference configuration applied after raw facts are recomputed.
     pub token_inference: TokenInferenceConfig,
+    /// Root groups applied before derived values are recomputed.
+    pub root_groups: RootGroups,
+    /// Root-group selection recorded in the merged output.
+    pub scan_scope: Option<String>,
 }
 
 impl Default for MergeOptions {
@@ -29,6 +36,8 @@ impl Default for MergeOptions {
         Self {
             parent_scope_limit: DEFAULT_PARENT_SCOPE_LIMIT,
             token_inference: TokenInferenceConfig::default(),
+            root_groups: RootGroups::new(),
+            scan_scope: None,
         }
     }
 }
@@ -99,6 +108,8 @@ pub fn merge_language_scans_with_parent_scope_limit(
         &MergeOptions {
             parent_scope_limit,
             token_inference: TokenInferenceConfig::default(),
+            root_groups: RootGroups::new(),
+            scan_scope: None,
         },
     )
 }
@@ -116,6 +127,7 @@ pub fn merge_language_scans_with_options(
 ) -> Result<MergedScan, ScanFactsError> {
     let mut merged_languages = BTreeMap::new();
     for (language_id, mut facts) in languages {
+        attribute_scan_facts(&mut facts, &language_id, &options.root_groups);
         recompute_derived_scan_facts_with_parent_scope_limit(
             &mut facts,
             &language_id,
@@ -130,6 +142,19 @@ pub fn merge_language_scans_with_options(
     let symbol_usage_summary = merge_symbol_usage_summaries(&merged_languages);
     let token_usage_summary = merge_token_usage_summaries(&merged_languages);
     let token_inference = build_token_inference(&merged_languages, &options.token_inference)?;
+    let mut root_groups = options
+        .root_groups
+        .iter()
+        .map(|(id, languages)| root_group_metadata(id, languages))
+        .collect::<Vec<_>>();
+    root_groups.sort_by(|left, right| left.id.cmp(&right.id));
+    let mut root_group_summary =
+        build_root_group_summaries(&merged_languages, &options.root_groups)?;
+    root_group_summary.sort_by(|left, right| {
+        left.root_group
+            .cmp(&right.root_group)
+            .then_with(|| left.language.cmp(&right.language))
+    });
 
     let merged = MergedScan {
         schema_version: SCHEMA_VERSION,
@@ -142,6 +167,11 @@ pub fn merge_language_scans_with_options(
         symbol_usage_summary,
         token_usage_summary,
         token_inference,
+        scan_scope: ScanScope {
+            root_group: options.scan_scope.clone(),
+        },
+        root_groups,
+        root_group_summary,
         languages: merged_languages,
     };
     merged.validate()?;
@@ -181,6 +211,154 @@ fn metrics_from_counts(
         registry_resolution_ratio,
         parse_extract_ms,
         files_scanned,
+    }
+}
+
+fn root_group_metadata(
+    id: &str,
+    languages: &BTreeMap<LanguageId, Vec<String>>,
+) -> RootGroupMetadata {
+    RootGroupMetadata {
+        id: id.to_owned(),
+        languages: languages.keys().cloned().collect(),
+    }
+}
+
+fn build_root_group_summaries(
+    languages: &BTreeMap<LanguageId, ScanFacts>,
+    root_groups: &RootGroups,
+) -> Result<Vec<RootGroupSummary>, ScanFactsError> {
+    let mut summaries = Vec::new();
+    for (group, group_languages) in root_groups {
+        for (language, facts) in languages {
+            if !group_languages.contains_key(language) {
+                continue;
+            }
+
+            let sites = facts
+                .usage_sites
+                .iter()
+                .filter(|site| site.location.root_group.as_deref() == Some(group));
+            let mut files = BTreeSet::new();
+            let mut raw_invocations = RawInvocationCounts::default();
+            let mut invocation_origins = InvocationOriginCounts::default();
+            let mut adoption_excluded = 0_u32;
+
+            for site in sites {
+                files.insert(site.location.file.clone());
+                increment_root_group_status(&mut raw_invocations, site.match_status)?;
+                increment_root_group_origin(&mut invocation_origins, site.callee_origin)?;
+                if matches!(
+                    site.callee_origin,
+                    CalleeOrigin::Framework | CalleeOrigin::External
+                ) && site.match_status != MatchStatus::Candidate
+                {
+                    adoption_excluded = checked_add_count(
+                        "root_group_summary.adoption.adoption_excluded_invocation_count",
+                        adoption_excluded,
+                        1,
+                    )?;
+                }
+            }
+
+            if raw_invocations.total == 0 {
+                continue;
+            }
+
+            let eligible = checked_add_many(
+                "root_group_summary.adoption.eligible_invocation_count",
+                &[
+                    raw_invocations.resolved,
+                    raw_invocations.local,
+                    invocation_origins.application,
+                    invocation_origins.unknown,
+                ],
+            )?;
+            let adoption = AdoptionCounts {
+                eligible_invocation_count: eligible,
+                adopted_invocation_count: raw_invocations.resolved,
+                non_adopted_invocation_count: eligible
+                    .checked_sub(raw_invocations.resolved)
+                    .ok_or_else(|| {
+                        contract_violation(
+                            "root_group_summary.adoption.non_adopted_invocation_count",
+                            "non_adopted count underflow",
+                        )
+                    })?,
+                adoption_excluded_invocation_count: adoption_excluded,
+            };
+            let invocation_adoption_ratio = (eligible != 0).then(|| {
+                f64::from(adoption.adopted_invocation_count)
+                    / f64::from(adoption.eligible_invocation_count)
+            });
+            let files = u32::try_from(files.len()).map_err(|_| {
+                contract_violation(
+                    "root_group_summary.files_scanned",
+                    "file count exceeds u32 maximum",
+                )
+            })?;
+
+            summaries.push(RootGroupSummary {
+                root_group: group.clone(),
+                language: language.clone(),
+                files_scanned: files,
+                files_represented: files,
+                raw_invocations,
+                invocation_origins,
+                adoption,
+                invocation_adoption_ratio,
+            });
+        }
+    }
+    Ok(summaries)
+}
+
+fn increment_root_group_status(
+    counts: &mut RawInvocationCounts,
+    status: MatchStatus,
+) -> Result<(), ScanFactsError> {
+    let count = match status {
+        MatchStatus::Resolved => &mut counts.resolved,
+        MatchStatus::Local => &mut counts.local,
+        MatchStatus::Candidate => &mut counts.candidate,
+        MatchStatus::Unresolved => &mut counts.unresolved,
+    };
+    *count = checked_add_count("root_group_summary.raw_invocations", *count, 1)?;
+    counts.total = checked_add_count("root_group_summary.raw_invocations.total", counts.total, 1)?;
+    Ok(())
+}
+
+fn increment_root_group_origin(
+    counts: &mut InvocationOriginCounts,
+    origin: CalleeOrigin,
+) -> Result<(), ScanFactsError> {
+    let count = match origin {
+        CalleeOrigin::Registry => &mut counts.registry,
+        CalleeOrigin::Local => &mut counts.local,
+        CalleeOrigin::Framework => &mut counts.framework,
+        CalleeOrigin::External => &mut counts.external,
+        CalleeOrigin::Application => &mut counts.application,
+        CalleeOrigin::Unknown => &mut counts.unknown,
+    };
+    *count = checked_add_count("root_group_summary.invocation_origins", *count, 1)?;
+    Ok(())
+}
+
+fn checked_add_many(field: &str, values: &[u32]) -> Result<u32, ScanFactsError> {
+    values.iter().try_fold(0_u32, |total, value| {
+        checked_add_count(field, total, *value)
+    })
+}
+
+fn checked_add_count(field: &str, left: u32, right: u32) -> Result<u32, ScanFactsError> {
+    left.checked_add(right)
+        .ok_or_else(|| contract_violation(field, "count exceeds u32 maximum"))
+}
+
+fn contract_violation(field: &str, message: &str) -> ScanFactsError {
+    ScanFactsError::ContractViolation {
+        field: field.to_owned(),
+        message: message.to_owned(),
     }
 }
 
@@ -655,6 +833,7 @@ mod tests {
                 file: "src/App.kt".into(),
                 line: 1,
                 column: Some(1),
+                root_group: None,
             },
             symbol: symbol.into(),
             qualified_symbol: None,
@@ -768,6 +947,53 @@ mod tests {
     }
 
     #[test]
+    fn root_group_attribution_and_summary_are_derived_from_configured_roots() {
+        let compose = language_facts(
+            "compose",
+            vec![
+                {
+                    let mut site = usage_site(MatchStatus::Resolved, "Button", Some("ds.button"));
+                    site.location.file = "mobile/app/src/main/kotlin/App.kt".into();
+                    site
+                },
+                {
+                    let mut site = usage_site(MatchStatus::Unresolved, "Unknown", None);
+                    site.location.file = "shared/App.kt".into();
+                    site
+                },
+            ],
+        );
+        let compose_id = LanguageId::try_from("compose").unwrap();
+        let merged = merge_language_scans_with_options(
+            BTreeMap::from([(compose_id.clone(), compose)]),
+            &MergeOptions {
+                root_groups: BTreeMap::from([(
+                    "mobile".into(),
+                    BTreeMap::from([(compose_id.clone(), vec!["mobile/**/src".into()])]),
+                )]),
+                ..MergeOptions::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            merged.languages[&compose_id].usage_sites[0]
+                .location
+                .root_group,
+            Some("mobile".into())
+        );
+        assert_eq!(
+            merged.languages[&compose_id].usage_sites[1]
+                .location
+                .root_group,
+            None
+        );
+        assert_eq!(merged.root_groups[0].id, "mobile");
+        assert_eq!(merged.root_group_summary[0].root_group, "mobile");
+        assert_eq!(merged.root_group_summary[0].raw_invocations.total, 1);
+    }
+
+    #[test]
     fn merged_counts_preserve_framework_and_external_exclusions() {
         let mut framework = usage_site(MatchStatus::Unresolved, "Box", None);
         framework.callee_origin = CalleeOrigin::Framework;
@@ -819,6 +1045,7 @@ mod tests {
                     file: "src/Screen.kt".into(),
                     line: 1,
                     column: Some(1),
+                    root_group: None,
                 },
                 token_id: "color.primary".into(),
                 key: "Theme.colors.primary".into(),
@@ -839,6 +1066,7 @@ mod tests {
                     file: "src/Other.kt".into(),
                     line: 2,
                     column: Some(1),
+                    root_group: None,
                 },
                 token_id: "color.primary".into(),
                 key: "Theme.colors.primary".into(),
@@ -852,6 +1080,7 @@ mod tests {
                 file: "src/Screen.kt".into(),
                 line: 3,
                 column: Some(12),
+                root_group: None,
             },
             value: "8.dp".into(),
             category: TokenCategory::Spacing,
@@ -909,6 +1138,7 @@ mod tests {
                 file: "src/Screen.kt".into(),
                 line: 3,
                 column: Some(12),
+                root_group: None,
             },
             value: "8.dp".into(),
             category: TokenCategory::Spacing,
@@ -943,6 +1173,7 @@ mod tests {
                 file: "src/Screen.kt".into(),
                 line: 1,
                 column: Some(1),
+                root_group: None,
             },
             token_id: "color.primary".into(),
             key: "Theme.colors.primary".into(),
@@ -965,6 +1196,7 @@ mod tests {
                     file: "src/App.tsx".into(),
                     line: 1,
                     column: Some(1),
+                    root_group: None,
                 },
                 token_id: "color.primary".into(),
                 key: "theme.colors.primary".into(),
@@ -977,6 +1209,7 @@ mod tests {
                     file: "src/Button.tsx".into(),
                     line: 4,
                     column: Some(3),
+                    root_group: None,
                 },
                 token_id: "color.primary".into(),
                 key: "theme.colors.primary".into(),

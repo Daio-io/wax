@@ -52,6 +52,49 @@
       "files_scanned": 5
     }
   },
+  "root_groups": [
+    {
+      "id": "feature/empty",
+      "languages": ["compose"]
+    },
+    {
+      "id": "feature/home",
+      "languages": ["compose"]
+    }
+  ],
+  "scan_scope": {
+    "root_group": null
+  },
+  "root_group_summary": [
+    {
+      "root_group": "feature/home",
+      "language": "compose",
+      "files_scanned": 1,
+      "files_represented": 1,
+      "raw_invocations": {
+        "total": 6,
+        "resolved": 3,
+        "local": 1,
+        "candidate": 1,
+        "unresolved": 1
+      },
+      "invocation_origins": {
+        "registry": 4,
+        "local": 1,
+        "framework": 0,
+        "external": 0,
+        "application": 1,
+        "unknown": 0
+      },
+      "adoption": {
+        "eligible_invocation_count": 5,
+        "adopted_invocation_count": 3,
+        "non_adopted_invocation_count": 2,
+        "adoption_excluded_invocation_count": 0
+      },
+      "invocation_adoption_ratio": 0.6
+    }
+  ],
   "symbol_usage_summary": [
     {
       "symbol_id": "compose:registry:com.ds.Modal",
@@ -287,6 +330,7 @@
           "id": "c:1:Button:resolved",
           "location": {
         "file": "src/Home.kt",
+        "root_group": "feature/home",
         "line": 12
       },
           "symbol": "Button",
@@ -308,6 +352,7 @@
           "id": "c:2:Button:resolved",
           "location": {
             "file": "src/Home.kt",
+            "root_group": "feature/home",
             "line": 18
       },
           "symbol": "Button",
@@ -329,6 +374,7 @@
           "id": "c:3:Card:resolved",
           "location": {
             "file": "src/Home.kt",
+            "root_group": "feature/home",
             "line": 24
       },
       "symbol": "Card",
@@ -350,6 +396,7 @@
           "id": "c:4:Modal:candidate",
           "location": {
             "file": "src/Home.kt",
+            "root_group": "feature/home",
             "line": 30
           },
           "symbol": "Modal",
@@ -364,6 +411,7 @@
           "id": "c:5:PrimaryButton:local",
           "location": {
             "file": "src/Home.kt",
+            "root_group": "feature/home",
             "line": 36
       },
       "symbol": "PrimaryButton",
@@ -383,6 +431,7 @@
           "id": "c:6:UnknownWidget:unresolved",
           "location": {
             "file": "src/Home.kt",
+            "root_group": "feature/home",
             "line": 42
       },
       "symbol": "UnknownWidget",

@@ -238,6 +238,9 @@ pub struct ScanArgs {
     /// Override scan worker concurrency.
     #[arg(long = "concurrency", value_parser = clap::value_parser!(u32).range(1..))]
     pub scan_concurrency: Option<u32>,
+    /// Scan only roots assigned to this repository-wide root group.
+    #[arg(long = "root-group", value_name = "ID")]
+    pub root_group: Option<String>,
 }
 
 /// Arguments for `wax sync`.

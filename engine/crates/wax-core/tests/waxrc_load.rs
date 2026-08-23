@@ -16,6 +16,7 @@ fn loads_minimal_waxrc() {
     assert_eq!(rc.languages[0].id.as_str(), "compose");
     assert!(rc.languages[0].roots.is_empty());
     assert!(rc.languages[0].registry_source.is_none());
+    assert!(rc.languages[0].root_groups.is_empty());
     assert!(rc.design_systems.is_empty());
 }
 
@@ -46,6 +47,49 @@ fn waxrc_loads_multiple_languages() {
     assert_eq!(rc.languages[0].roots, ["app/src/main/kotlin"]);
     assert_eq!(rc.languages[1].id.as_str(), "react");
     assert_eq!(rc.languages[1].roots, ["apps/web/src"]);
+}
+
+#[test]
+fn waxrc_loads_repo_wide_root_groups() {
+    let path = std::env::temp_dir().join(format!("waxrc-root-groups-{}.json", std::process::id()));
+    std::fs::write(
+        &path,
+        r#"{
+          "schema_version": 2,
+          "languages": {
+            "compose": {
+              "roots": {
+                "mobile": ["mobile/**/src/main/kotlin"],
+                "shared": ["shared/src/main/kotlin"]
+              }
+            },
+            "react": {
+              "roots": {
+                "mobile": ["apps/mobile/src"]
+              }
+            }
+          }
+        }"#,
+    )
+    .unwrap();
+
+    let rc = load_waxrc(&path).unwrap();
+    std::fs::remove_file(path).unwrap();
+
+    assert!(
+        rc.languages
+            .iter()
+            .all(|language| language.roots.is_empty())
+    );
+    assert_eq!(
+        rc.languages[0].root_groups["mobile"],
+        ["mobile/**/src/main/kotlin"]
+    );
+    assert_eq!(
+        rc.languages[0].root_groups["shared"],
+        ["shared/src/main/kotlin"]
+    );
+    assert_eq!(rc.languages[1].root_groups["mobile"], ["apps/mobile/src"]);
 }
 
 #[test]

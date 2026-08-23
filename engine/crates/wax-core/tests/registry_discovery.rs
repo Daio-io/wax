@@ -152,6 +152,28 @@ fn write_compose_config_with_roots(repo: &Path, roots: &[&str]) {
         .expect("write wax config");
 }
 
+fn write_compose_config_with_grouped_roots(repo: &Path, roots: &[&str]) {
+    let wax_dir = repo.join(".wax");
+    fs::create_dir_all(&wax_dir).expect("create .wax directory");
+    let roots_json: Vec<String> = roots.iter().map(|root| format!("\"{root}\"")).collect();
+    fs::write(
+        wax_dir.join("wax.config.json"),
+        format!(
+            r#"{{
+  "schema_version": 2,
+  "languages": {{
+    "compose": {{
+      "roots": {{"design-system": [{roots}]}}
+    }}
+  }}
+}}
+"#,
+            roots = roots_json.join(", ")
+        ),
+    )
+    .expect("write grouped wax config");
+}
+
 fn write_config_with_registry_object(repo: &Path, language_id: &str, registry_json: &str) {
     fs::create_dir_all(repo.join(".wax")).expect("create .wax directory");
     fs::write(
@@ -564,6 +586,30 @@ fn resolves_roots_from_wax_config_when_roots_omitted() {
             .len(),
         3
     );
+}
+
+#[test]
+fn resolves_grouped_roots_from_wax_config_when_roots_omitted() {
+    let _guard = env_lock();
+    let repo = TestRepo::new("registry-discovery-grouped-config-roots");
+    link_compose_fixture_into_repo(repo.path());
+    write_compose_config_with_grouped_roots(repo.path(), &["design-system/src/main/kotlin"]);
+    write_compose_lockfile(repo.path());
+    let (_wax_home, _wax_home_guard) = install_compose_pack_fixture();
+
+    let result = discover_registry(RegistryDiscoverOptions {
+        repo_root: repo.path(),
+        language_id: "compose",
+        roots: vec![],
+        dry_run: true,
+        force: false,
+        design_system_id: None,
+        design_system_name: None,
+    })
+    .expect("grouped config roots should resolve");
+
+    assert!(result.used_config_roots);
+    assert_eq!(result.root_count, 1);
 }
 
 #[test]

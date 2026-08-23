@@ -47,6 +47,7 @@ fn language_entry(id: &str) -> LanguageEntry {
     LanguageEntry {
         id: LanguageId::try_from(id).unwrap(),
         roots: Vec::new(),
+        root_groups: Default::default(),
         registry_source: None,
         extra: serde_json::Map::new(),
     }

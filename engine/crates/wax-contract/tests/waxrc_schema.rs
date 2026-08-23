@@ -45,3 +45,28 @@ fn rejects_invalid_git_registry_shapes() {
         assert!(!validator.is_valid(&config(registry)));
     }
 }
+
+#[test]
+fn accepts_grouped_roots_config() {
+    let validator = validator();
+    let value = json!({
+        "schema_version": 2,
+        "languages": {
+            "compose": {"roots": {"feature/devices": ["mobile/**/feature/devices"]}},
+            "react": {}
+        }
+    });
+
+    assert!(validator.is_valid(&value));
+}
+
+#[test]
+fn accepts_ungrouped_roots_for_backward_compatibility() {
+    let validator = validator();
+    let value = json!({
+        "schema_version": 2,
+        "languages": {"compose": {"roots": ["mobile/src"]}}
+    });
+
+    assert!(validator.is_valid(&value));
+}

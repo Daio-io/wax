@@ -7,6 +7,7 @@ use std::fs;
 use std::path::Path;
 use thiserror::Error;
 use wax_contract::LanguageId;
+use wax_lang_api::normalize_repo_relative_path;
 
 /// Current wax config schema version supported by this engine.
 pub const WAXRC_SCHEMA_VERSION: u32 = 2;
@@ -210,6 +211,8 @@ pub struct LanguageEntry {
     pub id: LanguageId,
     /// Repo-relative scan roots for this language.
     pub roots: Vec<String>,
+    /// Repo-relative scan roots grouped by repository-wide root-group key.
+    pub root_groups: BTreeMap<String, Vec<String>>,
     /// Optional registry source configuration.
     pub registry_source: Option<LanguageRegistrySource>,
     /// Pack-specific configuration kept opaque to the engine.
@@ -298,11 +301,47 @@ struct WaxRcRaw {
 #[derive(Debug, Deserialize)]
 struct LanguageEntryRaw {
     #[serde(default)]
-    roots: Vec<String>,
+    roots: RootsRaw,
     #[serde(default, deserialize_with = "deserialize_optional_registry")]
     registry: Option<RegistryRaw>,
     #[serde(flatten)]
     extra: serde_json::Map<String, serde_json::Value>,
+}
+
+#[derive(Debug)]
+enum RootsRaw {
+    Ungrouped(Vec<String>),
+    Grouped(BTreeMap<String, Vec<String>>),
+}
+
+impl Default for RootsRaw {
+    fn default() -> Self {
+        Self::Ungrouped(Vec::new())
+    }
+}
+
+impl<'de> Deserialize<'de> for RootsRaw {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        match serde_json::Value::deserialize(deserializer)? {
+            serde_json::Value::Array(value) => {
+                serde_json::from_value::<Vec<String>>(serde_json::Value::Array(value))
+                    .map(Self::Ungrouped)
+                    .map_err(D::Error::custom)
+            }
+            serde_json::Value::Object(value) => {
+                BTreeMap::<String, Vec<String>>::deserialize(serde_json::Value::Object(value))
+                    .map(Self::Grouped)
+                    .map_err(D::Error::custom)
+            }
+            other => Err(D::Error::invalid_type(
+                unexpected_value(&other),
+                &"an array or object of root paths",
+            )),
+        }
+    }
 }
 
 fn deserialize_optional_registry<'de, D>(deserializer: D) -> Result<Option<RegistryRaw>, D::Error>
@@ -632,6 +671,26 @@ impl LanguageEntryRaw {
             ));
         }
 
+        let (roots, root_groups) = match self.roots {
+            RootsRaw::Ungrouped(roots) => (roots, BTreeMap::new()),
+            RootsRaw::Grouped(root_groups) => {
+                for (group, roots) in &root_groups {
+                    if group.trim().is_empty() {
+                        return Err(serde_json::Error::custom(
+                            "languages.*.roots group names must be non-empty",
+                        ));
+                    }
+                    if roots.is_empty() {
+                        return Err(serde_json::Error::custom(format!(
+                            "languages.*.roots.{group} must contain at least one root"
+                        )));
+                    }
+                    validate_root_paths(&format!("languages.*.roots.{group}"), roots)?;
+                }
+                (Vec::new(), root_groups)
+            }
+        };
+
         let registry_source = self.registry.map(|registry| match registry {
             RegistryRaw::Source(source) => LanguageRegistrySource::PathOrUrl {
                 source,
@@ -645,11 +704,37 @@ impl LanguageEntryRaw {
 
         Ok(LanguageEntry {
             id,
-            roots: self.roots,
+            roots,
+            root_groups,
             registry_source,
             extra: self.extra,
         })
     }
+}
+
+fn validate_root_paths(field: &str, roots: &[String]) -> Result<(), serde_json::Error> {
+    for (index, root) in roots.iter().enumerate() {
+        let normalized = normalize_repo_relative_path(Path::new(root));
+        let is_windows_absolute = normalized.len() >= 3
+            && normalized.as_bytes()[1] == b':'
+            && normalized.as_bytes()[2] == b'/';
+        if root.trim().is_empty() {
+            return Err(serde_json::Error::custom(format!(
+                "{field}[{index}] must be non-empty"
+            )));
+        }
+        if normalized.starts_with('/') || is_windows_absolute {
+            return Err(serde_json::Error::custom(format!(
+                "{field}[{index}] must be repo-relative"
+            )));
+        }
+        if normalized.split('/').any(|segment| segment == "..") {
+            return Err(serde_json::Error::custom(format!(
+                "{field}[{index}] must not contain parent-directory segments"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn validate_design_systems(

@@ -39,6 +39,7 @@ mod tests {
                 file: "src/components/Broken.tsx".to_owned(),
                 line: 1,
                 column: Some(24),
+                root_group: None,
             }),
         });
 

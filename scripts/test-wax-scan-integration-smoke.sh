@@ -109,6 +109,10 @@ cp -R "$FIXTURE_SRC/." "$WORK_DIR/"
     fail "wax language update compose failed on smoke fixture"
   fi
 
+  config_tmp="$(mktemp)"
+  jq '.languages.compose.roots = {"app/smoke": ["app/**/main/kotlin"]}' .wax/wax.config.json >"$config_tmp"
+  mv "$config_tmp" .wax/wax.config.json
+
   if ! "$WAX_BIN" validate --repo-root . >/dev/null 2>&1; then
     fail "wax validate failed on smoke fixture"
   fi
@@ -131,6 +135,11 @@ cp -R "$FIXTURE_SRC/." "$WORK_DIR/"
   schema_version="$(jq -r '.schema_version' "$INSIGHTS_PATH")"
   if [[ "$schema_version" != "3" ]]; then
     fail "expected insights schema_version 3, got ${schema_version}"
+  fi
+
+  boundary_rows="$(jq '.root_group_summary | length' "$INSIGHTS_PATH")"
+  if [[ "$boundary_rows" -lt 1 ]]; then
+    fail "expected native root-group summary rows, got ${boundary_rows}"
   fi
 
   resolved="$(jq -r '.repo_summary.raw_invocations.resolved' "$INSIGHTS_PATH")"

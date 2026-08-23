@@ -559,13 +559,20 @@ extract_core() {
       | sort_by(-.count, .pattern)
       | map(select(.count >= 2));
 
-    validate_token_inference
+    . as $scan
+    | validate_token_inference
     | {
       schema_version: 3,
       generated_at: $generated_at,
       source_scan: $source_scan,
+      scan_scope: (.scan_scope // {root_group: null}),
       repo_summary: repo_summary_block,
       per_language: per_language,
+      root_groups: (.root_groups // [] | sort_by(.id)),
+      root_group_summary: (
+        .root_group_summary // []
+        | sort_by([.root_group, (.language | tostring)])
+      ),
       symbol_rollups: symbol_rollups_block,
       top_local_symbols: top_symbols_by_kind("local"; 5),
       top_unresolved_symbols: top_symbols_by_kind("unresolved"; 5),
@@ -573,7 +580,11 @@ extract_core() {
       parent_scope_hotspots: parent_scope_hotspots(5),
       fragmentation_candidates: suffix_families,
       token_inference: token_inference_block,
-      limits: $limits,
+      limits: ($limits
+        | if (($scan.root_group_summary // []) | length) > 0
+          then map(select(.metric != "Coverage by feature/screen/route/module/team" and .metric != "Feature-level coverage"))
+          else .
+          end),
       baseline_deltas: null
     }
   ' "$input"

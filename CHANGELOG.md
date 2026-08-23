@@ -4,6 +4,13 @@
 
 ### Breaking
 
+- **Grouped roots / scan schema v4** — `SourceLocation` now carries optional
+  `root_group`; merged scans expose deterministic root-group metadata and
+  per-group/language summaries with raw status, origin, and invocation-adoption
+  counters. Configure groups on each language's `roots` map and select one with
+  `wax scan --root-group <id>`. Existing array-form roots retain full-scan
+  behavior.
+
 - **Adoption Metrics v2 / scan facts v4** — `scan-merged.json` and per-language scan facts use `schema_version: 4`. Legacy `adoption_coverage_ratio` and flat v1 count fields are replaced by grouped `counts` (`raw_invocations`, `definitions`, `adoption`, `registry`, `parent_scopes`, `invocation_origins`), `metrics.invocation_adoption_ratio`, `metrics.registry_resolution_ratio`, and merged `symbol_usage_summary[]`. Every `usage_sites[]` row now carries `callee_origin` and `resolution_evidence`, including observed package/module evidence for mismatches. Parser-backed packs emit local and unresolved UI invocations with optional parent-scope attribution. The `wax-scan` insights extractor requires v4 scan input.
 
 ### Features

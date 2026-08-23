@@ -380,6 +380,7 @@ fn scan_recovers_available_preview_without_preview_adoption_or_location_shift() 
                     file: "Sources/AvailablePreview.swift".to_owned(),
                     line: 3,
                     column: Some(8),
+                    root_group: None,
                 }
     }));
     assert!(facts.local_components.iter().any(|component| {
@@ -389,6 +390,7 @@ fn scan_recovers_available_preview_without_preview_adoption_or_location_shift() 
                     file: "Sources/AvailablePreview.swift".to_owned(),
                     line: 15,
                     column: Some(8),
+                    root_group: None,
                 }
     }));
     assert_eq!(facts.usage_sites.len(), 2);
