@@ -513,6 +513,7 @@ impl Engine {
             });
         }
         let languages = run_scan_jobs(repo_root, jobs, scan_concurrency, &progress)?;
+        let root_groups = root_groups_for_scan(root_groups, options.root_group.as_deref());
         let merged = merge_language_scans_with_options(
             languages,
             &MergeOptions {
@@ -527,6 +528,16 @@ impl Engine {
         write_scan_outputs(repo_root, &merged)?;
 
         Ok(merged)
+    }
+}
+
+fn root_groups_for_scan(root_groups: RootGroups, selected: Option<&str>) -> RootGroups {
+    match selected {
+        Some(selected) => root_groups
+            .into_iter()
+            .filter(|(group, _)| group == selected)
+            .collect(),
+        None => root_groups,
     }
 }
 
@@ -1015,6 +1026,25 @@ fn new_snapshot_id() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn selected_root_group_limits_attribution_candidates() {
+        let compose = LanguageId::try_from("compose").unwrap();
+        let groups = RootGroups::from([
+            (
+                "mobile".to_owned(),
+                BTreeMap::from([(compose.clone(), vec!["mobile/src".to_owned()])]),
+            ),
+            (
+                "shared".to_owned(),
+                BTreeMap::from([(compose, vec!["shared/src".to_owned()])]),
+            ),
+        ]);
+
+        let selected = root_groups_for_scan(groups, Some("mobile"));
+
+        assert_eq!(selected.keys().collect::<Vec<_>>(), [&"mobile".to_owned()]);
+    }
 
     #[test]
     fn scan_timeout_defaults_to_ten_minutes() {

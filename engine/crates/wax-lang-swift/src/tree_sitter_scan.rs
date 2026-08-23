@@ -1648,6 +1648,7 @@ pub fn scan_repository(
         }
     }
     swift_files.sort();
+    swift_files.dedup();
     swift_files.retain(|file_path| {
         let relative_file = file_path.strip_prefix(repo_root).unwrap_or(file_path);
         let relative_text = normalize_repo_relative_path(relative_file);
@@ -2298,6 +2299,36 @@ struct Screen: View {
             "missing root must yield Partial, not Complete"
         );
         assert_eq!(result.files_scanned, 0);
+    }
+
+    #[test]
+    fn overlapping_roots_scan_each_swift_file_once() {
+        let config = SwiftScanConfig {
+            design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
+            roots: vec![
+                std::path::PathBuf::from("app"),
+                std::path::PathBuf::from("app/Sources"),
+            ],
+            excludes: vec![],
+        };
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(tmp.path().join("design-system")).unwrap();
+        std::fs::write(
+            tmp.path().join("design-system/registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"PrimaryButton","targets":["swift"]}]}"#,
+        )
+        .unwrap();
+        std::fs::create_dir_all(tmp.path().join("app/Sources")).unwrap();
+        std::fs::write(
+            tmp.path().join("app/Sources/Screen.swift"),
+            "struct Screen: View { var body: some View { PrimaryButton() } }\n",
+        )
+        .unwrap();
+
+        let result = scan_repository(tmp.path(), &config).unwrap();
+
+        assert_eq!(result.files_scanned, 1);
+        assert_eq!(result.usage_sites.len(), 1);
     }
 
     #[test]

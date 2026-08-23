@@ -1164,6 +1164,7 @@ fn scan_repository_with_parser(
         }
     }
     kotlin_files.sort();
+    kotlin_files.dedup();
     kotlin_files.retain(|file_path| {
         let relative_file = file_path.strip_prefix(repo_root).unwrap_or(file_path);
         let relative_text = normalize_repo_relative_path(relative_file);
@@ -2181,6 +2182,36 @@ fun Screen() {
             local_usage.local_definition_id.as_deref(),
             Some("local.compose:com.example.LocalCard")
         );
+    }
+
+    #[test]
+    fn overlapping_roots_scan_each_kotlin_file_once() {
+        let config = ComposeScanConfig {
+            design_system_registry: std::path::PathBuf::from("design-system/registry.json"),
+            roots: vec![
+                std::path::PathBuf::from("app"),
+                std::path::PathBuf::from("app/src"),
+            ],
+            excludes: vec![],
+        };
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(tmp.path().join("design-system")).unwrap();
+        std::fs::write(
+            tmp.path().join("design-system/registry.json"),
+            r#"{"schema_version":1,"components":[{"id":"ds.btn","symbol":"PrimaryButton"}]}"#,
+        )
+        .unwrap();
+        std::fs::create_dir_all(tmp.path().join("app/src")).unwrap();
+        std::fs::write(
+            tmp.path().join("app/src/Screen.kt"),
+            "@Composable\nfun Screen() { PrimaryButton() }\n",
+        )
+        .unwrap();
+
+        let result = scan_repository(tmp.path(), &config).unwrap();
+
+        assert_eq!(result.files_scanned, 1);
+        assert_eq!(result.usage_sites.len(), 1);
     }
 
     #[test]

@@ -338,7 +338,8 @@ scanned together by default, and `wax scan --root-group mobile` selects the
 JSON records the selected scope and emits root-group/language summaries derived
 from the same configured roots. Screen-level grouping continues to use
 pack-emitted parent scopes; generic route inference is ecosystem-specific future
-work and is not inferred by Wax.
+work and is not inferred by Wax. If groups overlap, the lexicographically first
+group id wins attribution so the result is deterministic.
 
 The first scan or sync pins the resolved commit and registry digest in
 `.wax/wax.lock.json`. Ordinary `wax sync` reuses that pin; `wax sync --upgrade`

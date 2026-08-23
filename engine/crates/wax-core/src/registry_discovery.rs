@@ -495,15 +495,26 @@ fn resolve_discovery_roots(
             config_path: config_path.to_owned(),
         })?;
 
-    if language.roots.is_empty() {
+    let configured_roots = if language.roots.is_empty() {
+        language
+            .root_groups
+            .values()
+            .flatten()
+            .cloned()
+            .collect::<Vec<_>>()
+    } else {
+        language.roots.clone()
+    };
+
+    if configured_roots.is_empty() {
         return Err(RegistryDiscoverError::NoConfiguredRoots {
             language_id: language_id.to_owned(),
             config_path: config_path.to_owned(),
         });
     }
 
-    let mut resolved = Vec::with_capacity(language.roots.len());
-    for root in &language.roots {
+    let mut resolved = Vec::with_capacity(configured_roots.len());
+    for root in &configured_roots {
         resolved.push(resolve_configured_root(
             repo_root,
             language_id,
