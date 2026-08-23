@@ -189,6 +189,13 @@ fn is_relative_import(specifier: &str) -> bool {
         || specifier.starts_with("../")
 }
 
+fn is_path_like_import(specifier: &str) -> bool {
+    is_relative_import(specifier)
+        || specifier.starts_with("@/")
+        || specifier.starts_with("~/")
+        || specifier.starts_with('/')
+}
+
 fn unresolved_origin(
     module_graph: &ReactModuleGraph,
     parsed: &ParsedReactModule,
@@ -203,7 +210,7 @@ fn unresolved_origin(
         CalleeOrigin::Framework
     } else if import.source_module.is_some() {
         CalleeOrigin::Application
-    } else if is_relative_import(&import.source_specifier) {
+    } else if is_path_like_import(&import.source_specifier) {
         CalleeOrigin::Unknown
     } else {
         CalleeOrigin::External

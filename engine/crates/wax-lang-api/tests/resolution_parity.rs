@@ -97,7 +97,10 @@ fn scan_react(source: &str, registry_package: Option<&str>, with_packages: bool)
 
     let mut config = serde_json::json!({
         "registry": "design-system/registry.json",
-        "roots": ["src"]
+        "roots": ["src"],
+        "aliases": {
+            "@/*": ["src/*"]
+        }
     });
     if with_packages {
         config["packages"] = serde_json::json!({
@@ -222,9 +225,10 @@ fn parity_classifies_framework_external_and_application_calls() {
     let react = scan_react(
         r#"import { View } from "react-native";
 import { AsyncImage } from "coil";
+import { MissingCard } from "@/MissingCard";
 
 export function Screen() {
-  return <><View /><AsyncImage /><UnknownCard /></>;
+  return <><View /><AsyncImage /><MissingCard /><UnknownCard /></>;
 }"#,
         Some("@acme/design-system"),
         false,
@@ -232,6 +236,7 @@ export function Screen() {
     for (symbol, origin, scenario) in [
         ("View", CalleeOrigin::Framework, "framework"),
         ("AsyncImage", CalleeOrigin::External, "external"),
+        ("MissingCard", CalleeOrigin::Unknown, "path_alias"),
         ("UnknownCard", CalleeOrigin::Application, "application"),
     ] {
         assert_parity(
@@ -245,14 +250,18 @@ export function Screen() {
             scenario,
         );
     }
+    assert_eq!(react.counts.invocation_origins.external, 1);
+    assert_eq!(react.counts.invocation_origins.unknown, 1);
+    assert_eq!(react.counts.adoption.adoption_excluded_invocation_count, 2);
 
     let swift = scan_swift(
         r#"import SwiftUI
+import Kingfisher
 
 struct Screen: View {
     var body: some View {
         SwiftUI.Text("Title")
-        Kingfisher.KFImage()
+        KFImage()
         UnknownCard()
     }
 }"#,
@@ -261,7 +270,11 @@ struct Screen: View {
     for (symbol, origin, scenario) in [
         ("Text", CalleeOrigin::Framework, "framework"),
         ("KFImage", CalleeOrigin::External, "external"),
-        ("UnknownCard", CalleeOrigin::Application, "application"),
+        (
+            "UnknownCard",
+            CalleeOrigin::External,
+            "external_without_import",
+        ),
     ] {
         assert_parity(
             usage_for(&swift, symbol),

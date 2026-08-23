@@ -641,6 +641,15 @@ fn extract_usage_from_source(
 
             let import_package =
                 imports.package_for_call(&call_site.symbol, call_site.qualifier.as_deref());
+            let unresolved_package = import_package.clone().or_else(|| {
+                (!imports
+                    .module_imports
+                    .iter()
+                    .any(|module| is_framework_swiftui_module(module))
+                    || !is_framework_swiftui_symbol(&call_site.symbol))
+                .then(|| imports.sole_non_swiftui_module())
+                .flatten()
+            });
             if let Some(local) = call_site
                 .qualifier
                 .is_none()
@@ -726,7 +735,7 @@ fn extract_usage_from_source(
                             MatchStatus::Unresolved,
                             None,
                             unresolved_origin(
-                                import_package.as_deref(),
+                                unresolved_package.as_deref(),
                                 &call_site.symbol,
                                 has_explicit_swiftui_framework_evidence(
                                     import_package.as_deref(),
@@ -777,7 +786,7 @@ fn extract_usage_from_source(
                         .as_deref()
                         .map(|package| qualified_view_symbol(package, &symbol)),
                     callee_origin: unresolved_origin(
-                        import_package.as_deref(),
+                        unresolved_package.as_deref(),
                         &symbol,
                         has_explicit_swiftui_framework_evidence(
                             import_package.as_deref(),
