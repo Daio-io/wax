@@ -45,3 +45,22 @@ fn rejects_invalid_git_registry_shapes() {
         assert!(!validator.is_valid(&config(registry)));
     }
 }
+
+#[test]
+fn accepts_ordered_source_boundary_reporting_config() {
+    let validator = validator();
+    let value = json!({
+        "schema_version": 2,
+        "languages": {"compose": {}, "react": {}},
+        "reporting": {
+            "source_boundaries": [{
+                "id": "feature/devices",
+                "languages": ["compose"],
+                "include": ["mobile/**/feature/devices/**/*.kt"],
+                "exclude": ["**/generated/**"]
+            }]
+        }
+    });
+
+    assert!(validator.is_valid(&value));
+}

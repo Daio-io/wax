@@ -444,6 +444,7 @@ fn parent_scope_for_composable(
             file: file.to_owned(),
             line: pos.row as u32 + 1,
             column: Some(pos.column as u32 + 1),
+            boundary_id: None,
         }),
     }
 }
@@ -514,6 +515,7 @@ fn index_local_components_from_source(
                     file: file.to_owned(),
                     line,
                     column: Some(column),
+                    boundary_id: None,
                 },
             };
             local_components.push(component);
@@ -638,6 +640,7 @@ fn visit_component_usage(
             file: ctx.file.to_owned(),
             line,
             column: Some(column),
+            boundary_id: None,
         };
         let parent = match scope {
             UiScope::Composable => {
@@ -987,6 +990,7 @@ fn extract_hardcoded_style_from_source(
                     file: file.to_owned(),
                     line,
                     column: Some(column),
+                    boundary_id: None,
                 },
                 value,
                 category,
@@ -1038,6 +1042,7 @@ fn extract_token_sites_from_source(
                     file: file.to_owned(),
                     line,
                     column: Some(column),
+                    boundary_id: None,
                 },
                 token_id: token_match.token_id.clone(),
                 key: text.to_owned(),

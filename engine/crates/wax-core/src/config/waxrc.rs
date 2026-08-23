@@ -7,6 +7,7 @@ use std::fs;
 use std::path::Path;
 use thiserror::Error;
 use wax_contract::LanguageId;
+use wax_lang_api::normalize_repo_relative_path;
 
 /// Current wax config schema version supported by this engine.
 pub const WAXRC_SCHEMA_VERSION: u32 = 2;
@@ -59,12 +60,39 @@ pub struct WaxRc {
     pub adoption: AdoptionConfig,
     /// Deterministic hard-coded style token inference settings.
     pub token_inference: TokenInferenceConfig,
+    /// Explicit source-boundary reporting configuration.
+    pub reporting: ReportingConfig,
     /// Language pack entries configured for this repository.
     ///
     /// Presence of a language key means the language is enabled.
     pub languages: Vec<LanguageEntry>,
     /// Design-system publication configuration keyed by design-system id.
     pub design_systems: BTreeMap<String, DesignSystemConfig>,
+}
+
+/// Reporting configuration for grouping facts by explicit source boundaries.
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct ReportingConfig {
+    /// Ordered source boundaries. The first matching declaration wins.
+    #[serde(default)]
+    pub source_boundaries: Vec<SourceBoundaryConfig>,
+}
+
+/// One explicitly configured source boundary used by scan reporting.
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SourceBoundaryConfig {
+    /// Stable non-empty boundary identifier.
+    pub id: String,
+    /// Languages eligible for this boundary, or all configured languages when absent.
+    #[serde(default)]
+    pub languages: Option<Vec<LanguageId>>,
+    /// Ordered repository-relative include globs.
+    pub include: Vec<String>,
+    /// Repository-relative exclude globs.
+    #[serde(default)]
+    pub exclude: Vec<String>,
 }
 
 /// Engine-owned wax config settings.
@@ -289,6 +317,8 @@ struct WaxRcRaw {
     adoption: AdoptionConfig,
     #[serde(default)]
     token_inference: TokenInferenceConfig,
+    #[serde(default)]
+    reporting: ReportingConfig,
     #[serde(default)]
     languages: BTreeMap<LanguageId, LanguageEntryRaw>,
     #[serde(default)]
@@ -582,6 +612,7 @@ pub fn load_waxrc(path: impl AsRef<Path>) -> Result<WaxRc, WaxRcError> {
         engine: raw.engine,
         adoption: raw.adoption,
         token_inference: raw.token_inference,
+        reporting: raw.reporting,
         languages,
         design_systems: raw.design_systems,
     };
@@ -606,12 +637,100 @@ pub fn load_waxrc(path: impl AsRef<Path>) -> Result<WaxRc, WaxRcError> {
             path: path_display.clone(),
             source,
         })?;
+    validate_reporting(&rc.reporting, &rc.languages).map_err(|source| {
+        WaxRcError::InvalidConfig {
+            path: path_display.clone(),
+            source,
+        }
+    })?;
     validate_design_systems(&rc.design_systems).map_err(|source| WaxRcError::InvalidConfig {
         path: path_display,
         source,
     })?;
 
     Ok(rc)
+}
+
+fn validate_reporting(
+    reporting: &ReportingConfig,
+    languages: &[LanguageEntry],
+) -> Result<(), serde_json::Error> {
+    let configured_languages = languages
+        .iter()
+        .map(|language| &language.id)
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut ids = std::collections::BTreeSet::new();
+
+    for (index, boundary) in reporting.source_boundaries.iter().enumerate() {
+        let field = format!("reporting.source_boundaries[{index}]");
+        if boundary.id.trim().is_empty() {
+            return Err(serde_json::Error::custom(format!(
+                "{field}.id must be non-empty"
+            )));
+        }
+        if !ids.insert(&boundary.id) {
+            return Err(serde_json::Error::custom(format!(
+                "{field}.id must be unique; {:?} is declared more than once",
+                boundary.id
+            )));
+        }
+
+        if let Some(boundary_languages) = &boundary.languages {
+            if boundary_languages.is_empty() {
+                return Err(serde_json::Error::custom(format!(
+                    "{field}.languages must contain at least one configured language when present"
+                )));
+            }
+            let mut seen_languages = std::collections::BTreeSet::new();
+            for language in boundary_languages {
+                if !configured_languages.contains(language) {
+                    return Err(serde_json::Error::custom(format!(
+                        "{field}.languages contains {language}, which is not configured"
+                    )));
+                }
+                if !seen_languages.insert(language) {
+                    return Err(serde_json::Error::custom(format!(
+                        "{field}.languages contains duplicate language {language}"
+                    )));
+                }
+            }
+        }
+
+        if boundary.include.is_empty() {
+            return Err(serde_json::Error::custom(format!(
+                "{field}.include must contain at least one glob"
+            )));
+        }
+        validate_boundary_globs(&format!("{field}.include"), &boundary.include)?;
+        validate_boundary_globs(&format!("{field}.exclude"), &boundary.exclude)?;
+    }
+
+    Ok(())
+}
+
+fn validate_boundary_globs(field: &str, patterns: &[String]) -> Result<(), serde_json::Error> {
+    for (index, pattern) in patterns.iter().enumerate() {
+        let normalized = normalize_repo_relative_path(Path::new(pattern));
+        let is_windows_absolute = normalized.len() >= 3
+            && normalized.as_bytes()[1] == b':'
+            && normalized.as_bytes()[2] == b'/';
+        if pattern.trim().is_empty() {
+            return Err(serde_json::Error::custom(format!(
+                "{field}[{index}] must be non-empty"
+            )));
+        }
+        if normalized.starts_with('/') || is_windows_absolute {
+            return Err(serde_json::Error::custom(format!(
+                "{field}[{index}] must be repo-relative"
+            )));
+        }
+        if normalized.split('/').any(|segment| segment == "..") {
+            return Err(serde_json::Error::custom(format!(
+                "{field}[{index}] must not contain parent-directory segments"
+            )));
+        }
+    }
+    Ok(())
 }
 
 impl LanguageEntryRaw {

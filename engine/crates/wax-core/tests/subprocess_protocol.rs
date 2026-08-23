@@ -79,6 +79,7 @@ fn subprocess_protocol_maps_structured_error_stdout_to_pack_failure() {
             file: "src/app.tsx".to_owned(),
             line: 12,
             column: Some(7),
+            boundary_id: None,
         }),
     };
     write_script(

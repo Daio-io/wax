@@ -4,6 +4,19 @@
 
 ### Breaking
 
+- **Source-boundary attribution / scan schema v4** — `SourceLocation` now
+  carries optional `boundary_id`; merged scans expose deterministic
+  `source_boundaries` metadata and per-boundary/language summaries with raw
+  status, origin, and invocation-adoption counters. Configure explicit
+  application/module/feature/source-root globs under
+  `reporting.source_boundaries`; one-language and multi-language repositories
+  may filter boundaries with `languages`. Existing configs without reporting
+  boundaries retain their prior behavior.
+
+For one language, omit the filter: `{ "id": "app/mobile", "include": ["app/**"] }`.
+For multiple languages, set it explicitly, for example
+`{ "id": "web/checkout", "languages": ["react"], "include": ["web/checkout/**"] }`.
+
 - **Adoption Metrics v2 / scan facts v4** — `scan-merged.json` and per-language scan facts use `schema_version: 4`. Legacy `adoption_coverage_ratio` and flat v1 count fields are replaced by grouped `counts` (`raw_invocations`, `definitions`, `adoption`, `registry`, `parent_scopes`, `invocation_origins`), `metrics.invocation_adoption_ratio`, `metrics.registry_resolution_ratio`, and merged `symbol_usage_summary[]`. Every `usage_sites[]` row now carries `callee_origin` and `resolution_evidence`, including observed package/module evidence for mismatches. Parser-backed packs emit local and unresolved UI invocations with optional parent-scope attribution. The `wax-scan` insights extractor requires v4 scan input.
 
 ### Features

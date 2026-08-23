@@ -22,6 +22,7 @@ pub mod registry_git;
 pub mod registry_lock;
 pub mod registry_memory;
 pub mod registry_source;
+mod source_boundary;
 pub mod subprocess_discover;
 mod subprocess_exchange;
 pub mod subprocess_lang;
@@ -315,6 +316,7 @@ impl Engine {
         let scan_concurrency = effective_scan_concurrency(&waxrc.engine, &options);
         let parent_scope_limit = waxrc.adoption.symbol_usage_summary.parent_scope_limit;
         let token_inference = waxrc.token_inference.clone();
+        let source_boundaries = waxrc.reporting.source_boundaries.clone();
         let state_path = state_file()?;
         let mut state = load_global_state(&state_path)?;
 
@@ -482,6 +484,7 @@ impl Engine {
             &MergeOptions {
                 parent_scope_limit,
                 token_inference,
+                source_boundaries,
             },
         )
         .map_err(EngineError::ScanFacts)?;

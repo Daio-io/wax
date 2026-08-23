@@ -4,12 +4,15 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use time::OffsetDateTime;
 use wax_contract::{
-    CountSummary, DesignSystemToken, IdentityStability, LanguageId, MatchStatus, MergedScan,
-    Metrics, RepoSummary, SCHEMA_VERSION, ScanFacts, ScanFactsError, SymbolKind,
-    SymbolParentScopeSummary, SymbolUsageSummary, TokenCategoryCounts, TokenUsageSummary,
+    AdoptionCounts, CalleeOrigin, CountSummary, DesignSystemToken, IdentityStability,
+    InvocationOriginCounts, LanguageId, MatchStatus, MergedScan, Metrics, RawInvocationCounts,
+    RepoSummary, SCHEMA_VERSION, ScanFacts, ScanFactsError, SourceBoundaryMetadata,
+    SourceBoundarySummary, SymbolKind, SymbolParentScopeSummary, SymbolUsageSummary,
+    TokenCategoryCounts, TokenUsageSummary,
 };
 
-use crate::config::waxrc::TokenInferenceConfig;
+use crate::config::waxrc::{SourceBoundaryConfig, TokenInferenceConfig};
+use crate::source_boundary::attribute_scan_facts;
 use crate::token_inference::build_token_inference;
 
 /// Default parent scope row limit when config omits an explicit value.
@@ -22,6 +25,8 @@ pub struct MergeOptions {
     pub parent_scope_limit: Option<u32>,
     /// Token inference configuration applied after raw facts are recomputed.
     pub token_inference: TokenInferenceConfig,
+    /// Explicit source boundaries applied before derived values are recomputed.
+    pub source_boundaries: Vec<SourceBoundaryConfig>,
 }
 
 impl Default for MergeOptions {
@@ -29,6 +34,7 @@ impl Default for MergeOptions {
         Self {
             parent_scope_limit: DEFAULT_PARENT_SCOPE_LIMIT,
             token_inference: TokenInferenceConfig::default(),
+            source_boundaries: Vec::new(),
         }
     }
 }
@@ -99,6 +105,7 @@ pub fn merge_language_scans_with_parent_scope_limit(
         &MergeOptions {
             parent_scope_limit,
             token_inference: TokenInferenceConfig::default(),
+            source_boundaries: Vec::new(),
         },
     )
 }
@@ -116,6 +123,7 @@ pub fn merge_language_scans_with_options(
 ) -> Result<MergedScan, ScanFactsError> {
     let mut merged_languages = BTreeMap::new();
     for (language_id, mut facts) in languages {
+        attribute_scan_facts(&mut facts, &language_id, &options.source_boundaries);
         recompute_derived_scan_facts_with_parent_scope_limit(
             &mut facts,
             &language_id,
@@ -130,6 +138,19 @@ pub fn merge_language_scans_with_options(
     let symbol_usage_summary = merge_symbol_usage_summaries(&merged_languages);
     let token_usage_summary = merge_token_usage_summaries(&merged_languages);
     let token_inference = build_token_inference(&merged_languages, &options.token_inference)?;
+    let mut source_boundaries = options
+        .source_boundaries
+        .iter()
+        .map(source_boundary_metadata)
+        .collect::<Vec<_>>();
+    source_boundaries.sort_by(|left, right| left.id.cmp(&right.id));
+    let mut source_boundary_summary =
+        build_source_boundary_summaries(&merged_languages, &options.source_boundaries)?;
+    source_boundary_summary.sort_by(|left, right| {
+        left.boundary_id
+            .cmp(&right.boundary_id)
+            .then_with(|| left.language.cmp(&right.language))
+    });
 
     let merged = MergedScan {
         schema_version: SCHEMA_VERSION,
@@ -142,6 +163,8 @@ pub fn merge_language_scans_with_options(
         symbol_usage_summary,
         token_usage_summary,
         token_inference,
+        source_boundaries,
+        source_boundary_summary,
         languages: merged_languages,
     };
     merged.validate()?;
@@ -181,6 +204,165 @@ fn metrics_from_counts(
         registry_resolution_ratio,
         parse_extract_ms,
         files_scanned,
+    }
+}
+
+fn source_boundary_metadata(boundary: &SourceBoundaryConfig) -> SourceBoundaryMetadata {
+    let languages = boundary.languages.clone().map(|mut languages| {
+        languages.sort();
+        languages
+    });
+    SourceBoundaryMetadata {
+        id: boundary.id.clone(),
+        languages,
+        include: boundary.include.clone(),
+        exclude: boundary.exclude.clone(),
+    }
+}
+
+fn build_source_boundary_summaries(
+    languages: &BTreeMap<LanguageId, ScanFacts>,
+    boundaries: &[SourceBoundaryConfig],
+) -> Result<Vec<SourceBoundarySummary>, ScanFactsError> {
+    let mut summaries = Vec::new();
+    for boundary in boundaries {
+        for (language, facts) in languages {
+            if !boundary
+                .languages
+                .as_ref()
+                .is_none_or(|ids| ids.iter().any(|id| id == language))
+            {
+                continue;
+            }
+
+            let sites = facts
+                .usage_sites
+                .iter()
+                .filter(|site| site.location.boundary_id.as_deref() == Some(&boundary.id));
+            let mut files = BTreeSet::new();
+            let mut raw_invocations = RawInvocationCounts::default();
+            let mut invocation_origins = InvocationOriginCounts::default();
+            let mut adoption_excluded = 0_u32;
+
+            for site in sites {
+                files.insert(site.location.file.clone());
+                increment_boundary_status(&mut raw_invocations, site.match_status)?;
+                increment_boundary_origin(&mut invocation_origins, site.callee_origin)?;
+                if matches!(
+                    site.callee_origin,
+                    CalleeOrigin::Framework | CalleeOrigin::External
+                ) && site.match_status != MatchStatus::Candidate
+                {
+                    adoption_excluded = checked_add_count(
+                        "source_boundary_summary.adoption.adoption_excluded_invocation_count",
+                        adoption_excluded,
+                        1,
+                    )?;
+                }
+            }
+
+            if raw_invocations.total == 0 {
+                continue;
+            }
+
+            let eligible = checked_add_many(
+                "source_boundary_summary.adoption.eligible_invocation_count",
+                &[
+                    raw_invocations.resolved,
+                    raw_invocations.local,
+                    invocation_origins.application,
+                    invocation_origins.unknown,
+                ],
+            )?;
+            let adoption = AdoptionCounts {
+                eligible_invocation_count: eligible,
+                adopted_invocation_count: raw_invocations.resolved,
+                non_adopted_invocation_count: eligible
+                    .checked_sub(raw_invocations.resolved)
+                    .ok_or_else(|| {
+                        contract_violation(
+                            "source_boundary_summary.adoption.non_adopted_invocation_count",
+                            "non_adopted count underflow",
+                        )
+                    })?,
+                adoption_excluded_invocation_count: adoption_excluded,
+            };
+            let invocation_adoption_ratio = (eligible != 0).then(|| {
+                f64::from(adoption.adopted_invocation_count)
+                    / f64::from(adoption.eligible_invocation_count)
+            });
+            let files = u32::try_from(files.len()).map_err(|_| {
+                contract_violation(
+                    "source_boundary_summary.files_scanned",
+                    "file count exceeds u32 maximum",
+                )
+            })?;
+
+            summaries.push(SourceBoundarySummary {
+                boundary_id: boundary.id.clone(),
+                language: language.clone(),
+                files_scanned: files,
+                files_represented: files,
+                raw_invocations,
+                invocation_origins,
+                adoption,
+                invocation_adoption_ratio,
+            });
+        }
+    }
+    Ok(summaries)
+}
+
+fn increment_boundary_status(
+    counts: &mut RawInvocationCounts,
+    status: MatchStatus,
+) -> Result<(), ScanFactsError> {
+    let count = match status {
+        MatchStatus::Resolved => &mut counts.resolved,
+        MatchStatus::Local => &mut counts.local,
+        MatchStatus::Candidate => &mut counts.candidate,
+        MatchStatus::Unresolved => &mut counts.unresolved,
+    };
+    *count = checked_add_count("source_boundary_summary.raw_invocations", *count, 1)?;
+    counts.total = checked_add_count(
+        "source_boundary_summary.raw_invocations.total",
+        counts.total,
+        1,
+    )?;
+    Ok(())
+}
+
+fn increment_boundary_origin(
+    counts: &mut InvocationOriginCounts,
+    origin: CalleeOrigin,
+) -> Result<(), ScanFactsError> {
+    let count = match origin {
+        CalleeOrigin::Registry => &mut counts.registry,
+        CalleeOrigin::Local => &mut counts.local,
+        CalleeOrigin::Framework => &mut counts.framework,
+        CalleeOrigin::External => &mut counts.external,
+        CalleeOrigin::Application => &mut counts.application,
+        CalleeOrigin::Unknown => &mut counts.unknown,
+    };
+    *count = checked_add_count("source_boundary_summary.invocation_origins", *count, 1)?;
+    Ok(())
+}
+
+fn checked_add_many(field: &str, values: &[u32]) -> Result<u32, ScanFactsError> {
+    values.iter().try_fold(0_u32, |total, value| {
+        checked_add_count(field, total, *value)
+    })
+}
+
+fn checked_add_count(field: &str, left: u32, right: u32) -> Result<u32, ScanFactsError> {
+    left.checked_add(right)
+        .ok_or_else(|| contract_violation(field, "count exceeds u32 maximum"))
+}
+
+fn contract_violation(field: &str, message: &str) -> ScanFactsError {
+    ScanFactsError::ContractViolation {
+        field: field.to_owned(),
+        message: message.to_owned(),
     }
 }
 
@@ -641,6 +823,7 @@ fn merge_token_usage_summaries(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::waxrc::SourceBoundaryConfig;
     use time::macros::datetime;
     use wax_contract::{
         CalleeOrigin, DesignSystemToken, HardcodedStyleSite, LanguageMetadata, MatchStatus,
@@ -655,6 +838,7 @@ mod tests {
                 file: "src/App.kt".into(),
                 line: 1,
                 column: Some(1),
+                boundary_id: None,
             },
             symbol: symbol.into(),
             qualified_symbol: None,
@@ -768,6 +952,276 @@ mod tests {
     }
 
     #[test]
+    fn source_boundary_attribution_uses_first_matching_boundary_and_excludes_files() {
+        let compose = language_facts(
+            "compose",
+            vec![
+                {
+                    let mut site = usage_site(MatchStatus::Resolved, "Button", Some("ds.button"));
+                    site.location.file = "mobile\\feature\\devices\\Button.kt".into();
+                    site
+                },
+                {
+                    let mut site = usage_site(MatchStatus::Local, "Card", None);
+                    site.local_definition_id = Some("local.card".into());
+                    site.location.file = "mobile/feature/devices/generated/Card.kt".into();
+                    site
+                },
+                {
+                    let mut site = usage_site(MatchStatus::Unresolved, "Unknown", None);
+                    site.location.file = "other/Screen.kt".into();
+                    site
+                },
+            ],
+        );
+        let options = MergeOptions {
+            source_boundaries: vec![
+                SourceBoundaryConfig {
+                    id: "mobile".into(),
+                    languages: None,
+                    include: vec!["mobile/**".into()],
+                    exclude: vec!["**/generated/**".into()],
+                },
+                SourceBoundaryConfig {
+                    id: "devices".into(),
+                    languages: None,
+                    include: vec!["mobile/**/devices/**".into()],
+                    exclude: vec![],
+                },
+            ],
+            ..MergeOptions::default()
+        };
+
+        let merged = merge_language_scans_with_options(
+            BTreeMap::from([(LanguageId::try_from("compose").unwrap(), compose.clone())]),
+            &options,
+        )
+        .unwrap();
+        let site_boundaries = merged.languages[&LanguageId::try_from("compose").unwrap()]
+            .usage_sites
+            .iter()
+            .map(|site| site.location.boundary_id.clone())
+            .collect::<Vec<_>>();
+
+        assert_eq!(site_boundaries, [Some("mobile".into()), None, None]);
+        assert_eq!(
+            merged
+                .source_boundaries
+                .iter()
+                .map(|boundary| boundary.id.as_str())
+                .collect::<Vec<_>>(),
+            ["devices", "mobile"]
+        );
+        assert_eq!(merged.source_boundary_summary.len(), 1);
+        assert_eq!(merged.source_boundary_summary[0].boundary_id, "mobile");
+        assert_eq!(merged.source_boundary_summary[0].raw_invocations.total, 1);
+        assert_eq!(
+            merged.source_boundary_summary[0].raw_invocations.resolved,
+            1
+        );
+        assert_eq!(
+            merged.source_boundary_summary[0]
+                .adoption
+                .adopted_invocation_count,
+            1
+        );
+        assert_eq!(compose.usage_sites[0].location.boundary_id, None);
+    }
+
+    #[test]
+    fn source_boundary_language_filter_prevents_cross_language_attribution() {
+        let compose = language_facts(
+            "compose",
+            vec![{
+                let mut site = usage_site(MatchStatus::Resolved, "Button", Some("ds.button"));
+                site.location.file = "shared/Button.kt".into();
+                site
+            }],
+        );
+        let react = language_facts(
+            "react",
+            vec![{
+                let mut site = usage_site(MatchStatus::Resolved, "Button", Some("ds.button"));
+                site.location.file = "shared/Button.tsx".into();
+                site
+            }],
+        );
+        let boundary = SourceBoundaryConfig {
+            id: "compose-only".into(),
+            languages: Some(vec![LanguageId::try_from("compose").unwrap()]),
+            include: vec!["shared/**".into()],
+            exclude: vec![],
+        };
+
+        let merged = merge_language_scans_with_options(
+            BTreeMap::from([
+                (LanguageId::try_from("compose").unwrap(), compose),
+                (LanguageId::try_from("react").unwrap(), react),
+            ]),
+            &MergeOptions {
+                source_boundaries: vec![boundary],
+                ..MergeOptions::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            merged.languages[&LanguageId::try_from("compose").unwrap()].usage_sites[0]
+                .location
+                .boundary_id,
+            Some("compose-only".into())
+        );
+        assert_eq!(
+            merged.languages[&LanguageId::try_from("react").unwrap()].usage_sites[0]
+                .location
+                .boundary_id,
+            None
+        );
+        assert_eq!(merged.source_boundary_summary.len(), 1);
+    }
+
+    #[test]
+    fn source_boundary_preserves_framework_and_external_exclusions() {
+        let mut framework = usage_site(MatchStatus::Unresolved, "Box", None);
+        framework.callee_origin = CalleeOrigin::Framework;
+        framework.location.file = "mobile/feature/Home.kt".into();
+        let mut external = usage_site(MatchStatus::Unresolved, "AsyncImage", None);
+        external.callee_origin = CalleeOrigin::External;
+        external.location.file = "mobile/feature/Home.kt".into();
+        let mut resolved = usage_site(MatchStatus::Resolved, "Button", Some("ds.button"));
+        resolved.location.file = "mobile/feature/Home.kt".into();
+
+        let merged = merge_language_scans_with_options(
+            BTreeMap::from([(
+                LanguageId::try_from("compose").unwrap(),
+                language_facts("compose", vec![framework, external, resolved]),
+            )]),
+            &MergeOptions {
+                source_boundaries: vec![SourceBoundaryConfig {
+                    id: "mobile".into(),
+                    languages: None,
+                    include: vec!["mobile/**".into()],
+                    exclude: vec![],
+                }],
+                ..MergeOptions::default()
+            },
+        )
+        .unwrap();
+
+        let summary = &merged.source_boundary_summary[0];
+        assert_eq!(summary.raw_invocations.total, 3);
+        assert_eq!(summary.invocation_origins.framework, 1);
+        assert_eq!(summary.invocation_origins.external, 1);
+        assert_eq!(summary.adoption.adoption_excluded_invocation_count, 2);
+        assert_eq!(summary.adoption.eligible_invocation_count, 1);
+        assert_eq!(summary.adoption.adopted_invocation_count, 1);
+        assert_eq!(summary.invocation_adoption_ratio, Some(1.0));
+    }
+
+    #[test]
+    fn source_boundary_attribution_changes_without_changing_usage_site_ids() {
+        let mut site = usage_site(MatchStatus::Resolved, "Button", Some("ds.button"));
+        site.id = "compose:src/App.kt:1:1:Button".into();
+        site.location.file = "feature/a/App.kt".into();
+
+        let merged_a = merge_language_scans_with_options(
+            BTreeMap::from([(
+                LanguageId::try_from("compose").unwrap(),
+                language_facts("compose", vec![site.clone()]),
+            )]),
+            &MergeOptions {
+                source_boundaries: vec![SourceBoundaryConfig {
+                    id: "feature-a".into(),
+                    languages: None,
+                    include: vec!["feature/a/**".into()],
+                    exclude: vec![],
+                }],
+                ..MergeOptions::default()
+            },
+        )
+        .unwrap();
+
+        site.location.file = "feature/b/App.kt".into();
+        let merged_b = merge_language_scans_with_options(
+            BTreeMap::from([(
+                LanguageId::try_from("compose").unwrap(),
+                language_facts("compose", vec![site]),
+            )]),
+            &MergeOptions {
+                source_boundaries: vec![SourceBoundaryConfig {
+                    id: "feature-b".into(),
+                    languages: None,
+                    include: vec!["feature/b/**".into()],
+                    exclude: vec![],
+                }],
+                ..MergeOptions::default()
+            },
+        )
+        .unwrap();
+
+        let compose = LanguageId::try_from("compose").unwrap();
+        assert_eq!(
+            merged_a.languages[&compose].usage_sites[0].id,
+            merged_b.languages[&compose].usage_sites[0].id,
+        );
+        assert_eq!(
+            merged_a.languages[&compose].usage_sites[0]
+                .location
+                .boundary_id,
+            Some("feature-a".into())
+        );
+        assert_eq!(
+            merged_b.languages[&compose].usage_sites[0]
+                .location
+                .boundary_id,
+            Some("feature-b".into())
+        );
+    }
+
+    #[test]
+    fn source_boundary_metadata_emitted_without_zero_summary_rows() {
+        let compose = language_facts(
+            "compose",
+            vec![{
+                let mut site = usage_site(MatchStatus::Resolved, "Button", Some("ds.button"));
+                site.location.file = "other/App.kt".into();
+                site
+            }],
+        );
+
+        let merged = merge_language_scans_with_options(
+            BTreeMap::from([(LanguageId::try_from("compose").unwrap(), compose)]),
+            &MergeOptions {
+                source_boundaries: vec![
+                    SourceBoundaryConfig {
+                        id: "empty-boundary".into(),
+                        languages: None,
+                        include: vec!["missing/**".into()],
+                        exclude: vec![],
+                    },
+                    SourceBoundaryConfig {
+                        id: "mobile".into(),
+                        languages: None,
+                        include: vec!["mobile/**".into()],
+                        exclude: vec![],
+                    },
+                ],
+                ..MergeOptions::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(merged.source_boundaries.len(), 2);
+        assert!(
+            merged
+                .source_boundaries
+                .iter()
+                .any(|boundary| boundary.id == "empty-boundary")
+        );
+        assert_eq!(merged.source_boundary_summary.len(), 0);
+    }
+
+    #[test]
     fn merged_counts_preserve_framework_and_external_exclusions() {
         let mut framework = usage_site(MatchStatus::Unresolved, "Box", None);
         framework.callee_origin = CalleeOrigin::Framework;
@@ -819,6 +1273,7 @@ mod tests {
                     file: "src/Screen.kt".into(),
                     line: 1,
                     column: Some(1),
+                    boundary_id: None,
                 },
                 token_id: "color.primary".into(),
                 key: "Theme.colors.primary".into(),
@@ -839,6 +1294,7 @@ mod tests {
                     file: "src/Other.kt".into(),
                     line: 2,
                     column: Some(1),
+                    boundary_id: None,
                 },
                 token_id: "color.primary".into(),
                 key: "Theme.colors.primary".into(),
@@ -852,6 +1308,7 @@ mod tests {
                 file: "src/Screen.kt".into(),
                 line: 3,
                 column: Some(12),
+                boundary_id: None,
             },
             value: "8.dp".into(),
             category: TokenCategory::Spacing,
@@ -909,6 +1366,7 @@ mod tests {
                 file: "src/Screen.kt".into(),
                 line: 3,
                 column: Some(12),
+                boundary_id: None,
             },
             value: "8.dp".into(),
             category: TokenCategory::Spacing,
@@ -943,6 +1401,7 @@ mod tests {
                 file: "src/Screen.kt".into(),
                 line: 1,
                 column: Some(1),
+                boundary_id: None,
             },
             token_id: "color.primary".into(),
             key: "Theme.colors.primary".into(),
@@ -965,6 +1424,7 @@ mod tests {
                     file: "src/App.tsx".into(),
                     line: 1,
                     column: Some(1),
+                    boundary_id: None,
                 },
                 token_id: "color.primary".into(),
                 key: "theme.colors.primary".into(),
@@ -977,6 +1437,7 @@ mod tests {
                     file: "src/Button.tsx".into(),
                     line: 4,
                     column: Some(3),
+                    boundary_id: None,
                 },
                 token_id: "color.primary".into(),
                 key: "theme.colors.primary".into(),

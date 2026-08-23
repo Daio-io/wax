@@ -566,6 +566,11 @@ extract_core() {
       source_scan: $source_scan,
       repo_summary: repo_summary_block,
       per_language: per_language,
+      source_boundaries: (.source_boundaries // [] | sort_by(.id)),
+      source_boundary_summary: (
+        .source_boundary_summary // []
+        | sort_by([.boundary_id, (.language | tostring)])
+      ),
       symbol_rollups: symbol_rollups_block,
       top_local_symbols: top_symbols_by_kind("local"; 5),
       top_unresolved_symbols: top_symbols_by_kind("unresolved"; 5),

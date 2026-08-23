@@ -84,6 +84,50 @@
         }
       }
     },
+    "reporting": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Explicit source-boundary reporting configuration.",
+      "properties": {
+        "source_boundaries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "include"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "languages": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]*$"
+                },
+                "minItems": 1
+              },
+              "include": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minItems": 1
+              },
+              "exclude": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "languages": {
       "type": "object",
       "description": "Scan configuration keyed by language id. Presence of a key enables that language.",

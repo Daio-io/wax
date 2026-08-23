@@ -170,6 +170,14 @@ mod tests {
     }
 
     #[test]
+    fn path_matches_nested_generated_exclude_glob() {
+        assert!(path_matches_glob(
+            "mobile/feature/devices/generated/Card.kt",
+            "**/generated/**"
+        ));
+    }
+
+    #[test]
     fn root_not_found_codes_match_contract_strings() {
         assert_eq!(
             root_not_found_code(RootPatternKind::Literal),

@@ -1297,6 +1297,7 @@ mod sync_tests {
             engine: crate::config::waxrc::EngineConfig::default(),
             adoption: crate::config::waxrc::AdoptionConfig::default(),
             token_inference: crate::config::waxrc::TokenInferenceConfig::default(),
+            reporting: crate::config::waxrc::ReportingConfig::default(),
             languages: vec![LanguageEntry {
                 id: language_id.clone(),
                 roots: Vec::new(),

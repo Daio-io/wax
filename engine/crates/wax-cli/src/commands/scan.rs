@@ -405,6 +405,7 @@ fn build_ephemeral_scan_config(
             engine: EngineConfig::default(),
             adoption: AdoptionConfig::default(),
             token_inference: Default::default(),
+            reporting: Default::default(),
             languages,
             design_systems: BTreeMap::new(),
         },
@@ -647,6 +648,8 @@ fn write_scan_summary(
     )
     .map_err(write_error)?;
 
+    write_source_boundary_summary(writer, merged)?;
+
     writeln!(writer, "token metrics:").map_err(write_error)?;
     writeln!(
         writer,
@@ -668,6 +671,46 @@ fn write_scan_summary(
         .map_err(write_error)?;
     }
 
+    Ok(())
+}
+
+fn write_source_boundary_summary(
+    writer: &mut impl Write,
+    merged: &MergedScan,
+) -> Result<(), ScanCommandError> {
+    if merged.source_boundaries.is_empty() {
+        return Ok(());
+    }
+
+    writeln!(writer, "source boundaries:").map_err(write_error)?;
+    for boundary in &merged.source_boundaries {
+        let languages = boundary
+            .languages
+            .clone()
+            .unwrap_or_else(|| merged.languages.keys().cloned().collect());
+        for language in languages {
+            let ratio = merged
+                .source_boundary_summary
+                .iter()
+                .find(|summary| summary.boundary_id == boundary.id && summary.language == language)
+                .and_then(|summary| summary.invocation_adoption_ratio);
+            match ratio {
+                Some(ratio) => writeln!(
+                    writer,
+                    "  {}/{}: UI invocation adoption: {:.1}%",
+                    boundary.id,
+                    language,
+                    ratio * 100.0
+                ),
+                None => writeln!(
+                    writer,
+                    "  {}/{}: UI invocation adoption: n/a",
+                    boundary.id, language
+                ),
+            }
+            .map_err(write_error)?;
+        }
+    }
     Ok(())
 }
 
@@ -1016,10 +1059,11 @@ mod tests {
         AdoptionCounts, CountSummary, DefinitionCounts, Diagnostic, DiagnosticSeverity,
         HardcodedStyleInference, HardcodedStyleSite, LanguageId, LanguageMetadata, MergedScan,
         Metrics, ParentScopeCounts, RawInvocationCounts, RegistryCounts, RepoSummary,
-        SCHEMA_VERSION, ScanFacts, ScanStatus, SourceLocation, StyleContext, StyleContextCounts,
-        TokenCategory, TokenCategoryCounts, TokenConfidenceCounts, TokenInferenceClassification,
-        TokenInferenceConfidence, TokenInferenceCounts, TokenInferenceEvidence,
-        TokenInferenceReport, TokenMatchKind, TokenReplacementSuggestion,
+        SCHEMA_VERSION, ScanFacts, ScanStatus, SourceBoundaryMetadata, SourceBoundarySummary,
+        SourceLocation, StyleContext, StyleContextCounts, TokenCategory, TokenCategoryCounts,
+        TokenConfidenceCounts, TokenInferenceClassification, TokenInferenceConfidence,
+        TokenInferenceCounts, TokenInferenceEvidence, TokenInferenceReport, TokenMatchKind,
+        TokenReplacementSuggestion,
     };
     use wax_core::paths::PathsError;
 
@@ -1141,6 +1185,33 @@ mod tests {
             symbol_usage_summary: vec![],
             token_usage_summary: vec![],
             token_inference: wax_contract::TokenInferenceReport::empty(2.0),
+            source_boundaries: vec![SourceBoundaryMetadata {
+                id: "feature/home".to_owned(),
+                languages: Some(vec![LanguageId::from_str("compose").unwrap()]),
+                include: vec!["src/**/Home.kt".to_owned()],
+                exclude: vec![],
+            }],
+            source_boundary_summary: vec![SourceBoundarySummary {
+                boundary_id: "feature/home".to_owned(),
+                language: LanguageId::from_str("compose").unwrap(),
+                files_scanned: 1,
+                files_represented: 1,
+                raw_invocations: RawInvocationCounts {
+                    total: 2,
+                    resolved: 1,
+                    ..Default::default()
+                },
+                invocation_origins: wax_contract::InvocationOriginCounts {
+                    registry: 1,
+                    ..Default::default()
+                },
+                adoption: AdoptionCounts {
+                    eligible_invocation_count: 1,
+                    adopted_invocation_count: 1,
+                    ..Default::default()
+                },
+                invocation_adoption_ratio: Some(1.0),
+            }],
             languages: BTreeMap::from([
                 (
                     LanguageId::from_str("compose").unwrap(),
@@ -1162,6 +1233,7 @@ mod tests {
                                     file: "src/Broken.tsx".to_owned(),
                                     line: 4,
                                     column: Some(12),
+                                    boundary_id: None,
                                 }),
                             },
                         ],
@@ -1199,6 +1271,8 @@ mod tests {
         assert!(stdout.contains("Registry resolution: 70.0%"));
         assert!(stdout.contains("Raw DS invocations: 7 resolved, 1 candidate"));
         assert!(stdout.contains("Unresolved application/unknown UI calls: 1"));
+        assert!(stdout.contains("source boundaries:"));
+        assert!(stdout.contains("feature/home/compose: UI invocation adoption: 100.0%"));
         assert!(stdout.contains("token metrics:"));
         assert!(stdout.contains("Token references: 3"));
         assert!(stdout.contains("Assessed observations: 0 of 0"));
@@ -1233,6 +1307,8 @@ mod tests {
             symbol_usage_summary: vec![],
             token_usage_summary: vec![],
             token_inference: TokenInferenceReport::empty(2.0),
+            source_boundaries: vec![],
+            source_boundary_summary: vec![],
             languages: BTreeMap::from([
                 (
                     LanguageId::from_str("swift").unwrap(),
@@ -1289,6 +1365,8 @@ mod tests {
             symbol_usage_summary: vec![],
             token_usage_summary: vec![],
             token_inference: TokenInferenceReport::empty(2.0),
+            source_boundaries: vec![],
+            source_boundary_summary: vec![],
             languages: BTreeMap::from([(
                 LanguageId::from_str("compose").unwrap(),
                 facts_with_status(ScanStatus::Partial, None, vec![]),
@@ -1343,6 +1421,7 @@ mod tests {
                 file: file.to_owned(),
                 line,
                 column: None,
+                boundary_id: None,
             },
             value: value.to_owned(),
             category: TokenCategory::Spacing,
@@ -1485,6 +1564,8 @@ mod tests {
                 },
                 sites,
             },
+            source_boundaries: vec![],
+            source_boundary_summary: vec![],
             languages: BTreeMap::from([(react, facts)]),
         };
 
@@ -1573,6 +1654,8 @@ mod tests {
                 },
                 sites,
             },
+            source_boundaries: vec![],
+            source_boundary_summary: vec![],
             languages: BTreeMap::from([(react, facts)]),
         };
 
@@ -1658,6 +1741,8 @@ mod tests {
                     evidence: vec![],
                 }],
             },
+            source_boundaries: vec![],
+            source_boundary_summary: vec![],
             languages: BTreeMap::from([(react, facts)]),
         };
 
@@ -1810,6 +1895,8 @@ mod tests {
             symbol_usage_summary: vec![],
             token_usage_summary: vec![],
             token_inference: wax_contract::TokenInferenceReport::empty(2.0),
+            source_boundaries: vec![],
+            source_boundary_summary: vec![],
             languages: BTreeMap::new(),
         };
 

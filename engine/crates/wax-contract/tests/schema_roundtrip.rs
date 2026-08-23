@@ -65,6 +65,7 @@ fn minimal_facts() -> ScanFacts {
                     file: "a.kt".into(),
                     line: 1,
                     column: Some(5),
+                    boundary_id: None,
                 },
                 symbol: "Button".into(),
                 qualified_symbol: None,
@@ -84,6 +85,7 @@ fn minimal_facts() -> ScanFacts {
                     file: "a.kt".into(),
                     line: 2,
                     column: None,
+                    boundary_id: None,
                 },
                 symbol: "Card".into(),
                 qualified_symbol: None,
@@ -146,6 +148,7 @@ fn schema_v2_local_usage_and_symbol_summary_roundtrip() {
             file: "src/EpisodeCard.kt".into(),
             line: 1,
             column: Some(1),
+            boundary_id: None,
         },
     });
     facts.usage_sites = vec![UsageSite {
@@ -154,6 +157,7 @@ fn schema_v2_local_usage_and_symbol_summary_roundtrip() {
             file: "src/Discover.kt".into(),
             line: 4,
             column: Some(5),
+            boundary_id: None,
         },
         symbol: "EpisodeCard".into(),
         qualified_symbol: Some("com.example.EpisodeCard".into()),
@@ -176,6 +180,7 @@ fn schema_v2_local_usage_and_symbol_summary_roundtrip() {
                 file: "src/Discover.kt".into(),
                 line: 2,
                 column: Some(1),
+                boundary_id: None,
             }),
         }),
     }];
@@ -203,6 +208,24 @@ fn schema_v2_local_usage_and_symbol_summary_roundtrip() {
     assert_eq!(back.usage_sites[0].match_status, MatchStatus::Local);
     assert_eq!(back.symbol_usage_summary.len(), 1);
     assert!(back.symbol_usage_summary[0].parent_scopes_truncated);
+
+    let value = serde_json::to_value(&back).unwrap();
+    assert!(scan_facts_schema().is_valid(&value));
+}
+
+#[test]
+fn source_location_boundary_id_roundtrips_in_scan_facts() {
+    let mut facts = minimal_facts();
+    facts.usage_sites[0].location.boundary_id = Some("feature/home".into());
+    facts.recompute_counts().unwrap();
+
+    let json = serde_json::to_string(&facts).unwrap();
+    let back = wax_contract::scan_facts_from_json(&json).unwrap();
+
+    assert_eq!(
+        back.usage_sites[0].location.boundary_id,
+        Some("feature/home".into())
+    );
 
     let value = serde_json::to_value(&back).unwrap();
     assert!(scan_facts_schema().is_valid(&value));
@@ -409,6 +432,7 @@ fn requires_local_definition_id_for_local_usage() {
             file: "a.kt".into(),
             line: 1,
             column: None,
+            boundary_id: None,
         },
         symbol: "EpisodeCard".into(),
         qualified_symbol: None,
@@ -458,6 +482,7 @@ fn rejects_registry_symbol_for_local_usage() {
             file: "a.kt".into(),
             line: 1,
             column: None,
+            boundary_id: None,
         },
         symbol: "EpisodeCard".into(),
         qualified_symbol: None,
@@ -500,6 +525,7 @@ fn token_facts_roundtrip_and_validate_against_schema() {
             file: "src/Screen.kt".into(),
             line: 8,
             column: Some(13),
+            boundary_id: None,
         },
         token_id: "color.primary".into(),
         key: "AppColors.Primary".into(),
@@ -515,6 +541,7 @@ fn token_facts_roundtrip_and_validate_against_schema() {
                 file: "src/Screen.kt".into(),
                 line: 4,
                 column: Some(1),
+                boundary_id: None,
             }),
         }),
     }];
@@ -524,6 +551,7 @@ fn token_facts_roundtrip_and_validate_against_schema() {
             file: "src/Screen.kt".into(),
             line: 9,
             column: Some(22),
+            boundary_id: None,
         },
         value: "8.dp".into(),
         category: wax_contract::TokenCategory::Spacing,
@@ -557,6 +585,7 @@ fn token_site_must_reference_known_token_id() {
             file: "src/App.tsx".into(),
             line: 1,
             column: Some(1),
+            boundary_id: None,
         },
         token_id: "missing".into(),
         key: "theme.colors.missing".into(),
@@ -586,6 +615,7 @@ fn token_site_key_must_match_key_or_alias() {
             file: "src/App.tsx".into(),
             line: 1,
             column: Some(1),
+            boundary_id: None,
         },
         token_id: "color.primary".into(),
         key: "wrong.primary".into(),
@@ -608,6 +638,7 @@ fn hardcoded_style_site_requires_non_empty_value() {
             file: "src/App.tsx".into(),
             line: 1,
             column: Some(1),
+            boundary_id: None,
         },
         value: "".into(),
         category: wax_contract::TokenCategory::Color,
@@ -672,6 +703,8 @@ fn merged_scan_rejects_stale_repo_summary() {
         symbol_usage_summary: vec![],
         token_usage_summary: vec![],
         token_inference: TokenInferenceReport::empty(2.0),
+        source_boundaries: vec![],
+        source_boundary_summary: vec![],
         languages,
     };
 
@@ -810,6 +843,7 @@ fn framework_and_external_invocations_are_excluded_from_adoption() {
                 file: "a.kt".into(),
                 line: index,
                 column: Some(1),
+                boundary_id: None,
             },
             symbol: "Call".into(),
             qualified_symbol: package.map(|value| format!("{value}.Call")),
@@ -926,6 +960,8 @@ fn merged_scan_rejects_malformed_token_usage_summary() {
             parent_scope_count: 0,
         }],
         token_inference: TokenInferenceReport::empty(2.0),
+        source_boundaries: vec![],
+        source_boundary_summary: vec![],
         languages,
     };
 
@@ -954,6 +990,7 @@ fn schema_v3_token_inference_roundtrips() {
             file: "src/Card.kt".into(),
             line: 8,
             column: Some(20),
+            boundary_id: None,
         },
         value: "4.dp".into(),
         category: TokenCategory::Spacing,
@@ -1053,6 +1090,8 @@ fn schema_v3_token_inference_roundtrips() {
             },
             sites: vec![inference],
         },
+        source_boundaries: vec![],
+        source_boundary_summary: vec![],
         languages,
     };
 
@@ -1087,6 +1126,7 @@ fn inference_merged_with_site(
             file: "src/Card.kt".into(),
             line: 8,
             column: Some(20),
+            boundary_id: None,
         },
         value: "4.dp".into(),
         category: TokenCategory::Spacing,
@@ -1183,6 +1223,8 @@ fn inference_merged_with_site(
                 },
             }],
         },
+        source_boundaries: vec![],
+        source_boundary_summary: vec![],
         languages,
     }
 }

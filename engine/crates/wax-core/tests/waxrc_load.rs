@@ -16,6 +16,7 @@ fn loads_minimal_waxrc() {
     assert_eq!(rc.languages[0].id.as_str(), "compose");
     assert!(rc.languages[0].roots.is_empty());
     assert!(rc.languages[0].registry_source.is_none());
+    assert!(rc.reporting.source_boundaries.is_empty());
     assert!(rc.design_systems.is_empty());
 }
 
@@ -60,6 +61,123 @@ fn waxrc_parses_supported_adoption_config() {
         ["public", "internal", "private"]
     );
     assert_eq!(rc.adoption.symbol_usage_summary.parent_scope_limit, Some(0));
+}
+
+#[test]
+fn waxrc_loads_ordered_source_boundaries() {
+    let path = std::env::temp_dir().join(format!(
+        "waxrc-source-boundaries-{}.json",
+        std::process::id()
+    ));
+    std::fs::write(
+        &path,
+        r#"{
+          "schema_version": 2,
+          "languages": {"compose": {}, "react": {}},
+          "reporting": {
+            "source_boundaries": [
+              {
+                "id": "feature/devices",
+                "languages": ["compose"],
+                "include": ["mobile\\**\\feature\\devices\\**\\*.kt"],
+                "exclude": ["**/generated/**"]
+              },
+              {
+                "id": "app/web",
+                "include": ["web/**"]
+              }
+            ]
+          }
+        }"#,
+    )
+    .unwrap();
+
+    let rc = load_waxrc(&path).unwrap();
+    std::fs::remove_file(path).unwrap();
+
+    assert_eq!(rc.reporting.source_boundaries.len(), 2);
+    assert_eq!(rc.reporting.source_boundaries[0].id, "feature/devices");
+    assert_eq!(
+        rc.reporting.source_boundaries[0].languages,
+        Some(vec!["compose".try_into().unwrap()])
+    );
+    assert_eq!(
+        rc.reporting.source_boundaries[0].include,
+        ["mobile\\**\\feature\\devices\\**\\*.kt"]
+    );
+    assert_eq!(
+        rc.reporting.source_boundaries[0].exclude,
+        ["**/generated/**"]
+    );
+    assert!(rc.reporting.source_boundaries[1].languages.is_none());
+}
+
+#[test]
+fn waxrc_rejects_source_boundary_language_not_configured() {
+    let path = std::env::temp_dir().join(format!(
+        "waxrc-source-boundary-language-{}.json",
+        std::process::id()
+    ));
+    std::fs::write(
+        &path,
+        r#"{
+          "schema_version": 2,
+          "languages": {"compose": {}},
+          "reporting": {
+            "source_boundaries": [{
+              "id": "feature/devices",
+              "languages": ["react"],
+              "include": ["mobile/**"]
+            }]
+          }
+        }"#,
+    )
+    .unwrap();
+
+    let err = load_waxrc(&path).unwrap_err();
+    std::fs::remove_file(path).unwrap();
+
+    assert!(err.to_string().contains("not configured"));
+}
+
+#[test]
+fn waxrc_rejects_unsafe_or_ambiguous_source_boundaries() {
+    let cases = [
+        (
+            "duplicate",
+            r#"[{"id":"same","include":["src/**"]},{"id":"same","include":["app/**"]}]"#,
+            "must be unique",
+        ),
+        (
+            "absolute",
+            r#"[{"id":"absolute","include":["/src/**"]}]"#,
+            "must be repo-relative",
+        ),
+        (
+            "parent",
+            r#"[{"id":"parent","include":["src/../app/**"]}]"#,
+            "parent-directory",
+        ),
+        (
+            "empty-include",
+            r#"[{"id":"empty","include":[]}]"#,
+            "at least one glob",
+        ),
+    ];
+
+    for (index, (name, boundaries, expected)) in cases.into_iter().enumerate() {
+        let path = std::env::temp_dir().join(format!(
+            "waxrc-source-boundary-invalid-{name}-{}-{index}.json",
+            std::process::id()
+        ));
+        let contents = format!(
+            r#"{{"schema_version":2,"languages":{{"compose":{{}}}},"reporting":{{"source_boundaries":{boundaries}}}}}"#
+        );
+        std::fs::write(&path, contents).unwrap();
+        let err = load_waxrc(&path).unwrap_err();
+        std::fs::remove_file(path).unwrap();
+        assert!(err.to_string().contains(expected), "{name}: {err}");
+    }
 }
 
 #[test]

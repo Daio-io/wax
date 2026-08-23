@@ -201,6 +201,9 @@ pub struct SourceLocation {
     /// One-based source column number, when the pack can provide it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub column: Option<u32>,
+    /// Explicit source boundary selected by the core reporting pass.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub boundary_id: Option<String>,
 }
 
 /// Overall status for a language pack scan.
@@ -827,6 +830,44 @@ pub struct RepoSummary {
     pub metrics: Metrics,
 }
 
+/// Configured source-boundary metadata embedded in a merged scan.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SourceBoundaryMetadata {
+    /// Stable boundary identifier.
+    pub id: String,
+    /// Languages eligible for this boundary, or `None` for all languages.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub languages: Option<Vec<LanguageId>>,
+    /// Repository-relative include globs in declaration order.
+    pub include: Vec<String>,
+    /// Repository-relative exclude globs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exclude: Vec<String>,
+}
+
+/// Adoption counters for one configured source boundary and language.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct SourceBoundarySummary {
+    /// Boundary identifier from [`SourceBoundaryMetadata::id`].
+    pub boundary_id: String,
+    /// Language contributing the row.
+    pub language: LanguageId,
+    /// Number of distinct files with attributed usage sites.
+    pub files_scanned: u32,
+    /// Number of distinct files represented by attributed usage sites.
+    pub files_represented: u32,
+    /// Raw usage counts grouped by match status.
+    pub raw_invocations: RawInvocationCounts,
+    /// Usage counts grouped by callee origin.
+    pub invocation_origins: InvocationOriginCounts,
+    /// Adoption counters using the repository formula.
+    pub adoption: AdoptionCounts,
+    /// Resolved invocations divided by adoption-eligible invocations.
+    pub invocation_adoption_ratio: Option<f64>,
+}
+
 /// Classification produced by deterministic token inference.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -1041,6 +1082,12 @@ pub struct MergedScan {
     pub token_usage_summary: Vec<TokenUsageSummary>,
     /// Core-owned hard-coded style inference report.
     pub token_inference: TokenInferenceReport,
+    /// Explicit source-boundary configuration in deterministic ID order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_boundaries: Vec<SourceBoundaryMetadata>,
+    /// Per-boundary and per-language adoption summaries.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_boundary_summary: Vec<SourceBoundarySummary>,
     /// Per-language scan facts.
     pub languages: BTreeMap<LanguageId, ScanFacts>,
 }
@@ -1242,10 +1289,268 @@ impl MergedScan {
         }
 
         validate_repo_summary(self)?;
+        validate_source_boundary_summaries(self)?;
         validate_token_inference(self)?;
 
         Ok(())
     }
+}
+
+fn validate_source_boundary_summaries(merged: &MergedScan) -> Result<(), ScanFactsError> {
+    let mut boundary_ids = BTreeSet::new();
+    for (index, boundary) in merged.source_boundaries.iter().enumerate() {
+        let field = format!("source_boundaries[{index}]");
+        if let Some(previous) = index
+            .checked_sub(1)
+            .and_then(|index| merged.source_boundaries.get(index))
+            && previous.id >= boundary.id
+        {
+            return Err(contract_violation(
+                &field,
+                "source boundaries must be sorted by boundary id",
+            ));
+        }
+        require_non_empty(&format!("{field}.id"), &boundary.id)?;
+        if !boundary_ids.insert(boundary.id.as_str()) {
+            return Err(contract_violation(
+                &format!("{field}.id"),
+                "boundary ids must be unique",
+            ));
+        }
+        if boundary.include.is_empty() {
+            return Err(contract_violation(
+                &format!("{field}.include"),
+                "include must contain at least one glob",
+            ));
+        }
+        if let Some(languages) = &boundary.languages
+            && languages.windows(2).any(|pair| pair[0] >= pair[1])
+        {
+            return Err(contract_violation(
+                &format!("{field}.languages"),
+                "languages must be unique and sorted",
+            ));
+        }
+    }
+
+    for (language, facts) in &merged.languages {
+        for (index, component) in facts.local_components.iter().enumerate() {
+            validate_boundary_reference(
+                &format!("languages.{language}.local_components[{index}].location"),
+                &component.location,
+                &boundary_ids,
+            )?;
+        }
+        for (index, site) in facts.usage_sites.iter().enumerate() {
+            validate_boundary_reference(
+                &format!("languages.{language}.usage_sites[{index}].location"),
+                &site.location,
+                &boundary_ids,
+            )?;
+            if let Some(parent) = &site.parent
+                && let Some(location) = &parent.location
+            {
+                validate_boundary_reference(
+                    &format!("languages.{language}.usage_sites[{index}].parent.location"),
+                    location,
+                    &boundary_ids,
+                )?;
+            }
+        }
+        for (index, site) in facts.token_sites.iter().enumerate() {
+            validate_boundary_reference(
+                &format!("languages.{language}.token_sites[{index}].location"),
+                &site.location,
+                &boundary_ids,
+            )?;
+        }
+        for (index, site) in facts.hardcoded_style_sites.iter().enumerate() {
+            validate_boundary_reference(
+                &format!("languages.{language}.hardcoded_style_sites[{index}].location"),
+                &site.location,
+                &boundary_ids,
+            )?;
+        }
+        for (index, diagnostic) in facts.diagnostics.iter().enumerate() {
+            if let Some(location) = &diagnostic.location {
+                validate_boundary_reference(
+                    &format!("languages.{language}.diagnostics[{index}].location"),
+                    location,
+                    &boundary_ids,
+                )?;
+            }
+        }
+    }
+
+    let mut expected = Vec::new();
+    for boundary in &merged.source_boundaries {
+        for (language, facts) in &merged.languages {
+            if !boundary
+                .languages
+                .as_ref()
+                .is_none_or(|ids| ids.iter().any(|id| id == language))
+            {
+                continue;
+            }
+            let sites = facts
+                .usage_sites
+                .iter()
+                .filter(|site| site.location.boundary_id.as_deref() == Some(boundary.id.as_str()))
+                .collect::<Vec<_>>();
+            if sites.is_empty() {
+                continue;
+            }
+            expected.push(source_boundary_summary_from_sites(
+                &boundary.id,
+                language,
+                &sites,
+            )?);
+        }
+    }
+
+    if merged.source_boundary_summary != expected {
+        return Err(contract_violation(
+            "source_boundary_summary",
+            "summary rows must equal grouped attributed usage sites in boundary/language order",
+        ));
+    }
+
+    for summary in &merged.source_boundary_summary {
+        if !boundary_ids.contains(summary.boundary_id.as_str()) {
+            return Err(contract_violation(
+                "source_boundary_summary.boundary_id",
+                "summary must reference configured boundary metadata",
+            ));
+        }
+        if !merged.languages.contains_key(&summary.language) {
+            return Err(contract_violation(
+                "source_boundary_summary.language",
+                "summary language must exist in merged languages",
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_boundary_reference(
+    field: &str,
+    location: &SourceLocation,
+    boundary_ids: &BTreeSet<&str>,
+) -> Result<(), ScanFactsError> {
+    if let Some(boundary_id) = &location.boundary_id
+        && !boundary_ids.contains(boundary_id.as_str())
+    {
+        return Err(contract_violation(
+            &format!("{field}.boundary_id"),
+            "location must reference configured boundary metadata",
+        ));
+    }
+    Ok(())
+}
+
+fn source_boundary_summary_from_sites(
+    boundary_id: &str,
+    language: &LanguageId,
+    sites: &[&UsageSite],
+) -> Result<SourceBoundarySummary, ScanFactsError> {
+    let mut files = BTreeSet::new();
+    let mut raw_invocations = RawInvocationCounts::default();
+    let mut invocation_origins = InvocationOriginCounts::default();
+    let mut adoption_excluded = 0_u32;
+    for site in sites {
+        files.insert(site.location.file.as_str());
+        increment_source_boundary_status(&mut raw_invocations, site.match_status)?;
+        increment_source_boundary_origin(&mut invocation_origins, site.callee_origin)?;
+        if matches!(
+            site.callee_origin,
+            CalleeOrigin::Framework | CalleeOrigin::External
+        ) && site.match_status != MatchStatus::Candidate
+        {
+            increment_count(
+                "source_boundary_summary.adoption.adoption_excluded_invocation_count",
+                &mut adoption_excluded,
+            )?;
+        }
+    }
+    let eligible = checked_add_many(
+        "source_boundary_summary.adoption.eligible_invocation_count",
+        &[
+            raw_invocations.resolved,
+            raw_invocations.local,
+            invocation_origins.application,
+            invocation_origins.unknown,
+        ],
+    )?;
+    let adoption = AdoptionCounts {
+        eligible_invocation_count: eligible,
+        adopted_invocation_count: raw_invocations.resolved,
+        non_adopted_invocation_count: eligible.checked_sub(raw_invocations.resolved).ok_or_else(
+            || {
+                contract_violation(
+                    "source_boundary_summary.adoption.non_adopted_invocation_count",
+                    "non_adopted count underflow",
+                )
+            },
+        )?,
+        adoption_excluded_invocation_count: adoption_excluded,
+    };
+    Ok(SourceBoundarySummary {
+        boundary_id: boundary_id.to_owned(),
+        language: language.clone(),
+        files_scanned: u32::try_from(files.len()).map_err(|_| {
+            contract_violation(
+                "source_boundary_summary.files_scanned",
+                "file count exceeds u32 maximum",
+            )
+        })?,
+        files_represented: u32::try_from(files.len()).map_err(|_| {
+            contract_violation(
+                "source_boundary_summary.files_represented",
+                "file count exceeds u32 maximum",
+            )
+        })?,
+        raw_invocations,
+        invocation_origins,
+        adoption: adoption.clone(),
+        invocation_adoption_ratio: if eligible == 0 {
+            None
+        } else {
+            Some(f64::from(adoption.adopted_invocation_count) / f64::from(eligible))
+        },
+    })
+}
+
+fn increment_source_boundary_status(
+    counts: &mut RawInvocationCounts,
+    status: MatchStatus,
+) -> Result<(), ScanFactsError> {
+    let count = match status {
+        MatchStatus::Resolved => &mut counts.resolved,
+        MatchStatus::Local => &mut counts.local,
+        MatchStatus::Candidate => &mut counts.candidate,
+        MatchStatus::Unresolved => &mut counts.unresolved,
+    };
+    increment_count("source_boundary_summary.raw_invocations", count)?;
+    increment_count(
+        "source_boundary_summary.raw_invocations.total",
+        &mut counts.total,
+    )
+}
+
+fn increment_source_boundary_origin(
+    counts: &mut InvocationOriginCounts,
+    origin: CalleeOrigin,
+) -> Result<(), ScanFactsError> {
+    let count = match origin {
+        CalleeOrigin::Registry => &mut counts.registry,
+        CalleeOrigin::Local => &mut counts.local,
+        CalleeOrigin::Framework => &mut counts.framework,
+        CalleeOrigin::External => &mut counts.external,
+        CalleeOrigin::Application => &mut counts.application,
+        CalleeOrigin::Unknown => &mut counts.unknown,
+    };
+    increment_count("source_boundary_summary.invocation_origins", count)
 }
 
 fn validate_repo_summary(merged: &MergedScan) -> Result<(), ScanFactsError> {
@@ -1930,6 +2235,9 @@ fn json_path(path: &[String]) -> String {
 
 fn validate_location(field: &str, location: &SourceLocation) -> Result<(), ScanFactsError> {
     require_non_empty(&format!("{field}.file"), &location.file)?;
+    if let Some(boundary_id) = &location.boundary_id {
+        require_non_empty(&format!("{field}.boundary_id"), boundary_id)?;
+    }
 
     if location.line == 0 {
         return Err(contract_violation(

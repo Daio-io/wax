@@ -308,6 +308,33 @@ remote path `.wax/registries/<language-id>.json` and pin a tag or commit:
 `.wax/registries/<language-id>.json` for that language. The string shorthand
 and the `source`/`upstream` object form remain supported.
 
+### Source-boundary reporting
+
+Add explicit application, module, feature, or source-root boundaries under
+`reporting.source_boundaries` when scan consumers need stable grouping:
+
+```json
+{
+  "schema_version": 2,
+  "reporting": {
+    "source_boundaries": [
+      {
+        "id": "feature/devices",
+        "languages": ["compose"],
+        "include": ["mobile/**/feature/devices/**/*.kt"],
+        "exclude": ["**/generated/**"]
+      }
+    ]
+  }
+}
+```
+
+Boundary declarations are repo-relative, deterministic, and evaluated in
+declaration order; the first matching boundary wins. Omit `languages` to apply
+a boundary to every configured pack. Screen-level grouping continues to use
+pack-emitted parent scopes. Generic route inference is ecosystem-specific
+future work and is not inferred by Wax.
+
 The first scan or sync pins the resolved commit and registry digest in
 `.wax/wax.lock.json`. Ordinary `wax sync` reuses that pin; `wax sync --upgrade`
 refreshes tags. `wax validate` checks Git registry locks offline. Commit

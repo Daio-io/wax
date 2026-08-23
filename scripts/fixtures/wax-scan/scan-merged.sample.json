@@ -52,6 +52,49 @@
       "files_scanned": 5
     }
   },
+  "source_boundaries": [
+    {
+      "id": "feature/home",
+      "languages": ["compose"],
+      "include": ["src/**/Home.kt"],
+      "exclude": ["**/generated/**"]
+    },
+    {
+      "id": "feature/empty",
+      "include": ["src/**/Missing.kt"],
+      "exclude": []
+    }
+  ],
+  "source_boundary_summary": [
+    {
+      "boundary_id": "feature/home",
+      "language": "compose",
+      "files_scanned": 1,
+      "files_represented": 1,
+      "raw_invocations": {
+        "total": 6,
+        "resolved": 3,
+        "local": 1,
+        "candidate": 1,
+        "unresolved": 1
+      },
+      "invocation_origins": {
+        "registry": 4,
+        "local": 1,
+        "framework": 0,
+        "external": 0,
+        "application": 1,
+        "unknown": 0
+      },
+      "adoption": {
+        "eligible_invocation_count": 5,
+        "adopted_invocation_count": 3,
+        "non_adopted_invocation_count": 2,
+        "adoption_excluded_invocation_count": 0
+      },
+      "invocation_adoption_ratio": 0.6
+    }
+  ],
   "symbol_usage_summary": [
     {
       "symbol_id": "compose:registry:com.ds.Modal",
