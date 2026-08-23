@@ -264,16 +264,6 @@ impl ImportBindings {
 
         self.package_for_symbol(symbol)
     }
-
-    /// Returns the sole non-SwiftUI module for unresolved external attribution.
-    pub(crate) fn sole_non_swiftui_module(&self) -> Option<String> {
-        let modules = self
-            .module_imports
-            .iter()
-            .filter(|module| *module != "SwiftUI")
-            .collect::<Vec<_>>();
-        (modules.len() == 1).then(|| modules[0].clone())
-    }
 }
 
 /// Collects import bindings from the top level of a Swift source file.

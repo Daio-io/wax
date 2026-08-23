@@ -271,6 +271,7 @@ extract_core() {
             symbol_kind: .match_status,
             match_status: .match_status,
             registry_symbol: (.registry_symbol // null),
+            callee_origin: (.callee_origin // null),
             local_definition_id: (.local_definition_id // null),
             identity_basis: (
               if .match_status == "local" and (.local_definition_id? != null) then
@@ -337,7 +338,7 @@ extract_core() {
     def symbol_usage_summary_rows:
       ((.symbol_usage_summary // []) + ([.languages[] | .symbol_usage_summary[]?])) as $reported_rows
       | synthesized_symbol_usage_summary_rows as $synthetic_rows
-      | (($reported_rows + $synthetic_rows)
+      | (($synthetic_rows + $reported_rows)
         | unique_by(
             [
               .symbol_kind,

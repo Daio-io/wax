@@ -641,15 +641,7 @@ fn extract_usage_from_source(
 
             let import_package =
                 imports.package_for_call(&call_site.symbol, call_site.qualifier.as_deref());
-            let unresolved_package = import_package.clone().or_else(|| {
-                (!imports
-                    .module_imports
-                    .iter()
-                    .any(|module| is_framework_swiftui_module(module))
-                    || !is_framework_swiftui_symbol(&call_site.symbol))
-                .then(|| imports.sole_non_swiftui_module())
-                .flatten()
-            });
+            let unresolved_package = import_package.clone();
             if let Some(local) = call_site
                 .qualifier
                 .is_none()

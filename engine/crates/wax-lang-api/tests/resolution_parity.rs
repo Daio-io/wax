@@ -269,11 +269,11 @@ struct Screen: View {
     );
     for (symbol, origin, scenario) in [
         ("Text", CalleeOrigin::Framework, "framework"),
-        ("KFImage", CalleeOrigin::External, "external"),
+        ("KFImage", CalleeOrigin::Unknown, "unknown_without_binding"),
         (
             "UnknownCard",
-            CalleeOrigin::External,
-            "external_without_import",
+            CalleeOrigin::Unknown,
+            "unknown_without_import",
         ),
     ] {
         assert_parity(
