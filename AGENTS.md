@@ -95,7 +95,7 @@ If a pack needs ecosystem-specific import syntax, mirror the same outcomes: impo
 
 ## Product Contracts
 
-- `.waxrc`, `wax.lock.json`, pack index JSON, scan output JSON, and schema files are user-facing contracts. Update fixtures, schemas, docs, and tests when changing them.
+- `.wax/wax.config.json`, `.wax/wax.lock.json`, pack index JSON, scan output JSON, and schema files are user-facing contracts. Update fixtures, schemas, docs, and tests when changing them.
 - `wax validate` must remain repo-local and CI-friendly; it should not depend on global `~/.wax/` install state.
 - `wax scan --no-auto-install` must remain suitable for CI with committed lockfiles and preinstalled language packs.
 - Install channels distribute the engine binary; language packs are downloaded on demand into `~/.wax/langs/`.
