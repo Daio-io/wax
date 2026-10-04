@@ -19,6 +19,8 @@ Other important surfaces:
 - [packages/cli](packages/cli): npm wrapper
 - [skills](skills) and [.claude-plugin](.claude-plugin): optional AI skills and plugin metadata
 
+For changes to scanning, config, registries, or language packs, start with the [scan code map](docs/scan-code-map.md).
+
 Keep generated scan output out of git, especially `.wax/` outputs and global `~/.wax/` state.
 
 ## Local development

@@ -9,7 +9,9 @@ Production Rust code lives under `engine/`:
 - `wax-cli` is the end-user `wax` binary.
 - `wax-core` owns repository config, scan orchestration, language installation, validation, and output generation.
 - `wax-contract` and `wax-lang-api` define stable contracts between the engine and language packs.
-- `wax-lang-basic`, `wax-lang-compose`, and future `wax-lang-*` crates are language packs.
+- `wax-lang-basic`, `wax-lang-compose`, `wax-lang-react`, and `wax-lang-swift` are current language packs.
+
+For scan, config, registry, and parser changes, use the [scan code map](docs/scan-code-map.md) to find the owning modules and nearby tests.
 
 Release and install surfaces live outside `engine/` and are still part of the product:
 
