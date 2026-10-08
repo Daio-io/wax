@@ -75,7 +75,7 @@ fn format_json_summary_is_sole_stdout_and_schema_valid() {
 }
 
 #[test]
-fn format_json_summary_has_schema_version_2() {
+fn format_json_summary_has_schema_version_1() {
     let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-format-json-version",
@@ -86,7 +86,7 @@ fn format_json_summary_has_schema_version_2() {
     assert!(output.status.success());
     let value: serde_json::Value =
         serde_json::from_str(String::from_utf8(output.stdout).unwrap().trim()).unwrap();
-    assert_eq!(value["schema_version"], 2);
+    assert_eq!(value["schema_version"], 1);
 }
 
 #[test]

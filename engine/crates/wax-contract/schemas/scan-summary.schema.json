@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://wax.dev/schemas/scan-summary.v2.schema.json",
+  "$id": "https://wax.dev/schemas/scan-summary.v1.schema.json",
   "title": "Scan JSON summary",
-  "description": "Stable, versioned scan summary for CI and dashboards. Version 2 adds optional baseline deltas.",
+  "description": "Stable, versioned scan summary for CI and dashboards. Optional `deltas` may be present when a baseline comparison was requested.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -19,7 +19,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": 2
+      "const": 1
     },
     "generated_at": {
       "type": "string",

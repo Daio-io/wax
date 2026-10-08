@@ -36,8 +36,8 @@ pub const SUMMARY_LIMIT_CATEGORY: &str = "category rollups are not available in 
 /// Ownership rollup gap message.
 pub const SUMMARY_LIMIT_OWNERSHIP: &str =
     "ownership rollups are not available in current scan facts";
-/// JSON summary schema version. Version 2 adds optional baseline `deltas`.
-pub const JSON_SUMMARY_SCHEMA_VERSION: u32 = 2;
+/// JSON summary schema version. Optional baseline `deltas` stay on v1.
+pub const JSON_SUMMARY_SCHEMA_VERSION: u32 = 1;
 
 /// One written scan artifact recorded in the JSON summary.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

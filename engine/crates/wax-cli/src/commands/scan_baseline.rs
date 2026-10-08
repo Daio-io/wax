@@ -20,16 +20,21 @@ pub struct DiagnosticRef {
     /// Language that emitted the diagnostic, when known.
     pub language: Option<String>,
     /// Source location when present; part of the comparison fingerprint.
+    ///
+    /// Kept beyond the brief's `{ code, message, language }` sketch so the same
+    /// code/message at different files are distinct new vs resolved diagnostics.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub location: Option<JsonSummaryLocation>,
 }
 
-type DiagnosticFingerprint = (
-    String,
-    String,
-    Option<String>,
-    Option<(String, u32, Option<u32>)>,
-);
+/// Identity key used when diffing failure diagnostics against a baseline.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct DiagnosticFingerprint {
+    code: String,
+    message: String,
+    language: Option<String>,
+    location: Option<(String, u32, Option<u32>)>,
+}
 
 /// Changes between the current scan summary and a baseline.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -180,15 +185,15 @@ fn diagnostic_ref_from_summary(diagnostic: &JsonSummaryDiagnostic) -> Diagnostic
 }
 
 fn diagnostic_fingerprint(diagnostic: &DiagnosticRef) -> DiagnosticFingerprint {
-    (
-        diagnostic.code.clone(),
-        diagnostic.message.clone(),
-        diagnostic.language.clone(),
-        diagnostic
+    DiagnosticFingerprint {
+        code: diagnostic.code.clone(),
+        message: diagnostic.message.clone(),
+        language: diagnostic.language.clone(),
+        location: diagnostic
             .location
             .as_ref()
             .map(|location| (location.file.clone(), location.line, location.column)),
-    )
+    }
 }
 
 fn diagnostic_map(

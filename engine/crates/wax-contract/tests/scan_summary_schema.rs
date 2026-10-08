@@ -10,7 +10,7 @@ fn validator() -> jsonschema::Validator {
 fn summary_fixture_validates() {
     let validator = validator();
     let value = json!({
-        "schema_version": 2,
+        "schema_version": 1,
         "generated_at": "1970-01-01T00:00:00Z",
         "repo_root": ".",
         "scan_path": ".wax/out/scan-merged.json",
@@ -75,10 +75,10 @@ fn summary_fixture_validates() {
 }
 
 #[test]
-fn summary_with_deltas_validates_as_v2() {
+fn summary_with_optional_deltas_validates_as_v1() {
     let validator = validator();
     let value = json!({
-        "schema_version": 2,
+        "schema_version": 1,
         "generated_at": "1970-01-01T00:00:00Z",
         "repo_root": ".",
         "scan_path": ".wax/out/scan-merged.json",
@@ -123,6 +123,6 @@ fn summary_with_deltas_validates_as_v2() {
 
     assert!(
         validator.is_valid(&value),
-        "v2 summary with deltas should validate"
+        "v1 summary with optional deltas should validate"
     );
 }

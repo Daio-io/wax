@@ -32,8 +32,8 @@ use wax_core::config::repo_files::PREFERRED_CONFIG_RELATIVE_PATH;
 use wax_core::config::waxrc::{
     AdoptionConfig, EngineConfig, LanguageEntry, LanguageRegistrySource,
     SCAN_OUTPUT_FORMAT_GRAPH_DATA, SCAN_OUTPUT_FORMAT_HTML, SCAN_OUTPUT_FORMAT_JSON_SUMMARY,
-    ScanOutputSpec, WAXRC_SCHEMA_VERSION, WaxRc, WaxRcError, is_deferred_scan_output_format,
-    load_waxrc,
+    SCAN_OUTPUT_FORMAT_MARKDOWN, ScanOutputSpec, WAXRC_SCHEMA_VERSION, WaxRc, WaxRcError,
+    is_deferred_scan_output_format, load_waxrc,
 };
 use wax_core::paths::PathsError;
 use wax_core::registry::{fetch_pack_index, select_target_artifact};
@@ -485,8 +485,13 @@ fn finish_scan_outputs(
     };
     let written =
         write_requested_outputs(&requests, merged, options, &output_path, deltas.as_ref())?;
-    let mut stdout_summary = build_json_summary(merged, &options.repo_root, &output_path, &written);
-    stdout_summary.deltas = deltas;
+    let stdout_summary = summary_with_deltas(
+        merged,
+        &options.repo_root,
+        &output_path,
+        &written,
+        deltas.as_ref(),
+    );
     emit_stdout_format(
         writer,
         options.format,
@@ -503,9 +508,10 @@ fn needs_deltas(format: ScanStdoutFormat, requests: &[ScanOutputRequest]) -> boo
     matches!(
         format,
         ScanStdoutFormat::JsonSummary | ScanStdoutFormat::Markdown
-    ) || requests
-        .iter()
-        .any(|request| matches!(request.format.as_str(), "json-summary" | "markdown"))
+    ) || requests.iter().any(|request| {
+        request.format == SCAN_OUTPUT_FORMAT_JSON_SUMMARY
+            || request.format == SCAN_OUTPUT_FORMAT_MARKDOWN
+    })
 }
 
 fn enforce_strict_scan(
@@ -924,9 +930,13 @@ fn write_requested_outputs(
         let request = &requests[index];
         if request.format == SCAN_OUTPUT_FORMAT_JSON_SUMMARY {
             let destination = artifact_destination(request, &options.repo_root);
-            let mut summary =
-                build_json_summary(merged, &options.repo_root, scan_path, &artifact_manifest);
-            summary.deltas = deltas.cloned();
+            let summary = summary_with_deltas(
+                merged,
+                &options.repo_root,
+                scan_path,
+                &artifact_manifest,
+                deltas,
+            );
             write_json_summary(&destination, &summary)?;
             record_written_artifact_bytes(&mut artifact_manifest, index, &destination);
         } else if request.format == SCAN_OUTPUT_FORMAT_GRAPH_DATA {
@@ -939,20 +949,28 @@ fn write_requested_outputs(
             record_written_artifact_bytes(&mut artifact_manifest, index, &destination);
         } else if request.format == SCAN_OUTPUT_FORMAT_HTML {
             let destination = artifact_destination(request, &options.repo_root);
-            let mut summary =
-                build_json_summary(merged, &options.repo_root, scan_path, &artifact_manifest);
-            summary.deltas = deltas.cloned();
+            let summary = summary_with_deltas(
+                merged,
+                &options.repo_root,
+                scan_path,
+                &artifact_manifest,
+                deltas,
+            );
             let source_scan_path = scan_path
                 .strip_prefix(&options.repo_root)
                 .unwrap_or(scan_path);
             let graph = build_scan_graph(merged, source_scan_path);
             write_html_report(&destination, &options.repo_root, &summary, &graph)?;
             record_written_artifact_bytes(&mut artifact_manifest, index, &destination);
-        } else if request.format == "markdown" {
+        } else if request.format == SCAN_OUTPUT_FORMAT_MARKDOWN {
             let destination = artifact_destination(request, &options.repo_root);
-            let mut summary =
-                build_json_summary(merged, &options.repo_root, scan_path, &artifact_manifest);
-            summary.deltas = deltas.cloned();
+            let summary = summary_with_deltas(
+                merged,
+                &options.repo_root,
+                scan_path,
+                &artifact_manifest,
+                deltas,
+            );
             let body = render_markdown_summary(&summary, deltas, &artifact_manifest);
             write_atomically(&destination, body.as_bytes(), AtomicWriteOptions::default())?;
             record_written_artifact_bytes(&mut artifact_manifest, index, &destination);
@@ -967,6 +985,18 @@ fn write_requested_outputs(
         }
     }
     Ok(artifact_manifest)
+}
+
+fn summary_with_deltas(
+    merged: &MergedScan,
+    repo_root: &Path,
+    scan_path: &Path,
+    artifacts: &[WrittenArtifact],
+    deltas: Option<&SummaryDeltas>,
+) -> super::scan_summary::JsonSummary {
+    let mut summary = build_json_summary(merged, repo_root, scan_path, artifacts);
+    summary.deltas = deltas.cloned();
+    summary
 }
 
 fn emit_stdout_format(
