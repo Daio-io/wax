@@ -5,13 +5,13 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 **Rules:**
 
 1. **Completed plans** are archived under [`archive/`](./archive/README.md) with ADR records in [`docs/adr/`](../adr/README.md).
-2. **Implementation** follows one active plan at a time. Post-alpha UX is explicitly deferred except for extracted tasks listed in this roadmap.
+2. **Implementation** follows one active plan at a time.
 3. Each implementation task remains **one PR per task** inside the active plan, per that plan's execution model.
 4. Update the **Doc status** and **Implementation status** columns when a plan doc PR merges or when implementation of a plan finishes.
 
 **Active plan:** Phase 2B — explicit resolution evidence and callee origin (order 17), documented in [the Phase 2B plan](./2026-08-22-phase-2b-resolution-evidence-plan.md). Adoption Metrics v2 (order 11), Token inference and reporting (order 14), Compose parse recovery and UI scoping (order 15), and Git registry sources (order 16) are complete and archived; see their [Adoption Metrics v2 archive](./archive/2026-06-20-adoption-metrics-v2-plan.md), [Adoption Metrics v2 ADR](../adr/2026-06-20-adoption-metrics-v2.md), [token inference archive](./archive/2026-07-19-token-inference-reporting-plan.md), [token inference ADR](../adr/2026-07-19-token-inference-reporting.md), [compose parse recovery archive](./archive/2026-07-22-compose-parse-recovery-plan.md), [compose parse recovery ADR](../adr/2026-07-22-compose-parse-recovery.md), [Git registry sources archive](./archive/2026-08-01-git-registry-sources-plan.md), and [Git registry sources ADR](../adr/2026-08-01-git-registry-sources.md).
 
-**Authorized Post-alpha UX extractions:** Phase 1 scan `--format` / `json-summary` outputs (THE-635), Phase 2a `graph-data` artifact + schema (THE-636), Phase 2b static HTML scan report (THE-639), and Phase 3 Markdown scan summary / `--baseline` deltas / CI recipe (THE-637) are explicit extractions from the deferred [Post-alpha UX plan](./2026-05-24-post-alpha-ux-plan.md). They may land while Phase 2B remains the sequential active plan; remaining Post-alpha UX tasks stay deferred until extracted the same way.
+**Post-alpha UX (order 5):** Implementation is **complete** (Task 1 via order 9; Phases 1–3 via THE-635 / THE-636 / THE-639 / THE-637; Task 5 docs closeout in THE-638). The plan document remains at [2026-05-24-post-alpha-ux-plan.md](./2026-05-24-post-alpha-ux-plan.md) with ADR `—` until a follow-up archives it under Rule 1; THE-638 intentionally skips a new ADR in this closeout.
 
 ---
 
@@ -40,6 +40,8 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 **Doc status:** `pending` -> plan PR open; `merged` -> plan doc on `main`; `planned` -> not yet drafted.
 
 **Implementation status:** `not-started` | `in-progress` | `complete` | `deferred`.
+
+**Order 5 archive/ADR exception:** order 5 is `complete` with a live (non-`archive/`) document path and ADR `—` on purpose. Do not treat that row as Rule 1–closed until a follow-up moves the plan under [`archive/`](./archive/README.md) and records an ADR.
 
 ---
 
