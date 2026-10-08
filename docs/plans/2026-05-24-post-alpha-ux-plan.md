@@ -228,7 +228,7 @@ Run: `cd engine && cargo test -p wax-cli --test scan_html_report`
 
 Expected: PASS; generated graph JSON validates against schema; HTML contains the headline metrics, a graph container or inline rendered chart, diagnostics, and links to generated JSON artifacts.
 
-### - [ ] Task 4: PR / markdown scan summary and CI deltas
+### - [x] Task 4: PR / markdown scan summary and CI deltas
 
 **Files:**
 
@@ -237,21 +237,25 @@ Expected: PASS; generated graph JSON validates against schema; HTML contains the
 - Create: `docs/ci-scan-summary.md`
 - Create: `engine/crates/wax-cli/tests/scan_markdown_summary.rs`
 
-- [ ] **Step 1: Emit markdown for stdout and artifact paths**
+- [x] **Step 1: Emit markdown for stdout and artifact paths**
 
 Emit markdown suitable for PR comments: adoption headline, per-language table, top diagnostics, generated artifact links, and explicit limitations.
 
-- [ ] **Step 2: Add baseline comparison inputs**
+- [x] **Step 2: Add baseline comparison inputs**
 
 Support `--baseline <path>` for a previous `json-summary` or `scan-merged.json` file. Markdown and JSON summary outputs should include deltas when a baseline is provided: adoption coverage change, resolved/candidate usage change, new error diagnostics, and removed/resolved diagnostics when computable.
 
-- [ ] **Step 3: Document GitHub Actions usage**
+`DiagnosticRef` in `deltas` intentionally includes optional `location` (beyond the brief's `{ code, message, language }` sketch) so the same code/message at different files fingerprint as distinct new vs resolved diagnostics.
+
+- [x] **Step 3: Document GitHub Actions usage**
 
 Add copy-paste CI snippets that generate `json-summary`, `graph-data`, `markdown`, and `html` artifacts. Show a PR-comment workflow using markdown and an artifact upload step for HTML/JSON.
 
-- [ ] **Step 4: Optional workflow fixture**
+- [x] **Step 4: Optional workflow fixture**
 
 Add an example workflow step in `.github/workflows/` or a fixture repo only if it will not run on every PR by default.
+
+No workflow fixture was added; the opt-in recipe lives in `docs/ci-scan-summary.md` and does not run in this repository.
 
 Run: manual generate from alpha fixture; snapshot test optional.
 

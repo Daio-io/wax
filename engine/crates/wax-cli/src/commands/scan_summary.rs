@@ -10,6 +10,8 @@ use wax_contract::{Diagnostic, DiagnosticSeverity, MergedScan, ScanStatus, Sourc
 use wax_core::{AtomicWriteError, AtomicWriteOptions, write_atomically};
 use wax_lang_api::normalize_repo_relative_path;
 
+use super::scan_baseline::SummaryDeltas;
+
 /// Errors from writing a JSON summary artifact.
 #[derive(Debug, Error)]
 pub enum JsonSummaryWriteError {
@@ -34,6 +36,8 @@ pub const SUMMARY_LIMIT_CATEGORY: &str = "category rollups are not available in 
 /// Ownership rollup gap message.
 pub const SUMMARY_LIMIT_OWNERSHIP: &str =
     "ownership rollups are not available in current scan facts";
+/// JSON summary schema version. Optional baseline `deltas` stay on v1.
+pub const JSON_SUMMARY_SCHEMA_VERSION: u32 = 1;
 
 /// One written scan artifact recorded in the JSON summary.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -118,7 +122,7 @@ pub struct JsonSummaryDiagnostic {
 }
 
 /// Source location in the JSON summary.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct JsonSummaryLocation {
     /// Repository-relative file path.
     pub file: String,
@@ -152,6 +156,9 @@ pub struct JsonSummary {
     pub artifacts: Vec<WrittenArtifact>,
     /// Known data-gap warnings.
     pub limits: Vec<String>,
+    /// Changes from the requested baseline, when computed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deltas: Option<SummaryDeltas>,
 }
 
 /// Builds a schema-version-1 JSON summary from merged scan facts.
@@ -184,7 +191,7 @@ pub fn build_json_summary(
         .collect();
 
     JsonSummary {
-        schema_version: 1,
+        schema_version: JSON_SUMMARY_SCHEMA_VERSION,
         generated_at: OffsetDateTime::now_utc()
             .format(&Rfc3339)
             .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_owned()),
@@ -225,6 +232,7 @@ pub fn build_json_summary(
             SUMMARY_LIMIT_CATEGORY.to_owned(),
             SUMMARY_LIMIT_OWNERSHIP.to_owned(),
         ],
+        deltas: None,
     }
 }
 
@@ -305,6 +313,52 @@ fn severity_label(severity: DiagnosticSeverity) -> &'static str {
     }
 }
 
+/// Shared JSON-summary fixture for baseline and markdown unit tests.
+#[cfg(test)]
+pub(crate) fn sample_json_summary(
+    coverage: Option<f64>,
+    resolved: u32,
+    candidate: u32,
+    diagnostics: Vec<JsonSummaryDiagnostic>,
+    limits: Vec<String>,
+) -> JsonSummary {
+    JsonSummary {
+        schema_version: JSON_SUMMARY_SCHEMA_VERSION,
+        generated_at: "1970-01-01T00:00:00Z".to_owned(),
+        repo_root: ".".to_owned(),
+        scan_path: ".wax/out/scan-merged.json".to_owned(),
+        snapshot_ids: vec![],
+        languages: vec![JsonSummaryLanguage {
+            id: "compose".to_owned(),
+            version: "1.0.0".to_owned(),
+            status: "complete".to_owned(),
+            parser: "fixture".to_owned(),
+            files_scanned: 1,
+            coverage_ratio: coverage,
+            resolved,
+            candidate,
+        }],
+        adoption: JsonSummaryAdoption {
+            coverage_ratio: coverage,
+            eligible_invocation_count: resolved + candidate,
+            adopted_invocation_count: resolved,
+            non_adopted_invocation_count: candidate,
+            adoption_excluded_invocation_count: 0,
+            raw_invocations: JsonSummaryRawInvocations {
+                total: resolved + candidate,
+                resolved,
+                local: 0,
+                candidate,
+                unresolved: 0,
+            },
+        },
+        diagnostics,
+        artifacts: vec![],
+        limits,
+        deltas: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -333,7 +387,7 @@ mod tests {
         let destination = blocker.join("scan-summary.json");
 
         let summary = JsonSummary {
-            schema_version: 1,
+            schema_version: JSON_SUMMARY_SCHEMA_VERSION,
             generated_at: "1970-01-01T00:00:00Z".to_owned(),
             repo_root: ".".to_owned(),
             scan_path: ".wax/out/scan-merged.json".to_owned(),
@@ -356,6 +410,7 @@ mod tests {
             diagnostics: vec![],
             artifacts: vec![],
             limits: vec![],
+            deltas: None,
         };
 
         let error =

@@ -73,3 +73,56 @@ fn summary_fixture_validates() {
         "fixture should validate against scan-summary schema"
     );
 }
+
+#[test]
+fn summary_with_optional_deltas_validates_as_v1() {
+    let validator = validator();
+    let value = json!({
+        "schema_version": 1,
+        "generated_at": "1970-01-01T00:00:00Z",
+        "repo_root": ".",
+        "scan_path": ".wax/out/scan-merged.json",
+        "snapshot_ids": [],
+        "languages": [],
+        "adoption": {
+            "coverage_ratio": 1.0,
+            "eligible_invocation_count": 1,
+            "adopted_invocation_count": 1,
+            "non_adopted_invocation_count": 0,
+            "adoption_excluded_invocation_count": 0,
+            "raw_invocations": {
+                "total": 1,
+                "resolved": 1,
+                "local": 0,
+                "candidate": 0,
+                "unresolved": 0
+            }
+        },
+        "diagnostics": [],
+        "artifacts": [],
+        "limits": [],
+        "deltas": {
+            "adoption_coverage_delta": 0.25,
+            "resolved_delta": 1,
+            "candidate_delta": -1,
+            "new_error_diagnostics": [
+                {
+                    "code": "PARSE_ERROR",
+                    "message": "unexpected token",
+                    "language": "react",
+                    "location": {
+                        "file": "src/A.tsx",
+                        "line": 4,
+                        "column": 1
+                    }
+                }
+            ],
+            "resolved_diagnostics": []
+        }
+    });
+
+    assert!(
+        validator.is_valid(&value),
+        "v1 summary with optional deltas should validate"
+    );
+}

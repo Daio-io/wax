@@ -23,9 +23,11 @@ pub mod commands {
     pub mod language;
     pub mod registry;
     pub mod scan;
+    pub mod scan_baseline;
     pub mod scan_graph;
     pub mod scan_report_html;
     pub mod scan_summary;
+    pub mod scan_summary_md;
     mod state_path;
     pub mod sync;
     pub mod uninstall;

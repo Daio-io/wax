@@ -147,6 +147,7 @@ fn main() {
                     format: args.format,
                     cli_outputs,
                     allow_absolute_output: args.allow_absolute_output,
+                    baseline: args.baseline,
                     state_path: None,
                     pack_index_url: None,
                     target_triple: None,

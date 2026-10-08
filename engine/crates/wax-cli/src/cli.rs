@@ -233,6 +233,8 @@ pub enum ScanStdoutFormat {
     /// Print a single schema-valid JSON summary object.
     #[value(name = "json-summary")]
     JsonSummary,
+    /// Print a Markdown summary suitable for CI and pull-request comments.
+    Markdown,
 }
 
 /// Arguments for `wax scan`.
@@ -262,6 +264,9 @@ pub struct ScanArgs {
     /// Allow absolute artifact output paths.
     #[arg(long)]
     pub allow_absolute_output: bool,
+    /// Prior JSON summary or merged scan used to compute output deltas.
+    #[arg(long = "baseline", value_name = "PATH")]
+    pub baseline: Option<PathBuf>,
 }
 
 /// Arguments for `wax sync`.

@@ -5,12 +5,14 @@ use super::language::{
     LanguageCommandError, default_target_triple, manifest_for_language, resolve_registry_url,
     update_lockfile_entry,
 };
+use super::scan_baseline::{BaselineError, SummaryDeltas, compute_deltas, load_baseline};
 use super::scan_graph::{GraphWriteError, build_scan_graph, write_scan_graph};
 use super::scan_report_html::{HtmlWriteError, write_html_report};
 use super::scan_summary::{
     JsonSummaryWriteError, WrittenArtifact, build_json_summary, is_failure_diagnostic,
     status_label, write_json_summary,
 };
+use super::scan_summary_md::render_markdown_summary;
 use super::state_path::resolve_state_path;
 use crate::cli::ScanStdoutFormat;
 use crate::progress::{CliProgress, optional_scan_progress_sink};
@@ -30,8 +32,8 @@ use wax_core::config::repo_files::PREFERRED_CONFIG_RELATIVE_PATH;
 use wax_core::config::waxrc::{
     AdoptionConfig, EngineConfig, LanguageEntry, LanguageRegistrySource,
     SCAN_OUTPUT_FORMAT_GRAPH_DATA, SCAN_OUTPUT_FORMAT_HTML, SCAN_OUTPUT_FORMAT_JSON_SUMMARY,
-    ScanOutputSpec, WAXRC_SCHEMA_VERSION, WaxRc, WaxRcError, is_deferred_scan_output_format,
-    load_waxrc,
+    SCAN_OUTPUT_FORMAT_MARKDOWN, ScanOutputSpec, WAXRC_SCHEMA_VERSION, WaxRc, WaxRcError,
+    is_deferred_scan_output_format, load_waxrc,
 };
 use wax_core::paths::PathsError;
 use wax_core::registry::{fetch_pack_index, select_target_artifact};
@@ -41,7 +43,10 @@ use wax_core::registry_memory::{
 };
 use wax_core::registry_source::{RegistrySourceInput, resolve_registry_source};
 use wax_core::sync::{SyncError, SyncOptions, best_effort_sync_app_registries};
-use wax_core::{AtomicWriteError, Engine, EngineError, EphemeralScanConfig, ScanOptions};
+use wax_core::{
+    AtomicWriteError, AtomicWriteOptions, Engine, EngineError, EphemeralScanConfig, ScanOptions,
+    write_atomically,
+};
 use wax_lang_api::{build_version, normalize_repo_relative_path};
 
 const MAX_FAILURE_DIAGNOSTICS: usize = 5;
@@ -87,6 +92,8 @@ pub struct ScanCommandOptions {
     pub cli_outputs: Vec<ScanOutputRequest>,
     /// Whether absolute artifact paths are allowed.
     pub allow_absolute_output: bool,
+    /// Prior JSON summary or merged scan used to compute output deltas.
+    pub baseline: Option<PathBuf>,
     /// Global state path override for tests.
     pub state_path: Option<PathBuf>,
     /// Pack index URL override for ephemeral scans.
@@ -238,6 +245,43 @@ pub enum ScanCommandError {
     /// Atomic replacement of a scan artifact failed.
     #[error(transparent)]
     AtomicWrite(#[from] AtomicWriteError),
+    /// A requested baseline file could not be read.
+    #[error("failed to read scan baseline `{path}`: {source}", path = path.display())]
+    BaselineIo {
+        /// Baseline path that could not be read.
+        path: PathBuf,
+        /// Underlying I/O error.
+        #[source]
+        source: io::Error,
+    },
+    /// A requested baseline failed JSON parse/deserialize.
+    #[error(
+        "unrecognized scan baseline format at `{path}`: {source}",
+        path = path.display()
+    )]
+    BaselineParse {
+        /// Baseline path that failed to parse.
+        path: PathBuf,
+        /// Underlying JSON parse or deserialize error.
+        #[source]
+        source: serde_json::Error,
+    },
+    /// A requested baseline was neither a JSON summary nor a merged scan.
+    #[error("unrecognized scan baseline format at `{path}`", path = path.display())]
+    BaselineUnrecognized {
+        /// Baseline path whose JSON shape was unsupported.
+        path: PathBuf,
+    },
+}
+
+impl From<BaselineError> for ScanCommandError {
+    fn from(error: BaselineError) -> Self {
+        match error {
+            BaselineError::Io { path, source } => Self::BaselineIo { path, source },
+            BaselineError::Parse { path, source } => Self::BaselineParse { path, source },
+            BaselineError::Unrecognized { path } => Self::BaselineUnrecognized { path },
+        }
+    }
 }
 
 impl From<JsonSummaryWriteError> for ScanCommandError {
@@ -416,7 +460,7 @@ fn write_scan_warning_line(
 ) -> Result<(), ScanCommandError> {
     match format {
         ScanStdoutFormat::Summary => writeln!(writer, "{line}").map_err(write_error),
-        ScanStdoutFormat::Quiet | ScanStdoutFormat::JsonSummary => {
+        ScanStdoutFormat::Quiet | ScanStdoutFormat::JsonSummary | ScanStdoutFormat::Markdown => {
             writeln!(io::stderr(), "{line}").map_err(write_error)
         }
     }
@@ -454,17 +498,42 @@ fn finish_scan_outputs(
 ) -> Result<(), ScanCommandError> {
     let output_path = options.repo_root.join(SCAN_OUTPUT_RELATIVE_PATH);
     let requests = resolve_scan_outputs(options, config_outputs)?;
-    let written = write_requested_outputs(&requests, merged, options, &output_path)?;
-    emit_stdout_format(
-        writer,
-        options.format,
+    let deltas = match options.baseline.as_deref() {
+        Some(path) if needs_deltas(options.format, &requests) => {
+            let summary = build_json_summary(merged, &options.repo_root, &output_path, &[]);
+            Some(compute_deltas(&summary, &load_baseline(path)?))
+        }
+        _ => None,
+    };
+    let written =
+        write_requested_outputs(&requests, merged, options, &output_path, deltas.as_ref())?;
+    let stdout_summary = summary_with_deltas(
         merged,
         &options.repo_root,
         &output_path,
         &written,
+        deltas.as_ref(),
+    );
+    emit_stdout_format(
+        writer,
+        options.format,
+        merged,
+        &output_path,
+        &written,
+        &stdout_summary,
         ephemeral,
     )?;
     enforce_strict_scan(options.strict, merged, output_path)
+}
+
+fn needs_deltas(format: ScanStdoutFormat, requests: &[ScanOutputRequest]) -> bool {
+    matches!(
+        format,
+        ScanStdoutFormat::JsonSummary | ScanStdoutFormat::Markdown
+    ) || requests.iter().any(|request| {
+        request.format == SCAN_OUTPUT_FORMAT_JSON_SUMMARY
+            || request.format == SCAN_OUTPUT_FORMAT_MARKDOWN
+    })
 }
 
 fn enforce_strict_scan(
@@ -859,6 +928,7 @@ fn write_requested_outputs(
     merged: &MergedScan,
     options: &ScanCommandOptions,
     scan_path: &Path,
+    deltas: Option<&SummaryDeltas>,
 ) -> Result<Vec<WrittenArtifact>, ScanCommandError> {
     let mut artifact_manifest: Vec<WrittenArtifact> = requests
         .iter()
@@ -882,8 +952,13 @@ fn write_requested_outputs(
         let request = &requests[index];
         if request.format == SCAN_OUTPUT_FORMAT_JSON_SUMMARY {
             let destination = artifact_destination(request, &options.repo_root);
-            let summary =
-                build_json_summary(merged, &options.repo_root, scan_path, &artifact_manifest);
+            let summary = summary_with_deltas(
+                merged,
+                &options.repo_root,
+                scan_path,
+                &artifact_manifest,
+                deltas,
+            );
             write_json_summary(&destination, &summary)?;
             record_written_artifact_bytes(&mut artifact_manifest, index, &destination);
         } else if request.format == SCAN_OUTPUT_FORMAT_GRAPH_DATA {
@@ -896,13 +971,30 @@ fn write_requested_outputs(
             record_written_artifact_bytes(&mut artifact_manifest, index, &destination);
         } else if request.format == SCAN_OUTPUT_FORMAT_HTML {
             let destination = artifact_destination(request, &options.repo_root);
-            let summary =
-                build_json_summary(merged, &options.repo_root, scan_path, &artifact_manifest);
+            let summary = summary_with_deltas(
+                merged,
+                &options.repo_root,
+                scan_path,
+                &artifact_manifest,
+                deltas,
+            );
             let source_scan_path = scan_path
                 .strip_prefix(&options.repo_root)
                 .unwrap_or(scan_path);
             let graph = build_scan_graph(merged, source_scan_path);
             write_html_report(&destination, &options.repo_root, &summary, &graph)?;
+            record_written_artifact_bytes(&mut artifact_manifest, index, &destination);
+        } else if request.format == SCAN_OUTPUT_FORMAT_MARKDOWN {
+            let destination = artifact_destination(request, &options.repo_root);
+            let summary = summary_with_deltas(
+                merged,
+                &options.repo_root,
+                scan_path,
+                &artifact_manifest,
+                deltas,
+            );
+            let body = render_markdown_summary(&summary);
+            write_atomically(&destination, body.as_bytes(), AtomicWriteOptions::default())?;
             record_written_artifact_bytes(&mut artifact_manifest, index, &destination);
         } else if is_deferred_scan_output_format(&request.format) {
             return Err(ScanCommandError::OutputFormatDeferred {
@@ -917,13 +1009,25 @@ fn write_requested_outputs(
     Ok(artifact_manifest)
 }
 
+fn summary_with_deltas(
+    merged: &MergedScan,
+    repo_root: &Path,
+    scan_path: &Path,
+    artifacts: &[WrittenArtifact],
+    deltas: Option<&SummaryDeltas>,
+) -> super::scan_summary::JsonSummary {
+    let mut summary = build_json_summary(merged, repo_root, scan_path, artifacts);
+    summary.deltas = deltas.cloned();
+    summary
+}
+
 fn emit_stdout_format(
     writer: &mut impl Write,
     format: ScanStdoutFormat,
     merged: &MergedScan,
-    repo_root: &Path,
     output_path: &Path,
     written: &[WrittenArtifact],
+    summary: &super::scan_summary::JsonSummary,
     ephemeral: bool,
 ) -> Result<(), ScanCommandError> {
     match format {
@@ -934,12 +1038,14 @@ fn emit_stdout_format(
             writeln!(writer, "{}", output_path.display()).map_err(write_error)
         }
         ScanStdoutFormat::JsonSummary => {
-            let summary = build_json_summary(merged, repo_root, output_path, written);
             let rendered =
-                serde_json::to_string_pretty(&summary).map_err(|source| ScanCommandError::Io {
+                serde_json::to_string_pretty(summary).map_err(|source| ScanCommandError::Io {
                     source: io::Error::other(source),
                 })?;
             writeln!(writer, "{rendered}").map_err(write_error)
+        }
+        ScanStdoutFormat::Markdown => {
+            write!(writer, "{}", render_markdown_summary(summary)).map_err(write_error)
         }
     }
 }
@@ -2184,6 +2290,7 @@ mod tests {
                 format: crate::cli::ScanStdoutFormat::Summary,
                 cli_outputs: Vec::new(),
                 allow_absolute_output: false,
+                baseline: None,
                 state_path: Some(wax_home.join("state.json")),
                 pack_index_url: None,
                 target_triple: None,
@@ -2221,6 +2328,7 @@ mod tests {
                 format: crate::cli::ScanStdoutFormat::Summary,
                 cli_outputs: Vec::new(),
                 allow_absolute_output: false,
+                baseline: None,
                 state_path: None,
                 pack_index_url: None,
                 target_triple: None,
@@ -2266,6 +2374,7 @@ mod tests {
                 format: crate::cli::ScanStdoutFormat::Summary,
                 cli_outputs: Vec::new(),
                 allow_absolute_output: false,
+                baseline: None,
                 state_path: None,
                 pack_index_url: None,
                 target_triple: None,
