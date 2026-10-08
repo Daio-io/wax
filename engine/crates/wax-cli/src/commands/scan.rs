@@ -836,6 +836,14 @@ fn artifact_destination(request: &ScanOutputRequest, repo_root: &Path) -> PathBu
     }
 }
 
+fn record_written_artifact_bytes(
+    artifact_manifest: &mut [WrittenArtifact],
+    index: usize,
+    destination: &Path,
+) {
+    artifact_manifest[index].bytes = fs::metadata(destination).ok().map(|meta| meta.len());
+}
+
 fn write_requested_outputs(
     requests: &[ScanOutputRequest],
     merged: &MergedScan,
@@ -857,8 +865,7 @@ fn write_requested_outputs(
             let summary =
                 build_json_summary(merged, &options.repo_root, scan_path, &artifact_manifest);
             write_json_summary(&destination, &summary)?;
-            let bytes = fs::metadata(&destination).ok().map(|meta| meta.len());
-            artifact_manifest[index].bytes = bytes;
+            record_written_artifact_bytes(&mut artifact_manifest, index, &destination);
         } else if request.format == SCAN_OUTPUT_FORMAT_GRAPH_DATA {
             let destination = artifact_destination(request, &options.repo_root);
             let source_scan_path = scan_path
@@ -866,8 +873,7 @@ fn write_requested_outputs(
                 .unwrap_or(scan_path);
             let graph = build_scan_graph(merged, source_scan_path);
             write_scan_graph(&destination, &graph)?;
-            let bytes = fs::metadata(&destination).ok().map(|meta| meta.len());
-            artifact_manifest[index].bytes = bytes;
+            record_written_artifact_bytes(&mut artifact_manifest, index, &destination);
         } else if is_deferred_scan_output_format(&request.format) {
             return Err(ScanCommandError::OutputFormatDeferred {
                 format: request.format.clone(),

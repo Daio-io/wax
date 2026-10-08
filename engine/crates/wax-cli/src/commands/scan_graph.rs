@@ -1,7 +1,7 @@
 //! Graph-data artifact builder for `wax scan --output graph-data=...`.
 
 use serde::Serialize;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -102,7 +102,6 @@ pub struct GraphMetric {
 pub fn build_scan_graph(merged: &MergedScan, scan_path: &Path) -> ScanGraph {
     let mut nodes_by_id: BTreeMap<String, GraphNode> = BTreeMap::new();
     let mut edges = Vec::new();
-    let mut seen_edges: BTreeSet<(String, String, String, Option<String>)> = BTreeSet::new();
 
     for (language_id, facts) in &merged.languages {
         let lang = language_id.as_str();
@@ -167,21 +166,12 @@ pub fn build_scan_graph(merged: &MergedScan, scan_path: &Path) -> ScanGraph {
             };
 
             if let Some(to_id) = target_id {
-                let match_status = Some(match_status_label(site.match_status).to_owned());
-                let key = (
-                    file_id.clone(),
-                    to_id.clone(),
-                    "usage".to_owned(),
-                    match_status.clone(),
-                );
-                if seen_edges.insert(key) {
-                    edges.push(GraphEdge {
-                        from: file_id,
-                        to: to_id,
-                        kind: "usage".to_owned(),
-                        match_status,
-                    });
-                }
+                edges.push(GraphEdge {
+                    from: file_id,
+                    to: to_id,
+                    kind: "usage".to_owned(),
+                    match_status: Some(match_status_label(site.match_status).to_owned()),
+                });
             }
         }
     }
@@ -343,6 +333,32 @@ mod tests {
                     && edge.match_status.as_deref() == Some("candidate")
             }),
             "expected candidate usage edge, got: {:?}",
+            graph.edges
+        );
+    }
+
+    #[test]
+    fn build_scan_graph_emits_one_usage_edge_per_qualifying_site() {
+        let merged = merged_with_sites(vec![
+            usage("site-a", "src/a.kt", MatchStatus::Resolved, Some("button")),
+            usage("site-b", "src/a.kt", MatchStatus::Resolved, Some("button")),
+        ]);
+
+        let graph = build_scan_graph(&merged, Path::new(".wax/out/scan-merged.json"));
+        let matching = graph
+            .edges
+            .iter()
+            .filter(|edge| {
+                edge.from == "file:src/a.kt"
+                    && edge.to == "ds:compose:button"
+                    && edge.kind == "usage"
+                    && edge.match_status.as_deref() == Some("resolved")
+            })
+            .count();
+
+        assert_eq!(
+            matching, 2,
+            "same file→ds pair must emit one edge per UsageSite, got: {:?}",
             graph.edges
         );
     }
