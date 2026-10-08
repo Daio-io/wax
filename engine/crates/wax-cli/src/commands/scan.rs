@@ -5,6 +5,7 @@ use super::language::{
     LanguageCommandError, default_target_triple, manifest_for_language, resolve_registry_url,
     update_lockfile_entry,
 };
+use super::scan_graph::build_scan_graph;
 use super::scan_summary::{
     JsonSummaryWriteError, WrittenArtifact, build_json_summary, is_failure_diagnostic,
     status_label, write_json_summary,
@@ -27,8 +28,8 @@ use wax_core::config::lockfile::{LockedRegistry, WAX_LOCK_SCHEMA_VERSION, WaxLoc
 use wax_core::config::repo_files::PREFERRED_CONFIG_RELATIVE_PATH;
 use wax_core::config::waxrc::{
     AdoptionConfig, EngineConfig, LanguageEntry, LanguageRegistrySource,
-    SCAN_OUTPUT_FORMAT_JSON_SUMMARY, ScanOutputSpec, WAXRC_SCHEMA_VERSION, WaxRc, WaxRcError,
-    is_deferred_scan_output_format, load_waxrc,
+    SCAN_OUTPUT_FORMAT_GRAPH_DATA, SCAN_OUTPUT_FORMAT_JSON_SUMMARY, ScanOutputSpec,
+    WAXRC_SCHEMA_VERSION, WaxRc, WaxRcError, is_deferred_scan_output_format, load_waxrc,
 };
 use wax_core::paths::PathsError;
 use wax_core::registry::{fetch_pack_index, select_target_artifact};
@@ -38,7 +39,10 @@ use wax_core::registry_memory::{
 };
 use wax_core::registry_source::{RegistrySourceInput, resolve_registry_source};
 use wax_core::sync::{SyncError, SyncOptions, best_effort_sync_app_registries};
-use wax_core::{AtomicWriteError, Engine, EngineError, EphemeralScanConfig, ScanOptions};
+use wax_core::{
+    AtomicWriteError, AtomicWriteOptions, Engine, EngineError, EphemeralScanConfig, ScanOptions,
+    write_atomically,
+};
 use wax_lang_api::{build_version, normalize_repo_relative_path};
 
 const MAX_FAILURE_DIAGNOSTICS: usize = 5;
@@ -816,6 +820,31 @@ fn write_requested_outputs(
             let summary =
                 build_json_summary(merged, &options.repo_root, scan_path, &artifact_manifest);
             write_json_summary(&destination, &summary)?;
+            let bytes = fs::metadata(&destination).ok().map(|meta| meta.len());
+            artifact_manifest[index].bytes = bytes;
+        } else if request.format == SCAN_OUTPUT_FORMAT_GRAPH_DATA {
+            let destination = if request.path.is_absolute() {
+                request.path.clone()
+            } else {
+                options.repo_root.join(&request.path)
+            };
+            let source_scan_path = scan_path
+                .strip_prefix(&options.repo_root)
+                .unwrap_or(scan_path);
+            let graph = build_scan_graph(merged, source_scan_path);
+            let bytes =
+                serde_json::to_vec_pretty(&graph).map_err(|source| ScanCommandError::OutputIo {
+                    path: destination.clone(),
+                    source: io::Error::other(source),
+                })?;
+            let mut with_newline = bytes;
+            with_newline.push(b'\n');
+            write_atomically(&destination, &with_newline, AtomicWriteOptions::default()).map_err(
+                |source| ScanCommandError::OutputIo {
+                    path: destination.clone(),
+                    source: io::Error::other(source),
+                },
+            )?;
             let bytes = fs::metadata(&destination).ok().map(|meta| meta.len());
             artifact_manifest[index].bytes = bytes;
         } else if is_deferred_scan_output_format(&request.format) {

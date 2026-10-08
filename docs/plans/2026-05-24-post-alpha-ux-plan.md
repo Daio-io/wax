@@ -214,7 +214,7 @@ Expected: PASS; stdout never mixes prose into `json-summary`; requested artifact
 - Create: `engine/schemas/scan-graph.schema.json`
 - Create: `engine/crates/wax-cli/tests/scan_report_artifacts.rs`
 
-- [ ] **Step 1: Build graph-data JSON from `MergedScan`**
+- [x] **Step 1: Build graph-data JSON from `MergedScan`**
 
 Emit versioned `nodes[]`, `edges[]`, `metrics[]`, and `metadata` as described above. Include explicit `metadata.limits[]` when current facts cannot provide module/category/ownership rollups.
 
