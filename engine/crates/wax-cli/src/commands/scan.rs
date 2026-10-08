@@ -5,6 +5,7 @@ use super::language::{
     LanguageCommandError, default_target_triple, manifest_for_language, resolve_registry_url,
     update_lockfile_entry,
 };
+use super::scan_graph::{GraphWriteError, build_scan_graph, write_scan_graph};
 use super::scan_summary::{
     JsonSummaryWriteError, WrittenArtifact, build_json_summary, is_failure_diagnostic,
     status_label, write_json_summary,
@@ -27,8 +28,8 @@ use wax_core::config::lockfile::{LockedRegistry, WAX_LOCK_SCHEMA_VERSION, WaxLoc
 use wax_core::config::repo_files::PREFERRED_CONFIG_RELATIVE_PATH;
 use wax_core::config::waxrc::{
     AdoptionConfig, EngineConfig, LanguageEntry, LanguageRegistrySource,
-    SCAN_OUTPUT_FORMAT_JSON_SUMMARY, ScanOutputSpec, WAXRC_SCHEMA_VERSION, WaxRc, WaxRcError,
-    is_deferred_scan_output_format, load_waxrc,
+    SCAN_OUTPUT_FORMAT_GRAPH_DATA, SCAN_OUTPUT_FORMAT_JSON_SUMMARY, ScanOutputSpec,
+    WAXRC_SCHEMA_VERSION, WaxRc, WaxRcError, is_deferred_scan_output_format, load_waxrc,
 };
 use wax_core::paths::PathsError;
 use wax_core::registry::{fetch_pack_index, select_target_artifact};
@@ -210,6 +211,19 @@ pub enum ScanCommandError {
         /// Path that would overwrite the merged scan artifact.
         path: PathBuf,
     },
+    /// Two different artifact formats requested the same destination path.
+    #[error(
+        "output path `{path}` is already requested for format `{existing_format}`; cannot also write `{format}` there",
+        path = path.display()
+    )]
+    OutputDestinationConflict {
+        /// Shared destination path.
+        path: PathBuf,
+        /// Format that already claimed the path.
+        existing_format: String,
+        /// Conflicting format that also requested the path.
+        format: String,
+    },
     /// Writing a requested artifact failed.
     #[error("failed to write scan output `{path}`: {source}", path = path.display())]
     OutputIo {
@@ -229,6 +243,15 @@ impl From<JsonSummaryWriteError> for ScanCommandError {
         match error {
             JsonSummaryWriteError::Serialize { path, source } => Self::OutputIo { path, source },
             JsonSummaryWriteError::AtomicWrite(error) => Self::AtomicWrite(error),
+        }
+    }
+}
+
+impl From<GraphWriteError> for ScanCommandError {
+    fn from(error: GraphWriteError) -> Self {
+        match error {
+            GraphWriteError::Serialize { path, source } => Self::OutputIo { path, source },
+            GraphWriteError::AtomicWrite(error) => Self::AtomicWrite(error),
         }
     }
 }
@@ -706,21 +729,26 @@ pub fn parse_output_flag(raw: &str) -> Result<ScanOutputRequest, ScanCommandErro
 
 /// Unions config and CLI output requests, normalizing paths and rejecting
 /// absolute paths unless allowed, relative paths that escape the repository,
-/// and destinations that collide with the canonical merged scan artifact.
+/// destinations that collide with the canonical merged scan artifact, and
+/// destinations claimed by more than one output format.
+///
+/// Repeating the same `format=path` pair remains idempotent.
 ///
 /// # Errors
 ///
 /// Returns [`ScanCommandError::AbsoluteOutputDenied`] for absolute paths without
 /// `--allow-absolute-output`, [`ScanCommandError::OutputPathEscapesRepo`] when a
-/// relative path leaves the repository, or
+/// relative path leaves the repository,
 /// [`ScanCommandError::CanonicalScanOutputCollision`] when the destination would
-/// overwrite `.wax/out/scan-merged.json`.
+/// overwrite `.wax/out/scan-merged.json`, or
+/// [`ScanCommandError::OutputDestinationConflict`] when two different formats
+/// share one destination.
 pub fn resolve_scan_outputs(
     opts: &ScanCommandOptions,
     config: &[ScanOutputSpec],
 ) -> Result<Vec<ScanOutputRequest>, ScanCommandError> {
     let mut resolved = Vec::new();
-    let mut seen = std::collections::BTreeSet::new();
+    let mut path_formats: BTreeMap<String, String> = BTreeMap::new();
     let canonical_scan_output = opts.repo_root.join(SCAN_OUTPUT_RELATIVE_PATH);
 
     let mut push_request = |format: String, path: PathBuf| -> Result<(), ScanCommandError> {
@@ -735,13 +763,22 @@ pub fn resolve_scan_outputs(
         if paths_collide_with_canonical_scan_output(&normalized, &canonical_scan_output) {
             return Err(ScanCommandError::CanonicalScanOutputCollision { path: normalized });
         }
-        let key = (format.clone(), normalized.display().to_string());
-        if seen.insert(key) {
-            resolved.push(ScanOutputRequest {
-                format,
+        let path_key = normalized.display().to_string();
+        if let Some(existing_format) = path_formats.get(&path_key) {
+            if existing_format == &format {
+                return Ok(());
+            }
+            return Err(ScanCommandError::OutputDestinationConflict {
                 path: normalized,
+                existing_format: existing_format.clone(),
+                format,
             });
         }
+        path_formats.insert(path_key, format.clone());
+        resolved.push(ScanOutputRequest {
+            format,
+            path: normalized,
+        });
         Ok(())
     };
 
@@ -791,6 +828,22 @@ fn paths_collide_with_canonical_scan_output(path: &Path, canonical_absolute: &Pa
     relative == SCAN_OUTPUT_RELATIVE_PATH
 }
 
+fn artifact_destination(request: &ScanOutputRequest, repo_root: &Path) -> PathBuf {
+    if request.path.is_absolute() {
+        request.path.clone()
+    } else {
+        repo_root.join(&request.path)
+    }
+}
+
+fn record_written_artifact_bytes(
+    artifact_manifest: &mut [WrittenArtifact],
+    index: usize,
+    destination: &Path,
+) {
+    artifact_manifest[index].bytes = fs::metadata(destination).ok().map(|meta| meta.len());
+}
+
 fn write_requested_outputs(
     requests: &[ScanOutputRequest],
     merged: &MergedScan,
@@ -808,16 +861,19 @@ fn write_requested_outputs(
 
     for (index, request) in requests.iter().enumerate() {
         if request.format == SCAN_OUTPUT_FORMAT_JSON_SUMMARY {
-            let destination = if request.path.is_absolute() {
-                request.path.clone()
-            } else {
-                options.repo_root.join(&request.path)
-            };
+            let destination = artifact_destination(request, &options.repo_root);
             let summary =
                 build_json_summary(merged, &options.repo_root, scan_path, &artifact_manifest);
             write_json_summary(&destination, &summary)?;
-            let bytes = fs::metadata(&destination).ok().map(|meta| meta.len());
-            artifact_manifest[index].bytes = bytes;
+            record_written_artifact_bytes(&mut artifact_manifest, index, &destination);
+        } else if request.format == SCAN_OUTPUT_FORMAT_GRAPH_DATA {
+            let destination = artifact_destination(request, &options.repo_root);
+            let source_scan_path = scan_path
+                .strip_prefix(&options.repo_root)
+                .unwrap_or(scan_path);
+            let graph = build_scan_graph(merged, source_scan_path);
+            write_scan_graph(&destination, &graph)?;
+            record_written_artifact_bytes(&mut artifact_manifest, index, &destination);
         } else if is_deferred_scan_output_format(&request.format) {
             return Err(ScanCommandError::OutputFormatDeferred {
                 format: request.format.clone(),

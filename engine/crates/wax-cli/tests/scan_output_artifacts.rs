@@ -1,6 +1,9 @@
 mod common;
 
-use common::{assert_schema_valid_summary, env_lock, run_scan, setup_scan_repo, write_repo_files};
+use common::{
+    assert_deferred_format, assert_schema_valid_summary, env_lock, run_scan, setup_scan_repo,
+    write_repo_files,
+};
 use std::fs;
 use std::path::PathBuf;
 
@@ -155,6 +158,36 @@ fn duplicate_output_pair_idempotent() {
 }
 
 #[test]
+fn shared_destination_across_formats_rejected() {
+    let _guard = env_lock();
+    let (_root, repo, _wax_home) = setup_scan_repo(
+        "scan-artifact-shared-dest",
+        &[("compose", "complete", "0.5", "", "")],
+    );
+
+    let output = run_scan(
+        &repo,
+        &[
+            "--output",
+            "graph-data=.wax/out/shared.json",
+            "--output",
+            "json-summary=.wax/out/shared.json",
+        ],
+    );
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("already requested for format `graph-data`")
+            || stderr.contains("already requested for format `json-summary`"),
+        "expected destination conflict error, got: {stderr}"
+    );
+    assert!(
+        !repo.join(".wax/out/shared.json").exists(),
+        "conflicting outputs must not write a shared destination"
+    );
+}
+
+#[test]
 fn unknown_artifact_format_errors_distinctly_from_parse_shape() {
     let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
@@ -177,11 +210,6 @@ fn unknown_artifact_format_errors_distinctly_from_parse_shape() {
 }
 
 #[test]
-fn deferred_graph_data_errors() {
-    assert_deferred_format("graph-data");
-}
-
-#[test]
 fn deferred_html_errors() {
     assert_deferred_format("html");
 }
@@ -189,23 +217,6 @@ fn deferred_html_errors() {
 #[test]
 fn deferred_markdown_errors() {
     assert_deferred_format("markdown");
-}
-
-fn assert_deferred_format(format: &str) {
-    let _guard = env_lock();
-    let (_root, repo, _wax_home) = setup_scan_repo(
-        &format!("scan-artifact-deferred-{format}"),
-        &[("compose", "complete", "0.5", "", "")],
-    );
-
-    let flag = format!("{format}=.wax/out/out.dat");
-    let output = run_scan(&repo, &["--output", &flag]);
-    assert!(!output.status.success());
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(
-        stderr.contains(&format!("output format `{format}` is not implemented yet")),
-        "unexpected stderr: {stderr}"
-    );
 }
 
 #[test]

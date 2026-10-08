@@ -320,7 +320,108 @@ fn file_sha256(path: &Path) -> String {
         })
 }
 
+/// Optional override for installed pack `usage_sites` / related fact fields.
+///
+/// When set, replaces the default invocation fixture for every language in
+/// [`write_installed_packs_with_usage_sites`].
+#[derive(Clone)]
+pub struct PackUsageSitesOverride {
+    /// Usage sites emitted by the fixture pack.
+    pub usage_sites: serde_json::Value,
+    /// Local component inventory paired with those sites.
+    pub local_components: serde_json::Value,
+    /// Count summary aligned with the override sites.
+    pub counts: serde_json::Value,
+    /// Metrics aligned with the override sites.
+    pub metrics: serde_json::Value,
+}
+
+/// Local + unresolved sites without `registry_symbol` (no usage edges expected).
+#[must_use]
+pub fn no_registry_symbol_usage_override() -> PackUsageSitesOverride {
+    PackUsageSitesOverride {
+        usage_sites: serde_json::json!([
+            {
+                "id": "site-local",
+                "location": { "file": "src/local.kt", "line": 2 },
+                "symbol": "LocalButton",
+                "match_status": "local",
+                "callee_origin": "local",
+                "resolution_evidence": { "kind": "local_same_file" },
+                "local_definition_id": "local-1"
+            },
+            {
+                "id": "site-unresolved",
+                "location": { "file": "src/unknown.kt", "line": 1 },
+                "symbol": "Mystery",
+                "match_status": "unresolved",
+                "callee_origin": "unknown",
+                "resolution_evidence": { "kind": "no_matching_definition" }
+            }
+        ]),
+        local_components: serde_json::json!([{
+            "id": "local-1",
+            "symbol": "LocalButton",
+            "location": { "file": "src/local.kt", "line": 1 }
+        }]),
+        counts: serde_json::json!({
+            "registry": {
+                "component_count": 0,
+                "used_component_count": 0,
+                "resolved_raw_invocation_count": 0,
+                "candidate_raw_invocation_count": 0
+            },
+            "definitions": {
+                "local_definition_count": 1,
+                "invoked_local_definition_count": 1,
+                "unused_local_definition_count": 0
+            },
+            "raw_invocations": {
+                "total": 2,
+                "resolved": 0,
+                "local": 1,
+                "candidate": 0,
+                "unresolved": 1
+            },
+            "adoption": {
+                "eligible_invocation_count": 2,
+                "adopted_invocation_count": 0,
+                "non_adopted_invocation_count": 2,
+                "adoption_excluded_invocation_count": 0
+            },
+            "parent_scopes": {
+                "total": 0,
+                "with_resolved_invocations": 0,
+                "with_local_invocations": 0,
+                "with_unresolved_invocations": 0
+            },
+            "invocation_origins": {
+                "registry": 0,
+                "local": 1,
+                "framework": 0,
+                "external": 0,
+                "application": 0,
+                "unknown": 1
+            }
+        }),
+        metrics: serde_json::json!({
+            "invocation_adoption_ratio": 0.0,
+            "registry_resolution_ratio": 0.0,
+            "parse_extract_ms": 5,
+            "files_scanned": 1
+        }),
+    }
+}
+
 pub fn write_installed_packs(wax_home: &Path, specs: &[(&str, &str, &str, &str, &str)]) {
+    write_installed_packs_with_usage_sites(wax_home, specs, None);
+}
+
+pub fn write_installed_packs_with_usage_sites(
+    wax_home: &Path,
+    specs: &[(&str, &str, &str, &str, &str)],
+    usage_override: Option<PackUsageSitesOverride>,
+) {
     let mut state_entries = Vec::new();
     for (language, status, invocation_fixture, error_code, error_message) in specs {
         let install_dir = wax_home.join(format!("langs/{language}/0.1.0"));
@@ -335,126 +436,136 @@ pub fn write_installed_packs(wax_home: &Path, specs: &[(&str, &str, &str, &str, 
                 "message": error_message
             }])
         };
-        let (usage_sites, counts, metrics) = if *invocation_fixture == "null" {
-            (
-                serde_json::json!([]),
-                serde_json::json!({
-                    "registry": {
-                        "component_count": 0,
-                        "used_component_count": 0,
-                        "resolved_raw_invocation_count": 0,
-                        "candidate_raw_invocation_count": 0
-                    },
-                    "definitions": {
-                        "local_definition_count": 0,
-                        "invoked_local_definition_count": 0,
-                        "unused_local_definition_count": 0
-                    },
-                    "raw_invocations": {
-                        "total": 0,
-                        "resolved": 0,
-                        "local": 0,
-                        "candidate": 0,
-                        "unresolved": 0
-                    },
-                    "adoption": {
-                        "eligible_invocation_count": 0,
-                        "adopted_invocation_count": 0,
-                        "non_adopted_invocation_count": 0,
-                        "adoption_excluded_invocation_count": 0
-                    },
-                    "parent_scopes": {
-                        "total": 0,
-                        "with_resolved_invocations": 0,
-                        "with_local_invocations": 0,
-                        "with_unresolved_invocations": 0
-                    },
-                    "invocation_origins": {
-                        "registry": 0,
-                        "local": 0,
-                        "framework": 0,
-                        "external": 0,
-                        "application": 0,
-                        "unknown": 0
-                    }
-                }),
-                serde_json::json!({
-                    "invocation_adoption_ratio": null,
-                    "registry_resolution_ratio": null,
-                    "parse_extract_ms": 5,
-                    "files_scanned": 1
-                }),
-            )
-        } else {
-            (
-                serde_json::json!([
-                    {
-                        "id": "site-1",
-                        "location": { "file": "src/a.tsx", "line": 1 },
-                        "symbol": "Button",
-                        "match_status": "resolved",
-                        "registry_symbol": "button",
-                        "callee_origin": "registry",
-                        "resolution_evidence": { "kind": "registry_name_only_legacy" }
-                    },
-                    {
-                        "id": "site-2",
-                        "location": { "file": "src/b.tsx", "line": 1 },
-                        "symbol": "Button",
-                        "match_status": "candidate",
-                        "registry_symbol": "button",
-                        "callee_origin": "registry",
-                        "resolution_evidence": { "kind": "registry_import_missing" }
-                    }
-                ]),
-                serde_json::json!({
-                    "registry": {
-                        "component_count": 0,
-                        "used_component_count": 1,
-                        "resolved_raw_invocation_count": 1,
-                        "candidate_raw_invocation_count": 1
-                    },
-                    "definitions": {
-                        "local_definition_count": 0,
-                        "invoked_local_definition_count": 0,
-                        "unused_local_definition_count": 0
-                    },
-                    "raw_invocations": {
-                        "total": 2,
-                        "resolved": 1,
-                        "local": 0,
-                        "candidate": 1,
-                        "unresolved": 0
-                    },
-                    "adoption": {
-                        "eligible_invocation_count": 1,
-                        "adopted_invocation_count": 1,
-                        "non_adopted_invocation_count": 0,
-                        "adoption_excluded_invocation_count": 0
-                    },
-                    "parent_scopes": {
-                        "total": 0,
-                        "with_resolved_invocations": 0,
-                        "with_local_invocations": 0,
-                        "with_unresolved_invocations": 0
-                    },
-                    "invocation_origins": {
-                        "registry": 2,
-                        "local": 0,
-                        "framework": 0,
-                        "external": 0,
-                        "application": 0,
-                        "unknown": 0
-                    }
-                }),
-                serde_json::json!({
-                    "invocation_adoption_ratio": 1.0,
-                    "registry_resolution_ratio": 0.5,
-                    "parse_extract_ms": 5,
-                    "files_scanned": 1
-                }),
-            )
-        };
+        let (usage_sites, local_components, counts, metrics) =
+            if let Some(override_facts) = usage_override.as_ref() {
+                (
+                    override_facts.usage_sites.clone(),
+                    override_facts.local_components.clone(),
+                    override_facts.counts.clone(),
+                    override_facts.metrics.clone(),
+                )
+            } else if *invocation_fixture == "null" {
+                (
+                    serde_json::json!([]),
+                    serde_json::json!([]),
+                    serde_json::json!({
+                        "registry": {
+                            "component_count": 0,
+                            "used_component_count": 0,
+                            "resolved_raw_invocation_count": 0,
+                            "candidate_raw_invocation_count": 0
+                        },
+                        "definitions": {
+                            "local_definition_count": 0,
+                            "invoked_local_definition_count": 0,
+                            "unused_local_definition_count": 0
+                        },
+                        "raw_invocations": {
+                            "total": 0,
+                            "resolved": 0,
+                            "local": 0,
+                            "candidate": 0,
+                            "unresolved": 0
+                        },
+                        "adoption": {
+                            "eligible_invocation_count": 0,
+                            "adopted_invocation_count": 0,
+                            "non_adopted_invocation_count": 0,
+                            "adoption_excluded_invocation_count": 0
+                        },
+                        "parent_scopes": {
+                            "total": 0,
+                            "with_resolved_invocations": 0,
+                            "with_local_invocations": 0,
+                            "with_unresolved_invocations": 0
+                        },
+                        "invocation_origins": {
+                            "registry": 0,
+                            "local": 0,
+                            "framework": 0,
+                            "external": 0,
+                            "application": 0,
+                            "unknown": 0
+                        }
+                    }),
+                    serde_json::json!({
+                        "invocation_adoption_ratio": null,
+                        "registry_resolution_ratio": null,
+                        "parse_extract_ms": 5,
+                        "files_scanned": 1
+                    }),
+                )
+            } else {
+                (
+                    serde_json::json!([
+                        {
+                            "id": "site-1",
+                            "location": { "file": "src/a.tsx", "line": 1 },
+                            "symbol": "Button",
+                            "match_status": "resolved",
+                            "registry_symbol": "button",
+                            "callee_origin": "registry",
+                            "resolution_evidence": { "kind": "registry_name_only_legacy" }
+                        },
+                        {
+                            "id": "site-2",
+                            "location": { "file": "src/b.tsx", "line": 1 },
+                            "symbol": "Button",
+                            "match_status": "candidate",
+                            "registry_symbol": "button",
+                            "callee_origin": "registry",
+                            "resolution_evidence": { "kind": "registry_import_missing" }
+                        }
+                    ]),
+                    serde_json::json!([]),
+                    serde_json::json!({
+                        "registry": {
+                            "component_count": 0,
+                            "used_component_count": 1,
+                            "resolved_raw_invocation_count": 1,
+                            "candidate_raw_invocation_count": 1
+                        },
+                        "definitions": {
+                            "local_definition_count": 0,
+                            "invoked_local_definition_count": 0,
+                            "unused_local_definition_count": 0
+                        },
+                        "raw_invocations": {
+                            "total": 2,
+                            "resolved": 1,
+                            "local": 0,
+                            "candidate": 1,
+                            "unresolved": 0
+                        },
+                        "adoption": {
+                            "eligible_invocation_count": 1,
+                            "adopted_invocation_count": 1,
+                            "non_adopted_invocation_count": 0,
+                            "adoption_excluded_invocation_count": 0
+                        },
+                        "parent_scopes": {
+                            "total": 0,
+                            "with_resolved_invocations": 0,
+                            "with_local_invocations": 0,
+                            "with_unresolved_invocations": 0
+                        },
+                        "invocation_origins": {
+                            "registry": 2,
+                            "local": 0,
+                            "framework": 0,
+                            "external": 0,
+                            "application": 0,
+                            "unknown": 0
+                        }
+                    }),
+                    serde_json::json!({
+                        "invocation_adoption_ratio": 1.0,
+                        "registry_resolution_ratio": 0.5,
+                        "parse_extract_ms": 5,
+                        "files_scanned": 1
+                    }),
+                )
+            };
         let facts = serde_json::json!({
             "schema_version": SCHEMA_VERSION,
             "language": {
@@ -468,7 +579,7 @@ pub fn write_installed_packs(wax_home: &Path, specs: &[(&str, &str, &str, &str, 
             "scanned_at": "1970-01-01T00:00:00Z",
             "status": status,
             "design_system_components": [],
-            "local_components": [],
+            "local_components": local_components,
             "usage_sites": usage_sites,
             "diagnostics": diagnostics,
             "metrics": metrics,
@@ -544,6 +655,24 @@ JSON
         ),
     )
     .expect("write state.json");
+}
+
+/// Asserts that requesting a deferred `--output` format fails with the standard message.
+pub fn assert_deferred_format(format: &str) {
+    let _guard = env_lock();
+    let (_root, repo, _wax_home) = setup_scan_repo(
+        &format!("scan-artifact-deferred-{format}"),
+        &[("compose", "complete", "0.5", "", "")],
+    );
+
+    let flag = format!("{format}=.wax/out/out.dat");
+    let output = run_scan(&repo, &["--output", &flag]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains(&format!("output format `{format}` is not implemented yet")),
+        "unexpected stderr: {stderr}"
+    );
 }
 
 pub fn write_committed_scan_repo_with_upstream(app_repo: &Path) {

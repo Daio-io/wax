@@ -86,7 +86,7 @@ wax scan \
 }
 ```
 
-CLI `--output` flags append to `.waxrc` outputs. Repeating the same `format=path` pair is idempotent. Output paths must be repo-relative by default; absolute paths require an explicit `--allow-absolute-output` escape hatch if implementation needs it. Generated outputs remain under `.wax/out/` in examples and must stay out of git unless a fixture intentionally commits them.
+CLI `--output` flags append to `.waxrc` outputs. Repeating the same `format=path` pair is idempotent. Distinct formats that share one destination path are rejected. Output paths must be repo-relative by default; absolute paths require an explicit `--allow-absolute-output` escape hatch if implementation needs it. Generated outputs remain under `.wax/out/` in examples and must stay out of git unless a fixture intentionally commits them.
 
 ### Stable JSON summary
 
@@ -214,7 +214,7 @@ Expected: PASS; stdout never mixes prose into `json-summary`; requested artifact
 - Create: `engine/schemas/scan-graph.schema.json`
 - Create: `engine/crates/wax-cli/tests/scan_report_artifacts.rs`
 
-- [ ] **Step 1: Build graph-data JSON from `MergedScan`**
+- [x] **Step 1: Build graph-data JSON from `MergedScan`**
 
 Emit versioned `nodes[]`, `edges[]`, `metrics[]`, and `metadata` as described above. Include explicit `metadata.limits[]` when current facts cannot provide module/category/ownership rollups.
 
