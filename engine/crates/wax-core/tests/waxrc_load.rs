@@ -18,6 +18,38 @@ fn loads_minimal_waxrc() {
     assert!(rc.languages[0].registry_source.is_none());
     assert!(rc.languages[0].root_groups.is_empty());
     assert!(rc.design_systems.is_empty());
+    assert!(rc.outputs.is_empty());
+}
+
+#[test]
+fn waxrc_loads_outputs() {
+    let rc = load_waxrc(fixture_path("with-outputs.waxrc")).unwrap();
+
+    assert_eq!(rc.outputs.len(), 2);
+    assert_eq!(rc.outputs[0].format, "json-summary");
+    assert_eq!(rc.outputs[0].path, ".wax/out/scan-summary.json");
+    assert_eq!(rc.outputs[1].format, "graph-data");
+    assert_eq!(rc.outputs[1].path, ".wax/out/scan-graph.json");
+}
+
+#[test]
+fn waxrc_rejects_unknown_output_format() {
+    let path = std::env::temp_dir().join(format!("waxrc-bad-output-{}.json", std::process::id()));
+    std::fs::write(
+        &path,
+        r#"{
+          "schema_version": 2,
+          "languages": {"compose": {}},
+          "outputs": [{"format": "pdf", "path": ".wax/out/report.pdf"}]
+        }"#,
+    )
+    .unwrap();
+
+    let err = load_waxrc(&path).unwrap_err();
+    std::fs::remove_file(path).unwrap();
+
+    assert!(matches!(err, WaxRcError::InvalidConfig { .. }));
+    assert!(err.to_string().contains("outputs[0].format"));
 }
 
 #[test]

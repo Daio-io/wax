@@ -1309,6 +1309,7 @@ mod sync_tests {
                 extra: serde_json::Map::new(),
             }],
             design_systems: Default::default(),
+            outputs: Vec::new(),
         };
         let prepared = [PreparedSync {
             update: SyncUpdate {

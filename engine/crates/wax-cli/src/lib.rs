@@ -23,6 +23,7 @@ pub mod commands {
     pub mod language;
     pub mod registry;
     pub mod scan;
+    pub mod scan_summary;
     mod state_path;
     pub mod sync;
     pub mod uninstall;

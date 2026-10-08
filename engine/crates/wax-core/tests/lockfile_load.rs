@@ -280,6 +280,7 @@ fn lockfile_doctor_reports_missing_enabled_languages() {
         token_inference: Default::default(),
         languages: vec![language_entry("compose"), language_entry("react")],
         design_systems: Default::default(),
+        outputs: Vec::new(),
     };
     let lock = load_lockfile(fixture_path("minimal.wax.lock.json")).unwrap();
 
@@ -303,6 +304,7 @@ fn lockfile_doctor_reports_stale_entries_for_absent_languages() {
         token_inference: Default::default(),
         languages: Vec::new(),
         design_systems: Default::default(),
+        outputs: Vec::new(),
     };
     let lock = load_lockfile(fixture_path("minimal.wax.lock.json")).unwrap();
     let absent_report = check_waxrc_lockfile_languages(&absent_rc, &lock);

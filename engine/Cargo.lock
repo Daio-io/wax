@@ -2685,6 +2685,7 @@ dependencies = [
  "dialoguer",
  "flate2",
  "indicatif",
+ "jsonschema",
  "semver",
  "serde",
  "serde_json",

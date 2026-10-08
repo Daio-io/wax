@@ -1,0 +1,257 @@
+mod common;
+
+use common::{assert_schema_valid_summary, env_lock, run_scan, setup_scan_repo, write_repo_files};
+use std::fs;
+use std::path::PathBuf;
+
+#[test]
+fn cli_output_writes_json_summary() {
+    let _guard = env_lock();
+    let (_root, repo, _wax_home) = setup_scan_repo(
+        "scan-artifact-cli",
+        &[("compose", "complete", "0.5", "", "")],
+    );
+
+    let output = run_scan(
+        &repo,
+        &["--output", "json-summary=.wax/out/scan-summary.json"],
+    );
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let path = repo.join(".wax/out/scan-summary.json");
+    assert!(path.exists());
+    let value: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+    assert_schema_valid_summary(&value);
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("artifacts:"));
+    assert!(stdout.contains("json-summary: .wax/out/scan-summary.json"));
+}
+
+#[test]
+fn config_outputs_union_with_cli_idempotent() {
+    let _guard = env_lock();
+    let root = common::TestDir::new("scan-artifact-union");
+    let repo = root.path.join("repo");
+    let wax_home = root.path.join("wax-home");
+    fs::create_dir_all(&repo).unwrap();
+    fs::create_dir_all(&wax_home).unwrap();
+    let registry_file = root.path.join("registry.json");
+    common::write_pack_index(&registry_file);
+    write_repo_files(
+        &repo,
+        &registry_file,
+        &["compose"],
+        Some(
+            r#"[
+    {"format":"json-summary","path":".wax/out/from-config.json"},
+    {"format":"json-summary","path":".wax/out/from-cli.json"}
+  ]"#,
+        ),
+    );
+    common::write_installed_packs(&wax_home, &[("compose", "complete", "0.5", "", "")]);
+    let _wax_home = common::EnvVarGuard::set("WAX_HOME", &wax_home);
+
+    let output = run_scan(
+        &repo,
+        &[
+            "--output",
+            "json-summary=.wax/out/from-cli.json",
+            "--output",
+            "json-summary=.wax/out/from-extra.json",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert!(repo.join(".wax/out/from-config.json").exists());
+    assert!(repo.join(".wax/out/from-cli.json").exists());
+    assert!(repo.join(".wax/out/from-extra.json").exists());
+}
+
+#[test]
+fn duplicate_output_pair_idempotent() {
+    let _guard = env_lock();
+    let (_root, repo, _wax_home) = setup_scan_repo(
+        "scan-artifact-dedupe",
+        &[("compose", "complete", "0.5", "", "")],
+    );
+
+    let output = run_scan(
+        &repo,
+        &[
+            "--output",
+            "json-summary=.wax/out/scan-summary.json",
+            "--output",
+            "json-summary=.wax/out/scan-summary.json",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(
+        stdout
+            .matches("json-summary: .wax/out/scan-summary.json")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn deferred_graph_data_errors() {
+    assert_deferred_format("graph-data");
+}
+
+#[test]
+fn deferred_html_errors() {
+    assert_deferred_format("html");
+}
+
+#[test]
+fn deferred_markdown_errors() {
+    assert_deferred_format("markdown");
+}
+
+fn assert_deferred_format(format: &str) {
+    let _guard = env_lock();
+    let (_root, repo, _wax_home) = setup_scan_repo(
+        &format!("scan-artifact-deferred-{format}"),
+        &[("compose", "complete", "0.5", "", "")],
+    );
+
+    let flag = format!("{format}=.wax/out/out.dat");
+    let output = run_scan(&repo, &["--output", &flag]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains(&format!("output format `{format}` is not implemented yet")),
+        "unexpected stderr: {stderr}"
+    );
+}
+
+#[test]
+fn absolute_path_requires_allow_flag() {
+    let _guard = env_lock();
+    let (_root, repo, _wax_home) = setup_scan_repo(
+        "scan-artifact-absolute-denied",
+        &[("compose", "complete", "0.5", "", "")],
+    );
+    let abs = repo
+        .join(".wax/out/absolute-summary.json")
+        .display()
+        .to_string();
+
+    let output = run_scan(&repo, &["--output", &format!("json-summary={abs}")]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("requires --allow-absolute-output"),
+        "unexpected stderr: {stderr}"
+    );
+}
+
+#[test]
+fn allow_absolute_output_writes() {
+    let _guard = env_lock();
+    let (_root, repo, _wax_home) = setup_scan_repo(
+        "scan-artifact-absolute-allowed",
+        &[("compose", "complete", "0.5", "", "")],
+    );
+    let abs = repo.join(".wax/out/absolute-summary.json");
+    let abs_str = abs.display().to_string();
+
+    let output = run_scan(
+        &repo,
+        &[
+            "--allow-absolute-output",
+            "--output",
+            &format!("json-summary={abs_str}"),
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(abs.exists());
+    let value: serde_json::Value = serde_json::from_str(&fs::read_to_string(abs).unwrap()).unwrap();
+    assert_schema_valid_summary(&value);
+}
+
+#[test]
+fn output_flag_missing_equals_errors() {
+    let _guard = env_lock();
+    let (_root, repo, _wax_home) = setup_scan_repo(
+        "scan-artifact-missing-eq",
+        &[("compose", "complete", "0.5", "", "")],
+    );
+
+    let output = run_scan(&repo, &["--output", "json-summary"]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("invalid --output value"),
+        "unexpected stderr: {stderr}"
+    );
+}
+
+#[test]
+fn output_flag_empty_path_errors() {
+    let _guard = env_lock();
+    let (_root, repo, _wax_home) = setup_scan_repo(
+        "scan-artifact-empty-path",
+        &[("compose", "complete", "0.5", "", "")],
+    );
+
+    let output = run_scan(&repo, &["--output", "json-summary="]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("invalid --output value"),
+        "unexpected stderr: {stderr}"
+    );
+}
+
+#[test]
+fn config_absolute_path_requires_allow_flag() {
+    let _guard = env_lock();
+    let root = common::TestDir::new("scan-artifact-config-abs");
+    let repo = root.path.join("repo");
+    let wax_home = root.path.join("wax-home");
+    fs::create_dir_all(&repo).unwrap();
+    fs::create_dir_all(&wax_home).unwrap();
+    let registry_file = root.path.join("registry.json");
+    common::write_pack_index(&registry_file);
+    let abs = PathBuf::from("/tmp/wax-scan-summary-absolute.json");
+    write_repo_files(
+        &repo,
+        &registry_file,
+        &["compose"],
+        Some(&format!(
+            r#"[{{"format":"json-summary","path":"{}"}}]"#,
+            abs.display()
+        )),
+    );
+    common::write_installed_packs(&wax_home, &[("compose", "complete", "0.5", "", "")]);
+    let _wax_home = common::EnvVarGuard::set("WAX_HOME", &wax_home);
+
+    let output = run_scan(&repo, &[]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("requires --allow-absolute-output"),
+        "unexpected stderr: {stderr}"
+    );
+}

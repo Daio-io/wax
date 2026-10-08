@@ -10,6 +10,7 @@ use wax_cli::commands::registry::{
     run_registry_delete, run_registry_discover, run_registry_list, run_registry_show,
     run_registry_update,
 };
+use wax_cli::commands::scan::parse_output_flag;
 use wax_cli::commands::scan::{ScanCommandOptions, run_scan_cli};
 use wax_cli::commands::sync::{SyncCommandOptions, run_sync_cli};
 use wax_cli::commands::uninstall::{UninstallCliOptions, run_uninstall_cli};
@@ -130,20 +131,30 @@ fn main() {
             &mut stdout,
         )
         .map_err(Into::into),
-        Commands::Scan(args) => run_scan_cli(
-            ScanCommandOptions {
-                repo_root: args.repo_root,
-                strict: args.strict,
-                allow_auto_install: !args.no_auto_install,
-                scan_concurrency: args.scan_concurrency,
-                root_group: args.root_group,
-                state_path: None,
-                pack_index_url: None,
-                target_triple: None,
-                ephemeral: None,
-            },
-            &mut stdout,
-        )
+        Commands::Scan(args) => (|| {
+            let cli_outputs = args
+                .outputs
+                .iter()
+                .map(|raw| parse_output_flag(raw))
+                .collect::<Result<Vec<_>, _>>()?;
+            run_scan_cli(
+                ScanCommandOptions {
+                    repo_root: args.repo_root,
+                    strict: args.strict,
+                    allow_auto_install: !args.no_auto_install,
+                    scan_concurrency: args.scan_concurrency,
+                    root_group: args.root_group,
+                    format: args.format,
+                    cli_outputs,
+                    allow_absolute_output: args.allow_absolute_output,
+                    state_path: None,
+                    pack_index_url: None,
+                    target_triple: None,
+                    ephemeral: None,
+                },
+                &mut stdout,
+            )
+        })()
         .map_err(Into::into),
         Commands::Sync(args) => run_sync_cli(
             SyncCommandOptions {
