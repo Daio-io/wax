@@ -898,7 +898,7 @@ fn write_requested_outputs(
                 .strip_prefix(&options.repo_root)
                 .unwrap_or(scan_path);
             let graph = build_scan_graph(merged, source_scan_path);
-            write_html_report(&destination, &summary, &graph)?;
+            write_html_report(&destination, &options.repo_root, &summary, &graph)?;
             record_written_artifact_bytes(&mut artifact_manifest, index, &destination);
         } else if is_deferred_scan_output_format(&request.format) {
             return Err(ScanCommandError::OutputFormatDeferred {

@@ -27,10 +27,11 @@ pub const REPORT_JS: &str =
 /// Returns OutputIo when the report cannot be written.
 pub fn write_html_report(
     path: &Path,
+    repo_root: &Path,
     summary: &JsonSummary,
     graph: &ScanGraph,
 ) -> Result<(), ScanCommandError> {
-    let html = render_report(path, summary, graph);
+    let html = render_report(path, repo_root, summary, graph);
     write_atomically(path, html.as_bytes(), AtomicWriteOptions::default()).map_err(|error| {
         ScanCommandError::OutputIo {
             path: path.to_path_buf(),
@@ -39,7 +40,12 @@ pub fn write_html_report(
     })
 }
 
-fn render_report(path: &Path, summary: &JsonSummary, graph: &ScanGraph) -> String {
+fn render_report(
+    path: &Path,
+    repo_root: &Path,
+    summary: &JsonSummary,
+    graph: &ScanGraph,
+) -> String {
     let adoption = summary.adoption.coverage_ratio.map_or_else(
         || "Unavailable".to_owned(),
         |ratio| format!("{:.1}%", ratio * 100.0),
@@ -93,26 +99,22 @@ fn render_report(path: &Path, summary: &JsonSummary, graph: &ScanGraph) -> Strin
             .collect::<Vec<_>>()
             .join("\n")
     };
-    let artifacts = if summary.artifacts.is_empty() {
-        "<li>No artifacts</li>".to_owned()
-    } else {
-        summary
-            .artifacts
-            .iter()
-            .map(|artifact| {
-                format!(
-                    "<li><a href=\"{}\">{} ({})</a></li>",
-                    escape(&relative_artifact_path(path, &artifact.path)),
-                    escape(&artifact.format),
-                    artifact.bytes.map_or_else(
-                        || "size unknown".to_owned(),
-                        |bytes| format!("{bytes} bytes")
-                    )
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
+    let mut artifact_links = vec![format!(
+        "<li><a href=\"{}\">merged scan (raw JSON)</a></li>",
+        escape(&relative_artifact_path(path, repo_root, &summary.scan_path))
+    )];
+    artifact_links.extend(summary.artifacts.iter().map(|artifact| {
+        format!(
+            "<li><a href=\"{}\">{} ({})</a></li>",
+            escape(&relative_artifact_path(path, repo_root, &artifact.path)),
+            escape(&artifact.format),
+            artifact.bytes.map_or_else(
+                || "size unknown".to_owned(),
+                |bytes| format!("{bytes} bytes")
+            )
+        )
+    }));
+    let artifacts = artifact_links.join("\n");
     let limits = summary
         .limits
         .iter()
@@ -125,9 +127,15 @@ fn render_report(path: &Path, summary: &JsonSummary, graph: &ScanGraph) -> Strin
     )
 }
 
-fn relative_artifact_path(report_path: &Path, artifact_path: &str) -> String {
+fn relative_artifact_path(report_path: &Path, repo_root: &Path, artifact_path: &str) -> String {
     let report_parts = portable_parts(report_path.parent().unwrap_or_else(|| Path::new(".")));
-    let artifact_parts = portable_parts(Path::new(artifact_path));
+    let artifact = Path::new(artifact_path);
+    let artifact = if artifact.is_absolute() {
+        artifact.to_path_buf()
+    } else {
+        repo_root.join(artifact)
+    };
+    let artifact_parts = portable_parts(&artifact);
     let common = report_parts
         .iter()
         .zip(&artifact_parts)
@@ -151,9 +159,6 @@ fn portable_parts(path: &Path) -> Vec<String> {
         })
         .collect();
     components
-        .iter()
-        .position(|part| part == ".wax")
-        .map_or(components.clone(), |index| components[index..].to_vec())
 }
 
 fn escape(value: &str) -> String {

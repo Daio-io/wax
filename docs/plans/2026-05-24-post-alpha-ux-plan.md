@@ -204,7 +204,7 @@ Run: `cd engine && cargo test -p wax-cli scan_output_format`
 
 Expected: PASS; stdout never mixes prose into `json-summary`; requested artifacts are written to configured paths; duplicate `format=path` outputs are idempotent.
 
-### - [ ] Task 3: Graph-data export and static HTML report
+### - [x] Task 3: Graph-data export and static HTML report (THE-639 extraction)
 
 **Files:**
 
@@ -218,7 +218,7 @@ Expected: PASS; stdout never mixes prose into `json-summary`; requested artifact
 
 Emit versioned `nodes[]`, `edges[]`, `metrics[]`, and `metadata` as described above. Include explicit `metadata.limits[]` when current facts cannot provide module/category/ownership rollups.
 
-- [ ] **Step 2: Generate static HTML from summary + graph data**
+- [x] **Step 2: Generate static HTML from summary + graph data**
 
 Write a local, no-network report at `html` output paths. Include adoption headline, per-language cards, at least one graph, diagnostics table, raw artifact links, and visible limits.
 

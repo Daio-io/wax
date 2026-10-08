@@ -147,3 +147,17 @@ fn html_links_json_summary_when_both_written() {
     let html = fs::read_to_string(repo.join(".wax/out/report/index.html")).unwrap();
     assert!(html.contains("href=\"../scan-summary.json\""));
 }
+
+#[test]
+fn html_links_merged_scan_when_html_is_only_output() {
+    let _guard = env_lock();
+    let (_root, repo, _wax_home) = setup_scan_repo(
+        "scan-html-merged-link",
+        &[("compose", "complete", "0.5", "", "")],
+    );
+
+    let output = run_scan(&repo, &["--output", "html=report/index.html"]);
+    assert!(output.status.success());
+    let html = fs::read_to_string(repo.join("report/index.html")).unwrap();
+    assert!(html.contains("href=\"../.wax/out/scan-merged.json\""));
+}
