@@ -212,6 +212,42 @@
       "items": {
         "type": "string"
       }
+    },
+    "deltas": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "adoption_coverage_delta",
+        "resolved_delta",
+        "candidate_delta",
+        "new_error_diagnostics",
+        "resolved_diagnostics"
+      ],
+      "properties": {
+        "adoption_coverage_delta": {"type": ["number", "null"]},
+        "resolved_delta": {"type": "integer"},
+        "candidate_delta": {"type": "integer"},
+        "new_error_diagnostics": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/diagnosticRef"}
+        },
+        "resolved_diagnostics": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/diagnosticRef"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "diagnosticRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "language"],
+      "properties": {
+        "code": {"type": "string"},
+        "message": {"type": "string"},
+        "language": {"type": ["string", "null"]}
+      }
     }
   }
 }

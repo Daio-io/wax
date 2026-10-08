@@ -10,6 +10,8 @@ use wax_contract::{Diagnostic, DiagnosticSeverity, MergedScan, ScanStatus, Sourc
 use wax_core::{AtomicWriteError, AtomicWriteOptions, write_atomically};
 use wax_lang_api::normalize_repo_relative_path;
 
+use super::scan_baseline::SummaryDeltas;
+
 /// Errors from writing a JSON summary artifact.
 #[derive(Debug, Error)]
 pub enum JsonSummaryWriteError {
@@ -152,6 +154,9 @@ pub struct JsonSummary {
     pub artifacts: Vec<WrittenArtifact>,
     /// Known data-gap warnings.
     pub limits: Vec<String>,
+    /// Changes from the requested baseline, when computed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deltas: Option<SummaryDeltas>,
 }
 
 /// Builds a schema-version-1 JSON summary from merged scan facts.
@@ -225,6 +230,7 @@ pub fn build_json_summary(
             SUMMARY_LIMIT_CATEGORY.to_owned(),
             SUMMARY_LIMIT_OWNERSHIP.to_owned(),
         ],
+        deltas: None,
     }
 }
 
@@ -356,6 +362,7 @@ mod tests {
             diagnostics: vec![],
             artifacts: vec![],
             limits: vec![],
+            deltas: None,
         };
 
         let error =

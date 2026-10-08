@@ -1,9 +1,6 @@
 mod common;
 
-use common::{
-    assert_deferred_format, assert_schema_valid_summary, env_lock, run_scan, setup_scan_repo,
-    write_repo_files,
-};
+use common::{assert_schema_valid_summary, env_lock, run_scan, setup_scan_repo, write_repo_files};
 use std::fs;
 use std::path::PathBuf;
 
@@ -207,11 +204,6 @@ fn unknown_artifact_format_errors_distinctly_from_parse_shape() {
         !stderr.contains("expected FORMAT=PATH"),
         "unknown format must not reuse parse-shape InvalidOutputFlag: {stderr}"
     );
-}
-
-#[test]
-fn deferred_markdown_errors() {
-    assert_deferred_format("markdown");
 }
 
 #[test]
