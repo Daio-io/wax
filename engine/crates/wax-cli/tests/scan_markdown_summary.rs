@@ -22,6 +22,11 @@ fn format_markdown_stdout_has_headline_and_table() {
     assert!(stdout.starts_with("# Wax scan\n\nAdoption: **100.0%**"));
     assert!(stdout.contains("| Language | Status | Coverage | Resolved | Candidate |"));
     assert!(stdout.contains("| compose | complete | 100.0% | 1 | 1 |"));
+    assert!(stdout.contains("## Diagnostics"));
+    assert!(stdout.contains("## Artifacts"));
+    assert!(stdout.contains("[scan-merged](.wax/out/scan-merged.json)"));
+    assert!(stdout.contains("## Limits"));
+    assert!(!stdout.contains("## Changes"));
     assert!(!stdout.contains("scan output:"));
 }
 
