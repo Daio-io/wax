@@ -28,7 +28,18 @@ fn summary_fixture_validates() {
             }
         ],
         "adoption": {
-            "coverage_ratio": 0.875
+            "coverage_ratio": 0.875,
+            "eligible_invocation_count": 8,
+            "adopted_invocation_count": 7,
+            "non_adopted_invocation_count": 1,
+            "adoption_excluded_invocation_count": 0,
+            "raw_invocations": {
+                "total": 9,
+                "resolved": 7,
+                "local": 1,
+                "candidate": 1,
+                "unresolved": 1
+            }
         },
         "diagnostics": [
             {

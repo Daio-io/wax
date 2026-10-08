@@ -181,6 +181,25 @@ pub enum ScanCommandError {
         /// Absolute path that was denied.
         path: PathBuf,
     },
+    /// Relative artifact path escapes the repository via `..` components.
+    #[error(
+        "output path `{path}` escapes the repository; paths must stay within the repository",
+        path = path.display()
+    )]
+    OutputPathEscapesRepo {
+        /// Path that would leave the repository.
+        path: PathBuf,
+    },
+    /// Artifact destination collides with the engine-owned merged scan file.
+    #[error(
+        "output path `{path}` collides with the canonical scan output `{canonical}`; choose a different path",
+        path = path.display(),
+        canonical = SCAN_OUTPUT_RELATIVE_PATH
+    )]
+    CanonicalScanOutputCollision {
+        /// Path that would overwrite the merged scan artifact.
+        path: PathBuf,
+    },
     /// Writing a requested artifact failed.
     #[error("failed to write scan output `{path}`: {source}", path = path.display())]
     OutputIo {
@@ -266,6 +285,14 @@ pub fn run_scan(
         attempt_scan_time_registry_sync(&options, writer)?;
     }
 
+    let output_path = options.repo_root.join(SCAN_OUTPUT_RELATIVE_PATH);
+    let config_outputs = if ephemeral {
+        Vec::new()
+    } else {
+        load_scan_config_outputs(&options)?
+    };
+    let requests = resolve_scan_outputs(&options, &config_outputs)?;
+
     let progress = Arc::new(CliProgress::new());
     let merged = Engine::scan_repo_with_options(
         &options.repo_root,
@@ -279,13 +306,6 @@ pub fn run_scan(
     )?;
     progress.finish();
 
-    let output_path = options.repo_root.join(SCAN_OUTPUT_RELATIVE_PATH);
-    let config_outputs = if ephemeral {
-        Vec::new()
-    } else {
-        load_scan_config_outputs(&options)?
-    };
-    let requests = resolve_scan_outputs(&options, &config_outputs)?;
     let written = write_requested_outputs(&requests, &merged, &options, &output_path)?;
     emit_stdout_format(
         writer,
@@ -368,6 +388,8 @@ fn run_ephemeral_scan(
 ) -> Result<(), ScanCommandError> {
     let state_path = resolve_state_path(options.state_path.as_deref())?;
     let ephemeral = build_ephemeral_scan_config(&options, &selections, &state_path)?;
+    let output_path = options.repo_root.join(SCAN_OUTPUT_RELATIVE_PATH);
+    let requests = resolve_scan_outputs(&options, &[])?;
     let progress = Arc::new(CliProgress::new());
     let merged = Engine::scan_repo_with_options(
         &options.repo_root,
@@ -381,8 +403,6 @@ fn run_ephemeral_scan(
     )?;
     progress.finish();
 
-    let output_path = options.repo_root.join(SCAN_OUTPUT_RELATIVE_PATH);
-    let requests = resolve_scan_outputs(&options, &[])?;
     let written = write_requested_outputs(&requests, &merged, &options, &output_path)?;
     emit_stdout_format(
         writer,
@@ -677,18 +697,23 @@ fn load_scan_config_outputs(
 }
 
 /// Unions config and CLI output requests, normalizing paths and rejecting
-/// absolute paths unless allowed.
+/// absolute paths unless allowed, relative paths that escape the repository,
+/// and destinations that collide with the canonical merged scan artifact.
 ///
 /// # Errors
 ///
 /// Returns [`ScanCommandError::AbsoluteOutputDenied`] for absolute paths without
-/// `--allow-absolute-output`.
+/// `--allow-absolute-output`, [`ScanCommandError::OutputPathEscapesRepo`] when a
+/// relative path leaves the repository, or
+/// [`ScanCommandError::CanonicalScanOutputCollision`] when the destination would
+/// overwrite `.wax/out/scan-merged.json`.
 pub fn resolve_scan_outputs(
     opts: &ScanCommandOptions,
     config: &[ScanOutputSpec],
 ) -> Result<Vec<ScanOutputRequest>, ScanCommandError> {
     let mut resolved = Vec::new();
     let mut seen = std::collections::BTreeSet::new();
+    let canonical_scan_output = opts.repo_root.join(SCAN_OUTPUT_RELATIVE_PATH);
 
     let mut push_request = |format: String, path: PathBuf| -> Result<(), ScanCommandError> {
         let normalized = if path.is_absolute() {
@@ -697,8 +722,11 @@ pub fn resolve_scan_outputs(
             }
             path
         } else {
-            PathBuf::from(normalize_repo_relative_path(&path))
+            normalize_relative_output_path(&path)?
         };
+        if paths_collide_with_canonical_scan_output(&normalized, &canonical_scan_output) {
+            return Err(ScanCommandError::CanonicalScanOutputCollision { path: normalized });
+        }
         let key = (format.clone(), normalized.display().to_string());
         if seen.insert(key) {
             resolved.push(ScanOutputRequest {
@@ -718,14 +746,59 @@ pub fn resolve_scan_outputs(
     Ok(resolved)
 }
 
+/// Collapses `.` / `..` in a repo-relative output path and rejects escapes.
+fn normalize_relative_output_path(path: &Path) -> Result<PathBuf, ScanCommandError> {
+    use std::path::{Component, PathBuf as StdPathBuf};
+
+    let normalized = normalize_repo_relative_path(path);
+    let mut parts: Vec<String> = Vec::new();
+    for component in StdPathBuf::from(&normalized).components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if parts.pop().is_none() {
+                    return Err(ScanCommandError::OutputPathEscapesRepo {
+                        path: path.to_path_buf(),
+                    });
+                }
+            }
+            Component::Normal(segment) => {
+                parts.push(segment.to_string_lossy().into_owned());
+            }
+            Component::RootDir | Component::Prefix(_) => {
+                return Err(ScanCommandError::OutputPathEscapesRepo {
+                    path: path.to_path_buf(),
+                });
+            }
+        }
+    }
+    Ok(PathBuf::from(parts.join("/")))
+}
+
+fn paths_collide_with_canonical_scan_output(path: &Path, canonical_absolute: &Path) -> bool {
+    if path.is_absolute() {
+        return path == canonical_absolute;
+    }
+    let relative = normalize_repo_relative_path(path);
+    relative == SCAN_OUTPUT_RELATIVE_PATH
+}
+
 fn write_requested_outputs(
     requests: &[ScanOutputRequest],
     merged: &MergedScan,
     options: &ScanCommandOptions,
     scan_path: &Path,
 ) -> Result<Vec<WrittenArtifact>, ScanCommandError> {
-    let mut written = Vec::new();
-    for request in requests {
+    let mut artifact_manifest: Vec<WrittenArtifact> = requests
+        .iter()
+        .map(|request| WrittenArtifact {
+            format: request.format.clone(),
+            path: request.path.display().to_string(),
+            bytes: None,
+        })
+        .collect();
+
+    for (index, request) in requests.iter().enumerate() {
         match request.format.as_str() {
             "json-summary" => {
                 let destination = if request.path.is_absolute() {
@@ -733,14 +806,11 @@ fn write_requested_outputs(
                 } else {
                     options.repo_root.join(&request.path)
                 };
-                let summary = build_json_summary(merged, &options.repo_root, scan_path, &written);
+                let summary =
+                    build_json_summary(merged, &options.repo_root, scan_path, &artifact_manifest);
                 write_json_summary(&destination, &summary)?;
                 let bytes = fs::metadata(&destination).ok().map(|meta| meta.len());
-                written.push(WrittenArtifact {
-                    format: request.format.clone(),
-                    path: request.path.display().to_string(),
-                    bytes,
-                });
+                artifact_manifest[index].bytes = bytes;
             }
             "graph-data" | "markdown" | "html" => {
                 return Err(ScanCommandError::OutputFormatDeferred {
@@ -754,7 +824,7 @@ fn write_requested_outputs(
             }
         }
     }
-    Ok(written)
+    Ok(artifact_manifest)
 }
 
 fn emit_stdout_format(

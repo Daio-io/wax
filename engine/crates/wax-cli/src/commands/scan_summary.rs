@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
-use wax_contract::{Diagnostic, DiagnosticSeverity, MergedScan, ScanStatus, SourceLocation};
+use wax_contract::{DiagnosticSeverity, MergedScan, ScanStatus, SourceLocation};
 use wax_core::{AtomicWriteOptions, write_atomically};
 
 /// Known gaps when module/category/ownership rollups are unavailable.
@@ -50,14 +50,39 @@ pub struct JsonSummaryLanguage {
     pub candidate: u32,
 }
 
-/// Repository adoption headline.
+/// Raw invocation rollups included in the adoption summary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JsonSummaryRawInvocations {
+    /// Total raw UI invocations across match statuses.
+    pub total: u32,
+    /// Resolved design-system invocations.
+    pub resolved: u32,
+    /// Local-component invocations.
+    pub local: u32,
+    /// Candidate design-system invocations.
+    pub candidate: u32,
+    /// Unresolved invocations.
+    pub unresolved: u32,
+}
+
+/// Repository adoption headline plus rollups available from current scan facts.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct JsonSummaryAdoption {
     /// Repository invocation adoption ratio when available.
     pub coverage_ratio: Option<f64>,
+    /// Adoption-eligible invocation count.
+    pub eligible_invocation_count: u32,
+    /// Adopted invocation count.
+    pub adopted_invocation_count: u32,
+    /// Eligible invocations that are not adopted.
+    pub non_adopted_invocation_count: u32,
+    /// Invocations excluded from primary adoption.
+    pub adoption_excluded_invocation_count: u32,
+    /// Repository raw-invocation rollups.
+    pub raw_invocations: JsonSummaryRawInvocations,
 }
 
-/// One failure diagnostic included in the JSON summary.
+/// One diagnostic included in the JSON summary.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JsonSummaryDiagnostic {
     /// Diagnostic severity.
@@ -102,7 +127,7 @@ pub struct JsonSummary {
     pub languages: Vec<JsonSummaryLanguage>,
     /// Repository adoption headline.
     pub adoption: JsonSummaryAdoption,
-    /// Failure diagnostics mapped from the merged scan.
+    /// Diagnostics mapped from the merged scan (all severities).
     pub diagnostics: Vec<JsonSummaryDiagnostic>,
     /// Artifacts written for this scan invocation.
     pub artifacts: Vec<WrittenArtifact>,
@@ -150,8 +175,31 @@ pub fn build_json_summary(
         languages,
         adoption: JsonSummaryAdoption {
             coverage_ratio: merged.repo_summary.metrics.invocation_adoption_ratio,
+            eligible_invocation_count: merged
+                .repo_summary
+                .counts
+                .adoption
+                .eligible_invocation_count,
+            adopted_invocation_count: merged.repo_summary.counts.adoption.adopted_invocation_count,
+            non_adopted_invocation_count: merged
+                .repo_summary
+                .counts
+                .adoption
+                .non_adopted_invocation_count,
+            adoption_excluded_invocation_count: merged
+                .repo_summary
+                .counts
+                .adoption
+                .adoption_excluded_invocation_count,
+            raw_invocations: JsonSummaryRawInvocations {
+                total: merged.repo_summary.counts.raw_invocations.total,
+                resolved: merged.repo_summary.counts.raw_invocations.resolved,
+                local: merged.repo_summary.counts.raw_invocations.local,
+                candidate: merged.repo_summary.counts.raw_invocations.candidate,
+                unresolved: merged.repo_summary.counts.raw_invocations.unresolved,
+            },
         },
-        diagnostics: failure_diagnostics_with_language(merged),
+        diagnostics: diagnostics_with_language(merged),
         artifacts: artifacts.to_vec(),
         limits: vec![
             SUMMARY_LIMIT_MODULE.to_owned(),
@@ -183,7 +231,7 @@ pub fn write_json_summary(path: &Path, summary: &JsonSummary) -> Result<(), Scan
     Ok(())
 }
 
-fn failure_diagnostics_with_language(merged: &MergedScan) -> Vec<JsonSummaryDiagnostic> {
+fn diagnostics_with_language(merged: &MergedScan) -> Vec<JsonSummaryDiagnostic> {
     merged
         .languages
         .iter()
@@ -191,7 +239,6 @@ fn failure_diagnostics_with_language(merged: &MergedScan) -> Vec<JsonSummaryDiag
             facts
                 .diagnostics
                 .iter()
-                .filter(|diagnostic| is_failure_diagnostic(diagnostic))
                 .map(|diagnostic| JsonSummaryDiagnostic {
                     severity: severity_label(diagnostic.severity).to_owned(),
                     code: diagnostic.code.clone(),
@@ -201,10 +248,6 @@ fn failure_diagnostics_with_language(merged: &MergedScan) -> Vec<JsonSummaryDiag
                 })
         })
         .collect()
-}
-
-fn is_failure_diagnostic(diagnostic: &Diagnostic) -> bool {
-    diagnostic.severity == DiagnosticSeverity::Error || diagnostic.code == "parse_failed"
 }
 
 fn map_location(location: &SourceLocation) -> JsonSummaryLocation {
@@ -228,5 +271,166 @@ fn severity_label(severity: DiagnosticSeverity) -> &'static str {
         DiagnosticSeverity::Error => "error",
         DiagnosticSeverity::Warning => "warning",
         DiagnosticSeverity::Info => "info",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+    use std::path::Path;
+    use std::str::FromStr;
+    use time::OffsetDateTime;
+    use wax_contract::{
+        AdoptionCounts, CountSummary, DefinitionCounts, Diagnostic, DiagnosticSeverity, LanguageId,
+        LanguageMetadata, Metrics, ParentScopeCounts, RawInvocationCounts, RegistryCounts,
+        RepoSummary, SCHEMA_VERSION, ScanFacts, ScanStatus, SourceLocation,
+    };
+
+    #[test]
+    fn json_summary_includes_warning_and_info_diagnostics() {
+        let merged = merged_with_diagnostics(vec![
+            diagnostic(
+                DiagnosticSeverity::Warning,
+                "root_not_found",
+                "missing root",
+            ),
+            diagnostic(
+                DiagnosticSeverity::Info,
+                "basic_text_scan",
+                "heuristic scan",
+            ),
+            diagnostic(DiagnosticSeverity::Error, "PACK_TIMEOUT", "timed out"),
+        ]);
+
+        let summary = build_json_summary(
+            &merged,
+            Path::new("/tmp/repo"),
+            Path::new("/tmp/repo/.wax/out/scan-merged.json"),
+            &[],
+        );
+
+        let codes: Vec<&str> = summary
+            .diagnostics
+            .iter()
+            .map(|entry| entry.code.as_str())
+            .collect();
+        assert!(codes.contains(&"root_not_found"));
+        assert!(codes.contains(&"basic_text_scan"));
+        assert!(codes.contains(&"PACK_TIMEOUT"));
+        assert_eq!(summary.diagnostics.len(), 3);
+    }
+
+    #[test]
+    fn json_summary_includes_available_adoption_rollups() {
+        let mut merged = merged_with_diagnostics(vec![]);
+        merged.repo_summary.counts.adoption = AdoptionCounts {
+            eligible_invocation_count: 8,
+            adopted_invocation_count: 7,
+            non_adopted_invocation_count: 1,
+            adoption_excluded_invocation_count: 2,
+        };
+        merged.repo_summary.counts.raw_invocations = RawInvocationCounts {
+            total: 10,
+            resolved: 7,
+            local: 1,
+            candidate: 1,
+            unresolved: 1,
+        };
+        merged.repo_summary.metrics.invocation_adoption_ratio = Some(0.875);
+
+        let summary = build_json_summary(
+            &merged,
+            Path::new("/tmp/repo"),
+            Path::new("/tmp/repo/.wax/out/scan-merged.json"),
+            &[],
+        );
+
+        assert_eq!(summary.adoption.coverage_ratio, Some(0.875));
+        assert_eq!(summary.adoption.eligible_invocation_count, 8);
+        assert_eq!(summary.adoption.adopted_invocation_count, 7);
+        assert_eq!(summary.adoption.non_adopted_invocation_count, 1);
+        assert_eq!(summary.adoption.adoption_excluded_invocation_count, 2);
+        assert_eq!(summary.adoption.raw_invocations.total, 10);
+        assert_eq!(summary.adoption.raw_invocations.resolved, 7);
+        assert_eq!(summary.adoption.raw_invocations.candidate, 1);
+    }
+
+    fn diagnostic(severity: DiagnosticSeverity, code: &str, message: &str) -> Diagnostic {
+        Diagnostic {
+            severity,
+            code: code.to_owned(),
+            message: message.to_owned(),
+            location: Some(SourceLocation {
+                file: "src/a.kt".to_owned(),
+                line: 1,
+                column: None,
+                root_group: None,
+            }),
+        }
+    }
+
+    fn merged_with_diagnostics(diagnostics: Vec<Diagnostic>) -> MergedScan {
+        let language_id = LanguageId::from_str("compose").unwrap();
+        MergedScan {
+            schema_version: SCHEMA_VERSION,
+            recorded_at: OffsetDateTime::UNIX_EPOCH,
+            repo_summary: RepoSummary {
+                languages: vec![language_id.clone()],
+                counts: CountSummary {
+                    registry: RegistryCounts::default(),
+                    definitions: DefinitionCounts::default(),
+                    raw_invocations: RawInvocationCounts::default(),
+                    adoption: AdoptionCounts::default(),
+                    parent_scopes: ParentScopeCounts::default(),
+                    invocation_origins: Default::default(),
+                    tokens: Default::default(),
+                },
+                metrics: Metrics {
+                    invocation_adoption_ratio: None,
+                    registry_resolution_ratio: None,
+                    parse_extract_ms: 0,
+                    files_scanned: 1,
+                },
+            },
+            symbol_usage_summary: vec![],
+            token_usage_summary: vec![],
+            scan_scope: Default::default(),
+            token_inference: wax_contract::TokenInferenceReport::empty(2.0),
+            root_groups: vec![],
+            root_group_summary: vec![],
+            languages: BTreeMap::from([(
+                language_id.clone(),
+                ScanFacts {
+                    schema_version: SCHEMA_VERSION,
+                    language: LanguageMetadata {
+                        id: language_id,
+                        version: "0.1.0".to_owned(),
+                        ecosystem: "test".to_owned(),
+                        parser_name: "fixture".to_owned(),
+                        parser_version: "1.0.0".to_owned(),
+                    },
+                    snapshot_id: "snap".to_owned(),
+                    scanned_at: OffsetDateTime::UNIX_EPOCH,
+                    status: ScanStatus::Complete,
+                    design_system_components: vec![],
+                    local_components: vec![],
+                    usage_sites: vec![],
+                    diagnostics,
+                    metrics: Metrics {
+                        invocation_adoption_ratio: None,
+                        registry_resolution_ratio: None,
+                        parse_extract_ms: 0,
+                        files_scanned: 1,
+                    },
+                    counts: CountSummary::default(),
+                    symbol_usage_summary: vec![],
+                    design_system_tokens: vec![],
+                    token_sites: vec![],
+                    hardcoded_style_sites: vec![],
+                    token_usage_summary: vec![],
+                },
+            )]),
+        }
     }
 }

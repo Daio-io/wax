@@ -34,6 +34,51 @@ fn cli_output_writes_json_summary() {
 }
 
 #[test]
+fn each_written_json_summary_lists_all_requested_artifacts() {
+    let _guard = env_lock();
+    let (_root, repo, _wax_home) = setup_scan_repo(
+        "scan-artifact-manifest-complete",
+        &[("compose", "complete", "0.5", "", "")],
+    );
+
+    let output = run_scan(
+        &repo,
+        &[
+            "--output",
+            "json-summary=.wax/out/summary-a.json",
+            "--output",
+            "json-summary=.wax/out/summary-b.json",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    for name in ["summary-a.json", "summary-b.json"] {
+        let value: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(repo.join(".wax/out").join(name)).unwrap())
+                .unwrap();
+        assert_schema_valid_summary(&value);
+        let paths: Vec<&str> = value["artifacts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["path"].as_str().unwrap())
+            .collect();
+        assert!(
+            paths.contains(&".wax/out/summary-a.json"),
+            "{name} missing summary-a in artifacts: {paths:?}"
+        );
+        assert!(
+            paths.contains(&".wax/out/summary-b.json"),
+            "{name} missing summary-b in artifacts: {paths:?}"
+        );
+    }
+}
+
+#[test]
 fn config_outputs_union_with_cli_idempotent() {
     let _guard = env_lock();
     let root = common::TestDir::new("scan-artifact-union");
@@ -159,6 +204,71 @@ fn absolute_path_requires_allow_flag() {
     assert!(
         stderr.contains("requires --allow-absolute-output"),
         "unexpected stderr: {stderr}"
+    );
+}
+
+#[test]
+fn parent_traversal_output_path_rejected() {
+    let _guard = env_lock();
+    let (_root, repo, _wax_home) = setup_scan_repo(
+        "scan-artifact-parent-escape",
+        &[("compose", "complete", "0.5", "", "")],
+    );
+
+    let output = run_scan(&repo, &["--output", "json-summary=../outside-summary.json"]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("escapes the repository")
+            || stderr.contains("must stay within the repository"),
+        "unexpected stderr: {stderr}"
+    );
+    assert!(!repo.join("../outside-summary.json").exists());
+}
+
+#[test]
+fn nested_parent_escape_output_path_rejected() {
+    let _guard = env_lock();
+    let (_root, repo, _wax_home) = setup_scan_repo(
+        "scan-artifact-nested-escape",
+        &[("compose", "complete", "0.5", "", "")],
+    );
+
+    let output = run_scan(
+        &repo,
+        &["--output", "json-summary=.wax/out/../../../outside.json"],
+    );
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("escapes the repository")
+            || stderr.contains("must stay within the repository"),
+        "unexpected stderr: {stderr}"
+    );
+}
+
+#[test]
+fn output_colliding_with_scan_merged_rejected() {
+    let _guard = env_lock();
+    let (_root, repo, _wax_home) = setup_scan_repo(
+        "scan-artifact-merged-collision",
+        &[("compose", "complete", "0.5", "", "")],
+    );
+
+    let output = run_scan(
+        &repo,
+        &["--output", "json-summary=.wax/out/scan-merged.json"],
+    );
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("collides with the canonical scan output"),
+        "unexpected stderr: {stderr}"
+    );
+
+    assert!(
+        !repo.join(".wax/out/scan-merged.json").exists(),
+        "collision must be rejected before scanning writes the merged artifact"
     );
 }
 

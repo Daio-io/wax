@@ -89,10 +89,60 @@
     "adoption": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["coverage_ratio"],
+      "required": [
+        "coverage_ratio",
+        "eligible_invocation_count",
+        "adopted_invocation_count",
+        "non_adopted_invocation_count",
+        "adoption_excluded_invocation_count",
+        "raw_invocations"
+      ],
       "properties": {
         "coverage_ratio": {
           "type": ["number", "null"]
+        },
+        "eligible_invocation_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "adopted_invocation_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "non_adopted_invocation_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "adoption_excluded_invocation_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "raw_invocations": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["total", "resolved", "local", "candidate", "unresolved"],
+          "properties": {
+            "total": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "resolved": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "local": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "candidate": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unresolved": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
         }
       }
     },
