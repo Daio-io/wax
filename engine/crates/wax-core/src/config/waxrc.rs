@@ -58,6 +58,9 @@ pub const SCAN_OUTPUT_FORMAT_JSON_SUMMARY: &str = "json-summary";
 /// Graph-data artifact format id.
 pub const SCAN_OUTPUT_FORMAT_GRAPH_DATA: &str = "graph-data";
 
+/// Static HTML report artifact format id.
+pub const SCAN_OUTPUT_FORMAT_HTML: &str = "html";
+
 /// Returns whether `format` is a recognized scan artifact format id.
 #[must_use]
 pub fn is_known_scan_output_format(format: &str) -> bool {
@@ -70,6 +73,7 @@ pub fn is_deferred_scan_output_format(format: &str) -> bool {
     is_known_scan_output_format(format)
         && format != SCAN_OUTPUT_FORMAT_JSON_SUMMARY
         && format != SCAN_OUTPUT_FORMAT_GRAPH_DATA
+        && format != SCAN_OUTPUT_FORMAT_HTML
 }
 
 /// One configured scan artifact output.

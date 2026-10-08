@@ -55,11 +55,13 @@ fn render_report(
         .iter()
         .map(|language| {
             format!(
-                "<article class=\"card\"><h3>{}</h3><p>Status: {}</p><p>Coverage: {}</p><p>Files: {}</p></article>",
+                "<article class=\"card\"><h3>{}</h3><p>Status: {}</p><p>Coverage: {}</p><p>Files: {}</p><p>Resolved: {}</p><p>Candidate: {}</p></article>",
                 escape(&language.id),
                 escape(&language.status),
                 language.coverage_ratio.map_or_else(|| "Unavailable".to_owned(), |ratio| format!("{:.1}%", ratio * 100.0)),
-                language.files_scanned
+                language.files_scanned,
+                language.resolved,
+                language.candidate
             )
         })
         .collect::<Vec<_>>()
@@ -82,18 +84,26 @@ fn render_report(
             .join("\n")
     };
     let diagnostics = if summary.diagnostics.is_empty() {
-        "<tr><td colspan=\"4\">No diagnostics</td></tr>".to_owned()
+        "<tr><td colspan=\"6\">No diagnostics</td></tr>".to_owned()
     } else {
         summary
             .diagnostics
             .iter()
             .map(|diagnostic| {
                 format!(
-                    "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+                    "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
                     escape(&diagnostic.severity),
                     escape(&diagnostic.code),
                     escape(&diagnostic.message),
-                    escape(&diagnostic.language)
+                    escape(&diagnostic.language),
+                    diagnostic
+                        .location
+                        .as_ref()
+                        .map_or("", |location| location.file.as_str()),
+                    diagnostic
+                        .location
+                        .as_ref()
+                        .map_or(String::new(), |location| location.line.to_string())
                 )
             })
             .collect::<Vec<_>>()
@@ -123,7 +133,7 @@ fn render_report(
         .join("\n");
 
     format!(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Wax scan report</title><style>{REPORT_CSS}</style></head><body><main><h1>Wax scan report</h1><section><h2>Adoption</h2><p id=\"adoption-headline\">Repository adoption: <strong>{adoption}</strong></p></section><section><h2>Languages</h2><div class=\"cards\">{language_cards}</div></section><section><h2>Graph</h2>{metrics}</section><section><h2>Diagnostics</h2><table><thead><tr><th>Severity</th><th>Code</th><th>Message</th><th>Language</th></tr></thead><tbody>{diagnostics}</tbody></table></section><section><h2>Artifacts</h2><ul>{artifacts}</ul></section><section><h2>Limits</h2><ul>{limits}</ul></section></main><script>{REPORT_JS}</script></body></html>"
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Wax scan report</title><style>{REPORT_CSS}</style></head><body><main><h1>Wax scan report</h1><section><h2>Adoption</h2><p id=\"adoption-headline\">Repository adoption: <strong>{adoption}</strong></p></section><section><h2>Languages</h2><div class=\"cards\">{language_cards}</div></section><section><h2>Graph</h2>{metrics}</section><section><h2>Diagnostics</h2><table><thead><tr><th>Severity</th><th>Code</th><th>Message</th><th>Language</th><th>File</th><th>Line</th></tr></thead><tbody>{diagnostics}</tbody></table></section><section><h2>Artifacts</h2><ul>{artifacts}</ul></section><section><h2>Limits</h2><ul>{limits}</ul></section></main><script>{REPORT_JS}</script></body></html>"
     )
 }
 

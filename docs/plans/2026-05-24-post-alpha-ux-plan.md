@@ -222,7 +222,7 @@ Emit versioned `nodes[]`, `edges[]`, `metrics[]`, and `metadata` as described ab
 
 Write a local, no-network report at `html` output paths. Include adoption headline, per-language cards, at least one graph, diagnostics table, raw artifact links, and visible limits.
 
-- [ ] **Step 3: Validate artifacts**
+- [x] **Step 3: Validate artifacts**
 
 Run: `cd engine && cargo test -p wax-cli scan_report_artifacts`
 

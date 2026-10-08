@@ -161,3 +161,17 @@ fn html_links_merged_scan_when_html_is_only_output() {
     let html = fs::read_to_string(repo.join("report/index.html")).unwrap();
     assert!(html.contains("href=\"../.wax/out/scan-merged.json\""));
 }
+
+#[test]
+fn markdown_still_deferred() {
+    let _guard = env_lock();
+    let (_root, repo, _wax_home) = setup_scan_repo(
+        "scan-html-markdown-deferred",
+        &[("compose", "complete", "0.5", "", "")],
+    );
+
+    let output = run_scan(&repo, &["--output", "markdown=.wax/out/report.md"]);
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("markdown"));
+}

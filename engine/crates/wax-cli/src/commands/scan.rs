@@ -29,8 +29,9 @@ use wax_core::config::lockfile::{LockedRegistry, WAX_LOCK_SCHEMA_VERSION, WaxLoc
 use wax_core::config::repo_files::PREFERRED_CONFIG_RELATIVE_PATH;
 use wax_core::config::waxrc::{
     AdoptionConfig, EngineConfig, LanguageEntry, LanguageRegistrySource,
-    SCAN_OUTPUT_FORMAT_GRAPH_DATA, SCAN_OUTPUT_FORMAT_JSON_SUMMARY, ScanOutputSpec,
-    WAXRC_SCHEMA_VERSION, WaxRc, WaxRcError, is_deferred_scan_output_format, load_waxrc,
+    SCAN_OUTPUT_FORMAT_GRAPH_DATA, SCAN_OUTPUT_FORMAT_HTML, SCAN_OUTPUT_FORMAT_JSON_SUMMARY,
+    ScanOutputSpec, WAXRC_SCHEMA_VERSION, WaxRc, WaxRcError, is_deferred_scan_output_format,
+    load_waxrc,
 };
 use wax_core::paths::PathsError;
 use wax_core::registry::{fetch_pack_index, select_target_artifact};
@@ -864,8 +865,8 @@ fn write_requested_outputs(
     output_order.sort_by_key(|index| match requests[*index].format.as_str() {
         SCAN_OUTPUT_FORMAT_JSON_SUMMARY => 0,
         SCAN_OUTPUT_FORMAT_GRAPH_DATA => 1,
-        "html" => 2,
-        _ => 3,
+        SCAN_OUTPUT_FORMAT_HTML => 1,
+        _ => 0,
     });
 
     for index in output_order {
@@ -884,7 +885,7 @@ fn write_requested_outputs(
             let graph = build_scan_graph(merged, source_scan_path);
             write_scan_graph(&destination, &graph)?;
             record_written_artifact_bytes(&mut artifact_manifest, index, &destination);
-        } else if request.format == "html" {
+        } else if request.format == SCAN_OUTPUT_FORMAT_HTML {
             let destination = artifact_destination(request, &options.repo_root);
             if let Some(parent) = destination.parent() {
                 fs::create_dir_all(parent).map_err(|source| ScanCommandError::OutputIo {
