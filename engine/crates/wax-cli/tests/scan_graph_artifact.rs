@@ -1,12 +1,12 @@
 mod common;
 
 use common::{
-    EnvVarGuard, TestDir, env_lock, run_scan, setup_scan_repo, write_grouped_repo_files,
-    write_installed_packs, write_pack_index, write_repo_files,
+    EnvVarGuard, TestDir, assert_deferred_format, env_lock, no_registry_symbol_usage_override,
+    run_scan, setup_scan_repo, write_grouped_repo_files, write_installed_packs,
+    write_installed_packs_with_usage_sites, write_pack_index, write_repo_files,
 };
 use std::fs;
 use std::path::Path;
-use wax_contract::{LanguageId, SCHEMA_VERSION};
 
 fn graph_validator() -> jsonschema::Validator {
     let schema: serde_json::Value = serde_json::from_str(include_str!(
@@ -110,7 +110,11 @@ fn graph_skips_usage_without_registry_symbol() {
     let registry_file = root.path.join("registry.json");
     write_pack_index(&registry_file);
     write_repo_files(&repo, &registry_file, &["compose"], None);
-    write_pack_without_registry_symbol_usages(&wax_home, "compose");
+    write_installed_packs_with_usage_sites(
+        &wax_home,
+        &[("compose", "complete", "0.5", "", "")],
+        Some(no_registry_symbol_usage_override()),
+    );
     let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
 
     let output = run_scan(&repo, &["--output", "graph-data=.wax/out/scan-graph.json"]);
@@ -171,19 +175,7 @@ fn config_output_graph_idempotent() {
 
 #[test]
 fn html_still_deferred() {
-    let _guard = env_lock();
-    let (_root, repo, _wax_home) = setup_scan_repo(
-        "scan-graph-html-deferred",
-        &[("compose", "complete", "0.5", "", "")],
-    );
-
-    let output = run_scan(&repo, &["--output", "html=.wax/out/report/index.html"]);
-    assert!(!output.status.success());
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(
-        stderr.contains("output format `html` is not implemented yet"),
-        "unexpected stderr: {stderr}"
-    );
+    assert_deferred_format("html");
 }
 
 #[test]
@@ -261,157 +253,4 @@ fn root_group_graph_scoped_only() {
         .map(|node| node["id"].as_str().unwrap())
         .collect();
     assert_eq!(language_nodes, vec!["lang:compose"]);
-}
-
-fn write_pack_without_registry_symbol_usages(wax_home: &Path, language: &str) {
-    let install_dir = wax_home.join(format!("langs/{language}/0.1.0"));
-    fs::create_dir_all(&install_dir).unwrap();
-
-    let facts = serde_json::json!({
-        "schema_version": SCHEMA_VERSION,
-        "language": {
-            "id": LanguageId::try_from(language).unwrap(),
-            "version": "0.1.0",
-            "ecosystem": "test",
-            "parser_name": "fixture",
-            "parser_version": "1.0.0"
-        },
-        "snapshot_id": format!("snap-{language}"),
-        "scanned_at": "1970-01-01T00:00:00Z",
-        "status": "complete",
-        "design_system_components": [],
-        "local_components": [{
-            "id": "local-1",
-            "symbol": "LocalButton",
-            "location": { "file": "src/local.kt", "line": 1 }
-        }],
-        "usage_sites": [
-            {
-                "id": "site-local",
-                "location": { "file": "src/local.kt", "line": 2 },
-                "symbol": "LocalButton",
-                "match_status": "local",
-                "callee_origin": "local",
-                "resolution_evidence": { "kind": "local_same_file" },
-                "local_definition_id": "local-1"
-            },
-            {
-                "id": "site-unresolved",
-                "location": { "file": "src/unknown.kt", "line": 1 },
-                "symbol": "Mystery",
-                "match_status": "unresolved",
-                "callee_origin": "unknown",
-                "resolution_evidence": { "kind": "no_matching_definition" }
-            }
-        ],
-        "diagnostics": [],
-        "metrics": {
-            "invocation_adoption_ratio": 0.0,
-            "registry_resolution_ratio": 0.0,
-            "parse_extract_ms": 5,
-            "files_scanned": 1
-        },
-        "counts": {
-            "registry": {
-                "component_count": 0,
-                "used_component_count": 0,
-                "resolved_raw_invocation_count": 0,
-                "candidate_raw_invocation_count": 0
-            },
-            "definitions": {
-                "local_definition_count": 1,
-                "invoked_local_definition_count": 1,
-                "unused_local_definition_count": 0
-            },
-            "raw_invocations": {
-                "total": 2,
-                "resolved": 0,
-                "local": 1,
-                "candidate": 0,
-                "unresolved": 1
-            },
-            "adoption": {
-                "eligible_invocation_count": 2,
-                "adopted_invocation_count": 0,
-                "non_adopted_invocation_count": 2,
-                "adoption_excluded_invocation_count": 0
-            },
-            "parent_scopes": {
-                "total": 0,
-                "with_resolved_invocations": 0,
-                "with_local_invocations": 0,
-                "with_unresolved_invocations": 0
-            },
-            "invocation_origins": {
-                "registry": 0,
-                "local": 1,
-                "framework": 0,
-                "external": 0,
-                "application": 0,
-                "unknown": 1
-            }
-        }
-    });
-    let wire = serde_json::json!({
-        "type": "scan_facts",
-        "api_version": 1,
-        "language_id": language,
-        "facts": facts
-    });
-    let script = install_dir.join("pack.sh");
-    fs::write(
-        &script,
-        format!(
-            r#"#!/bin/sh
-set -eu
-cat >/dev/null
-cat <<JSON
-{}
-JSON
-"#,
-            wire
-        ),
-    )
-    .unwrap();
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&script).unwrap().permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&script, perms).unwrap();
-    }
-
-    fs::write(
-        install_dir.join("manifest.json"),
-        format!(
-            r#"{{
-  "id": "{language}",
-  "version": "0.1.0",
-  "api_version": 1,
-  "command": ["./pack.sh"],
-  "target": "x86_64-unknown-linux-gnu",
-  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "ecosystem": "test",
-  "parser_name": "fixture",
-  "parser_version": "1.0.0"
-}}"#
-        ),
-    )
-    .unwrap();
-
-    fs::write(
-        wax_home.join("state.json"),
-        format!(
-            r#"{{
-  "installed_languages": {{
-    "{language}": {{
-      "0.1.0": {{ "install_dir": "{}" }}
-    }}
-  }}
-}}"#,
-            install_dir.display()
-        ),
-    )
-    .unwrap();
 }

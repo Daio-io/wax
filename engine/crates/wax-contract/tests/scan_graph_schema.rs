@@ -85,3 +85,42 @@ fn rejects_missing_schema_version() {
         "schema_version must be required"
     );
 }
+
+fn minimal_graph_with_edge(kind: &str, match_status: serde_json::Value) -> serde_json::Value {
+    json!({
+        "schema_version": 1,
+        "metadata": {
+            "source_scan_path": ".wax/out/scan-merged.json",
+            "generated_at": "1970-01-01T00:00:00Z",
+            "limits": ["gap"]
+        },
+        "nodes": [],
+        "edges": [{
+            "from": "file:src/a.kt",
+            "to": "ds:compose:button",
+            "kind": kind,
+            "match_status": match_status
+        }],
+        "metrics": []
+    })
+}
+
+#[test]
+fn rejects_unknown_edge_kind() {
+    let validator = validator();
+    let value = minimal_graph_with_edge("composition", json!("resolved"));
+    assert!(
+        !validator.is_valid(&value),
+        "v1 edges.kind must be constrained to usage"
+    );
+}
+
+#[test]
+fn rejects_unknown_edge_match_status() {
+    let validator = validator();
+    let value = minimal_graph_with_edge("usage", json!("mixed"));
+    assert!(
+        !validator.is_valid(&value),
+        "edges.match_status must be a known MatchStatus value"
+    );
+}

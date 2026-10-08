@@ -81,10 +81,16 @@
           },
           "kind": {
             "type": "string",
-            "minLength": 1
+            "enum": ["usage"]
           },
           "match_status": {
-            "type": ["string", "null"]
+            "anyOf": [
+              { "type": "null" },
+              {
+                "type": "string",
+                "enum": ["resolved", "candidate", "local", "unresolved"]
+              }
+            ]
           }
         }
       }
