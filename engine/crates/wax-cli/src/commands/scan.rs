@@ -5,7 +5,9 @@ use super::language::{
     LanguageCommandError, default_target_triple, manifest_for_language, resolve_registry_url,
     update_lockfile_entry,
 };
-use super::scan_summary::{WrittenArtifact, build_json_summary, status_label, write_json_summary};
+use super::scan_summary::{
+    WrittenArtifact, build_json_summary, is_failure_diagnostic, status_label, write_json_summary,
+};
 use super::state_path::resolve_state_path;
 use crate::cli::ScanStdoutFormat;
 use crate::progress::{CliProgress, optional_scan_progress_sink};
@@ -16,15 +18,16 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use thiserror::Error;
 use wax_contract::{
-    Diagnostic, DiagnosticSeverity, HardcodedStyleInference, HardcodedStyleSite, LanguageId,
-    MergedScan, ScanStatus, TokenInferenceClassification, TokenInferenceConfidence,
-    TokenInferenceEvidence, TokenReplacementSuggestion,
+    Diagnostic, HardcodedStyleInference, HardcodedStyleSite, LanguageId, MergedScan, ScanStatus,
+    TokenInferenceClassification, TokenInferenceConfidence, TokenInferenceEvidence,
+    TokenReplacementSuggestion,
 };
 use wax_core::config::lockfile::{LockedRegistry, WAX_LOCK_SCHEMA_VERSION, WaxLock};
 use wax_core::config::repo_files::PREFERRED_CONFIG_RELATIVE_PATH;
 use wax_core::config::waxrc::{
-    AdoptionConfig, EngineConfig, LanguageEntry, LanguageRegistrySource, ScanOutputSpec,
-    WAXRC_SCHEMA_VERSION, WaxRc, WaxRcError, load_waxrc,
+    AdoptionConfig, EngineConfig, LanguageEntry, LanguageRegistrySource,
+    SCAN_OUTPUT_FORMAT_JSON_SUMMARY, ScanOutputSpec, WAXRC_SCHEMA_VERSION, WaxRc, WaxRcError,
+    is_deferred_scan_output_format, load_waxrc,
 };
 use wax_core::paths::PathsError;
 use wax_core::registry::{fetch_pack_index, select_target_artifact};
@@ -34,7 +37,7 @@ use wax_core::registry_memory::{
 };
 use wax_core::registry_source::{RegistrySourceInput, resolve_registry_source};
 use wax_core::sync::{SyncError, SyncOptions, best_effort_sync_app_registries};
-use wax_core::{Engine, EngineError, EphemeralScanConfig, ScanOptions};
+use wax_core::{AtomicWriteError, Engine, EngineError, EphemeralScanConfig, ScanOptions};
 use wax_lang_api::{build_version, normalize_repo_relative_path};
 
 const MAX_FAILURE_DIAGNOSTICS: usize = 5;
@@ -215,6 +218,9 @@ pub enum ScanCommandError {
         #[source]
         source: io::Error,
     },
+    /// Atomic replacement of a scan artifact failed.
+    #[error(transparent)]
+    AtomicWrite(#[from] AtomicWriteError),
 }
 
 /// Runs `wax scan`, prompting for ephemeral selections when config is missing in a TTY.
@@ -804,29 +810,25 @@ fn write_requested_outputs(
         .collect();
 
     for (index, request) in requests.iter().enumerate() {
-        match request.format.as_str() {
-            "json-summary" => {
-                let destination = if request.path.is_absolute() {
-                    request.path.clone()
-                } else {
-                    options.repo_root.join(&request.path)
-                };
-                let summary =
-                    build_json_summary(merged, &options.repo_root, scan_path, &artifact_manifest);
-                write_json_summary(&destination, &summary)?;
-                let bytes = fs::metadata(&destination).ok().map(|meta| meta.len());
-                artifact_manifest[index].bytes = bytes;
-            }
-            "graph-data" | "markdown" | "html" => {
-                return Err(ScanCommandError::OutputFormatDeferred {
-                    format: request.format.clone(),
-                });
-            }
-            other => {
-                return Err(ScanCommandError::UnknownOutputFormat {
-                    format: other.to_owned(),
-                });
-            }
+        if request.format == SCAN_OUTPUT_FORMAT_JSON_SUMMARY {
+            let destination = if request.path.is_absolute() {
+                request.path.clone()
+            } else {
+                options.repo_root.join(&request.path)
+            };
+            let summary =
+                build_json_summary(merged, &options.repo_root, scan_path, &artifact_manifest);
+            write_json_summary(&destination, &summary)?;
+            let bytes = fs::metadata(&destination).ok().map(|meta| meta.len());
+            artifact_manifest[index].bytes = bytes;
+        } else if is_deferred_scan_output_format(&request.format) {
+            return Err(ScanCommandError::OutputFormatDeferred {
+                format: request.format.clone(),
+            });
+        } else {
+            return Err(ScanCommandError::UnknownOutputFormat {
+                format: request.format.clone(),
+            });
         }
     }
     Ok(artifact_manifest)
@@ -890,10 +892,6 @@ fn incomplete_scan_summary(merged: &MergedScan) -> IncompleteScanSummary {
         failed_languages,
         failure_diagnostic_count: failure_diagnostics(merged).len(),
     }
-}
-
-fn is_failure_diagnostic(diagnostic: &Diagnostic) -> bool {
-    diagnostic.severity == DiagnosticSeverity::Error || diagnostic.code == "parse_failed"
 }
 
 fn failure_diagnostics(merged: &MergedScan) -> Vec<&Diagnostic> {

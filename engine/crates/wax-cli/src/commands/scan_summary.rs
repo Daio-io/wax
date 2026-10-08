@@ -214,7 +214,8 @@ pub fn build_json_summary(
 ///
 /// # Errors
 ///
-/// Returns [`ScanCommandError::OutputIo`] when serialization or writing fails.
+/// Returns [`ScanCommandError::OutputIo`] when serialization fails, or
+/// [`ScanCommandError::AtomicWrite`] when the atomic replace fails.
 pub fn write_json_summary(path: &Path, summary: &JsonSummary) -> Result<(), ScanCommandError> {
     let contents =
         serde_json::to_vec_pretty(summary).map_err(|source| ScanCommandError::OutputIo {
@@ -223,12 +224,7 @@ pub fn write_json_summary(path: &Path, summary: &JsonSummary) -> Result<(), Scan
         })?;
     let mut with_newline = contents;
     with_newline.push(b'\n');
-    write_atomically(path, &with_newline, AtomicWriteOptions::default()).map_err(|source| {
-        ScanCommandError::OutputIo {
-            path: path.to_path_buf(),
-            source: std::io::Error::other(source),
-        }
-    })?;
+    write_atomically(path, &with_newline, AtomicWriteOptions::default())?;
     Ok(())
 }
 
@@ -252,7 +248,9 @@ fn failure_diagnostics_with_language(merged: &MergedScan) -> Vec<JsonSummaryDiag
         .collect()
 }
 
-fn is_failure_diagnostic(diagnostic: &Diagnostic) -> bool {
+/// Whether a diagnostic counts as a scan failure for summaries and `--strict`.
+#[must_use]
+pub(crate) fn is_failure_diagnostic(diagnostic: &Diagnostic) -> bool {
     diagnostic.severity == DiagnosticSeverity::Error || diagnostic.code == "parse_failed"
 }
 
@@ -301,6 +299,56 @@ mod tests {
         LanguageMetadata, Metrics, ParentScopeCounts, RawInvocationCounts, RegistryCounts,
         RepoSummary, SCHEMA_VERSION, ScanFacts, ScanStatus, SourceLocation,
     };
+
+    #[test]
+    fn write_json_summary_preserves_typed_atomic_write_error() {
+        let root = std::env::temp_dir().join(format!(
+            "wax-cli-atomic-write-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let blocker = root.join("not-a-directory");
+        std::fs::write(&blocker, b"file").unwrap();
+        let destination = blocker.join("scan-summary.json");
+
+        let summary = JsonSummary {
+            schema_version: 1,
+            generated_at: "1970-01-01T00:00:00Z".to_owned(),
+            repo_root: ".".to_owned(),
+            scan_path: ".wax/out/scan-merged.json".to_owned(),
+            snapshot_ids: vec![],
+            languages: vec![],
+            adoption: JsonSummaryAdoption {
+                coverage_ratio: None,
+                eligible_invocation_count: 0,
+                adopted_invocation_count: 0,
+                non_adopted_invocation_count: 0,
+                adoption_excluded_invocation_count: 0,
+                raw_invocations: JsonSummaryRawInvocations {
+                    total: 0,
+                    resolved: 0,
+                    local: 0,
+                    candidate: 0,
+                    unresolved: 0,
+                },
+            },
+            diagnostics: vec![],
+            artifacts: vec![],
+            limits: vec![],
+        };
+
+        let error =
+            write_json_summary(&destination, &summary).expect_err("parent file blocks write");
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert!(
+            matches!(error, ScanCommandError::AtomicWrite(_)),
+            "atomic-write failures must stay typed, got: {error:?}"
+        );
+    }
 
     #[test]
     fn json_summary_includes_only_failure_diagnostics() {

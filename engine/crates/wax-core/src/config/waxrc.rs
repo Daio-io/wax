@@ -49,6 +49,24 @@ impl TokenInferenceConfig {
     }
 }
 
+/// Allowed `outputs[].format` / `--output FORMAT=...` artifact ids.
+pub const SCAN_OUTPUT_FORMATS: &[&str] = &["json-summary", "graph-data", "markdown", "html"];
+
+/// JSON summary artifact format id.
+pub const SCAN_OUTPUT_FORMAT_JSON_SUMMARY: &str = "json-summary";
+
+/// Returns whether `format` is a recognized scan artifact format id.
+#[must_use]
+pub fn is_known_scan_output_format(format: &str) -> bool {
+    SCAN_OUTPUT_FORMATS.contains(&format)
+}
+
+/// Returns whether `format` is recognized but not implemented yet.
+#[must_use]
+pub fn is_deferred_scan_output_format(format: &str) -> bool {
+    is_known_scan_output_format(format) && format != SCAN_OUTPUT_FORMAT_JSON_SUMMARY
+}
+
 /// One configured scan artifact output.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -312,13 +330,12 @@ struct WaxRcRaw {
     outputs: Vec<ScanOutputSpec>,
 }
 
-const ALLOWED_OUTPUT_FORMATS: &[&str] = &["json-summary", "graph-data", "markdown", "html"];
-
 fn validate_outputs(outputs: &[ScanOutputSpec]) -> Result<(), serde_json::Error> {
     for (index, output) in outputs.iter().enumerate() {
-        if !ALLOWED_OUTPUT_FORMATS.contains(&output.format.as_str()) {
+        if !is_known_scan_output_format(&output.format) {
             return Err(serde_json::Error::custom(format!(
-                "outputs[{index}].format must be one of json-summary, graph-data, markdown, html"
+                "outputs[{index}].format must be one of {}",
+                SCAN_OUTPUT_FORMATS.join(", ")
             )));
         }
         if output.path.is_empty() {
