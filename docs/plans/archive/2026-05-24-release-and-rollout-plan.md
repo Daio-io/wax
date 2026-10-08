@@ -688,3 +688,5 @@ Before starting implementation, confirm:
 2. **Inline** — execute one task at a time in-session, still committing and opening one PR per task
 
 Start with **Task 1** (config forwarding), then **Task 2** (auto-install), then **Task 3** (`wax scan` CLI), then **Task 4** (`wax validate`)—Phase 1 establishes the end-to-end scan path before release wiring in Phases 2–3.
+
+**Follow-on:** Post-alpha UX Tasks 2–5 complete — see `docs/plans/2026-05-24-post-alpha-ux-plan.md`.
