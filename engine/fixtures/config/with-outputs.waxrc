@@ -1,0 +1,16 @@
+{
+  "schema_version": 2,
+  "languages": {
+    "compose": {}
+  },
+  "outputs": [
+    {
+      "format": "json-summary",
+      "path": ".wax/out/scan-summary.json"
+    },
+    {
+      "format": "graph-data",
+      "path": ".wax/out/scan-graph.json"
+    }
+  ]
+}

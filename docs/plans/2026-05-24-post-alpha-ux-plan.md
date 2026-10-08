@@ -176,7 +176,7 @@ Expected: PASS; interactive path writes same artifacts as non-interactive equiva
 
 ## Phase 2 — Scan output and data artifacts
 
-### - [ ] Task 2: `wax scan` output controls and JSON summary
+### - [x] Task 2: `wax scan` output controls and JSON summary
 
 **Files:**
 
@@ -186,19 +186,19 @@ Expected: PASS; interactive path writes same artifacts as non-interactive equiva
 - Create: `engine/crates/wax-cli/tests/scan_output_format.rs`
 - Create: `engine/crates/wax-cli/tests/scan_output_artifacts.rs`
 
-- [ ] **Step 1: Add stdout `--format` flag**
+- [x] **Step 1: Add stdout `--format` flag**
 
-Supported values: `summary` (default, release plan Task 3 behavior), `quiet` (path only), `json-summary` (single JSON object on stdout for scripts), `markdown` (PR-ready markdown on stdout).
+Supported values: `summary` (default, release plan Task 3 behavior), `quiet` (path only), `json-summary` (single JSON object on stdout for scripts). `markdown` stdout remains deferred (Task 3 / later).
 
-- [ ] **Step 2: Add repeatable artifact outputs**
+- [x] **Step 2: Add repeatable artifact outputs**
 
-Support `--output <format=path>` for `json-summary`, `graph-data`, `markdown`, and `html`. Parse `.waxrc.outputs[]` with the same format/path shape. CLI flags append to config defaults.
+Support `--output <format=path>` for `json-summary`, `graph-data`, `markdown`, and `html`. Parse config `outputs[]` with the same format/path shape. CLI flags append to config defaults. `json-summary` writers ship now; `graph-data` / `markdown` / `html` return `OutputFormatDeferred`. Path policy also rejects repo-escaping relative paths (`OutputPathEscapesRepo`) and destinations that collide with `.wax/out/scan-merged.json` (`CanonicalScanOutputCollision`).
 
-- [ ] **Step 3: Implement stable `json-summary`**
+- [x] **Step 3: Implement stable `json-summary`**
 
-Read `MergedScan` / per-language facts and emit the output model above. `summary`: human lines (languages, adoption %, capped diagnostics, enabled artifact paths). `json-summary`: stable object matching `engine/schemas/scan-summary.schema.json`.
+Read `MergedScan` / per-language facts and emit the output model above. `summary`: human lines (languages, adoption %, capped diagnostics, enabled artifact paths). `json-summary`: stable object matching `engine/crates/wax-contract/schemas/scan-summary.schema.json`.
 
-- [ ] **Step 4: Tests per stdout format and artifact output**
+- [x] **Step 4: Tests per stdout format and artifact output**
 
 Run: `cd engine && cargo test -p wax-cli scan_output_format`
 

@@ -70,3 +70,32 @@ fn accepts_ungrouped_roots_for_backward_compatibility() {
 
     assert!(validator.is_valid(&value));
 }
+
+#[test]
+fn accepts_outputs_json_summary() {
+    let validator = validator();
+    let value = json!({
+        "schema_version": 2,
+        "languages": {"compose": {}},
+        "outputs": [
+            {"format": "json-summary", "path": ".wax/out/scan-summary.json"},
+            {"format": "graph-data", "path": ".wax/out/scan-graph.json"},
+            {"format": "markdown", "path": ".wax/out/scan-summary.md"},
+            {"format": "html", "path": ".wax/out/report/index.html"}
+        ]
+    });
+
+    assert!(validator.is_valid(&value));
+}
+
+#[test]
+fn rejects_unknown_output_format() {
+    let validator = validator();
+    let value = json!({
+        "schema_version": 2,
+        "languages": {"compose": {}},
+        "outputs": [{"format": "pdf", "path": ".wax/out/report.pdf"}]
+    });
+
+    assert!(!validator.is_valid(&value));
+}

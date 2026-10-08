@@ -49,6 +49,34 @@ impl TokenInferenceConfig {
     }
 }
 
+/// Allowed `outputs[].format` / `--output FORMAT=...` artifact ids.
+pub const SCAN_OUTPUT_FORMATS: &[&str] = &["json-summary", "graph-data", "markdown", "html"];
+
+/// JSON summary artifact format id.
+pub const SCAN_OUTPUT_FORMAT_JSON_SUMMARY: &str = "json-summary";
+
+/// Returns whether `format` is a recognized scan artifact format id.
+#[must_use]
+pub fn is_known_scan_output_format(format: &str) -> bool {
+    SCAN_OUTPUT_FORMATS.contains(&format)
+}
+
+/// Returns whether `format` is recognized but not implemented yet.
+#[must_use]
+pub fn is_deferred_scan_output_format(format: &str) -> bool {
+    is_known_scan_output_format(format) && format != SCAN_OUTPUT_FORMAT_JSON_SUMMARY
+}
+
+/// One configured scan artifact output.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScanOutputSpec {
+    /// Artifact format id (`json-summary`, `graph-data`, `markdown`, or `html`).
+    pub format: String,
+    /// Destination path for the artifact.
+    pub path: String,
+}
+
 /// Repository-level wax configuration loaded from a repo config file.
 #[derive(Debug)]
 pub struct WaxRc {
@@ -66,6 +94,8 @@ pub struct WaxRc {
     pub languages: Vec<LanguageEntry>,
     /// Design-system publication configuration keyed by design-system id.
     pub design_systems: BTreeMap<String, DesignSystemConfig>,
+    /// Default scan artifact outputs written by `wax scan`.
+    pub outputs: Vec<ScanOutputSpec>,
 }
 
 /// Engine-owned wax config settings.
@@ -296,6 +326,25 @@ struct WaxRcRaw {
     languages: BTreeMap<LanguageId, LanguageEntryRaw>,
     #[serde(default)]
     design_systems: BTreeMap<String, DesignSystemConfig>,
+    #[serde(default)]
+    outputs: Vec<ScanOutputSpec>,
+}
+
+fn validate_outputs(outputs: &[ScanOutputSpec]) -> Result<(), serde_json::Error> {
+    for (index, output) in outputs.iter().enumerate() {
+        if !is_known_scan_output_format(&output.format) {
+            return Err(serde_json::Error::custom(format!(
+                "outputs[{index}].format must be one of {}",
+                SCAN_OUTPUT_FORMATS.join(", ")
+            )));
+        }
+        if output.path.is_empty() {
+            return Err(serde_json::Error::custom(format!(
+                "outputs[{index}].path must be a non-empty string"
+            )));
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Deserialize)]
@@ -616,6 +665,11 @@ pub fn load_waxrc(path: impl AsRef<Path>) -> Result<WaxRc, WaxRcError> {
             source,
         })?;
 
+    validate_outputs(&raw.outputs).map_err(|source| WaxRcError::InvalidConfig {
+        path: path_display.clone(),
+        source,
+    })?;
+
     let rc = WaxRc {
         schema_version: raw.schema_version,
         engine: raw.engine,
@@ -623,6 +677,7 @@ pub fn load_waxrc(path: impl AsRef<Path>) -> Result<WaxRc, WaxRcError> {
         token_inference: raw.token_inference,
         languages,
         design_systems: raw.design_systems,
+        outputs: raw.outputs,
     };
 
     for language in &rc.languages {

@@ -5,7 +5,12 @@ use super::language::{
     LanguageCommandError, default_target_triple, manifest_for_language, resolve_registry_url,
     update_lockfile_entry,
 };
+use super::scan_summary::{
+    JsonSummaryWriteError, WrittenArtifact, build_json_summary, is_failure_diagnostic,
+    status_label, write_json_summary,
+};
 use super::state_path::resolve_state_path;
+use crate::cli::ScanStdoutFormat;
 use crate::progress::{CliProgress, optional_scan_progress_sink};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -14,15 +19,16 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use thiserror::Error;
 use wax_contract::{
-    Diagnostic, DiagnosticSeverity, HardcodedStyleInference, HardcodedStyleSite, LanguageId,
-    MergedScan, ScanStatus, TokenInferenceClassification, TokenInferenceConfidence,
-    TokenInferenceEvidence, TokenReplacementSuggestion,
+    Diagnostic, HardcodedStyleInference, HardcodedStyleSite, LanguageId, MergedScan, ScanStatus,
+    TokenInferenceClassification, TokenInferenceConfidence, TokenInferenceEvidence,
+    TokenReplacementSuggestion,
 };
 use wax_core::config::lockfile::{LockedRegistry, WAX_LOCK_SCHEMA_VERSION, WaxLock};
 use wax_core::config::repo_files::PREFERRED_CONFIG_RELATIVE_PATH;
 use wax_core::config::waxrc::{
-    AdoptionConfig, EngineConfig, LanguageEntry, LanguageRegistrySource, WAXRC_SCHEMA_VERSION,
-    WaxRc, WaxRcError, load_waxrc,
+    AdoptionConfig, EngineConfig, LanguageEntry, LanguageRegistrySource,
+    SCAN_OUTPUT_FORMAT_JSON_SUMMARY, ScanOutputSpec, WAXRC_SCHEMA_VERSION, WaxRc, WaxRcError,
+    is_deferred_scan_output_format, load_waxrc,
 };
 use wax_core::paths::PathsError;
 use wax_core::registry::{fetch_pack_index, select_target_artifact};
@@ -32,8 +38,8 @@ use wax_core::registry_memory::{
 };
 use wax_core::registry_source::{RegistrySourceInput, resolve_registry_source};
 use wax_core::sync::{SyncError, SyncOptions, best_effort_sync_app_registries};
-use wax_core::{Engine, EngineError, EphemeralScanConfig, ScanOptions};
-use wax_lang_api::build_version;
+use wax_core::{AtomicWriteError, Engine, EngineError, EphemeralScanConfig, ScanOptions};
+use wax_lang_api::{build_version, normalize_repo_relative_path};
 
 const MAX_FAILURE_DIAGNOSTICS: usize = 5;
 const SCAN_OUTPUT_RELATIVE_PATH: &str = ".wax/out/scan-merged.json";
@@ -50,6 +56,15 @@ pub struct EphemeralScanSelections {
     pub design_system_id: String,
 }
 
+/// One resolved scan artifact output request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScanOutputRequest {
+    /// Artifact format id.
+    pub format: String,
+    /// Destination path (repo-relative or absolute when allowed).
+    pub path: PathBuf,
+}
+
 /// Options for `wax scan`.
 #[derive(Debug, Clone)]
 pub struct ScanCommandOptions {
@@ -63,6 +78,12 @@ pub struct ScanCommandOptions {
     pub scan_concurrency: Option<u32>,
     /// Restrict a grouped-root scan to one repository-wide root group.
     pub root_group: Option<String>,
+    /// Stdout format for scan results.
+    pub format: ScanStdoutFormat,
+    /// CLI `--output` requests, already parsed.
+    pub cli_outputs: Vec<ScanOutputRequest>,
+    /// Whether absolute artifact paths are allowed.
+    pub allow_absolute_output: bool,
     /// Global state path override for tests.
     pub state_path: Option<PathBuf>,
     /// Pack index URL override for ephemeral scans.
@@ -143,6 +164,73 @@ pub enum ScanCommandError {
         /// Raw hard-coded style site id that failed to resolve.
         site_id: String,
     },
+    /// `--output` value could not be parsed as `FORMAT=PATH`.
+    #[error("invalid --output value `{value}`; expected FORMAT=PATH")]
+    InvalidOutputFlag {
+        /// Raw flag value.
+        value: String,
+    },
+    /// `--output` parsed as `FORMAT=PATH` but `FORMAT` is not a known artifact id.
+    #[error("unknown output format `{format}`")]
+    UnknownOutputFormat {
+        /// Unrecognized format id.
+        format: String,
+    },
+    /// Requested artifact format is recognized but not implemented yet.
+    #[error("output format `{format}` is not implemented yet")]
+    OutputFormatDeferred {
+        /// Deferred format id.
+        format: String,
+    },
+    /// Absolute artifact path was requested without `--allow-absolute-output`.
+    #[error(
+        "absolute output path `{path}` requires --allow-absolute-output",
+        path = path.display()
+    )]
+    AbsoluteOutputDenied {
+        /// Absolute path that was denied.
+        path: PathBuf,
+    },
+    /// Relative artifact path escapes the repository via `..` components.
+    #[error(
+        "output path `{path}` escapes the repository; paths must stay within the repository",
+        path = path.display()
+    )]
+    OutputPathEscapesRepo {
+        /// Path that would leave the repository.
+        path: PathBuf,
+    },
+    /// Artifact destination collides with the engine-owned merged scan file.
+    #[error(
+        "output path `{path}` collides with the canonical scan output `{canonical}`; choose a different path",
+        path = path.display(),
+        canonical = SCAN_OUTPUT_RELATIVE_PATH
+    )]
+    CanonicalScanOutputCollision {
+        /// Path that would overwrite the merged scan artifact.
+        path: PathBuf,
+    },
+    /// Writing a requested artifact failed.
+    #[error("failed to write scan output `{path}`: {source}", path = path.display())]
+    OutputIo {
+        /// Destination path that failed.
+        path: PathBuf,
+        /// Underlying I/O error.
+        #[source]
+        source: io::Error,
+    },
+    /// Atomic replacement of a scan artifact failed.
+    #[error(transparent)]
+    AtomicWrite(#[from] AtomicWriteError),
+}
+
+impl From<JsonSummaryWriteError> for ScanCommandError {
+    fn from(error: JsonSummaryWriteError) -> Self {
+        match error {
+            JsonSummaryWriteError::Serialize { path, source } => Self::OutputIo { path, source },
+            JsonSummaryWriteError::AtomicWrite(error) => Self::AtomicWrite(error),
+        }
+    }
 }
 
 /// Runs `wax scan`, prompting for ephemeral selections when config is missing in a TTY.
@@ -215,9 +303,11 @@ pub fn run_scan(
     writer: &mut impl Write,
     ephemeral: bool,
 ) -> Result<(), ScanCommandError> {
-    if !ephemeral {
-        attempt_scan_time_registry_sync(&options, writer)?;
-    }
+    let config_outputs = if ephemeral {
+        Vec::new()
+    } else {
+        load_config_outputs_and_attempt_registry_sync(&options, writer)?
+    };
 
     let progress = Arc::new(CliProgress::new());
     let merged = Engine::scan_repo_with_options(
@@ -232,21 +322,21 @@ pub fn run_scan(
     )?;
     progress.finish();
 
-    let output_path = options.repo_root.join(SCAN_OUTPUT_RELATIVE_PATH);
-    write_scan_summary(writer, &merged, &output_path, ephemeral)?;
-    enforce_strict_scan(options.strict, &merged, output_path)
+    finish_scan_outputs(&options, &merged, &config_outputs, writer, ephemeral)
 }
 
-fn attempt_scan_time_registry_sync(
+/// Loads config `outputs[]` once and best-effort syncs upstream registries.
+fn load_config_outputs_and_attempt_registry_sync(
     options: &ScanCommandOptions,
     writer: &mut impl Write,
-) -> Result<(), ScanCommandError> {
+) -> Result<Vec<ScanOutputSpec>, ScanCommandError> {
     let config_path = options.repo_root.join(PREFERRED_CONFIG_RELATIVE_PATH);
     if !config_path.is_file() {
-        return Ok(());
+        return Ok(Vec::new());
     }
 
     let waxrc = load_waxrc(&config_path)?;
+    let outputs = waxrc.outputs.clone();
     let has_syncable_registry =
         waxrc
             .languages
@@ -259,7 +349,7 @@ fn attempt_scan_time_registry_sync(
                 None => false,
             });
     if !has_syncable_registry {
-        return Ok(());
+        return Ok(outputs);
     }
 
     match best_effort_sync_app_registries(&SyncOptions {
@@ -269,19 +359,34 @@ fn attempt_scan_time_registry_sync(
     }) {
         Ok((_updates, failures)) => {
             for (upstream, _error) in failures {
-                writeln!(
+                write_scan_warning_line(
+                    options.format,
                     writer,
-                    "warning: registry sync failed for {upstream}; scanning with current registry source. Run `wax sync` for details."
-                )
-                .map_err(|source| ScanCommandError::Io { source })?;
+                    &format!(
+                        "warning: registry sync failed for {upstream}; scanning with current registry source. Run `wax sync` for details."
+                    ),
+                )?;
             }
         }
         Err(error) => {
-            write_scan_sync_warning(writer)?;
+            write_scan_sync_warning(options.format, writer)?;
             let _ = error;
         }
     }
-    Ok(())
+    Ok(outputs)
+}
+
+fn write_scan_warning_line(
+    format: ScanStdoutFormat,
+    writer: &mut impl Write,
+    line: &str,
+) -> Result<(), ScanCommandError> {
+    match format {
+        ScanStdoutFormat::Summary => writeln!(writer, "{line}").map_err(write_error),
+        ScanStdoutFormat::Quiet | ScanStdoutFormat::JsonSummary => {
+            writeln!(io::stderr(), "{line}").map_err(write_error)
+        }
+    }
 }
 
 fn run_ephemeral_scan(
@@ -304,9 +409,29 @@ fn run_ephemeral_scan(
     )?;
     progress.finish();
 
+    finish_scan_outputs(&options, &merged, &[], writer, true)
+}
+
+fn finish_scan_outputs(
+    options: &ScanCommandOptions,
+    merged: &MergedScan,
+    config_outputs: &[ScanOutputSpec],
+    writer: &mut impl Write,
+    ephemeral: bool,
+) -> Result<(), ScanCommandError> {
     let output_path = options.repo_root.join(SCAN_OUTPUT_RELATIVE_PATH);
-    write_scan_summary(writer, &merged, &output_path, true)?;
-    enforce_strict_scan(options.strict, &merged, output_path)
+    let requests = resolve_scan_outputs(options, config_outputs)?;
+    let written = write_requested_outputs(&requests, merged, options, &output_path)?;
+    emit_stdout_format(
+        writer,
+        options.format,
+        merged,
+        &options.repo_root,
+        &output_path,
+        &written,
+        ephemeral,
+    )?;
+    enforce_strict_scan(options.strict, merged, output_path)
 }
 
 fn enforce_strict_scan(
@@ -412,6 +537,7 @@ fn build_ephemeral_scan_config(
             token_inference: Default::default(),
             languages,
             design_systems: BTreeMap::new(),
+            outputs: Vec::new(),
         },
         lockfile,
     })
@@ -544,12 +670,192 @@ fn write_error(source: io::Error) -> ScanCommandError {
     ScanCommandError::Io { source }
 }
 
-fn write_scan_sync_warning(writer: &mut impl Write) -> Result<(), ScanCommandError> {
-    writeln!(
+fn write_scan_sync_warning(
+    format: ScanStdoutFormat,
+    writer: &mut impl Write,
+) -> Result<(), ScanCommandError> {
+    write_scan_warning_line(
+        format,
         writer,
-        "warning: registry sync failed; scanning with current registry source. Run `wax sync` for details."
+        "warning: registry sync failed; scanning with current registry source. Run `wax sync` for details.",
     )
-    .map_err(write_error)
+}
+
+/// Parses a CLI `--output FORMAT=PATH` value.
+///
+/// # Errors
+///
+/// Returns [`ScanCommandError::InvalidOutputFlag`] when the value is missing `=`,
+/// has an empty format, or has an empty path.
+pub fn parse_output_flag(raw: &str) -> Result<ScanOutputRequest, ScanCommandError> {
+    let Some((format, path)) = raw.split_once('=') else {
+        return Err(ScanCommandError::InvalidOutputFlag {
+            value: raw.to_owned(),
+        });
+    };
+    if format.is_empty() || path.is_empty() {
+        return Err(ScanCommandError::InvalidOutputFlag {
+            value: raw.to_owned(),
+        });
+    }
+    Ok(ScanOutputRequest {
+        format: format.to_owned(),
+        path: PathBuf::from(path),
+    })
+}
+
+/// Unions config and CLI output requests, normalizing paths and rejecting
+/// absolute paths unless allowed, relative paths that escape the repository,
+/// and destinations that collide with the canonical merged scan artifact.
+///
+/// # Errors
+///
+/// Returns [`ScanCommandError::AbsoluteOutputDenied`] for absolute paths without
+/// `--allow-absolute-output`, [`ScanCommandError::OutputPathEscapesRepo`] when a
+/// relative path leaves the repository, or
+/// [`ScanCommandError::CanonicalScanOutputCollision`] when the destination would
+/// overwrite `.wax/out/scan-merged.json`.
+pub fn resolve_scan_outputs(
+    opts: &ScanCommandOptions,
+    config: &[ScanOutputSpec],
+) -> Result<Vec<ScanOutputRequest>, ScanCommandError> {
+    let mut resolved = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    let canonical_scan_output = opts.repo_root.join(SCAN_OUTPUT_RELATIVE_PATH);
+
+    let mut push_request = |format: String, path: PathBuf| -> Result<(), ScanCommandError> {
+        let normalized = if path.is_absolute() {
+            if !opts.allow_absolute_output {
+                return Err(ScanCommandError::AbsoluteOutputDenied { path });
+            }
+            path
+        } else {
+            normalize_relative_output_path(&path)?
+        };
+        if paths_collide_with_canonical_scan_output(&normalized, &canonical_scan_output) {
+            return Err(ScanCommandError::CanonicalScanOutputCollision { path: normalized });
+        }
+        let key = (format.clone(), normalized.display().to_string());
+        if seen.insert(key) {
+            resolved.push(ScanOutputRequest {
+                format,
+                path: normalized,
+            });
+        }
+        Ok(())
+    };
+
+    for entry in config {
+        push_request(entry.format.clone(), PathBuf::from(&entry.path))?;
+    }
+    for entry in &opts.cli_outputs {
+        push_request(entry.format.clone(), entry.path.clone())?;
+    }
+    Ok(resolved)
+}
+
+/// Collapses `.` / `..` in a repo-relative output path and rejects escapes.
+fn normalize_relative_output_path(path: &Path) -> Result<PathBuf, ScanCommandError> {
+    use std::path::{Component, PathBuf as StdPathBuf};
+
+    let normalized = normalize_repo_relative_path(path);
+    let mut parts: Vec<String> = Vec::new();
+    for component in StdPathBuf::from(&normalized).components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if parts.pop().is_none() {
+                    return Err(ScanCommandError::OutputPathEscapesRepo {
+                        path: path.to_path_buf(),
+                    });
+                }
+            }
+            Component::Normal(segment) => {
+                parts.push(segment.to_string_lossy().into_owned());
+            }
+            Component::RootDir | Component::Prefix(_) => {
+                return Err(ScanCommandError::OutputPathEscapesRepo {
+                    path: path.to_path_buf(),
+                });
+            }
+        }
+    }
+    Ok(PathBuf::from(parts.join("/")))
+}
+
+fn paths_collide_with_canonical_scan_output(path: &Path, canonical_absolute: &Path) -> bool {
+    if path.is_absolute() {
+        return path == canonical_absolute;
+    }
+    let relative = normalize_repo_relative_path(path);
+    relative == SCAN_OUTPUT_RELATIVE_PATH
+}
+
+fn write_requested_outputs(
+    requests: &[ScanOutputRequest],
+    merged: &MergedScan,
+    options: &ScanCommandOptions,
+    scan_path: &Path,
+) -> Result<Vec<WrittenArtifact>, ScanCommandError> {
+    let mut artifact_manifest: Vec<WrittenArtifact> = requests
+        .iter()
+        .map(|request| WrittenArtifact {
+            format: request.format.clone(),
+            path: request.path.display().to_string(),
+            bytes: None,
+        })
+        .collect();
+
+    for (index, request) in requests.iter().enumerate() {
+        if request.format == SCAN_OUTPUT_FORMAT_JSON_SUMMARY {
+            let destination = if request.path.is_absolute() {
+                request.path.clone()
+            } else {
+                options.repo_root.join(&request.path)
+            };
+            let summary =
+                build_json_summary(merged, &options.repo_root, scan_path, &artifact_manifest);
+            write_json_summary(&destination, &summary)?;
+            let bytes = fs::metadata(&destination).ok().map(|meta| meta.len());
+            artifact_manifest[index].bytes = bytes;
+        } else if is_deferred_scan_output_format(&request.format) {
+            return Err(ScanCommandError::OutputFormatDeferred {
+                format: request.format.clone(),
+            });
+        } else {
+            return Err(ScanCommandError::UnknownOutputFormat {
+                format: request.format.clone(),
+            });
+        }
+    }
+    Ok(artifact_manifest)
+}
+
+fn emit_stdout_format(
+    writer: &mut impl Write,
+    format: ScanStdoutFormat,
+    merged: &MergedScan,
+    repo_root: &Path,
+    output_path: &Path,
+    written: &[WrittenArtifact],
+    ephemeral: bool,
+) -> Result<(), ScanCommandError> {
+    match format {
+        ScanStdoutFormat::Summary => {
+            write_scan_summary(writer, merged, output_path, written, ephemeral)
+        }
+        ScanStdoutFormat::Quiet => {
+            writeln!(writer, "{}", output_path.display()).map_err(write_error)
+        }
+        ScanStdoutFormat::JsonSummary => {
+            let summary = build_json_summary(merged, repo_root, output_path, written);
+            let rendered =
+                serde_json::to_string_pretty(&summary).map_err(|source| ScanCommandError::Io {
+                    source: io::Error::other(source),
+                })?;
+            writeln!(writer, "{rendered}").map_err(write_error)
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -585,10 +891,6 @@ fn incomplete_scan_summary(merged: &MergedScan) -> IncompleteScanSummary {
     }
 }
 
-fn is_failure_diagnostic(diagnostic: &Diagnostic) -> bool {
-    diagnostic.severity == DiagnosticSeverity::Error || diagnostic.code == "parse_failed"
-}
-
 fn failure_diagnostics(merged: &MergedScan) -> Vec<&Diagnostic> {
     merged
         .languages
@@ -602,6 +904,7 @@ fn write_scan_summary(
     writer: &mut impl Write,
     merged: &MergedScan,
     output_path: &Path,
+    written: &[WrittenArtifact],
     ephemeral: bool,
 ) -> Result<(), ScanCommandError> {
     writeln!(writer, "scan output: {}", output_path.display()).map_err(write_error)?;
@@ -665,6 +968,21 @@ fn write_scan_summary(
 
     let diagnostics = failure_diagnostics(merged);
     write_failure_diagnostics(writer, &diagnostics, output_path)?;
+
+    if !written.is_empty() {
+        writeln!(writer, "artifacts:").map_err(write_error)?;
+        for artifact in written {
+            match artifact.bytes {
+                Some(bytes) => writeln!(
+                    writer,
+                    "  {}: {} ({bytes} bytes)",
+                    artifact.format, artifact.path
+                ),
+                None => writeln!(writer, "  {}: {}", artifact.format, artifact.path),
+            }
+            .map_err(write_error)?;
+        }
+    }
 
     if ephemeral {
         writeln!(writer).map_err(write_error)?;
@@ -1013,14 +1331,6 @@ fn write_failure_diagnostics(
     Ok(())
 }
 
-fn status_label(status: ScanStatus) -> &'static str {
-    match status {
-        ScanStatus::Complete => "complete",
-        ScanStatus::Partial => "partial",
-        ScanStatus::Failed => "failed",
-    }
-}
-
 /// Returns whether a path existed before scan under `.wax`.
 pub fn repo_relative_path_exists(repo_root: &Path, relative: &str) -> bool {
     repo_root.join(relative).exists()
@@ -1037,9 +1347,9 @@ pub fn repo_relative_dir_has_entries(repo_root: &Path, relative: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        EphemeralScanSelections, ScanCommandError, ScanCommandOptions,
-        attempt_scan_time_registry_sync, incomplete_scan_summary, run_scan_cli,
-        write_failure_diagnostics, write_scan_summary,
+        EphemeralScanSelections, ScanCommandError, ScanCommandOptions, incomplete_scan_summary,
+        load_config_outputs_and_attempt_registry_sync, run_scan_cli, write_failure_diagnostics,
+        write_scan_summary,
     };
     use crate::testing::env_lock;
     use std::collections::BTreeMap;
@@ -1251,6 +1561,7 @@ mod tests {
             &mut output,
             &merged,
             std::path::Path::new("/tmp/repo/.wax/out/scan-merged.json"),
+            &[],
             false,
         )
         .unwrap();
@@ -1569,6 +1880,7 @@ mod tests {
             &mut output,
             &merged,
             std::path::Path::new("/tmp/repo/.wax/out/scan-merged.json"),
+            &[],
             false,
         )
         .unwrap();
@@ -1660,6 +1972,7 @@ mod tests {
             &mut output,
             &merged,
             std::path::Path::new("/tmp/repo/.wax/out/scan-merged.json"),
+            &[],
             false,
         )
         .unwrap();
@@ -1684,6 +1997,7 @@ mod tests {
             &mut unsupported_output,
             &merged,
             std::path::Path::new("/tmp/repo/.wax/out/scan-merged.json"),
+            &[],
             false,
         )
         .unwrap();
@@ -1748,6 +2062,7 @@ mod tests {
             &mut output,
             &merged,
             std::path::Path::new("/tmp/repo/.wax/out/scan-merged.json"),
+            &[],
             false,
         )
         .expect_err("missing join should fail closed");
@@ -1773,13 +2088,16 @@ mod tests {
         .expect("write empty state");
 
         let mut output = Vec::new();
-        attempt_scan_time_registry_sync(
+        let config_outputs = load_config_outputs_and_attempt_registry_sync(
             &ScanCommandOptions {
                 repo_root: app_repo,
                 strict: false,
                 allow_auto_install: false,
                 scan_concurrency: None,
                 root_group: None,
+                format: crate::cli::ScanStdoutFormat::Summary,
+                cli_outputs: Vec::new(),
+                allow_absolute_output: false,
                 state_path: Some(wax_home.join("state.json")),
                 pack_index_url: None,
                 target_triple: None,
@@ -1788,6 +2106,7 @@ mod tests {
             &mut output,
         )
         .expect("scan-time sync warning should not fail scan");
+        assert!(config_outputs.is_empty());
 
         let stdout = String::from_utf8(output).unwrap();
         assert!(stdout.contains(
@@ -1813,6 +2132,9 @@ mod tests {
                 allow_auto_install: false,
                 scan_concurrency: None,
                 root_group: None,
+                format: crate::cli::ScanStdoutFormat::Summary,
+                cli_outputs: Vec::new(),
+                allow_absolute_output: false,
                 state_path: None,
                 pack_index_url: None,
                 target_triple: None,
@@ -1855,6 +2177,9 @@ mod tests {
                 allow_auto_install: false,
                 scan_concurrency: None,
                 root_group: None,
+                format: crate::cli::ScanStdoutFormat::Summary,
+                cli_outputs: Vec::new(),
+                allow_absolute_output: false,
                 state_path: None,
                 pack_index_url: None,
                 target_triple: None,
@@ -1906,6 +2231,7 @@ mod tests {
             &mut output,
             &merged,
             std::path::Path::new("/tmp/repo/.wax/out/scan-merged.json"),
+            &[],
             true,
         )
         .unwrap();

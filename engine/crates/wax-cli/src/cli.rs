@@ -1,6 +1,6 @@
 //! Clap argument definitions shared by the binary and unit tests.
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 use wax_contract::LanguageId;
 use wax_lang_api::build_version;
@@ -223,6 +223,18 @@ pub struct DoctorArgs {
     pub repo_root: PathBuf,
 }
 
+/// Stdout format for `wax scan`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum ScanStdoutFormat {
+    /// Human-readable summary (default).
+    Summary,
+    /// Print only the merged scan path.
+    Quiet,
+    /// Print a single schema-valid JSON summary object.
+    #[value(name = "json-summary")]
+    JsonSummary,
+}
+
 /// Arguments for `wax scan`.
 #[derive(Debug, Args)]
 pub struct ScanArgs {
@@ -241,6 +253,15 @@ pub struct ScanArgs {
     /// Scan only roots assigned to this repository-wide root group.
     #[arg(long = "root-group", value_name = "ID")]
     pub root_group: Option<String>,
+    /// Stdout format for scan results.
+    #[arg(long, value_enum, default_value_t = ScanStdoutFormat::Summary)]
+    pub format: ScanStdoutFormat,
+    /// Write an artifact as `FORMAT=PATH`. Repeatable; unions with config `outputs[]`.
+    #[arg(long = "output", value_name = "FORMAT=PATH", action = clap::ArgAction::Append)]
+    pub outputs: Vec<String>,
+    /// Allow absolute artifact output paths.
+    #[arg(long)]
+    pub allow_absolute_output: bool,
 }
 
 /// Arguments for `wax sync`.

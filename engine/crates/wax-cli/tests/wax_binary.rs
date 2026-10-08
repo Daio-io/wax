@@ -65,6 +65,35 @@ fn wax_binary_exposes_cli_version() {
 }
 
 #[test]
+fn scan_help_documents_format_and_output() {
+    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .args(["scan", "--help"])
+        .output()
+        .expect("failed to spawn wax scan --help");
+
+    assert!(
+        output.status.success(),
+        "wax scan --help exited with {:?}; stderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout must be valid UTF-8");
+    assert!(
+        stdout.contains("--format"),
+        "expected --format in scan help, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("--output"),
+        "expected --output in scan help, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("--allow-absolute-output"),
+        "expected --allow-absolute-output in scan help, got: {stdout}"
+    );
+}
+
+#[test]
 fn sync_help_documents_upgrade() {
     let output = Command::new(env!("CARGO_BIN_EXE_wax"))
         .args(["sync", "--help"])

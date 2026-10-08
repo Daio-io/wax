@@ -211,6 +211,25 @@
           }
         }
       }
+    },
+    "outputs": {
+      "type": "array",
+      "description": "Default scan artifact outputs. CLI --output flags append to these entries.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["format", "path"],
+        "properties": {
+          "format": {
+            "type": "string",
+            "enum": ["json-summary", "graph-data", "markdown", "html"]
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
     }
   }
 }
