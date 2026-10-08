@@ -90,6 +90,34 @@ fn format_json_summary_has_schema_version_1() {
 }
 
 #[test]
+fn format_json_summary_uses_repo_relative_paths() {
+    let _guard = env_lock();
+    let (_root, repo, _wax_home) = setup_scan_repo(
+        "scan-format-json-relative-paths",
+        &[("compose", "complete", "0.5", "", "")],
+    );
+
+    let output = run_scan(&repo, &["--format", "json-summary"]);
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: serde_json::Value =
+        serde_json::from_str(String::from_utf8(output.stdout).unwrap().trim()).unwrap();
+    assert_eq!(value["repo_root"], ".");
+    assert_eq!(value["scan_path"], ".wax/out/scan-merged.json");
+    let repo_display = repo.display().to_string();
+    assert!(
+        !value["repo_root"].as_str().unwrap().starts_with('/')
+            && !value["scan_path"].as_str().unwrap().contains(&repo_display),
+        "json-summary paths must be portable, got repo_root={} scan_path={}",
+        value["repo_root"],
+        value["scan_path"]
+    );
+}
+
+#[test]
 fn format_and_output_json_summary_both_schema_valid() {
     let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(

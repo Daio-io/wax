@@ -155,6 +155,28 @@ fn duplicate_output_pair_idempotent() {
 }
 
 #[test]
+fn unknown_artifact_format_errors_distinctly_from_parse_shape() {
+    let _guard = env_lock();
+    let (_root, repo, _wax_home) = setup_scan_repo(
+        "scan-artifact-unknown-format",
+        &[("compose", "complete", "0.5", "", "")],
+    );
+
+    let output = run_scan(&repo, &["--output", "csv=.wax/out/summary.csv"]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("unknown output format `csv`")
+            || stderr.contains("unsupported output format `csv`"),
+        "expected dedicated unknown-format error, got: {stderr}"
+    );
+    assert!(
+        !stderr.contains("expected FORMAT=PATH"),
+        "unknown format must not reuse parse-shape InvalidOutputFlag: {stderr}"
+    );
+}
+
+#[test]
 fn deferred_graph_data_errors() {
     assert_deferred_format("graph-data");
 }
@@ -267,8 +289,8 @@ fn output_colliding_with_scan_merged_rejected() {
     );
 
     assert!(
-        !repo.join(".wax/out/scan-merged.json").exists(),
-        "collision must be rejected before scanning writes the merged artifact"
+        repo.join(".wax/out/scan-merged.json").exists(),
+        "path-policy errors run after merge so the canonical scan artifact is still written"
     );
 }
 

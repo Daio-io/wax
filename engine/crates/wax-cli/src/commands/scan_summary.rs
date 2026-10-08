@@ -5,8 +5,9 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
-use wax_contract::{DiagnosticSeverity, MergedScan, ScanStatus, SourceLocation};
+use wax_contract::{Diagnostic, DiagnosticSeverity, MergedScan, ScanStatus, SourceLocation};
 use wax_core::{AtomicWriteOptions, write_atomically};
+use wax_lang_api::normalize_repo_relative_path;
 
 /// Known gaps when module/category/ownership rollups are unavailable.
 pub const SUMMARY_LIMIT_MODULE: &str = "module rollups are not available in current scan facts";
@@ -117,9 +118,9 @@ pub struct JsonSummary {
     pub schema_version: u32,
     /// RFC3339 generation timestamp.
     pub generated_at: String,
-    /// Absolute or display path of the scanned repository root.
+    /// Repository root as a portable path (`.` for the scanned root).
     pub repo_root: String,
-    /// Path to the merged scan artifact.
+    /// Repo-relative path to the merged scan artifact when possible.
     pub scan_path: String,
     /// Snapshot ids from per-language facts, in language-id order.
     pub snapshot_ids: Vec<String>,
@@ -127,7 +128,7 @@ pub struct JsonSummary {
     pub languages: Vec<JsonSummaryLanguage>,
     /// Repository adoption headline.
     pub adoption: JsonSummaryAdoption,
-    /// Diagnostics mapped from the merged scan (all severities).
+    /// Failure diagnostics mapped from the merged scan.
     pub diagnostics: Vec<JsonSummaryDiagnostic>,
     /// Artifacts written for this scan invocation.
     pub artifacts: Vec<WrittenArtifact>,
@@ -169,8 +170,8 @@ pub fn build_json_summary(
         generated_at: OffsetDateTime::now_utc()
             .format(&Rfc3339)
             .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_owned()),
-        repo_root: repo_root.display().to_string(),
-        scan_path: scan_path.display().to_string(),
+        repo_root: ".".to_owned(),
+        scan_path: contract_path(repo_root, scan_path),
         snapshot_ids,
         languages,
         adoption: JsonSummaryAdoption {
@@ -199,7 +200,7 @@ pub fn build_json_summary(
                 unresolved: merged.repo_summary.counts.raw_invocations.unresolved,
             },
         },
-        diagnostics: diagnostics_with_language(merged),
+        diagnostics: failure_diagnostics_with_language(merged),
         artifacts: artifacts.to_vec(),
         limits: vec![
             SUMMARY_LIMIT_MODULE.to_owned(),
@@ -231,7 +232,7 @@ pub fn write_json_summary(path: &Path, summary: &JsonSummary) -> Result<(), Scan
     Ok(())
 }
 
-fn diagnostics_with_language(merged: &MergedScan) -> Vec<JsonSummaryDiagnostic> {
+fn failure_diagnostics_with_language(merged: &MergedScan) -> Vec<JsonSummaryDiagnostic> {
     merged
         .languages
         .iter()
@@ -239,6 +240,7 @@ fn diagnostics_with_language(merged: &MergedScan) -> Vec<JsonSummaryDiagnostic> 
             facts
                 .diagnostics
                 .iter()
+                .filter(|diagnostic| is_failure_diagnostic(diagnostic))
                 .map(|diagnostic| JsonSummaryDiagnostic {
                     severity: severity_label(diagnostic.severity).to_owned(),
                     code: diagnostic.code.clone(),
@@ -250,6 +252,10 @@ fn diagnostics_with_language(merged: &MergedScan) -> Vec<JsonSummaryDiagnostic> 
         .collect()
 }
 
+fn is_failure_diagnostic(diagnostic: &Diagnostic) -> bool {
+    diagnostic.severity == DiagnosticSeverity::Error || diagnostic.code == "parse_failed"
+}
+
 fn map_location(location: &SourceLocation) -> JsonSummaryLocation {
     JsonSummaryLocation {
         file: location.file.clone(),
@@ -258,7 +264,16 @@ fn map_location(location: &SourceLocation) -> JsonSummaryLocation {
     }
 }
 
-fn status_label(status: ScanStatus) -> &'static str {
+/// Portable path label for JSON summary contracts.
+fn contract_path(repo_root: &Path, path: &Path) -> String {
+    path.strip_prefix(repo_root)
+        .map(normalize_repo_relative_path)
+        .unwrap_or_else(|_| path.display().to_string())
+}
+
+/// Human/JSON status label shared by stdout summary and json-summary.
+#[must_use]
+pub fn status_label(status: ScanStatus) -> &'static str {
     match status {
         ScanStatus::Complete => "complete",
         ScanStatus::Partial => "partial",
@@ -288,7 +303,7 @@ mod tests {
     };
 
     #[test]
-    fn json_summary_includes_warning_and_info_diagnostics() {
+    fn json_summary_includes_only_failure_diagnostics() {
         let merged = merged_with_diagnostics(vec![
             diagnostic(
                 DiagnosticSeverity::Warning,
@@ -301,6 +316,7 @@ mod tests {
                 "heuristic scan",
             ),
             diagnostic(DiagnosticSeverity::Error, "PACK_TIMEOUT", "timed out"),
+            diagnostic(DiagnosticSeverity::Warning, "parse_failed", "parse failed"),
         ]);
 
         let summary = build_json_summary(
@@ -315,10 +331,9 @@ mod tests {
             .iter()
             .map(|entry| entry.code.as_str())
             .collect();
-        assert!(codes.contains(&"root_not_found"));
-        assert!(codes.contains(&"basic_text_scan"));
-        assert!(codes.contains(&"PACK_TIMEOUT"));
-        assert_eq!(summary.diagnostics.len(), 3);
+        assert_eq!(codes, vec!["PACK_TIMEOUT", "parse_failed"]);
+        assert_eq!(summary.repo_root, ".");
+        assert_eq!(summary.scan_path, ".wax/out/scan-merged.json");
     }
 
     #[test]

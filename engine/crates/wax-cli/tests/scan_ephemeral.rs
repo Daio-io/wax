@@ -5,8 +5,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
+use wax_cli::cli::ScanStdoutFormat;
 use wax_cli::commands::scan::{
-    EphemeralScanSelections, ScanCommandOptions, repo_relative_dir_has_entries,
+    EphemeralScanSelections, ScanCommandOptions, ScanOutputRequest, repo_relative_dir_has_entries,
     repo_relative_path_exists, run_scan_cli,
 };
 use wax_contract::LanguageId;
@@ -350,6 +351,138 @@ fn ephemeral_scan_does_not_write_repo_config_or_registries() {
         repo_relative_path_exists(&repo, ".wax/out/scan-merged.json"),
         "ephemeral scan should write scan output"
     );
+}
+
+#[test]
+fn ephemeral_json_summary_stdout_omits_init_hint() {
+    let _guard = env_lock();
+    let root = TestDir::new("scan-ephemeral-json-summary");
+    let artifact_path = root.path.join("basic.tgz");
+    let digest = write_pack_artifact(&artifact_path, "wax-lang-basic");
+    let (_ds_repo, wax_home, state_path) = setup_remembered_basic_design_system(
+        &root.path,
+        &digest,
+        wax_contract::ScanStatus::Complete,
+    );
+    let registry_path = root.path.join("registry.json");
+    fs::write(
+        &registry_path,
+        format!(
+            r#"[{{"id":"basic","version":"0.1.0","api_version":1,"targets":{{"test-target":{{"url":"{}","sha256":"{}"}}}}}}]"#,
+            file_url(&artifact_path),
+            digest
+        ),
+    )
+    .expect("write pack index fixture");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(repo.join("src")).expect("create scan roots");
+    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
+    let mut output = Vec::new();
+
+    run_scan_cli(
+        ScanCommandOptions {
+            repo_root: repo.clone(),
+            strict: true,
+            allow_auto_install: false,
+            scan_concurrency: None,
+            root_group: None,
+            format: ScanStdoutFormat::JsonSummary,
+            cli_outputs: Vec::new(),
+            allow_absolute_output: false,
+            state_path: Some(state_path),
+            pack_index_url: Some(file_url(&registry_path)),
+            target_triple: Some("test-target".to_owned()),
+            ephemeral: Some(EphemeralScanSelections {
+                languages: vec![LanguageId::try_from("basic").unwrap()],
+                scan_roots: BTreeMap::from([(
+                    LanguageId::try_from("basic").unwrap(),
+                    vec![PathBuf::from("src")],
+                )]),
+                design_system_id: "acme".to_owned(),
+            }),
+        },
+        &mut output,
+    )
+    .expect("ephemeral json-summary scan");
+
+    let stdout = String::from_utf8(output).unwrap();
+    assert!(
+        !stdout.contains("run `wax init`"),
+        "init hint must stay on Summary only, got: {stdout}"
+    );
+    let value: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(value["schema_version"], 1);
+    assert_eq!(value["repo_root"], ".");
+    assert!(repo_relative_path_exists(
+        &repo,
+        ".wax/out/scan-merged.json"
+    ));
+}
+
+#[test]
+fn ephemeral_output_writes_json_summary_under_repo_root() {
+    let _guard = env_lock();
+    let root = TestDir::new("scan-ephemeral-output-artifact");
+    let artifact_path = root.path.join("basic.tgz");
+    let digest = write_pack_artifact(&artifact_path, "wax-lang-basic");
+    let (_ds_repo, wax_home, state_path) = setup_remembered_basic_design_system(
+        &root.path,
+        &digest,
+        wax_contract::ScanStatus::Complete,
+    );
+    let registry_path = root.path.join("registry.json");
+    fs::write(
+        &registry_path,
+        format!(
+            r#"[{{"id":"basic","version":"0.1.0","api_version":1,"targets":{{"test-target":{{"url":"{}","sha256":"{}"}}}}}}]"#,
+            file_url(&artifact_path),
+            digest
+        ),
+    )
+    .expect("write pack index fixture");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(repo.join("src")).expect("create scan roots");
+    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
+    let mut output = Vec::new();
+
+    run_scan_cli(
+        ScanCommandOptions {
+            repo_root: repo.clone(),
+            strict: true,
+            allow_auto_install: false,
+            scan_concurrency: None,
+            root_group: None,
+            format: ScanStdoutFormat::Quiet,
+            cli_outputs: vec![ScanOutputRequest {
+                format: "json-summary".to_owned(),
+                path: PathBuf::from(".wax/out/scan-summary.json"),
+            }],
+            allow_absolute_output: false,
+            state_path: Some(state_path),
+            pack_index_url: Some(file_url(&registry_path)),
+            target_triple: Some("test-target".to_owned()),
+            ephemeral: Some(EphemeralScanSelections {
+                languages: vec![LanguageId::try_from("basic").unwrap()],
+                scan_roots: BTreeMap::from([(
+                    LanguageId::try_from("basic").unwrap(),
+                    vec![PathBuf::from("src")],
+                )]),
+                design_system_id: "acme".to_owned(),
+            }),
+        },
+        &mut output,
+    )
+    .expect("ephemeral artifact scan");
+
+    assert!(repo_relative_path_exists(
+        &repo,
+        ".wax/out/scan-summary.json"
+    ));
+    let value: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(repo.join(".wax/out/scan-summary.json")).unwrap())
+            .unwrap();
+    assert_eq!(value["schema_version"], 1);
+    assert_eq!(value["scan_path"], ".wax/out/scan-merged.json");
 }
 
 #[test]

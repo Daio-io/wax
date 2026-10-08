@@ -12,8 +12,8 @@ fn summary_fixture_validates() {
     let value = json!({
         "schema_version": 1,
         "generated_at": "1970-01-01T00:00:00Z",
-        "repo_root": "/tmp/repo",
-        "scan_path": "/tmp/repo/.wax/out/scan-merged.json",
+        "repo_root": ".",
+        "scan_path": ".wax/out/scan-merged.json",
         "snapshot_ids": ["snap-compose"],
         "languages": [
             {

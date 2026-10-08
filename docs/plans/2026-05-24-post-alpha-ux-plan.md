@@ -176,7 +176,7 @@ Expected: PASS; interactive path writes same artifacts as non-interactive equiva
 
 ## Phase 2 — Scan output and data artifacts
 
-### - [ ] Task 2: `wax scan` output controls and JSON summary
+### - [x] Task 2: `wax scan` output controls and JSON summary
 
 **Files:**
 
@@ -192,7 +192,7 @@ Supported values: `summary` (default, release plan Task 3 behavior), `quiet` (pa
 
 - [x] **Step 2: Add repeatable artifact outputs**
 
-Support `--output <format=path>` for `json-summary`, `graph-data`, `markdown`, and `html`. Parse config `outputs[]` with the same format/path shape. CLI flags append to config defaults. `json-summary` writers ship now; `graph-data` / `markdown` / `html` return `OutputFormatDeferred`.
+Support `--output <format=path>` for `json-summary`, `graph-data`, `markdown`, and `html`. Parse config `outputs[]` with the same format/path shape. CLI flags append to config defaults. `json-summary` writers ship now; `graph-data` / `markdown` / `html` return `OutputFormatDeferred`. Path policy also rejects repo-escaping relative paths (`OutputPathEscapesRepo`) and destinations that collide with `.wax/out/scan-merged.json` (`CanonicalScanOutputCollision`).
 
 - [x] **Step 3: Implement stable `json-summary`**
 

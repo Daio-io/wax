@@ -5,7 +5,7 @@ use super::language::{
     LanguageCommandError, default_target_triple, manifest_for_language, resolve_registry_url,
     update_lockfile_entry,
 };
-use super::scan_summary::{WrittenArtifact, build_json_summary, write_json_summary};
+use super::scan_summary::{WrittenArtifact, build_json_summary, status_label, write_json_summary};
 use super::state_path::resolve_state_path;
 use crate::cli::ScanStdoutFormat;
 use crate::progress::{CliProgress, optional_scan_progress_sink};
@@ -166,6 +166,12 @@ pub enum ScanCommandError {
         /// Raw flag value.
         value: String,
     },
+    /// `--output` parsed as `FORMAT=PATH` but `FORMAT` is not a known artifact id.
+    #[error("unknown output format `{format}`")]
+    UnknownOutputFormat {
+        /// Unrecognized format id.
+        format: String,
+    },
     /// Requested artifact format is recognized but not implemented yet.
     #[error("output format `{format}` is not implemented yet")]
     OutputFormatDeferred {
@@ -285,14 +291,6 @@ pub fn run_scan(
         attempt_scan_time_registry_sync(&options, writer)?;
     }
 
-    let output_path = options.repo_root.join(SCAN_OUTPUT_RELATIVE_PATH);
-    let config_outputs = if ephemeral {
-        Vec::new()
-    } else {
-        load_scan_config_outputs(&options)?
-    };
-    let requests = resolve_scan_outputs(&options, &config_outputs)?;
-
     let progress = Arc::new(CliProgress::new());
     let merged = Engine::scan_repo_with_options(
         &options.repo_root,
@@ -306,6 +304,13 @@ pub fn run_scan(
     )?;
     progress.finish();
 
+    let output_path = options.repo_root.join(SCAN_OUTPUT_RELATIVE_PATH);
+    let config_outputs = if ephemeral {
+        Vec::new()
+    } else {
+        load_scan_config_outputs(&options)?
+    };
+    let requests = resolve_scan_outputs(&options, &config_outputs)?;
     let written = write_requested_outputs(&requests, &merged, &options, &output_path)?;
     emit_stdout_format(
         writer,
@@ -388,8 +393,6 @@ fn run_ephemeral_scan(
 ) -> Result<(), ScanCommandError> {
     let state_path = resolve_state_path(options.state_path.as_deref())?;
     let ephemeral = build_ephemeral_scan_config(&options, &selections, &state_path)?;
-    let output_path = options.repo_root.join(SCAN_OUTPUT_RELATIVE_PATH);
-    let requests = resolve_scan_outputs(&options, &[])?;
     let progress = Arc::new(CliProgress::new());
     let merged = Engine::scan_repo_with_options(
         &options.repo_root,
@@ -403,6 +406,8 @@ fn run_ephemeral_scan(
     )?;
     progress.finish();
 
+    let output_path = options.repo_root.join(SCAN_OUTPUT_RELATIVE_PATH);
+    let requests = resolve_scan_outputs(&options, &[])?;
     let written = write_requested_outputs(&requests, &merged, &options, &output_path)?;
     emit_stdout_format(
         writer,
@@ -818,8 +823,8 @@ fn write_requested_outputs(
                 });
             }
             other => {
-                return Err(ScanCommandError::InvalidOutputFlag {
-                    value: other.to_owned(),
+                return Err(ScanCommandError::UnknownOutputFormat {
+                    format: other.to_owned(),
                 });
             }
         }
@@ -1329,14 +1334,6 @@ fn write_failure_diagnostics(
         .map_err(write_error)?;
     }
     Ok(())
-}
-
-fn status_label(status: ScanStatus) -> &'static str {
-    match status {
-        ScanStatus::Complete => "complete",
-        ScanStatus::Partial => "partial",
-        ScanStatus::Failed => "failed",
-    }
 }
 
 /// Returns whether a path existed before scan under `.wax`.
