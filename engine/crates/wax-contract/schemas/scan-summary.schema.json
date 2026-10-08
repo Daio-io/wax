@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://wax.dev/schemas/scan-summary.v1.schema.json",
+  "$id": "https://wax.dev/schemas/scan-summary.v2.schema.json",
   "title": "Scan JSON summary",
-  "description": "Stable, versioned scan summary for CI and dashboards.",
+  "description": "Stable, versioned scan summary for CI and dashboards. Version 2 adds optional baseline deltas.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -19,7 +19,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": 1
+      "const": 2
     },
     "generated_at": {
       "type": "string",
@@ -246,7 +246,17 @@
       "properties": {
         "code": {"type": "string"},
         "message": {"type": "string"},
-        "language": {"type": ["string", "null"]}
+        "language": {"type": ["string", "null"]},
+        "location": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["file", "line"],
+          "properties": {
+            "file": {"type": "string"},
+            "line": {"type": "integer", "minimum": 0},
+            "column": {"type": "integer", "minimum": 0}
+          }
+        }
       }
     }
   }

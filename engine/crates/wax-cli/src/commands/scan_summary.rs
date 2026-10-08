@@ -36,6 +36,8 @@ pub const SUMMARY_LIMIT_CATEGORY: &str = "category rollups are not available in 
 /// Ownership rollup gap message.
 pub const SUMMARY_LIMIT_OWNERSHIP: &str =
     "ownership rollups are not available in current scan facts";
+/// JSON summary schema version. Version 2 adds optional baseline `deltas`.
+pub const JSON_SUMMARY_SCHEMA_VERSION: u32 = 2;
 
 /// One written scan artifact recorded in the JSON summary.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -120,7 +122,7 @@ pub struct JsonSummaryDiagnostic {
 }
 
 /// Source location in the JSON summary.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct JsonSummaryLocation {
     /// Repository-relative file path.
     pub file: String,
@@ -159,7 +161,7 @@ pub struct JsonSummary {
     pub deltas: Option<SummaryDeltas>,
 }
 
-/// Builds a schema-version-1 JSON summary from merged scan facts.
+/// Builds a schema-version-2 JSON summary from merged scan facts.
 #[must_use]
 pub fn build_json_summary(
     merged: &MergedScan,
@@ -189,7 +191,7 @@ pub fn build_json_summary(
         .collect();
 
     JsonSummary {
-        schema_version: 1,
+        schema_version: JSON_SUMMARY_SCHEMA_VERSION,
         generated_at: OffsetDateTime::now_utc()
             .format(&Rfc3339)
             .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_owned()),
@@ -339,7 +341,7 @@ mod tests {
         let destination = blocker.join("scan-summary.json");
 
         let summary = JsonSummary {
-            schema_version: 1,
+            schema_version: JSON_SUMMARY_SCHEMA_VERSION,
             generated_at: "1970-01-01T00:00:00Z".to_owned(),
             repo_root: ".".to_owned(),
             scan_path: ".wax/out/scan-merged.json".to_owned(),

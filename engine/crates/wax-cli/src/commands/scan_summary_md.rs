@@ -124,7 +124,7 @@ mod tests {
             })
             .collect();
         JsonSummary {
-            schema_version: 1,
+            schema_version: crate::commands::scan_summary::JSON_SUMMARY_SCHEMA_VERSION,
             generated_at: "1970-01-01T00:00:00Z".to_owned(),
             repo_root: ".".to_owned(),
             scan_path: ".wax/out/scan-merged.json".to_owned(),
@@ -191,11 +191,13 @@ mod tests {
                 code: "new_error".to_owned(),
                 message: "appeared".to_owned(),
                 language: Some("compose".to_owned()),
+                location: None,
             }],
             resolved_diagnostics: vec![DiagnosticRef {
                 code: "old_error".to_owned(),
                 message: "gone".to_owned(),
                 language: Some("compose".to_owned()),
+                location: None,
             }],
         };
 

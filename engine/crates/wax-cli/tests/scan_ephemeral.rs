@@ -413,7 +413,7 @@ fn ephemeral_json_summary_stdout_omits_init_hint() {
         "init hint must stay on Summary only, got: {stdout}"
     );
     let value: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
-    assert_eq!(value["schema_version"], 1);
+    assert_eq!(value["schema_version"], 2);
     assert_eq!(value["repo_root"], ".");
     assert!(repo_relative_path_exists(
         &repo,
@@ -484,7 +484,7 @@ fn ephemeral_output_writes_json_summary_under_repo_root() {
     let value: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(repo.join(".wax/out/scan-summary.json")).unwrap())
             .unwrap();
-    assert_eq!(value["schema_version"], 1);
+    assert_eq!(value["schema_version"], 2);
     assert_eq!(value["scan_path"], ".wax/out/scan-merged.json");
 }
 

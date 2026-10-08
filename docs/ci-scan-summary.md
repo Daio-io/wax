@@ -36,9 +36,11 @@ jobs:
             --output html=.wax/out/report/index.html
 
       - name: Upload Wax reports
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: wax-scan
+          if-no-files-found: warn
           path: |
             .wax/out/scan-summary.json
             .wax/out/scan-summary.md

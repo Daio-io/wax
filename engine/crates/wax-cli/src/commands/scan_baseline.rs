@@ -1,7 +1,9 @@
 //! Baseline loading and scan-summary delta computation.
 
 use super::scan::ScanCommandError;
-use super::scan_summary::{JsonSummary, is_failure_diagnostic};
+use super::scan_summary::{
+    JsonSummary, JsonSummaryDiagnostic, JsonSummaryLocation, is_failure_diagnostic,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
@@ -17,7 +19,17 @@ pub struct DiagnosticRef {
     pub message: String,
     /// Language that emitted the diagnostic, when known.
     pub language: Option<String>,
+    /// Source location when present; part of the comparison fingerprint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<JsonSummaryLocation>,
 }
+
+type DiagnosticFingerprint = (
+    String,
+    String,
+    Option<String>,
+    Option<(String, u32, Option<u32>)>,
+);
 
 /// Changes between the current scan summary and a baseline.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -40,7 +52,7 @@ pub struct BaselineSummary {
     adoption_ratio: Option<f64>,
     resolved: u32,
     candidate: u32,
-    diagnostics: BTreeMap<(String, String, Option<String>), DiagnosticRef>,
+    diagnostics: BTreeMap<DiagnosticFingerprint, DiagnosticRef>,
 }
 
 /// Loads a prior JSON summary or merged scan as a normalized baseline.
@@ -91,11 +103,7 @@ pub fn load_baseline(path: &Path) -> Result<BaselineSummary, ScanCommandError> {
 #[must_use]
 pub fn compute_deltas(current: &JsonSummary, baseline: &BaselineSummary) -> SummaryDeltas {
     let current_diagnostics =
-        diagnostic_map(current.diagnostics.iter().map(|diagnostic| DiagnosticRef {
-            code: diagnostic.code.clone(),
-            message: diagnostic.message.clone(),
-            language: Some(diagnostic.language.clone()),
-        }));
+        diagnostic_map(current.diagnostics.iter().map(diagnostic_ref_from_summary));
 
     SummaryDeltas {
         adoption_coverage_delta: current
@@ -124,16 +132,7 @@ pub fn compute_deltas(current: &JsonSummary, baseline: &BaselineSummary) -> Summ
 impl BaselineSummary {
     fn from_json_summary(summary: JsonSummary) -> Self {
         let diagnostics =
-            diagnostic_map(
-                summary
-                    .diagnostics
-                    .into_iter()
-                    .map(|diagnostic| DiagnosticRef {
-                        code: diagnostic.code,
-                        message: diagnostic.message,
-                        language: Some(diagnostic.language),
-                    }),
-            );
+            diagnostic_map(summary.diagnostics.iter().map(diagnostic_ref_from_summary));
         Self {
             adoption_ratio: summary.adoption.coverage_ratio,
             resolved: summary.adoption.raw_invocations.resolved,
@@ -152,6 +151,14 @@ impl BaselineSummary {
                     code: diagnostic.code.clone(),
                     message: diagnostic.message.clone(),
                     language: Some(language.as_str().to_owned()),
+                    location: diagnostic
+                        .location
+                        .as_ref()
+                        .map(|location| JsonSummaryLocation {
+                            file: location.file.clone(),
+                            line: location.line,
+                            column: location.column,
+                        }),
                 })
         }));
         Self {
@@ -163,17 +170,34 @@ impl BaselineSummary {
     }
 }
 
+fn diagnostic_ref_from_summary(diagnostic: &JsonSummaryDiagnostic) -> DiagnosticRef {
+    DiagnosticRef {
+        code: diagnostic.code.clone(),
+        message: diagnostic.message.clone(),
+        language: Some(diagnostic.language.clone()),
+        location: diagnostic.location.clone(),
+    }
+}
+
+fn diagnostic_fingerprint(diagnostic: &DiagnosticRef) -> DiagnosticFingerprint {
+    (
+        diagnostic.code.clone(),
+        diagnostic.message.clone(),
+        diagnostic.language.clone(),
+        diagnostic
+            .location
+            .as_ref()
+            .map(|location| (location.file.clone(), location.line, location.column)),
+    )
+}
+
 fn diagnostic_map(
     diagnostics: impl IntoIterator<Item = DiagnosticRef>,
-) -> BTreeMap<(String, String, Option<String>), DiagnosticRef> {
+) -> BTreeMap<DiagnosticFingerprint, DiagnosticRef> {
     diagnostics
         .into_iter()
         .map(|diagnostic| {
-            let fingerprint = (
-                diagnostic.code.clone(),
-                diagnostic.message.clone(),
-                diagnostic.language.clone(),
-            );
+            let fingerprint = diagnostic_fingerprint(&diagnostic);
             (fingerprint, diagnostic)
         })
         .collect()
@@ -195,7 +219,7 @@ mod tests {
         diagnostics: Vec<JsonSummaryDiagnostic>,
     ) -> JsonSummary {
         JsonSummary {
-            schema_version: 1,
+            schema_version: crate::commands::scan_summary::JSON_SUMMARY_SCHEMA_VERSION,
             generated_at: "1970-01-01T00:00:00Z".to_owned(),
             repo_root: ".".to_owned(),
             scan_path: ".wax/out/scan-merged.json".to_owned(),
@@ -290,6 +314,7 @@ mod tests {
                 code: "current_error".to_owned(),
                 message: "current failure".to_owned(),
                 language: Some("compose".to_owned()),
+                location: None,
             }]
         );
         assert_eq!(
@@ -298,8 +323,50 @@ mod tests {
                 code: "old_error".to_owned(),
                 message: "old failure".to_owned(),
                 language: Some("compose".to_owned()),
+                location: None,
             }]
         );
+    }
+
+    #[test]
+    fn scan_baseline_compute_deltas_distinguishes_same_code_at_different_locations() {
+        use crate::commands::scan_summary::JsonSummaryLocation;
+
+        let shared = |file: &str| JsonSummaryDiagnostic {
+            severity: "error".to_owned(),
+            code: "PARSE_ERROR".to_owned(),
+            message: "unexpected token".to_owned(),
+            language: "react".to_owned(),
+            location: Some(JsonSummaryLocation {
+                file: file.to_owned(),
+                line: 4,
+                column: Some(1),
+            }),
+        };
+        let baseline = BaselineSummary::from_json_summary(sample_summary(
+            Some(0.5),
+            0,
+            1,
+            vec![shared("src/A.tsx"), shared("src/B.tsx")],
+        ));
+        let current = sample_summary(Some(0.5), 0, 1, vec![shared("src/B.tsx")]);
+
+        let deltas = compute_deltas(&current, &baseline);
+
+        assert_eq!(
+            deltas.resolved_diagnostics,
+            vec![DiagnosticRef {
+                code: "PARSE_ERROR".to_owned(),
+                message: "unexpected token".to_owned(),
+                language: Some("react".to_owned()),
+                location: Some(JsonSummaryLocation {
+                    file: "src/A.tsx".to_owned(),
+                    line: 4,
+                    column: Some(1),
+                }),
+            }]
+        );
+        assert!(deltas.new_error_diagnostics.is_empty());
     }
 
     #[test]
@@ -318,6 +385,23 @@ mod tests {
         assert_eq!(deltas.candidate_delta, 0);
         assert!(deltas.new_error_diagnostics.is_empty());
         assert!(deltas.resolved_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn scan_baseline_load_baseline_accepts_schema_version_1_summary() {
+        let mut summary = sample_summary(Some(0.5), 1, 1, vec![]);
+        summary.schema_version = 1;
+        let body = serde_json::to_string_pretty(&summary).expect("serialize v1 summary");
+        let path = write_temp("prior-v1-summary.json", &body);
+
+        let baseline = load_baseline(&path).expect("v1 json-summary baseline");
+        let current = sample_summary(Some(0.75), 2, 0, vec![]);
+        let deltas = compute_deltas(&current, &baseline);
+        cleanup_temp(&path);
+
+        assert_eq!(deltas.adoption_coverage_delta, Some(0.25));
+        assert_eq!(deltas.resolved_delta, 1);
+        assert_eq!(deltas.candidate_delta, -1);
     }
 
     #[test]

@@ -10,7 +10,7 @@ fn validator() -> jsonschema::Validator {
 fn summary_fixture_validates() {
     let validator = validator();
     let value = json!({
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_at": "1970-01-01T00:00:00Z",
         "repo_root": ".",
         "scan_path": ".wax/out/scan-merged.json",
@@ -71,5 +71,58 @@ fn summary_fixture_validates() {
     assert!(
         validator.is_valid(&value),
         "fixture should validate against scan-summary schema"
+    );
+}
+
+#[test]
+fn summary_with_deltas_validates_as_v2() {
+    let validator = validator();
+    let value = json!({
+        "schema_version": 2,
+        "generated_at": "1970-01-01T00:00:00Z",
+        "repo_root": ".",
+        "scan_path": ".wax/out/scan-merged.json",
+        "snapshot_ids": [],
+        "languages": [],
+        "adoption": {
+            "coverage_ratio": 1.0,
+            "eligible_invocation_count": 1,
+            "adopted_invocation_count": 1,
+            "non_adopted_invocation_count": 0,
+            "adoption_excluded_invocation_count": 0,
+            "raw_invocations": {
+                "total": 1,
+                "resolved": 1,
+                "local": 0,
+                "candidate": 0,
+                "unresolved": 0
+            }
+        },
+        "diagnostics": [],
+        "artifacts": [],
+        "limits": [],
+        "deltas": {
+            "adoption_coverage_delta": 0.25,
+            "resolved_delta": 1,
+            "candidate_delta": -1,
+            "new_error_diagnostics": [
+                {
+                    "code": "PARSE_ERROR",
+                    "message": "unexpected token",
+                    "language": "react",
+                    "location": {
+                        "file": "src/A.tsx",
+                        "line": 4,
+                        "column": 1
+                    }
+                }
+            ],
+            "resolved_diagnostics": []
+        }
+    });
+
+    assert!(
+        validator.is_valid(&value),
+        "v2 summary with deltas should validate"
     );
 }
