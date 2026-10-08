@@ -357,6 +357,23 @@ fn output_flag_empty_path_errors() {
 }
 
 #[test]
+fn output_flag_empty_format_errors() {
+    let _guard = env_lock();
+    let (_root, repo, _wax_home) = setup_scan_repo(
+        "scan-artifact-empty-format",
+        &[("compose", "complete", "0.5", "", "")],
+    );
+
+    let output = run_scan(&repo, &["--output", "=.wax/out/x.json"]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("invalid --output value"),
+        "unexpected stderr: {stderr}"
+    );
+}
+
+#[test]
 fn config_absolute_path_requires_allow_flag() {
     let _guard = env_lock();
     let root = common::TestDir::new("scan-artifact-config-abs");

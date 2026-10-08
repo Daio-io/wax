@@ -6,7 +6,8 @@ use super::language::{
     update_lockfile_entry,
 };
 use super::scan_summary::{
-    WrittenArtifact, build_json_summary, is_failure_diagnostic, status_label, write_json_summary,
+    JsonSummaryWriteError, WrittenArtifact, build_json_summary, is_failure_diagnostic,
+    status_label, write_json_summary,
 };
 use super::state_path::resolve_state_path;
 use crate::cli::ScanStdoutFormat;
@@ -223,6 +224,15 @@ pub enum ScanCommandError {
     AtomicWrite(#[from] AtomicWriteError),
 }
 
+impl From<JsonSummaryWriteError> for ScanCommandError {
+    fn from(error: JsonSummaryWriteError) -> Self {
+        match error {
+            JsonSummaryWriteError::Serialize { path, source } => Self::OutputIo { path, source },
+            JsonSummaryWriteError::AtomicWrite(error) => Self::AtomicWrite(error),
+        }
+    }
+}
+
 /// Runs `wax scan`, prompting for ephemeral selections when config is missing in a TTY.
 ///
 /// # Errors
@@ -293,9 +303,11 @@ pub fn run_scan(
     writer: &mut impl Write,
     ephemeral: bool,
 ) -> Result<(), ScanCommandError> {
-    if !ephemeral {
-        attempt_scan_time_registry_sync(&options, writer)?;
-    }
+    let config_outputs = if ephemeral {
+        Vec::new()
+    } else {
+        load_config_outputs_and_attempt_registry_sync(&options, writer)?
+    };
 
     let progress = Arc::new(CliProgress::new());
     let merged = Engine::scan_repo_with_options(
@@ -310,36 +322,21 @@ pub fn run_scan(
     )?;
     progress.finish();
 
-    let output_path = options.repo_root.join(SCAN_OUTPUT_RELATIVE_PATH);
-    let config_outputs = if ephemeral {
-        Vec::new()
-    } else {
-        load_scan_config_outputs(&options)?
-    };
-    let requests = resolve_scan_outputs(&options, &config_outputs)?;
-    let written = write_requested_outputs(&requests, &merged, &options, &output_path)?;
-    emit_stdout_format(
-        writer,
-        options.format,
-        &merged,
-        &options.repo_root,
-        &output_path,
-        &written,
-        ephemeral,
-    )?;
-    enforce_strict_scan(options.strict, &merged, output_path)
+    finish_scan_outputs(&options, &merged, &config_outputs, writer, ephemeral)
 }
 
-fn attempt_scan_time_registry_sync(
+/// Loads config `outputs[]` once and best-effort syncs upstream registries.
+fn load_config_outputs_and_attempt_registry_sync(
     options: &ScanCommandOptions,
     writer: &mut impl Write,
-) -> Result<(), ScanCommandError> {
+) -> Result<Vec<ScanOutputSpec>, ScanCommandError> {
     let config_path = options.repo_root.join(PREFERRED_CONFIG_RELATIVE_PATH);
     if !config_path.is_file() {
-        return Ok(());
+        return Ok(Vec::new());
     }
 
     let waxrc = load_waxrc(&config_path)?;
+    let outputs = waxrc.outputs.clone();
     let has_syncable_registry =
         waxrc
             .languages
@@ -352,7 +349,7 @@ fn attempt_scan_time_registry_sync(
                 None => false,
             });
     if !has_syncable_registry {
-        return Ok(());
+        return Ok(outputs);
     }
 
     match best_effort_sync_app_registries(&SyncOptions {
@@ -376,7 +373,7 @@ fn attempt_scan_time_registry_sync(
             let _ = error;
         }
     }
-    Ok(())
+    Ok(outputs)
 }
 
 fn write_scan_warning_line(
@@ -412,19 +409,29 @@ fn run_ephemeral_scan(
     )?;
     progress.finish();
 
+    finish_scan_outputs(&options, &merged, &[], writer, true)
+}
+
+fn finish_scan_outputs(
+    options: &ScanCommandOptions,
+    merged: &MergedScan,
+    config_outputs: &[ScanOutputSpec],
+    writer: &mut impl Write,
+    ephemeral: bool,
+) -> Result<(), ScanCommandError> {
     let output_path = options.repo_root.join(SCAN_OUTPUT_RELATIVE_PATH);
-    let requests = resolve_scan_outputs(&options, &[])?;
-    let written = write_requested_outputs(&requests, &merged, &options, &output_path)?;
+    let requests = resolve_scan_outputs(options, config_outputs)?;
+    let written = write_requested_outputs(&requests, merged, options, &output_path)?;
     emit_stdout_format(
         writer,
         options.format,
-        &merged,
+        merged,
         &options.repo_root,
         &output_path,
         &written,
-        true,
+        ephemeral,
     )?;
-    enforce_strict_scan(options.strict, &merged, output_path)
+    enforce_strict_scan(options.strict, merged, output_path)
 }
 
 fn enforce_strict_scan(
@@ -695,16 +702,6 @@ pub fn parse_output_flag(raw: &str) -> Result<ScanOutputRequest, ScanCommandErro
         format: format.to_owned(),
         path: PathBuf::from(path),
     })
-}
-
-fn load_scan_config_outputs(
-    options: &ScanCommandOptions,
-) -> Result<Vec<ScanOutputSpec>, ScanCommandError> {
-    let config_path = options.repo_root.join(PREFERRED_CONFIG_RELATIVE_PATH);
-    if !config_path.is_file() {
-        return Ok(Vec::new());
-    }
-    Ok(load_waxrc(&config_path)?.outputs)
 }
 
 /// Unions config and CLI output requests, normalizing paths and rejecting
@@ -1350,9 +1347,9 @@ pub fn repo_relative_dir_has_entries(repo_root: &Path, relative: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        EphemeralScanSelections, ScanCommandError, ScanCommandOptions,
-        attempt_scan_time_registry_sync, incomplete_scan_summary, run_scan_cli,
-        write_failure_diagnostics, write_scan_summary,
+        EphemeralScanSelections, ScanCommandError, ScanCommandOptions, incomplete_scan_summary,
+        load_config_outputs_and_attempt_registry_sync, run_scan_cli, write_failure_diagnostics,
+        write_scan_summary,
     };
     use crate::testing::env_lock;
     use std::collections::BTreeMap;
@@ -2091,7 +2088,7 @@ mod tests {
         .expect("write empty state");
 
         let mut output = Vec::new();
-        attempt_scan_time_registry_sync(
+        let config_outputs = load_config_outputs_and_attempt_registry_sync(
             &ScanCommandOptions {
                 repo_root: app_repo,
                 strict: false,
@@ -2109,6 +2106,7 @@ mod tests {
             &mut output,
         )
         .expect("scan-time sync warning should not fail scan");
+        assert!(config_outputs.is_empty());
 
         let stdout = String::from_utf8(output).unwrap();
         assert!(stdout.contains(

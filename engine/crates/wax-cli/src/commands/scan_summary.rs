@@ -1,13 +1,31 @@
 //! Stable JSON summary builder for `wax scan --format json-summary` and artifact outputs.
 
-use super::scan::ScanCommandError;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::io;
+use std::path::{Path, PathBuf};
+use thiserror::Error;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 use wax_contract::{Diagnostic, DiagnosticSeverity, MergedScan, ScanStatus, SourceLocation};
-use wax_core::{AtomicWriteOptions, write_atomically};
+use wax_core::{AtomicWriteError, AtomicWriteOptions, write_atomically};
 use wax_lang_api::normalize_repo_relative_path;
+
+/// Errors from writing a JSON summary artifact.
+#[derive(Debug, Error)]
+pub enum JsonSummaryWriteError {
+    /// Summary serialization failed before the atomic write.
+    #[error("failed to write scan output `{path}`: {source}", path = path.display())]
+    Serialize {
+        /// Destination path that failed.
+        path: PathBuf,
+        /// Underlying serialization I/O error.
+        #[source]
+        source: io::Error,
+    },
+    /// Atomic replacement of the summary file failed.
+    #[error(transparent)]
+    AtomicWrite(#[from] AtomicWriteError),
+}
 
 /// Known gaps when module/category/ownership rollups are unavailable.
 pub const SUMMARY_LIMIT_MODULE: &str = "module rollups are not available in current scan facts";
@@ -214,13 +232,13 @@ pub fn build_json_summary(
 ///
 /// # Errors
 ///
-/// Returns [`ScanCommandError::OutputIo`] when serialization fails, or
-/// [`ScanCommandError::AtomicWrite`] when the atomic replace fails.
-pub fn write_json_summary(path: &Path, summary: &JsonSummary) -> Result<(), ScanCommandError> {
+/// Returns [`JsonSummaryWriteError::Serialize`] when serialization fails, or
+/// [`JsonSummaryWriteError::AtomicWrite`] when the atomic replace fails.
+pub fn write_json_summary(path: &Path, summary: &JsonSummary) -> Result<(), JsonSummaryWriteError> {
     let contents =
-        serde_json::to_vec_pretty(summary).map_err(|source| ScanCommandError::OutputIo {
+        serde_json::to_vec_pretty(summary).map_err(|source| JsonSummaryWriteError::Serialize {
             path: path.to_path_buf(),
-            source: std::io::Error::other(source),
+            source: io::Error::other(source),
         })?;
     let mut with_newline = contents;
     with_newline.push(b'\n');
@@ -345,7 +363,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
 
         assert!(
-            matches!(error, ScanCommandError::AtomicWrite(_)),
+            matches!(error, JsonSummaryWriteError::AtomicWrite(_)),
             "atomic-write failures must stay typed, got: {error:?}"
         );
     }
