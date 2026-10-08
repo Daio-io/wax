@@ -99,7 +99,7 @@ fn render_report(
                     diagnostic
                         .location
                         .as_ref()
-                        .map_or("", |location| location.file.as_str()),
+                        .map_or_else(String::new, |location| escape(&location.file)),
                     diagnostic
                         .location
                         .as_ref()

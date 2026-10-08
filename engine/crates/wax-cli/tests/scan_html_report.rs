@@ -125,7 +125,8 @@ fn write_order_graph_before_html_when_both_written() {
     );
     assert!(output.status.success());
     let html = fs::read_to_string(repo.join(".wax/out/report/index.html")).unwrap();
-    assert!(html.contains("scan-graph.json"));
+    assert!(html.contains("graph-data ("));
+    assert!(!html.contains("graph-data (size unknown)"));
 }
 
 #[test]

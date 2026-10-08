@@ -865,7 +865,7 @@ fn write_requested_outputs(
     output_order.sort_by_key(|index| match requests[*index].format.as_str() {
         SCAN_OUTPUT_FORMAT_JSON_SUMMARY => 0,
         SCAN_OUTPUT_FORMAT_GRAPH_DATA => 1,
-        SCAN_OUTPUT_FORMAT_HTML => 1,
+        SCAN_OUTPUT_FORMAT_HTML => 2,
         _ => 0,
     });
 
