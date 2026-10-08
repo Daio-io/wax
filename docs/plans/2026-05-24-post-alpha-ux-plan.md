@@ -212,7 +212,7 @@ Expected: PASS; stdout never mixes prose into `json-summary`; requested artifact
 - Create: `engine/crates/wax-cli/src/scan_graph.rs` (or `wax-core` report module if shared)
 - Create: `engine/crates/wax-cli/src/scan_report_html.rs`
 - Create: `engine/schemas/scan-graph.schema.json`
-- Create: `engine/crates/wax-cli/tests/scan_report_artifacts.rs`
+- Create: `engine/crates/wax-cli/tests/scan_html_report.rs`
 
 - [x] **Step 1: Build graph-data JSON from `MergedScan`**
 
@@ -224,7 +224,7 @@ Write a local, no-network report at `html` output paths. Include adoption headli
 
 - [x] **Step 3: Validate artifacts**
 
-Run: `cd engine && cargo test -p wax-cli scan_report_artifacts`
+Run: `cd engine && cargo test -p wax-cli --test scan_html_report`
 
 Expected: PASS; generated graph JSON validates against schema; HTML contains the headline metrics, a graph container or inline rendered chart, diagnostics, and links to generated JSON artifacts.
 

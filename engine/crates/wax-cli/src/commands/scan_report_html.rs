@@ -1,14 +1,21 @@
 //! Static, offline HTML report generation for scan artifacts.
 
-use super::scan::ScanCommandError;
 use super::scan_graph::ScanGraph;
 use super::scan_summary::JsonSummary;
-use std::io;
 use std::path::Path;
+use thiserror::Error;
 use wax_core::{AtomicWriteOptions, write_atomically};
 
+/// Errors from writing an HTML report artifact.
+#[derive(Debug, Error)]
+pub enum HtmlWriteError {
+    /// Atomic replacement of the HTML report failed.
+    #[error(transparent)]
+    AtomicWrite(#[from] wax_core::AtomicWriteError),
+}
+
 /// Inline styles for the self-contained scan report.
-pub const REPORT_CSS: &str = r#"
+const REPORT_CSS: &str = r#"
 body { font: 16px system-ui, sans-serif; margin: 2rem auto; max-width: 1100px; color: #18202a; }
 section { margin: 2rem 0; } .cards { display: flex; flex-wrap: wrap; gap: 1rem; }
 .card { border: 1px solid #d5dbe3; border-radius: .5rem; padding: 1rem; min-width: 12rem; }
@@ -17,27 +24,23 @@ table { border-collapse: collapse; width: 100%; } th, td { border-bottom: 1px so
 "#;
 
 /// Inline behavior for the self-contained scan report.
-pub const REPORT_JS: &str =
+const REPORT_JS: &str =
     r#"document.querySelectorAll('a[href]').forEach(link => link.rel = 'noopener');"#;
 
 /// Writes a self-contained HTML report from a scan summary and graph.
 ///
 /// # Errors
 ///
-/// Returns OutputIo when the report cannot be written.
+/// Returns [`HtmlWriteError`] when the report cannot be written.
 pub fn write_html_report(
     path: &Path,
     repo_root: &Path,
     summary: &JsonSummary,
     graph: &ScanGraph,
-) -> Result<(), ScanCommandError> {
+) -> Result<(), HtmlWriteError> {
     let html = render_report(path, repo_root, summary, graph);
-    write_atomically(path, html.as_bytes(), AtomicWriteOptions::default()).map_err(|error| {
-        ScanCommandError::OutputIo {
-            path: path.to_path_buf(),
-            source: io::Error::other(error),
-        }
-    })
+    write_atomically(path, html.as_bytes(), AtomicWriteOptions::default())?;
+    Ok(())
 }
 
 fn render_report(

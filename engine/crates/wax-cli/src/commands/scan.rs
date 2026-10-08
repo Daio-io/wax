@@ -6,7 +6,7 @@ use super::language::{
     update_lockfile_entry,
 };
 use super::scan_graph::{GraphWriteError, build_scan_graph, write_scan_graph};
-use super::scan_report_html::write_html_report;
+use super::scan_report_html::{HtmlWriteError, write_html_report};
 use super::scan_summary::{
     JsonSummaryWriteError, WrittenArtifact, build_json_summary, is_failure_diagnostic,
     status_label, write_json_summary,
@@ -254,6 +254,14 @@ impl From<GraphWriteError> for ScanCommandError {
         match error {
             GraphWriteError::Serialize { path, source } => Self::OutputIo { path, source },
             GraphWriteError::AtomicWrite(error) => Self::AtomicWrite(error),
+        }
+    }
+}
+
+impl From<HtmlWriteError> for ScanCommandError {
+    fn from(error: HtmlWriteError) -> Self {
+        match error {
+            HtmlWriteError::AtomicWrite(error) => Self::AtomicWrite(error),
         }
     }
 }
@@ -862,12 +870,13 @@ fn write_requested_outputs(
         .collect();
 
     let mut output_order: Vec<usize> = (0..requests.len()).collect();
-    output_order.sort_by_key(|index| match requests[*index].format.as_str() {
-        SCAN_OUTPUT_FORMAT_JSON_SUMMARY => 0,
-        SCAN_OUTPUT_FORMAT_GRAPH_DATA => 1,
-        SCAN_OUTPUT_FORMAT_HTML => 2,
-        _ => 0,
-    });
+    if requests
+        .iter()
+        .any(|request| request.format == SCAN_OUTPUT_FORMAT_HTML)
+    {
+        output_order
+            .sort_by_key(|index| usize::from(requests[*index].format == SCAN_OUTPUT_FORMAT_HTML));
+    }
 
     for index in output_order {
         let request = &requests[index];
@@ -887,12 +896,6 @@ fn write_requested_outputs(
             record_written_artifact_bytes(&mut artifact_manifest, index, &destination);
         } else if request.format == SCAN_OUTPUT_FORMAT_HTML {
             let destination = artifact_destination(request, &options.repo_root);
-            if let Some(parent) = destination.parent() {
-                fs::create_dir_all(parent).map_err(|source| ScanCommandError::OutputIo {
-                    path: destination.clone(),
-                    source,
-                })?;
-            }
             let summary =
                 build_json_summary(merged, &options.repo_root, scan_path, &artifact_manifest);
             let source_scan_path = scan_path
