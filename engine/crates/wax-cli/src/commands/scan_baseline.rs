@@ -1,14 +1,47 @@
 //! Baseline loading and scan-summary delta computation.
 
-use super::scan::ScanCommandError;
 use super::scan_summary::{
     JsonSummary, JsonSummaryDiagnostic, JsonSummaryLocation, is_failure_diagnostic,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::Path;
+use std::io;
+use std::path::{Path, PathBuf};
+use thiserror::Error;
 use wax_contract::MergedScan;
+
+/// Errors from loading a scan baseline file.
+#[derive(Debug, Error)]
+pub enum BaselineError {
+    /// The baseline file could not be read.
+    #[error("failed to read scan baseline `{path}`: {source}", path = path.display())]
+    Io {
+        /// Baseline path that could not be read.
+        path: PathBuf,
+        /// Underlying I/O error.
+        #[source]
+        source: io::Error,
+    },
+    /// The baseline file was not valid JSON or failed typed deserialization.
+    #[error(
+        "unrecognized scan baseline format at `{path}`: {source}",
+        path = path.display()
+    )]
+    Parse {
+        /// Baseline path that failed to parse.
+        path: PathBuf,
+        /// Underlying JSON parse or deserialize error.
+        #[source]
+        source: serde_json::Error,
+    },
+    /// The baseline JSON was valid but neither a JSON summary nor a merged scan.
+    #[error("unrecognized scan baseline format at `{path}`", path = path.display())]
+    Unrecognized {
+        /// Baseline path whose JSON shape was unsupported.
+        path: PathBuf,
+    },
+}
 
 /// Stable diagnostic identity included in baseline changes.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -55,16 +88,18 @@ pub struct BaselineSummary {
 ///
 /// # Errors
 ///
-/// Returns [`ScanCommandError::BaselineIo`] when the file cannot be read and
-/// [`ScanCommandError::BaselineUnrecognized`] when its JSON shape is unsupported.
-pub fn load_baseline(path: &Path) -> Result<BaselineSummary, ScanCommandError> {
-    let contents = fs::read_to_string(path).map_err(|source| ScanCommandError::BaselineIo {
+/// Returns [`BaselineError::Io`] when the file cannot be read,
+/// [`BaselineError::Parse`] when JSON parsing or typed deserialization fails, and
+/// [`BaselineError::Unrecognized`] when the JSON shape is unsupported.
+pub fn load_baseline(path: &Path) -> Result<BaselineSummary, BaselineError> {
+    let contents = fs::read_to_string(path).map_err(|source| BaselineError::Io {
         path: path.to_path_buf(),
         source,
     })?;
     let value: serde_json::Value =
-        serde_json::from_str(&contents).map_err(|_| ScanCommandError::BaselineUnrecognized {
+        serde_json::from_str(&contents).map_err(|source| BaselineError::Parse {
             path: path.to_path_buf(),
+            source,
         })?;
 
     if value.get("schema_version").is_some()
@@ -73,23 +108,23 @@ pub fn load_baseline(path: &Path) -> Result<BaselineSummary, ScanCommandError> {
             .get("languages")
             .is_some_and(serde_json::Value::is_array)
     {
-        let summary =
-            serde_json::from_value(value).map_err(|_| ScanCommandError::BaselineUnrecognized {
-                path: path.to_path_buf(),
-            })?;
+        let summary = serde_json::from_value(value).map_err(|source| BaselineError::Parse {
+            path: path.to_path_buf(),
+            source,
+        })?;
         Ok(BaselineSummary::from_json_summary(summary))
     } else if value.get("repo_summary").is_some()
         && value
             .get("languages")
             .is_some_and(serde_json::Value::is_object)
     {
-        let merged =
-            serde_json::from_value(value).map_err(|_| ScanCommandError::BaselineUnrecognized {
-                path: path.to_path_buf(),
-            })?;
+        let merged = serde_json::from_value(value).map_err(|source| BaselineError::Parse {
+            path: path.to_path_buf(),
+            source,
+        })?;
         Ok(BaselineSummary::from_merged(&merged))
     } else {
-        Err(ScanCommandError::BaselineUnrecognized {
+        Err(BaselineError::Unrecognized {
             path: path.to_path_buf(),
         })
     }
@@ -181,9 +216,9 @@ fn diagnostic_set(diagnostics: impl IntoIterator<Item = DiagnosticRef>) -> BTree
 mod tests {
     use super::*;
     use crate::commands::scan_summary::{
-        JsonSummary, JsonSummaryAdoption, JsonSummaryDiagnostic, JsonSummaryLanguage,
-        JsonSummaryRawInvocations,
+        JsonSummaryDiagnostic, JsonSummaryLocation, sample_json_summary,
     };
+    use std::error::Error;
     use std::path::{Path, PathBuf};
 
     fn sample_summary(
@@ -191,42 +226,8 @@ mod tests {
         resolved: u32,
         candidate: u32,
         diagnostics: Vec<JsonSummaryDiagnostic>,
-    ) -> JsonSummary {
-        JsonSummary {
-            schema_version: crate::commands::scan_summary::JSON_SUMMARY_SCHEMA_VERSION,
-            generated_at: "1970-01-01T00:00:00Z".to_owned(),
-            repo_root: ".".to_owned(),
-            scan_path: ".wax/out/scan-merged.json".to_owned(),
-            snapshot_ids: vec![],
-            languages: vec![JsonSummaryLanguage {
-                id: "compose".to_owned(),
-                version: "1.0.0".to_owned(),
-                status: "complete".to_owned(),
-                parser: "fixture".to_owned(),
-                files_scanned: 1,
-                coverage_ratio: coverage,
-                resolved,
-                candidate,
-            }],
-            adoption: JsonSummaryAdoption {
-                coverage_ratio: coverage,
-                eligible_invocation_count: resolved + candidate,
-                adopted_invocation_count: resolved,
-                non_adopted_invocation_count: candidate,
-                adoption_excluded_invocation_count: 0,
-                raw_invocations: JsonSummaryRawInvocations {
-                    total: resolved + candidate,
-                    resolved,
-                    local: 0,
-                    candidate,
-                    unresolved: 0,
-                },
-            },
-            diagnostics,
-            artifacts: vec![],
-            limits: vec![],
-            deltas: None,
-        }
+    ) -> crate::commands::scan_summary::JsonSummary {
+        sample_json_summary(coverage, resolved, candidate, diagnostics, vec![])
     }
 
     fn write_temp(name: &str, body: &str) -> PathBuf {
@@ -304,8 +305,6 @@ mod tests {
 
     #[test]
     fn scan_baseline_compute_deltas_distinguishes_same_code_at_different_locations() {
-        use crate::commands::scan_summary::JsonSummaryLocation;
-
         let shared = |file: &str| JsonSummaryDiagnostic {
             severity: "error".to_owned(),
             code: "PARSE_ERROR".to_owned(),
@@ -385,9 +384,33 @@ mod tests {
         let error = load_baseline(&path).expect_err("unrecognized baseline");
         let matches_path = matches!(
             &error,
-            ScanCommandError::BaselineUnrecognized { path: p } if p == &path
+            BaselineError::Unrecognized { path: p } if p == &path
         );
         cleanup_temp(&path);
         assert!(matches_path, "got: {error:?}");
+    }
+
+    #[test]
+    fn scan_baseline_load_baseline_preserves_parse_source() {
+        let path = write_temp("broken.json", "{not-json");
+
+        let error = load_baseline(&path).expect_err("invalid json baseline");
+        let source = match &error {
+            BaselineError::Parse { path: p, source } if p == &path => source,
+            other => {
+                cleanup_temp(&path);
+                panic!("expected Parse error, got: {other:?}");
+            }
+        };
+        let source_message = source.to_string();
+        assert!(
+            error.source().is_some(),
+            "parse failures must expose #[source] for CI diagnosis"
+        );
+        assert!(
+            error.to_string().contains(&source_message),
+            "display must include serde source, got: {error}"
+        );
+        cleanup_temp(&path);
     }
 }

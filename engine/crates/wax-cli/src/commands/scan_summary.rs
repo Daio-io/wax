@@ -313,6 +313,52 @@ fn severity_label(severity: DiagnosticSeverity) -> &'static str {
     }
 }
 
+/// Shared JSON-summary fixture for baseline and markdown unit tests.
+#[cfg(test)]
+pub(crate) fn sample_json_summary(
+    coverage: Option<f64>,
+    resolved: u32,
+    candidate: u32,
+    diagnostics: Vec<JsonSummaryDiagnostic>,
+    limits: Vec<String>,
+) -> JsonSummary {
+    JsonSummary {
+        schema_version: JSON_SUMMARY_SCHEMA_VERSION,
+        generated_at: "1970-01-01T00:00:00Z".to_owned(),
+        repo_root: ".".to_owned(),
+        scan_path: ".wax/out/scan-merged.json".to_owned(),
+        snapshot_ids: vec![],
+        languages: vec![JsonSummaryLanguage {
+            id: "compose".to_owned(),
+            version: "1.0.0".to_owned(),
+            status: "complete".to_owned(),
+            parser: "fixture".to_owned(),
+            files_scanned: 1,
+            coverage_ratio: coverage,
+            resolved,
+            candidate,
+        }],
+        adoption: JsonSummaryAdoption {
+            coverage_ratio: coverage,
+            eligible_invocation_count: resolved + candidate,
+            adopted_invocation_count: resolved,
+            non_adopted_invocation_count: candidate,
+            adoption_excluded_invocation_count: 0,
+            raw_invocations: JsonSummaryRawInvocations {
+                total: resolved + candidate,
+                resolved,
+                local: 0,
+                candidate,
+                unresolved: 0,
+            },
+        },
+        diagnostics,
+        artifacts: vec![],
+        limits,
+        deltas: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

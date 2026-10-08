@@ -5,7 +5,7 @@ use super::language::{
     LanguageCommandError, default_target_triple, manifest_for_language, resolve_registry_url,
     update_lockfile_entry,
 };
-use super::scan_baseline::{SummaryDeltas, compute_deltas, load_baseline};
+use super::scan_baseline::{BaselineError, SummaryDeltas, compute_deltas, load_baseline};
 use super::scan_graph::{GraphWriteError, build_scan_graph, write_scan_graph};
 use super::scan_report_html::{HtmlWriteError, write_html_report};
 use super::scan_summary::{
@@ -254,12 +254,34 @@ pub enum ScanCommandError {
         #[source]
         source: io::Error,
     },
+    /// A requested baseline failed JSON parse/deserialize.
+    #[error(
+        "unrecognized scan baseline format at `{path}`: {source}",
+        path = path.display()
+    )]
+    BaselineParse {
+        /// Baseline path that failed to parse.
+        path: PathBuf,
+        /// Underlying JSON parse or deserialize error.
+        #[source]
+        source: serde_json::Error,
+    },
     /// A requested baseline was neither a JSON summary nor a merged scan.
     #[error("unrecognized scan baseline format at `{path}`", path = path.display())]
     BaselineUnrecognized {
         /// Baseline path whose JSON shape was unsupported.
         path: PathBuf,
     },
+}
+
+impl From<BaselineError> for ScanCommandError {
+    fn from(error: BaselineError) -> Self {
+        match error {
+            BaselineError::Io { path, source } => Self::BaselineIo { path, source },
+            BaselineError::Parse { path, source } => Self::BaselineParse { path, source },
+            BaselineError::Unrecognized { path } => Self::BaselineUnrecognized { path },
+        }
+    }
 }
 
 impl From<JsonSummaryWriteError> for ScanCommandError {

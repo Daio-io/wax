@@ -3,6 +3,9 @@
 use super::scan_summary::JsonSummary;
 use std::fmt::Write;
 
+/// Maximum failure diagnostics listed in the Markdown Diagnostics section.
+pub const MARKDOWN_DIAGNOSTIC_LIMIT: usize = 10;
+
 /// Renders a scan summary as Markdown suitable for CI output and PR comments.
 #[must_use]
 pub fn render_markdown_summary(summary: &JsonSummary) -> String {
@@ -73,7 +76,7 @@ pub fn render_markdown_summary(summary: &JsonSummary) -> String {
     if summary.diagnostics.is_empty() {
         markdown.push_str("No error diagnostics.\n");
     } else {
-        for diagnostic in summary.diagnostics.iter().take(10) {
+        for diagnostic in summary.diagnostics.iter().take(MARKDOWN_DIAGNOSTIC_LIMIT) {
             let _ = writeln!(
                 markdown,
                 "- `{}` ({}): {}",
@@ -101,8 +104,7 @@ mod tests {
     use super::*;
     use crate::commands::scan_baseline::{DiagnosticRef, SummaryDeltas};
     use crate::commands::scan_summary::{
-        JsonSummary, JsonSummaryAdoption, JsonSummaryDiagnostic, JsonSummaryLanguage,
-        JsonSummaryRawInvocations, WrittenArtifact,
+        JsonSummary, JsonSummaryDiagnostic, WrittenArtifact, sample_json_summary,
     };
 
     fn sample_summary(diagnostic_count: usize) -> JsonSummary {
@@ -115,41 +117,13 @@ mod tests {
                 location: None,
             })
             .collect();
-        JsonSummary {
-            schema_version: crate::commands::scan_summary::JSON_SUMMARY_SCHEMA_VERSION,
-            generated_at: "1970-01-01T00:00:00Z".to_owned(),
-            repo_root: ".".to_owned(),
-            scan_path: ".wax/out/scan-merged.json".to_owned(),
-            snapshot_ids: vec![],
-            languages: vec![JsonSummaryLanguage {
-                id: "compose".to_owned(),
-                version: "1.0.0".to_owned(),
-                status: "complete".to_owned(),
-                parser: "fixture".to_owned(),
-                files_scanned: 1,
-                coverage_ratio: Some(1.0),
-                resolved: 1,
-                candidate: 0,
-            }],
-            adoption: JsonSummaryAdoption {
-                coverage_ratio: Some(1.0),
-                eligible_invocation_count: 1,
-                adopted_invocation_count: 1,
-                non_adopted_invocation_count: 0,
-                adoption_excluded_invocation_count: 0,
-                raw_invocations: JsonSummaryRawInvocations {
-                    total: 1,
-                    resolved: 1,
-                    local: 0,
-                    candidate: 0,
-                    unresolved: 0,
-                },
-            },
+        sample_json_summary(
+            Some(1.0),
+            1,
+            0,
             diagnostics,
-            artifacts: vec![],
-            limits: vec!["module rollups are not available".to_owned()],
-            deltas: None,
-        }
+            vec!["module rollups are not available".to_owned()],
+        )
     }
 
     #[test]
@@ -220,7 +194,7 @@ mod tests {
 
     #[test]
     fn scan_summary_md_caps_diagnostics_at_ten() {
-        let summary = sample_summary(11);
+        let summary = sample_summary(MARKDOWN_DIAGNOSTIC_LIMIT + 1);
 
         let markdown = render_markdown_summary(&summary);
         let diagnostic_rows = markdown
@@ -228,7 +202,7 @@ mod tests {
             .filter(|line| line.starts_with("- `error_"))
             .count();
 
-        assert_eq!(diagnostic_rows, 10);
-        assert!(!markdown.contains("error_10"));
+        assert_eq!(diagnostic_rows, MARKDOWN_DIAGNOSTIC_LIMIT);
+        assert!(!markdown.contains(&format!("error_{:02}", MARKDOWN_DIAGNOSTIC_LIMIT)));
     }
 }
