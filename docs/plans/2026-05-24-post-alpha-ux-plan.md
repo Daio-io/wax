@@ -245,6 +245,8 @@ Emit markdown suitable for PR comments: adoption headline, per-language table, t
 
 Support `--baseline <path>` for a previous `json-summary` or `scan-merged.json` file. Markdown and JSON summary outputs should include deltas when a baseline is provided: adoption coverage change, resolved/candidate usage change, new error diagnostics, and removed/resolved diagnostics when computable.
 
+`DiagnosticRef` in `deltas` intentionally includes optional `location` (beyond the brief's `{ code, message, language }` sketch) so the same code/message at different files fingerprint as distinct new vs resolved diagnostics.
+
 - [x] **Step 3: Document GitHub Actions usage**
 
 Add copy-paste CI snippets that generate `json-summary`, `graph-data`, `markdown`, and `html` artifacts. Show a PR-comment workflow using markdown and an artifact upload step for HTML/JSON.

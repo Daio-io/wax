@@ -971,7 +971,7 @@ fn write_requested_outputs(
                 &artifact_manifest,
                 deltas,
             );
-            let body = render_markdown_summary(&summary, deltas, &artifact_manifest);
+            let body = render_markdown_summary(&summary);
             write_atomically(&destination, body.as_bytes(), AtomicWriteOptions::default())?;
             record_written_artifact_bytes(&mut artifact_manifest, index, &destination);
         } else if is_deferred_scan_output_format(&request.format) {
@@ -1022,12 +1022,9 @@ fn emit_stdout_format(
                 })?;
             writeln!(writer, "{rendered}").map_err(write_error)
         }
-        ScanStdoutFormat::Markdown => write!(
-            writer,
-            "{}",
-            render_markdown_summary(summary, summary.deltas.as_ref(), written)
-        )
-        .map_err(write_error),
+        ScanStdoutFormat::Markdown => {
+            write!(writer, "{}", render_markdown_summary(summary)).map_err(write_error)
+        }
     }
 }
 

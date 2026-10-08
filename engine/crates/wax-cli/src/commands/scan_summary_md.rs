@@ -1,16 +1,11 @@
 //! Markdown rendering for scan summaries.
 
-use super::scan_baseline::SummaryDeltas;
-use super::scan_summary::{JsonSummary, WrittenArtifact};
+use super::scan_summary::JsonSummary;
 use std::fmt::Write;
 
 /// Renders a scan summary as Markdown suitable for CI output and PR comments.
 #[must_use]
-pub fn render_markdown_summary(
-    summary: &JsonSummary,
-    deltas: Option<&SummaryDeltas>,
-    artifacts: &[WrittenArtifact],
-) -> String {
+pub fn render_markdown_summary(summary: &JsonSummary) -> String {
     let mut markdown = String::from("# Wax scan\n\n");
     match summary.adoption.coverage_ratio {
         Some(ratio) => {
@@ -34,7 +29,7 @@ pub fn render_markdown_summary(
         );
     }
 
-    if let Some(deltas) = deltas {
+    if let Some(deltas) = summary.deltas.as_ref() {
         markdown.push_str("\n## Changes\n\n");
         match deltas.adoption_coverage_delta {
             Some(delta) => {
@@ -88,12 +83,9 @@ pub fn render_markdown_summary(
     }
 
     markdown.push_str("\n## Artifacts\n\n");
-    if artifacts.is_empty() {
-        markdown.push_str("- [scan-merged](.wax/out/scan-merged.json)\n");
-    } else {
-        for artifact in artifacts {
-            let _ = writeln!(markdown, "- [{}]({})", artifact.format, artifact.path);
-        }
+    let _ = writeln!(markdown, "- [scan-merged]({})", summary.scan_path);
+    for artifact in &summary.artifacts {
+        let _ = writeln!(markdown, "- [{}]({})", artifact.format, artifact.path);
     }
 
     markdown.push_str("\n## Limits\n\n");
@@ -107,7 +99,7 @@ pub fn render_markdown_summary(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commands::scan_baseline::DiagnosticRef;
+    use crate::commands::scan_baseline::{DiagnosticRef, SummaryDeltas};
     use crate::commands::scan_summary::{
         JsonSummary, JsonSummaryAdoption, JsonSummaryDiagnostic, JsonSummaryLanguage,
         JsonSummaryRawInvocations, WrittenArtifact,
@@ -162,28 +154,30 @@ mod tests {
 
     #[test]
     fn scan_summary_md_renders_required_sections_without_changes() {
-        let summary = sample_summary(1);
-        let artifacts = [WrittenArtifact {
+        let mut summary = sample_summary(1);
+        summary.artifacts = vec![WrittenArtifact {
             format: "json-summary".to_owned(),
             path: ".wax/out/scan-summary.json".to_owned(),
             bytes: Some(12),
         }];
 
-        let markdown = render_markdown_summary(&summary, None, &artifacts);
+        let markdown = render_markdown_summary(&summary);
 
         assert!(markdown.starts_with("# Wax scan\n\nAdoption: **100.0%**"));
         assert!(markdown.contains("| Language | Status | Coverage | Resolved | Candidate |"));
         assert!(markdown.contains("| compose | complete | 100.0% | 1 | 0 |"));
         assert!(!markdown.contains("## Changes"));
         assert!(markdown.contains("## Diagnostics\n\n- `error_00` (compose): failure 00"));
-        assert!(markdown.contains("## Artifacts\n\n- [json-summary](.wax/out/scan-summary.json)"));
+        assert!(markdown.contains(
+            "## Artifacts\n\n- [scan-merged](.wax/out/scan-merged.json)\n- [json-summary](.wax/out/scan-summary.json)"
+        ));
         assert!(markdown.contains("## Limits\n\n- module rollups are not available"));
     }
 
     #[test]
     fn scan_summary_md_includes_changes_when_deltas_present() {
-        let summary = sample_summary(0);
-        let deltas = SummaryDeltas {
+        let mut summary = sample_summary(0);
+        summary.deltas = Some(SummaryDeltas {
             adoption_coverage_delta: Some(0.25),
             resolved_delta: 2,
             candidate_delta: -1,
@@ -199,9 +193,9 @@ mod tests {
                 language: Some("compose".to_owned()),
                 location: None,
             }],
-        };
+        });
 
-        let markdown = render_markdown_summary(&summary, Some(&deltas), &[]);
+        let markdown = render_markdown_summary(&summary);
 
         assert!(markdown.contains("## Changes"));
         assert!(markdown.contains("- Adoption coverage: +25.0 percentage points"));
@@ -213,10 +207,22 @@ mod tests {
     }
 
     #[test]
+    fn scan_summary_md_links_scan_path_instead_of_inventing_artifact() {
+        let mut summary = sample_summary(0);
+        summary.scan_path = "reports/prior-merged.json".to_owned();
+        summary.artifacts = vec![];
+
+        let markdown = render_markdown_summary(&summary);
+
+        assert!(markdown.contains("## Artifacts\n\n- [scan-merged](reports/prior-merged.json)\n"));
+        assert!(!markdown.contains(".wax/out/scan-merged.json"));
+    }
+
+    #[test]
     fn scan_summary_md_caps_diagnostics_at_ten() {
         let summary = sample_summary(11);
 
-        let markdown = render_markdown_summary(&summary, None, &[]);
+        let markdown = render_markdown_summary(&summary);
         let diagnostic_rows = markdown
             .lines()
             .filter(|line| line.starts_with("- `error_"))

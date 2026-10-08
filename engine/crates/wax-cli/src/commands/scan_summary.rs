@@ -161,7 +161,7 @@ pub struct JsonSummary {
     pub deltas: Option<SummaryDeltas>,
 }
 
-/// Builds a schema-version-2 JSON summary from merged scan facts.
+/// Builds a schema-version-1 JSON summary from merged scan facts.
 #[must_use]
 pub fn build_json_summary(
     merged: &MergedScan,

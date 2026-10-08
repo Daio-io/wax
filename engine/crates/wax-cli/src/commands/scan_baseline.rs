@@ -5,7 +5,7 @@ use super::scan_summary::{
     JsonSummary, JsonSummaryDiagnostic, JsonSummaryLocation, is_failure_diagnostic,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 use wax_contract::MergedScan;
@@ -25,15 +25,6 @@ pub struct DiagnosticRef {
     /// code/message at different files are distinct new vs resolved diagnostics.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub location: Option<JsonSummaryLocation>,
-}
-
-/// Identity key used when diffing failure diagnostics against a baseline.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-struct DiagnosticFingerprint {
-    code: String,
-    message: String,
-    language: Option<String>,
-    location: Option<(String, u32, Option<u32>)>,
 }
 
 /// Changes between the current scan summary and a baseline.
@@ -57,7 +48,7 @@ pub struct BaselineSummary {
     adoption_ratio: Option<f64>,
     resolved: u32,
     candidate: u32,
-    diagnostics: BTreeMap<DiagnosticFingerprint, DiagnosticRef>,
+    diagnostics: BTreeSet<DiagnosticRef>,
 }
 
 /// Loads a prior JSON summary or merged scan as a normalized baseline.
@@ -108,7 +99,7 @@ pub fn load_baseline(path: &Path) -> Result<BaselineSummary, ScanCommandError> {
 #[must_use]
 pub fn compute_deltas(current: &JsonSummary, baseline: &BaselineSummary) -> SummaryDeltas {
     let current_diagnostics =
-        diagnostic_map(current.diagnostics.iter().map(diagnostic_ref_from_summary));
+        diagnostic_set(current.diagnostics.iter().map(diagnostic_ref_from_summary));
 
     SummaryDeltas {
         adoption_coverage_delta: current
@@ -121,15 +112,13 @@ pub fn compute_deltas(current: &JsonSummary, baseline: &BaselineSummary) -> Summ
         candidate_delta: i64::from(current.adoption.raw_invocations.candidate)
             - i64::from(baseline.candidate),
         new_error_diagnostics: current_diagnostics
-            .iter()
-            .filter(|(fingerprint, _)| !baseline.diagnostics.contains_key(*fingerprint))
-            .map(|(_, diagnostic)| diagnostic.clone())
+            .difference(&baseline.diagnostics)
+            .cloned()
             .collect(),
         resolved_diagnostics: baseline
             .diagnostics
-            .iter()
-            .filter(|(fingerprint, _)| !current_diagnostics.contains_key(*fingerprint))
-            .map(|(_, diagnostic)| diagnostic.clone())
+            .difference(&current_diagnostics)
+            .cloned()
             .collect(),
     }
 }
@@ -137,7 +126,7 @@ pub fn compute_deltas(current: &JsonSummary, baseline: &BaselineSummary) -> Summ
 impl BaselineSummary {
     fn from_json_summary(summary: JsonSummary) -> Self {
         let diagnostics =
-            diagnostic_map(summary.diagnostics.iter().map(diagnostic_ref_from_summary));
+            diagnostic_set(summary.diagnostics.iter().map(diagnostic_ref_from_summary));
         Self {
             adoption_ratio: summary.adoption.coverage_ratio,
             resolved: summary.adoption.raw_invocations.resolved,
@@ -147,7 +136,7 @@ impl BaselineSummary {
     }
 
     fn from_merged(merged: &MergedScan) -> Self {
-        let diagnostics = diagnostic_map(merged.languages.iter().flat_map(|(language, facts)| {
+        let diagnostics = diagnostic_set(merged.languages.iter().flat_map(|(language, facts)| {
             facts
                 .diagnostics
                 .iter()
@@ -184,28 +173,8 @@ fn diagnostic_ref_from_summary(diagnostic: &JsonSummaryDiagnostic) -> Diagnostic
     }
 }
 
-fn diagnostic_fingerprint(diagnostic: &DiagnosticRef) -> DiagnosticFingerprint {
-    DiagnosticFingerprint {
-        code: diagnostic.code.clone(),
-        message: diagnostic.message.clone(),
-        language: diagnostic.language.clone(),
-        location: diagnostic
-            .location
-            .as_ref()
-            .map(|location| (location.file.clone(), location.line, location.column)),
-    }
-}
-
-fn diagnostic_map(
-    diagnostics: impl IntoIterator<Item = DiagnosticRef>,
-) -> BTreeMap<DiagnosticFingerprint, DiagnosticRef> {
-    diagnostics
-        .into_iter()
-        .map(|diagnostic| {
-            let fingerprint = diagnostic_fingerprint(&diagnostic);
-            (fingerprint, diagnostic)
-        })
-        .collect()
+fn diagnostic_set(diagnostics: impl IntoIterator<Item = DiagnosticRef>) -> BTreeSet<DiagnosticRef> {
+    diagnostics.into_iter().collect()
 }
 
 #[cfg(test)]
