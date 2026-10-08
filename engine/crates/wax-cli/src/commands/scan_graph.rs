@@ -2,13 +2,33 @@
 
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::io;
+use std::path::{Path, PathBuf};
+use thiserror::Error;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 use wax_contract::{MatchStatus, MergedScan};
+use wax_core::{AtomicWriteError, AtomicWriteOptions, write_atomically};
 use wax_lang_api::normalize_repo_relative_path;
 
 use super::scan_summary::{SUMMARY_LIMIT_CATEGORY, SUMMARY_LIMIT_MODULE, SUMMARY_LIMIT_OWNERSHIP};
+
+/// Errors from writing a graph-data artifact.
+#[derive(Debug, Error)]
+pub enum GraphWriteError {
+    /// Graph serialization failed before the atomic write.
+    #[error("failed to write scan output `{path}`: {source}", path = path.display())]
+    Serialize {
+        /// Destination path that failed.
+        path: PathBuf,
+        /// Underlying serialization I/O error.
+        #[source]
+        source: io::Error,
+    },
+    /// Atomic replacement of the graph file failed.
+    #[error(transparent)]
+    AtomicWrite(#[from] AtomicWriteError),
+}
 
 /// Versioned scan graph for charting and local report UIs.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -88,35 +108,35 @@ pub fn build_scan_graph(merged: &MergedScan, scan_path: &Path) -> ScanGraph {
         let lang = language_id.as_str();
         insert_node(
             &mut nodes_by_id,
-            GraphNode {
-                id: format!("lang:{lang}"),
-                kind: "language".to_owned(),
-                label: lang.to_owned(),
-                language: Some(lang.to_owned()),
-            },
+            graph_node(
+                format!("lang:{lang}"),
+                "language",
+                lang.to_owned(),
+                Some(lang.to_owned()),
+            ),
         );
 
         for component in &facts.design_system_components {
             insert_node(
                 &mut nodes_by_id,
-                GraphNode {
-                    id: format!("ds:{lang}:{}", component.registry_symbol),
-                    kind: "design_system".to_owned(),
-                    label: component.registry_symbol.clone(),
-                    language: Some(lang.to_owned()),
-                },
+                graph_node(
+                    format!("ds:{lang}:{}", component.registry_symbol),
+                    "design_system",
+                    component.registry_symbol.clone(),
+                    Some(lang.to_owned()),
+                ),
             );
         }
 
         for component in &facts.local_components {
             insert_node(
                 &mut nodes_by_id,
-                GraphNode {
-                    id: format!("local:{lang}:{}", component.id),
-                    kind: "local".to_owned(),
-                    label: component.symbol.clone(),
-                    language: Some(lang.to_owned()),
-                },
+                graph_node(
+                    format!("local:{lang}:{}", component.id),
+                    "local",
+                    component.symbol.clone(),
+                    Some(lang.to_owned()),
+                ),
             );
         }
 
@@ -124,44 +144,24 @@ pub fn build_scan_graph(merged: &MergedScan, scan_path: &Path) -> ScanGraph {
             let file_id = format!("file:{}", site.location.file);
             insert_node(
                 &mut nodes_by_id,
-                GraphNode {
-                    id: file_id.clone(),
-                    kind: "file".to_owned(),
-                    label: site.location.file.clone(),
-                    language: None,
-                },
+                graph_node(file_id.clone(), "file", site.location.file.clone(), None),
             );
 
-            let target_id = match (
-                site.match_status,
-                site.registry_symbol.as_deref(),
-                site.local_definition_id.as_deref(),
-            ) {
-                (MatchStatus::Resolved | MatchStatus::Candidate, Some(reg), _) => {
+            // Usage edges only for Resolved|Candidate sites that carry registry_symbol.
+            // Local/Unresolved (and any site without registry_symbol) emit no edge.
+            let target_id = match (site.match_status, site.registry_symbol.as_deref()) {
+                (MatchStatus::Resolved | MatchStatus::Candidate, Some(reg)) => {
                     let ds_id = format!("ds:{lang}:{reg}");
                     insert_node(
                         &mut nodes_by_id,
-                        GraphNode {
-                            id: ds_id.clone(),
-                            kind: "design_system".to_owned(),
-                            label: reg.to_owned(),
-                            language: Some(lang.to_owned()),
-                        },
+                        graph_node(
+                            ds_id.clone(),
+                            "design_system",
+                            reg.to_owned(),
+                            Some(lang.to_owned()),
+                        ),
                     );
                     Some(ds_id)
-                }
-                (MatchStatus::Local, _, Some(local_id)) => {
-                    let local_node_id = format!("local:{lang}:{local_id}");
-                    insert_node(
-                        &mut nodes_by_id,
-                        GraphNode {
-                            id: local_node_id.clone(),
-                            kind: "local".to_owned(),
-                            label: site.symbol.clone(),
-                            language: Some(lang.to_owned()),
-                        },
-                    );
-                    Some(local_node_id)
                 }
                 _ => None,
             };
@@ -223,6 +223,33 @@ pub fn build_scan_graph(merged: &MergedScan, scan_path: &Path) -> ScanGraph {
     }
 }
 
+/// Writes a scan graph atomically to `path`.
+///
+/// # Errors
+///
+/// Returns [`GraphWriteError::Serialize`] when serialization fails, or
+/// [`GraphWriteError::AtomicWrite`] when the atomic replace fails.
+pub fn write_scan_graph(path: &Path, graph: &ScanGraph) -> Result<(), GraphWriteError> {
+    let contents =
+        serde_json::to_vec_pretty(graph).map_err(|source| GraphWriteError::Serialize {
+            path: path.to_path_buf(),
+            source: io::Error::other(source),
+        })?;
+    let mut with_newline = contents;
+    with_newline.push(b'\n');
+    write_atomically(path, &with_newline, AtomicWriteOptions::default())?;
+    Ok(())
+}
+
+fn graph_node(id: String, kind: &str, label: String, language: Option<String>) -> GraphNode {
+    GraphNode {
+        id,
+        kind: kind.to_owned(),
+        label,
+        language,
+    }
+}
+
 fn insert_node(nodes_by_id: &mut BTreeMap<String, GraphNode>, node: GraphNode) {
     nodes_by_id.entry(node.id.clone()).or_insert(node);
 }
@@ -263,6 +290,41 @@ mod tests {
     };
 
     #[test]
+    fn write_scan_graph_preserves_typed_atomic_write_error() {
+        let root = std::env::temp_dir().join(format!(
+            "wax-cli-graph-atomic-write-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let blocker = root.join("not-a-directory");
+        std::fs::write(&blocker, b"file").unwrap();
+        let destination = blocker.join("scan-graph.json");
+
+        let graph = ScanGraph {
+            schema_version: 1,
+            metadata: GraphMetadata {
+                source_scan_path: ".wax/out/scan-merged.json".to_owned(),
+                generated_at: "1970-01-01T00:00:00Z".to_owned(),
+                limits: vec!["limit".to_owned()],
+            },
+            nodes: vec![],
+            edges: vec![],
+            metrics: vec![],
+        };
+
+        let error = write_scan_graph(&destination, &graph).expect_err("parent file blocks write");
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert!(
+            matches!(error, GraphWriteError::AtomicWrite(_)),
+            "atomic-write failures must stay typed, got: {error:?}"
+        );
+    }
+
+    #[test]
     fn build_scan_graph_includes_candidate_usage_edges() {
         let merged = merged_with_sites(vec![usage(
             "site-candidate",
@@ -286,31 +348,18 @@ mod tests {
     }
 
     #[test]
-    fn build_scan_graph_includes_local_usage_edges() {
-        let merged = merged_with_sites(vec![usage_local(
-            "site-local",
-            "src/local.kt",
-            Some("local-1"),
-        )]);
+    fn build_scan_graph_skips_usage_without_registry_symbol() {
+        let mut local = usage("site-local", "src/local.kt", MatchStatus::Local, None);
+        local.symbol = "LocalButton".to_owned();
+        local.callee_origin = CalleeOrigin::Local;
+        local.resolution_evidence = ResolutionEvidence {
+            kind: ResolutionEvidenceKind::LocalSameFile,
+            package: None,
+        };
+        local.local_definition_id = Some("local-1".to_owned());
 
-        let graph = build_scan_graph(&merged, Path::new(".wax/out/scan-merged.json"));
-
-        assert!(
-            graph.edges.iter().any(|edge| {
-                edge.from == "file:src/local.kt"
-                    && edge.to == "local:compose:local-1"
-                    && edge.kind == "usage"
-                    && edge.match_status.as_deref() == Some("local")
-            }),
-            "expected local usage edge, got: {:?}",
-            graph.edges
-        );
-    }
-
-    #[test]
-    fn build_scan_graph_skips_local_without_definition_id_and_unresolved() {
         let merged = merged_with_sites(vec![
-            usage_local("site-local-orphan", "src/orphan.kt", None),
+            local,
             usage(
                 "site-unresolved",
                 "src/unknown.kt",
@@ -323,7 +372,7 @@ mod tests {
 
         assert!(
             graph.edges.is_empty(),
-            "Local without local_definition_id and Unresolved must not emit usage edges: {:?}",
+            "Local/Unresolved without registry_symbol must not emit usage edges: {:?}",
             graph.edges
         );
         assert!(!graph.metadata.limits.is_empty());
@@ -353,29 +402,6 @@ mod tests {
             match_status,
             registry_symbol: registry_symbol.map(str::to_owned),
             local_definition_id: None,
-            parent: None,
-        }
-    }
-
-    fn usage_local(id: &str, file: &str, local_definition_id: Option<&str>) -> UsageSite {
-        UsageSite {
-            id: id.to_owned(),
-            location: SourceLocation {
-                file: file.to_owned(),
-                line: 2,
-                column: None,
-                root_group: None,
-            },
-            symbol: "LocalButton".to_owned(),
-            qualified_symbol: None,
-            callee_origin: CalleeOrigin::Local,
-            resolution_evidence: ResolutionEvidence {
-                kind: ResolutionEvidenceKind::LocalSameFile,
-                package: None,
-            },
-            match_status: MatchStatus::Local,
-            registry_symbol: None,
-            local_definition_id: local_definition_id.map(str::to_owned),
             parent: None,
         }
     }
