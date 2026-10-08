@@ -210,11 +210,6 @@ fn unknown_artifact_format_errors_distinctly_from_parse_shape() {
 }
 
 #[test]
-fn deferred_html_errors() {
-    assert_deferred_format("html");
-}
-
-#[test]
 fn deferred_markdown_errors() {
     assert_deferred_format("markdown");
 }

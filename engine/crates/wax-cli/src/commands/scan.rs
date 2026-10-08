@@ -6,6 +6,7 @@ use super::language::{
     update_lockfile_entry,
 };
 use super::scan_graph::{GraphWriteError, build_scan_graph, write_scan_graph};
+use super::scan_report_html::write_html_report;
 use super::scan_summary::{
     JsonSummaryWriteError, WrittenArtifact, build_json_summary, is_failure_diagnostic,
     status_label, write_json_summary,
@@ -859,7 +860,16 @@ fn write_requested_outputs(
         })
         .collect();
 
-    for (index, request) in requests.iter().enumerate() {
+    let mut output_order: Vec<usize> = (0..requests.len()).collect();
+    output_order.sort_by_key(|index| match requests[*index].format.as_str() {
+        SCAN_OUTPUT_FORMAT_JSON_SUMMARY => 0,
+        SCAN_OUTPUT_FORMAT_GRAPH_DATA => 1,
+        "html" => 2,
+        _ => 3,
+    });
+
+    for index in output_order {
+        let request = &requests[index];
         if request.format == SCAN_OUTPUT_FORMAT_JSON_SUMMARY {
             let destination = artifact_destination(request, &options.repo_root);
             let summary =
@@ -873,6 +883,22 @@ fn write_requested_outputs(
                 .unwrap_or(scan_path);
             let graph = build_scan_graph(merged, source_scan_path);
             write_scan_graph(&destination, &graph)?;
+            record_written_artifact_bytes(&mut artifact_manifest, index, &destination);
+        } else if request.format == "html" {
+            let destination = artifact_destination(request, &options.repo_root);
+            if let Some(parent) = destination.parent() {
+                fs::create_dir_all(parent).map_err(|source| ScanCommandError::OutputIo {
+                    path: destination.clone(),
+                    source,
+                })?;
+            }
+            let summary =
+                build_json_summary(merged, &options.repo_root, scan_path, &artifact_manifest);
+            let source_scan_path = scan_path
+                .strip_prefix(&options.repo_root)
+                .unwrap_or(scan_path);
+            let graph = build_scan_graph(merged, source_scan_path);
+            write_html_report(&destination, &summary, &graph)?;
             record_written_artifact_bytes(&mut artifact_manifest, index, &destination);
         } else if is_deferred_scan_output_format(&request.format) {
             return Err(ScanCommandError::OutputFormatDeferred {

@@ -1,9 +1,9 @@
 mod common;
 
 use common::{
-    EnvVarGuard, TestDir, assert_deferred_format, env_lock, no_registry_symbol_usage_override,
-    run_scan, setup_scan_repo, write_grouped_repo_files, write_installed_packs,
-    write_installed_packs_with_usage_sites, write_pack_index, write_repo_files,
+    EnvVarGuard, TestDir, env_lock, no_registry_symbol_usage_override, run_scan, setup_scan_repo,
+    write_grouped_repo_files, write_installed_packs, write_installed_packs_with_usage_sites,
+    write_pack_index, write_repo_files,
 };
 use std::fs;
 use std::path::Path;
@@ -171,11 +171,6 @@ fn config_output_graph_idempotent() {
         1
     );
     assert_schema_valid_graph(&read_graph(&repo, ".wax/out/scan-graph.json"));
-}
-
-#[test]
-fn html_still_deferred() {
-    assert_deferred_format("html");
 }
 
 #[test]
