@@ -86,7 +86,7 @@ wax scan \
 }
 ```
 
-CLI `--output` flags append to `.waxrc` outputs. Repeating the same `format=path` pair is idempotent. Output paths must be repo-relative by default; absolute paths require an explicit `--allow-absolute-output` escape hatch if implementation needs it. Generated outputs remain under `.wax/out/` in examples and must stay out of git unless a fixture intentionally commits them.
+CLI `--output` flags append to `.waxrc` outputs. Repeating the same `format=path` pair is idempotent. Distinct formats that share one destination path are rejected. Output paths must be repo-relative by default; absolute paths require an explicit `--allow-absolute-output` escape hatch if implementation needs it. Generated outputs remain under `.wax/out/` in examples and must stay out of git unless a fixture intentionally commits them.
 
 ### Stable JSON summary
 

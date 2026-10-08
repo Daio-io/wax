@@ -155,6 +155,36 @@ fn duplicate_output_pair_idempotent() {
 }
 
 #[test]
+fn shared_destination_across_formats_rejected() {
+    let _guard = env_lock();
+    let (_root, repo, _wax_home) = setup_scan_repo(
+        "scan-artifact-shared-dest",
+        &[("compose", "complete", "0.5", "", "")],
+    );
+
+    let output = run_scan(
+        &repo,
+        &[
+            "--output",
+            "graph-data=.wax/out/shared.json",
+            "--output",
+            "json-summary=.wax/out/shared.json",
+        ],
+    );
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("already requested for format `graph-data`")
+            || stderr.contains("already requested for format `json-summary`"),
+        "expected destination conflict error, got: {stderr}"
+    );
+    assert!(
+        !repo.join(".wax/out/shared.json").exists(),
+        "conflicting outputs must not write a shared destination"
+    );
+}
+
+#[test]
 fn unknown_artifact_format_errors_distinctly_from_parse_shape() {
     let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(

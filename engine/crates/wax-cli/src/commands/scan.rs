@@ -214,6 +214,19 @@ pub enum ScanCommandError {
         /// Path that would overwrite the merged scan artifact.
         path: PathBuf,
     },
+    /// Two different artifact formats requested the same destination path.
+    #[error(
+        "output path `{path}` is already requested for format `{existing_format}`; cannot also write `{format}` there",
+        path = path.display()
+    )]
+    OutputDestinationConflict {
+        /// Shared destination path.
+        path: PathBuf,
+        /// Format that already claimed the path.
+        existing_format: String,
+        /// Conflicting format that also requested the path.
+        format: String,
+    },
     /// Writing a requested artifact failed.
     #[error("failed to write scan output `{path}`: {source}", path = path.display())]
     OutputIo {
@@ -710,21 +723,26 @@ pub fn parse_output_flag(raw: &str) -> Result<ScanOutputRequest, ScanCommandErro
 
 /// Unions config and CLI output requests, normalizing paths and rejecting
 /// absolute paths unless allowed, relative paths that escape the repository,
-/// and destinations that collide with the canonical merged scan artifact.
+/// destinations that collide with the canonical merged scan artifact, and
+/// destinations claimed by more than one output format.
+///
+/// Repeating the same `format=path` pair remains idempotent.
 ///
 /// # Errors
 ///
 /// Returns [`ScanCommandError::AbsoluteOutputDenied`] for absolute paths without
 /// `--allow-absolute-output`, [`ScanCommandError::OutputPathEscapesRepo`] when a
-/// relative path leaves the repository, or
+/// relative path leaves the repository,
 /// [`ScanCommandError::CanonicalScanOutputCollision`] when the destination would
-/// overwrite `.wax/out/scan-merged.json`.
+/// overwrite `.wax/out/scan-merged.json`, or
+/// [`ScanCommandError::OutputDestinationConflict`] when two different formats
+/// share one destination.
 pub fn resolve_scan_outputs(
     opts: &ScanCommandOptions,
     config: &[ScanOutputSpec],
 ) -> Result<Vec<ScanOutputRequest>, ScanCommandError> {
     let mut resolved = Vec::new();
-    let mut seen = std::collections::BTreeSet::new();
+    let mut path_formats: BTreeMap<String, String> = BTreeMap::new();
     let canonical_scan_output = opts.repo_root.join(SCAN_OUTPUT_RELATIVE_PATH);
 
     let mut push_request = |format: String, path: PathBuf| -> Result<(), ScanCommandError> {
@@ -739,13 +757,22 @@ pub fn resolve_scan_outputs(
         if paths_collide_with_canonical_scan_output(&normalized, &canonical_scan_output) {
             return Err(ScanCommandError::CanonicalScanOutputCollision { path: normalized });
         }
-        let key = (format.clone(), normalized.display().to_string());
-        if seen.insert(key) {
-            resolved.push(ScanOutputRequest {
-                format,
+        let path_key = normalized.display().to_string();
+        if let Some(existing_format) = path_formats.get(&path_key) {
+            if existing_format == &format {
+                return Ok(());
+            }
+            return Err(ScanCommandError::OutputDestinationConflict {
                 path: normalized,
+                existing_format: existing_format.clone(),
+                format,
             });
         }
+        path_formats.insert(path_key, format.clone());
+        resolved.push(ScanOutputRequest {
+            format,
+            path: normalized,
+        });
         Ok(())
     };
 

@@ -100,9 +100,9 @@ fn graph_includes_candidate_usage_edges() {
 }
 
 #[test]
-fn graph_skips_usage_without_registry_symbol() {
+fn graph_includes_local_usage_edges_and_skips_unresolved() {
     let _guard = env_lock();
-    let root = TestDir::new("scan-graph-skip-no-registry");
+    let root = TestDir::new("scan-graph-local-edges");
     let repo = root.path.join("repo");
     let wax_home = root.path.join("wax-home");
     fs::create_dir_all(&repo).unwrap();
@@ -123,8 +123,19 @@ fn graph_skips_usage_without_registry_symbol() {
     let value = read_graph(&repo, ".wax/out/scan-graph.json");
     let edges = value["edges"].as_array().unwrap();
     assert!(
-        edges.is_empty(),
-        "Local/Unresolved without registry_symbol must not emit usage edges: {edges:?}"
+        edges.iter().any(|edge| {
+            edge["from"] == "file:src/local.kt"
+                && edge["to"] == "local:compose:local-1"
+                && edge["kind"] == "usage"
+                && edge["match_status"] == "local"
+        }),
+        "expected local usage edge, got: {edges:?}"
+    );
+    assert!(
+        edges
+            .iter()
+            .all(|edge| edge["match_status"] != "unresolved"),
+        "unresolved sites must not emit usage edges: {edges:?}"
     );
 }
 

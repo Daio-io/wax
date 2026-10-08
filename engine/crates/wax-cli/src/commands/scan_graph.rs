@@ -132,34 +132,52 @@ pub fn build_scan_graph(merged: &MergedScan, scan_path: &Path) -> ScanGraph {
                 },
             );
 
-            if let (Some(reg), true) = (
-                &site.registry_symbol,
-                matches!(
-                    site.match_status,
-                    MatchStatus::Resolved | MatchStatus::Candidate
-                ),
+            let target_id = match (
+                site.match_status,
+                site.registry_symbol.as_deref(),
+                site.local_definition_id.as_deref(),
             ) {
-                let ds_id = format!("ds:{lang}:{reg}");
-                insert_node(
-                    &mut nodes_by_id,
-                    GraphNode {
-                        id: ds_id.clone(),
-                        kind: "design_system".to_owned(),
-                        label: reg.clone(),
-                        language: Some(lang.to_owned()),
-                    },
-                );
+                (MatchStatus::Resolved | MatchStatus::Candidate, Some(reg), _) => {
+                    let ds_id = format!("ds:{lang}:{reg}");
+                    insert_node(
+                        &mut nodes_by_id,
+                        GraphNode {
+                            id: ds_id.clone(),
+                            kind: "design_system".to_owned(),
+                            label: reg.to_owned(),
+                            language: Some(lang.to_owned()),
+                        },
+                    );
+                    Some(ds_id)
+                }
+                (MatchStatus::Local, _, Some(local_id)) => {
+                    let local_node_id = format!("local:{lang}:{local_id}");
+                    insert_node(
+                        &mut nodes_by_id,
+                        GraphNode {
+                            id: local_node_id.clone(),
+                            kind: "local".to_owned(),
+                            label: site.symbol.clone(),
+                            language: Some(lang.to_owned()),
+                        },
+                    );
+                    Some(local_node_id)
+                }
+                _ => None,
+            };
+
+            if let Some(to_id) = target_id {
                 let match_status = Some(match_status_label(site.match_status).to_owned());
                 let key = (
                     file_id.clone(),
-                    ds_id.clone(),
+                    to_id.clone(),
                     "usage".to_owned(),
                     match_status.clone(),
                 );
                 if seen_edges.insert(key) {
                     edges.push(GraphEdge {
                         from: file_id,
-                        to: ds_id,
+                        to: to_id,
                         kind: "usage".to_owned(),
                         match_status,
                     });
@@ -268,9 +286,31 @@ mod tests {
     }
 
     #[test]
-    fn build_scan_graph_skips_usage_without_registry_symbol() {
+    fn build_scan_graph_includes_local_usage_edges() {
+        let merged = merged_with_sites(vec![usage_local(
+            "site-local",
+            "src/local.kt",
+            Some("local-1"),
+        )]);
+
+        let graph = build_scan_graph(&merged, Path::new(".wax/out/scan-merged.json"));
+
+        assert!(
+            graph.edges.iter().any(|edge| {
+                edge.from == "file:src/local.kt"
+                    && edge.to == "local:compose:local-1"
+                    && edge.kind == "usage"
+                    && edge.match_status.as_deref() == Some("local")
+            }),
+            "expected local usage edge, got: {:?}",
+            graph.edges
+        );
+    }
+
+    #[test]
+    fn build_scan_graph_skips_local_without_definition_id_and_unresolved() {
         let merged = merged_with_sites(vec![
-            usage("site-local", "src/local.kt", MatchStatus::Local, None),
+            usage_local("site-local-orphan", "src/orphan.kt", None),
             usage(
                 "site-unresolved",
                 "src/unknown.kt",
@@ -283,7 +323,7 @@ mod tests {
 
         assert!(
             graph.edges.is_empty(),
-            "Local/Unresolved without registry_symbol must not emit usage edges: {:?}",
+            "Local without local_definition_id and Unresolved must not emit usage edges: {:?}",
             graph.edges
         );
         assert!(!graph.metadata.limits.is_empty());
@@ -313,6 +353,29 @@ mod tests {
             match_status,
             registry_symbol: registry_symbol.map(str::to_owned),
             local_definition_id: None,
+            parent: None,
+        }
+    }
+
+    fn usage_local(id: &str, file: &str, local_definition_id: Option<&str>) -> UsageSite {
+        UsageSite {
+            id: id.to_owned(),
+            location: SourceLocation {
+                file: file.to_owned(),
+                line: 2,
+                column: None,
+                root_group: None,
+            },
+            symbol: "LocalButton".to_owned(),
+            qualified_symbol: None,
+            callee_origin: CalleeOrigin::Local,
+            resolution_evidence: ResolutionEvidence {
+                kind: ResolutionEvidenceKind::LocalSameFile,
+                package: None,
+            },
+            match_status: MatchStatus::Local,
+            registry_symbol: None,
+            local_definition_id: local_definition_id.map(str::to_owned),
             parent: None,
         }
     }
