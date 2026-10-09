@@ -265,7 +265,7 @@ Expected: Copy-paste CI recipe works on `ubuntu-latest`; markdown includes delta
 
 ## Phase 3 — Documentation handoff
 
-### - [ ] Task 5: Update product docs for UX phase
+### - [x] Task 5: Update product docs for UX phase
 
 **Files:**
 
@@ -276,9 +276,9 @@ Expected: Copy-paste CI recipe works on `ubuntu-latest`; markdown includes delta
 
 Shipped in order 9 (README updated in #148).
 
-- [ ] **Step 2: README / docs for scan `--format`, `--output`, JSON, graph-data, markdown, HTML, and CI after Tasks 2–4**
+- [x] **Step 2: README / docs for scan `--format`, `--output`, JSON, graph-data, markdown, HTML, and CI after Tasks 2–4**
 
-- [ ] **Step 3: Tick tasks in this plan**
+- [x] **Step 3: Tick tasks in this plan**
 
 Expected: Users upgrading from alpha.1 see new UX without reading implementation plans.
 

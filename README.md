@@ -175,6 +175,12 @@ human-readable summary have been written:
 wax scan --no-auto-install --strict
 ```
 
+Stdout `--format`: `summary` (default), `quiet`, `json-summary`, `markdown`.
+Artifacts: repeatable `--output FORMAT=PATH` or `.wax/wax.config.json` `outputs[]`
+(`json-summary`, `graph-data`, `markdown`, `html`). Optional `--baseline PATH`
+compares against a prior json-summary or scan-merged.json.
+CI recipe: [docs/ci-scan-summary.md](docs/ci-scan-summary.md).
+
 The terminal summary includes token metrics for every scan:
 
 ```text
@@ -438,6 +444,9 @@ latest pack-index release and will miss an older lock pin:
 wax language install react@0.1.0-alpha.0
 wax validate
 wax scan --no-auto-install --strict
+# Optional artifacts: --output json-summary=.wax/out/scan-summary.json \
+#   --output markdown=.wax/out/scan-summary.md
+# See docs/ci-scan-summary.md
 ```
 
 ### Local Builds
@@ -460,6 +469,14 @@ observations with usage context, and a deterministic `token_inference` report
 (exact, near, unmatched, and unassessed classifications with confidence and
 suggested replacements).
 
+Optional report artifacts via `--output` / config `outputs[]` (paths repo-relative by default):
+- `.wax/out/scan-summary.json` (`json-summary`)
+- `.wax/out/scan-graph.json` (`graph-data`)
+- `.wax/out/scan-summary.md` (`markdown`)
+- `.wax/out/report/index.html` (`html`)
+
+Always written: `.wax/out/scan-merged.json` and `.wax/out/languages/<language>.json`.
+
 For the full output contract, including scan-facts schema v4 resolution evidence
 and callee origins, see [Adoption Metrics v2](docs/specs/2026-06-20-adoption-metrics-v2-design.md).
 For raw token facts, see
@@ -473,6 +490,7 @@ inference classifications, confidence, and reviewed registry maintenance, see
 - [Component tracker design](docs/specs/2026-05-13-component-tracker-design.md)
 - [Token scanning](docs/specs/2026-07-03-token-scanning-design.md)
 - [Token inference and reporting](docs/specs/2026-07-19-token-inference-reporting-design.md)
+- [CI scan summaries](docs/ci-scan-summary.md)
 - [Implementation plans](docs/plans/README.md)
 - [Architecture decision records](docs/adr/README.md)
 - [Contributing](CONTRIBUTING.md)

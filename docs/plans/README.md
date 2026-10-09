@@ -5,13 +5,13 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 **Rules:**
 
 1. **Completed plans** are archived under [`archive/`](./archive/README.md) with ADR records in [`docs/adr/`](../adr/README.md).
-2. **Implementation** follows one active plan at a time. Post-alpha UX is explicitly deferred except for extracted tasks listed in this roadmap.
+2. **Implementation** follows one active plan at a time.
 3. Each implementation task remains **one PR per task** inside the active plan, per that plan's execution model.
 4. Update the **Doc status** and **Implementation status** columns when a plan doc PR merges or when implementation of a plan finishes.
 
 **Active plan:** Phase 2B — explicit resolution evidence and callee origin (order 17), documented in [the Phase 2B plan](./2026-08-22-phase-2b-resolution-evidence-plan.md). Adoption Metrics v2 (order 11), Token inference and reporting (order 14), Compose parse recovery and UI scoping (order 15), and Git registry sources (order 16) are complete and archived; see their [Adoption Metrics v2 archive](./archive/2026-06-20-adoption-metrics-v2-plan.md), [Adoption Metrics v2 ADR](../adr/2026-06-20-adoption-metrics-v2.md), [token inference archive](./archive/2026-07-19-token-inference-reporting-plan.md), [token inference ADR](../adr/2026-07-19-token-inference-reporting.md), [compose parse recovery archive](./archive/2026-07-22-compose-parse-recovery-plan.md), [compose parse recovery ADR](../adr/2026-07-22-compose-parse-recovery.md), [Git registry sources archive](./archive/2026-08-01-git-registry-sources-plan.md), and [Git registry sources ADR](../adr/2026-08-01-git-registry-sources.md).
 
-**Authorized Post-alpha UX extractions:** Phase 1 scan `--format` / `json-summary` outputs (THE-635), Phase 2a `graph-data` artifact + schema (THE-636), Phase 2b static HTML scan report (THE-639), and Phase 3 Markdown scan summary / `--baseline` deltas / CI recipe (THE-637) are explicit extractions from the deferred [Post-alpha UX plan](./2026-05-24-post-alpha-ux-plan.md). They may land while Phase 2B remains the sequential active plan; remaining Post-alpha UX tasks stay deferred until extracted the same way.
+**Authorized Post-alpha UX extractions:** Phase 1 scan `--format` / `json-summary` outputs (THE-635), Phase 2a `graph-data` artifact + schema (THE-636), Phase 2b static HTML scan report (THE-639), and Phase 3 Markdown scan summary / `--baseline` deltas / CI recipe (THE-637) are explicit extractions from the Post-alpha UX plan. They may land while Phase 2B remains the sequential active plan.
 
 ---
 
@@ -23,7 +23,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 | 2 | Release and rollout (alpha) | [archive/2026-05-24-release-and-rollout-plan.md](./archive/2026-05-24-release-and-rollout-plan.md) | `merged` | `complete` | [ADR](../adr/2026-05-24-alpha-release-and-distribution.md) |
 | 3 | Registry sources and centralized wax layout | [archive/2026-06-02-registry-sources-and-wax-layout.md](./archive/2026-06-02-registry-sources-and-wax-layout.md) | `merged` | `complete` | [ADR](../adr/2026-06-02-registry-sources-and-wax-layout.md) |
 | 4 | Registry discovery and skill-assisted review | [archive/2026-06-04-registry-discovery-plan.md](./archive/2026-06-04-registry-discovery-plan.md) | `merged` | `complete` | [ADR](../adr/2026-06-04-registry-discovery.md) |
-| 5 | Post-alpha UX | [2026-05-24-post-alpha-ux-plan.md](./2026-05-24-post-alpha-ux-plan.md) | `merged` | `deferred` | — |
+| 5 | Post-alpha UX | [2026-05-24-post-alpha-ux-plan.md](./2026-05-24-post-alpha-ux-plan.md) | `merged` | `complete` | — |
 | 6 | React language pack | [archive/2026-06-07-react-language-pack-plan.md](./archive/2026-06-07-react-language-pack-plan.md) | `merged` | `complete` | [ADR](../adr/2026-06-07-react-language-pack.md) |
 | 7 | Generic registry discovery protocol | [archive/2026-06-10-generic-registry-discovery-protocol.md](./archive/2026-06-10-generic-registry-discovery-protocol.md) | `merged` | `complete` | [ADR](../adr/2026-06-10-generic-registry-discovery-protocol.md) |
 | 8 | SwiftUI language pack | [archive/2026-06-13-swift-language-pack-plan.md](./archive/2026-06-13-swift-language-pack-plan.md) | `merged` | `complete` | [ADR](../adr/2026-06-13-swift-language-pack.md) |
@@ -50,7 +50,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 -> Follow the task boundaries and verification gates in the active plan.
 ```
 
-Orders 1-4, 6-16 are **complete**. Post-alpha UX (order 5) remains otherwise deferred except for the authorized Phase 1 (THE-635), Phase 2a (THE-636), Phase 2b (THE-639), and Phase 3 (THE-637) extractions noted above. Adoption Metrics v2 shipped in PRs #165, #171, and #172 and is archived. Token inference and reporting finished implementation in PRs #231, #233, #235, #236, and #237 plus closeout PR #238 and is archived. Compose parse recovery and UI scoping finished implementation in PRs #245–#247, #249, and #250 plus closeout PR #251 and is archived. Git registry sources finished implementation in PRs #262–#265 plus this closeout PR and is archived.
+Orders 1-5, 6-16 are **complete**. Adoption Metrics v2 shipped in PRs #165, #171, and #172 and is archived. Token inference and reporting finished implementation in PRs #231, #233, #235, #236, and #237 plus closeout PR #238 and is archived. Compose parse recovery and UI scoping finished implementation in PRs #245–#247, #249, and #250 plus closeout PR #251 and is archived. Git registry sources finished implementation in PRs #262–#265 plus closeout PR #266 and is archived.
 
 ---
 
