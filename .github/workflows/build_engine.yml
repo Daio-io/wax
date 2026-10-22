@@ -181,6 +181,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      # Kotlin 2.1.0 cannot parse Java 25+ (JavaVersion.parse IllegalArgumentException).
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
       - name: Download Kotlin compiler ${{ matrix.kotlin }}
         run: |
           version="${{ matrix.kotlin }}"

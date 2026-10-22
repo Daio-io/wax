@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "system_id": "acme-ds",
+  "publisher_note": "root extension",
+  "components": [
+    {
+      "id": "ds.button",
+      "symbol": "Button",
+      "package": "com.acme.ui",
+      "aliases": ["Btn"],
+      "legacy_flag": true,
+      "metadata": {
+        "description": "Primary action control",
+        "tags": ["action", "form"],
+        "author": "design-system",
+        "sources": [
+          {
+            "kind": "declaration",
+            "path": "src/Button.kt",
+            "start_line": 10,
+            "end_line": 40,
+            "language": "kotlin"
+          },
+          {
+            "kind": "documentation",
+            "path": "docs/button.md"
+          },
+          {
+            "kind": "example",
+            "path": "examples/ButtonSample.kt",
+            "language": "kotlin"
+          }
+        ]
+      },
+      "extracted": {
+        "status": "partial",
+        "documentation": "Renders a pressable button.",
+        "source_evidence": {
+          "path": "src/Button.kt",
+          "start_line": 10,
+          "end_line": 40
+        },
+        "signature": {
+          "type_text": "fun Button(text: String, onClick: () -> Unit)",
+          "parameters": [
+            {
+              "name": "text",
+              "type_text": "String",
+              "required": true
+            },
+            {
+              "name": "onClick",
+              "type_text": "() -> Unit",
+              "default": "{}",
+              "required": false
+            },
+            {
+              "name": "enabled",
+              "type_text": "Boolean",
+              "default": "true"
+            }
+          ]
+        },
+        "deprecation": {
+          "message": "Prefer ButtonV2",
+          "since": "2.0.0",
+          "replaced_by": "ds.button-v2"
+        },
+        "attachments": [
+          {
+            "kind": "documentation",
+            "path": "docs/button.md",
+            "content": "# Button\nUse for primary actions."
+          },
+          {
+            "kind": "example",
+            "path": "examples/ButtonSample.kt",
+            "content": "Button(text = \"Go\") {}",
+            "language": "kotlin"
+          }
+        ],
+        "field_gaps": [
+          {
+            "field": "signature.return_type",
+            "reason": "return type not declared in source"
+          }
+        ],
+        "extractor_version": "1.2.3"
+      }
+    }
+  ],
+  "tokens": [
+    {
+      "id": "color.primary",
+      "key": "Theme.colors.primary",
+      "category": "color",
+      "value": "#0B5FFF",
+      "token_ext": 1,
+      "metadata": {
+        "description": "Brand primary",
+        "tags": ["color"]
+      },
+      "extracted": {
+        "status": "complete",
+        "documentation": "Primary brand color"
+      }
+    }
+  ]
+}

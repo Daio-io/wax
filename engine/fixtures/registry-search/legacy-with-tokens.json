@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "components": [
+    {
+      "id": "ds.primary-button",
+      "symbol": "PrimaryButton"
+    }
+  ],
+  "tokens": [
+    {
+      "id": "color.primary",
+      "key": "Theme.colors.primary",
+      "category": "color",
+      "aliases": ["AppColors.Primary"]
+    },
+    {
+      "id": "space.medium",
+      "key": "Spacing.Medium",
+      "category": "spacing",
+      "value": "16"
+    },
+    {
+      "id": "type.body",
+      "key": "Typography.Body",
+      "category": "typography"
+    },
+    {
+      "id": "radius.sm",
+      "key": "Radius.Small",
+      "category": "radius"
+    },
+    {
+      "id": "elevation.card",
+      "key": "Elevation.Card",
+      "category": "elevation"
+    },
+    {
+      "id": "misc.flag",
+      "key": "Flags.Misc",
+      "category": "unknown"
+    }
+  ]
+}

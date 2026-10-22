@@ -94,4 +94,21 @@ status=$?
 set -e
 assert_eq "$status" "7" "compiler failure exit"
 
+# Kotlin 2.1.0's JavaVersion.parse rejects Java 25+ (e.g. 25.0.4.1 on ubuntu-latest).
+# The CI matrix job must pin a compatible JDK before invoking kotlinc.
+workflow="$repo_root/.github/workflows/build_engine.yml"
+job_steps="$(awk '
+  /^  verify-compose-kotlin-fixtures:/ { in_job = 1; next }
+  in_job && /^  [A-Za-z0-9_]+:/ { exit }
+  in_job { print }
+' "$workflow")"
+printf '%s\n' "$job_steps" | grep -Fq 'actions/setup-java@' || {
+  printf 'verify-compose-kotlin-fixtures must pin JDK via actions/setup-java\n' >&2
+  exit 1
+}
+printf '%s\n' "$job_steps" | grep -Eq 'java-version:[[:space:]]*['\''"]?21['\''"]?' || {
+  printf 'verify-compose-kotlin-fixtures must pin java-version 21 for Kotlin 2.1.0\n' >&2
+  exit 1
+}
+
 printf 'ok: test-verify-compose-kotlin-fixtures\n'
