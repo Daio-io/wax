@@ -231,7 +231,7 @@ fn search_detail_and_error_json_match_schemas_and_preserve_extensions() {
         },
         snapshots: vec![RegistrySnapshotRef {
             source: "file:./.wax/compose.registry.json".to_owned(),
-            language: Some(wax_contract::LanguageId::try_from("compose").unwrap()),
+            language: wax_contract::LanguageId::try_from("compose").unwrap(),
             digest: "a".repeat(64),
             system_id: Some("acme-ds".to_owned()),
             git_commit: None,
@@ -240,7 +240,7 @@ fn search_detail_and_error_json_match_schemas_and_preserve_extensions() {
         results: vec![wax_contract::RegistrySearchResult {
             snapshot: RegistrySnapshotRef {
                 source: "file:./.wax/compose.registry.json".to_owned(),
-                language: None,
+                language: wax_contract::LanguageId::try_from("compose").unwrap(),
                 digest: "a".repeat(64),
                 system_id: None,
                 git_commit: Some("abc123".to_owned()),
@@ -271,7 +271,7 @@ fn search_detail_and_error_json_match_schemas_and_preserve_extensions() {
         schema_version: 1,
         snapshot: RegistrySnapshotRef {
             source: "git:https://example.com/ds.git".to_owned(),
-            language: Some(wax_contract::LanguageId::try_from("compose").unwrap()),
+            language: wax_contract::LanguageId::try_from("compose").unwrap(),
             digest: "b".repeat(64),
             system_id: Some("acme-ds".to_owned()),
             git_commit: Some("deadbeef".to_owned()),
@@ -320,6 +320,26 @@ fn search_detail_and_error_json_match_schemas_and_preserve_extensions() {
         .unwrap();
         assert_schema_valid(&lookup_error_schema(), &value);
     }
+}
+
+#[test]
+fn snapshot_schema_requires_language_identity() {
+    let snapshot_without_language = serde_json::json!({
+        "source": "file:./.wax/compose.registry.json",
+        "digest": "a".repeat(64)
+    });
+    assert!(
+        search_schema()
+            .iter_errors(&serde_json::json!({
+                "schema_version": 1,
+                "query": "button",
+                "filters": {"limit": 10},
+                "snapshots": [snapshot_without_language],
+                "results": []
+            }))
+            .next()
+            .is_some()
+    );
 }
 
 #[test]

@@ -462,6 +462,22 @@ cargo build --release -p wax-cli
 
 ## Output
 
+### Registry contract
+
+Registry documents use schema version 1. A document may contain components,
+tokens, or both. Enriched entries may add creator metadata and generated
+extraction facts, including source evidence, documentation, signatures and
+parameters, deprecation, attachments, and explicit field gaps. These fields
+are optional so legacy component-only and token-bearing registries remain
+valid; unknown fields are preserved when a registry is read and written.
+
+Registry search and detail responses use versioned envelopes with a snapshot
+identity containing the source, language, and content digest. Optional system
+and Git identities can further describe that snapshot. Lookup failures expose
+stable machine-readable codes such as `source_not_found`,
+`offline_cache_miss`, `ambiguous_entry`, and `snapshot_mismatch`, alongside a
+human-readable message and diagnostics.
+
 Scan output reports design-system coverage using deterministic JSON. The merged
 scan file includes resolved design-system usages, local UI, candidate matches,
 unresolved invocations, and additive token facts: references, raw hard-coded

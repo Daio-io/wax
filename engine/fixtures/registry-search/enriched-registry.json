@@ -59,11 +59,7 @@
               "type_text": "Boolean",
               "default": "true"
             }
-          ],
-          "import_suggestion": {
-            "import": "com.acme.ui.Button",
-            "export_evidence": "public composable declaration"
-          }
+          ]
         },
         "deprecation": {
           "message": "Prefer ButtonV2",

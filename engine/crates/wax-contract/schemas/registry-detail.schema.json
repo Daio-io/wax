@@ -36,7 +36,7 @@
     "snapshot_ref": {
       "type": "object",
       "additionalProperties": true,
-      "required": ["source", "digest"],
+      "required": ["source", "language", "digest"],
       "properties": {
         "source": {
           "type": "string",

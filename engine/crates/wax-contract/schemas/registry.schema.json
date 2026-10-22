@@ -125,21 +125,6 @@
         }
       }
     },
-    "import_suggestion": {
-      "type": "object",
-      "additionalProperties": true,
-      "required": ["import", "export_evidence"],
-      "properties": {
-        "import": {
-          "type": "string",
-          "minLength": 1
-        },
-        "export_evidence": {
-          "type": "string",
-          "minLength": 1
-        }
-      }
-    },
     "signature": {
       "type": "object",
       "additionalProperties": true,
@@ -153,9 +138,6 @@
           "items": {
             "$ref": "#/$defs/parameter"
           }
-        },
-        "import_suggestion": {
-          "$ref": "#/$defs/import_suggestion"
         }
       }
     },

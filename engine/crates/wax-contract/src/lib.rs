@@ -24,9 +24,9 @@ mod registry_lookup;
 pub use registry::{
     REGISTRY_SCHEMA_VERSION, RegistryAttachment, RegistryComponent, RegistryDeprecation,
     RegistryDocument, RegistryError, RegistryExtracted, RegistryExtractionStatus, RegistryFieldGap,
-    RegistryImportSuggestion, RegistryMetadata, RegistryParameter, RegistrySignature,
-    RegistrySourceAssociation, RegistrySourceEvidence, RegistrySourceKind, RegistryToken,
-    registry_from_json, registry_to_json,
+    RegistryMetadata, RegistryParameter, RegistrySignature, RegistrySourceAssociation,
+    RegistrySourceEvidence, RegistrySourceKind, RegistryToken, registry_from_json,
+    registry_to_json,
 };
 pub use registry_lookup::{
     REGISTRY_LOOKUP_SCHEMA_VERSION, RegistryDetailResponse, RegistryEntryKind, RegistryLookupError,

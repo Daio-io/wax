@@ -23,9 +23,8 @@ pub enum RegistryEntryKind {
 pub struct RegistrySnapshotRef {
     /// Canonical source identity for the registry content.
     pub source: String,
-    /// Language id when the snapshot is language-scoped.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub language: Option<LanguageId>,
+    /// Language id for the snapshot.
+    pub language: LanguageId,
     /// SHA-256 digest of the registry bytes.
     pub digest: String,
     /// Optional remembered or published design-system id.

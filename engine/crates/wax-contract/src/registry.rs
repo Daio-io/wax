@@ -200,18 +200,6 @@ pub struct RegistryParameter {
     pub extra: Map<String, Value>,
 }
 
-/// Import suggestion backed by public-export evidence.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct RegistryImportSuggestion {
-    /// Suggested import path or statement.
-    pub import: String,
-    /// Evidence that the symbol is a public export.
-    pub export_evidence: String,
-    /// Unknown suggestion fields preserved across round trips.
-    #[serde(flatten)]
-    pub extra: Map<String, Value>,
-}
-
 /// Signature facts extracted from a public declaration.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RegistrySignature {
@@ -221,9 +209,6 @@ pub struct RegistrySignature {
     /// Extracted parameters.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub parameters: Vec<RegistryParameter>,
-    /// Import suggestion when public-export evidence exists.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub import_suggestion: Option<RegistryImportSuggestion>,
     /// Unknown signature fields preserved across round trips.
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -448,16 +433,6 @@ fn validate_extracted(field: &str, extracted: &RegistryExtracted) -> Result<(), 
             if let Some(default) = &parameter.default {
                 require_non_empty(&format!("{parameter_field}.default"), default)?;
             }
-        }
-        if let Some(suggestion) = &signature.import_suggestion {
-            require_non_empty(
-                &format!("{field}.signature.import_suggestion.import"),
-                &suggestion.import,
-            )?;
-            require_non_empty(
-                &format!("{field}.signature.import_suggestion.export_evidence"),
-                &suggestion.export_evidence,
-            )?;
         }
     }
     if let Some(deprecation) = &extracted.deprecation {

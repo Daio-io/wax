@@ -64,6 +64,12 @@ struct ScanFixture {
     log_dir: PathBuf,
 }
 
+fn prepare_log_dirs(log_dir: &Path) {
+    for name in ["running", "max_seen", "started"] {
+        fs::create_dir_all(log_dir.join(name)).unwrap();
+    }
+}
+
 fn fixture(
     name: &str,
     languages: &[&str],
@@ -77,9 +83,7 @@ fn fixture(
     fs::create_dir_all(&repo).unwrap();
     fs::create_dir_all(&wax_home).unwrap();
     fs::create_dir_all(&log_dir).unwrap();
-    fs::create_dir_all(log_dir.join("running")).unwrap();
-    fs::create_dir_all(log_dir.join("max_seen")).unwrap();
-    fs::create_dir_all(log_dir.join("started")).unwrap();
+    prepare_log_dirs(&log_dir);
 
     write_waxrc(&repo, languages, scan_concurrency);
     write_default_registry(&repo, languages);
@@ -457,9 +461,7 @@ fn concurrency_fixture_records_parallel_overlap_without_shared_lock() {
     // concurrency tests (CI: scan_repo_uses_default_waxrc_scan_concurrency saw max=1).
     let root = temp_dir("scan-concurrency-lockfree-overlap");
     let log_dir = root.join("scan-log");
-    fs::create_dir_all(log_dir.join("running")).unwrap();
-    fs::create_dir_all(log_dir.join("max_seen")).unwrap();
-    fs::create_dir_all(log_dir.join("started")).unwrap();
+    prepare_log_dirs(&log_dir);
     let script_path = root.join("pack.sh");
     write_executable(&script_path, &fixture_script());
 
@@ -487,9 +489,7 @@ fn concurrency_fixture_barrier_fails_closed_when_peer_missing() {
     // Public seam: barrier timeout must not silently under-report concurrency.
     let root = temp_dir("scan-concurrency-barrier-timeout");
     let log_dir = root.join("scan-log");
-    fs::create_dir_all(log_dir.join("running")).unwrap();
-    fs::create_dir_all(log_dir.join("max_seen")).unwrap();
-    fs::create_dir_all(log_dir.join("started")).unwrap();
+    prepare_log_dirs(&log_dir);
     let script_path = root.join("pack.sh");
     write_executable(&script_path, &fixture_script());
 
