@@ -77,8 +77,9 @@ fn fixture(
     fs::create_dir_all(&repo).unwrap();
     fs::create_dir_all(&wax_home).unwrap();
     fs::create_dir_all(&log_dir).unwrap();
-    fs::write(log_dir.join("active"), "0\n").unwrap();
-    fs::write(log_dir.join("max"), "0\n").unwrap();
+    fs::create_dir_all(log_dir.join("running")).unwrap();
+    fs::create_dir_all(log_dir.join("max_seen")).unwrap();
+    fs::create_dir_all(log_dir.join("started")).unwrap();
 
     write_waxrc(&repo, languages, scan_concurrency);
     write_default_registry(&repo, languages);
@@ -316,79 +317,65 @@ fn write_installed_pack(
     install_dir
 }
 
-/// Shared mkdir-lock helpers for concurrency fixture packs.
+/// Lock-free concurrency fixture pack.
 ///
-/// `release_lock` must be idempotent: under `set -e`, a second `rmdir` on a
-/// missing lock dir fails the pack subprocess (CI: `No such file or directory`).
-fn fixture_lock_helpers() -> &'static str {
-    r#"
-acquire_lock() {
-  while ! mkdir "$lock_dir" 2>/dev/null; do
-    sleep 0.01
-  done
-}
-
-release_lock() {
-  rmdir "$lock_dir" 2>/dev/null || true
-}
-"#
-}
-
+/// Overlap is recorded with per-language directories under `running/` and
+/// watermark files under `max_seen/`, avoiding a shared mkdir lock. CI saw that
+/// lock lose mutual exclusion (`rmdir: No such file`) and then under-count max
+/// concurrency after release was made idempotent.
+///
+/// `WAX_FIXTURE_BARRIER_ATTEMPTS` caps how long barrier packs wait for peers
+/// (default 3000 ≈ 30s). Timed-out barriers fail closed instead of reporting a
+/// silent max of 1.
 fn fixture_script() -> String {
-    let mut script = String::from(
+    String::from(
         r#"#!/bin/sh
 set -eu
 language="$1"
 log_dir="$2"
 delay="$3"
 barrier_target="$4"
-lock_dir="$log_dir/lock"
-"#,
-    );
-    script.push_str(fixture_lock_helpers());
-    script.push_str(
-        r#"
-acquire_lock
-active="$(cat "$log_dir/active")"
-active=$((active + 1))
-printf '%s\n' "$active" > "$log_dir/active"
-max="$(cat "$log_dir/max")"
-if [ "$active" -gt "$max" ]; then
-  printf '%s\n' "$active" > "$log_dir/max"
-fi
+running_dir="$log_dir/running"
+max_seen_dir="$log_dir/max_seen"
+started_dir="$log_dir/started"
+barrier_attempts="${WAX_FIXTURE_BARRIER_ATTEMPTS:-3000}"
+
+mkdir -p "$running_dir" "$max_seen_dir" "$started_dir"
+mkdir "$running_dir/$language"
+count="$(ls -1 "$running_dir" | wc -l | tr -d ' ')"
+touch "$max_seen_dir/$count"
+touch "$started_dir/$language"
 printf 'start:%s\n' "$language" >> "$log_dir/events"
-release_lock
 
 if [ "$barrier_target" -gt 1 ]; then
   attempts=0
-  while [ "$attempts" -lt 200 ]; do
-    acquire_lock
-    active="$(cat "$log_dir/active")"
-    release_lock
-    if [ "$active" -ge "$barrier_target" ]; then
+  while [ "$attempts" -lt "$barrier_attempts" ]; do
+    started="$(ls -1 "$started_dir" | wc -l | tr -d ' ')"
+    if [ "$started" -ge "$barrier_target" ]; then
       break
     fi
     attempts=$((attempts + 1))
     sleep 0.01
   done
+  started="$(ls -1 "$started_dir" | wc -l | tr -d ' ')"
+  if [ "$started" -lt "$barrier_target" ]; then
+    printf 'barrier timeout: started=%s target=%s\n' "$started" "$barrier_target" >&2
+    rmdir "$running_dir/$language" 2>/dev/null || true
+    exit 44
+  fi
 fi
 
 sleep "$delay"
 cat >/dev/null
 
-acquire_lock
-active="$(cat "$log_dir/active")"
-active=$((active - 1))
-printf '%s\n' "$active" > "$log_dir/active"
+rmdir "$running_dir/$language"
 printf 'end:%s\n' "$language" >> "$log_dir/events"
-release_lock
 
 cat <<JSON
 {"type":"scan_facts","api_version":1,"language_id":"$language","facts":{"schema_version":4,"language":{"id":"$language","version":"0.1.0","ecosystem":"test","parser_name":"fixture","parser_version":"1.0.0"},"snapshot_id":"snap-1","scanned_at":"1970-01-01T00:00:00Z","status":"complete","design_system_components":[],"local_components":[],"usage_sites":[],"diagnostics":[],"metrics":{"invocation_adoption_ratio":null,"registry_resolution_ratio":null,"parse_extract_ms":0,"files_scanned":0},"counts":{"registry":{"component_count":0,"used_component_count":0,"resolved_raw_invocation_count":0,"candidate_raw_invocation_count":0},"definitions":{"local_definition_count":0,"invoked_local_definition_count":0,"unused_local_definition_count":0},"raw_invocations":{"total":0,"resolved":0,"local":0,"candidate":0,"unresolved":0},"adoption":{"eligible_invocation_count":0,"adopted_invocation_count":0,"non_adopted_invocation_count":0},"parent_scopes":{"total":0,"with_resolved_invocations":0,"with_local_invocations":0,"with_unresolved_invocations":0},"invocation_origins":{"registry":0,"local":0,"framework":0,"external":0,"application":0,"unknown":0}}}}
 JSON
 "#,
-    );
-    script
+    )
 }
 
 fn failing_script() -> &'static str {
@@ -432,11 +419,28 @@ JSON
 }
 
 fn max_concurrency(log_dir: &Path) -> u32 {
-    fs::read_to_string(log_dir.join("max"))
+    fs::read_dir(log_dir.join("max_seen"))
         .unwrap()
-        .trim()
-        .parse()
-        .unwrap()
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            entry
+                .file_name()
+                .to_str()
+                .and_then(|name| name.parse::<u32>().ok())
+        })
+        .max()
+        .unwrap_or(0)
+}
+
+fn write_executable(path: &Path, contents: &str) {
+    fs::write(path, contents).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(path).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(path, perms).unwrap();
+    }
 }
 
 fn language_order(scan: &wax_contract::MergedScan) -> Vec<String> {
@@ -448,50 +452,61 @@ fn language_order(scan: &wax_contract::MergedScan) -> Vec<String> {
 }
 
 #[test]
-fn concurrency_fixture_lock_release_is_idempotent_under_set_e() {
-    // Public seam: fixture mkdir-lock helpers used by parallel pack scripts.
-    // Bare `rmdir` under `set -e` fails the pack when the lock dir is already
-    // gone (CI: scan_concurrency_runs_enabled_languages_in_parallel_with_bounded_concurrency).
-    let root = temp_dir("scan-concurrency-lock-idempotent");
+fn concurrency_fixture_records_parallel_overlap_without_shared_lock() {
+    // Public seam: fixture pack script overlap accounting used by Engine::scan_repo
+    // concurrency tests (CI: scan_repo_uses_default_waxrc_scan_concurrency saw max=1).
+    let root = temp_dir("scan-concurrency-lockfree-overlap");
     let log_dir = root.join("scan-log");
-    fs::create_dir_all(&log_dir).unwrap();
-    let script_path = root.join("lock_probe.sh");
-    let mut script = String::from(
-        r#"#!/bin/sh
-set -eu
-log_dir="$1"
-lock_dir="$log_dir/lock"
-"#,
+    fs::create_dir_all(log_dir.join("running")).unwrap();
+    fs::create_dir_all(log_dir.join("max_seen")).unwrap();
+    fs::create_dir_all(log_dir.join("started")).unwrap();
+    let script_path = root.join("pack.sh");
+    write_executable(&script_path, &fixture_script());
+
+    let mut first = std::process::Command::new(&script_path)
+        .args(["compose", log_dir.to_str().unwrap(), "0.2", "2"])
+        .spawn()
+        .expect("first pack should start");
+    let mut second = std::process::Command::new(&script_path)
+        .args(["react", log_dir.to_str().unwrap(), "0.2", "2"])
+        .spawn()
+        .expect("second pack should start");
+    let first_status = first.wait().expect("first pack should finish");
+    let second_status = second.wait().expect("second pack should finish");
+    assert!(
+        first_status.success() && second_status.success(),
+        "parallel packs should succeed; statuses={first_status:?}/{second_status:?}"
     );
-    script.push_str(fixture_lock_helpers());
-    script.push_str(
-        r#"
-acquire_lock
-release_lock
-# Second release must not fail the script under set -e.
-release_lock
-printf 'ok\n'
-"#,
-    );
-    fs::write(&script_path, &script).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&script_path).unwrap().permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&script_path, perms).unwrap();
-    }
+    assert_eq!(max_concurrency(&log_dir), 2);
+}
+
+#[test]
+fn concurrency_fixture_barrier_fails_closed_when_peer_missing() {
+    // Public seam: barrier timeout must not silently under-report concurrency.
+    let root = temp_dir("scan-concurrency-barrier-timeout");
+    let log_dir = root.join("scan-log");
+    fs::create_dir_all(log_dir.join("running")).unwrap();
+    fs::create_dir_all(log_dir.join("max_seen")).unwrap();
+    fs::create_dir_all(log_dir.join("started")).unwrap();
+    let script_path = root.join("pack.sh");
+    write_executable(&script_path, &fixture_script());
 
     let output = std::process::Command::new(&script_path)
-        .arg(&log_dir)
+        .args(["compose", log_dir.to_str().unwrap(), "0.01", "2"])
+        .env("WAX_FIXTURE_BARRIER_ATTEMPTS", "5")
         .output()
-        .expect("lock probe should run");
-    assert!(
-        output.status.success(),
-        "idempotent release should succeed under set -e; stderr: {}",
+        .expect("solo barrier pack should run");
+    assert_eq!(
+        output.status.code(),
+        Some(44),
+        "missing peer should fail closed; stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "ok");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("barrier timeout"),
+        "stderr should name the barrier timeout; got: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]
