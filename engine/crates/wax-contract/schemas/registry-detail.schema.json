@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wax.dev/schemas/registry-detail.v1.schema.json",
+  "title": "RegistryDetailResponse",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema_version", "snapshot", "kind", "entry"],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "snapshot": {
+      "$ref": "#/$defs/snapshot_ref"
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["component", "token"]
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "$defs": {
+    "language_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "snapshot_ref": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["source", "digest"],
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "language": {
+          "$ref": "#/$defs/language_id"
+        },
+        "digest": {
+          "type": "string",
+          "minLength": 1
+        },
+        "system_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "git_commit": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

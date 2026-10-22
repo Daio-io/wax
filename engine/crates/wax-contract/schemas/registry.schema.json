@@ -1,0 +1,319 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wax.dev/schemas/registry.v1.schema.json",
+  "title": "RegistryDocument",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema_version"],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "components": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/registry_component"
+      }
+    },
+    "tokens": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/registry_token"
+      }
+    }
+  },
+  "$defs": {
+    "token_category": {
+      "type": "string",
+      "enum": ["color", "spacing", "typography", "radius", "elevation", "unknown"]
+    },
+    "source_kind": {
+      "type": "string",
+      "enum": ["declaration", "documentation", "example"]
+    },
+    "extraction_status": {
+      "type": "string",
+      "enum": ["complete", "partial", "unavailable", "stale", "not_observed"]
+    },
+    "source_association": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["kind", "path"],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/source_kind"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "start_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "end_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "language": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "registry_metadata": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/source_association"
+          }
+        }
+      }
+    },
+    "source_evidence": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "start_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "end_line": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "parameter": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type_text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "default": {
+          "type": "string",
+          "minLength": 1
+        },
+        "required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "import_suggestion": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["import", "export_evidence"],
+      "properties": {
+        "import": {
+          "type": "string",
+          "minLength": 1
+        },
+        "export_evidence": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "type_text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parameters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/parameter"
+          }
+        },
+        "import_suggestion": {
+          "$ref": "#/$defs/import_suggestion"
+        }
+      }
+    },
+    "deprecation": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "since": {
+          "type": "string",
+          "minLength": 1
+        },
+        "replaced_by": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "attachment": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["kind", "path", "content"],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/source_kind"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "content": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "field_gap": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["field", "reason"],
+      "properties": {
+        "field": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "extracted": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/extraction_status"
+        },
+        "source_evidence": {
+          "$ref": "#/$defs/source_evidence"
+        },
+        "documentation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "signature": {
+          "$ref": "#/$defs/signature"
+        },
+        "deprecation": {
+          "$ref": "#/$defs/deprecation"
+        },
+        "attachments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/attachment"
+          }
+        },
+        "field_gaps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/field_gap"
+          }
+        }
+      }
+    },
+    "registry_component": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "symbol"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "symbol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "package": {
+          "type": "string",
+          "minLength": 1
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "metadata": {
+          "$ref": "#/$defs/registry_metadata"
+        },
+        "extracted": {
+          "$ref": "#/$defs/extracted"
+        }
+      }
+    },
+    "registry_token": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "key", "category"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "$ref": "#/$defs/token_category"
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1
+        },
+        "metadata": {
+          "$ref": "#/$defs/registry_metadata"
+        },
+        "extracted": {
+          "$ref": "#/$defs/extracted"
+        }
+      }
+    }
+  }
+}

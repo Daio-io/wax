@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wax.dev/schemas/registry-lookup-error.v1.schema.json",
+  "title": "RegistryLookupError",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["code", "message"],
+  "properties": {
+    "code": {
+      "type": "string",
+      "enum": [
+        "invalid_argument",
+        "source_not_found",
+        "invalid_registry",
+        "offline_cache_miss",
+        "locked_snapshot_unavailable",
+        "ambiguous_entry",
+        "entry_not_found",
+        "snapshot_mismatch"
+      ]
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/diagnostic"
+      }
+    }
+  },
+  "$defs": {
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["severity", "code", "message"],
+      "properties": {
+        "severity": {
+          "type": "string",
+          "enum": ["info", "warning", "error"]
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "location": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["file", "line"],
+          "properties": {
+            "file": {
+              "type": "string",
+              "minLength": 1
+            },
+            "line": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "column": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "root_group": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    }
+  }
+}

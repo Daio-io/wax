@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wax.dev/schemas/registry-search.v1.schema.json",
+  "title": "RegistrySearchResponse",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema_version", "query", "filters", "snapshots", "results"],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "query": {
+      "type": "string"
+    },
+    "filters": {
+      "$ref": "#/$defs/filters"
+    },
+    "snapshots": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/snapshot_ref"
+      }
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/search_result"
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/diagnostic"
+      }
+    }
+  },
+  "$defs": {
+    "entry_kind": {
+      "type": "string",
+      "enum": ["component", "token"]
+    },
+    "extraction_status": {
+      "type": "string",
+      "enum": ["complete", "partial", "unavailable", "stale", "not_observed"]
+    },
+    "language_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "snapshot_ref": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["source", "digest"],
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "language": {
+          "$ref": "#/$defs/language_id"
+        },
+        "digest": {
+          "type": "string",
+          "minLength": 1
+        },
+        "system_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "git_commit": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "filters": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["limit"],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/entry_kind"
+        },
+        "language": {
+          "$ref": "#/$defs/language_id"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "search_result": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["snapshot", "kind", "id", "label", "summary"],
+      "properties": {
+        "snapshot": {
+          "$ref": "#/$defs/snapshot_ref"
+        },
+        "kind": {
+          "$ref": "#/$defs/entry_kind"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "extraction_status": {
+          "$ref": "#/$defs/extraction_status"
+        }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["severity", "code", "message"],
+      "properties": {
+        "severity": {
+          "type": "string",
+          "enum": ["info", "warning", "error"]
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "location": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["file", "line"],
+          "properties": {
+            "file": {
+              "type": "string",
+              "minLength": 1
+            },
+            "line": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "column": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "root_group": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    }
+  }
+}
