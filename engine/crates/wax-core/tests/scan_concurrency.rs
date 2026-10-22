@@ -465,10 +465,12 @@ fn concurrency_fixture_records_parallel_overlap_without_shared_lock() {
 
     let mut first = std::process::Command::new(&script_path)
         .args(["compose", log_dir.to_str().unwrap(), "0.2", "2"])
+        .stdin(std::process::Stdio::null())
         .spawn()
         .expect("first pack should start");
     let mut second = std::process::Command::new(&script_path)
         .args(["react", log_dir.to_str().unwrap(), "0.2", "2"])
+        .stdin(std::process::Stdio::null())
         .spawn()
         .expect("second pack should start");
     let first_status = first.wait().expect("first pack should finish");
