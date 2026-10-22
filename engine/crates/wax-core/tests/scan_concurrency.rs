@@ -316,15 +316,12 @@ fn write_installed_pack(
     install_dir
 }
 
-fn fixture_script() -> &'static str {
-    r#"#!/bin/sh
-set -eu
-language="$1"
-log_dir="$2"
-delay="$3"
-barrier_target="$4"
-lock_dir="$log_dir/lock"
-
+/// Shared mkdir-lock helpers for concurrency fixture packs.
+///
+/// `release_lock` must be idempotent: under `set -e`, a second `rmdir` on a
+/// missing lock dir fails the pack subprocess (CI: `No such file or directory`).
+fn fixture_lock_helpers() -> &'static str {
+    r#"
 acquire_lock() {
   while ! mkdir "$lock_dir" 2>/dev/null; do
     sleep 0.01
@@ -332,9 +329,25 @@ acquire_lock() {
 }
 
 release_lock() {
-  rmdir "$lock_dir"
+  rmdir "$lock_dir" 2>/dev/null || true
+}
+"#
 }
 
+fn fixture_script() -> String {
+    let mut script = String::from(
+        r#"#!/bin/sh
+set -eu
+language="$1"
+log_dir="$2"
+delay="$3"
+barrier_target="$4"
+lock_dir="$log_dir/lock"
+"#,
+    );
+    script.push_str(fixture_lock_helpers());
+    script.push_str(
+        r#"
 acquire_lock
 active="$(cat "$log_dir/active")"
 active=$((active + 1))
@@ -373,7 +386,9 @@ release_lock
 cat <<JSON
 {"type":"scan_facts","api_version":1,"language_id":"$language","facts":{"schema_version":4,"language":{"id":"$language","version":"0.1.0","ecosystem":"test","parser_name":"fixture","parser_version":"1.0.0"},"snapshot_id":"snap-1","scanned_at":"1970-01-01T00:00:00Z","status":"complete","design_system_components":[],"local_components":[],"usage_sites":[],"diagnostics":[],"metrics":{"invocation_adoption_ratio":null,"registry_resolution_ratio":null,"parse_extract_ms":0,"files_scanned":0},"counts":{"registry":{"component_count":0,"used_component_count":0,"resolved_raw_invocation_count":0,"candidate_raw_invocation_count":0},"definitions":{"local_definition_count":0,"invoked_local_definition_count":0,"unused_local_definition_count":0},"raw_invocations":{"total":0,"resolved":0,"local":0,"candidate":0,"unresolved":0},"adoption":{"eligible_invocation_count":0,"adopted_invocation_count":0,"non_adopted_invocation_count":0},"parent_scopes":{"total":0,"with_resolved_invocations":0,"with_local_invocations":0,"with_unresolved_invocations":0},"invocation_origins":{"registry":0,"local":0,"framework":0,"external":0,"application":0,"unknown":0}}}}
 JSON
-"#
+"#,
+    );
+    script
 }
 
 fn failing_script() -> &'static str {
@@ -430,6 +445,53 @@ fn language_order(scan: &wax_contract::MergedScan) -> Vec<String> {
         .map(LanguageId::as_str)
         .map(str::to_owned)
         .collect()
+}
+
+#[test]
+fn concurrency_fixture_lock_release_is_idempotent_under_set_e() {
+    // Public seam: fixture mkdir-lock helpers used by parallel pack scripts.
+    // Bare `rmdir` under `set -e` fails the pack when the lock dir is already
+    // gone (CI: scan_concurrency_runs_enabled_languages_in_parallel_with_bounded_concurrency).
+    let root = temp_dir("scan-concurrency-lock-idempotent");
+    let log_dir = root.join("scan-log");
+    fs::create_dir_all(&log_dir).unwrap();
+    let script_path = root.join("lock_probe.sh");
+    let mut script = String::from(
+        r#"#!/bin/sh
+set -eu
+log_dir="$1"
+lock_dir="$log_dir/lock"
+"#,
+    );
+    script.push_str(fixture_lock_helpers());
+    script.push_str(
+        r#"
+acquire_lock
+release_lock
+# Second release must not fail the script under set -e.
+release_lock
+printf 'ok\n'
+"#,
+    );
+    fs::write(&script_path, &script).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&script_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&script_path, perms).unwrap();
+    }
+
+    let output = std::process::Command::new(&script_path)
+        .arg(&log_dir)
+        .output()
+        .expect("lock probe should run");
+    assert!(
+        output.status.success(),
+        "idempotent release should succeed under set -e; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "ok");
 }
 
 #[test]
