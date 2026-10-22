@@ -1,4 +1,4 @@
-use wax_core::{RegistryLookupError, RegistryLookupErrorCode};
+use wax_core::registry_lookup_error::{RegistryLookupError, RegistryLookupErrorCode};
 
 #[test]
 fn shared_lookup_error_is_exported_from_core() {
