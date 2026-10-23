@@ -1,6 +1,6 @@
 //! Immutable design-system registry snapshots cached by source identity.
 
-use std::fs::{self, File, OpenOptions};
+use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -12,6 +12,7 @@ use wax_contract::{
     LanguageId, RegistryDocument, RegistryError, RegistrySnapshotRef, registry_from_json,
 };
 
+use crate::advisory_lock::AdvisoryLock;
 use crate::atomic_file::write_atomically_no_clobber;
 use crate::config::waxrc::{WaxRcError, load_waxrc};
 use crate::registry_git::{RegistryGitError, fetch_git_registry};
@@ -137,7 +138,7 @@ impl RegistryCache {
     fn acquire_selection_lock(
         &self,
         selection_identity: &str,
-    ) -> Result<SelectionLock, RegistryCacheError> {
+    ) -> Result<AdvisoryLock, RegistryCacheError> {
         let path = self.selection_lock_path(selection_identity);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|source| RegistryCacheError::CacheLock {
@@ -145,7 +146,8 @@ impl RegistryCache {
                 source,
             })?;
         }
-        SelectionLock::acquire(&path)
+        AdvisoryLock::acquire(&path)
+            .map_err(|source| RegistryCacheError::CacheLock { path, source })
     }
 
     fn fetch_and_select(
@@ -155,40 +157,13 @@ impl RegistryCache {
     ) -> Result<Vec<RegistrySnapshot>, RegistryCacheError> {
         let fetched = match source {
             RegistrySourceSpec::HttpJson { url, language } => {
-                let safe_url = redact_url(url);
-                let client = reqwest::blocking::Client::builder()
-                    .timeout(HTTP_FETCH_TIMEOUT)
-                    .build()
-                    .map_err(|error| RegistryCacheError::HttpRequest {
-                        identity: safe_url.clone(),
-                        message: sanitize_http_error(&error, url, &safe_url),
-                    })?;
-                let response =
-                    client
-                        .get(url)
-                        .send()
-                        .map_err(|error| RegistryCacheError::HttpRequest {
-                            identity: safe_url.clone(),
-                            message: sanitize_http_error(&error, url, &safe_url),
-                        })?;
-                if !response.status().is_success() {
-                    return Err(RegistryCacheError::HttpStatus {
-                        identity: safe_url,
-                        status: response.status(),
-                    });
-                }
-                let bytes = response
-                    .bytes()
-                    .map_err(|error| RegistryCacheError::HttpRequest {
-                        identity: redact_url(url),
-                        message: sanitize_http_error(&error, url, &redact_url(url)),
-                    })?;
+                let bytes = fetch_http_bytes(url)?;
                 vec![FetchedRegistry {
                     source: redact_url(url),
                     language: language.clone(),
                     system_id: None,
                     git_commit: None,
-                    bytes: bytes.to_vec(),
+                    bytes,
                 }]
             }
             RegistrySourceSpec::LocalFile { path, language } => {
@@ -508,13 +483,16 @@ impl RegistryCache {
                 let text = std::str::from_utf8(&bytes).map_err(|error| {
                     RegistryCacheError::InvalidCachedRegistry {
                         snapshot: Box::new(reference.clone()),
-                        message: error.to_string(),
+                        source: RegistryError::InvalidJson(serde_json::Error::io(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            error,
+                        ))),
                     }
                 })?;
-                let document = registry_from_json(text).map_err(|error| {
+                let document = registry_from_json(text).map_err(|source| {
                     RegistryCacheError::InvalidCachedRegistry {
                         snapshot: Box::new(reference.clone()),
-                        message: error.to_string(),
+                        source,
                     }
                 })?;
                 Ok(RegistrySnapshot {
@@ -557,170 +535,6 @@ impl RegistryCache {
             crate::digest::sha256_hex(identity.as_bytes())
         ))
     }
-}
-
-struct SelectionLock {
-    file: File,
-}
-
-impl SelectionLock {
-    fn acquire(path: &Path) -> Result<Self, RegistryCacheError> {
-        let file = OpenOptions::new()
-            .create(true)
-            .read(true)
-            .write(true)
-            .truncate(false)
-            .open(path)
-            .map_err(|source| RegistryCacheError::CacheLock {
-                path: path.to_owned(),
-                source,
-            })?;
-        lock_exclusive(&file).map_err(|source| RegistryCacheError::CacheLock {
-            path: path.to_owned(),
-            source,
-        })?;
-        Ok(Self { file })
-    }
-}
-
-impl Drop for SelectionLock {
-    fn drop(&mut self) {
-        let _ = unlock_exclusive(&self.file);
-    }
-}
-
-#[cfg(unix)]
-#[expect(
-    unsafe_code,
-    reason = "std has no cross-process file lock; flock serializes first-fetch and refresh"
-)]
-fn lock_exclusive(file: &File) -> io::Result<()> {
-    use std::os::unix::io::AsRawFd;
-
-    // SAFETY: `file` owns a valid open descriptor for the duration of this call.
-    let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
-    if result == 0 {
-        Ok(())
-    } else {
-        Err(io::Error::last_os_error())
-    }
-}
-
-#[cfg(unix)]
-#[expect(
-    unsafe_code,
-    reason = "pairs with lock_exclusive; std cannot unlock an advisory flock"
-)]
-fn unlock_exclusive(file: &File) -> io::Result<()> {
-    use std::os::unix::io::AsRawFd;
-
-    // SAFETY: `file` owns a valid open descriptor for the duration of this call.
-    let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
-    if result == 0 {
-        Ok(())
-    } else {
-        Err(io::Error::last_os_error())
-    }
-}
-
-#[cfg(windows)]
-#[expect(
-    unsafe_code,
-    reason = "std has no cross-process file lock; LockFileEx serializes first-fetch and refresh"
-)]
-fn lock_exclusive(file: &File) -> io::Result<()> {
-    use std::os::windows::io::AsRawHandle;
-
-    let mut overlapped = WindowsOverlapped::zeroed();
-    // SAFETY: `file` owns a valid handle; `overlapped` is a zeroed stack value
-    // whose address remains valid for this synchronous LockFileEx call.
-    let locked = unsafe {
-        lock_file_ex(
-            file.as_raw_handle(),
-            LOCKFILE_EXCLUSIVE_LOCK,
-            0,
-            u32::MAX,
-            u32::MAX,
-            &mut overlapped,
-        )
-    };
-    if locked == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
-}
-
-#[cfg(windows)]
-#[expect(
-    unsafe_code,
-    reason = "pairs with lock_exclusive; std cannot unlock LockFileEx ranges"
-)]
-fn unlock_exclusive(file: &File) -> io::Result<()> {
-    use std::os::windows::io::AsRawHandle;
-
-    let mut overlapped = WindowsOverlapped::zeroed();
-    // SAFETY: matches the LockFileEx call site; unlocks the same byte range.
-    let unlocked =
-        unsafe { unlock_file_ex(file.as_raw_handle(), 0, u32::MAX, u32::MAX, &mut overlapped) };
-    if unlocked == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
-}
-
-#[cfg(windows)]
-const LOCKFILE_EXCLUSIVE_LOCK: u32 = 0x0000_0002;
-
-#[cfg(windows)]
-#[repr(C)]
-struct WindowsOverlapped {
-    internal: usize,
-    internal_high: usize,
-    offset: u32,
-    offset_high: u32,
-    event: *mut core::ffi::c_void,
-}
-
-#[cfg(windows)]
-impl WindowsOverlapped {
-    fn zeroed() -> Self {
-        Self {
-            internal: 0,
-            internal_high: 0,
-            offset: 0,
-            offset_high: 0,
-            event: std::ptr::null_mut(),
-        }
-    }
-}
-
-#[cfg(windows)]
-#[expect(
-    unsafe_code,
-    reason = "LockFileEx/UnlockFileEx are not exposed by std; declarations match the Windows ABI"
-)]
-#[link(name = "kernel32")]
-unsafe extern "system" {
-    #[link_name = "LockFileEx"]
-    fn lock_file_ex(
-        file: *mut core::ffi::c_void,
-        flags: u32,
-        reserved: u32,
-        number_of_bytes_to_lock_low: u32,
-        number_of_bytes_to_lock_high: u32,
-        overlapped: *mut WindowsOverlapped,
-    ) -> i32;
-
-    #[link_name = "UnlockFileEx"]
-    fn unlock_file_ex(
-        file: *mut core::ffi::c_void,
-        reserved: u32,
-        number_of_bytes_to_unlock_low: u32,
-        number_of_bytes_to_unlock_high: u32,
-        overlapped: *mut WindowsOverlapped,
-    ) -> i32;
 }
 
 impl RegistrySourceSpec {
@@ -843,18 +657,33 @@ impl RegistrySourceSpec {
     }
 
     fn matches_reference(&self, reference: &RegistrySnapshotRef) -> bool {
-        let language_matches = match self {
-            Self::LocalFile { language, .. } | Self::HttpJson { language, .. } => language
-                .as_ref()
-                .is_none_or(|language| language == &reference.language),
-            Self::Git { language, .. } => language == &reference.language,
-            Self::PublisherRepository { language, .. } => language
-                .as_ref()
-                .is_none_or(|language| language == &reference.language),
-        };
-        language_matches
-            && (reference.source == self.identity()
-                || matches!(self, Self::PublisherRepository { .. }))
+        match self {
+            Self::LocalFile { language, .. } | Self::HttpJson { language, .. } => {
+                language
+                    .as_ref()
+                    .is_none_or(|language| language == &reference.language)
+                    && reference.source == self.identity()
+            }
+            Self::Git { language, .. } => {
+                language == &reference.language && reference.source == self.identity()
+            }
+            Self::PublisherRepository {
+                root,
+                system_id,
+                language,
+            } => {
+                let language_matches = language
+                    .as_ref()
+                    .is_none_or(|language| language == &reference.language);
+                let system_matches = system_id.as_ref().is_none_or(|system_id| {
+                    reference.system_id.as_deref() == Some(system_id.as_str())
+                });
+                let root_identity = format!("publisher:{}", root.display());
+                let source_matches = reference.source == root_identity
+                    || reference.source.starts_with(&format!("{root_identity}#"));
+                language_matches && system_matches && source_matches
+            }
+        }
     }
 }
 
@@ -906,30 +735,40 @@ fn sanitize_http_error(error: &reqwest::Error, original: &str, redacted: &str) -
     error.to_string().replace(original, redacted)
 }
 
+fn fetch_http_bytes(url: &str) -> Result<Vec<u8>, RegistryCacheError> {
+    let safe_url = redact_url(url);
+    let client = reqwest::blocking::Client::builder()
+        .timeout(HTTP_FETCH_TIMEOUT)
+        .build()
+        .map_err(|error| RegistryCacheError::HttpRequest {
+            identity: safe_url.clone(),
+            message: sanitize_http_error(&error, url, &safe_url),
+        })?;
+    let response = client
+        .get(url)
+        .send()
+        .map_err(|error| RegistryCacheError::HttpRequest {
+            identity: safe_url.clone(),
+            message: sanitize_http_error(&error, url, &safe_url),
+        })?;
+    if !response.status().is_success() {
+        return Err(RegistryCacheError::HttpStatus {
+            identity: safe_url,
+            status: response.status(),
+        });
+    }
+    response
+        .bytes()
+        .map(|bytes| bytes.to_vec())
+        .map_err(|error| RegistryCacheError::HttpRequest {
+            identity: redact_url(url),
+            message: sanitize_http_error(&error, url, &redact_url(url)),
+        })
+}
+
 fn read_publisher_mapping(root: &Path, source: &str) -> Result<Vec<u8>, RegistryCacheError> {
     if source.starts_with("http://") || source.starts_with("https://") {
-        let safe_url = redact_url(source);
-        let response = reqwest::blocking::Client::builder()
-            .timeout(HTTP_FETCH_TIMEOUT)
-            .build()
-            .and_then(|client| client.get(source).send())
-            .map_err(|error| RegistryCacheError::HttpRequest {
-                identity: safe_url.clone(),
-                message: sanitize_http_error(&error, source, &safe_url),
-            })?;
-        if !response.status().is_success() {
-            return Err(RegistryCacheError::HttpStatus {
-                identity: safe_url,
-                status: response.status(),
-            });
-        }
-        return response
-            .bytes()
-            .map(|bytes| bytes.to_vec())
-            .map_err(|error| RegistryCacheError::HttpRequest {
-                identity: redact_url(source),
-                message: sanitize_http_error(&error, source, &redact_url(source)),
-            });
+        return fetch_http_bytes(source);
     }
     if source.starts_with("file://") {
         let url =
@@ -965,14 +804,6 @@ pub enum RegistryCacheError {
         input: String,
         /// Static validation reason.
         reason: &'static str,
-    },
-    /// A source kind could not yet be resolved.
-    #[error("cannot resolve registry source {identity}: {reason}")]
-    UnsupportedSource {
-        /// Canonical source identity.
-        identity: String,
-        /// Reason resolution is unavailable.
-        reason: String,
     },
     /// Git source resolution failed.
     #[error("failed to resolve Git registry: {0}")]
@@ -1143,12 +974,13 @@ pub enum RegistryCacheError {
         snapshot: Box<RegistrySnapshotRef>,
     },
     /// A cached blob no longer parses as a valid registry.
-    #[error("cached registry snapshot {snapshot:?} is invalid: {message}")]
+    #[error("cached registry snapshot {snapshot:?} is invalid: {source}")]
     InvalidCachedRegistry {
         /// Selected snapshot identity.
         snapshot: Box<RegistrySnapshotRef>,
-        /// Validation diagnostic.
-        message: String,
+        /// Registry contract failure.
+        #[source]
+        source: RegistryError,
     },
     /// An expected snapshot belongs to a different source or language.
     #[error("expected registry snapshot {expected:?} does not match requested source {requested}")]

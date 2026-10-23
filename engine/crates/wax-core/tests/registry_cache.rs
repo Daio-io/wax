@@ -6,7 +6,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
 
-use wax_contract::LanguageId;
+use wax_contract::{LanguageId, RegistryError, RegistrySnapshotRef};
+use wax_core::digest::sha256_hex;
 use wax_core::registry_cache::{
     RegistryCache, RegistryCacheError, RegistryReadPolicy, RegistrySourceSpec,
 };
@@ -309,6 +310,181 @@ fn publisher_registry_mapping_identifies_language() {
     assert_eq!(snapshots[0].reference.system_id.as_deref(), Some("acme"));
     assert_eq!(snapshots[0].reference.language, language("react"));
     assert_eq!(snapshots[0].document.components[0].symbol, "Button");
+}
+
+#[test]
+fn expected_snapshot_rejects_other_publisher_root() {
+    let root = TempDir::new("publisher-expected-root");
+    let publisher_a = root.0.join("publisher-a");
+    let publisher_b = root.0.join("publisher-b");
+    for publisher in [&publisher_a, &publisher_b] {
+        std::fs::create_dir_all(publisher.join(".wax/registries"))
+            .expect("publisher registry directory");
+        std::fs::write(
+            publisher.join(".wax/wax.config.json"),
+            r#"{
+  "schema_version": 2,
+  "design_systems": {
+    "acme": {
+      "name": "Acme",
+      "registries": {
+        "react": { "source": ".wax/registries/react.json" }
+      }
+    }
+  }
+}"#,
+        )
+        .expect("publisher config");
+        std::fs::write(
+            publisher.join(".wax/registries/react.json"),
+            registry("Button"),
+        )
+        .expect("publisher registry");
+    }
+    let cache = RegistryCache::open(root.0.join("cache"));
+    let source_a = RegistrySourceSpec::PublisherRepository {
+        root: publisher_a,
+        system_id: Some("acme".to_owned()),
+        language: Some(language("react")),
+    };
+    let source_b = RegistrySourceSpec::PublisherRepository {
+        root: publisher_b,
+        system_id: Some("acme".to_owned()),
+        language: Some(language("react")),
+    };
+
+    let snapshots = cache
+        .resolve(&source_a, &RegistryReadPolicy::default())
+        .expect("resolve publisher A");
+    let error = cache
+        .resolve(
+            &source_b,
+            &RegistryReadPolicy {
+                offline: true,
+                expected_snapshot: Some(snapshots[0].reference.clone()),
+            },
+        )
+        .expect_err("expected snapshot from another publisher root must not match");
+
+    assert!(matches!(error, RegistryCacheError::SnapshotMismatch { .. }));
+}
+
+#[test]
+fn expected_snapshot_rejects_other_publisher_system() {
+    let root = TempDir::new("publisher-expected-system");
+    std::fs::create_dir_all(root.0.join(".wax/registries")).expect("publisher registry directory");
+    std::fs::write(
+        root.0.join(".wax/wax.config.json"),
+        r#"{
+  "schema_version": 2,
+  "design_systems": {
+    "acme": {
+      "name": "Acme",
+      "registries": {
+        "react": { "source": ".wax/registries/acme.json" }
+      }
+    },
+    "beta": {
+      "name": "Beta",
+      "registries": {
+        "react": { "source": ".wax/registries/beta.json" }
+      }
+    }
+  }
+}"#,
+    )
+    .expect("publisher config");
+    std::fs::write(
+        root.0.join(".wax/registries/acme.json"),
+        registry("AcmeButton"),
+    )
+    .expect("acme registry");
+    std::fs::write(
+        root.0.join(".wax/registries/beta.json"),
+        registry("BetaButton"),
+    )
+    .expect("beta registry");
+    let cache = RegistryCache::open(root.0.join("cache"));
+    let acme = RegistrySourceSpec::PublisherRepository {
+        root: root.0.clone(),
+        system_id: Some("acme".to_owned()),
+        language: Some(language("react")),
+    };
+    let beta = RegistrySourceSpec::PublisherRepository {
+        root: root.0.clone(),
+        system_id: Some("beta".to_owned()),
+        language: Some(language("react")),
+    };
+
+    let snapshots = cache
+        .resolve(&acme, &RegistryReadPolicy::default())
+        .expect("resolve acme publisher");
+    let error = cache
+        .resolve(
+            &beta,
+            &RegistryReadPolicy {
+                offline: true,
+                expected_snapshot: Some(snapshots[0].reference.clone()),
+            },
+        )
+        .expect_err("expected snapshot from another publisher system must not match");
+
+    assert!(matches!(error, RegistryCacheError::SnapshotMismatch { .. }));
+}
+
+#[test]
+fn invalid_cached_registry_preserves_typed_registry_error() {
+    let root = TempDir::new("invalid-cached-typed");
+    let cache_root = root.0.join("cache");
+    let bytes = b"not-json";
+    let digest = sha256_hex(bytes);
+    let blob_path = cache_root.join("blobs").join(format!("{digest}.json"));
+    std::fs::create_dir_all(blob_path.parent().expect("blob parent")).expect("blob directory");
+    std::fs::write(&blob_path, bytes).expect("invalid cached blob");
+    let path = root.0.join("registry.json");
+    let source = RegistrySourceSpec::LocalFile {
+        path: path.clone(),
+        language: Some(language("react")),
+    };
+    let identity = format!("file:{}", path.display());
+    let selection_path = cache_root.join("sources").join(format!(
+        "{}.json",
+        sha256_hex(format!("{identity}|language=react").as_bytes())
+    ));
+    std::fs::create_dir_all(selection_path.parent().expect("selection parent"))
+        .expect("selection directory");
+    let reference = RegistrySnapshotRef {
+        source: identity,
+        language: language("react"),
+        digest,
+        system_id: None,
+        git_commit: None,
+        extra: serde_json::Map::new(),
+    };
+    std::fs::write(
+        &selection_path,
+        serde_json::to_vec(&serde_json::json!({ "snapshots": [reference] }))
+            .expect("encode selection"),
+    )
+    .expect("selection record");
+    let cache = RegistryCache::open(cache_root);
+
+    let error = cache
+        .resolve(
+            &source,
+            &RegistryReadPolicy {
+                offline: true,
+                expected_snapshot: None,
+            },
+        )
+        .expect_err("invalid cached registry must fail");
+
+    match error {
+        RegistryCacheError::InvalidCachedRegistry { source, .. } => {
+            assert!(matches!(source, RegistryError::InvalidJson(_)));
+        }
+        other => panic!("expected InvalidCachedRegistry, got {other:?}"),
+    }
 }
 
 #[test]

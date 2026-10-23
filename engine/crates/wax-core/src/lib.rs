@@ -2,6 +2,7 @@
 
 //! Core engine functionality for wax.
 
+mod advisory_lock;
 mod atomic_file;
 /// Shared durable-write types for the CLI's lockfile persistence boundary.
 #[doc(hidden)]
