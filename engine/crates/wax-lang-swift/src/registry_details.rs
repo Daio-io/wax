@@ -185,13 +185,21 @@ fn extracted_component(
     let signature = signature_node.and_then(|signature_node| {
         let text = signature_text(signature_node, source_bytes)?;
         Some(RegistrySignature {
-            parameters: parameters_from_signature(&text),
+            parameters: parameters_from_initializer(signature_node, source_bytes),
             type_text: Some(text),
             extra: Map::new(),
         })
     });
     let attached = attached_source_prefix(source, node.start_position().row);
-    let declaration_text = node.utf8_text(source_bytes).unwrap_or_default();
+    let declaration_attribute = source
+        .lines()
+        .take(node.start_position().row + 1)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .take(8)
+        .find(|line| line.trim_start().starts_with("@available"))
+        .unwrap_or_default();
     let documentation = parse_documentation(&attached);
     let mut field_gaps = Vec::new();
     if signature.is_none() {
@@ -250,7 +258,8 @@ fn extracted_component(
         }),
         documentation: documentation.documentation,
         signature,
-        deprecation: deprecation_from_available(declaration_text).or(documentation.deprecation),
+        deprecation: deprecation_from_available(declaration_attribute)
+            .or(documentation.deprecation),
         attachments,
         field_gaps,
         extra: Map::new(),
@@ -263,13 +272,22 @@ fn find_direct_initializer<'tree>(
 ) -> Option<tree_sitter::Node<'tree>> {
     let body = node.child_by_field_name("body")?;
     let mut cursor = body.walk();
-    for child in body.named_children(&mut cursor) {
-        let text = child.utf8_text(source).ok()?.trim_start();
-        if child.kind() == "init_declaration" && text.starts_with("public init(") {
-            return Some(child);
-        }
-    }
-    None
+    body.named_children(&mut cursor)
+        .find(|child| child.kind() == "init_declaration" && is_public_declaration(*child, source))
+}
+
+fn is_public_declaration(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    let modifiers = (0..node.child_count())
+        .filter_map(|index| node.child(index))
+        .find(|child| child.kind() == "modifiers");
+    let Some(modifiers) = modifiers else {
+        return false;
+    };
+    let mut cursor = modifiers.walk();
+    modifiers.named_children(&mut cursor).any(|modifier| {
+        modifier.kind() == "visibility_modifier"
+            && modifier.utf8_text(source).ok() == Some("public")
+    })
 }
 
 fn signature_text(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
@@ -292,56 +310,45 @@ fn find_top_level_body(text: &str) -> Option<usize> {
     None
 }
 
-fn parameters_from_signature(signature: &str) -> Vec<RegistryParameter> {
-    let Some(start) = signature.find('(') else {
-        return Vec::new();
-    };
-    let Some(end) = matching_paren(signature, start) else {
-        return Vec::new();
-    };
-    split_top_level(&signature[start + 1..end])
-        .into_iter()
-        .filter_map(parameter_from_text)
-        .collect()
-}
-
-fn matching_paren(text: &str, start: usize) -> Option<usize> {
-    let mut depth = 0_u32;
-    for (offset, character) in text[start..].char_indices() {
-        match character {
-            '(' => depth += 1,
-            ')' => {
-                depth = depth.saturating_sub(1);
-                if depth == 0 {
-                    return Some(start + offset);
-                }
-            }
-            _ => {}
+fn parameters_from_initializer(
+    initializer: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Vec<RegistryParameter> {
+    let mut parameters = Vec::new();
+    let mut cursor = initializer.walk();
+    let children = initializer.named_children(&mut cursor).collect::<Vec<_>>();
+    for (index, child) in children.iter().enumerate() {
+        if child.kind() != "parameter" {
+            continue;
         }
+        let text = child.utf8_text(source).ok().unwrap_or_default();
+        let end = children
+            .iter()
+            .skip(index + 1)
+            .find(|next| next.kind() == "parameter")
+            .map_or(initializer.end_byte(), |next| next.start_byte());
+        let default = source
+            .get(child.end_byte()..end)
+            .and_then(|text| std::str::from_utf8(text).ok())
+            .and_then(|text| text.split_once('=').map(|(_, value)| value))
+            .map(str::trim)
+            .map(|value| {
+                value
+                    .split(')')
+                    .next()
+                    .unwrap_or(value)
+                    .trim_end_matches(',')
+                    .trim()
+            })
+            .and_then(non_empty);
+        let Some(mut parameter) = parameter_from_text(text) else {
+            continue;
+        };
+        parameter.default = default;
+        parameter.required = Some(parameter.default.is_none());
+        parameters.push(parameter);
     }
-    None
-}
-
-fn split_top_level(text: &str) -> Vec<&str> {
-    let mut parts = Vec::new();
-    let mut start = 0;
-    let mut nesting = 0_u32;
-    for (index, character) in text.char_indices() {
-        match character {
-            '(' | '[' | '<' => nesting += 1,
-            ')' | ']' | '>' => nesting = nesting.saturating_sub(1),
-            ',' if nesting == 0 => {
-                parts.push(text[start..index].trim());
-                start = index + 1;
-            }
-            _ => {}
-        }
-    }
-    let tail = text[start..].trim();
-    if !tail.is_empty() {
-        parts.push(tail);
-    }
-    parts
+    parameters
 }
 
 fn parameter_from_text(text: &str) -> Option<RegistryParameter> {

@@ -99,6 +99,7 @@ import VendorKit
 public func ImportedCard(configuration: VendorKit.Configuration) -> some View {
     Text(configuration.title)
 }
+
 "#,
     )?;
     let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
@@ -137,6 +138,80 @@ public func ImportedCard(configuration: VendorKit.Configuration) -> some View {
         gap.field == "signature.parameters.configuration.type_details"
             && gap.reason.contains("imported")
     }));
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_extracts_swift_initializer_shapes_without_confusing_attributes()
+-> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let sources = tempdir.path().join("Sources/DesignSystem");
+    fs::create_dir_all(&sources)?;
+    fs::write(
+        sources.join("Shapes.swift"),
+        r#"import SwiftUI
+
+@available(iOS 17, *)
+public struct AttributedCard: View {
+    public init<T>(value: T = "Hello, world", disabled: Bool = false) {}
+    public var body: some View { Text("card") }
+}
+
+public struct DeprecatedMemberCard: View {
+    @available(*, deprecated, message: "Use replacement")
+    public init?(value: String) {}
+    public var body: some View { Text("card") }
+}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [
+            {"id": "attributed", "symbol": "AttributedCard"},
+            {"id": "deprecated-member", "symbol": "DeprecatedMemberCard"}
+        ]
+    }))
+    .expect("registry fixture");
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "swift".try_into().expect("swift id"),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["Sources".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("rich discover should succeed");
+    let attributed = result.document.components[0]
+        .extracted
+        .as_ref()
+        .expect("attributed component should be enriched");
+    assert_eq!(
+        attributed.signature.as_ref().map(|signature| {
+            signature
+                .parameters
+                .iter()
+                .map(|parameter| (parameter.name.as_str(), parameter.default.as_deref()))
+                .collect::<Vec<_>>()
+        }),
+        Some(vec![
+            ("value", Some("\"Hello, world\"")),
+            ("disabled", Some("false")),
+        ])
+    );
+    assert_eq!(attributed.deprecation, None);
+
+    let deprecated_member = result.document.components[1]
+        .extracted
+        .as_ref()
+        .expect("optional initializer component should be enriched");
+    assert_eq!(
+        deprecated_member
+            .signature
+            .as_ref()
+            .map(|signature| signature.parameters.len()),
+        Some(1)
+    );
+    assert_eq!(deprecated_member.deprecation, None);
     Ok(())
 }
 
