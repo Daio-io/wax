@@ -15,6 +15,11 @@
 
 ### Features
 
+- Add the `wax-search` agent workflow for source-backed component and token
+  selection. Tested examples cover configured apps, remembered systems, direct
+  URLs, Git sources, offline caches, refresh-safe snapshot detail, ambiguity,
+  no matches, and unavailable facts. The existing registry-authoring and scan
+  skills now document their separate publication and analytics boundaries.
 - Add `wax scan --strict` for CI: partial or failed language results return a
   nonzero exit after writing the merged scan artifact and human-readable
   summary. The default `wax scan` behavior remains best effort.
