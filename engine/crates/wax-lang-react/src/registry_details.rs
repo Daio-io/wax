@@ -14,14 +14,14 @@ use wax_contract::{
     RegistryExtractionStatus, RegistryFieldGap, RegistryParameter, RegistrySignature,
     RegistrySourceEvidence,
 };
-use wax_lang_api::{DiscoverRegistryRequest, DiscoverRegistryResult, npm_package_name_for_path};
+use wax_lang_api::{DiscoverRegistryRequest, DiscoverRegistryResult};
 
 use crate::component_detect::simple_binding_ident;
 use crate::discover::{
-    ReactDiscoverError, ReactWrapperCallees, callee_matches, collect_react_files,
-    react_wrapper_callees, repo_relative_path,
+    ReactDiscoverError, ReactWrapperCallees, callee_matches, collect_and_parse_react_sources,
+    react_wrapper_callees,
 };
-use crate::swc_parse::{ParsedReactModule, ReactParseOutcome, parse_react_source_file};
+use crate::swc_parse::ParsedReactModule;
 
 #[derive(Debug)]
 struct PropsDefinition {
@@ -65,43 +65,18 @@ pub fn discover_registry_details(
     }
 
     let repo_root = Path::new(&request.repo_root);
-    let mut source_files = Vec::new();
-    for root in &request.roots {
-        let root = repo_root.join(root);
-        if !root.exists() {
-            return Err(ReactDiscoverError::MissingRoot(root));
-        }
-        collect_react_files(&root, &mut source_files).map_err(|source| ReactDiscoverError::Io {
-            context: format!("read React root {}", root.display()),
-            source,
-        })?;
-    }
-    source_files.sort();
+    let absolute_roots: Vec<_> = request
+        .roots
+        .iter()
+        .map(|root| repo_root.join(root))
+        .collect();
+    let mut diagnostics = Vec::new();
+    let (parsed_files, damaged_paths) =
+        collect_and_parse_react_sources(repo_root, &absolute_roots, &mut diagnostics)?;
 
     let mut declarations = Vec::new();
-    let mut diagnostics = Vec::new();
-    let mut damaged_paths = Vec::new();
-    for file_path in source_files {
-        let relative_path = repo_relative_path(repo_root, &file_path);
-        match parse_react_source_file(repo_root, Path::new(&relative_path)).map_err(
-            |err| match err {
-                crate::ReactParseError::Io { source, .. } => ReactDiscoverError::Io {
-                    context: format!("read React source {relative_path}"),
-                    source,
-                },
-            },
-        )? {
-            ReactParseOutcome::Parsed(parsed) => {
-                declarations.extend(component_declarations(
-                    &parsed,
-                    npm_package_name_for_path(repo_root, &file_path),
-                ));
-            }
-            ReactParseOutcome::Failed(diagnostic) => {
-                damaged_paths.push(relative_path);
-                diagnostics.push(diagnostic);
-            }
-        }
+    for file in parsed_files {
+        declarations.extend(component_declarations(&file.parsed, file.package));
     }
 
     let mut document = request.registry.clone();
@@ -212,7 +187,7 @@ fn component_declarations(
                         }
                     }
                     expr => {
-                        if let Some((symbol, implementation)) = named_wrapped_component(
+                        if let Some((Some(symbol), implementation)) = react_wrapper_component(
                             expr,
                             default_expr.span,
                             &locals,
@@ -292,52 +267,20 @@ fn component_impl_from_expr<'a>(
             parameter: implementation.parameter,
         });
     }
-    unwrap_react_wrapper(expr, export_span, locals, wrapper_callees)
+    react_wrapper_component(expr, export_span, locals, wrapper_callees)
+        .map(|(_, implementation)| implementation)
 }
 
-fn named_wrapped_component<'a>(
+/// Unwraps `memo` / `forwardRef` (including nested wrappers) to the inner component.
+///
+/// When the inner value is a named local or named function expression, the first
+/// tuple element is `Some(name)`. Anonymous inline functions/arrows return `None`.
+fn react_wrapper_component<'a>(
     expr: &'a Expr,
     export_span: Span,
     locals: &BTreeMap<String, ComponentImpl<'a>>,
     wrapper_callees: &ReactWrapperCallees,
-) -> Option<(String, ComponentImpl<'a>)> {
-    let Expr::Call(call) = expr else {
-        return None;
-    };
-    if call.args.len() != 1 {
-        return None;
-    }
-    let arg = &*call.args[0].expr;
-
-    if callee_matches(&call.callee, "memo", wrapper_callees) {
-        return match arg {
-            Expr::Ident(ident) => locals.get(ident.sym.as_ref()).map(|implementation| {
-                (
-                    ident.sym.to_string(),
-                    ComponentImpl {
-                        signature_span: implementation.signature_span,
-                        parameter: implementation.parameter,
-                    },
-                )
-            }),
-            Expr::Call(_) => named_wrapped_component(arg, export_span, locals, wrapper_callees),
-            other => named_inline_function_component(other, export_span),
-        };
-    }
-
-    if callee_matches(&call.callee, "forwardRef", wrapper_callees) {
-        return named_inline_function_component(arg, export_span);
-    }
-
-    None
-}
-
-fn unwrap_react_wrapper<'a>(
-    expr: &'a Expr,
-    export_span: Span,
-    locals: &BTreeMap<String, ComponentImpl<'a>>,
-    wrapper_callees: &ReactWrapperCallees,
-) -> Option<ComponentImpl<'a>> {
+) -> Option<(Option<String>, ComponentImpl<'a>)> {
     let Expr::Call(call) = expr else {
         return None;
     };
@@ -351,17 +294,30 @@ fn unwrap_react_wrapper<'a>(
             Expr::Ident(ident) => locals
                 .get(ident.sym.as_ref())
                 .copied()
-                .map(|implementation| ComponentImpl {
-                    signature_span: implementation.signature_span,
-                    parameter: implementation.parameter,
+                .map(|implementation| {
+                    (
+                        Some(ident.sym.to_string()),
+                        ComponentImpl {
+                            signature_span: implementation.signature_span,
+                            parameter: implementation.parameter,
+                        },
+                    )
                 }),
-            Expr::Call(_) => unwrap_react_wrapper(arg, export_span, locals, wrapper_callees),
-            other => inline_function_component(other, export_span),
+            Expr::Call(_) => react_wrapper_component(arg, export_span, locals, wrapper_callees),
+            other => match named_inline_function_component(other, export_span) {
+                named @ Some(_) => named,
+                None => inline_function_component(other, export_span)
+                    .map(|implementation| (None, implementation)),
+            },
         };
     }
 
     if callee_matches(&call.callee, "forwardRef", wrapper_callees) {
-        return inline_function_component(arg, export_span);
+        return match named_inline_function_component(arg, export_span) {
+            named @ Some(_) => named,
+            None => inline_function_component(arg, export_span)
+                .map(|implementation| (None, implementation)),
+        };
     }
 
     None
@@ -370,14 +326,14 @@ fn unwrap_react_wrapper<'a>(
 fn named_inline_function_component<'a>(
     expr: &'a Expr,
     export_span: Span,
-) -> Option<(String, ComponentImpl<'a>)> {
+) -> Option<(Option<String>, ComponentImpl<'a>)> {
     let Expr::Fn(function) = expr else {
         return None;
     };
     let symbol = function.ident.as_ref()?.sym.to_string();
     let parameter = function.function.params.first().map(|param| &param.pat);
     Some((
-        symbol,
+        Some(symbol),
         ComponentImpl {
             signature_span: signature_span_for_function(export_span, &function.function),
             parameter,
