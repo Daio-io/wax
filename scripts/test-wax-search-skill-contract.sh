@@ -32,7 +32,7 @@ require_text "$EXAMPLE" 'Direct URL'
 require_text "$EXAMPLE" 'Git source'
 require_text "$EXAMPLE" '--offline'
 require_text "$EXAMPLE" 'wax registry refresh'
-require_text "$EXAMPLE" '--snapshot "$snapshot"'
+require_text "$EXAMPLE" '--snapshot "$snapshot_digest"'
 require_text "$EXAMPLE" 'No matches'
 require_text "$EXAMPLE" 'Ambiguous'
 require_text ".claude-plugin/plugin.json" "registry search"

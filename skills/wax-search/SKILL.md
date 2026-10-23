@@ -1,6 +1,6 @@
 ---
 name: wax-search
-description: Search Wax design-system registries and retrieve snapshot-pinned component or token details before implementing UI.
+description: Use when selecting Wax design-system components or tokens for UI implementation or review; search registries and retrieve snapshot-pinned details before implementing UI.
 ---
 
 # Wax registry search
