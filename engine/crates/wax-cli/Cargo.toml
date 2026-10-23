@@ -32,6 +32,9 @@ wax-lang-api = { path = "../wax-lang-api" }
 flate2 = "1"
 jsonschema = { version = "0.58.0", default-features = false }
 tar = "0.4"
+wax-lang-compose = { path = "../wax-lang-compose" }
+wax-lang-react = { path = "../wax-lang-react" }
+wax-lang-swift = { path = "../wax-lang-swift" }
 
 [lints]
 workspace = true

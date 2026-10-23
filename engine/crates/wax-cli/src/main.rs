@@ -1,5 +1,7 @@
-use clap::Parser;
-use wax_cli::cli::{Cli, Commands, LanguageSubcommand, RegistrySubcommand};
+use clap::{Parser, error::ErrorKind};
+use wax_cli::cli::{
+    Cli, Commands, LanguageSubcommand, LookupStdoutFormat, RegistrySubcommand, SearchEntryKind,
+};
 use wax_cli::commands::init::{InitOptions, run_init_cli};
 use wax_cli::commands::language::{
     DoctorOptions, InstallOptions, ListOptions, UninstallOptions, UpdateOptions, run_doctor,
@@ -12,12 +14,36 @@ use wax_cli::commands::registry::{
 };
 use wax_cli::commands::scan::parse_output_flag;
 use wax_cli::commands::scan::{ScanCommandOptions, run_scan_cli};
+use wax_cli::commands::search::{
+    DetailCommandOptions, LookupCommandOptions, SearchCommandError, SearchCommandOptions,
+    run_detail, run_search, write_lookup_error_json,
+};
 use wax_cli::commands::sync::{SyncCommandOptions, run_sync_cli};
 use wax_cli::commands::uninstall::{UninstallCliOptions, run_uninstall_cli};
 use wax_cli::commands::validate::{ValidateCommandOptions, run_validate};
+use wax_contract::{RegistryEntryKind, RegistryLookupError, RegistryLookupErrorCode};
 
 fn main() {
-    let cli = Cli::parse();
+    let argv = std::env::args_os().collect::<Vec<_>>();
+    let wants_json = args_request_json_format(&argv);
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(error) => {
+            if wants_json && is_lookup_command(&argv) && is_argument_failure(&error) {
+                let lookup_error = RegistryLookupError::new(
+                    RegistryLookupErrorCode::InvalidArgument,
+                    error.to_string(),
+                );
+                let mut stdout = std::io::stdout().lock();
+                if write_lookup_error_json(&lookup_error, &mut stdout).is_err() {
+                    eprintln!("error: {error}");
+                }
+                std::process::exit(2);
+            }
+            error.exit();
+        }
+    };
+
     let mut stdout = std::io::stdout().lock();
     let result: Result<(), Box<dyn std::error::Error>> = match cli.command {
         Commands::Language(language) => match language.command {
@@ -153,6 +179,36 @@ fn main() {
             &mut stdout,
         )
         .map_err(Into::into),
+        Commands::Search(args) => run_search(
+            SearchCommandOptions {
+                lookup: lookup_options_from_common(args.common),
+                query: args.query,
+                kind: args.kind.map(entry_kind_from_cli),
+                limit: args.limit,
+            },
+            &mut stdout,
+        )
+        .map_err(Into::into),
+        Commands::Component(args) => run_detail(
+            DetailCommandOptions {
+                lookup: lookup_options_from_common(args.common),
+                kind: RegistryEntryKind::Component,
+                id: args.id,
+                snapshot_digest: args.snapshot,
+            },
+            &mut stdout,
+        )
+        .map_err(Into::into),
+        Commands::Token(args) => run_detail(
+            DetailCommandOptions {
+                lookup: lookup_options_from_common(args.common),
+                kind: RegistryEntryKind::Token,
+                id: args.id,
+                snapshot_digest: args.snapshot,
+            },
+            &mut stdout,
+        )
+        .map_err(Into::into),
         Commands::Scan(args) => (|| {
             let cli_outputs = args
                 .outputs
@@ -202,7 +258,81 @@ fn main() {
     };
 
     if let Err(err) = result {
+        if let Some(search_error) = err.downcast_ref::<SearchCommandError>() {
+            let format = lookup_format_from_argv(&argv);
+            if format == LookupStdoutFormat::Json
+                && let Some(lookup_error) = search_error.to_lookup_error()
+            {
+                let mut stdout = std::io::stdout().lock();
+                if write_lookup_error_json(&lookup_error, &mut stdout).is_ok() {
+                    std::process::exit(1);
+                }
+            }
+        }
         eprintln!("error: {err}");
         std::process::exit(1);
     }
+}
+
+fn lookup_options_from_common(common: wax_cli::cli::LookupCommonArgs) -> LookupCommandOptions {
+    LookupCommandOptions {
+        repo_root: common.repo_root,
+        design_system: common.design_system,
+        language: common.language,
+        tag: common.tag,
+        offline: common.offline,
+        format: common.format,
+        state_path: None,
+    }
+}
+
+fn entry_kind_from_cli(kind: SearchEntryKind) -> RegistryEntryKind {
+    match kind {
+        SearchEntryKind::Component => RegistryEntryKind::Component,
+        SearchEntryKind::Token => RegistryEntryKind::Token,
+    }
+}
+
+fn args_request_json_format(argv: &[std::ffi::OsString]) -> bool {
+    lookup_format_from_argv(argv) == LookupStdoutFormat::Json
+}
+
+fn is_lookup_command(argv: &[std::ffi::OsString]) -> bool {
+    argv.get(1)
+        .and_then(|arg| arg.to_str())
+        .is_some_and(|command| matches!(command, "search" | "component" | "token"))
+}
+
+fn lookup_format_from_argv(argv: &[std::ffi::OsString]) -> LookupStdoutFormat {
+    let mut format = LookupStdoutFormat::Text;
+    let mut index = 0;
+    while index < argv.len() {
+        let arg = argv[index].to_string_lossy();
+        if arg == "--format" {
+            if let Some(value) = argv.get(index + 1) {
+                if value == "json" {
+                    format = LookupStdoutFormat::Json;
+                } else if value == "text" {
+                    format = LookupStdoutFormat::Text;
+                }
+                index += 2;
+                continue;
+            }
+        } else if let Some(value) = arg.strip_prefix("--format=") {
+            if value == "json" {
+                format = LookupStdoutFormat::Json;
+            } else if value == "text" {
+                format = LookupStdoutFormat::Text;
+            }
+        }
+        index += 1;
+    }
+    format
+}
+
+fn is_argument_failure(error: &clap::Error) -> bool {
+    !matches!(
+        error.kind(),
+        ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
+    )
 }

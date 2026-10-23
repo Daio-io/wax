@@ -9,7 +9,12 @@ wax --help
 
 ```bash
 npx @waxhq/wax@alpha --help
+npx @waxhq/wax@alpha search "button" --design-system acme --format json
+npx @waxhq/wax@alpha component ds.button --design-system acme --format json
 ```
+
+Use the `alpha` dist-tag for prerelease installs. Other tags are only valid after
+a matching GitHub Release publishes them.
 
 During `postinstall`, this package downloads the host `wax` binary from the matching GitHub Release, verifies its `sha256`, validates the archive shape, and exposes `wax` through npm. After the binary is installed, the wrapper also runs `wax language update --all` as a best-effort refresh so any already-installed language packs can catch up to the new CLI. If the refresh cannot complete, npm install still succeeds and prints a warning instead.
 

@@ -26,6 +26,12 @@ pub enum Commands {
     Init(InitArgs),
     /// Discover and manage design-system registries.
     Registry(RegistryCli),
+    /// Fuzzy-search design-system registry components and tokens.
+    Search(SearchArgs),
+    /// Show one exact registry component by id.
+    Component(DetailArgs),
+    /// Show one exact registry token by id.
+    Token(DetailArgs),
     /// Scan repository source with enabled language packs.
     Scan(ScanArgs),
     /// Refresh app registry inputs from remembered design systems.
@@ -36,6 +42,76 @@ pub enum Commands {
     Validate(ValidateArgs),
     /// Uninstall wax global state and local binary paths.
     Uninstall(GlobalUninstallArgs),
+}
+
+/// Stdout format for registry search and detail commands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum LookupStdoutFormat {
+    /// Human-readable summaries and detail sections (default).
+    Text,
+    /// Print a single schema-valid JSON envelope object.
+    Json,
+}
+
+/// Entry-kind filter for `wax search --kind`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum SearchEntryKind {
+    /// Component registry entries.
+    Component,
+    /// Token registry entries.
+    Token,
+}
+
+/// Shared flags for search and detail lookup commands.
+#[derive(Debug, Args)]
+pub struct LookupCommonArgs {
+    /// Remembered design-system id, publisher id, or explicit path/URL.
+    #[arg(long = "design-system", value_name = "ID_OR_SOURCE")]
+    pub design_system: Option<String>,
+    /// Restrict lookup to one language.
+    #[arg(long = "language", value_name = "ID")]
+    pub language: Option<LanguageId>,
+    /// Resolve only already cached registry snapshots.
+    #[arg(long)]
+    pub offline: bool,
+    /// Stdout format for lookup results and typed errors.
+    #[arg(long, value_enum, default_value_t = LookupStdoutFormat::Text)]
+    pub format: LookupStdoutFormat,
+    /// Optional Git tag or commit for an explicit Git selector.
+    #[arg(long)]
+    pub tag: Option<String>,
+    /// Repository or standalone directory establishing lookup context.
+    #[arg(long, default_value = ".")]
+    pub repo_root: PathBuf,
+}
+
+/// Arguments for `wax search`.
+#[derive(Debug, Args)]
+pub struct SearchArgs {
+    /// Fuzzy search query.
+    pub query: String,
+    #[command(flatten)]
+    /// Shared lookup selection flags.
+    pub common: LookupCommonArgs,
+    /// Restrict results to components or tokens.
+    #[arg(long, value_enum)]
+    pub kind: Option<SearchEntryKind>,
+    /// Maximum results across every selected snapshot.
+    #[arg(long, default_value_t = 20, value_parser = clap::value_parser!(u32))]
+    pub limit: u32,
+}
+
+/// Arguments for `wax component` and `wax token`.
+#[derive(Debug, Args)]
+pub struct DetailArgs {
+    /// Exact registry entry id.
+    pub id: String,
+    #[command(flatten)]
+    /// Shared lookup selection flags.
+    pub common: LookupCommonArgs,
+    /// Immutable snapshot digest from a prior search result.
+    #[arg(long = "snapshot", value_name = "DIGEST")]
+    pub snapshot: Option<String>,
 }
 
 /// Arguments for `wax init`.

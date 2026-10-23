@@ -1,15 +1,10 @@
 use clap::Parser;
 #[cfg(test)]
 use std::io::{BufRead, Write};
-use wax_contract::LanguageId;
-use wax_lang_api::{
-    DiscoverRequest, ScanRequest, WIRE_API_VERSION, WireErrorCode, WirePackHandler,
-    WirePackResponse, pack_language_id, require_stdio, scan_facts_response, serve_stdio,
-    wire_error_response,
-};
 #[cfg(test)]
 use wax_lang_api::{WireServerError, serve_one};
-use wax_lang_basic::{BasicLanguage, BasicScanError};
+use wax_lang_api::{require_stdio, serve_stdio};
+use wax_lang_basic::BasicWireHandler;
 
 #[derive(Debug, Parser)]
 #[command(name = "wax-lang-basic")]
@@ -22,7 +17,7 @@ struct Cli {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     require_stdio(cli.stdio, "wax-lang-basic");
-    Ok(serve_stdio(&BasicWireHandler(BasicLanguage::new()))?)
+    Ok(serve_stdio(&BasicWireHandler::new())?)
 }
 
 #[cfg(test)]
@@ -30,48 +25,7 @@ fn run_stdio_with_reader<R: BufRead, W: Write>(
     reader: R,
     writer: &mut W,
 ) -> Result<(), WireServerError> {
-    serve_one(reader, writer, &BasicWireHandler(BasicLanguage::new()))
-}
-
-struct BasicWireHandler(BasicLanguage);
-
-impl WirePackHandler for BasicWireHandler {
-    fn language_id(&self) -> LanguageId {
-        pack_language_id("basic")
-    }
-
-    fn scan(&self, request: ScanRequest) -> WirePackResponse {
-        match self.0.scan(&request) {
-            Ok(facts) => scan_facts_response(&request, facts),
-            Err(err) => {
-                let code = match &err {
-                    BasicScanError::InvalidConfig(_) | BasicScanError::InvalidLanguageId(_) => {
-                        WireErrorCode::ConfigInvalid
-                    }
-                    _ => WireErrorCode::ScanFailed,
-                };
-                wire_error_response(
-                    request.api_version,
-                    request.language_id,
-                    code,
-                    err.to_string(),
-                )
-            }
-        }
-    }
-
-    fn discover(&self, request: DiscoverRequest) -> WirePackResponse {
-        let message = format!(
-            "{} does not support registry discovery yet",
-            request.language_id
-        );
-        wire_error_response(
-            WIRE_API_VERSION,
-            request.language_id,
-            WireErrorCode::DiscoverUnsupported,
-            message,
-        )
-    }
+    serve_one(reader, writer, &BasicWireHandler::new())
 }
 
 #[cfg(test)]
@@ -178,6 +132,25 @@ mod tests {
     fn discover_request_returns_discover_unsupported() {
         let input = Cursor::new(
             "{\"type\":\"discover\",\"api_version\":1,\"language_id\":\"basic\",\"repo_root\":\"/tmp/repo\",\"roots\":[\"src\"]}\n",
+        );
+        let mut output = Vec::new();
+        run_stdio_with_reader(input, &mut output).unwrap();
+
+        let response: WirePackResponse =
+            serde_json::from_str(std::str::from_utf8(&output).unwrap().trim()).unwrap();
+        match response {
+            WirePackResponse::Error { code, .. } => {
+                assert_eq!(code, WireErrorCode::DiscoverUnsupported);
+            }
+            other => panic!("expected error response, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn discover_registry_request_returns_discover_unsupported() {
+        let input = Cursor::new(
+            r#"{"type":"discover_registry","api_version":1,"language_id":"basic","repo_root":"/tmp/repo","roots":["src"],"registry":{"schema_version":1,"components":[]}}
+"#,
         );
         let mut output = Vec::new();
         run_stdio_with_reader(input, &mut output).unwrap();

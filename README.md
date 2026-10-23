@@ -102,6 +102,31 @@ wax registry discover --language react --root ../design-system/src --dry-run
 wax registry discover --language react --root ../design-system/src
 ```
 
+`--dry-run` prints the merged registry JSON on stdout and structured
+added/updated entry changes on stderr. It never rewrites the existing registry
+file; rediscovery preserves authored ids, metadata, and tokens.
+
+### Search Components and Tokens
+
+Fuzzy-search a remembered design system, then fetch exact details at the same
+snapshot digest (including after another process refreshes the source):
+
+```bash
+wax search "primry" --design-system acme --format json
+wax component ds.button --design-system acme --snapshot <digest> --format json
+wax token color.primary --design-system acme --snapshot <digest> --format json
+```
+
+Search also accepts `--kind component|token`, `--language`, `--limit` (default 20),
+`--offline`, and `--tag`. Outside a configured app, pass `--design-system` with a
+remembered id or an explicit path/URL.
+
+With the npm wrapper:
+
+```bash
+npx @waxhq/wax@alpha search "button" --design-system acme --format json
+```
+
 Review discovered entries before committing them.
 
 Add design tokens to the same per-language registry files. Wax matches each token's

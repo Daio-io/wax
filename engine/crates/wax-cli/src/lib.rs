@@ -28,6 +28,7 @@ pub mod commands {
     pub mod scan_report_html;
     pub mod scan_summary;
     pub mod scan_summary_md;
+    pub mod search;
     mod state_path;
     pub mod sync;
     pub mod uninstall;

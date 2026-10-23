@@ -40,6 +40,18 @@ fn wax_binary_exposes_cli_help() {
         commands_section.contains("validate"),
         "expected validate subcommand in Commands section, got: {stdout}"
     );
+    assert!(
+        commands_section.contains("search"),
+        "expected search subcommand in Commands section, got: {stdout}"
+    );
+    assert!(
+        commands_section.contains("component"),
+        "expected component subcommand in Commands section, got: {stdout}"
+    );
+    assert!(
+        commands_section.contains("token"),
+        "expected token subcommand in Commands section, got: {stdout}"
+    );
 }
 
 #[test]
