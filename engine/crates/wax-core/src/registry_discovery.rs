@@ -1,6 +1,5 @@
 //! Registry discovery orchestration and safe writes.
 
-use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
@@ -9,13 +8,10 @@ use std::time::Duration;
 use serde_json::Value;
 use thiserror::Error;
 use wax_contract::{
-    Diagnostic, LanguageId, REGISTRY_SCHEMA_VERSION, RegistryComponent, RegistryDocument,
-    RegistryError, registry_from_json,
+    Diagnostic, LanguageId, REGISTRY_SCHEMA_VERSION, RegistryDocument, RegistryError,
+    registry_from_json,
 };
-use wax_lang_api::{
-    DiscoverRegistryRequest, DiscoverRequest, DiscoverRequestType, DiscoveredRegistrySymbol,
-    WIRE_API_VERSION,
-};
+use wax_lang_api::{DiscoverRegistryRequest, WIRE_API_VERSION};
 
 use crate::atomic_file::write_atomically_no_clobber;
 use crate::auto_install::{InstalledManifest, installed_manifest_matches_locked};
@@ -402,16 +398,14 @@ pub fn discover_registry(
     let state = load_global_state(state_file()?)?;
     let pack_command = resolve_discover_pack_command(&state, lockfile.as_ref(), &language_id)?;
     let existing = load_existing_registry(&output_path)?;
-    let (components, mut diagnostics) = discover_symbols(
-        options.repo_root,
-        &language_id,
-        &roots,
-        pack_command.clone(),
-        DEFAULT_DISCOVER_TIMEOUT,
-    )?;
-    let discovered_seed = build_registry(&components)?;
-    let seed = merge_registry(existing.as_ref(), &discovered_seed, true)?.document;
-    let creator_seed = seed.clone();
+    // `force` remains a compatibility flag; publishing always uses the lossless merge path.
+    let _ = options.force;
+    let seed = existing.clone().unwrap_or_else(|| RegistryDocument {
+        schema_version: REGISTRY_SCHEMA_VERSION,
+        components: Vec::new(),
+        tokens: Vec::new(),
+        extra: serde_json::Map::new(),
+    });
     let mut discovered = discover_registry_document(
         options.repo_root,
         &language_id,
@@ -420,8 +414,7 @@ pub fn discover_registry(
         seed,
         DEFAULT_DISCOVER_TIMEOUT,
     )?;
-    retain_creator_metadata(&creator_seed, &mut discovered.document);
-    diagnostics.append(&mut discovered.diagnostics);
+    let mut diagnostics = discovered.diagnostics;
     diagnostics.extend(materialize_registry_attachments(
         options.repo_root,
         &mut discovered.document,
@@ -876,40 +869,6 @@ fn resolve_manifest_command(install_dir: &Path, mut command: Vec<String>) -> Vec
     command
 }
 
-fn discover_symbols(
-    repo_root: &Path,
-    language_id: &LanguageId,
-    roots: &[PathBuf],
-    pack_command: Vec<String>,
-    timeout: Duration,
-) -> Result<(Vec<DiscoveredRegistrySymbol>, Vec<Diagnostic>), RegistryDiscoverError> {
-    let request = DiscoverRequest {
-        request_type: DiscoverRequestType::Discover,
-        api_version: WIRE_API_VERSION,
-        language_id: language_id.clone(),
-        repo_root: repo_root.display().to_string(),
-        roots: roots
-            .iter()
-            .map(|root| {
-                root.strip_prefix(repo_root)
-                    .map(|relative| relative.to_string_lossy().replace('\\', "/"))
-                    .unwrap_or_else(|_| root.display().to_string())
-            })
-            .collect(),
-    };
-    let discoverer = SubprocessLanguageDiscoverer::new(SubprocessLanguageManifest {
-        command: pack_command,
-        timeout,
-    });
-    match discoverer.discover(request) {
-        Ok(result) => Ok((result.components, result.diagnostics)),
-        Err(DiscoverError::Unsupported { .. }) => Err(RegistryDiscoverError::DiscoverUnsupported {
-            language_id: language_id.clone(),
-        }),
-        Err(err) => Err(RegistryDiscoverError::DiscoverSubprocess(err)),
-    }
-}
-
 fn discover_registry_document(
     repo_root: &Path,
     language_id: &LanguageId,
@@ -938,58 +897,17 @@ fn discover_registry_document(
     }
 }
 
+fn repo_relative_path(repo_root: &Path, path: &Path) -> String {
+    path.strip_prefix(repo_root)
+        .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_else(|_| path.display().to_string())
+}
+
 fn request_roots(repo_root: &Path, roots: &[PathBuf]) -> Vec<String> {
     roots
         .iter()
-        .map(|root| {
-            root.strip_prefix(repo_root)
-                .map(|relative| relative.to_string_lossy().replace('\\', "/"))
-                .unwrap_or_else(|_| root.display().to_string())
-        })
+        .map(|root| repo_relative_path(repo_root, root))
         .collect()
-}
-
-fn retain_creator_metadata(seed: &RegistryDocument, discovered: &mut RegistryDocument) {
-    for component in &mut discovered.components {
-        component.metadata = seed
-            .components
-            .iter()
-            .find(|seed_component| seed_component.id == component.id)
-            .or_else(|| unique_component_identity_match(&seed.components, component))
-            .and_then(|seed_component| seed_component.metadata.clone());
-    }
-    for token in &mut discovered.tokens {
-        token.metadata = seed
-            .tokens
-            .iter()
-            .find(|seed_token| seed_token.id == token.id)
-            .or_else(|| unique_token_identity_match(&seed.tokens, &token.key))
-            .and_then(|seed_token| seed_token.metadata.clone());
-    }
-}
-
-fn unique_component_identity_match<'a>(
-    components: &'a [RegistryComponent],
-    discovered: &RegistryComponent,
-) -> Option<&'a RegistryComponent> {
-    let mut matches = components.iter().filter(|component| {
-        component.symbol == discovered.symbol
-            && match &discovered.package {
-                Some(package) => component.package.as_ref() == Some(package),
-                None => true,
-            }
-    });
-    let candidate = matches.next()?;
-    matches.next().is_none().then_some(candidate)
-}
-
-fn unique_token_identity_match<'a>(
-    tokens: &'a [wax_contract::RegistryToken],
-    key: &str,
-) -> Option<&'a wax_contract::RegistryToken> {
-    let mut matches = tokens.iter().filter(|token| token.key == key);
-    let candidate = matches.next()?;
-    matches.next().is_none().then_some(candidate)
 }
 
 fn patch_config_registry(
@@ -1093,82 +1011,4 @@ fn patch_lockfile_registry(
         source,
     })?;
     Ok(())
-}
-
-fn build_registry(
-    components: &[DiscoveredRegistrySymbol],
-) -> Result<RegistryDocument, RegistryDiscoverError> {
-    let mut seen_ids = BTreeMap::new();
-    let mut registry_components = Vec::new();
-    for component in normalized_components(components.to_vec()) {
-        let id = format!("ds.{}", kebab_case_symbol(&component.symbol));
-        if let Some(first_symbol) = seen_ids.insert(id.clone(), component.symbol.clone()) {
-            return Err(RegistryDiscoverError::IdCollision {
-                id,
-                first_symbol,
-                second_symbol: component.symbol,
-            });
-        }
-        registry_components.push(RegistryComponent {
-            id,
-            symbol: component.symbol,
-            package: component.package,
-            aliases: Vec::new(),
-            metadata: None,
-            extracted: None,
-            extra: serde_json::Map::new(),
-        });
-    }
-
-    Ok(RegistryDocument {
-        schema_version: REGISTRY_SCHEMA_VERSION,
-        components: registry_components,
-        tokens: Vec::new(),
-        extra: serde_json::Map::new(),
-    })
-}
-
-fn normalized_components(
-    components: Vec<DiscoveredRegistrySymbol>,
-) -> Vec<DiscoveredRegistrySymbol> {
-    components
-        .into_iter()
-        .fold(BTreeMap::new(), |mut acc, component| {
-            acc.entry(component.symbol.clone()).or_insert(component);
-            acc
-        })
-        .into_values()
-        .collect()
-}
-
-fn kebab_case_symbol(symbol: &str) -> String {
-    let mut result = String::with_capacity(symbol.len());
-    let chars: Vec<char> = symbol.chars().collect();
-
-    for (index, character) in chars.iter().copied().enumerate() {
-        if character.is_ascii_uppercase() {
-            let previous = index
-                .checked_sub(1)
-                .and_then(|previous| chars.get(previous));
-            let next = chars.get(index + 1);
-            let follows_lower_or_digit = previous
-                .is_some_and(|previous| previous.is_ascii_lowercase() || previous.is_ascii_digit());
-            let ends_acronym_before_word = previous
-                .is_some_and(|previous| previous.is_ascii_uppercase())
-                && next.is_some_and(|next| next.is_ascii_lowercase());
-
-            if !result.is_empty() && (follows_lower_or_digit || ends_acronym_before_word) {
-                result.push('-');
-            }
-            result.push(character.to_ascii_lowercase());
-        } else if character.is_ascii_alphanumeric() {
-            result.push(character.to_ascii_lowercase());
-        } else {
-            if !result.ends_with('-') && !result.is_empty() {
-                result.push('-');
-            }
-        }
-    }
-
-    result.trim_matches('-').to_owned()
 }

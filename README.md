@@ -99,7 +99,7 @@ Or discover components from your design-system source:
 
 ```bash
 wax registry discover --language react --root ../design-system/src --dry-run
-wax registry discover --language react --root ../design-system/src --force
+wax registry discover --language react --root ../design-system/src
 ```
 
 Review discovered entries before committing them.

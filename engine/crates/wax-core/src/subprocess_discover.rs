@@ -9,7 +9,9 @@ use std::process::ExitStatus;
 use std::time::Duration;
 
 use thiserror::Error;
-use wax_contract::{Diagnostic, RegistryDocument, RegistryExtracted, RegistryExtractionStatus};
+use wax_contract::{
+    Diagnostic, RegistryComponent, RegistryDocument, RegistryExtracted, RegistryExtractionStatus,
+};
 use wax_lang_api::{
     DiscoverRegistryRequest, DiscoverRegistryResult, DiscoverRequest, DiscoverRequestType,
     DiscoveredRegistrySymbol, WIRE_API_VERSION, WireErrorCode, WirePackRequest, WirePackResponse,
@@ -311,18 +313,56 @@ fn normalize_legacy_registry(
     mut document: RegistryDocument,
     discovered: &[DiscoveredRegistrySymbol],
 ) -> RegistryDocument {
-    for component in &mut document.components {
-        if let Some(candidate) = discovered
-            .iter()
-            .find(|candidate| candidate.symbol == component.symbol)
+    for candidate in discovered {
+        if let Some(component) = document
+            .components
+            .iter_mut()
+            .find(|component| component.symbol == candidate.symbol)
         {
             if component.package.is_none() {
                 component.package.clone_from(&candidate.package);
             }
             component.extracted = Some(unavailable_extraction());
+        } else {
+            document.components.push(RegistryComponent {
+                id: format!("ds.{}", kebab_case_symbol(&candidate.symbol)),
+                symbol: candidate.symbol.clone(),
+                package: candidate.package.clone(),
+                aliases: Vec::new(),
+                metadata: None,
+                extracted: Some(unavailable_extraction()),
+                extra: serde_json::Map::new(),
+            });
         }
     }
     document
+}
+
+fn kebab_case_symbol(symbol: &str) -> String {
+    let mut result = String::new();
+    let chars: Vec<char> = symbol.chars().collect();
+    for (index, character) in chars.iter().copied().enumerate() {
+        if character.is_ascii_uppercase() {
+            let previous = index
+                .checked_sub(1)
+                .and_then(|previous| chars.get(previous));
+            let next = chars.get(index + 1);
+            if !result.is_empty()
+                && (previous
+                    .is_some_and(|value| value.is_ascii_lowercase() || value.is_ascii_digit())
+                    || (previous.is_some_and(|value| value.is_ascii_uppercase())
+                        && next.is_some_and(|value| value.is_ascii_lowercase())))
+            {
+                result.push('-');
+            }
+            result.push(character.to_ascii_lowercase());
+        } else if character.is_ascii_alphanumeric() {
+            result.push(character.to_ascii_lowercase());
+        } else if !result.ends_with('-') && !result.is_empty() {
+            result.push('-');
+        }
+    }
+    result.trim_matches('-').to_owned()
 }
 
 fn unavailable_extraction() -> RegistryExtracted {

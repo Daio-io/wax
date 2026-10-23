@@ -26,7 +26,7 @@ pub struct RegistryDiscoverCommandOptions {
     pub roots: Vec<PathBuf>,
     /// When true, print registry JSON to stdout without writing a file.
     pub dry_run: bool,
-    /// Compatibility flag; existing registries are refreshed by lossless merge.
+    /// When true, replace an existing registry file.
     pub force: bool,
     /// Design-system id to remember after discovery.
     pub design_system_id: Option<String>,

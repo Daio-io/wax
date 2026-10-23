@@ -96,14 +96,7 @@ pub fn materialize_registry_attachments(
         };
         let attachments =
             materialize_sources(&canonical_repo_root, &metadata.sources, &mut diagnostics)?;
-        if !attachments.is_empty() {
-            let existing = &mut extraction(&mut component.extracted).attachments;
-            for attachment in attachments {
-                if !existing.contains(&attachment) {
-                    existing.push(attachment);
-                }
-            }
-        }
+        append_unique_attachments(&mut component.extracted, attachments);
     }
     for token in &mut document.tokens {
         let Some(metadata) = &token.metadata else {
@@ -111,14 +104,7 @@ pub fn materialize_registry_attachments(
         };
         let attachments =
             materialize_sources(&canonical_repo_root, &metadata.sources, &mut diagnostics)?;
-        if !attachments.is_empty() {
-            let existing = &mut extraction(&mut token.extracted).attachments;
-            for attachment in attachments {
-                if !existing.contains(&attachment) {
-                    existing.push(attachment);
-                }
-            }
-        }
+        append_unique_attachments(&mut token.extracted, attachments);
     }
 
     Ok(diagnostics)
@@ -135,6 +121,21 @@ fn extraction(extracted: &mut Option<RegistryExtracted>) -> &mut RegistryExtract
         field_gaps: Vec::new(),
         extra: serde_json::Map::new(),
     })
+}
+
+fn append_unique_attachments(
+    extracted: &mut Option<RegistryExtracted>,
+    attachments: Vec<RegistryAttachment>,
+) {
+    if attachments.is_empty() {
+        return;
+    }
+    let existing = &mut extraction(extracted).attachments;
+    for attachment in attachments {
+        if !existing.contains(&attachment) {
+            existing.push(attachment);
+        }
+    }
 }
 
 fn materialize_sources(
