@@ -30,7 +30,8 @@ impl DiscoverRegistryResult {
     }
 }
 
-/// Errors produced while discovering Compose registry symbols.
+/// Errors produced while discovering Compose registry symbols or enriching
+/// registry details from source.
 #[derive(Debug)]
 pub enum ComposeDiscoverError {
     /// The request contains an invalid language id.
@@ -39,6 +40,8 @@ pub enum ComposeDiscoverError {
     MissingRoot(PathBuf),
     /// Tree-sitter parser failed to initialize.
     ParserInitFailed(String),
+    /// The seed registry document failed contract validation.
+    InvalidRegistry(wax_contract::RegistryError),
     /// A filesystem operation failed.
     Io {
         /// Human-readable context.
@@ -56,6 +59,7 @@ impl std::fmt::Display for ComposeDiscoverError {
                 write!(f, "discovery root does not exist: {}", path.display())
             }
             Self::ParserInitFailed(reason) => write!(f, "parser init failed: {reason}"),
+            Self::InvalidRegistry(error) => write!(f, "invalid compose registry: {error}"),
             Self::Io { context, source } => write!(f, "{context}: {source}"),
         }
     }
@@ -65,9 +69,20 @@ impl std::error::Error for ComposeDiscoverError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::InvalidLanguageId(_) | Self::MissingRoot(_) | Self::ParserInitFailed(_) => None,
+            Self::InvalidRegistry(error) => Some(error),
             Self::Io { source, .. } => Some(source),
         }
     }
+}
+
+/// Successfully parsed Kotlin source file retained for discovery and enrichment.
+pub(crate) struct ParsedKotlinSourceFile {
+    /// Repository-relative path for diagnostics and source evidence.
+    pub relative_path: String,
+    /// Package declaration from the source file, when present.
+    pub package: Option<String>,
+    /// Permissive parse result with recovery passes.
+    pub parsed: crate::kotlin_ast::ParsedKotlinFile,
 }
 
 /// Discovers likely public top-level Compose component symbols from Kotlin source roots.
@@ -84,6 +99,41 @@ pub fn discover_registry_symbols(
     parse_root: &Path,
     roots: &[PathBuf],
 ) -> Result<DiscoverRegistryResult, ComposeDiscoverError> {
+    let mut diagnostics = Vec::new();
+    let (parsed_files, _) = collect_and_parse_kotlin_sources(parse_root, roots, &mut diagnostics)?;
+
+    let mut components = BTreeMap::<String, Option<String>>::new();
+    for file in &parsed_files {
+        for pass in file.parsed.passes() {
+            collect_symbols(
+                pass.tree.root_node(),
+                file.parsed.source.as_bytes(),
+                file.package.clone(),
+                &pass.clean,
+                &mut components,
+                &mut diagnostics,
+            );
+        }
+    }
+
+    Ok(DiscoverRegistryResult {
+        components: components
+            .into_iter()
+            .map(|(symbol, package)| DiscoveredRegistrySymbol::new(symbol, package))
+            .collect(),
+        diagnostics,
+    })
+}
+
+/// Collects Kotlin sources under `roots`, parses them permissively, and records damaged paths.
+///
+/// Completely unparseable files contribute to `damaged_paths` and diagnostics. Partial trees are
+/// retained so clean ranges can still yield symbols and enrichment facts.
+pub(crate) fn collect_and_parse_kotlin_sources(
+    parse_root: &Path,
+    roots: &[PathBuf],
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Result<(Vec<ParsedKotlinSourceFile>, Vec<String>), ComposeDiscoverError> {
     let mut parser =
         new_parser().map_err(|error| ComposeDiscoverError::ParserInitFailed(error.to_string()))?;
 
@@ -101,38 +151,36 @@ pub fn discover_registry_symbols(
     }
     kotlin_files.sort();
 
-    let mut components = BTreeMap::<String, Option<String>>::new();
-    let mut diagnostics = Vec::new();
+    let mut parsed_files = Vec::new();
+    let mut damaged_paths = Vec::new();
     for file_path in kotlin_files {
+        let relative_path = repo_relative_path(parse_root, &file_path);
         match parse_kotlin_file_permissive(&mut parser, &file_path) {
             Ok(parsed) => {
                 let package = package_name_from_source(
                     parsed.primary_tree().root_node(),
                     parsed.source.as_bytes(),
                 );
-                for pass in parsed.passes() {
-                    collect_symbols(
-                        pass.tree.root_node(),
-                        parsed.source.as_bytes(),
-                        package.clone(),
-                        &pass.clean,
-                        &mut components,
-                        &mut diagnostics,
-                    );
-                }
                 if parsed.is_partial() {
-                    let relative_file = repo_relative_path(parse_root, &file_path);
+                    // Treat recoverable gaps as damage for enrichment so prior facts become
+                    // stale instead of being replaced with generated removals.
+                    damaged_paths.push(relative_path.clone());
                     diagnostics.extend(
                         parsed
                             .unresolved_problems
                             .iter()
-                            .map(|problem| partial_tree_parse_diagnostic(problem, &relative_file)),
+                            .map(|problem| partial_tree_parse_diagnostic(problem, &relative_path)),
                     );
                 }
+                parsed_files.push(ParsedKotlinSourceFile {
+                    relative_path,
+                    package,
+                    parsed,
+                });
             }
             Err(ParseKotlinFileError::ParseFailed(_)) => {
-                let relative_file = repo_relative_path(parse_root, &file_path);
-                diagnostics.push(unparseable_file_diagnostic(&relative_file));
+                damaged_paths.push(relative_path.clone());
+                diagnostics.push(unparseable_file_diagnostic(&relative_path));
             }
             Err(ParseKotlinFileError::Io { context, source }) => {
                 return Err(ComposeDiscoverError::Io { context, source });
@@ -140,13 +188,7 @@ pub fn discover_registry_symbols(
         }
     }
 
-    Ok(DiscoverRegistryResult {
-        components: components
-            .into_iter()
-            .map(|(symbol, package)| DiscoveredRegistrySymbol::new(symbol, package))
-            .collect(),
-        diagnostics,
-    })
+    Ok((parsed_files, damaged_paths))
 }
 
 fn collect_symbols(
@@ -205,7 +247,7 @@ fn insert_discovered_symbol(
     components.insert(symbol, package);
 }
 
-fn is_top_level_declaration(node: tree_sitter::Node<'_>) -> bool {
+pub(crate) fn is_top_level_declaration(node: tree_sitter::Node<'_>) -> bool {
     let mut parent = node.parent();
     while let Some(current) = parent {
         match current.kind() {
@@ -217,7 +259,7 @@ fn is_top_level_declaration(node: tree_sitter::Node<'_>) -> bool {
     false
 }
 
-fn is_public(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+pub(crate) fn is_public(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
         if child.kind() == "modifiers" {
@@ -235,7 +277,7 @@ fn is_public(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
     true
 }
 
-fn repo_relative_path(parse_root: &Path, file_path: &Path) -> String {
+pub(crate) fn repo_relative_path(parse_root: &Path, file_path: &Path) -> String {
     file_path
         .strip_prefix(parse_root)
         .map(|relative| relative.to_string_lossy().replace("\\", "/"))

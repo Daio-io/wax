@@ -28,6 +28,7 @@
 pub mod discover;
 mod kotlin_ast;
 mod kotlin_recovery;
+mod registry_details;
 mod tree_sitter_scan;
 
 use std::path::Path;
@@ -43,6 +44,7 @@ use wax_lang_api::{
 };
 
 pub use discover::{ComposeDiscoverError, DiscoverRegistryResult, discover_registry_symbols};
+pub use registry_details::discover_registry_details;
 use tree_sitter_scan::TreeSitterScanError;
 pub use tree_sitter_scan::{ComposeConfigMode, ComposeScanConfig};
 
