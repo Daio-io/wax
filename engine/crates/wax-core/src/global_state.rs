@@ -9,6 +9,7 @@ use thiserror::Error;
 use wax_contract::LanguageId;
 
 use crate::paths::validate_version_segment;
+use crate::registry_cache::RegistrySourceSpec;
 use crate::{AtomicWriteError, AtomicWriteOptions, write_atomically};
 
 /// Global state stored at `~/.wax/state.json`.
@@ -18,21 +19,29 @@ pub struct GlobalState {
     /// Installed language packs by language id and version.
     #[serde(default)]
     pub installed_languages: BTreeMap<LanguageId, BTreeMap<String, InstalledLanguagePack>>,
-    /// Remembered design-system repositories keyed by design-system id.
+    /// Remembered design systems keyed by id (local publisher checkouts and typed remotes).
     #[serde(default)]
     pub design_systems: BTreeMap<String, RememberedDesignSystem>,
 }
 
-/// One remembered design-system repository location.
+/// One remembered design system: a local publisher checkout and/or a typed remote source.
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RememberedDesignSystem {
     /// Display name shown in prompts and lists.
     pub name: String,
-    /// Canonical repository root for the design-system project.
+    /// Canonical repository root for a local publisher checkout, when present.
+    #[serde(default, skip_serializing_if = "path_is_empty")]
     pub repo_root: PathBuf,
-    /// Repo-relative path to the last seen wax config file.
+    /// Repo-relative path to the last seen wax config file for a local checkout.
+    #[serde(default, skip_serializing_if = "path_is_empty")]
     pub last_seen_config: PathBuf,
+    /// Typed remote or independent registry source (`wax registry add` / `refresh`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<RegistrySourceSpec>,
+    /// Immutable snapshots selected when the typed source was last added or refreshed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub snapshots: Vec<wax_contract::RegistrySnapshotRef>,
 }
 
 /// Metadata for one installed language pack.
@@ -41,6 +50,10 @@ pub struct RememberedDesignSystem {
 pub struct InstalledLanguagePack {
     /// Directory containing the installed pack files.
     pub install_dir: PathBuf,
+}
+
+fn path_is_empty(path: &Path) -> bool {
+    path.as_os_str().is_empty()
 }
 
 /// Errors returned while loading or saving global wax state.
@@ -244,6 +257,8 @@ mod global_state_design_systems_tests {
                     name: "Acme Design System".to_owned(),
                     repo_root: PathBuf::from("/tmp/acme-ds"),
                     last_seen_config: PathBuf::from(".wax/wax.config.json"),
+                    source: None,
+                    snapshots: Vec::new(),
                 },
             )]),
         };

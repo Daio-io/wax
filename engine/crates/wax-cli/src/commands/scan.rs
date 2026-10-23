@@ -589,15 +589,8 @@ fn build_ephemeral_scan_config(
             .map(|root| root.to_string_lossy().into_owned())
             .collect();
         let resolved = resolve_remembered_registry(&remembered, language_id)?;
-        let scan_source = if let Some(local_source) = resolved.design_system_local_source.as_deref()
-        {
-            format!(
-                "file://{}",
-                remembered.repo_root.join(local_source).display()
-            )
-        } else {
-            resolved.config_source.clone()
-        };
+        // Prefer the cached blob for typed remotes so ephemeral scans do not require the original remote.
+        let scan_source = resolved.ephemeral_scan_source(&remembered)?;
         let registry_source = resolve_registry_source(RegistrySourceInput {
             repo_root: &options.repo_root,
             language_id: language_id.as_str(),

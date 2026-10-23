@@ -6,13 +6,16 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 use wax_contract::Diagnostic;
+use wax_contract::LanguageId;
 use wax_core::paths::PathsError;
+use wax_core::registry_cache::RegistrySourceSpec;
 use wax_core::registry_discovery::{
     RegistryDiscoverError, RegistryDiscoverOptions, discover_registry,
 };
 use wax_core::registry_memory::{
-    RegistryMemoryError, delete_remembered_design_system, list_remembered_design_systems,
-    show_remembered_design_system, update_remembered_design_system_repo_root,
+    RegistryMemoryError, add_remembered_registry, delete_remembered_design_system,
+    list_remembered_design_systems, refresh_remembered_registry, show_remembered_design_system,
+    update_remembered_design_system_repo_root,
 };
 
 /// Options for `wax discover` and `wax registry discover`.
@@ -52,6 +55,23 @@ pub struct RegistryUpdateCommandOptions {
     pub state_path: Option<PathBuf>,
 }
 
+/// Options for `wax registry add`.
+#[derive(Debug, Clone)]
+pub struct RegistryAddCommandOptions {
+    /// Design-system id used to remember the source.
+    pub design_system_id: String,
+    /// Display name for list and show output.
+    pub name: String,
+    /// User-facing local, HTTP, or Git source.
+    pub source: String,
+    /// Optional language identity.
+    pub language: Option<LanguageId>,
+    /// Optional Git tag or commit.
+    pub tag: Option<String>,
+    /// Global state path override for tests.
+    pub state_path: Option<PathBuf>,
+}
+
 /// Errors returned by registry discovery commands.
 #[derive(Debug, Error)]
 pub enum RegistryDiscoverCommandError {
@@ -83,6 +103,60 @@ pub enum RegistryMemoryCommandError {
         #[source]
         source: io::Error,
     },
+}
+
+/// Runs `wax registry add`.
+///
+/// # Errors
+///
+/// Returns a typed memory/cache error when the source is invalid, cannot be
+/// fetched, conflicts with an existing name, or cannot be persisted.
+pub fn run_registry_add(
+    options: RegistryAddCommandOptions,
+    writer: &mut impl Write,
+) -> Result<(), RegistryMemoryCommandError> {
+    let state_path = resolve_state_path(options.state_path.as_deref())?;
+    let mut source = RegistrySourceSpec::parse(&options.source, options.language)
+        .map_err(RegistryMemoryError::from)?;
+    if let Some(tag) = options.tag {
+        source = source.with_tag(tag).map_err(RegistryMemoryError::from)?;
+    }
+    let snapshots = add_remembered_registry(
+        &state_path,
+        &options.design_system_id,
+        &options.name,
+        &source,
+    )?;
+    writeln!(
+        writer,
+        "Remembered design system `{}` with {} registry snapshot(s).",
+        options.design_system_id,
+        snapshots.len()
+    )
+    .map_err(write_memory_error)?;
+    Ok(())
+}
+
+/// Runs `wax registry refresh`.
+///
+/// # Errors
+///
+/// Returns a typed memory/cache error when the id is absent, local-only, cannot
+/// be fetched, or cannot be persisted.
+pub fn run_registry_refresh(
+    design_system_id: &str,
+    options: RegistryMemoryCommandOptions,
+    writer: &mut impl Write,
+) -> Result<(), RegistryMemoryCommandError> {
+    let state_path = resolve_state_path(options.state_path.as_deref())?;
+    let snapshots = refresh_remembered_registry(&state_path, design_system_id)?;
+    writeln!(
+        writer,
+        "Refreshed design system `{design_system_id}` with {} registry snapshot(s).",
+        snapshots.len()
+    )
+    .map_err(write_memory_error)?;
+    Ok(())
 }
 
 /// Runs `wax discover` or `wax registry discover`.
@@ -195,14 +269,18 @@ pub fn run_registry_list(
     let state_path = resolve_state_path(options.state_path.as_deref())?;
     let entries = list_remembered_design_systems(&state_path)?;
 
-    writeln!(writer, "id\tname\trepo_root").map_err(write_memory_error)?;
+    writeln!(writer, "id\tname\trepo_root\tsource").map_err(write_memory_error)?;
     for entry in entries {
         writeln!(
             writer,
-            "{}\t{}\t{}",
+            "{}\t{}\t{}\t{}",
             entry.id,
             entry.name,
-            entry.repo_root.display()
+            entry.repo_root.display(),
+            entry
+                .source
+                .as_ref()
+                .map_or_else(String::new, RegistrySourceSpec::identity)
         )
         .map_err(write_memory_error)?;
     }
@@ -228,13 +306,18 @@ pub fn run_registry_show(
 
     writeln!(writer, "id: {}", entry.id).map_err(write_memory_error)?;
     writeln!(writer, "name: {}", entry.name).map_err(write_memory_error)?;
-    writeln!(writer, "repo_root: {}", entry.repo_root.display()).map_err(write_memory_error)?;
-    writeln!(
-        writer,
-        "last_seen_config: {}",
-        entry.last_seen_config.display()
-    )
-    .map_err(write_memory_error)?;
+    if let Some(source) = &entry.source {
+        writeln!(writer, "source: {}", source.identity()).map_err(write_memory_error)?;
+        writeln!(writer, "snapshots: {}", entry.snapshots.len()).map_err(write_memory_error)?;
+    } else {
+        writeln!(writer, "repo_root: {}", entry.repo_root.display()).map_err(write_memory_error)?;
+        writeln!(
+            writer,
+            "last_seen_config: {}",
+            entry.last_seen_config.display()
+        )
+        .map_err(write_memory_error)?;
+    }
 
     Ok(())
 }

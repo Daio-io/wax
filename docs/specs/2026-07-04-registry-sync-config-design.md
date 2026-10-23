@@ -146,7 +146,10 @@ The lockfile path is always `.wax/wax.lock.json`. Top-level `wax.lock.json` is r
 
 ## Global State
 
-`~/.wax/state.json` gains remembered design systems:
+`~/.wax/state.json` remembers design systems in two shapes:
+
+1. **Local publisher checkout** — `repo_root` + `last_seen_config` point at a design-system repository (legacy and discover output).
+2. **Typed remote source** — optional `source` (`RegistrySourceSpec`) plus selected immutable `snapshots` for HTTP, local file, or Git registries remembered without a publisher checkout.
 
 ```json
 {
@@ -156,12 +159,26 @@ The lockfile path is always `.wax/wax.lock.json`. Top-level `wax.lock.json` is r
       "name": "Acme Design System",
       "repo_root": "/Users/dai/work/acme-ds",
       "last_seen_config": ".wax/wax.config.json"
+    },
+    "remote-acme": {
+      "name": "Remote Acme",
+      "source": {
+        "type": "http_json",
+        "url": "https://cdn.example.com/acme/react.registry.json"
+      },
+      "snapshots": [
+        {
+          "source": "https://cdn.example.com/acme/react.registry.json",
+          "language": "react",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ]
     }
   }
 }
 ```
 
-Global state does not store registry JSON snapshots. It records enough to find a known design-system config for prompts, init, and sync.
+Immutable registry bytes live under `~/.wax/cache/registries/`. Global state records enough to find a known design-system config or refresh a typed remote for prompts, init, sync, and no-config scan.
 
 ## CLI Flows
 
@@ -225,6 +242,8 @@ Then it writes `.wax/wax.config.json` with `registry.source` pointing at the com
 
 If the design system declares `published_source`, Wax writes `registry.source` to that hosted URL instead of copying a local file.
 
+If the remembered entry is a typed remote source, Wax writes that explicit URL or Git config into the app (pinning the selected Git commit when the remote follows a default branch) instead of copying from a publisher checkout.
+
 `wax init --non-interactive` remains the scriptable path and requires explicit language, roots, and registry source arguments.
 
 ### Sync an App Before Scanning
@@ -260,13 +279,18 @@ warning: registry sync failed for acme/react; scanning with current registry sou
 ```bash
 wax registry list
 wax registry show acme
+wax registry add acme --source https://cdn.example.com/acme/react.registry.json --name "Acme"
+wax registry refresh acme
 wax registry update acme --repo-root ../acme-ds
 wax registry delete acme
 ```
 
-`wax registry update acme --repo-root ...` updates Wax's local memory for that design system. It does not modify app repos.
+- `wax registry add` remembers a typed remote source (HTTP, local file, or Git, with optional `--language` / `--tag`) after validating and caching snapshots.
+- `wax registry refresh` re-fetches a typed remote and updates its selected snapshots.
+- `wax registry update acme --repo-root ...` updates local publisher checkout memory only. It fails for source-backed remotes (use `refresh`).
+- `wax registry list` / `show` / `delete` cover both local and remote entry kinds. Delete removes memory only; it does not edit app repos or delete shared cache blobs.
 
-`wax registry delete acme` removes the design system from local memory only. It does not edit any repo config.
+When init or sync selects a remembered remote, app config uses the existing explicit URL or Git shape (and pins the selected Git commit for default-branch remotes) rather than requiring a publisher checkout.
 
 ## CLI Naming Cleanup
 
@@ -297,12 +321,13 @@ Focused tests should cover:
 - rejection of old `.waxrc`, top-level lockfile, and `design_system_registry` assumptions by removal of those code paths.
 - `wax registry discover --design-system` writes DS publication config and updates global memory.
 - `wax init` copies a remembered local registry into an app and writes `registry.upstream`.
+- `wax init` / `wax sync` write explicit URL or Git config for remembered remotes and pin Git commits when needed.
 - `wax sync` copies local registry updates into the app.
 - `wax sync` switches app `registry.source` to `published_source`.
 - `wax scan` attempts best-effort sync for upstream registries and continues with a warning when sync fails.
 - `wax scan` without config prompts in TTY mode and does not write files.
 - non-TTY `wax scan` without config fails with a `wax init` message.
-- `wax registry list/show/update/delete` manage global memory only.
+- `wax registry add/refresh/list/show/update/delete` manage local and remote remembered entries.
 
 ## Verification
 

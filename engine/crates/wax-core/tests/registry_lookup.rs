@@ -1,0 +1,719 @@
+use std::ffi::OsString;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
+
+use wax_contract::LanguageId;
+use wax_contract::RegistryLookupErrorCode;
+use wax_contract::RegistrySnapshotRef;
+use wax_core::digest::sha256_hex;
+use wax_core::global_state::{GlobalState, RememberedDesignSystem, save_global_state};
+use wax_core::registry_cache::{RegistryCache, RegistrySourceSpec};
+use wax_core::registry_lookup::{RegistryLookupOptions, resolve_lookup_snapshots};
+use wax_core::registry_memory::add_remembered_registry;
+
+static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+fn env_lock() -> MutexGuard<'static, ()> {
+    ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
+}
+
+struct EnvVarGuard {
+    name: &'static str,
+    previous: Option<OsString>,
+}
+
+impl EnvVarGuard {
+    #[expect(
+        unsafe_code,
+        reason = "these tests hold ENV_LOCK while mutating process environment variables, which keeps env access serialized inside this test binary"
+    )]
+    fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+        let previous = std::env::var_os(name);
+        unsafe {
+            std::env::set_var(name, value);
+        }
+        Self { name, previous }
+    }
+}
+
+impl Drop for EnvVarGuard {
+    #[expect(
+        unsafe_code,
+        reason = "these tests hold ENV_LOCK while restoring process environment variables, which keeps env access serialized inside this test binary"
+    )]
+    fn drop(&mut self) {
+        unsafe {
+            match &self.previous {
+                Some(value) => std::env::set_var(self.name, value),
+                None => std::env::remove_var(self.name),
+            }
+        }
+    }
+}
+
+struct TestDir(PathBuf);
+
+impl TestDir {
+    fn new(name: &str) -> Self {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("wax-registry-lookup-{name}-{nonce}"));
+        fs::create_dir_all(&path).expect("create temp directory");
+        Self(path)
+    }
+}
+
+impl Drop for TestDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+fn language(value: &str) -> LanguageId {
+    LanguageId::try_from(value).expect("valid language")
+}
+
+fn write_app(repo: &Path, registry: &[u8]) {
+    fs::create_dir_all(repo.join(".wax")).expect("create wax directory");
+    fs::write(repo.join(".wax/compose.registry.json"), registry).expect("write registry");
+    fs::write(
+        repo.join(".wax/wax.config.json"),
+        r#"{
+  "schema_version": 2,
+  "languages": {
+    "compose": {
+      "roots": ["src"],
+      "registry": {
+        "source": ".wax/compose.registry.json",
+        "upstream": "acme/compose"
+      }
+    }
+  }
+}"#,
+    )
+    .expect("write config");
+    fs::write(
+        repo.join(".wax/wax.lock.json"),
+        format!(
+            r#"{{
+  "schema_version": 2,
+  "engine_api_version": 1,
+  "wax_version": "0.1.0",
+  "registries": {{
+    "compose": {{
+      "source": ".wax/compose.registry.json",
+      "sha256": "{}"
+    }}
+  }},
+  "languages": {{}}
+}}"#,
+            sha256_hex(registry)
+        ),
+    )
+    .expect("write lockfile");
+}
+
+#[test]
+fn explicit_app_id_keeps_app_lock() {
+    let root = TestDir::new("app-lock");
+    let repo = root.0.join("app");
+    let state_path = root.0.join("wax-home/state.json");
+    let locked = br#"{"schema_version":1,"language":"compose","components":[{"id":"locked","symbol":"Locked"}]}"#;
+    let newer_path = root.0.join("newer-compose.json");
+    fs::write(
+        &newer_path,
+        br#"{"schema_version":1,"language":"compose","components":[{"id":"newer","symbol":"Newer"}]}"#,
+    )
+    .expect("write newer registry");
+    add_remembered_registry(
+        &state_path,
+        "acme",
+        "Acme Design System",
+        &RegistrySourceSpec::LocalFile {
+            path: newer_path,
+            language: None,
+        },
+    )
+    .expect("remember newer registry");
+    write_app(&repo, locked);
+
+    let snapshots = resolve_lookup_snapshots(&RegistryLookupOptions {
+        repo_root: repo,
+        selector: Some("acme".to_owned()),
+        language: Some(language("compose")),
+        tag: None,
+        snapshot: None,
+        offline: false,
+        state_path: Some(state_path),
+    })
+    .expect("resolve locked app registry");
+
+    assert_eq!(snapshots[0].reference.digest, sha256_hex(locked));
+}
+
+#[test]
+fn remembered_source_works_without_publisher_checkout() {
+    let root = TestDir::new("remembered-source");
+    let source_path = root.0.join("remote-compose.json");
+    let state_path = root.0.join("wax-home/state.json");
+    let bytes = br#"{"schema_version":1,"language":"compose","components":[{"id":"remote","symbol":"Remote"}]}"#;
+    fs::write(&source_path, bytes).expect("write source registry");
+    add_remembered_registry(
+        &state_path,
+        "acme",
+        "Acme Design System",
+        &RegistrySourceSpec::LocalFile {
+            path: source_path.clone(),
+            language: None,
+        },
+    )
+    .expect("remember registry source");
+    fs::remove_file(source_path).expect("remove original source");
+
+    let snapshots = resolve_lookup_snapshots(&RegistryLookupOptions {
+        repo_root: root.0.join("standalone"),
+        selector: Some("acme".to_owned()),
+        language: Some(language("compose")),
+        tag: None,
+        snapshot: None,
+        offline: true,
+        state_path: Some(state_path),
+    })
+    .expect("resolve remembered cached registry");
+
+    assert_eq!(snapshots[0].reference.digest, sha256_hex(bytes));
+}
+
+#[test]
+fn locked_snapshot_must_match_digest_and_source() {
+    let root = TestDir::new("lock-mismatch");
+    let repo = root.0.join("app");
+    let state_path = root.0.join("wax-home/state.json");
+    let locked = br#"{"schema_version":1,"language":"compose","components":[{"id":"locked","symbol":"Locked"}]}"#;
+    write_app(&repo, locked);
+    fs::write(
+        repo.join(".wax/compose.registry.json"),
+        br#"{"schema_version":1,"language":"compose","components":[{"id":"newer","symbol":"Newer"}]}"#,
+    )
+    .expect("replace registry bytes");
+
+    let error = resolve_lookup_snapshots(&RegistryLookupOptions {
+        repo_root: repo,
+        selector: Some("acme".to_owned()),
+        language: Some(language("compose")),
+        tag: None,
+        snapshot: None,
+        offline: false,
+        state_path: Some(state_path),
+    })
+    .expect_err("changed locked bytes must fail");
+
+    assert_eq!(error.code, RegistryLookupErrorCode::SnapshotMismatch);
+}
+
+#[test]
+fn standalone_source_uses_language_identity_from_json() {
+    let root = TestDir::new("standalone");
+    let source = root.0.join("registry.json");
+    fs::write(
+        &source,
+        br#"{"schema_version":1,"language":"compose","components":[{"id":"button","symbol":"Button"}]}"#,
+    )
+    .expect("write registry");
+
+    let snapshots = resolve_lookup_snapshots(&RegistryLookupOptions {
+        repo_root: root.0.join("working-directory"),
+        selector: Some(source.display().to_string()),
+        language: None,
+        tag: None,
+        snapshot: None,
+        offline: false,
+        state_path: Some(root.0.join("wax-home/state.json")),
+    })
+    .expect("resolve standalone source");
+
+    assert_eq!(snapshots[0].reference.language, language("compose"));
+}
+
+#[test]
+fn standalone_source_without_language_identity_fails() {
+    let root = TestDir::new("missing-language");
+    let source = root.0.join("registry.json");
+    fs::write(
+        &source,
+        br#"{"schema_version":1,"components":[{"id":"button","symbol":"Button"}]}"#,
+    )
+    .expect("write registry");
+
+    let error = resolve_lookup_snapshots(&RegistryLookupOptions {
+        repo_root: root.0.join("working-directory"),
+        selector: Some(source.display().to_string()),
+        language: None,
+        tag: None,
+        snapshot: None,
+        offline: false,
+        state_path: Some(root.0.join("wax-home/state.json")),
+    })
+    .expect_err("missing language identity must fail");
+
+    assert_eq!(error.code, RegistryLookupErrorCode::InvalidArgument);
+}
+
+#[test]
+fn publisher_config_is_default_outside_app_context() {
+    let root = TestDir::new("publisher-default");
+    let repo = root.0.join("publisher");
+    fs::create_dir_all(repo.join(".wax/registries")).expect("create registries");
+    fs::write(
+        repo.join(".wax/registries/compose.json"),
+        br#"{"schema_version":1,"language":"compose","components":[{"id":"publisher","symbol":"Publisher"}]}"#,
+    )
+    .expect("write registry");
+    fs::write(
+        repo.join(".wax/wax.config.json"),
+        r#"{
+  "schema_version": 2,
+  "languages": {},
+  "design_systems": {
+    "acme": {
+      "name": "Acme",
+      "registries": {
+        "compose": {"source": ".wax/registries/compose.json"}
+      }
+    }
+  }
+}"#,
+    )
+    .expect("write config");
+
+    let snapshots = resolve_lookup_snapshots(&RegistryLookupOptions {
+        repo_root: repo,
+        selector: None,
+        language: Some(language("compose")),
+        tag: None,
+        snapshot: None,
+        offline: false,
+        state_path: Some(root.0.join("wax-home/state.json")),
+    })
+    .expect("resolve publisher default");
+
+    assert_eq!(snapshots[0].reference.system_id.as_deref(), Some("acme"));
+}
+
+#[test]
+fn mixed_publisher_and_app_prefers_app_lock_without_selector() {
+    let root = TestDir::new("mixed-app-publisher");
+    let repo = root.0.join("mixed");
+    let locked =
+        br#"{"schema_version":1,"language":"compose","components":[{"id":"app","symbol":"App"}]}"#;
+    write_app(&repo, locked);
+    fs::create_dir_all(repo.join(".wax/registries")).expect("create publisher registries");
+    fs::write(
+        repo.join(".wax/registries/compose.json"),
+        br#"{"schema_version":1,"language":"compose","components":[{"id":"publisher","symbol":"Publisher"}]}"#,
+    )
+    .expect("write publisher registry");
+    let mut config = fs::read_to_string(repo.join(".wax/wax.config.json")).expect("read config");
+    config = config.replacen(
+        r#""languages""#,
+        r#""design_systems": {
+    "acme-pub": {
+      "name": "Acme Pub",
+      "registries": {
+        "compose": {"source": ".wax/registries/compose.json"}
+      }
+    }
+  },
+  "languages""#,
+        1,
+    );
+    fs::write(repo.join(".wax/wax.config.json"), config).expect("write mixed config");
+
+    let snapshots = resolve_lookup_snapshots(&RegistryLookupOptions {
+        repo_root: repo,
+        selector: None,
+        language: Some(language("compose")),
+        tag: None,
+        snapshot: None,
+        offline: false,
+        state_path: Some(root.0.join("wax-home/state.json")),
+    })
+    .expect("prefer app lock");
+
+    assert_eq!(snapshots[0].reference.digest, sha256_hex(locked));
+}
+
+#[test]
+fn publisher_resolves_multiple_languages_without_filter() {
+    let root = TestDir::new("multi-lang");
+    let repo = root.0.join("publisher");
+    fs::create_dir_all(repo.join(".wax/registries")).expect("create registries");
+    fs::write(
+        repo.join(".wax/registries/compose.json"),
+        br#"{"schema_version":1,"language":"compose","components":[{"id":"c","symbol":"C"}]}"#,
+    )
+    .expect("write compose registry");
+    fs::write(
+        repo.join(".wax/registries/react.json"),
+        br#"{"schema_version":1,"language":"react","components":[{"id":"r","symbol":"R"}]}"#,
+    )
+    .expect("write react registry");
+    fs::write(
+        repo.join(".wax/wax.config.json"),
+        r#"{
+  "schema_version": 2,
+  "languages": {},
+  "design_systems": {
+    "acme": {
+      "name": "Acme",
+      "registries": {
+        "compose": {"source": ".wax/registries/compose.json"},
+        "react": {"source": ".wax/registries/react.json"}
+      }
+    }
+  }
+}"#,
+    )
+    .expect("write config");
+
+    let snapshots = resolve_lookup_snapshots(&RegistryLookupOptions {
+        repo_root: repo,
+        selector: None,
+        language: None,
+        tag: None,
+        snapshot: None,
+        offline: false,
+        state_path: Some(root.0.join("wax-home/state.json")),
+    })
+    .expect("resolve all publisher languages");
+
+    let mut languages: Vec<_> = snapshots
+        .iter()
+        .map(|snapshot| snapshot.reference.language.as_str().to_owned())
+        .collect();
+    languages.sort();
+    assert_eq!(languages, vec!["compose".to_owned(), "react".to_owned()]);
+}
+
+#[test]
+fn outside_context_requires_selector() {
+    let root = TestDir::new("no-selector");
+    let error = resolve_lookup_snapshots(&RegistryLookupOptions {
+        repo_root: root.0.join("standalone"),
+        selector: None,
+        language: None,
+        tag: None,
+        snapshot: None,
+        offline: false,
+        state_path: Some(root.0.join("wax-home/state.json")),
+    })
+    .expect_err("standalone lookup needs a selector");
+
+    assert_eq!(error.code, RegistryLookupErrorCode::InvalidArgument);
+}
+
+#[test]
+fn remembered_selector_uses_default_state_path_when_override_absent() {
+    let _guard = env_lock();
+    let root = TestDir::new("default-state");
+    let wax_home = root.0.join("wax-home");
+    fs::create_dir_all(&wax_home).expect("create wax home");
+    let state_path = wax_home.join("state.json");
+    let source_path = root.0.join("remote-compose.json");
+    let bytes = br#"{"schema_version":1,"language":"compose","components":[{"id":"remote","symbol":"Remote"}]}"#;
+    fs::write(&source_path, bytes).expect("write source registry");
+    add_remembered_registry(
+        &state_path,
+        "acme",
+        "Acme Design System",
+        &RegistrySourceSpec::LocalFile {
+            path: source_path,
+            language: None,
+        },
+    )
+    .expect("remember registry source");
+    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
+
+    let snapshots = resolve_lookup_snapshots(&RegistryLookupOptions {
+        repo_root: root.0.join("standalone"),
+        selector: Some("acme".to_owned()),
+        language: Some(language("compose")),
+        tag: None,
+        snapshot: None,
+        offline: true,
+        state_path: None,
+    })
+    .expect("resolve remembered id via default state path");
+
+    assert_eq!(snapshots[0].reference.digest, sha256_hex(bytes));
+}
+
+#[test]
+fn remembered_id_wins_over_colliding_publisher_system_id() {
+    let _guard = env_lock();
+    let root = TestDir::new("remembered-over-publisher");
+    let repo = root.0.join("publisher");
+    fs::create_dir_all(repo.join(".wax/registries")).expect("create registries");
+    let publisher_bytes =
+        br#"{"schema_version":1,"language":"compose","components":[{"id":"publisher","symbol":"Publisher"}]}"#;
+    fs::write(repo.join(".wax/registries/compose.json"), publisher_bytes)
+        .expect("write publisher registry");
+    fs::write(
+        repo.join(".wax/wax.config.json"),
+        r#"{
+  "schema_version": 2,
+  "languages": {},
+  "design_systems": {
+    "acme": {
+      "name": "Acme",
+      "registries": {
+        "compose": {"source": ".wax/registries/compose.json"}
+      }
+    }
+  }
+}"#,
+    )
+    .expect("write publisher config");
+    let wax_home = root.0.join("wax-home");
+    let state_path = wax_home.join("state.json");
+    let remote_path = root.0.join("remote-compose.json");
+    let remembered_bytes =
+        br#"{"schema_version":1,"language":"compose","components":[{"id":"remembered","symbol":"Remembered"}]}"#;
+    fs::write(&remote_path, remembered_bytes).expect("write remembered registry");
+    add_remembered_registry(
+        &state_path,
+        "acme",
+        "Acme Remote",
+        &RegistrySourceSpec::LocalFile {
+            path: remote_path,
+            language: None,
+        },
+    )
+    .expect("remember remote");
+
+    let snapshots = resolve_lookup_snapshots(&RegistryLookupOptions {
+        repo_root: repo,
+        selector: Some("acme".to_owned()),
+        language: Some(language("compose")),
+        tag: None,
+        snapshot: None,
+        offline: true,
+        state_path: Some(state_path),
+    })
+    .expect("remembered id should win over publisher id");
+
+    assert_eq!(snapshots[0].reference.digest, sha256_hex(remembered_bytes));
+}
+
+#[test]
+fn conflicting_tag_with_app_lock_is_rejected() {
+    let root = TestDir::new("tag-conflict");
+    let repo = root.0.join("app");
+    let locked = br#"{"schema_version":1,"language":"compose","components":[{"id":"locked","symbol":"Locked"}]}"#;
+    write_app(&repo, locked);
+    fs::write(
+        repo.join(".wax/wax.config.json"),
+        r#"{
+  "schema_version": 2,
+  "languages": {
+    "compose": {
+      "roots": ["src"],
+      "registry": {
+        "git": "https://example.com/acme.git",
+        "tag": "v1.0.0"
+      }
+    }
+  }
+}"#,
+    )
+    .expect("write git config");
+    fs::write(
+        repo.join(".wax/wax.lock.json"),
+        format!(
+            r#"{{
+  "schema_version": 2,
+  "engine_api_version": 1,
+  "wax_version": "0.1.0",
+  "registries": {{
+    "compose": {{
+      "source": "git:https://example.com/acme.git#v1.0.0",
+      "sha256": "{}",
+      "git": "https://example.com/acme.git",
+      "tag": "v1.0.0",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }}
+  }},
+  "languages": {{}}
+}}"#,
+            sha256_hex(locked)
+        ),
+    )
+    .expect("write lockfile");
+
+    let error = resolve_lookup_snapshots(&RegistryLookupOptions {
+        repo_root: repo,
+        selector: None,
+        language: Some(language("compose")),
+        tag: Some("v2.0.0".to_owned()),
+        snapshot: None,
+        offline: false,
+        state_path: Some(root.0.join("wax-home/state.json")),
+    })
+    .expect_err("conflicting tag must fail");
+
+    assert_eq!(error.code, RegistryLookupErrorCode::SnapshotMismatch);
+}
+
+#[test]
+fn git_app_lock_matches_remembered_id_selector() {
+    let root = TestDir::new("git-app-lock-selector");
+    let repo = root.0.join("app");
+    let state_path = root.0.join("wax-home/state.json");
+    let locked = br#"{"schema_version":1,"language":"compose","components":[{"id":"locked","symbol":"Locked"}]}"#;
+    let newer = br#"{"schema_version":1,"language":"compose","components":[{"id":"newer","symbol":"Newer"}]}"#;
+    let git_url = "https://example.com/acme.git";
+    let locked_digest = sha256_hex(locked);
+    let newer_digest = sha256_hex(newer);
+
+    fs::create_dir_all(repo.join(".wax")).expect("create wax directory");
+    fs::write(
+        repo.join(".wax/wax.config.json"),
+        format!(
+            r#"{{
+  "schema_version": 2,
+  "languages": {{
+    "compose": {{
+      "roots": ["src"],
+      "registry": {{
+        "git": "{git_url}",
+        "tag": "v1.0.0"
+      }}
+    }}
+  }}
+}}"#
+        ),
+    )
+    .expect("write git config");
+    fs::write(
+        repo.join(".wax/wax.lock.json"),
+        format!(
+            r#"{{
+  "schema_version": 2,
+  "engine_api_version": 1,
+  "wax_version": "0.1.0",
+  "registries": {{
+    "compose": {{
+      "source": "git:{git_url}#v1.0.0",
+      "sha256": "{locked_digest}",
+      "git": "{git_url}",
+      "tag": "v1.0.0",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }}
+  }},
+  "languages": {{}}
+}}"#
+        ),
+    )
+    .expect("write lockfile");
+
+    let cache_root = root.0.join("wax-home/cache/registries");
+    fs::create_dir_all(cache_root.join("blobs")).expect("blob directory");
+    fs::write(
+        cache_root
+            .join("blobs")
+            .join(format!("{locked_digest}.json")),
+        locked,
+    )
+    .expect("seed locked blob");
+    fs::write(
+        cache_root
+            .join("blobs")
+            .join(format!("{newer_digest}.json")),
+        newer,
+    )
+    .expect("seed newer blob");
+
+    let mut state = GlobalState::default();
+    state.design_systems.insert(
+        "acme".to_owned(),
+        RememberedDesignSystem {
+            name: "Acme Design System".to_owned(),
+            repo_root: PathBuf::new(),
+            last_seen_config: PathBuf::new(),
+            source: Some(RegistrySourceSpec::Git {
+                url: git_url.to_owned(),
+                tag: Some("v2.0.0".to_owned()),
+                language: language("compose"),
+            }),
+            snapshots: vec![RegistrySnapshotRef {
+                source: format!("git:{git_url}#v2.0.0"),
+                language: language("compose"),
+                digest: newer_digest,
+                system_id: None,
+                git_commit: Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_owned()),
+                extra: serde_json::Map::new(),
+            }],
+        },
+    );
+    fs::create_dir_all(state_path.parent().expect("state parent")).expect("state parent");
+    save_global_state(&state_path, &state).expect("save remembered git remote");
+
+    let snapshots = resolve_lookup_snapshots(&RegistryLookupOptions {
+        repo_root: repo,
+        selector: Some("acme".to_owned()),
+        language: Some(language("compose")),
+        tag: None,
+        snapshot: None,
+        offline: true,
+        state_path: Some(state_path),
+    })
+    .expect("git app lock must match remembered id selector");
+
+    assert_eq!(snapshots[0].reference.digest, locked_digest);
+}
+
+#[test]
+fn remembered_selector_pins_stored_snapshots_not_newer_cache_selection() {
+    let root = TestDir::new("remembered-pin");
+    let state_path = root.0.join("wax-home/state.json");
+    let source_path = root.0.join("remote-compose.json");
+    let original =
+        br#"{"schema_version":1,"language":"compose","components":[{"id":"original","symbol":"Original"}]}"#;
+    let newer =
+        br#"{"schema_version":1,"language":"compose","components":[{"id":"newer","symbol":"Newer"}]}"#;
+    fs::write(&source_path, original).expect("write original registry");
+    add_remembered_registry(
+        &state_path,
+        "acme",
+        "Acme Design System",
+        &RegistrySourceSpec::LocalFile {
+            path: source_path.clone(),
+            language: None,
+        },
+    )
+    .expect("remember original registry");
+    fs::write(&source_path, newer).expect("update registry bytes");
+    let cache = RegistryCache::open(root.0.join("wax-home/cache/registries"));
+    cache
+        .refresh(&RegistrySourceSpec::LocalFile {
+            path: source_path,
+            language: None,
+        })
+        .expect("advance cache selection without refreshing remembered snapshots");
+
+    let snapshots = resolve_lookup_snapshots(&RegistryLookupOptions {
+        repo_root: root.0.join("standalone"),
+        selector: Some("acme".to_owned()),
+        language: Some(language("compose")),
+        tag: None,
+        snapshot: None,
+        offline: true,
+        state_path: Some(state_path),
+    })
+    .expect("remembered id should reuse stored snapshots");
+
+    assert_eq!(snapshots[0].reference.digest, sha256_hex(original));
+}

@@ -12,8 +12,8 @@ use crate::config::lockfile::{LockedRegistry, WAX_LOCK_SCHEMA_VERSION, WaxLock, 
 use crate::config::repo_files::discover_repo_files;
 use crate::config::waxrc::{LanguageEntry, WaxRc, WaxRcError, load_waxrc};
 use crate::registry_memory::{
-    RegistryMemoryError, copy_design_system_registry_to_app, resolve_remembered_registry,
-    show_remembered_design_system,
+    RegistryMemoryError, copy_design_system_registry_to_app, refresh_remembered_registry,
+    resolve_remembered_registry, show_remembered_design_system,
 };
 use crate::registry_source::resolve_language_registry_source;
 use crate::{AtomicWriteError, AtomicWriteOptions, paths::PathsError, write_atomically};
@@ -504,7 +504,11 @@ fn prepare_language_upstream_sync(
     config_changed: &mut bool,
 ) -> Result<PreparedSync, SyncError> {
     let design_system_id = parse_upstream_design_system_id(upstream, &entry.id)?;
-    let remembered = show_remembered_design_system(state_path, design_system_id)?;
+    let mut remembered = show_remembered_design_system(state_path, design_system_id)?;
+    if remembered.source.is_some() {
+        refresh_remembered_registry(state_path, design_system_id)?;
+        remembered = show_remembered_design_system(state_path, design_system_id)?;
+    }
     let resolved = resolve_remembered_registry(&remembered, &entry.id)?;
     let registry_copy = resolved
         .design_system_local_source
@@ -514,21 +518,34 @@ fn prepare_language_upstream_sync(
             design_system_local_source: local_source.clone(),
             app_registry_relative: resolved.config_source.clone(),
         });
-    if update_config_registry_source(config_json, &entry.id, &resolved.config_source) {
+    if update_config_registry(config_json, &entry.id, &resolved) {
         *config_changed = true;
     }
+    let source = if let Some(git) = resolved.git.as_ref() {
+        match resolved.tag.as_deref() {
+            Some(tag) => format!("git:{git}#{tag}"),
+            None => format!("git:{git}"),
+        }
+    } else {
+        resolved.config_source.clone()
+    };
+    let prepared_lock = resolved.digest.as_ref().map(|digest| PreparedLockFields {
+        source: source.clone(),
+        sha256: digest.clone(),
+        git_commit: resolved.git_commit.clone(),
+    });
     Ok(PreparedSync {
         update: SyncUpdate {
             language_id: entry.id.clone(),
             upstream: resolved.upstream,
-            source: resolved.config_source,
-            git: None,
-            tag: None,
+            source,
+            git: resolved.git.clone(),
+            tag: resolved.tag.clone(),
             old_commit: None,
-            new_commit: None,
+            new_commit: resolved.git_commit.clone(),
         },
         registry_copy,
-        prepared_lock: None,
+        prepared_lock,
     })
 }
 
@@ -644,10 +661,10 @@ fn write_config_json(path: &Path, path_display: &str, config: &Value) -> Result<
     })
 }
 
-fn update_config_registry_source(
+fn update_config_registry(
     config: &mut Value,
     language_id: &LanguageId,
-    source: &str,
+    resolved: &crate::registry_memory::ResolvedRememberedRegistry,
 ) -> bool {
     let Some(language) = config
         .get_mut("languages")
@@ -657,17 +674,11 @@ fn update_config_registry_source(
     else {
         return false;
     };
-    let Some(registry) = language.get_mut("registry").and_then(Value::as_object_mut) else {
-        return false;
-    };
-    let current = registry
-        .get("source")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    if current == source {
+    let desired = resolved.to_config_registry_value();
+    if language.get("registry") == Some(&desired) {
         return false;
     }
-    registry.insert("source".to_owned(), Value::String(source.to_owned()));
+    language.insert("registry".to_owned(), desired);
     true
 }
 

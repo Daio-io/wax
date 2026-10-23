@@ -286,18 +286,11 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
                 let remembered = show_remembered_design_system(state_path, design_system_id)?;
                 let remembered_registry =
                     resolve_remembered_registry(&remembered, &resolved.manifest.id)?;
-                let registry_source = resolve_registry_source(RegistrySourceInput {
-                    repo_root: &options.repo_root,
-                    language_id: resolved.manifest.id.as_str(),
-                    source: Some(&remembered_registry.config_source),
-                })?;
-                LockedRegistry {
-                    source: registry_source.source,
-                    sha256: registry_source.sha256,
-                    git: None,
-                    tag: None,
-                    commit: None,
-                }
+                locked_registry_for_remembered(
+                    &options.repo_root,
+                    resolved.manifest.id.as_str(),
+                    &remembered_registry,
+                )?
             } else if let Some(scaffold) = scaffold_by_language.get(&resolved.manifest.id) {
                 LockedRegistry {
                     source: default_registry_path_for_language(&resolved.manifest.id),
@@ -485,13 +478,7 @@ fn apply_remembered_registry_config(
             .ok_or_else(|| InitCommandError::UnknownExampleLanguage {
                 language_id: language_id.clone(),
             })?;
-        entry.insert(
-            "registry".to_owned(),
-            serde_json::json!({
-                "source": resolved.config_source,
-                "upstream": resolved.upstream,
-            }),
-        );
+        entry.insert("registry".to_owned(), resolved.to_config_registry_value());
     }
 
     serde_json::to_string_pretty(&config).map_err(|source| InitCommandError::Io {
@@ -524,6 +511,47 @@ fn copy_remembered_design_system_registries(
         }
     }
     Ok(())
+}
+
+fn locked_registry_for_remembered(
+    repo_root: &Path,
+    language_id: &str,
+    remembered_registry: &wax_core::registry_memory::ResolvedRememberedRegistry,
+) -> Result<LockedRegistry, InitCommandError> {
+    if let (Some(git), Some(tag), Some(digest)) = (
+        remembered_registry.git.as_ref(),
+        remembered_registry.tag.as_ref(),
+        remembered_registry.digest.as_ref(),
+    ) {
+        return Ok(LockedRegistry {
+            source: format!("git:{git}#{tag}"),
+            sha256: digest.clone(),
+            git: Some(git.clone()),
+            tag: Some(tag.clone()),
+            commit: remembered_registry.git_commit.clone(),
+        });
+    }
+    if let Some(digest) = remembered_registry.digest.as_ref() {
+        return Ok(LockedRegistry {
+            source: remembered_registry.config_source.clone(),
+            sha256: digest.clone(),
+            git: None,
+            tag: None,
+            commit: None,
+        });
+    }
+    let registry_source = resolve_registry_source(RegistrySourceInput {
+        repo_root,
+        language_id,
+        source: Some(&remembered_registry.config_source),
+    })?;
+    Ok(LockedRegistry {
+        source: registry_source.source,
+        sha256: registry_source.sha256,
+        git: None,
+        tag: None,
+        commit: None,
+    })
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -847,6 +875,8 @@ mod tests {
     };
     use wax_core::config::waxrc::load_waxrc;
     use wax_core::global_state::{GlobalState, load_global_state};
+    use wax_core::registry_cache::RegistrySourceSpec;
+    use wax_core::registry_memory::add_remembered_registry;
 
     struct EnvVarGuard {
         key: &'static str,
@@ -1052,6 +1082,85 @@ mod tests {
             config["languages"]["react"]["roots"],
             serde_json::json!(["apps/web/src", "packages/ui/src"])
         );
+    }
+
+    #[test]
+    fn init_writes_source_backed_remembered_registry_as_explicit_url() {
+        let temp = TestDir::new("source-backed-registry");
+        let artifact_path = temp.path.join("compose.tgz");
+        let artifact_digest = write_pack_artifact(&artifact_path, "wax-lang-compose");
+        let pack_index = temp.path.join("pack-index.json");
+        fs::write(
+            &pack_index,
+            format!(
+                r#"[{{"id":"compose","version":"0.4.2","api_version":1,"targets":{{"test-target":{{"url":"{}","sha256":"{}"}}}}}}]"#,
+                file_url(&artifact_path),
+                artifact_digest
+            ),
+        )
+        .unwrap();
+        let source = temp.path.join("compose-registry.json");
+        let registry_bytes = br#"{"schema_version":1,"language":"compose","components":[{"id":"button","symbol":"Button"}]}"#;
+        fs::write(&source, registry_bytes).unwrap();
+        let state_path = temp.path.join("home/state.json");
+        add_remembered_registry(
+            &state_path,
+            "acme",
+            "Acme Design System",
+            &RegistrySourceSpec::LocalFile {
+                path: source.clone(),
+                language: None,
+            },
+        )
+        .unwrap();
+        let repo_root = temp.path.join("repo");
+        fs::create_dir_all(&repo_root).unwrap();
+
+        run_init(
+            InitOptions {
+                non_interactive: false,
+                languages: Vec::new(),
+                no_install: true,
+                registry_url: Some(file_url(&pack_index)),
+                repo_root: repo_root.clone(),
+                target_triple: Some("test-target".to_owned()),
+                state_path: Some(state_path),
+                scaffold_registries: false,
+                interactive: Some(InitSelections {
+                    languages: vec![lang("compose")],
+                    scan_roots: BTreeMap::from([(lang("compose"), vec![PathBuf::from("src")])]),
+                    registry_setup: RegistrySetup::RememberedDesignSystem {
+                        design_system_id: "acme".to_owned(),
+                    },
+                }),
+            },
+            &mut Vec::new(),
+        )
+        .unwrap();
+
+        let config: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(repo_root.join(".wax/wax.config.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            config["languages"]["compose"]["registry"]["source"],
+            file_url(&source)
+        );
+        assert_eq!(
+            config["languages"]["compose"]["registry"]["upstream"],
+            "acme/compose"
+        );
+        assert!(
+            !repo_root
+                .join(".wax/registries/acme/compose.json")
+                .is_file()
+        );
+        let lock = load_lockfile(repo_root.join(PREFERRED_LOCKFILE_RELATIVE_PATH)).unwrap();
+        assert_eq!(
+            lock.registries[&lang("compose")].sha256,
+            sha256_hex(registry_bytes)
+        );
+        assert_eq!(lock.registries[&lang("compose")].source, file_url(&source));
     }
 
     #[test]

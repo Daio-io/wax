@@ -11,7 +11,8 @@ use wax_cli::commands::scan::{
     repo_relative_path_exists, run_scan_cli,
 };
 use wax_contract::LanguageId;
-use wax_core::registry_memory::remember_design_system;
+use wax_core::registry_cache::RegistrySourceSpec;
+use wax_core::registry_memory::{add_remembered_registry, remember_design_system};
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -539,6 +540,90 @@ fn ephemeral_strict_scan_writes_output_before_failing_on_partial_result() {
     )
     .expect_err("strict partial ephemeral scan should fail");
     assert!(error.to_string().contains("partial: [\"basic\"]"));
+    assert!(repo_relative_path_exists(
+        &repo,
+        ".wax/out/scan-merged.json"
+    ));
+}
+
+#[test]
+fn ephemeral_scan_uses_source_backed_remembered_registry_without_publisher_checkout() {
+    let _guard = env_lock();
+    let root = TestDir::new("scan-ephemeral-source-backed");
+    let artifact_path = root.path.join("basic.tgz");
+    let digest = write_pack_artifact(&artifact_path, "wax-lang-basic");
+    let wax_home = root.path.join("wax-home");
+    fs::create_dir_all(&wax_home).expect("create wax home");
+    install_basic_scan_fixture_pack(&wax_home, &digest, wax_contract::ScanStatus::Complete);
+    let state_path = wax_home.join("state.json");
+    let source = root.path.join("basic-registry.json");
+    fs::write(
+        &source,
+        r#"{"schema_version":1,"language":"basic","components":[{"id":"button","symbol":"Button"}]}"#,
+    )
+    .expect("write source registry");
+    add_remembered_registry(
+        &state_path,
+        "acme",
+        "Acme Design System",
+        &RegistrySourceSpec::LocalFile {
+            path: source.clone(),
+            language: None,
+        },
+    )
+    .expect("remember source-backed registry");
+    fs::remove_file(&source).expect("remove original source so only cache remains");
+
+    let registry_path = root.path.join("registry.json");
+    fs::write(
+        &registry_path,
+        format!(
+            r#"[{{"id":"basic","version":"0.1.0","api_version":1,"targets":{{"test-target":{{"url":"{}","sha256":"{}"}}}}}}]"#,
+            file_url(&artifact_path),
+            digest
+        ),
+    )
+    .expect("write pack index fixture");
+
+    let repo = root.path.join("repo");
+    fs::create_dir_all(repo.join("src")).expect("create scan roots");
+    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
+
+    run_scan_cli(
+        ScanCommandOptions {
+            repo_root: repo.clone(),
+            strict: true,
+            allow_auto_install: false,
+            scan_concurrency: None,
+            root_group: None,
+            format: wax_cli::cli::ScanStdoutFormat::Summary,
+            cli_outputs: Vec::new(),
+            allow_absolute_output: false,
+            baseline: None,
+            state_path: Some(state_path),
+            pack_index_url: Some(file_url(&registry_path)),
+            target_triple: Some("test-target".to_owned()),
+            ephemeral: Some(EphemeralScanSelections {
+                languages: vec![LanguageId::try_from("basic").unwrap()],
+                scan_roots: BTreeMap::from([(
+                    LanguageId::try_from("basic").unwrap(),
+                    vec![PathBuf::from("src")],
+                )]),
+                design_system_id: "acme".to_owned(),
+            }),
+        },
+        &mut Vec::new(),
+    )
+    .expect("source-backed ephemeral scan");
+
+    assert!(
+        !repo_relative_path_exists(&repo, ".wax/wax.config.json"),
+        "ephemeral scan must not write wax config"
+    );
+    assert!(
+        !repo_relative_dir_has_entries(&repo, ".wax/registries"),
+        "ephemeral scan must not write committed registries"
+    );
     assert!(repo_relative_path_exists(
         &repo,
         ".wax/out/scan-merged.json"

@@ -23,6 +23,7 @@ pub mod registry_cache;
 pub mod registry_discovery;
 pub mod registry_git;
 pub mod registry_lock;
+pub mod registry_lookup;
 pub mod registry_lookup_error;
 pub mod registry_memory;
 pub mod registry_merge;

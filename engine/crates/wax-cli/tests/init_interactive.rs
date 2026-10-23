@@ -5,7 +5,8 @@ use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 use wax_cli::commands::init::{InitOptions, InitSelections, RegistrySetup, run_init};
 use wax_contract::LanguageId;
-use wax_core::registry_memory::remember_design_system;
+use wax_core::registry_cache::RegistrySourceSpec;
+use wax_core::registry_memory::{add_remembered_registry, remember_design_system};
 
 struct TestDir {
     path: PathBuf,
@@ -226,4 +227,81 @@ fn init_remembered_design_system_writes_upstream_registry_config() {
         "acme/react"
     );
     assert!(app_repo.join(".wax/registries/acme/react.json").is_file());
+}
+
+#[test]
+fn init_source_backed_remembered_writes_explicit_url_config() {
+    let root = TestDir::new("init-source-backed-registry");
+    let source = root.path.join("react-registry.json");
+    let registry_bytes =
+        br#"{"schema_version":1,"language":"react","components":[{"id":"button","symbol":"Button"}]}"#;
+    fs::write(&source, registry_bytes).expect("write remote registry");
+    let wax_home = root.path.join("wax-home");
+    fs::create_dir_all(&wax_home).expect("create wax home");
+    let state_path = wax_home.join("state.json");
+    add_remembered_registry(
+        &state_path,
+        "acme",
+        "Acme Design System",
+        &RegistrySourceSpec::LocalFile {
+            path: source.clone(),
+            language: None,
+        },
+    )
+    .expect("remember source-backed registry");
+
+    let artifact_path = root.path.join("react.tgz");
+    let digest = write_pack_artifact(&artifact_path, "wax-lang-react");
+    let registry_path = root.path.join("registry.json");
+    fs::write(
+        &registry_path,
+        format!(
+            r#"[{{"id":"react","version":"0.2.0","api_version":1,"targets":{{"test-target":{{"url":"{}","sha256":"{}"}}}}}}]"#,
+            file_url(&artifact_path),
+            digest
+        ),
+    )
+    .expect("write pack index fixture");
+
+    let app_repo = root.path.join("app");
+    fs::create_dir_all(app_repo.join("src")).expect("create app src");
+
+    run_init(
+        InitOptions {
+            non_interactive: false,
+            languages: Vec::new(),
+            no_install: true,
+            registry_url: Some(file_url(&registry_path)),
+            repo_root: app_repo.clone(),
+            target_triple: Some("test-target".to_owned()),
+            state_path: Some(state_path),
+            scaffold_registries: false,
+            interactive: Some(InitSelections {
+                languages: vec![LanguageId::try_from("react").unwrap()],
+                scan_roots: BTreeMap::from([(
+                    LanguageId::try_from("react").unwrap(),
+                    vec![PathBuf::from("src")],
+                )]),
+                registry_setup: RegistrySetup::RememberedDesignSystem {
+                    design_system_id: "acme".to_owned(),
+                },
+            }),
+        },
+        &mut Vec::new(),
+    )
+    .expect("init with source-backed remembered design system");
+
+    let config: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(app_repo.join(".wax/wax.config.json")).expect("wax config"),
+    )
+    .unwrap();
+    assert_eq!(
+        config["languages"]["react"]["registry"]["source"],
+        file_url(&source)
+    );
+    assert_eq!(
+        config["languages"]["react"]["registry"]["upstream"],
+        "acme/react"
+    );
+    assert!(!app_repo.join(".wax/registries/acme/react.json").is_file());
 }

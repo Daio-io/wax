@@ -125,7 +125,7 @@ fn registry_memory_commands_list_and_show() {
         String::from_utf8_lossy(&list.stderr)
     );
     let list_stdout = String::from_utf8(list.stdout).unwrap();
-    assert!(list_stdout.contains("id\tname\trepo_root"));
+    assert!(list_stdout.contains("id\tname\trepo_root\tsource"));
     assert!(list_stdout.contains("acme\tAcme Design System\t"));
 
     let show = run_registry(&["show", "acme"]);
@@ -232,5 +232,69 @@ fn registry_memory_commands_show_missing_reports_error() {
         String::from_utf8(output.stderr)
             .unwrap()
             .contains("not remembered")
+    );
+}
+
+#[test]
+fn registry_memory_commands_add_and_refresh_typed_source() {
+    let _guard = env_lock();
+    let root = TestDir::new("add-refresh");
+    let wax_home = root.path.join("wax-home");
+    fs::create_dir_all(&wax_home).expect("create wax-home");
+    let source = root.path.join("compose.json");
+    fs::write(
+        &source,
+        r#"{"schema_version":1,"language":"compose","components":[{"id":"one","symbol":"One"}]}"#,
+    )
+    .expect("write registry");
+    let _wax_home_guard = EnvVarGuard::set("WAX_HOME", &wax_home);
+
+    let add = run_registry(&[
+        "add",
+        "acme",
+        source.to_str().expect("utf8 source"),
+        "--name",
+        "Acme Design System",
+    ]);
+    assert!(
+        add.status.success(),
+        "add failed: {}",
+        String::from_utf8_lossy(&add.stderr)
+    );
+
+    let list = run_registry(&["list"]);
+    let list_stdout = String::from_utf8_lossy(&list.stdout);
+    assert!(list_stdout.contains("id\tname\trepo_root\tsource"));
+    assert!(list_stdout.contains("acme\tAcme Design System\t"));
+    assert!(list_stdout.contains("file:"));
+
+    let show = run_registry(&["show", "acme"]);
+    let show_stdout = String::from_utf8_lossy(&show.stdout);
+    assert!(show_stdout.contains("source: file:"));
+    assert!(show_stdout.contains("snapshots: 1"));
+
+    fs::write(
+        &source,
+        r#"{"schema_version":1,"language":"compose","components":[{"id":"two","symbol":"Two"}]}"#,
+    )
+    .expect("update registry");
+    let refresh = run_registry(&["refresh", "acme"]);
+    assert!(
+        refresh.status.success(),
+        "refresh failed: {}",
+        String::from_utf8_lossy(&refresh.stderr)
+    );
+
+    let update = run_registry(&[
+        "update",
+        "acme",
+        "--repo-root",
+        root.path.to_str().expect("utf8 path"),
+    ]);
+    assert!(!update.status.success());
+    assert!(
+        String::from_utf8_lossy(&update.stderr).contains("source-backed"),
+        "update stderr: {}",
+        String::from_utf8_lossy(&update.stderr)
     );
 }
