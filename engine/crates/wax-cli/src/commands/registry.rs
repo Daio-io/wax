@@ -280,7 +280,7 @@ pub fn run_registry_list(
             entry
                 .source
                 .as_ref()
-                .map_or_else(String::new, RegistrySourceSpec::canonical_identity)
+                .map_or_else(String::new, RegistrySourceSpec::identity)
         )
         .map_err(write_memory_error)?;
     }
@@ -307,7 +307,7 @@ pub fn run_registry_show(
     writeln!(writer, "id: {}", entry.id).map_err(write_memory_error)?;
     writeln!(writer, "name: {}", entry.name).map_err(write_memory_error)?;
     if let Some(source) = &entry.source {
-        writeln!(writer, "source: {}", source.canonical_identity()).map_err(write_memory_error)?;
+        writeln!(writer, "source: {}", source.identity()).map_err(write_memory_error)?;
         writeln!(writer, "snapshots: {}", entry.snapshots.len()).map_err(write_memory_error)?;
     } else {
         writeln!(writer, "repo_root: {}", entry.repo_root.display()).map_err(write_memory_error)?;

@@ -970,3 +970,50 @@ fn concurrent_refresh_leaves_one_valid_selection() {
         "Second" | "Third"
     ));
 }
+
+#[test]
+fn expected_snapshot_mismatch_does_not_advance_selection() {
+    let root = TempDir::new("expected-no-advance");
+    let path = root.0.join("registry.json");
+    let original = registry_with_language("Button", "react");
+    let newer = registry_with_language("NewButton", "react");
+    std::fs::write(&path, &original).expect("write original");
+    let cache = RegistryCache::open(root.0.join("cache"));
+    let source = RegistrySourceSpec::LocalFile {
+        path: path.clone(),
+        language: Some(language("react")),
+    };
+    let selected = cache
+        .resolve(&source, &RegistryReadPolicy::default())
+        .expect("select original");
+    let expected = selected[0].reference.clone();
+    let selection_path = root.0.join("cache/sources").join(format!(
+        "{}.json",
+        sha256_hex(format!("file:{}|language=react", path.display()).as_bytes())
+    ));
+    let selection_before = std::fs::read(&selection_path).expect("read selection");
+    std::fs::remove_file(
+        root.0
+            .join("cache/blobs")
+            .join(format!("{}.json", expected.digest)),
+    )
+    .expect("drop expected blob so fetch_expected runs");
+    std::fs::write(&path, &newer).expect("replace source bytes");
+
+    let error = cache
+        .resolve(
+            &source,
+            &RegistryReadPolicy {
+                offline: false,
+                expected_snapshot: Some(expected),
+            },
+        )
+        .expect_err("missing locked digest must not accept newer source bytes");
+
+    assert!(matches!(error, RegistryCacheError::SnapshotMismatch { .. }));
+    let selection_after = std::fs::read(&selection_path).expect("selection remains");
+    assert_eq!(
+        selection_after, selection_before,
+        "locked-snapshot miss must not rewrite the selected record"
+    );
+}

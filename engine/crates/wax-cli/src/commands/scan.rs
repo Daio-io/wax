@@ -38,8 +38,8 @@ use wax_core::config::waxrc::{
 use wax_core::paths::PathsError;
 use wax_core::registry::{fetch_pack_index, select_target_artifact};
 use wax_core::registry_memory::{
-    RememberedDesignSystemSummary, list_remembered_design_systems, registry_blob_file_url,
-    resolve_remembered_registry, show_remembered_design_system,
+    RememberedDesignSystemSummary, list_remembered_design_systems, resolve_remembered_registry,
+    show_remembered_design_system,
 };
 use wax_core::registry_source::{RegistrySourceInput, resolve_registry_source};
 use wax_core::sync::{SyncError, SyncOptions, best_effort_sync_app_registries};
@@ -589,23 +589,8 @@ fn build_ephemeral_scan_config(
             .map(|root| root.to_string_lossy().into_owned())
             .collect();
         let resolved = resolve_remembered_registry(&remembered, language_id)?;
-        let scan_source = if remembered.source.is_some() {
-            let digest = resolved.digest.as_deref().ok_or_else(|| {
-                wax_core::registry_memory::RegistryMemoryError::SnapshotUnavailable {
-                    design_system_id: remembered.id.clone(),
-                    digest: String::new(),
-                }
-            })?;
-            // Prefer the cached blob so ephemeral scans do not require the original remote.
-            registry_blob_file_url(&remembered.state_path, digest)
-        } else if let Some(local_source) = resolved.design_system_local_source.as_deref() {
-            format!(
-                "file://{}",
-                remembered.repo_root.join(local_source).display()
-            )
-        } else {
-            resolved.config_source.clone()
-        };
+        // Prefer the cached blob for typed remotes so ephemeral scans do not require the original remote.
+        let scan_source = resolved.ephemeral_scan_source(&remembered)?;
         let registry_source = resolve_registry_source(RegistrySourceInput {
             repo_root: &options.repo_root,
             language_id: language_id.as_str(),

@@ -58,11 +58,19 @@ pub fn resolve_lookup_snapshots(
         && repo_files.lockfile_path.is_file()
     {
         let lock = load_lockfile(&repo_files.lockfile_path).map_err(invalid_registry)?;
+        let remembered_for_selector =
+            load_remembered_for_selector(options, options.selector.as_deref())?;
         let matching_app_entries: Vec<_> = waxrc
             .languages
             .iter()
             .filter(|entry| options.language.as_ref().is_none_or(|id| id == &entry.id))
-            .filter(|entry| app_selector_matches(entry, options.selector.as_deref()))
+            .filter(|entry| {
+                app_selector_matches(
+                    entry,
+                    options.selector.as_deref(),
+                    remembered_for_selector.as_ref(),
+                )
+            })
             .filter_map(|entry| lock.registries.get(&entry.id).map(|locked| (entry, locked)))
             .collect();
         if !matching_app_entries.is_empty() {
@@ -114,15 +122,7 @@ fn resolve_remembered_selector(
     options: &RegistryLookupOptions,
     selector: &str,
 ) -> Result<Option<Vec<RegistrySnapshot>>, RegistryLookupError> {
-    let state_path = match &options.state_path {
-        Some(path) => path.clone(),
-        None => state_file().map_err(invalid_registry)?,
-    };
-    if !state_path.is_file() {
-        return Ok(None);
-    }
-    let state = load_global_state(&state_path).map_err(invalid_registry)?;
-    let Some(remembered) = state.design_systems.get(selector) else {
+    let Some(remembered) = load_remembered_for_selector(options, Some(selector))? else {
         return Ok(None);
     };
     let local_source;
@@ -136,15 +136,49 @@ fn resolve_remembered_selector(
         };
         &local_source
     };
-    let mut snapshots = lookup_cache(options)?
-        .resolve(
-            source,
-            &RegistryReadPolicy {
-                offline: options.offline,
-                expected_snapshot: options.snapshot.clone(),
-            },
-        )
-        .map_err(map_cache_error)?;
+    let cache = lookup_cache(options)?;
+    let mut snapshots = if let Some(expected) = &options.snapshot {
+        cache
+            .resolve(
+                source,
+                &RegistryReadPolicy {
+                    offline: options.offline,
+                    expected_snapshot: Some(expected.clone()),
+                },
+            )
+            .map_err(map_cache_error)?
+    } else if !remembered.snapshots.is_empty() {
+        let mut pinned = Vec::new();
+        for expected in remembered.snapshots.iter().filter(|snapshot| {
+            options
+                .language
+                .as_ref()
+                .is_none_or(|language| language == &snapshot.language)
+        }) {
+            pinned.extend(
+                cache
+                    .resolve(
+                        source,
+                        &RegistryReadPolicy {
+                            offline: options.offline,
+                            expected_snapshot: Some(expected.clone()),
+                        },
+                    )
+                    .map_err(map_cache_error)?,
+            );
+        }
+        pinned
+    } else {
+        cache
+            .resolve(
+                source,
+                &RegistryReadPolicy {
+                    offline: options.offline,
+                    expected_snapshot: None,
+                },
+            )
+            .map_err(map_cache_error)?
+    };
     if let Some(language) = &options.language {
         snapshots.retain(|snapshot| &snapshot.reference.language == language);
     }
@@ -157,15 +191,52 @@ fn resolve_remembered_selector(
     Ok(Some(snapshots))
 }
 
-fn app_selector_matches(entry: &LanguageEntry, selector: Option<&str>) -> bool {
+fn load_remembered_for_selector(
+    options: &RegistryLookupOptions,
+    selector: Option<&str>,
+) -> Result<Option<crate::global_state::RememberedDesignSystem>, RegistryLookupError> {
+    let Some(selector) = selector else {
+        return Ok(None);
+    };
+    let state_path = match &options.state_path {
+        Some(path) => path.clone(),
+        None => state_file().map_err(invalid_registry)?,
+    };
+    if !state_path.is_file() {
+        return Ok(None);
+    }
+    let state = load_global_state(&state_path).map_err(invalid_registry)?;
+    Ok(state.design_systems.get(selector).cloned())
+}
+
+fn app_selector_matches(
+    entry: &LanguageEntry,
+    selector: Option<&str>,
+    remembered: Option<&crate::global_state::RememberedDesignSystem>,
+) -> bool {
     match selector {
         None => true,
-        Some(selector) => entry
-            .registry_source
-            .as_ref()
-            .and_then(LanguageRegistrySource::upstream)
-            .and_then(|upstream| upstream.split_once('/'))
-            .is_some_and(|(system_id, _)| system_id == selector),
+        Some(selector) => {
+            if entry
+                .registry_source
+                .as_ref()
+                .and_then(LanguageRegistrySource::upstream)
+                .and_then(|upstream| upstream.split_once('/'))
+                .is_some_and(|(system_id, _)| system_id == selector)
+            {
+                return true;
+            }
+            match (
+                entry.registry_source.as_ref(),
+                remembered.and_then(|entry| entry.source.as_ref()),
+            ) {
+                (
+                    Some(LanguageRegistrySource::Git { git, .. }),
+                    Some(RegistrySourceSpec::Git { url, .. }),
+                ) => git == url,
+                _ => false,
+            }
+        }
     }
 }
 
@@ -231,7 +302,7 @@ fn app_snapshot_ref(
         .and_then(|upstream| upstream.split_once('/'))
         .map(|(system_id, _)| system_id.to_owned());
     RegistrySnapshotRef {
-        source: source.canonical_identity(),
+        source: source.identity(),
         language: entry.id.clone(),
         digest: locked.sha256.clone(),
         system_id,

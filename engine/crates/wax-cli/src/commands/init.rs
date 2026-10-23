@@ -478,19 +478,7 @@ fn apply_remembered_registry_config(
             .ok_or_else(|| InitCommandError::UnknownExampleLanguage {
                 language_id: language_id.clone(),
             })?;
-        let registry =
-            if let (Some(git), Some(tag)) = (resolved.git.as_ref(), resolved.tag.as_ref()) {
-                serde_json::json!({
-                    "git": git,
-                    "tag": tag,
-                })
-            } else {
-                serde_json::json!({
-                    "source": resolved.config_source,
-                    "upstream": resolved.upstream,
-                })
-            };
-        entry.insert("registry".to_owned(), registry);
+        entry.insert("registry".to_owned(), resolved.to_config_registry_value());
     }
 
     serde_json::to_string_pretty(&config).map_err(|source| InitCommandError::Io {

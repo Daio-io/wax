@@ -176,7 +176,8 @@ impl RegistryCache {
                 bytes: fetched.bytes,
             })?]);
         }
-        self.refresh(source)
+        // Reproduce the requested snapshot without advancing the source selection.
+        self.fetch_snapshots(source)
     }
 
     /// Fetches and validates a source before selecting its new immutable snapshots.
@@ -212,6 +213,21 @@ impl RegistryCache {
         &self,
         source: &RegistrySourceSpec,
         selection_identity: &str,
+    ) -> Result<Vec<RegistrySnapshot>, RegistryCacheError> {
+        let snapshots = self.fetch_snapshots(source)?;
+        self.write_selection(
+            selection_identity,
+            snapshots
+                .iter()
+                .map(|snapshot| snapshot.reference.clone())
+                .collect(),
+        )?;
+        Ok(snapshots)
+    }
+
+    fn fetch_snapshots(
+        &self,
+        source: &RegistrySourceSpec,
     ) -> Result<Vec<RegistrySnapshot>, RegistryCacheError> {
         let fetched = match source {
             RegistrySourceSpec::HttpJson { url, language } => {
@@ -255,18 +271,10 @@ impl RegistryCache {
             }
         };
 
-        let snapshots = fetched
+        fetched
             .into_iter()
             .map(|fetched| self.validate_and_store(fetched))
-            .collect::<Result<Vec<_>, _>>()?;
-        self.write_selection(
-            selection_identity,
-            snapshots
-                .iter()
-                .map(|snapshot| snapshot.reference.clone())
-                .collect(),
-        )?;
-        Ok(snapshots)
+            .collect()
     }
 
     fn fetch_publisher(
@@ -559,8 +567,14 @@ impl RegistryCache {
         }
     }
 
+    /// Returns the immutable blob path for `digest` under a registry cache root.
+    #[must_use]
+    pub fn blob_path_for(root: &Path, digest: &str) -> PathBuf {
+        root.join("blobs").join(format!("{digest}.json"))
+    }
+
     fn blob_path(&self, digest: &str) -> PathBuf {
-        self.root.join("blobs").join(format!("{digest}.json"))
+        Self::blob_path_for(&self.root, digest)
     }
 
     fn selection_path(&self, identity: &str) -> PathBuf {
@@ -579,12 +593,6 @@ impl RegistryCache {
 }
 
 impl RegistrySourceSpec {
-    /// Returns the stable, credential-redacted identity used by snapshot references.
-    #[must_use]
-    pub fn canonical_identity(&self) -> String {
-        self.identity()
-    }
-
     /// Applies a Git tag or commit pin when this source is Git-backed.
     ///
     /// # Errors
@@ -684,7 +692,9 @@ impl RegistrySourceSpec {
         })
     }
 
-    fn identity(&self) -> String {
+    /// Returns the stable, credential-redacted identity used by snapshot references.
+    #[must_use]
+    pub fn identity(&self) -> String {
         match self {
             Self::LocalFile { path, .. } => local_file_identity(path),
             Self::PublisherRepository { root, .. } => {

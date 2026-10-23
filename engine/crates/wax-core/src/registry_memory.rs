@@ -57,14 +57,60 @@ pub struct ResolvedRememberedRegistry {
     pub git_commit: Option<String>,
 }
 
+impl ResolvedRememberedRegistry {
+    /// Builds the app config `registry` object for this resolution.
+    #[must_use]
+    pub fn to_config_registry_value(&self) -> Value {
+        if let (Some(git), Some(tag)) = (self.git.as_ref(), self.tag.as_ref()) {
+            serde_json::json!({
+                "git": git,
+                "tag": tag,
+            })
+        } else {
+            serde_json::json!({
+                "source": self.config_source,
+                "upstream": self.upstream,
+            })
+        }
+    }
+
+    /// Returns the registry source URL used by ephemeral no-config scans.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RegistryMemoryError::MissingRemoteDigest`] when a typed remote
+    /// resolution is missing its selected digest.
+    pub fn ephemeral_scan_source(
+        &self,
+        remembered: &RememberedDesignSystemSummary,
+    ) -> Result<String, RegistryMemoryError> {
+        if remembered.source.is_some() {
+            let digest =
+                self.digest
+                    .as_deref()
+                    .ok_or_else(|| RegistryMemoryError::MissingRemoteDigest {
+                        design_system_id: remembered.id.clone(),
+                    })?;
+            return Ok(registry_blob_file_url(&remembered.state_path, digest));
+        }
+        if let Some(local_source) = self.design_system_local_source.as_deref() {
+            return Ok(format!(
+                "file://{}",
+                remembered.repo_root.join(local_source).display()
+            ));
+        }
+        Ok(self.config_source.clone())
+    }
+}
+
 /// Returns the immutable blob path for a registry digest under a wax home.
 #[must_use]
 pub fn registry_blob_path(state_path: &Path, digest: &str) -> PathBuf {
-    state_path
+    let cache_root = state_path
         .parent()
         .unwrap_or_else(|| Path::new("."))
-        .join("cache/registries/blobs")
-        .join(format!("{digest}.json"))
+        .join("cache/registries");
+    RegistryCache::blob_path_for(&cache_root, digest)
 }
 
 /// Returns a `file://` URL for an immutable registry blob under a wax home.
@@ -190,6 +236,22 @@ pub enum RegistryMemoryError {
         design_system_id: String,
         /// Missing snapshot digest.
         digest: String,
+    },
+    /// A typed remote resolution is missing its selected digest.
+    #[error("design system `{design_system_id}` is missing a selected remote registry digest")]
+    MissingRemoteDigest {
+        /// Remembered design-system id.
+        design_system_id: String,
+    },
+    /// Publisher wax config is missing required publication fields.
+    #[error("design system `{design_system_id}` config at {path} is invalid: {detail}")]
+    MalformedPublicationConfig {
+        /// Remembered design-system id.
+        design_system_id: String,
+        /// Publisher config path.
+        path: String,
+        /// Missing or malformed field description.
+        detail: String,
     },
 }
 
@@ -447,9 +509,9 @@ pub fn delete_remembered_design_system(
 /// Returns [`RegistryMemoryError::InvalidDesignSystemId`] for an invalid
 /// remembered id, [`RegistryMemoryError::MissingLanguage`] or
 /// [`RegistryMemoryError::SnapshotUnavailable`] for typed remote resolution
-/// misses, [`RegistryMemoryError::ConfigUpdate`] for missing or malformed
-/// publication config, or [`RegistryMemoryError::RegistrySource`] for an unsafe
-/// local registry source.
+/// misses, [`RegistryMemoryError::MalformedPublicationConfig`] for missing or
+/// malformed publication config, or [`RegistryMemoryError::RegistrySource`] for
+/// an unsafe local registry source.
 pub fn resolve_remembered_registry(
     remembered: &RememberedDesignSystemSummary,
     language_id: &LanguageId,
@@ -461,66 +523,49 @@ pub fn resolve_remembered_registry(
     let config_path = remembered.repo_root.join(&remembered.last_seen_config);
     let path_display = config_path.display().to_string();
     let config = load_or_create_config(&config_path, &path_display)?;
+    let malformed = |detail: String| RegistryMemoryError::MalformedPublicationConfig {
+        design_system_id: remembered.id.clone(),
+        path: path_display.clone(),
+        detail,
+    };
     let design_systems = config
         .get("design_systems")
         .and_then(Value::as_object)
-        .ok_or_else(|| RegistryMemoryError::ConfigUpdate {
-            path: path_display.clone(),
-            source: Box::new(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "wax config missing design_systems object",
-            )),
-        })?;
-    let entry =
-        design_systems
-            .get(&remembered.id)
-            .ok_or_else(|| RegistryMemoryError::ConfigUpdate {
-                path: path_display.clone(),
-                source: Box::new(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("design system `{}` missing from wax config", remembered.id),
-                )),
-            })?;
+        .ok_or_else(|| malformed("wax config missing design_systems object".to_owned()))?;
+    let entry = design_systems.get(&remembered.id).ok_or_else(|| {
+        malformed(format!(
+            "design system `{}` missing from wax config",
+            remembered.id
+        ))
+    })?;
     let registries = entry
         .get("registries")
         .and_then(Value::as_object)
-        .ok_or_else(|| RegistryMemoryError::ConfigUpdate {
-            path: path_display.clone(),
-            source: Box::new(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!(
-                    "design system `{}` missing registries object",
-                    remembered.id
-                ),
-            )),
+        .ok_or_else(|| {
+            malformed(format!(
+                "design system `{}` missing registries object",
+                remembered.id
+            ))
         })?;
     let registry = registries
         .get(language_id.as_str())
         .and_then(Value::as_object)
-        .ok_or_else(|| RegistryMemoryError::ConfigUpdate {
-            path: path_display.clone(),
-            source: Box::new(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!(
-                    "design system `{}` missing registry for language `{}`",
-                    remembered.id,
-                    language_id.as_str()
-                ),
-            )),
+        .ok_or_else(|| {
+            malformed(format!(
+                "design system `{}` missing registry for language `{}`",
+                remembered.id,
+                language_id.as_str()
+            ))
         })?;
     let local_source = registry
         .get("source")
         .and_then(Value::as_str)
-        .ok_or_else(|| RegistryMemoryError::ConfigUpdate {
-            path: path_display.clone(),
-            source: Box::new(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!(
-                    "design system `{}` registry for `{}` missing source",
-                    remembered.id,
-                    language_id.as_str()
-                ),
-            )),
+        .ok_or_else(|| {
+            malformed(format!(
+                "design system `{}` registry for `{}` missing source",
+                remembered.id,
+                language_id.as_str()
+            ))
         })?
         .to_owned();
     let published_source = registry
@@ -602,7 +647,9 @@ fn resolve_source_backed_remembered(
     }
 }
 
-/// Copies a design-system registry artifact into an app repository.
+/// Copies a local publisher registry artifact into an app repository.
+///
+/// Typed remote remembered systems write URL/Git config instead of copying blobs.
 ///
 /// # Errors
 ///
@@ -617,28 +664,6 @@ pub fn copy_design_system_registry_to_app(
     app_repo_root: &Path,
     app_registry_relative: &str,
 ) -> Result<(), RegistryMemoryError> {
-    if remembered.source.is_some() {
-        let snapshot = remembered
-            .snapshots
-            .iter()
-            .find(|snapshot| snapshot.digest == design_system_local_source)
-            .ok_or_else(|| RegistryMemoryError::SnapshotUnavailable {
-                design_system_id: remembered.id.clone(),
-                digest: design_system_local_source.to_owned(),
-            })?;
-        let source_path = registry_blob_path(&remembered.state_path, &snapshot.digest);
-        let destination_path = app_repo_root.join(app_registry_relative);
-        let contents =
-            fs::read(&source_path).map_err(|source| RegistryMemoryError::ConfigUpdate {
-                path: source_path.display().to_string(),
-                source: Box::new(source),
-            })?;
-        return write_atomically(&destination_path, &contents, AtomicWriteOptions::default())
-            .map_err(|source| RegistryMemoryError::AtomicWrite {
-                path: destination_path.display().to_string(),
-                source,
-            });
-    }
     let source_path = validate_repo_relative_registry_path_within_repo(
         &remembered.repo_root,
         design_system_local_source,

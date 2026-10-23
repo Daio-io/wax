@@ -674,17 +674,7 @@ fn update_config_registry(
     else {
         return false;
     };
-    let desired = if let (Some(git), Some(tag)) = (resolved.git.as_ref(), resolved.tag.as_ref()) {
-        serde_json::json!({
-            "git": git,
-            "tag": tag,
-        })
-    } else {
-        serde_json::json!({
-            "source": resolved.config_source,
-            "upstream": resolved.upstream,
-        })
-    };
+    let desired = resolved.to_config_registry_value();
     if language.get("registry") == Some(&desired) {
         return false;
     }
