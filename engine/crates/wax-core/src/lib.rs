@@ -22,6 +22,7 @@ pub mod registry_git;
 pub mod registry_lock;
 pub mod registry_lookup_error;
 pub mod registry_memory;
+pub mod registry_merge;
 pub mod registry_source;
 pub use registry_lookup_error::{RegistryLookupError, RegistryLookupErrorCode};
 mod root_group;
