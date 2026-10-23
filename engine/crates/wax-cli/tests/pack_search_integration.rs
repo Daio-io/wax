@@ -1,0 +1,323 @@
+//! End-to-end publish/merge → search → detail across React, Compose, and Swift.
+//!
+//! Each pack enriches a seed registry from its discover fixture, merges the
+//! enriched facts into a publisher document, then exercises `wax search` and
+//! `wax component` against the written registry.
+
+use std::ffi::OsString;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::{Mutex, MutexGuard};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use serde_json::{Value, json};
+use wax_contract::{RegistryDocument, RegistryMetadata, registry_to_json};
+use wax_core::registry_merge::merge_registry;
+use wax_lang_api::{DiscoverRegistryRequest, WIRE_API_VERSION};
+use wax_lang_compose::discover_registry_details as compose_details;
+use wax_lang_react::discover_registry_details as react_details;
+use wax_lang_swift::discover_registry_details as swift_details;
+
+static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+fn env_lock() -> MutexGuard<'static, ()> {
+    ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
+}
+
+struct EnvVarGuard {
+    name: &'static str,
+    previous: Option<OsString>,
+}
+
+impl EnvVarGuard {
+    #[expect(
+        unsafe_code,
+        reason = "these tests hold ENV_LOCK while mutating process environment variables"
+    )]
+    fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+        let previous = std::env::var_os(name);
+        unsafe {
+            std::env::set_var(name, value);
+        }
+        Self { name, previous }
+    }
+}
+
+impl Drop for EnvVarGuard {
+    #[expect(
+        unsafe_code,
+        reason = "these tests hold ENV_LOCK while restoring process environment variables"
+    )]
+    fn drop(&mut self) {
+        unsafe {
+            match &self.previous {
+                Some(value) => std::env::set_var(self.name, value),
+                None => std::env::remove_var(self.name),
+            }
+        }
+    }
+}
+
+struct TestDir {
+    path: PathBuf,
+}
+
+impl TestDir {
+    fn new(name: &str) -> Self {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("wax-cli-pack-search-{name}-{nonce}"));
+        fs::create_dir_all(&path).expect("create temp dir");
+        Self { path }
+    }
+}
+
+impl Drop for TestDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
+struct PackCase {
+    language: &'static str,
+    design_system_id: &'static str,
+    component_id: &'static str,
+    package: &'static str,
+    fixture_root: PathBuf,
+    roots: Vec<&'static str>,
+    enrich: fn(&DiscoverRegistryRequest) -> RegistryDocument,
+}
+
+fn enrich_react(request: &DiscoverRegistryRequest) -> RegistryDocument {
+    react_details(request).expect("react enrichment").document
+}
+
+fn enrich_compose(request: &DiscoverRegistryRequest) -> RegistryDocument {
+    compose_details(request)
+        .expect("compose enrichment")
+        .document
+}
+
+fn enrich_swift(request: &DiscoverRegistryRequest) -> RegistryDocument {
+    swift_details(request).expect("swift enrichment").document
+}
+
+fn pack_cases() -> [PackCase; 3] {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    [
+        PackCase {
+            language: "react",
+            design_system_id: "react-ds",
+            component_id: "react.rich-button",
+            package: "@acme/design-system",
+            fixture_root: manifest.join("../wax-lang-react/tests/fixtures/discover"),
+            roots: vec!["design-system/src"],
+            enrich: enrich_react,
+        },
+        PackCase {
+            language: "compose",
+            design_system_id: "compose-ds",
+            component_id: "compose.rich-button",
+            package: "com.example.ds",
+            fixture_root: manifest.join("../wax-lang-compose/tests/fixtures/discover"),
+            roots: vec!["design-system/src/main/kotlin"],
+            enrich: enrich_compose,
+        },
+        PackCase {
+            language: "swift",
+            design_system_id: "swift-ds",
+            component_id: "swift.rich-button",
+            package: "AcmeDesignSystem",
+            fixture_root: manifest.join("../wax-lang-swift/tests/fixtures/rich-discover"),
+            roots: vec!["design-system/Sources"],
+            enrich: enrich_swift,
+        },
+    ]
+}
+
+fn seed_registry(component_id: &str, package: &str) -> RegistryDocument {
+    serde_json::from_value(json!({
+        "schema_version": 1,
+        "components": [{
+            "id": component_id,
+            "symbol": "RichButton",
+            "package": package,
+            "metadata": {
+                "description": "Publisher seed description",
+                "tags": ["seed"]
+            }
+        }]
+    }))
+    .expect("seed registry")
+}
+
+fn publish_merged_registry(pack: &PackCase) -> RegistryDocument {
+    let seed = seed_registry(pack.component_id, pack.package);
+    let discovered = (pack.enrich)(&DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: pack.language.try_into().expect("language id"),
+        repo_root: pack.fixture_root.to_string_lossy().into_owned(),
+        roots: pack.roots.iter().map(|root| (*root).to_owned()).collect(),
+        registry: seed.clone(),
+    });
+    let merged = merge_registry(Some(&seed), &discovered, true).expect("merge publisher registry");
+    let mut document = merged.document;
+    document.extra.insert(
+        "language".to_owned(),
+        Value::String(pack.language.to_owned()),
+    );
+    assert!(
+        document.components[0]
+            .extracted
+            .as_ref()
+            .is_some_and(|extracted| extracted.documentation.as_deref()
+                == Some("A button used for important actions.")),
+        "{} merge should keep enrichment documentation",
+        pack.language
+    );
+    assert_eq!(
+        document.components[0]
+            .metadata
+            .as_ref()
+            .and_then(|metadata: &RegistryMetadata| metadata.description.as_deref()),
+        Some("Publisher seed description"),
+        "{} merge should retain publisher metadata",
+        pack.language
+    );
+    document
+}
+
+fn remember_local_registry(
+    wax_home: &Path,
+    design_system_id: &str,
+    language: &str,
+    registry_path: &Path,
+) {
+    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .args([
+            "registry",
+            "add",
+            design_system_id,
+            &registry_path.display().to_string(),
+            "--language",
+            language,
+            "--name",
+            &format!("{language} fixture"),
+        ])
+        .env("WAX_HOME", wax_home)
+        .output()
+        .expect("spawn registry add");
+    assert!(
+        output.status.success(),
+        "registry add failed for {language}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn run_wax(wax_home: &Path, repo: &Path, args: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_wax"))
+        .args(args)
+        .args(["--repo-root"])
+        .arg(repo)
+        .env("WAX_HOME", wax_home)
+        .output()
+        .expect("spawn wax")
+}
+
+#[test]
+fn parser_packs_publish_merge_then_search_and_detail() {
+    let _guard = env_lock();
+    let root = TestDir::new("pack-e2e");
+    let wax_home = root.path.join("wax-home");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(&wax_home).unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
+
+    for pack in &pack_cases() {
+        let document = publish_merged_registry(pack);
+        let registry_path = root.path.join(format!("{}.registry.json", pack.language));
+        fs::write(
+            &registry_path,
+            registry_to_json(&document).expect("serialize registry"),
+        )
+        .expect("write registry");
+        remember_local_registry(
+            &wax_home,
+            pack.design_system_id,
+            pack.language,
+            &registry_path,
+        );
+
+        let search = run_wax(
+            &wax_home,
+            &repo,
+            &[
+                "search",
+                "RichButton",
+                "--design-system",
+                pack.design_system_id,
+                "--language",
+                pack.language,
+                "--kind",
+                "component",
+                "--format",
+                "json",
+            ],
+        );
+        assert!(
+            search.status.success(),
+            "{} search failed: {}",
+            pack.language,
+            String::from_utf8_lossy(&search.stderr)
+        );
+        let search_value: Value =
+            serde_json::from_str(String::from_utf8(search.stdout).unwrap().trim()).unwrap();
+        assert_eq!(
+            search_value["results"][0]["id"], pack.component_id,
+            "{} search should find the enriched component",
+            pack.language
+        );
+        let digest = search_value["results"][0]["snapshot"]["digest"]
+            .as_str()
+            .expect("digest")
+            .to_owned();
+
+        let detail = run_wax(
+            &wax_home,
+            &repo,
+            &[
+                "component",
+                pack.component_id,
+                "--design-system",
+                pack.design_system_id,
+                "--snapshot",
+                &digest,
+                "--format",
+                "json",
+            ],
+        );
+        assert!(
+            detail.status.success(),
+            "{} detail failed: {}",
+            pack.language,
+            String::from_utf8_lossy(&detail.stderr)
+        );
+        let detail_value: Value =
+            serde_json::from_str(String::from_utf8(detail.stdout).unwrap().trim()).unwrap();
+        assert_eq!(detail_value["kind"], "component");
+        assert_eq!(detail_value["entry"]["id"], pack.component_id);
+        assert_eq!(
+            detail_value["entry"]["extracted"]["documentation"],
+            "A button used for important actions."
+        );
+        assert_eq!(
+            detail_value["entry"]["metadata"]["description"],
+            "Publisher seed description"
+        );
+        assert_eq!(detail_value["snapshot"]["digest"], digest);
+    }
+}

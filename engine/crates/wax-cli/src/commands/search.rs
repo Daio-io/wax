@@ -274,47 +274,15 @@ fn write_detail_text(
     response: &RegistryDetailResponse,
     writer: &mut impl Write,
 ) -> Result<(), SearchCommandError> {
+    // Detail responses keep a lossless JSON entry object so unknown fields survive
+    // round-trips; text rendering therefore reads presentation keys from that map.
     writeln!(writer, "kind: {}", entry_kind_label(response.kind)).map_err(write_error)?;
-    if let Some(id) = response.entry.get("id").and_then(serde_json::Value::as_str) {
-        writeln!(writer, "id: {id}").map_err(write_error)?;
-    }
+    write_optional_entry_str(writer, &response.entry, "id")?;
     write_snapshot_lines(writer, &response.snapshot, "")?;
     writeln!(writer).map_err(write_error)?;
 
-    if let Some(symbol) = response
-        .entry
-        .get("symbol")
-        .and_then(serde_json::Value::as_str)
-    {
-        writeln!(writer, "symbol: {symbol}").map_err(write_error)?;
-    }
-    if let Some(key) = response
-        .entry
-        .get("key")
-        .and_then(serde_json::Value::as_str)
-    {
-        writeln!(writer, "key: {key}").map_err(write_error)?;
-    }
-    if let Some(package) = response
-        .entry
-        .get("package")
-        .and_then(serde_json::Value::as_str)
-    {
-        writeln!(writer, "package: {package}").map_err(write_error)?;
-    }
-    if let Some(value) = response
-        .entry
-        .get("value")
-        .and_then(serde_json::Value::as_str)
-    {
-        writeln!(writer, "value: {value}").map_err(write_error)?;
-    }
-    if let Some(category) = response
-        .entry
-        .get("category")
-        .and_then(serde_json::Value::as_str)
-    {
-        writeln!(writer, "category: {category}").map_err(write_error)?;
+    for key in ["symbol", "key", "package", "value", "category"] {
+        write_optional_entry_str(writer, &response.entry, key)?;
     }
     if let Some(aliases) = response
         .entry
@@ -330,43 +298,8 @@ fn write_detail_text(
         writeln!(writer, "aliases: {rendered}").map_err(write_error)?;
     }
 
-    writeln!(writer, "\nmetadata:").map_err(write_error)?;
-    match response.entry.get("metadata") {
-        Some(metadata) if !metadata.is_null() => {
-            writeln!(
-                writer,
-                "{}",
-                serde_json::to_string_pretty(metadata).map_err(|source| {
-                    SearchCommandError::Io {
-                        source: io::Error::new(io::ErrorKind::InvalidData, source),
-                    }
-                })?
-            )
-            .map_err(write_error)?;
-        }
-        _ => {
-            writeln!(writer, "  <missing>").map_err(write_error)?;
-        }
-    }
-
-    writeln!(writer, "\nextracted:").map_err(write_error)?;
-    match response.entry.get("extracted") {
-        Some(extracted) if !extracted.is_null() => {
-            writeln!(
-                writer,
-                "{}",
-                serde_json::to_string_pretty(extracted).map_err(|source| {
-                    SearchCommandError::Io {
-                        source: io::Error::new(io::ErrorKind::InvalidData, source),
-                    }
-                })?
-            )
-            .map_err(write_error)?;
-        }
-        _ => {
-            writeln!(writer, "  <missing>").map_err(write_error)?;
-        }
-    }
+    write_pretty_entry_section(writer, &response.entry, "metadata")?;
+    write_pretty_entry_section(writer, &response.entry, "extracted")?;
 
     writeln!(writer, "\nentry:").map_err(write_error)?;
     writeln!(
@@ -377,6 +310,41 @@ fn write_detail_text(
         })?
     )
     .map_err(write_error)?;
+    Ok(())
+}
+
+fn write_optional_entry_str(
+    writer: &mut impl Write,
+    entry: &serde_json::Value,
+    key: &str,
+) -> Result<(), SearchCommandError> {
+    if let Some(value) = entry.get(key).and_then(serde_json::Value::as_str) {
+        writeln!(writer, "{key}: {value}").map_err(write_error)?;
+    }
+    Ok(())
+}
+
+fn write_pretty_entry_section(
+    writer: &mut impl Write,
+    entry: &serde_json::Value,
+    key: &str,
+) -> Result<(), SearchCommandError> {
+    writeln!(writer, "\n{key}:").map_err(write_error)?;
+    match entry.get(key) {
+        Some(value) if !value.is_null() => {
+            writeln!(
+                writer,
+                "{}",
+                serde_json::to_string_pretty(value).map_err(|source| SearchCommandError::Io {
+                    source: io::Error::new(io::ErrorKind::InvalidData, source),
+                })?
+            )
+            .map_err(write_error)?;
+        }
+        _ => {
+            writeln!(writer, "  <missing>").map_err(write_error)?;
+        }
+    }
     Ok(())
 }
 

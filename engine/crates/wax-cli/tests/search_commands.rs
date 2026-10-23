@@ -350,6 +350,117 @@ fn search_supports_kind_language_limit_and_offline() {
 }
 
 #[test]
+fn search_tag_selects_git_snapshot_and_offline_miss_is_typed() {
+    let _guard = env_lock();
+    let root = TestDir::new("search-tag-offline");
+    let wax_home = root.path.join("wax-home");
+    let repo = root.path.join("repo");
+    let work = root.path.join("git-work");
+    let remote = root.path.join("remote.git");
+    fs::create_dir_all(&wax_home).unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    fs::create_dir_all(work.join(".wax/registries")).unwrap();
+    let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
+
+    let git = |args: &[&str], cwd: &Path| {
+        let output = Command::new("git")
+            .args([
+                "-c",
+                "user.name=Wax Test",
+                "-c",
+                "user.email=wax-test@example.com",
+            ])
+            .args(args)
+            .current_dir(cwd)
+            .output()
+            .expect("run git");
+        assert!(
+            output.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        output
+    };
+    git(&["init", "-q", "-b", "main"], &work);
+    git(
+        &[
+            "init",
+            "--bare",
+            "-q",
+            remote.to_str().expect("remote path"),
+        ],
+        &root.path,
+    );
+    git(&["symbolic-ref", "HEAD", "refs/heads/main"], &remote);
+    write_registry(
+        &work.join(".wax/registries/react.json"),
+        r#"{"schema_version":1,"language":"react","components":[{"id":"ds.button","symbol":"Button"}],"tokens":[]}"#,
+    );
+    git(&["add", "."], &work);
+    git(&["commit", "-q", "-m", "first"], &work);
+    git(&["tag", "v1.0.0"], &work);
+    git(
+        &[
+            "remote",
+            "add",
+            "origin",
+            remote.to_str().expect("remote path"),
+        ],
+        &work,
+    );
+    git(&["push", "-q", "origin", "main", "--tags"], &work);
+
+    // Local bare repos are directories, so force the Git selector via `git+`.
+    let remote_url = format!("git+{}", remote.display());
+    let tagged = run_wax(
+        &wax_home,
+        &repo,
+        &[
+            "search",
+            "button",
+            "--design-system",
+            &remote_url,
+            "--language",
+            "react",
+            "--tag",
+            "v1.0.0",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(
+        tagged.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&tagged.stderr)
+    );
+    let tagged_value: Value =
+        serde_json::from_str(String::from_utf8(tagged.stdout).unwrap().trim()).unwrap();
+    assert!(search_validator().is_valid(&tagged_value));
+    assert_eq!(tagged_value["results"][0]["id"], "ds.button");
+
+    let offline_miss = run_wax(
+        &wax_home,
+        &repo,
+        &[
+            "search",
+            "button",
+            "--design-system",
+            "http://127.0.0.1:9/missing-registry.json",
+            "--language",
+            "react",
+            "--offline",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(!offline_miss.status.success());
+    let miss_value: Value =
+        serde_json::from_str(String::from_utf8(offline_miss.stdout).unwrap().trim()).unwrap();
+    assert!(error_validator().is_valid(&miss_value));
+    assert_eq!(miss_value["code"], "offline_cache_miss");
+}
+
+#[test]
 fn component_and_token_detail_json_include_complete_sections() {
     let _guard = env_lock();
     let root = TestDir::new("detail-json");
@@ -724,10 +835,27 @@ fn search_to_detail_preserves_app_lock_snapshot() {
         .unwrap()
         .to_owned();
 
+    let token_search = run_wax(
+        &wax_home,
+        &repo,
+        &["search", "ff00aa", "--kind", "token", "--format", "json"],
+    );
+    assert!(
+        token_search.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&token_search.stderr)
+    );
+    let token_search_value: Value =
+        serde_json::from_str(String::from_utf8(token_search.stdout).unwrap().trim()).unwrap();
+    let token_digest = token_search_value["results"][0]["snapshot"]["digest"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
     // A newer on-disk registry must not override the app lock when detailing by digest.
     fs::write(
         repo.join(".wax/react.registry.json"),
-        r#"{"schema_version":1,"language":"react","components":[{"id":"ds.button","symbol":"NewButton"}],"tokens":[]}"#,
+        r##"{"schema_version":1,"language":"react","components":[{"id":"ds.button","symbol":"NewButton"}],"tokens":[{"id":"color.primary","key":"color.primary","category":"color","value":"#00ff00"}]}"##,
     )
     .unwrap();
 
@@ -752,6 +880,131 @@ fn search_to_detail_preserves_app_lock_snapshot() {
         serde_json::from_str(String::from_utf8(detail.stdout).unwrap().trim()).unwrap();
     assert_eq!(detail_value["snapshot"]["digest"], digest);
     assert_eq!(detail_value["entry"]["symbol"], "Button");
+
+    let token_detail = run_wax(
+        &wax_home,
+        &repo,
+        &[
+            "token",
+            "color.primary",
+            "--snapshot",
+            &token_digest,
+            "--format",
+            "json",
+        ],
+    );
+    assert!(
+        token_detail.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&token_detail.stderr)
+    );
+    let token_detail_value: Value =
+        serde_json::from_str(String::from_utf8(token_detail.stdout).unwrap().trim()).unwrap();
+    assert_eq!(token_detail_value["snapshot"]["digest"], token_digest);
+    assert_eq!(token_detail_value["entry"]["value"], "#ff00aa");
+}
+
+#[test]
+fn detail_reports_missing_metadata_duplicate_ids_and_snapshot_mismatch() {
+    let _guard = env_lock();
+    let root = TestDir::new("detail-contract-errors");
+    let wax_home = root.path.join("wax-home");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(&wax_home).unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
+
+    let sparse = root.path.join("sparse.json");
+    write_registry(
+        &sparse,
+        r#"{"schema_version":1,"language":"react","components":[{"id":"ds.sparse","symbol":"Sparse"}],"tokens":[]}"#,
+    );
+    remember_local_registry(&wax_home, "sparse", &sparse);
+    let missing_metadata = run_wax(
+        &wax_home,
+        &repo,
+        &["component", "ds.sparse", "--design-system", "sparse"],
+    );
+    assert!(
+        missing_metadata.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&missing_metadata.stderr)
+    );
+    let missing_stdout = String::from_utf8(missing_metadata.stdout).unwrap();
+    assert!(
+        missing_stdout.contains("metadata:") && missing_stdout.contains("<missing>"),
+        "text detail must render missing metadata explicitly, got:\n{missing_stdout}"
+    );
+    assert!(
+        missing_stdout.contains("extracted:") && missing_stdout.contains("<missing>"),
+        "text detail must render missing extracted explicitly, got:\n{missing_stdout}"
+    );
+
+    let duplicate = root.path.join("duplicate.json");
+    write_registry(
+        &duplicate,
+        r#"{"schema_version":1,"language":"react","components":[{"id":"dup","symbol":"One"},{"id":"dup","symbol":"Two"}],"tokens":[]}"#,
+    );
+    let add_dup = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .args([
+            "registry",
+            "add",
+            "dupes",
+            &duplicate.display().to_string(),
+            "--language",
+            "react",
+            "--name",
+            "Dupes",
+        ])
+        .env("WAX_HOME", &wax_home)
+        .output()
+        .unwrap();
+    assert!(
+        !add_dup.status.success(),
+        "duplicate ids must fail before remember succeeds"
+    );
+    let search_dup = run_wax(
+        &wax_home,
+        &repo,
+        &[
+            "search",
+            "dup",
+            "--design-system",
+            &duplicate.display().to_string(),
+            "--language",
+            "react",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(!search_dup.status.success());
+    let dup_value: Value =
+        serde_json::from_str(String::from_utf8(search_dup.stdout).unwrap().trim()).unwrap();
+    assert!(error_validator().is_valid(&dup_value));
+    assert_eq!(dup_value["code"], "invalid_registry");
+
+    let valid = root.path.join("valid.json");
+    write_registry(&valid, fixture_registry());
+    remember_local_registry(&wax_home, "acme", &valid);
+    let mismatch = run_wax(
+        &wax_home,
+        &repo,
+        &[
+            "component",
+            "ds.button",
+            "--design-system",
+            "acme",
+            "--snapshot",
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(!mismatch.status.success());
+    let mismatch_value: Value =
+        serde_json::from_str(String::from_utf8(mismatch.stdout).unwrap().trim()).unwrap();
+    assert!(error_validator().is_valid(&mismatch_value));
+    assert_eq!(mismatch_value["code"], "snapshot_mismatch");
 }
 
 #[test]

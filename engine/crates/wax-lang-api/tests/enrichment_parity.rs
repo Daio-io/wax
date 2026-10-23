@@ -5,11 +5,19 @@
 //! The legacy `basic` pack does not support registry discovery
 //! (`WireErrorCode::DiscoverUnsupported`); engines fall back to symbol-only
 //! discovery when `registry_details_v1` is false.
+//!
+//! End-to-end publish/merge → `wax search` / `wax component|token` coverage for
+//! each parser pack lives at the CLI binary seam in
+//! `wax-cli/tests/pack_search_integration.rs`.
 
 use serde_json::json;
+use std::io::Cursor;
 use std::path::PathBuf;
-use wax_contract::{RegistryDocument, RegistryExtractionStatus, RegistrySourceKind};
-use wax_lang_api::{DiscoverRegistryRequest, WIRE_API_VERSION, WireErrorCode};
+use wax_contract::{LanguageId, RegistryDocument, RegistryExtractionStatus, RegistrySourceKind};
+use wax_lang_api::{
+    DiscoverRegistryRequest, DiscoverRequest, ScanRequest, WIRE_API_VERSION, WireErrorCode,
+    WirePackHandler, WirePackResponse, serve_one, wire_error_response,
+};
 use wax_lang_compose::discover_registry_details as compose_details;
 use wax_lang_react::discover_registry_details as react_details;
 use wax_lang_swift::discover_registry_details as swift_details;
@@ -156,11 +164,76 @@ fn parser_packs_share_rich_button_enrichment_semantics() {
     }
 }
 
+/// Mirrors `wax-lang-basic`'s wire handler: symbol discover and rich discover both
+/// return [`WireErrorCode::DiscoverUnsupported`], and `registry_details_v1` stays false.
+struct BasicPackHandler;
+
+impl WirePackHandler for BasicPackHandler {
+    fn language_id(&self) -> LanguageId {
+        "basic".try_into().expect("basic language id")
+    }
+
+    fn scan(&self, _request: ScanRequest) -> WirePackResponse {
+        panic!("basic pack discovery tests must not invoke scan");
+    }
+
+    fn discover(&self, request: DiscoverRequest) -> WirePackResponse {
+        wire_error_response(
+            WIRE_API_VERSION,
+            request.language_id,
+            WireErrorCode::DiscoverUnsupported,
+            "basic does not support registry discovery yet",
+        )
+    }
+
+    fn registry_details_v1(&self) -> bool {
+        false
+    }
+}
+
+fn assert_discover_unsupported(output: &[u8]) {
+    let line = std::str::from_utf8(output).expect("utf8").trim();
+    let response: WirePackResponse = serde_json::from_str(line).expect("wire response");
+    match response {
+        WirePackResponse::Error {
+            code, language_id, ..
+        } => {
+            assert_eq!(code, WireErrorCode::DiscoverUnsupported);
+            assert_eq!(language_id.as_str(), "basic");
+        }
+        other => panic!("expected discover_unsupported, got {other:?}"),
+    }
+}
+
 #[test]
-fn basic_pack_discovery_limitation_uses_stable_unsupported_code() {
-    // `wax-lang-basic` has no rich discovery path. Agents and engines must treat
-    // `discover_unsupported` as the explicit compatibility signal rather than
-    // inventing enrichment for the legacy pack.
+fn basic_pack_discovery_path_returns_discover_unsupported() {
+    let handler = BasicPackHandler;
+
+    let mut symbol_output = Vec::new();
+    serve_one(
+        Cursor::new(
+            r#"{"type":"discover","api_version":1,"language_id":"basic","repo_root":"/tmp/repo","roots":["src"]}
+"#,
+        ),
+        &mut symbol_output,
+        &handler,
+    )
+    .expect("serve symbol discover");
+    assert_discover_unsupported(&symbol_output);
+
+    let mut rich_output = Vec::new();
+    serve_one(
+        Cursor::new(
+            r#"{"type":"discover_registry","api_version":1,"language_id":"basic","repo_root":"/tmp/repo","roots":["src"],"registry":{"schema_version":1,"components":[]}}
+"#,
+        ),
+        &mut rich_output,
+        &handler,
+    )
+    .expect("serve rich discover");
+    assert_discover_unsupported(&rich_output);
+
+    assert!(!handler.registry_details_v1());
     assert_eq!(
         serde_json::to_value(WireErrorCode::DiscoverUnsupported).unwrap(),
         json!("discover_unsupported")

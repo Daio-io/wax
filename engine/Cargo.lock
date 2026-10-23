@@ -2696,6 +2696,9 @@ dependencies = [
  "wax-contract",
  "wax-core",
  "wax-lang-api",
+ "wax-lang-compose",
+ "wax-lang-react",
+ "wax-lang-swift",
 ]
 
 [[package]]
