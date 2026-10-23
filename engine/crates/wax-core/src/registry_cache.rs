@@ -15,7 +15,7 @@ use crate::advisory_lock::AdvisoryLock;
 use crate::atomic_file::write_atomically_no_clobber;
 use crate::config::waxrc::{WaxRcError, load_waxrc};
 use crate::paths::{PathsError, registry_cache_dir};
-use crate::registry_git::{RegistryGitError, fetch_git_registry};
+use crate::registry_git::{RegistryGitError, fetch_git_registry, fetch_git_registry_at_commit};
 use crate::registry_source::{
     RegistrySourceError, fetch_http_bytes, file_url_to_path,
     validate_repo_relative_registry_path_within_repo,
@@ -23,7 +23,8 @@ use crate::registry_source::{
 use crate::{AtomicWriteError, AtomicWriteOptions, write_atomically};
 
 /// A registry source that can be resolved into one or more immutable snapshots.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum RegistrySourceSpec {
     /// One local registry JSON file.
     LocalFile {
@@ -123,7 +124,26 @@ impl RegistryCache {
         let selection_identity = source.selection_identity();
         if let Some(expected) = &policy.expected_snapshot {
             self.validate_expected_source(source, expected)?;
-            return self.load_references(std::slice::from_ref(expected));
+            match self.load_references(std::slice::from_ref(expected)) {
+                Ok(snapshot) => return Ok(snapshot),
+                Err(RegistryCacheError::SnapshotUnavailable { .. }) if !policy.offline => {
+                    let mut fetched = self.fetch_expected(source, expected)?;
+                    if fetched.len() == 1
+                        && fetched[0].reference.source == expected.source
+                        && fetched[0].reference.language == expected.language
+                        && fetched[0].reference.digest == expected.digest
+                        && fetched[0].reference.git_commit == expected.git_commit
+                    {
+                        fetched[0].reference = expected.clone();
+                        return Ok(fetched);
+                    }
+                    return Err(RegistryCacheError::SnapshotMismatch {
+                        expected: Box::new(expected.clone()),
+                        requested: source.identity(),
+                    });
+                }
+                Err(error) => return Err(error),
+            }
         }
         if let Some(references) = self.load_selection(&selection_identity)? {
             return self.load_references(&references);
@@ -136,6 +156,27 @@ impl RegistryCache {
             return self.load_references(&references);
         }
         self.fetch_and_select(source, &selection_identity)
+    }
+
+    fn fetch_expected(
+        &self,
+        source: &RegistrySourceSpec,
+        expected: &RegistrySnapshotRef,
+    ) -> Result<Vec<RegistrySnapshot>, RegistryCacheError> {
+        if let RegistrySourceSpec::Git { url, language, .. } = source
+            && let Some(commit) = expected.git_commit.as_deref()
+        {
+            let fetched =
+                fetch_git_registry_at_commit(url, commit, language, &self.root.join("git"))?;
+            return Ok(vec![self.validate_and_store(FetchedRegistry {
+                source: source.identity(),
+                language: Some(language.clone()),
+                system_id: expected.system_id.clone(),
+                git_commit: Some(fetched.commit),
+                bytes: fetched.bytes,
+            })?]);
+        }
+        self.refresh(source)
     }
 
     /// Fetches and validates a source before selecting its new immutable snapshots.
@@ -538,6 +579,12 @@ impl RegistryCache {
 }
 
 impl RegistrySourceSpec {
+    /// Returns the stable, credential-redacted identity used by snapshot references.
+    #[must_use]
+    pub fn canonical_identity(&self) -> String {
+        self.identity()
+    }
+
     /// Parses a user-facing registry source into a local, HTTP, or Git source spec.
     ///
     /// Git sources accept `git+<url>`, Git/SSH URLs, `.git` URLs, scp-style

@@ -589,8 +589,30 @@ fn build_ephemeral_scan_config(
             .map(|root| root.to_string_lossy().into_owned())
             .collect();
         let resolved = resolve_remembered_registry(&remembered, language_id)?;
-        let scan_source = if let Some(local_source) = resolved.design_system_local_source.as_deref()
-        {
+        let scan_source = if remembered.source.is_some() {
+            let digest = resolved
+                .design_system_local_source
+                .as_deref()
+                .ok_or_else(
+                    || wax_core::registry_memory::RegistryMemoryError::ConfigUpdate {
+                        path: remembered.state_path.display().to_string(),
+                        source: Box::new(std::io::Error::new(
+                            std::io::ErrorKind::NotFound,
+                            "remembered registry snapshot is unavailable",
+                        )),
+                    },
+                )?;
+            format!(
+                "file://{}",
+                remembered
+                    .state_path
+                    .parent()
+                    .unwrap_or_else(|| Path::new("."))
+                    .join("cache/registries/blobs")
+                    .join(format!("{digest}.json"))
+                    .display()
+            )
+        } else if let Some(local_source) = resolved.design_system_local_source.as_deref() {
             format!(
                 "file://{}",
                 remembered.repo_root.join(local_source).display()

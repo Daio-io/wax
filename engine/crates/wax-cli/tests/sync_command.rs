@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
-use wax_core::registry_memory::remember_design_system;
+use wax_core::registry_cache::RegistrySourceSpec;
+use wax_core::registry_memory::{add_remembered_registry, remember_design_system};
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -176,6 +177,53 @@ fn sync_command_copies_local_design_system_registry_changes() {
     );
     let stdout = String::from_utf8(output.stdout).expect("stdout should be UTF-8");
     assert!(stdout.contains("updated react registry from acme/react"));
+    let copied = fs::read_to_string(app_repo.join(".wax/registries/acme/react.json"))
+        .expect("read copied registry");
+    assert!(copied.contains("Card"));
+}
+
+#[test]
+fn sync_command_refreshes_source_backed_remembered_registry() {
+    let _guard = env_lock();
+    let root = TestDir::new("sync-source-backed");
+    let app_repo = root.path.join("app");
+    write_app_repo(&app_repo, "acme/react", ".wax/registries/acme/react.json");
+    let wax_home = root.path.join("wax-home");
+    let state_path = wax_home.join("state.json");
+    let source = root.path.join("remote-react.json");
+    fs::write(
+        &source,
+        r#"{"schema_version":1,"language":"react","components":[{"id":"button","symbol":"Button"}]}"#,
+    )
+    .expect("write source registry");
+    add_remembered_registry(
+        &state_path,
+        "acme",
+        "Acme Design System",
+        &RegistrySourceSpec::LocalFile {
+            path: source.clone(),
+            language: None,
+        },
+    )
+    .expect("remember source registry");
+    fs::write(
+        &source,
+        r#"{"schema_version":1,"language":"react","components":[{"id":"card","symbol":"Card"}]}"#,
+    )
+    .expect("update source registry");
+
+    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
+    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .args(["sync", "--repo-root"])
+        .arg(&app_repo)
+        .output()
+        .expect("spawn wax sync");
+
+    assert!(
+        output.status.success(),
+        "wax sync failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let copied = fs::read_to_string(app_repo.join(".wax/registries/acme/react.json"))
         .expect("read copied registry");
     assert!(copied.contains("Card"));

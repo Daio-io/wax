@@ -12,8 +12,8 @@ use crate::config::lockfile::{LockedRegistry, WAX_LOCK_SCHEMA_VERSION, WaxLock, 
 use crate::config::repo_files::discover_repo_files;
 use crate::config::waxrc::{LanguageEntry, WaxRc, WaxRcError, load_waxrc};
 use crate::registry_memory::{
-    RegistryMemoryError, copy_design_system_registry_to_app, resolve_remembered_registry,
-    show_remembered_design_system,
+    RegistryMemoryError, copy_design_system_registry_to_app, refresh_remembered_registry,
+    resolve_remembered_registry, show_remembered_design_system,
 };
 use crate::registry_source::resolve_language_registry_source;
 use crate::{AtomicWriteError, AtomicWriteOptions, paths::PathsError, write_atomically};
@@ -504,7 +504,11 @@ fn prepare_language_upstream_sync(
     config_changed: &mut bool,
 ) -> Result<PreparedSync, SyncError> {
     let design_system_id = parse_upstream_design_system_id(upstream, &entry.id)?;
-    let remembered = show_remembered_design_system(state_path, design_system_id)?;
+    let mut remembered = show_remembered_design_system(state_path, design_system_id)?;
+    if remembered.source.is_some() {
+        refresh_remembered_registry(state_path, design_system_id)?;
+        remembered = show_remembered_design_system(state_path, design_system_id)?;
+    }
     let resolved = resolve_remembered_registry(&remembered, &entry.id)?;
     let registry_copy = resolved
         .design_system_local_source

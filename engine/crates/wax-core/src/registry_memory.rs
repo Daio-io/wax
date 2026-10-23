@@ -12,6 +12,9 @@ use crate::config::repo_files::PREFERRED_CONFIG_RELATIVE_PATH;
 use crate::global_state::{
     GlobalStateError, RememberedDesignSystem, load_global_state, save_global_state,
 };
+use crate::registry_cache::{
+    RegistryCache, RegistryCacheError, RegistrySnapshot, RegistrySourceSpec,
+};
 use crate::registry_source::{
     RegistrySourceError, is_external_registry_source, reject_repo_relative_registry_path_escape,
     validate_repo_relative_registry_path_within_repo,
@@ -96,6 +99,35 @@ pub enum RegistryMemoryError {
     /// Remembered registry source path is invalid or escapes the design-system repo.
     #[error(transparent)]
     RegistrySource(#[from] RegistrySourceError),
+    /// Immutable registry source resolution failed.
+    #[error(transparent)]
+    RegistryCache(#[from] RegistryCacheError),
+    /// A remembered id is already associated with a different display name.
+    #[error(
+        "design system `{design_system_id}` is already remembered as `{existing_name}`; refusing conflicting name `{requested_name}`"
+    )]
+    ConflictingName {
+        /// Existing remembered id.
+        design_system_id: String,
+        /// Existing display name.
+        existing_name: String,
+        /// Requested replacement display name.
+        requested_name: String,
+    },
+    /// The remembered entry is local and cannot be refreshed as a typed source.
+    #[error(
+        "design system `{design_system_id}` is a local publisher; use `registry update --repo-root`"
+    )]
+    NotRemote {
+        /// Requested remembered id.
+        design_system_id: String,
+    },
+    /// The remembered entry is source-backed and has no publisher checkout root.
+    #[error("design system `{design_system_id}` is source-backed; use `registry refresh`")]
+    NotLocal {
+        /// Requested remembered id.
+        design_system_id: String,
+    },
 }
 
 /// Summary of one remembered design system for list/show output.
@@ -109,6 +141,12 @@ pub struct RememberedDesignSystemSummary {
     pub repo_root: PathBuf,
     /// Repo-relative path to the last seen config file.
     pub last_seen_config: PathBuf,
+    /// Typed independent registry source, when this is not a legacy local publisher.
+    pub source: Option<RegistrySourceSpec>,
+    /// Immutable snapshots selected by the most recent add or refresh.
+    pub snapshots: Vec<wax_contract::RegistrySnapshotRef>,
+    /// State file used to locate the shared immutable snapshot cache.
+    pub state_path: PathBuf,
 }
 
 /// Stores or refreshes a remembered design system in global state.
@@ -135,10 +173,98 @@ pub fn remember_design_system(
             name: name.to_owned(),
             repo_root,
             last_seen_config: PathBuf::from(LAST_SEEN_CONFIG_RELATIVE_PATH),
+            source: None,
+            snapshots: Vec::new(),
         },
     );
     save_global_state(state_path, &state)?;
     Ok(())
+}
+
+/// Fetches and remembers an independent registry source under a design-system id.
+///
+/// Existing entries may be refreshed with the same display name. A different name
+/// is rejected so a remembered id cannot silently change identity.
+///
+/// # Errors
+///
+/// Returns [`RegistryMemoryError::ConflictingName`] for an existing id with a
+/// different name, or a typed state/cache error when persistence or source
+/// resolution fails.
+pub fn add_remembered_registry(
+    state_path: impl AsRef<Path>,
+    design_system_id: &str,
+    name: &str,
+    source: &RegistrySourceSpec,
+) -> Result<Vec<RegistrySnapshot>, RegistryMemoryError> {
+    validate_design_system_id(design_system_id)?;
+    let state_path = state_path.as_ref();
+    let mut state = load_global_state(state_path)?;
+    if let Some(existing) = state.design_systems.get(design_system_id)
+        && existing.name != name
+    {
+        return Err(RegistryMemoryError::ConflictingName {
+            design_system_id: design_system_id.to_owned(),
+            existing_name: existing.name.clone(),
+            requested_name: name.to_owned(),
+        });
+    }
+    let snapshots = registry_cache_for_state(state_path).refresh(source)?;
+    state.design_systems.insert(
+        design_system_id.to_owned(),
+        RememberedDesignSystem {
+            name: name.to_owned(),
+            repo_root: PathBuf::new(),
+            last_seen_config: PathBuf::new(),
+            source: Some(source.clone()),
+            snapshots: snapshots
+                .iter()
+                .map(|snapshot| snapshot.reference.clone())
+                .collect(),
+        },
+    );
+    save_global_state(state_path, &state)?;
+    Ok(snapshots)
+}
+
+/// Refetches a typed remembered source and updates its selected snapshots.
+///
+/// # Errors
+///
+/// Returns [`RegistryMemoryError::NotFound`] for an unknown id,
+/// [`RegistryMemoryError::NotRemote`] for a legacy local publisher, or a typed
+/// state/cache error when refresh or persistence fails.
+pub fn refresh_remembered_registry(
+    state_path: impl AsRef<Path>,
+    design_system_id: &str,
+) -> Result<Vec<RegistrySnapshot>, RegistryMemoryError> {
+    validate_design_system_id(design_system_id)?;
+    let state_path = state_path.as_ref();
+    let mut state = load_global_state(state_path)?;
+    let entry = state
+        .design_systems
+        .get_mut(design_system_id)
+        .ok_or_else(|| RegistryMemoryError::NotFound {
+            design_system_id: design_system_id.to_owned(),
+        })?;
+    let source = entry
+        .source
+        .as_ref()
+        .ok_or_else(|| RegistryMemoryError::NotRemote {
+            design_system_id: design_system_id.to_owned(),
+        })?;
+    let snapshots = registry_cache_for_state(state_path).refresh(source)?;
+    entry.snapshots = snapshots
+        .iter()
+        .map(|snapshot| snapshot.reference.clone())
+        .collect();
+    save_global_state(state_path, &state)?;
+    Ok(snapshots)
+}
+
+fn registry_cache_for_state(state_path: &Path) -> RegistryCache {
+    let home = state_path.parent().unwrap_or_else(|| Path::new("."));
+    RegistryCache::open(home.join("cache/registries"))
 }
 
 /// Lists remembered design systems sorted by id.
@@ -150,7 +276,8 @@ pub fn remember_design_system(
 pub fn list_remembered_design_systems(
     state_path: impl AsRef<Path>,
 ) -> Result<Vec<RememberedDesignSystemSummary>, RegistryMemoryError> {
-    let state = load_global_state(state_path.as_ref())?;
+    let state_path = state_path.as_ref();
+    let state = load_global_state(state_path)?;
     Ok(state
         .design_systems
         .iter()
@@ -159,6 +286,9 @@ pub fn list_remembered_design_systems(
             name: entry.name.clone(),
             repo_root: entry.repo_root.clone(),
             last_seen_config: entry.last_seen_config.clone(),
+            source: entry.source.clone(),
+            snapshots: entry.snapshots.clone(),
+            state_path: state_path.to_owned(),
         })
         .collect())
 }
@@ -175,7 +305,8 @@ pub fn show_remembered_design_system(
     design_system_id: &str,
 ) -> Result<RememberedDesignSystemSummary, RegistryMemoryError> {
     validate_design_system_id(design_system_id)?;
-    let state = load_global_state(state_path.as_ref())?;
+    let state_path = state_path.as_ref();
+    let state = load_global_state(state_path)?;
     let Some(entry) = state.design_systems.get(design_system_id) else {
         return Err(RegistryMemoryError::NotFound {
             design_system_id: design_system_id.to_owned(),
@@ -186,6 +317,9 @@ pub fn show_remembered_design_system(
         name: entry.name.clone(),
         repo_root: entry.repo_root.clone(),
         last_seen_config: entry.last_seen_config.clone(),
+        source: entry.source.clone(),
+        snapshots: entry.snapshots.clone(),
+        state_path: state_path.to_owned(),
     })
 }
 
@@ -203,7 +337,6 @@ pub fn update_remembered_design_system_repo_root(
     repo_root: impl AsRef<Path>,
 ) -> Result<(), RegistryMemoryError> {
     validate_design_system_id(design_system_id)?;
-    let repo_root = canonicalize_repo_root(repo_root.as_ref())?;
     let state_path = state_path.as_ref();
     let mut state = load_global_state(state_path)?;
     let Some(entry) = state.design_systems.get_mut(design_system_id) else {
@@ -211,7 +344,12 @@ pub fn update_remembered_design_system_repo_root(
             design_system_id: design_system_id.to_owned(),
         });
     };
-    entry.repo_root = repo_root;
+    if entry.source.is_some() {
+        return Err(RegistryMemoryError::NotLocal {
+            design_system_id: design_system_id.to_owned(),
+        });
+    }
+    entry.repo_root = canonicalize_repo_root(repo_root.as_ref())?;
     save_global_state(state_path, &state)?;
     Ok(())
 }
@@ -252,6 +390,27 @@ pub fn resolve_remembered_registry(
     language_id: &LanguageId,
 ) -> Result<ResolvedRememberedRegistry, RegistryMemoryError> {
     validate_design_system_id(&remembered.id)?;
+    if remembered.source.is_some() {
+        let snapshot = remembered
+            .snapshots
+            .iter()
+            .find(|snapshot| &snapshot.language == language_id)
+            .ok_or_else(|| RegistryMemoryError::ConfigUpdate {
+                path: remembered.state_path.display().to_string(),
+                source: Box::new(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!(
+                        "design system `{}` has no registry for language `{language_id}`",
+                        remembered.id
+                    ),
+                )),
+            })?;
+        return Ok(ResolvedRememberedRegistry {
+            config_source: app_registry_relative_path(&remembered.id, language_id),
+            upstream: format!("{}/{}", remembered.id, language_id.as_str()),
+            design_system_local_source: Some(snapshot.digest.clone()),
+        });
+    }
     let config_path = remembered.repo_root.join(&remembered.last_seen_config);
     let path_display = config_path.display().to_string();
     let config = load_or_create_config(&config_path, &path_display)?;
@@ -359,6 +518,36 @@ pub fn copy_design_system_registry_to_app(
     app_repo_root: &Path,
     app_registry_relative: &str,
 ) -> Result<(), RegistryMemoryError> {
+    if remembered.source.is_some() {
+        let snapshot = remembered
+            .snapshots
+            .iter()
+            .find(|snapshot| snapshot.digest == design_system_local_source)
+            .ok_or_else(|| RegistryMemoryError::ConfigUpdate {
+                path: remembered.state_path.display().to_string(),
+                source: Box::new(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "remembered registry snapshot is unavailable",
+                )),
+            })?;
+        let source_path = remembered
+            .state_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("cache/registries/blobs")
+            .join(format!("{}.json", snapshot.digest));
+        let destination_path = app_repo_root.join(app_registry_relative);
+        let contents =
+            fs::read(&source_path).map_err(|source| RegistryMemoryError::ConfigUpdate {
+                path: source_path.display().to_string(),
+                source: Box::new(source),
+            })?;
+        return write_atomically(&destination_path, &contents, AtomicWriteOptions::default())
+            .map_err(|source| RegistryMemoryError::AtomicWrite {
+                path: destination_path.display().to_string(),
+                source,
+            });
+    }
     let source_path = validate_repo_relative_registry_path_within_repo(
         &remembered.repo_root,
         design_system_local_source,
@@ -822,6 +1011,9 @@ mod registry_memory_tests {
             name: "Acme Design System".to_owned(),
             repo_root: repo,
             last_seen_config: PathBuf::from(LAST_SEEN_CONFIG_RELATIVE_PATH),
+            source: None,
+            snapshots: Vec::new(),
+            state_path: dir.path.join("state.json"),
         };
         let language_id = LanguageId::try_from("react").unwrap();
 
@@ -864,6 +1056,9 @@ mod registry_memory_tests {
             name: "Acme Design System".to_owned(),
             repo_root: repo,
             last_seen_config: PathBuf::from(LAST_SEEN_CONFIG_RELATIVE_PATH),
+            source: None,
+            snapshots: Vec::new(),
+            state_path: dir.path.join("state.json"),
         };
         let language_id = LanguageId::try_from("react").unwrap();
 
@@ -888,6 +1083,9 @@ mod registry_memory_tests {
             name: "Acme Design System".to_owned(),
             repo_root: repo,
             last_seen_config: PathBuf::from(LAST_SEEN_CONFIG_RELATIVE_PATH),
+            source: None,
+            snapshots: Vec::new(),
+            state_path: dir.path.join("state.json"),
         };
         let language_id = LanguageId::try_from("react").unwrap();
 
@@ -922,5 +1120,183 @@ mod registry_memory_tests {
         assert_eq!(state.design_systems.len(), 1);
         assert!(state.installed_languages.is_empty());
         assert!(state.design_systems.contains_key("acme"));
+    }
+
+    #[test]
+    fn old_local_entries_load_and_preserve_installed_languages() {
+        let _guard = env_lock();
+        let dir = TestDir::new("legacy-state");
+        let state_path = dir.path.join("state.json");
+        let language_id = LanguageId::try_from("compose").unwrap();
+        std::fs::write(
+            &state_path,
+            format!(
+                r#"{{
+  "installed_languages": {{
+    "compose": {{
+      "0.1.0": {{ "install_dir": "{}/langs/compose/0.1.0" }}
+    }}
+  }},
+  "design_systems": {{
+    "acme": {{
+      "name": "Acme Design System",
+      "repo_root": "{}/acme-ds",
+      "last_seen_config": ".wax/wax.config.json"
+    }}
+  }}
+}}"#,
+                dir.path.display(),
+                dir.path.display()
+            ),
+        )
+        .unwrap();
+
+        let loaded = load_global_state(&state_path).unwrap();
+        assert!(loaded.design_systems["acme"].source.is_none());
+        assert_eq!(
+            loaded.installed_languages[&language_id]["0.1.0"].install_dir,
+            dir.path.join("langs/compose/0.1.0")
+        );
+
+        let source = dir.path.join("remote.json");
+        std::fs::write(
+            &source,
+            br#"{"schema_version":1,"language":"compose","components":[{"id":"one","symbol":"One"}]}"#,
+        )
+        .unwrap();
+        add_remembered_registry(
+            &state_path,
+            "remote",
+            "Remote",
+            &RegistrySourceSpec::LocalFile {
+                path: source,
+                language: None,
+            },
+        )
+        .unwrap();
+
+        let after = load_global_state(&state_path).unwrap();
+        assert!(after.design_systems["acme"].source.is_none());
+        assert!(after.design_systems["remote"].source.is_some());
+        assert_eq!(
+            after.installed_languages[&language_id]["0.1.0"].install_dir,
+            dir.path.join("langs/compose/0.1.0")
+        );
+    }
+
+    #[test]
+    fn conflicting_remembered_name_is_rejected() {
+        let _guard = env_lock();
+        let dir = TestDir::new("conflict-name");
+        let state_path = dir.path.join("state.json");
+        let source = dir.path.join("compose.json");
+        std::fs::write(
+            &source,
+            br#"{"schema_version":1,"language":"compose","components":[{"id":"one","symbol":"One"}]}"#,
+        )
+        .unwrap();
+        add_remembered_registry(
+            &state_path,
+            "acme",
+            "Acme",
+            &RegistrySourceSpec::LocalFile {
+                path: source.clone(),
+                language: None,
+            },
+        )
+        .unwrap();
+
+        let err = add_remembered_registry(
+            &state_path,
+            "acme",
+            "Other Name",
+            &RegistrySourceSpec::LocalFile {
+                path: source,
+                language: None,
+            },
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            err,
+            RegistryMemoryError::ConflictingName {
+                design_system_id,
+                existing_name,
+                requested_name,
+            } if design_system_id == "acme"
+                && existing_name == "Acme"
+                && requested_name == "Other Name"
+        ));
+    }
+
+    #[test]
+    fn forgetting_name_leaves_shared_blobs_intact() {
+        let _guard = env_lock();
+        let dir = TestDir::new("forget-blobs");
+        let state_path = dir.path.join("state.json");
+        let source = dir.path.join("compose.json");
+        let bytes =
+            br#"{"schema_version":1,"language":"compose","components":[{"id":"one","symbol":"One"}]}"#;
+        std::fs::write(&source, bytes).unwrap();
+        let snapshots = add_remembered_registry(
+            &state_path,
+            "acme",
+            "Acme",
+            &RegistrySourceSpec::LocalFile {
+                path: source,
+                language: None,
+            },
+        )
+        .unwrap();
+        let digest = &snapshots[0].reference.digest;
+        let blob = dir
+            .path
+            .join("cache/registries/blobs")
+            .join(format!("{digest}.json"));
+        assert!(blob.is_file());
+
+        delete_remembered_design_system(&state_path, "acme").unwrap();
+
+        assert!(
+            list_remembered_design_systems(&state_path)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(blob.is_file(), "shared immutable blobs must survive forget");
+        assert_eq!(std::fs::read(&blob).unwrap(), bytes);
+    }
+
+    #[test]
+    fn update_repo_root_rejects_source_backed_entries() {
+        let _guard = env_lock();
+        let dir = TestDir::new("update-remote");
+        let state_path = dir.path.join("state.json");
+        let source = dir.path.join("compose.json");
+        std::fs::write(
+            &source,
+            br#"{"schema_version":1,"language":"compose","components":[{"id":"one","symbol":"One"}]}"#,
+        )
+        .unwrap();
+        add_remembered_registry(
+            &state_path,
+            "acme",
+            "Acme",
+            &RegistrySourceSpec::LocalFile {
+                path: source,
+                language: None,
+            },
+        )
+        .unwrap();
+
+        let err =
+            update_remembered_design_system_repo_root(&state_path, "acme", dir.path.join("moved"))
+                .unwrap_err();
+
+        assert!(matches!(
+            err,
+            RegistryMemoryError::NotLocal {
+                design_system_id
+            } if design_system_id == "acme"
+        ));
     }
 }

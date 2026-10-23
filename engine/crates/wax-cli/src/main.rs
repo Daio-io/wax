@@ -6,9 +6,9 @@ use wax_cli::commands::language::{
     run_install, run_list, run_uninstall, run_update,
 };
 use wax_cli::commands::registry::{
-    RegistryDiscoverCommandOptions, RegistryMemoryCommandOptions, RegistryUpdateCommandOptions,
-    run_registry_delete, run_registry_discover, run_registry_list, run_registry_show,
-    run_registry_update,
+    RegistryAddCommandOptions, RegistryDiscoverCommandOptions, RegistryMemoryCommandOptions,
+    RegistryUpdateCommandOptions, run_registry_add, run_registry_delete, run_registry_discover,
+    run_registry_list, run_registry_refresh, run_registry_show, run_registry_update,
 };
 use wax_cli::commands::scan::parse_output_flag;
 use wax_cli::commands::scan::{ScanCommandOptions, run_scan_cli};
@@ -94,6 +94,28 @@ fn main() {
                 design_system_id: args.design_system,
                 design_system_name: args.name,
             },
+            &mut stdout,
+        )
+        .map_err(Into::into),
+        Commands::Registry(wax_cli::cli::RegistryCli {
+            command: RegistrySubcommand::Add(args),
+        }) => run_registry_add(
+            RegistryAddCommandOptions {
+                name: args.name.unwrap_or_else(|| args.design_system_id.clone()),
+                design_system_id: args.design_system_id,
+                source: args.source,
+                language: args.language,
+                tag: args.tag,
+                state_path: None,
+            },
+            &mut stdout,
+        )
+        .map_err(Into::into),
+        Commands::Registry(wax_cli::cli::RegistryCli {
+            command: RegistrySubcommand::Refresh(args),
+        }) => run_registry_refresh(
+            &args.design_system_id,
+            RegistryMemoryCommandOptions { state_path: None },
             &mut stdout,
         )
         .map_err(Into::into),

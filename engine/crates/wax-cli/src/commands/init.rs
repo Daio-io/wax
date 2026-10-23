@@ -847,6 +847,8 @@ mod tests {
     };
     use wax_core::config::waxrc::load_waxrc;
     use wax_core::global_state::{GlobalState, load_global_state};
+    use wax_core::registry_cache::RegistrySourceSpec;
+    use wax_core::registry_memory::add_remembered_registry;
 
     struct EnvVarGuard {
         key: &'static str,
@@ -1051,6 +1053,69 @@ mod tests {
         assert_eq!(
             config["languages"]["react"]["roots"],
             serde_json::json!(["apps/web/src", "packages/ui/src"])
+        );
+    }
+
+    #[test]
+    fn init_materializes_source_backed_remembered_registry() {
+        let temp = TestDir::new("source-backed-registry");
+        let artifact_path = temp.path.join("compose.tgz");
+        let artifact_digest = write_pack_artifact(&artifact_path, "wax-lang-compose");
+        let pack_index = temp.path.join("pack-index.json");
+        fs::write(
+            &pack_index,
+            format!(
+                r#"[{{"id":"compose","version":"0.4.2","api_version":1,"targets":{{"test-target":{{"url":"{}","sha256":"{}"}}}}}}]"#,
+                file_url(&artifact_path),
+                artifact_digest
+            ),
+        )
+        .unwrap();
+        let source = temp.path.join("compose-registry.json");
+        let registry_bytes = br#"{"schema_version":1,"language":"compose","components":[{"id":"button","symbol":"Button"}]}"#;
+        fs::write(&source, registry_bytes).unwrap();
+        let state_path = temp.path.join("home/state.json");
+        add_remembered_registry(
+            &state_path,
+            "acme",
+            "Acme Design System",
+            &RegistrySourceSpec::LocalFile {
+                path: source,
+                language: None,
+            },
+        )
+        .unwrap();
+        let repo_root = temp.path.join("repo");
+        fs::create_dir_all(&repo_root).unwrap();
+
+        run_init(
+            InitOptions {
+                non_interactive: false,
+                languages: Vec::new(),
+                no_install: true,
+                registry_url: Some(file_url(&pack_index)),
+                repo_root: repo_root.clone(),
+                target_triple: Some("test-target".to_owned()),
+                state_path: Some(state_path),
+                scaffold_registries: false,
+                interactive: Some(InitSelections {
+                    languages: vec![lang("compose")],
+                    scan_roots: BTreeMap::from([(lang("compose"), vec![PathBuf::from("src")])]),
+                    registry_setup: RegistrySetup::RememberedDesignSystem {
+                        design_system_id: "acme".to_owned(),
+                    },
+                }),
+            },
+            &mut Vec::new(),
+        )
+        .unwrap();
+
+        let copied = fs::read(repo_root.join(".wax/registries/acme/compose.json")).unwrap();
+        assert_eq!(copied, registry_bytes);
+        let lock = load_lockfile(repo_root.join(PREFERRED_LOCKFILE_RELATIVE_PATH)).unwrap();
+        assert_eq!(
+            lock.registries[&lang("compose")].sha256,
+            sha256_hex(registry_bytes)
         );
     }
 

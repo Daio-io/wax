@@ -77,6 +77,10 @@ pub struct RegistryCli {
 pub enum RegistrySubcommand {
     /// Discover design-system registry components from source roots.
     Discover(DiscoverArgs),
+    /// Remember and cache a registry source.
+    Add(RegistryAddArgs),
+    /// Refetch a remembered source and update its selected snapshots.
+    Refresh(RegistryRefreshArgs),
     /// List remembered design systems.
     List(RegistryMemoryArgs),
     /// Show one remembered design system.
@@ -85,6 +89,31 @@ pub enum RegistrySubcommand {
     Update(RegistryUpdateArgs),
     /// Delete a remembered design system.
     Delete(RegistryDeleteArgs),
+}
+
+/// Arguments for `wax registry add`.
+#[derive(Debug, Args)]
+pub struct RegistryAddArgs {
+    /// Design-system id used to remember the source.
+    pub design_system_id: String,
+    /// Local path, HTTP URL, or Git source.
+    pub source: String,
+    /// Display name. Defaults to the design-system id.
+    #[arg(long)]
+    pub name: Option<String>,
+    /// Language identity when the registry JSON or source cannot supply it.
+    #[arg(long)]
+    pub language: Option<LanguageId>,
+    /// Optional Git tag or commit.
+    #[arg(long)]
+    pub tag: Option<String>,
+}
+
+/// Arguments for `wax registry refresh`.
+#[derive(Debug, Args)]
+pub struct RegistryRefreshArgs {
+    /// Remembered design-system id to refresh.
+    pub design_system_id: String,
 }
 
 /// Arguments for `wax registry list`.
