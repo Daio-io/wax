@@ -306,40 +306,24 @@ fn new_engine_old_pack_uses_symbol_fallback() {
     let temp_dir = TestDir::new("rich-discover-old-pack");
     let requests_path = temp_dir.path().join("requests.jsonl");
     let script_path = temp_dir.path().join("old-pack.sh");
-    write_script(
+    write_capability_stub_script(
         &script_path,
-        &format!(
-            r#"#!/bin/sh
-request=$(cat)
-printf '%s\n' "$request" >> "$1"
-case "$request" in
-  *'"type":"capabilities"'*)
-    printf '%s\n' '{}'
-    ;;
-  *)
-    printf '%s\n' '{}'
-    ;;
-esac
-"#,
-            serde_json::to_string(&json!({
-                "type": "error",
-                "api_version": WIRE_API_VERSION,
-                "language_id": "compose",
-                "code": "config_invalid",
-                "message": "unknown variant capabilities",
-                "diagnostics": [],
-            }))
-            .unwrap(),
-            serde_json::to_string(&json!({
-                "type": "discover_symbols",
-                "api_version": WIRE_API_VERSION,
-                "language_id": "compose",
-                "symbols": ["Button"],
-                "components": [],
-                "diagnostics": [],
-            }))
-            .unwrap()
-        ),
+        &json!({
+            "type": "error",
+            "api_version": WIRE_API_VERSION,
+            "language_id": "compose",
+            "code": "config_invalid",
+            "message": "unknown variant capabilities",
+            "diagnostics": [],
+        }),
+        &json!({
+            "type": "discover_symbols",
+            "api_version": WIRE_API_VERSION,
+            "language_id": "compose",
+            "symbols": ["Button"],
+            "components": [],
+            "diagnostics": [],
+        }),
     );
     let discoverer = SubprocessLanguageDiscoverer::new(SubprocessLanguageManifest {
         command: vec![
@@ -389,41 +373,25 @@ fn new_engine_pack_without_enrichment_capability_uses_symbol_fallback() {
     let temp_dir = TestDir::new("rich-discover-capability-false");
     let requests_path = temp_dir.path().join("requests.jsonl");
     let script_path = temp_dir.path().join("no-enrichment-pack.sh");
-    write_script(
+    write_capability_stub_script(
         &script_path,
-        &format!(
-            r#"#!/bin/sh
-request=$(cat)
-printf '%s\n' "$request" >> "$1"
-case "$request" in
-  *'"type":"capabilities"'*)
-    printf '%s\n' '{}'
-    ;;
-  *)
-    printf '%s\n' '{}'
-    ;;
-esac
-"#,
-            serde_json::to_string(&json!({
-                "type": "capabilities",
-                "api_version": WIRE_API_VERSION,
-                "language_id": "compose",
-                "registry_details_v1": false,
-            }))
-            .unwrap(),
-            serde_json::to_string(&json!({
-                "type": "discover_symbols",
-                "api_version": WIRE_API_VERSION,
-                "language_id": "compose",
-                "symbols": ["Button"],
-                "components": [{
-                    "symbol": "Button",
-                    "package": "com.acme.designsystem"
-                }],
-                "diagnostics": [],
-            }))
-            .unwrap()
-        ),
+        &json!({
+            "type": "capabilities",
+            "api_version": WIRE_API_VERSION,
+            "language_id": "compose",
+            "registry_details_v1": false,
+        }),
+        &json!({
+            "type": "discover_symbols",
+            "api_version": WIRE_API_VERSION,
+            "language_id": "compose",
+            "symbols": ["Button"],
+            "components": [{
+                "symbol": "Button",
+                "package": "com.acme.designsystem"
+            }],
+            "diagnostics": [],
+        }),
     );
     let discoverer = registry_discoverer(&script_path, &requests_path, Duration::from_secs(5));
 
@@ -453,44 +421,28 @@ fn rich_discovery_uses_separate_envelope() {
     let temp_dir = TestDir::new("rich-discover-supported");
     let requests_path = temp_dir.path().join("requests.jsonl");
     let script_path = temp_dir.path().join("rich-pack.sh");
-    write_script(
+    write_capability_stub_script(
         &script_path,
-        &format!(
-            r#"#!/bin/sh
-request=$(cat)
-printf '%s\n' "$request" >> "$1"
-case "$request" in
-  *'"type":"capabilities"'*)
-    printf '%s\n' '{}'
-    ;;
-  *)
-    printf '%s\n' '{}'
-    ;;
-esac
-"#,
-            serde_json::to_string(&json!({
-                "type": "capabilities",
-                "api_version": WIRE_API_VERSION,
-                "language_id": "compose",
-                "registry_details_v1": true,
-            }))
-            .unwrap(),
-            serde_json::to_string(&json!({
-                "type": "registry_details",
-                "api_version": WIRE_API_VERSION,
-                "language_id": "compose",
-                "document": {
-                    "schema_version": REGISTRY_SCHEMA_VERSION,
-                    "components": [{
-                        "id": "button",
-                        "symbol": "Button",
-                        "extracted": {"status": "complete"}
-                    }]
-                },
-                "diagnostics": [],
-            }))
-            .unwrap()
-        ),
+        &json!({
+            "type": "capabilities",
+            "api_version": WIRE_API_VERSION,
+            "language_id": "compose",
+            "registry_details_v1": true,
+        }),
+        &json!({
+            "type": "registry_details",
+            "api_version": WIRE_API_VERSION,
+            "language_id": "compose",
+            "document": {
+                "schema_version": REGISTRY_SCHEMA_VERSION,
+                "components": [{
+                    "id": "button",
+                    "symbol": "Button",
+                    "extracted": {"status": "complete"}
+                }]
+            },
+            "diagnostics": [],
+        }),
     );
     let discoverer = registry_discoverer(&script_path, &requests_path, Duration::from_secs(5));
 
@@ -634,38 +586,22 @@ fn rich_discovery_error_does_not_fall_back_to_symbols() {
     let temp_dir = TestDir::new("rich-discover-error");
     let requests_path = temp_dir.path().join("requests.jsonl");
     let script_path = temp_dir.path().join("rich-error-pack.sh");
-    write_script(
+    write_capability_stub_script(
         &script_path,
-        &format!(
-            r#"#!/bin/sh
-request=$(cat)
-printf '%s\n' "$request" >> "$1"
-case "$request" in
-  *'"type":"capabilities"'*)
-    printf '%s\n' '{}'
-    ;;
-  *)
-    printf '%s\n' '{}'
-    ;;
-esac
-"#,
-            serde_json::to_string(&json!({
-                "type": "capabilities",
-                "api_version": WIRE_API_VERSION,
-                "language_id": "compose",
-                "registry_details_v1": true,
-            }))
-            .unwrap(),
-            serde_json::to_string(&json!({
-                "type": "error",
-                "api_version": WIRE_API_VERSION,
-                "language_id": "compose",
-                "code": "scan_failed",
-                "message": "rich extraction failed",
-                "diagnostics": [],
-            }))
-            .unwrap()
-        ),
+        &json!({
+            "type": "capabilities",
+            "api_version": WIRE_API_VERSION,
+            "language_id": "compose",
+            "registry_details_v1": true,
+        }),
+        &json!({
+            "type": "error",
+            "api_version": WIRE_API_VERSION,
+            "language_id": "compose",
+            "code": "scan_failed",
+            "message": "rich extraction failed",
+            "diagnostics": [],
+        }),
     );
     let discoverer = registry_discoverer(&script_path, &requests_path, Duration::from_secs(5));
 
@@ -771,6 +707,32 @@ fn large_scan_facts() -> ScanFacts {
     let mut facts = sample_scan_facts();
     facts.snapshot_id = format!("snap-{}", "x".repeat(2 * 1024 * 1024));
     facts
+}
+
+fn write_capability_stub_script(
+    path: &Path,
+    capabilities_response: &Value,
+    follow_up_response: &Value,
+) {
+    write_script(
+        path,
+        &format!(
+            r#"#!/bin/sh
+request=$(cat)
+printf '%s\n' "$request" >> "$1"
+case "$request" in
+  *'"type":"capabilities"'*)
+    printf '%s\n' '{}'
+    ;;
+  *)
+    printf '%s\n' '{}'
+    ;;
+esac
+"#,
+            serde_json::to_string(capabilities_response).unwrap(),
+            serde_json::to_string(follow_up_response).unwrap()
+        ),
+    );
 }
 
 fn write_script(path: &Path, contents: &str) {

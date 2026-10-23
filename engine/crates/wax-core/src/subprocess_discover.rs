@@ -352,7 +352,7 @@ fn exchange_wire_request(
     request: WirePackRequest,
     cancellation: &LanguageCancellationToken,
     stdout_kind: &'static str,
-    require_success: bool,
+    fail_on_nonzero_exit: bool,
 ) -> Result<WirePackResponse, DiscoverError> {
     let request = serialize_wire_request(&request)?;
     let exchange = run_exchange(ExchangeRequest {
@@ -363,14 +363,14 @@ fn exchange_wire_request(
         stdout_kind,
     })
     .map_err(map_exchange_error)?;
-    parse_exchange_response(exchange, require_success)
+    parse_exchange_response(exchange, fail_on_nonzero_exit)
 }
 
 fn parse_exchange_response(
     exchange: ExchangeOutput,
-    require_success: bool,
+    fail_on_nonzero_exit: bool,
 ) -> Result<WirePackResponse, DiscoverError> {
-    if require_success && !exchange.status.success() {
+    if fail_on_nonzero_exit && !exchange.status.success() {
         return Err(process_failure(exchange));
     }
     match read_wire_response(exchange.stdout_path()) {
@@ -463,21 +463,7 @@ fn parse_discover_response(
             ..
         } => {
             ensure_supported_api_version(api_version)?;
-            match code {
-                WireErrorCode::Timeout => Err(DiscoverError::WireTimeout {
-                    message,
-                    diagnostics,
-                }),
-                WireErrorCode::DiscoverUnsupported => Err(DiscoverError::Unsupported {
-                    message,
-                    diagnostics,
-                }),
-                _ => Err(DiscoverError::Wire {
-                    code,
-                    message,
-                    diagnostics,
-                }),
-            }
+            Err(map_wire_error(code, message, diagnostics))
         }
         WirePackResponse::ScanFacts { .. } => Err(DiscoverError::UnexpectedResponseType {
             found: "scan_facts",
@@ -518,21 +504,7 @@ fn response_error(response: WirePackResponse) -> DiscoverError {
             message,
             diagnostics,
             ..
-        } => match code {
-            WireErrorCode::Timeout => DiscoverError::WireTimeout {
-                message,
-                diagnostics,
-            },
-            WireErrorCode::DiscoverUnsupported => DiscoverError::Unsupported {
-                message,
-                diagnostics,
-            },
-            _ => DiscoverError::Wire {
-                code,
-                message,
-                diagnostics,
-            },
-        },
+        } => map_wire_error(code, message, diagnostics),
         WirePackResponse::Capabilities { .. } => DiscoverError::UnexpectedResponseType {
             found: "capabilities",
         },
@@ -544,6 +516,28 @@ fn response_error(response: WirePackResponse) -> DiscoverError {
         },
         WirePackResponse::RegistryDetails { .. } => DiscoverError::UnexpectedResponseType {
             found: "registry_details",
+        },
+    }
+}
+
+fn map_wire_error(
+    code: WireErrorCode,
+    message: String,
+    diagnostics: Vec<Diagnostic>,
+) -> DiscoverError {
+    match code {
+        WireErrorCode::Timeout => DiscoverError::WireTimeout {
+            message,
+            diagnostics,
+        },
+        WireErrorCode::DiscoverUnsupported => DiscoverError::Unsupported {
+            message,
+            diagnostics,
+        },
+        _ => DiscoverError::Wire {
+            code,
+            message,
+            diagnostics,
         },
     }
 }
