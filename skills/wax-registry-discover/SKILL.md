@@ -147,10 +147,10 @@ Use configless discovery: **always pass `--root`** and do not assume configured 
 
    - Ask about exports that look like helpers, demos, previews, aliases, or duplicate public components.
    - Ask before excluding discovered symbols from the registry.
-   - Do not use `--force` to replace an existing registry; apply the approved diff instead.
+   - `--force` is retained for compatibility; existing registries are refreshed by a lossless merge.
    - Require **explicit approval** for additions and value changes; require a separate approval for any removals.
 
-7. Write the registry only after review. **For an existing registry, use `apply_patch` only** so the approved diff is the only change applied. Current discovery output is component-only, so running the write form with `--force` against an existing registry can discard tokens, aliases, metadata, and other fields outside the approved diff.
+7. Write the registry only after review. Existing registries are refreshed by a lossless merge that preserves tokens, aliases, metadata, values, and generated extraction fields; `--force` remains accepted as a compatibility flag and does not discard creator data.
 
    Reserve the full discovery write for creating a new registry at a path that does not exist:
 
@@ -227,7 +227,7 @@ wax registry delete <id>
 - pass `--design-system` and `--name` when discovering in a design-system repo
 - do not blindly overwrite
 - keep discovery in `--dry-run` mode for existing registries
-- use `apply_patch` only for approved changes to an existing registry; never replace it with `--force`
+- `--force` is compatibility-only; existing registries are refreshed by lossless merge
 - require explicit approval before writing additions or value changes
 - require separate approval before any removals
 - **Never delete** components or tokens automatically

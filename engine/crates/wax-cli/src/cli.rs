@@ -127,7 +127,7 @@ pub struct DiscoverArgs {
     /// Print generated registry JSON to stdout without writing a file.
     #[arg(long)]
     pub dry_run: bool,
-    /// Replace an existing registry file.
+    /// Compatibility flag; existing registries are refreshed by lossless merge.
     #[arg(long)]
     pub force: bool,
     /// Design-system id to remember after discovery.

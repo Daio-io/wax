@@ -318,7 +318,23 @@ fn install_discover_fixture_pack(
     let script_path = install_dir.join(format!("wax-lang-{language_id}"));
     fs::write(
         &script_path,
-        format!("#!/bin/sh\ncat >/dev/null\ncat <<'JSON'\n{response_json}\nJSON\n"),
+        format!(
+            r#"#!/bin/sh
+request=$(cat)
+case "$request" in
+  *'"type":"capabilities"'*)
+    cat <<'JSON'
+{{"type":"capabilities","api_version":1,"language_id":"{language_id}","registry_details_v1":false}}
+JSON
+    ;;
+  *)
+    cat <<'JSON'
+{response_json}
+JSON
+    ;;
+esac
+"#
+        ),
     )
     .expect("write fixture language pack script");
     #[cfg(unix)]
@@ -365,6 +381,77 @@ fn install_discover_fixture_pack(
     )
     .expect("write fixture state file");
 
+    let guard = EnvVarGuard::set("WAX_HOME", &wax_home);
+    (wax_home, guard)
+}
+
+fn install_rich_discover_fixture_pack() -> (PathBuf, EnvVarGuard) {
+    let language_id = "compose";
+    let version = "0.1.0";
+    let wax_home = std::env::temp_dir().join(format!(
+        "wax-core-registry-rich-home-{}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after epoch")
+            .as_nanos()
+    ));
+    let install_dir = wax_home.join(format!("langs/{language_id}/{version}"));
+    fs::create_dir_all(&install_dir).expect("create language install dir");
+    let script_path = install_dir.join("wax-lang-compose");
+    fs::write(
+        &script_path,
+        r#"#!/bin/sh
+request=$(cat)
+case "$request" in
+  *'"type":"capabilities"'*)
+    printf '%s\n' '{"type":"capabilities","api_version":1,"language_id":"compose","registry_details_v1":true}'
+    ;;
+  *'"type":"discover_registry"'*)
+    printf '%s\n' '{"type":"registry_details","api_version":1,"language_id":"compose","document":{"schema_version":1,"components":[{"id":"button","symbol":"Button","metadata":{"sources":[{"kind":"documentation","path":"pack-injected.md"}]},"extracted":{"status":"partial","documentation":"Generated docs"}},{"id":"card","symbol":"Card","metadata":{"sources":[{"kind":"example","path":"secret.txt"}]},"extracted":{"status":"complete"}}]},"diagnostics":[]}'
+    ;;
+  *)
+    printf '%s\n' '{"type":"discover_symbols","api_version":1,"language_id":"compose","symbols":["Button"],"diagnostics":[]}'
+    ;;
+esac
+"#,
+    )
+    .expect("write rich fixture language pack script");
+    #[cfg(unix)]
+    {
+        let mut permissions = fs::metadata(&script_path)
+            .expect("read fixture script metadata")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&script_path, permissions).expect("set fixture script permissions");
+    }
+    fs::write(
+        install_dir.join("manifest.json"),
+        r#"{
+  "id": "compose",
+  "version": "0.1.0",
+  "api_version": 1,
+  "command": ["./wax-lang-compose"],
+  "target": "x86_64-unknown-linux-gnu",
+  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}
+"#,
+    )
+    .expect("write rich fixture manifest");
+    fs::write(
+        wax_home.join("state.json"),
+        format!(
+            "{}\n",
+            serde_json::to_string(&json!({
+                "installed_languages": {
+                    "compose": {
+                        "0.1.0": {"install_dir": install_dir}
+                    }
+                }
+            }))
+            .unwrap()
+        ),
+    )
+    .expect("write rich fixture state");
     let guard = EnvVarGuard::set("WAX_HOME", &wax_home);
     (wax_home, guard)
 }
@@ -467,7 +554,8 @@ fun XMLButton() {}
         json!([
             {
                 "id": "ds.xml-button",
-                "symbol": "XMLButton"
+                "symbol": "XMLButton",
+                "extracted": {"status": "unavailable"}
             }
         ])
     );
@@ -946,7 +1034,7 @@ fn discover_without_installed_pack_returns_clear_error() {
 }
 
 #[test]
-fn second_discover_for_same_language_fails_without_force() {
+fn unchanged_discover_rerun_succeeds_without_force_and_is_stable() {
     let _guard = env_lock();
     let repo = TestRepo::new("discover-same-language-overwrite");
     write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
@@ -954,10 +1042,13 @@ fn second_discover_for_same_language_fails_without_force() {
     write_compose_lockfile(repo.path());
     let (_wax_home, _wax_home_guard) = install_compose_pack_fixture();
 
-    discover_with_config_roots_write(repo.path()).expect("first discover");
-    let err = discover_with_config_roots_write(repo.path()).expect_err("second discover");
+    let first = discover_with_config_roots_write(repo.path()).expect("first discover");
+    let first_contents = fs::read_to_string(&first.output_path).expect("read first registry");
+    let second = discover_with_config_roots_write(repo.path()).expect("second discover");
+    let second_contents = fs::read_to_string(&second.output_path).expect("read second registry");
 
-    assert!(matches!(err, RegistryDiscoverError::OutputExists { .. }));
+    assert_eq!(second_contents, first_contents);
+    assert!(second.changes.is_empty());
 }
 
 #[test]
@@ -1009,15 +1100,49 @@ fn default_write_targets_centralized_registry_path() {
 }
 
 #[test]
-fn existing_registry_refuses_overwrite_without_force() {
-    let repo = TestRepo::new("registry-discovery-refuse-overwrite");
+fn existing_registry_refreshes_without_force_and_preserves_creator_fields() {
+    let repo = TestRepo::new("registry-discovery-safe-refresh");
     let _guard = env_lock();
     let (_wax_home, _wax_home_guard) = install_compose_pack_fixture();
     write_compose_lockfile(repo.path());
     let output_path = repo.path().join(".wax/compose.registry.json");
     fs::create_dir_all(output_path.parent().expect("registry parent")).unwrap();
-    let original_contents = "{\"schema_version\":1,\"components\":[]}\n";
+    let original_contents = r#"{"schema_version":1,"components":[{"id":"primary","symbol":"PrimaryButton","metadata":{"description":"Authored"}}],"tokens":[{"id":"color.brand","key":"color.brand","category":"color"}]}
+"#;
     fs::write(&output_path, original_contents).unwrap();
+
+    let result = discover_registry(RegistryDiscoverOptions {
+        repo_root: repo.path(),
+        language_id: "compose",
+        roots: vec![compose_fixture_root()],
+        dry_run: false,
+        force: false,
+        design_system_id: None,
+        design_system_name: None,
+    })
+    .expect("existing registry should refresh through lossless merge");
+
+    assert_eq!(
+        result.document.components[0]
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.description.as_deref()),
+        Some("Authored")
+    );
+    assert_eq!(result.document.tokens.len(), 1);
+}
+
+#[test]
+fn invalid_existing_registry_failure_keeps_previous_file_recoverable() {
+    let repo = TestRepo::new("registry-discovery-invalid-existing-recovery");
+    let _guard = env_lock();
+    let (_wax_home, _wax_home_guard) = install_compose_pack_fixture();
+    write_compose_lockfile(repo.path());
+    let output_path = repo.path().join(".wax/compose.registry.json");
+    fs::create_dir_all(output_path.parent().expect("registry parent"))
+        .expect("create registry dir");
+    let original_contents = "{\"schema_version\":1,\"components\":[";
+    fs::write(&output_path, original_contents).expect("seed invalid registry");
 
     let err = discover_registry(RegistryDiscoverOptions {
         repo_root: repo.path(),
@@ -1028,65 +1153,31 @@ fn existing_registry_refuses_overwrite_without_force() {
         design_system_id: None,
         design_system_name: None,
     })
-    .expect_err("existing registry should block overwrite");
+    .expect_err("invalid existing registry should fail before replacement");
 
-    assert!(matches!(err, RegistryDiscoverError::OutputExists { .. }));
-    let message = err.to_string();
-    assert!(message.contains("--force"));
-    assert!(message.contains("--dry-run"));
+    assert!(matches!(
+        err,
+        RegistryDiscoverError::InvalidExistingRegistry { .. }
+    ));
     assert_eq!(
-        fs::read_to_string(&output_path).expect("read existing registry"),
+        fs::read_to_string(output_path).expect("read recoverable registry"),
         original_contents
     );
 }
 
 #[test]
-#[cfg(unix)]
-fn existing_registry_refuses_overwrite_before_temp_creation_failures() {
-    let repo = TestRepo::new("registry-discovery-refuse-overwrite-preflight");
-    let _guard = env_lock();
-    let (_wax_home, _wax_home_guard) = install_compose_pack_fixture();
-    write_compose_lockfile(repo.path());
-    let wax_dir = repo.path().join(".wax");
-    let output_path = wax_dir.join("compose.registry.json");
-    fs::create_dir_all(&wax_dir).expect("create registry dir");
-    fs::write(&output_path, "{\"schema_version\":1,\"components\":[]}\n").expect("seed registry");
-
-    let original_permissions = fs::metadata(&wax_dir)
-        .expect("read dir metadata")
-        .permissions();
-    let mut read_only_permissions = original_permissions.clone();
-    read_only_permissions.set_mode(0o555);
-    fs::set_permissions(&wax_dir, read_only_permissions).expect("make registry dir read-only");
-
-    let err = discover_registry(RegistryDiscoverOptions {
-        repo_root: repo.path(),
-        language_id: "compose",
-        roots: vec![compose_fixture_root()],
-        dry_run: false,
-        force: false,
-        design_system_id: None,
-        design_system_name: None,
-    })
-    .expect_err("existing registry should be refused before temp writes");
-
-    fs::set_permissions(&wax_dir, original_permissions).expect("restore registry dir permissions");
-
-    assert!(matches!(err, RegistryDiscoverError::OutputExists { .. }));
-    let message = err.to_string();
-    assert!(message.contains("--force"));
-    assert!(message.contains("--dry-run"));
-}
-
-#[test]
-fn force_replaces_existing_registry() {
+fn force_is_compatible_but_does_not_discard_creator_fields() {
     let repo = TestRepo::new("registry-discovery-force");
     let _guard = env_lock();
     let (_wax_home, _wax_home_guard) = install_compose_pack_fixture();
     write_compose_lockfile(repo.path());
     let output_path = repo.path().join(".wax/compose.registry.json");
     fs::create_dir_all(output_path.parent().expect("registry parent")).unwrap();
-    fs::write(&output_path, "{\"schema_version\":1,\"components\":[]}").unwrap();
+    fs::write(
+        &output_path,
+        r#"{"schema_version":1,"components":[{"id":"primary","symbol":"PrimaryButton","metadata":{"description":"Keep me"}}]}"#,
+    )
+    .unwrap();
 
     discover_registry(RegistryDiscoverOptions {
         repo_root: repo.path(),
@@ -1103,8 +1194,8 @@ fn force_replaces_existing_registry() {
     let written_json: serde_json::Value = serde_json::from_str(&written).expect("valid json");
     assert_eq!(written_json["schema_version"], json!(1));
     assert_eq!(
-        written_json["components"][0]["id"],
-        json!("ds.primary-button")
+        written_json["components"][0]["metadata"]["description"],
+        json!("Keep me")
     );
 }
 
@@ -1163,6 +1254,163 @@ fn discover_with_lockfile_does_not_fallback_to_latest_global_install() {
         err,
         RegistryDiscoverError::PackNotInstalled { .. }
     ));
+}
+
+#[test]
+fn dry_run_returns_losslessly_merged_rich_document_and_structured_changes() {
+    let _guard = env_lock();
+    let repo = TestRepo::new("registry-discovery-rich-merge");
+    link_compose_fixture_into_repo(repo.path());
+    write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
+    write_compose_lockfile(repo.path());
+    fs::create_dir_all(repo.path().join("docs")).expect("create docs directory");
+    fs::write(repo.path().join("docs/button.md"), "Offline button docs\n")
+        .expect("write attachment source");
+    fs::write(repo.path().join("secret.txt"), "must not be read\n")
+        .expect("write unassociated file");
+    let output_path = repo.path().join(".wax/compose.registry.json");
+    fs::write(
+        &output_path,
+        r#"{
+  "schema_version": 1,
+  "components": [{
+    "id": "button",
+    "symbol": "Button",
+    "metadata": {
+      "description": "Creator description",
+      "sources": [{"kind": "documentation", "path": "docs/button.md"}]
+    }
+  }, {
+    "id": "legacy",
+    "symbol": "LegacyControl",
+    "metadata": {"description": "Keep outside narrow roots"}
+  }],
+  "tokens": [{
+    "id": "color.brand",
+    "key": "color.brand",
+    "category": "color",
+    "metadata": {"description": "Creator token"}
+  }]
+}
+"#,
+    )
+    .expect("write authored registry");
+    let (_wax_home, _wax_home_guard) = install_rich_discover_fixture_pack();
+
+    let result = discover_registry(RegistryDiscoverOptions {
+        repo_root: repo.path(),
+        language_id: "compose",
+        roots: vec![repo.path().join("design-system/src/main/kotlin")],
+        dry_run: true,
+        force: false,
+        design_system_id: None,
+        design_system_name: None,
+    })
+    .expect("rich dry run should merge");
+
+    assert_eq!(
+        result.document.components[0]
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.description.as_deref()),
+        Some("Creator description")
+    );
+    assert_eq!(result.document.components.len(), 3);
+    assert_eq!(
+        result.document.components[1]
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.description.as_deref()),
+        Some("Keep outside narrow roots")
+    );
+    assert_eq!(result.document.tokens.len(), 1);
+    let card = result
+        .document
+        .components
+        .iter()
+        .find(|component| component.id == "card")
+        .expect("new rich component");
+    assert!(card.metadata.is_none());
+    assert!(
+        card.extracted
+            .as_ref()
+            .expect("rich card extraction")
+            .attachments
+            .is_empty()
+    );
+    assert_eq!(
+        result.document.components[0]
+            .extracted
+            .as_ref()
+            .expect("rich extraction")
+            .attachments[0]
+            .content,
+        "Offline button docs\n"
+    );
+    assert!(result.changes.iter().any(|change| change.id == "card"));
+    assert_eq!(
+        fs::read_to_string(output_path).expect("dry run preserves source registry"),
+        r#"{
+  "schema_version": 1,
+  "components": [{
+    "id": "button",
+    "symbol": "Button",
+    "metadata": {
+      "description": "Creator description",
+      "sources": [{"kind": "documentation", "path": "docs/button.md"}]
+    }
+  }, {
+    "id": "legacy",
+    "symbol": "LegacyControl",
+    "metadata": {"description": "Keep outside narrow roots"}
+  }],
+  "tokens": [{
+    "id": "color.brand",
+    "key": "color.brand",
+    "category": "color",
+    "metadata": {"description": "Creator token"}
+  }]
+}
+"#
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn attachment_failure_leaves_existing_registry_recoverable() {
+    let _guard = env_lock();
+    let repo = TestRepo::new("registry-discovery-attachment-recovery");
+    link_compose_fixture_into_repo(repo.path());
+    write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
+    write_compose_lockfile(repo.path());
+    fs::create_dir_all(repo.path().join("docs")).expect("create docs directory");
+    let outside_path = repo.path().with_extension("outside.md");
+    fs::write(&outside_path, "outside\n").expect("write outside file");
+    symlink(&outside_path, repo.path().join("docs/button.md"))
+        .expect("create escaping attachment symlink");
+    let output_path = repo.path().join(".wax/compose.registry.json");
+    let original_contents = r#"{"schema_version":1,"components":[{"id":"button","symbol":"Button","metadata":{"description":"Recover me","sources":[{"kind":"documentation","path":"docs/button.md"}]}}]}
+"#;
+    fs::write(&output_path, original_contents).expect("write authored registry");
+    let (_wax_home, _wax_home_guard) = install_rich_discover_fixture_pack();
+
+    let error = discover_registry(RegistryDiscoverOptions {
+        repo_root: repo.path(),
+        language_id: "compose",
+        roots: vec![],
+        dry_run: false,
+        force: false,
+        design_system_id: None,
+        design_system_name: None,
+    })
+    .expect_err("unsafe attachment should abort publication");
+
+    assert!(matches!(error, RegistryDiscoverError::Attachment(_)));
+    assert_eq!(
+        fs::read_to_string(output_path).expect("read recoverable registry"),
+        original_contents
+    );
+    fs::remove_file(outside_path).expect("remove outside file");
 }
 
 fn dry_run_registry() -> serde_json::Value {

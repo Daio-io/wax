@@ -281,6 +281,9 @@ fn merge_extracted(
     let Some(existing) = existing else {
         return Some(discovered.clone());
     };
+    if existing == discovered {
+        return Some(existing.clone());
+    }
     let mut merged = existing.clone();
     merged.status = match discovered.status {
         RegistryExtractionStatus::Complete => return Some(discovered.clone()),

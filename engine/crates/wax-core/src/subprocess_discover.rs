@@ -2,6 +2,7 @@
 //!
 //! The shared subprocess exchange owns stdio transport, spooling, and cleanup.
 
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{self, BufReader};
 use std::path::Path;
@@ -9,7 +10,9 @@ use std::process::ExitStatus;
 use std::time::Duration;
 
 use thiserror::Error;
-use wax_contract::{Diagnostic, RegistryDocument, RegistryExtracted, RegistryExtractionStatus};
+use wax_contract::{
+    Diagnostic, RegistryComponent, RegistryDocument, RegistryExtracted, RegistryExtractionStatus,
+};
 use wax_lang_api::{
     DiscoverRegistryRequest, DiscoverRegistryResult, DiscoverRequest, DiscoverRequestType,
     DiscoveredRegistrySymbol, WIRE_API_VERSION, WireErrorCode, WirePackRequest, WirePackResponse,
@@ -229,6 +232,18 @@ pub enum DiscoverError {
         /// Structured diagnostics returned by the language pack.
         diagnostics: Vec<Diagnostic>,
     },
+    /// Two discovered symbols collapsed to the same generated registry id.
+    #[error(
+        "discovered symbols `{first_symbol}` and `{second_symbol}` both generate registry id `{id}`"
+    )]
+    IdCollision {
+        /// Generated registry id that collided.
+        id: String,
+        /// First symbol that produced the id.
+        first_symbol: String,
+        /// Second symbol that produced the id.
+        second_symbol: String,
+    },
 }
 
 fn run_subprocess_discover(
@@ -302,7 +317,7 @@ fn run_legacy_registry_fallback(
     };
     let legacy = run_subprocess_discover(manifest, legacy_request, cancellation)?;
     Ok(DiscoverRegistryResult {
-        document: normalize_legacy_registry(request.registry, &legacy.components),
+        document: normalize_legacy_registry(request.registry, &legacy.components)?,
         diagnostics: legacy.diagnostics,
     })
 }
@@ -310,22 +325,86 @@ fn run_legacy_registry_fallback(
 fn normalize_legacy_registry(
     mut document: RegistryDocument,
     discovered: &[DiscoveredRegistrySymbol],
-) -> RegistryDocument {
-    for component in &mut document.components {
-        if component.package.is_none()
-            && let Some(package) = discovered
-                .iter()
-                .find(|candidate| candidate.symbol == component.symbol)
-                .and_then(|candidate| candidate.package.clone())
+) -> Result<RegistryDocument, DiscoverError> {
+    let discovered = normalized_symbol_components(discovered.to_vec());
+    let mut seen_ids = document
+        .components
+        .iter()
+        .map(|component| (component.id.clone(), component.symbol.clone()))
+        .collect::<BTreeMap<_, _>>();
+
+    for candidate in discovered {
+        if let Some(component) = document
+            .components
+            .iter_mut()
+            .find(|component| component.symbol == candidate.symbol)
         {
-            component.package = Some(package);
+            if component.package.is_none() {
+                component.package.clone_from(&candidate.package);
+            }
+            component.extracted = Some(unavailable_extraction());
+            continue;
         }
-        component.extracted = Some(unavailable_extraction());
+
+        let id = format!("ds.{}", kebab_case_symbol(&candidate.symbol));
+        if let Some(first_symbol) = seen_ids.insert(id.clone(), candidate.symbol.clone()) {
+            return Err(DiscoverError::IdCollision {
+                id,
+                first_symbol,
+                second_symbol: candidate.symbol,
+            });
+        }
+        document.components.push(RegistryComponent {
+            id,
+            symbol: candidate.symbol,
+            package: candidate.package,
+            aliases: Vec::new(),
+            metadata: None,
+            extracted: Some(unavailable_extraction()),
+            extra: serde_json::Map::new(),
+        });
     }
-    for token in &mut document.tokens {
-        token.extracted = Some(unavailable_extraction());
+    Ok(document)
+}
+
+fn normalized_symbol_components(
+    components: Vec<DiscoveredRegistrySymbol>,
+) -> Vec<DiscoveredRegistrySymbol> {
+    components
+        .into_iter()
+        .fold(BTreeMap::new(), |mut acc, component| {
+            acc.entry(component.symbol.clone()).or_insert(component);
+            acc
+        })
+        .into_values()
+        .collect()
+}
+
+fn kebab_case_symbol(symbol: &str) -> String {
+    let mut result = String::new();
+    let chars: Vec<char> = symbol.chars().collect();
+    for (index, character) in chars.iter().copied().enumerate() {
+        if character.is_ascii_uppercase() {
+            let previous = index
+                .checked_sub(1)
+                .and_then(|previous| chars.get(previous));
+            let next = chars.get(index + 1);
+            if !result.is_empty()
+                && (previous
+                    .is_some_and(|value| value.is_ascii_lowercase() || value.is_ascii_digit())
+                    || (previous.is_some_and(|value| value.is_ascii_uppercase())
+                        && next.is_some_and(|value| value.is_ascii_lowercase())))
+            {
+                result.push('-');
+            }
+            result.push(character.to_ascii_lowercase());
+        } else if character.is_ascii_alphanumeric() {
+            result.push(character.to_ascii_lowercase());
+        } else if !result.ends_with('-') && !result.is_empty() {
+            result.push('-');
+        }
     }
-    document
+    result.trim_matches('-').to_owned()
 }
 
 fn unavailable_extraction() -> RegistryExtracted {
