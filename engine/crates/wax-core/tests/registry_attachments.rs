@@ -78,6 +78,45 @@ fn materializes_requested_inclusive_line_excerpt() {
 }
 
 #[test]
+fn preserves_pack_generated_attachments_when_materializing_sources() {
+    let repo = TestRepo::new("registry-attachment-preserve-generated");
+    fs::create_dir_all(repo.path().join("docs")).expect("create docs directory");
+    fs::write(repo.path().join("docs/button.md"), "Button docs\n").expect("write documentation");
+    let mut document = registry(
+        r#"{
+          "schema_version": 1,
+          "components": [{
+            "id": "button",
+            "symbol": "Button",
+            "metadata": {
+              "sources": [{"kind": "documentation", "path": "docs/button.md"}]
+            },
+            "extracted": {
+              "status": "partial",
+              "attachments": [{
+                "kind": "example",
+                "path": "<jsdoc>",
+                "content": "<Button />"
+              }]
+            }
+          }]
+        }"#,
+    );
+
+    materialize_registry_attachments(repo.path(), &mut document)
+        .expect("attachment materialization should succeed");
+
+    let attachments = &document.components[0]
+        .extracted
+        .as_ref()
+        .expect("generated extraction")
+        .attachments;
+    assert_eq!(attachments.len(), 2);
+    assert_eq!(attachments[0].path, "<jsdoc>");
+    assert_eq!(attachments[1].path, "docs/button.md");
+}
+
+#[test]
 fn missing_associated_file_is_reported_without_failing_other_attachments() {
     let repo = TestRepo::new("registry-attachment-missing");
     fs::create_dir_all(repo.path().join("docs")).expect("create docs directory");

@@ -312,18 +312,15 @@ fn normalize_legacy_registry(
     discovered: &[DiscoveredRegistrySymbol],
 ) -> RegistryDocument {
     for component in &mut document.components {
-        if component.package.is_none()
-            && let Some(package) = discovered
-                .iter()
-                .find(|candidate| candidate.symbol == component.symbol)
-                .and_then(|candidate| candidate.package.clone())
+        if let Some(candidate) = discovered
+            .iter()
+            .find(|candidate| candidate.symbol == component.symbol)
         {
-            component.package = Some(package);
+            if component.package.is_none() {
+                component.package.clone_from(&candidate.package);
+            }
+            component.extracted = Some(unavailable_extraction());
         }
-        component.extracted = Some(unavailable_extraction());
-    }
-    for token in &mut document.tokens {
-        token.extracted = Some(unavailable_extraction());
     }
     document
 }

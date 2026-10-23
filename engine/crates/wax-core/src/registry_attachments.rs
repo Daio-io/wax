@@ -97,7 +97,12 @@ pub fn materialize_registry_attachments(
         let attachments =
             materialize_sources(&canonical_repo_root, &metadata.sources, &mut diagnostics)?;
         if !attachments.is_empty() {
-            extraction(&mut component.extracted).attachments = attachments;
+            let existing = &mut extraction(&mut component.extracted).attachments;
+            for attachment in attachments {
+                if !existing.contains(&attachment) {
+                    existing.push(attachment);
+                }
+            }
         }
     }
     for token in &mut document.tokens {
@@ -107,7 +112,12 @@ pub fn materialize_registry_attachments(
         let attachments =
             materialize_sources(&canonical_repo_root, &metadata.sources, &mut diagnostics)?;
         if !attachments.is_empty() {
-            extraction(&mut token.extracted).attachments = attachments;
+            let existing = &mut extraction(&mut token.extracted).attachments;
+            for attachment in attachments {
+                if !existing.contains(&attachment) {
+                    existing.push(attachment);
+                }
+            }
         }
     }
 
