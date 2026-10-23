@@ -27,6 +27,7 @@
 
 mod component_detect;
 pub mod discover;
+mod registry_details;
 mod swift_ast;
 mod swift_recovery;
 mod tree_sitter_scan;
@@ -35,6 +36,7 @@ use std::path::Path;
 use std::time::Instant;
 
 pub use discover::{DiscoverRegistryResult, SwiftDiscoverError, discover_registry_symbols};
+pub use registry_details::discover_registry_details;
 use time::OffsetDateTime;
 use wax_contract::{
     CountSummary, Diagnostic, DiagnosticSeverity, LanguageId, LanguageMetadata, Metrics,

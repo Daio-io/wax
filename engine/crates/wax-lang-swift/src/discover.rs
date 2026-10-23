@@ -38,6 +38,8 @@ pub enum SwiftDiscoverError {
     MissingRoot(PathBuf),
     /// Tree-sitter parser failed to initialize.
     ParserInitFailed(String),
+    /// The input or enriched registry violates the shared registry contract.
+    InvalidRegistry(wax_contract::RegistryError),
     /// A filesystem operation failed.
     Io {
         /// Human-readable context.
@@ -55,6 +57,7 @@ impl std::fmt::Display for SwiftDiscoverError {
                 write!(f, "discovery root does not exist: {}", path.display())
             }
             Self::ParserInitFailed(reason) => write!(f, "parser init failed: {reason}"),
+            Self::InvalidRegistry(error) => write!(f, "invalid Swift registry: {error}"),
             Self::Io { context, source } => write!(f, "{context}: {source}"),
         }
     }
@@ -64,6 +67,7 @@ impl std::error::Error for SwiftDiscoverError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::InvalidLanguageId(_) | Self::MissingRoot(_) | Self::ParserInitFailed(_) => None,
+            Self::InvalidRegistry(error) => Some(error),
             Self::Io { source, .. } => Some(source),
         }
     }
