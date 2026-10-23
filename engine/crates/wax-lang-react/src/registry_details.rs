@@ -6,8 +6,8 @@ use std::path::Path;
 use serde_json::Map;
 use swc_common::{Span, Spanned, comments::CommentKind};
 use swc_ecma_ast::{
-    Decl, Expr, ModuleDecl, ModuleItem, ObjectPat, ObjectPatProp, Pat, Stmt, TsInterfaceDecl,
-    TsType, TsTypeAliasDecl, TsTypeElement,
+    Decl, DefaultDecl, Expr, ModuleDecl, ModuleItem, ObjectPat, ObjectPatProp, Pat, Stmt,
+    TsInterfaceDecl, TsType, TsTypeAliasDecl, TsTypeElement,
 };
 use wax_contract::{
     RegistryAttachment, RegistryDeprecation, RegistryDocument, RegistryExtracted,
@@ -16,7 +16,11 @@ use wax_contract::{
 };
 use wax_lang_api::{DiscoverRegistryRequest, DiscoverRegistryResult, npm_package_name_for_path};
 
-use crate::discover::{ReactDiscoverError, collect_react_files, repo_relative_path};
+use crate::component_detect::simple_binding_ident;
+use crate::discover::{
+    ReactDiscoverError, ReactWrapperCallees, callee_matches, collect_react_files,
+    react_wrapper_callees, repo_relative_path,
+};
 use crate::swc_parse::{ParsedReactModule, ReactParseOutcome, parse_react_source_file};
 
 #[derive(Debug)]
@@ -113,60 +117,316 @@ pub fn discover_registry_details(
     })
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ComponentImpl<'a> {
+    signature_span: Span,
+    parameter: Option<&'a Pat>,
+}
+
 fn component_declarations(
     parsed: &ParsedReactModule,
     package: Option<String>,
 ) -> Vec<ComponentDeclaration> {
     let props = collect_props_definitions(parsed);
+    let wrapper_callees = react_wrapper_callees(&parsed.module.body);
+    let locals = local_component_impls(parsed);
     let mut declarations = Vec::new();
+
     for item in &parsed.module.body {
-        let ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(export)) = item else {
-            continue;
-        };
-        match &export.decl {
-            Decl::Fn(function) => declarations.push(ComponentDeclaration {
-                symbol: function.ident.sym.to_string(),
-                package: package.clone(),
-                extracted: extracted_component(
-                    parsed,
-                    export.span,
-                    Span::new(
-                        export.span.lo,
-                        function
-                            .function
-                            .body
-                            .as_ref()
-                            .map_or(export.span.hi, |body| body.span.lo),
-                    ),
-                    function.function.params.first().map(|param| &param.pat),
-                    &props,
-                ),
-            }),
-            Decl::Var(variable) => {
-                for declarator in &variable.decls {
-                    let Pat::Ident(binding) = &declarator.name else {
-                        continue;
-                    };
-                    let Some(Expr::Arrow(arrow)) = declarator.init.as_deref() else {
-                        continue;
-                    };
+        match item {
+            ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(export)) => match &export.decl {
+                Decl::Fn(function) => {
+                    let parameter = function.function.params.first().map(|param| &param.pat);
                     declarations.push(ComponentDeclaration {
-                        symbol: binding.id.sym.to_string(),
+                        symbol: function.ident.sym.to_string(),
                         package: package.clone(),
                         extracted: extracted_component(
                             parsed,
                             export.span,
-                            Span::new(export.span.lo, arrow.body.span().lo),
-                            arrow.params.first(),
+                            signature_span_for_function(export.span, &function.function),
+                            parameter,
                             &props,
                         ),
                     });
+                }
+                Decl::Var(variable) => {
+                    for declarator in &variable.decls {
+                        let Some((symbol, _)) = simple_binding_ident(declarator) else {
+                            continue;
+                        };
+                        let Some(init) = declarator.init.as_deref() else {
+                            continue;
+                        };
+                        if let Some(implementation) =
+                            component_impl_from_expr(init, export.span, &locals, &wrapper_callees)
+                        {
+                            declarations.push(ComponentDeclaration {
+                                symbol,
+                                package: package.clone(),
+                                extracted: extracted_component(
+                                    parsed,
+                                    export.span,
+                                    implementation.signature_span,
+                                    implementation.parameter,
+                                    &props,
+                                ),
+                            });
+                        }
+                    }
+                }
+                _ => {}
+            },
+            ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultDecl(default_decl)) => {
+                if let DefaultDecl::Fn(function) = &default_decl.decl
+                    && let Some(ident) = &function.ident
+                {
+                    let parameter = function.function.params.first().map(|param| &param.pat);
+                    declarations.push(ComponentDeclaration {
+                        symbol: ident.sym.to_string(),
+                        package: package.clone(),
+                        extracted: extracted_component(
+                            parsed,
+                            default_decl.span,
+                            signature_span_for_function(default_decl.span, &function.function),
+                            parameter,
+                            &props,
+                        ),
+                    });
+                }
+            }
+            ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultExpr(default_expr)) => {
+                match &*default_expr.expr {
+                    Expr::Ident(ident) => {
+                        if let Some(implementation) = locals.get(ident.sym.as_ref()) {
+                            declarations.push(ComponentDeclaration {
+                                symbol: ident.sym.to_string(),
+                                package: package.clone(),
+                                extracted: extracted_component(
+                                    parsed,
+                                    default_expr.span,
+                                    implementation.signature_span,
+                                    implementation.parameter,
+                                    &props,
+                                ),
+                            });
+                        }
+                    }
+                    expr => {
+                        if let Some((symbol, implementation)) = named_wrapped_component(
+                            expr,
+                            default_expr.span,
+                            &locals,
+                            &wrapper_callees,
+                        ) {
+                            declarations.push(ComponentDeclaration {
+                                symbol,
+                                package: package.clone(),
+                                extracted: extracted_component(
+                                    parsed,
+                                    default_expr.span,
+                                    implementation.signature_span,
+                                    implementation.parameter,
+                                    &props,
+                                ),
+                            });
+                        }
+                    }
                 }
             }
             _ => {}
         }
     }
     declarations
+}
+
+fn local_component_impls(parsed: &ParsedReactModule) -> BTreeMap<String, ComponentImpl<'_>> {
+    let mut locals = BTreeMap::new();
+    for item in &parsed.module.body {
+        let decl = match item {
+            ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(export)) => Some(&export.decl),
+            ModuleItem::Stmt(Stmt::Decl(decl)) => Some(decl),
+            _ => None,
+        };
+        match decl {
+            Some(Decl::Fn(function)) => {
+                let parameter = function.function.params.first().map(|param| &param.pat);
+                locals.insert(
+                    function.ident.sym.to_string(),
+                    ComponentImpl {
+                        signature_span: signature_span_for_function(
+                            function.function.span,
+                            &function.function,
+                        ),
+                        parameter,
+                    },
+                );
+            }
+            Some(Decl::Var(variable)) => {
+                for declarator in &variable.decls {
+                    let Some((name, _)) = simple_binding_ident(declarator) else {
+                        continue;
+                    };
+                    let Some(init) = declarator.init.as_deref() else {
+                        continue;
+                    };
+                    if let Some(implementation) = direct_function_impl(init) {
+                        locals.insert(name, implementation);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    locals
+}
+
+fn component_impl_from_expr<'a>(
+    expr: &'a Expr,
+    export_span: Span,
+    locals: &BTreeMap<String, ComponentImpl<'a>>,
+    wrapper_callees: &ReactWrapperCallees,
+) -> Option<ComponentImpl<'a>> {
+    if let Some(implementation) = direct_function_impl(expr) {
+        return Some(ComponentImpl {
+            signature_span: Span::new(export_span.lo, implementation.signature_span.hi),
+            parameter: implementation.parameter,
+        });
+    }
+    unwrap_react_wrapper(expr, export_span, locals, wrapper_callees)
+}
+
+fn named_wrapped_component<'a>(
+    expr: &'a Expr,
+    export_span: Span,
+    locals: &BTreeMap<String, ComponentImpl<'a>>,
+    wrapper_callees: &ReactWrapperCallees,
+) -> Option<(String, ComponentImpl<'a>)> {
+    let Expr::Call(call) = expr else {
+        return None;
+    };
+    if call.args.len() != 1 {
+        return None;
+    }
+    let arg = &*call.args[0].expr;
+
+    if callee_matches(&call.callee, "memo", wrapper_callees) {
+        return match arg {
+            Expr::Ident(ident) => locals.get(ident.sym.as_ref()).map(|implementation| {
+                (
+                    ident.sym.to_string(),
+                    ComponentImpl {
+                        signature_span: implementation.signature_span,
+                        parameter: implementation.parameter,
+                    },
+                )
+            }),
+            Expr::Call(_) => named_wrapped_component(arg, export_span, locals, wrapper_callees),
+            other => named_inline_function_component(other, export_span),
+        };
+    }
+
+    if callee_matches(&call.callee, "forwardRef", wrapper_callees) {
+        return named_inline_function_component(arg, export_span);
+    }
+
+    None
+}
+
+fn unwrap_react_wrapper<'a>(
+    expr: &'a Expr,
+    export_span: Span,
+    locals: &BTreeMap<String, ComponentImpl<'a>>,
+    wrapper_callees: &ReactWrapperCallees,
+) -> Option<ComponentImpl<'a>> {
+    let Expr::Call(call) = expr else {
+        return None;
+    };
+    if call.args.len() != 1 {
+        return None;
+    }
+    let arg = &*call.args[0].expr;
+
+    if callee_matches(&call.callee, "memo", wrapper_callees) {
+        return match arg {
+            Expr::Ident(ident) => locals
+                .get(ident.sym.as_ref())
+                .copied()
+                .map(|implementation| ComponentImpl {
+                    signature_span: implementation.signature_span,
+                    parameter: implementation.parameter,
+                }),
+            Expr::Call(_) => unwrap_react_wrapper(arg, export_span, locals, wrapper_callees),
+            other => inline_function_component(other, export_span),
+        };
+    }
+
+    if callee_matches(&call.callee, "forwardRef", wrapper_callees) {
+        return inline_function_component(arg, export_span);
+    }
+
+    None
+}
+
+fn named_inline_function_component<'a>(
+    expr: &'a Expr,
+    export_span: Span,
+) -> Option<(String, ComponentImpl<'a>)> {
+    let Expr::Fn(function) = expr else {
+        return None;
+    };
+    let symbol = function.ident.as_ref()?.sym.to_string();
+    let parameter = function.function.params.first().map(|param| &param.pat);
+    Some((
+        symbol,
+        ComponentImpl {
+            signature_span: signature_span_for_function(export_span, &function.function),
+            parameter,
+        },
+    ))
+}
+
+fn inline_function_component<'a>(expr: &'a Expr, export_span: Span) -> Option<ComponentImpl<'a>> {
+    match expr {
+        Expr::Fn(function) => {
+            let parameter = function.function.params.first().map(|param| &param.pat);
+            Some(ComponentImpl {
+                signature_span: signature_span_for_function(export_span, &function.function),
+                parameter,
+            })
+        }
+        Expr::Arrow(arrow) => Some(ComponentImpl {
+            signature_span: Span::new(export_span.lo, arrow.body.span().lo),
+            parameter: arrow.params.first(),
+        }),
+        _ => None,
+    }
+}
+
+fn direct_function_impl(expr: &Expr) -> Option<ComponentImpl<'_>> {
+    match expr {
+        Expr::Arrow(arrow) => Some(ComponentImpl {
+            signature_span: Span::new(arrow.span().lo, arrow.body.span().lo),
+            parameter: arrow.params.first(),
+        }),
+        Expr::Fn(function) => {
+            let parameter = function.function.params.first().map(|param| &param.pat);
+            Some(ComponentImpl {
+                signature_span: signature_span_for_function(
+                    function.function.span,
+                    &function.function,
+                ),
+                parameter,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn signature_span_for_function(span: Span, function: &swc_ecma_ast::Function) -> Span {
+    Span::new(
+        span.lo,
+        function.body.as_ref().map_or(span.hi, |body| body.span.lo),
+    )
 }
 
 fn collect_props_definitions(parsed: &ParsedReactModule) -> BTreeMap<String, PropsDefinition> {
@@ -334,14 +594,43 @@ fn signature_facts(
     let type_text = type_annotation
         .and_then(|annotation| parsed.source_slice_from_span(annotation.type_ann.span()))
         .map(|text| text.trim().to_owned());
-    let Some(type_name) = type_annotation.and_then(|annotation| match &*annotation.type_ann {
-        TsType::TsTypeRef(reference) => match &reference.type_name {
-            swc_ecma_ast::TsEntityName::Ident(ident) => Some(ident.sym.as_ref()),
-            swc_ecma_ast::TsEntityName::TsQualifiedName(_) => None,
-        },
-        _ => None,
-    }) else {
+    let Some(annotation) = type_annotation else {
         return (type_text, Vec::new(), Vec::new());
+    };
+    let type_name = match &*annotation.type_ann {
+        TsType::TsTypeLit(literal) => {
+            return (
+                type_text,
+                parameters_from_members(parsed, &literal.members),
+                Vec::new(),
+            );
+        }
+        TsType::TsTypeRef(reference) => match &reference.type_name {
+            swc_ecma_ast::TsEntityName::Ident(ident) => ident.sym.as_ref(),
+            swc_ecma_ast::TsEntityName::TsQualifiedName(_) => {
+                return (
+                    type_text,
+                    Vec::new(),
+                    vec![RegistryFieldGap {
+                        field: "signature.parameters".to_owned(),
+                        reason: "props type is imported or unavailable locally".to_owned(),
+                        extra: Map::new(),
+                    }],
+                );
+            }
+        },
+        _ => {
+            return (
+                type_text,
+                Vec::new(),
+                vec![RegistryFieldGap {
+                    field: "signature.parameters".to_owned(),
+                    reason: "props type shape is not a local type reference or inline object type"
+                        .to_owned(),
+                    extra: Map::new(),
+                }],
+            );
+        }
     };
     let Some(definition) = props.get(type_name) else {
         return (
@@ -496,16 +785,31 @@ fn enrich_components(
         });
         if let Some(declaration) = declaration {
             component.extracted = Some(declaration.extracted.clone());
-        } else if !damaged_paths.is_empty() && component.extracted.is_some() {
+            continue;
+        }
+
+        let evidence_damaged = component
+            .extracted
+            .as_ref()
+            .and_then(|extracted| extracted.source_evidence.as_ref())
+            .is_some_and(|evidence| damaged_paths.contains(&evidence.path));
+        if evidence_damaged {
             if let Some(extracted) = &mut component.extracted {
                 extracted.status = RegistryExtractionStatus::Stale;
             }
-        } else {
-            component.extracted = Some(unavailable(
-                "source_evidence",
-                "no matching directly exported React declaration was observed",
-            ));
+            continue;
         }
+
+        // Unrelated parse damage is incomplete evidence: preserve prior facts instead of
+        // generating removals. Only emit unavailable when the scan had no damage.
+        if component.extracted.is_some() && !damaged_paths.is_empty() {
+            continue;
+        }
+
+        component.extracted = Some(unavailable(
+            "source_evidence",
+            "no matching directly exported React declaration was observed",
+        ));
     }
 }
 

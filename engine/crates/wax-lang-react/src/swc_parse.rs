@@ -65,12 +65,7 @@ impl ParsedReactModule {
     /// Maps an SWC span to inclusive one-based start and end lines.
     #[must_use]
     pub fn source_lines_from_span(&self, span: Span) -> Option<(u32, u32)> {
-        if span.is_dummy() {
-            return None;
-        }
-        let start = u32::try_from(self.source_map.lookup_char_pos(span.lo()).line).ok()?;
-        let end = u32::try_from(self.source_map.lookup_char_pos(span.hi()).line).ok()?;
-        Some((start, end))
+        span_line_bounds(&self.source_map, span).map(|bounds| (bounds.start_line, bounds.end_line))
     }
 }
 
@@ -224,23 +219,38 @@ fn extension(path: &Path) -> &str {
         .unwrap_or_default()
 }
 
+#[derive(Debug, Clone, Copy)]
+struct SpanLineBounds {
+    start_line: u32,
+    end_line: u32,
+    start_column: u32,
+}
+
+fn span_line_bounds(source_map: &Lrc<SourceMap>, span: Span) -> Option<SpanLineBounds> {
+    if span.is_dummy() {
+        return None;
+    }
+
+    let start = source_map.lookup_char_pos(span.lo());
+    let end = source_map.lookup_char_pos(span.hi());
+    Some(SpanLineBounds {
+        start_line: u32::try_from(start.line).ok()?,
+        end_line: u32::try_from(end.line).ok()?,
+        start_column: u32::try_from(start.col_display + 1).ok()?,
+    })
+}
+
 fn source_location_from_span(
     source_map: &Lrc<SourceMap>,
     span: Span,
     relative_path: &Path,
 ) -> Option<SourceLocation> {
-    if span.is_dummy() {
-        return None;
-    }
-
-    let lookup = source_map.lookup_char_pos(span.lo());
-    let line = u32::try_from(lookup.line).ok()?;
-    let column = u32::try_from(lookup.col_display + 1).ok()?;
+    let bounds = span_line_bounds(source_map, span)?;
 
     Some(SourceLocation {
         file: normalize_repo_relative_path(relative_path),
-        line,
-        column: Some(column),
+        line: bounds.start_line,
+        column: Some(bounds.start_column),
         root_group: None,
     })
 }

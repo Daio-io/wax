@@ -20,14 +20,14 @@ use crate::swc_parse::{ReactParseOutcome, parse_react_source_file};
 
 /// Result of discovering React registry symbols from source roots.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiscoverRegistryResult {
+pub struct DiscoverSymbolsResult {
     /// Discovered design-system symbols with optional package identity.
     pub components: Vec<DiscoveredRegistrySymbol>,
     /// Structured diagnostics emitted while discovering symbols.
     pub diagnostics: Vec<Diagnostic>,
 }
 
-impl DiscoverRegistryResult {
+impl DiscoverSymbolsResult {
     /// Returns discovered symbol names in stable order.
     #[must_use]
     pub fn symbols(&self) -> Vec<String> {
@@ -35,7 +35,8 @@ impl DiscoverRegistryResult {
     }
 }
 
-/// Errors produced while discovering React registry symbols.
+/// Errors produced while discovering React registry symbols or enriching
+/// registry details from source.
 #[derive(Debug)]
 pub enum ReactDiscoverError {
     /// The request contains an invalid language id.
@@ -88,7 +89,7 @@ impl std::error::Error for ReactDiscoverError {
 pub fn discover_registry_symbols(
     parse_root: &Path,
     roots: &[PathBuf],
-) -> Result<DiscoverRegistryResult, ReactDiscoverError> {
+) -> Result<DiscoverSymbolsResult, ReactDiscoverError> {
     let mut source_files = Vec::new();
     for root in roots {
         if !root.exists() {
@@ -127,7 +128,7 @@ pub fn discover_registry_symbols(
         }
     }
 
-    Ok(DiscoverRegistryResult {
+    Ok(DiscoverSymbolsResult {
         components: components
             .into_iter()
             .map(|(symbol, package)| DiscoveredRegistrySymbol::new(symbol, package))
@@ -337,13 +338,13 @@ fn collect_default_decl_symbol(
 }
 
 #[derive(Debug, Default)]
-struct ReactWrapperCallees {
+pub(crate) struct ReactWrapperCallees {
     direct_memo: BTreeSet<String>,
     direct_forward_ref: BTreeSet<String>,
     react_namespaces: BTreeSet<String>,
 }
 
-fn react_wrapper_callees(items: &[ModuleItem]) -> ReactWrapperCallees {
+pub(crate) fn react_wrapper_callees(items: &[ModuleItem]) -> ReactWrapperCallees {
     let mut callees = ReactWrapperCallees::default();
 
     for item in items {
@@ -619,7 +620,11 @@ fn forward_ref_function_component(
     Some((ident.sym.to_string(), ident.span))
 }
 
-fn callee_matches(callee: &Callee, expected: &str, wrapper_callees: &ReactWrapperCallees) -> bool {
+pub(crate) fn callee_matches(
+    callee: &Callee,
+    expected: &str,
+    wrapper_callees: &ReactWrapperCallees,
+) -> bool {
     let Callee::Expr(expr) = callee else {
         return false;
     };
