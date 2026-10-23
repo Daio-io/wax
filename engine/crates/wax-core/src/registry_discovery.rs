@@ -8,8 +8,8 @@ use std::time::Duration;
 use serde_json::Value;
 use thiserror::Error;
 use wax_contract::{
-    Diagnostic, LanguageId, REGISTRY_SCHEMA_VERSION, RegistryDocument, RegistryError,
-    registry_from_json,
+    Diagnostic, LanguageId, REGISTRY_SCHEMA_VERSION, RegistryComponent, RegistryDocument,
+    RegistryError, registry_from_json,
 };
 use wax_lang_api::{DiscoverRegistryRequest, WIRE_API_VERSION};
 
@@ -406,6 +406,7 @@ pub fn discover_registry(
         tokens: Vec::new(),
         extra: serde_json::Map::new(),
     });
+    let creator_seed = seed.clone();
     let mut discovered = discover_registry_document(
         options.repo_root,
         &language_id,
@@ -414,6 +415,9 @@ pub fn discover_registry(
         seed,
         DEFAULT_DISCOVER_TIMEOUT,
     )?;
+    // Packs may emit provisional metadata; only creator-authored associations are
+    // eligible for attachment materialization and publication.
+    retain_creator_metadata(&creator_seed, &mut discovered.document);
     let mut diagnostics = discovered.diagnostics;
     diagnostics.extend(materialize_registry_attachments(
         options.repo_root,
@@ -893,6 +897,15 @@ fn discover_registry_document(
         Err(DiscoverError::Unsupported { .. }) => Err(RegistryDiscoverError::DiscoverUnsupported {
             language_id: language_id.clone(),
         }),
+        Err(DiscoverError::IdCollision {
+            id,
+            first_symbol,
+            second_symbol,
+        }) => Err(RegistryDiscoverError::IdCollision {
+            id,
+            first_symbol,
+            second_symbol,
+        }),
         Err(error) => Err(RegistryDiscoverError::DiscoverSubprocess(error)),
     }
 }
@@ -901,6 +914,49 @@ fn repo_relative_path(repo_root: &Path, path: &Path) -> String {
     path.strip_prefix(repo_root)
         .map(|relative| relative.to_string_lossy().replace('\\', "/"))
         .unwrap_or_else(|_| path.display().to_string())
+}
+
+fn retain_creator_metadata(seed: &RegistryDocument, discovered: &mut RegistryDocument) {
+    for component in &mut discovered.components {
+        component.metadata = seed
+            .components
+            .iter()
+            .find(|seed_component| seed_component.id == component.id)
+            .or_else(|| unique_component_identity_match(&seed.components, component))
+            .and_then(|seed_component| seed_component.metadata.clone());
+    }
+    for token in &mut discovered.tokens {
+        token.metadata = seed
+            .tokens
+            .iter()
+            .find(|seed_token| seed_token.id == token.id)
+            .or_else(|| unique_token_identity_match(&seed.tokens, &token.key))
+            .and_then(|seed_token| seed_token.metadata.clone());
+    }
+}
+
+fn unique_component_identity_match<'a>(
+    components: &'a [RegistryComponent],
+    discovered: &RegistryComponent,
+) -> Option<&'a RegistryComponent> {
+    let mut matches = components.iter().filter(|component| {
+        component.symbol == discovered.symbol
+            && match &discovered.package {
+                Some(package) => component.package.as_ref() == Some(package),
+                None => true,
+            }
+    });
+    let candidate = matches.next()?;
+    matches.next().is_none().then_some(candidate)
+}
+
+fn unique_token_identity_match<'a>(
+    tokens: &'a [wax_contract::RegistryToken],
+    key: &str,
+) -> Option<&'a wax_contract::RegistryToken> {
+    let mut matches = tokens.iter().filter(|token| token.key == key);
+    let candidate = matches.next()?;
+    matches.next().is_none().then_some(candidate)
 }
 
 fn request_roots(repo_root: &Path, roots: &[PathBuf]) -> Vec<String> {
