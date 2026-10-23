@@ -1,8 +1,577 @@
 use std::path::PathBuf;
 use std::{fs, io};
 
-use wax_lang_api::{DiscoverRequest, DiscoverRequestType};
-use wax_lang_react::{ReactLanguage, discover_registry_symbols};
+use wax_contract::RegistryDocument;
+use wax_lang_api::{
+    DiscoverRegistryRequest, DiscoverRequest, DiscoverRequestType, WIRE_API_VERSION,
+};
+use wax_lang_react::{
+    ReactDiscoverError, ReactLanguage, discover_registry_details, discover_registry_symbols,
+};
+
+#[test]
+fn discover_registry_details_returns_typed_error_for_invalid_registry() {
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "react".try_into().unwrap(),
+        repo_root: fixture_root().to_string_lossy().into_owned(),
+        roots: vec!["design-system/src".to_owned()],
+        registry: serde_json::from_value(serde_json::json!({"schema_version": 2})).unwrap(),
+    };
+
+    let error = discover_registry_details(&request).expect_err("registry should be rejected");
+
+    assert!(matches!(error, ReactDiscoverError::InvalidRegistry(_)));
+}
+
+#[test]
+fn discover_registry_details_extracts_direct_component_api_facts() {
+    let repo_root = fixture_root();
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{
+            "id": "react.rich-button",
+            "symbol": "RichButton",
+            "package": "@acme/design-system"
+        }]
+    }))
+    .expect("registry fixture should deserialize");
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "react".try_into().unwrap(),
+        repo_root: repo_root.to_string_lossy().into_owned(),
+        roots: vec!["design-system/src".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("rich discover should succeed");
+    let extracted = result.document.components[0]
+        .extracted
+        .as_ref()
+        .expect("matching component should be enriched");
+
+    assert_eq!(
+        serde_json::to_value(extracted).unwrap(),
+        serde_json::json!({
+            "status": "complete",
+            "source_evidence": {
+                "path": "design-system/src/rich.tsx",
+                "start_line": 22,
+                "end_line": 24
+            },
+            "documentation": "A button used for important actions.",
+            "signature": {
+                "type_text": "export function RichButton({ tone = \"strong\", disabled }: ButtonProps)",
+                "parameters": [
+                    {
+                        "name": "tone",
+                        "type_text": "\"strong\" | \"quiet\"",
+                        "default": "\"strong\"",
+                        "required": false
+                    },
+                    {
+                        "name": "disabled",
+                        "type_text": "boolean",
+                        "required": true
+                    }
+                ]
+            },
+            "deprecation": {
+                "message": "Use ActionButton instead."
+            },
+            "attachments": [{
+                "kind": "example",
+                "path": "design-system/src/rich.tsx",
+                "content": "<Button tone=\"quiet\" />",
+                "language": "tsx"
+            }]
+        })
+    );
+}
+
+#[test]
+fn discover_registry_details_marks_imported_props_unavailable() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let src = tempdir.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(
+        src.join("ImportedButton.tsx"),
+        r#"import type { ImportedProps } from "./types";
+export const ImportedButton = ({ size }: ImportedProps) => <button data-size={size} />;
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "imported", "symbol": "ImportedButton"}]
+    }))
+    .unwrap();
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "react".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("rich discover should succeed");
+    let extracted = result.document.components[0].extracted.as_ref().unwrap();
+
+    assert_eq!(
+        serde_json::to_value(extracted).unwrap(),
+        serde_json::json!({
+            "status": "partial",
+            "source_evidence": {
+                "path": "src/ImportedButton.tsx",
+                "start_line": 2,
+                "end_line": 2
+            },
+            "signature": {
+                "type_text": "export const ImportedButton = ({ size }: ImportedProps) =>"
+            },
+            "field_gaps": [{
+                "field": "signature.parameters",
+                "reason": "props type `ImportedProps` is imported or unavailable locally"
+            }]
+        })
+    );
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_marks_inherited_props_partial() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let src = tempdir.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(
+        src.join("ExtendedButton.tsx"),
+        r#"interface BaseProps {
+  id: string;
+}
+export interface ExtendedProps extends BaseProps {
+  label: string;
+}
+export function ExtendedButton({ label }: ExtendedProps) {
+  return <button>{label}</button>;
+}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "extended", "symbol": "ExtendedButton"}]
+    }))
+    .unwrap();
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "react".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("rich discover should succeed");
+    let extracted = result.document.components[0].extracted.as_ref().unwrap();
+
+    assert_eq!(
+        serde_json::to_value(extracted).unwrap(),
+        serde_json::json!({
+            "status": "partial",
+            "source_evidence": {
+                "path": "src/ExtendedButton.tsx",
+                "start_line": 7,
+                "end_line": 9
+            },
+            "signature": {
+                "type_text": "export function ExtendedButton({ label }: ExtendedProps)",
+                "parameters": [{
+                    "name": "label",
+                    "type_text": "string",
+                    "required": true
+                }]
+            },
+            "field_gaps": [{
+                "field": "signature.parameters",
+                "reason": "props type `ExtendedProps` inherits fields that require type resolution"
+            }]
+        })
+    );
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_enriches_only_explicitly_associated_tokens() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let src = tempdir.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(
+        src.join("tokens.ts"),
+        "export const tokens = { color: { primary: '#fff' }, spacing: { sm: '4px' } };\n",
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "tokens": [
+            {
+                "id": "color.primary",
+                "key": "tokens.color.primary",
+                "category": "color",
+                "value": "#000",
+                "metadata": {"sources": [{
+                    "kind": "declaration",
+                    "path": "src/tokens.ts",
+                    "start_line": 1,
+                    "end_line": 1,
+                    "language": "react"
+                }]}
+            },
+            {
+                "id": "spacing.sm",
+                "key": "tokens.spacing.sm",
+                "category": "spacing",
+                "value": "8px"
+            }
+        ]
+    }))
+    .unwrap();
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "react".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("rich discover should succeed");
+
+    assert_eq!(
+        serde_json::to_value(&result.document.tokens).unwrap(),
+        serde_json::json!([
+            {
+                "id": "color.primary",
+                "key": "tokens.color.primary",
+                "category": "color",
+                "value": "#000",
+                "metadata": {"sources": [{
+                    "kind": "declaration",
+                    "path": "src/tokens.ts",
+                    "start_line": 1,
+                    "end_line": 1,
+                    "language": "react"
+                }]},
+                "extracted": {
+                    "status": "complete",
+                    "source_evidence": {
+                        "path": "src/tokens.ts",
+                        "start_line": 1,
+                        "end_line": 1
+                    }
+                }
+            },
+            {
+                "id": "spacing.sm",
+                "key": "tokens.spacing.sm",
+                "category": "spacing",
+                "value": "8px"
+            }
+        ])
+    );
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_preserves_prior_facts_as_stale_on_damaged_syntax() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let src = tempdir.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(src.join("Broken.tsx"), "export const Broken = (")?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{
+            "id": "broken",
+            "symbol": "Broken",
+            "extracted": {
+                "status": "complete",
+                "documentation": "Prior documentation",
+                "source_evidence": {
+                    "path": "src/Broken.tsx",
+                    "start_line": 1,
+                    "end_line": 1
+                }
+            }
+        }]
+    }))
+    .unwrap();
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "react".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("damaged source should be recoverable");
+
+    assert_eq!(
+        serde_json::to_value(result.document.components[0].extracted.as_ref().unwrap()).unwrap(),
+        serde_json::json!({
+            "status": "stale",
+            "documentation": "Prior documentation",
+            "source_evidence": {
+                "path": "src/Broken.tsx",
+                "start_line": 1,
+                "end_line": 1
+            }
+        })
+    );
+    assert_eq!(result.diagnostics[0].code, "parse_failed");
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_does_not_stale_unrelated_components_on_damage() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let src = tempdir.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(src.join("Broken.tsx"), "export const Broken = (")?;
+    fs::write(
+        src.join("Intact.tsx"),
+        "export function Intact() { return <span />; }",
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{
+            "id": "other",
+            "symbol": "Other",
+            "extracted": {
+                "status": "complete",
+                "documentation": "Prior documentation",
+                "source_evidence": {
+                    "path": "src/Other.tsx",
+                    "start_line": 1,
+                    "end_line": 3
+                }
+            }
+        }]
+    }))
+    .unwrap();
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "react".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("damaged source should be recoverable");
+    let extracted = result.document.components[0].extracted.as_ref().unwrap();
+
+    assert_eq!(
+        extracted.status,
+        wax_contract::RegistryExtractionStatus::Complete
+    );
+    assert_eq!(
+        extracted.documentation.as_deref(),
+        Some("Prior documentation")
+    );
+    assert!(result.diagnostics.iter().any(|d| d.code == "parse_failed"));
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_extracts_inline_props_type_literal() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let src = tempdir.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(
+        src.join("Inline.tsx"),
+        r#"export function Inline({ label }: { label: string; optional?: boolean }) {
+  return <button>{label}</button>;
+}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "inline", "symbol": "Inline"}]
+    }))
+    .unwrap();
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "react".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("rich discover should succeed");
+    let extracted = result.document.components[0].extracted.as_ref().unwrap();
+
+    assert_eq!(
+        serde_json::to_value(extracted).unwrap(),
+        serde_json::json!({
+            "status": "complete",
+            "source_evidence": {
+                "path": "src/Inline.tsx",
+                "start_line": 1,
+                "end_line": 3
+            },
+            "signature": {
+                "type_text": "export function Inline({ label }: { label: string; optional?: boolean })",
+                "parameters": [
+                    {
+                        "name": "label",
+                        "type_text": "string",
+                        "required": true
+                    },
+                    {
+                        "name": "optional",
+                        "type_text": "boolean",
+                        "required": false
+                    }
+                ]
+            }
+        })
+    );
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_extracts_memo_forward_ref_and_default_exports() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let src = tempdir.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(
+        src.join("Wrapped.tsx"),
+        r#"import React, { forwardRef, memo } from "react";
+
+interface MemoProps {
+  label: string;
+}
+
+function MemoBase({ label }: MemoProps) {
+  return <button>{label}</button>;
+}
+
+export const MemoButton = memo(MemoBase);
+
+export const RefInput = forwardRef(function RefInput(
+  { value }: { value: string },
+  _ref: React.Ref<HTMLInputElement>,
+) {
+  return <input value={value} />;
+});
+
+export default function DefaultPanel({ title }: { title: string }) {
+  return <aside>{title}</aside>;
+}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [
+            {"id": "memo", "symbol": "MemoButton"},
+            {"id": "ref", "symbol": "RefInput"},
+            {"id": "default", "symbol": "DefaultPanel"}
+        ]
+    }))
+    .unwrap();
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "react".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("rich discover should succeed");
+    let by_symbol = |symbol: &str| {
+        result
+            .document
+            .components
+            .iter()
+            .find(|component| component.symbol == symbol)
+            .and_then(|component| component.extracted.as_ref())
+            .expect("component should be enriched")
+    };
+
+    let memo = by_symbol("MemoButton");
+    assert_eq!(
+        memo.status,
+        wax_contract::RegistryExtractionStatus::Complete
+    );
+    assert_eq!(
+        memo.signature
+            .as_ref()
+            .map(|signature| signature.parameters.len()),
+        Some(1)
+    );
+    assert_eq!(
+        memo.signature.as_ref().and_then(|signature| {
+            signature
+                .parameters
+                .iter()
+                .find(|parameter| parameter.name == "label")
+                .and_then(|parameter| parameter.type_text.as_deref())
+        }),
+        Some("string")
+    );
+
+    let ref_input = by_symbol("RefInput");
+    assert_eq!(
+        ref_input.status,
+        wax_contract::RegistryExtractionStatus::Complete
+    );
+    assert_eq!(
+        ref_input.signature.as_ref().and_then(|signature| {
+            signature
+                .parameters
+                .iter()
+                .find(|parameter| parameter.name == "value")
+                .and_then(|parameter| parameter.type_text.as_deref())
+        }),
+        Some("string")
+    );
+
+    let default_panel = by_symbol("DefaultPanel");
+    assert_eq!(
+        default_panel.status,
+        wax_contract::RegistryExtractionStatus::Complete
+    );
+    assert_eq!(
+        default_panel.signature.as_ref().and_then(|signature| {
+            signature
+                .parameters
+                .iter()
+                .find(|parameter| parameter.name == "title")
+                .and_then(|parameter| parameter.type_text.as_deref())
+        }),
+        Some("string")
+    );
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_is_idempotent_on_clean_reruns() {
+    let repo_root = fixture_root();
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "rich", "symbol": "RichButton"}]
+    }))
+    .unwrap();
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "react".try_into().unwrap(),
+        repo_root: repo_root.to_string_lossy().into_owned(),
+        roots: vec!["design-system/src".to_owned()],
+        registry,
+    };
+    let first = discover_registry_details(&request).expect("first discover should succeed");
+    let rerun = DiscoverRegistryRequest {
+        registry: first.document.clone(),
+        ..request
+    };
+
+    let second = discover_registry_details(&rerun).expect("second discover should succeed");
+
+    assert_eq!(second.document, first.document);
+}
 
 #[test]
 fn discover_registry_symbols_emits_exported_public_components() {
@@ -23,6 +592,7 @@ fn discover_registry_symbols_emits_exported_public_components() {
             "InlineMemo".to_owned(),
             "InlineRef".to_owned(),
             "MemoButton".to_owned(),
+            "RichButton".to_owned(),
             "TextInput".to_owned(),
         ]
     );

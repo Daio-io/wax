@@ -16,18 +16,18 @@ use crate::component_detect::{
     class_returns_jsx, expression_returns_jsx, function_returns_jsx, is_pascal_case,
     module_export_name, simple_binding_ident,
 };
-use crate::swc_parse::{ReactParseOutcome, parse_react_source_file};
+use crate::swc_parse::{ParsedReactModule, ReactParseOutcome, parse_react_source_file};
 
 /// Result of discovering React registry symbols from source roots.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiscoverRegistryResult {
+pub struct DiscoverSymbolsResult {
     /// Discovered design-system symbols with optional package identity.
     pub components: Vec<DiscoveredRegistrySymbol>,
     /// Structured diagnostics emitted while discovering symbols.
     pub diagnostics: Vec<Diagnostic>,
 }
 
-impl DiscoverRegistryResult {
+impl DiscoverSymbolsResult {
     /// Returns discovered symbol names in stable order.
     #[must_use]
     pub fn symbols(&self) -> Vec<String> {
@@ -35,13 +35,16 @@ impl DiscoverRegistryResult {
     }
 }
 
-/// Errors produced while discovering React registry symbols.
+/// Errors produced while discovering React registry symbols or enriching
+/// registry details from source.
 #[derive(Debug)]
 pub enum ReactDiscoverError {
     /// The request contains an invalid language id.
     InvalidLanguageId(String),
     /// A configured discovery root does not exist.
     MissingRoot(PathBuf),
+    /// The input or enriched registry violates the shared registry contract.
+    InvalidRegistry(wax_contract::RegistryError),
     /// A filesystem operation failed.
     Io {
         /// Human-readable context.
@@ -58,6 +61,7 @@ impl std::fmt::Display for ReactDiscoverError {
             Self::MissingRoot(path) => {
                 write!(f, "discovery root does not exist: {}", path.display())
             }
+            Self::InvalidRegistry(error) => write!(f, "invalid React registry: {error}"),
             Self::Io { context, source } => write!(f, "{context}: {source}"),
         }
     }
@@ -67,9 +71,19 @@ impl std::error::Error for ReactDiscoverError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::InvalidLanguageId(_) | Self::MissingRoot(_) => None,
+            Self::InvalidRegistry(error) => Some(error),
             Self::Io { source, .. } => Some(source),
         }
     }
+}
+
+/// Successfully parsed React source file with package metadata.
+#[derive(Debug)]
+pub(crate) struct ParsedReactSourceFile {
+    /// npm package inferred for the source file, when available.
+    pub package: Option<String>,
+    /// Parsed module AST and source metadata (`parsed.file` is repo-relative).
+    pub parsed: ParsedReactModule,
 }
 
 /// Discovers likely public React design-system component symbols from source roots.
@@ -84,7 +98,45 @@ impl std::error::Error for ReactDiscoverError {
 pub fn discover_registry_symbols(
     parse_root: &Path,
     roots: &[PathBuf],
-) -> Result<DiscoverRegistryResult, ReactDiscoverError> {
+) -> Result<DiscoverSymbolsResult, ReactDiscoverError> {
+    let mut diagnostics = Vec::new();
+    let (parsed_files, _) = collect_and_parse_react_sources(parse_root, roots, &mut diagnostics)?;
+
+    let mut components = BTreeMap::<String, Option<String>>::new();
+    for file in parsed_files {
+        let mut file_symbols = BTreeSet::new();
+        collect_exported_component_symbols(&file.parsed.module.body, &mut file_symbols);
+        for symbol in file_symbols {
+            insert_discovered_symbol(
+                &mut components,
+                &mut diagnostics,
+                symbol,
+                file.package.clone(),
+            );
+        }
+    }
+
+    Ok(DiscoverSymbolsResult {
+        components: components
+            .into_iter()
+            .map(|(symbol, package)| DiscoveredRegistrySymbol::new(symbol, package))
+            .collect(),
+        diagnostics,
+    })
+}
+
+/// Walks React roots, parses each file, appends parse diagnostics, and returns
+/// successful parses plus repo-relative paths that failed to parse.
+///
+/// # Errors
+///
+/// Returns [`ReactDiscoverError::MissingRoot`] for a nonexistent root or
+/// [`ReactDiscoverError::Io`] when source discovery or reading fails.
+pub(crate) fn collect_and_parse_react_sources(
+    parse_root: &Path,
+    roots: &[PathBuf],
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Result<(Vec<ParsedReactSourceFile>, Vec<String>), ReactDiscoverError> {
     let mut source_files = Vec::new();
     for root in roots {
         if !root.exists() {
@@ -97,39 +149,29 @@ pub fn discover_registry_symbols(
     }
     source_files.sort();
 
-    let mut components = BTreeMap::<String, Option<String>>::new();
-    let mut diagnostics = Vec::new();
+    let mut parsed_files = Vec::new();
+    let mut damaged_paths = Vec::new();
     for file_path in source_files {
         let relative_path = repo_relative_path(parse_root, &file_path);
         let package = npm_package_name_for_path(parse_root, &file_path);
-        let parsed = match parse_react_source_file(parse_root, Path::new(&relative_path)).map_err(
-            |source| ReactDiscoverError::Io {
+        match parse_react_source_file(parse_root, Path::new(&relative_path)).map_err(|err| {
+            let crate::ReactParseError::Io { source, .. } = err;
+            ReactDiscoverError::Io {
                 context: format!("read React source {relative_path}"),
-                source: match source {
-                    crate::ReactParseError::Io { source, .. } => source,
-                },
-            },
-        )? {
-            ReactParseOutcome::Parsed(parsed) => parsed,
-            ReactParseOutcome::Failed(diagnostic) => {
-                diagnostics.push(diagnostic);
-                continue;
+                source,
             }
-        };
-        let mut file_symbols = BTreeSet::new();
-        collect_exported_component_symbols(&parsed.module.body, &mut file_symbols);
-        for symbol in file_symbols {
-            insert_discovered_symbol(&mut components, &mut diagnostics, symbol, package.clone());
+        })? {
+            ReactParseOutcome::Parsed(parsed) => {
+                parsed_files.push(ParsedReactSourceFile { package, parsed });
+            }
+            ReactParseOutcome::Failed(diagnostic) => {
+                damaged_paths.push(relative_path);
+                diagnostics.push(diagnostic);
+            }
         }
     }
 
-    Ok(DiscoverRegistryResult {
-        components: components
-            .into_iter()
-            .map(|(symbol, package)| DiscoveredRegistrySymbol::new(symbol, package))
-            .collect(),
-        diagnostics,
-    })
+    Ok((parsed_files, damaged_paths))
 }
 
 fn insert_discovered_symbol(
@@ -156,7 +198,7 @@ fn insert_discovered_symbol(
     components.insert(symbol, package);
 }
 
-fn repo_relative_path(parse_root: &Path, file_path: &Path) -> String {
+pub(crate) fn repo_relative_path(parse_root: &Path, file_path: &Path) -> String {
     file_path
         .strip_prefix(parse_root)
         .map(|relative| relative.to_string_lossy().replace('\\', "/"))
@@ -168,7 +210,10 @@ fn repo_relative_path(parse_root: &Path, file_path: &Path) -> String {
         })
 }
 
-fn collect_react_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), std::io::Error> {
+pub(crate) fn collect_react_files(
+    dir: &Path,
+    files: &mut Vec<PathBuf>,
+) -> Result<(), std::io::Error> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
@@ -330,13 +375,13 @@ fn collect_default_decl_symbol(
 }
 
 #[derive(Debug, Default)]
-struct ReactWrapperCallees {
+pub(crate) struct ReactWrapperCallees {
     direct_memo: BTreeSet<String>,
     direct_forward_ref: BTreeSet<String>,
     react_namespaces: BTreeSet<String>,
 }
 
-fn react_wrapper_callees(items: &[ModuleItem]) -> ReactWrapperCallees {
+pub(crate) fn react_wrapper_callees(items: &[ModuleItem]) -> ReactWrapperCallees {
     let mut callees = ReactWrapperCallees::default();
 
     for item in items {
@@ -612,7 +657,11 @@ fn forward_ref_function_component(
     Some((ident.sym.to_string(), ident.span))
 }
 
-fn callee_matches(callee: &Callee, expected: &str, wrapper_callees: &ReactWrapperCallees) -> bool {
+pub(crate) fn callee_matches(
+    callee: &Callee,
+    expected: &str,
+    wrapper_callees: &ReactWrapperCallees,
+) -> bool {
     let Callee::Expr(expr) = callee else {
         return false;
     };

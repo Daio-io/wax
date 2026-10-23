@@ -35,6 +35,7 @@ mod facts;
 mod files;
 mod module_graph;
 mod registry;
+mod registry_details;
 mod style_extract;
 mod swc_parse;
 mod token_extract;
@@ -43,10 +44,10 @@ use std::path::Path;
 use std::time::Instant;
 
 use wax_contract::{LanguageId, ScanFacts, ScanFactsError};
-use wax_lang_api::{DiscoverRequest, DiscoveredRegistrySymbol, ScanRequest, parse_extract_millis};
+use wax_lang_api::{DiscoverRequest, ScanRequest, parse_extract_millis};
 
 pub use config::{PackageConfig, ReactConfigMode, ReactScanConfig, parse_react_scan_config};
-pub use discover::{DiscoverRegistryResult, ReactDiscoverError, discover_registry_symbols};
+pub use discover::{DiscoverSymbolsResult, ReactDiscoverError, discover_registry_symbols};
 pub use extract::{ReactUsageExtraction, collect_usage_sites, discover_local_components};
 pub use facts::{configured_scan_facts, scaffold_facts};
 pub use files::{ReactFileCollectionError, ReactSourceFileCollection, collect_react_source_files};
@@ -55,29 +56,13 @@ pub use module_graph::{
     ReactModuleRecord, ResolvedSymbol, build_react_module_graph,
 };
 pub use registry::{ReactRegistryIndex, RegistryError, RegistryErrorKind, load_react_registry};
+pub use registry_details::discover_registry_details;
 pub use swc_parse::{
     ParsedReactModule, ReactParseError, ReactParseOutcome, SWC_PARSER_VERSION,
     parse_react_source_file,
 };
 
 const REACT_LANGUAGE_ID: &str = "react";
-
-/// Result of a React registry symbol discovery request.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiscoverSymbolsResult {
-    /// Discovered design-system symbols with optional package identity.
-    pub components: Vec<DiscoveredRegistrySymbol>,
-    /// Structured diagnostics emitted with the result.
-    pub diagnostics: Vec<wax_contract::Diagnostic>,
-}
-
-impl DiscoverSymbolsResult {
-    /// Returns discovered symbol names in stable order.
-    #[must_use]
-    pub fn symbols(&self) -> Vec<String> {
-        DiscoveredRegistrySymbol::symbol_names(&self.components)
-    }
-}
 
 /// Errors returned by [`ReactLanguage::scan`].
 #[derive(Debug)]
@@ -237,12 +222,7 @@ impl ReactLanguage {
             .map(|root| repo_root.join(root))
             .collect::<Vec<_>>();
 
-        let result = discover_registry_symbols(repo_root, &absolute_roots)?;
-
-        Ok(DiscoverSymbolsResult {
-            components: result.components,
-            diagnostics: result.diagnostics,
-        })
+        discover_registry_symbols(repo_root, &absolute_roots)
     }
 }
 
