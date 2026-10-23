@@ -9,12 +9,17 @@ use std::time::Duration;
 use time::macros::datetime;
 use wax_contract::{
     CountSummary, Diagnostic, DiagnosticSeverity, LanguageId, LanguageMetadata, Metrics,
+    REGISTRY_SCHEMA_VERSION, RegistryComponent, RegistryDocument, RegistryExtractionStatus,
     SCHEMA_VERSION, ScanFacts, ScanStatus, SourceLocation,
 };
+use wax_core::subprocess_discover::{DiscoverError, SubprocessLanguageDiscoverer};
 use wax_core::subprocess_lang::{
-    LanguageError, LanguageExtractor, SubprocessLanguageExtractor, SubprocessLanguageManifest,
+    LanguageCancellationToken, LanguageError, LanguageExtractor, SubprocessLanguageExtractor,
+    SubprocessLanguageManifest,
 };
-use wax_lang_api::{ScanRequest, ScanRequestType, WIRE_API_VERSION, WireErrorCode};
+use wax_lang_api::{
+    DiscoverRegistryRequest, ScanRequest, ScanRequestType, WIRE_API_VERSION, WireErrorCode,
+};
 
 #[test]
 fn subprocess_protocol_parses_tagged_scan_facts_stdout() {
@@ -296,6 +301,392 @@ sleep 5
     ));
 }
 
+#[test]
+fn new_engine_old_pack_uses_symbol_fallback() {
+    let temp_dir = TestDir::new("rich-discover-old-pack");
+    let requests_path = temp_dir.path().join("requests.jsonl");
+    let script_path = temp_dir.path().join("old-pack.sh");
+    write_script(
+        &script_path,
+        &format!(
+            r#"#!/bin/sh
+request=$(cat)
+printf '%s\n' "$request" >> "$1"
+case "$request" in
+  *'"type":"capabilities"'*)
+    printf '%s\n' '{}'
+    ;;
+  *)
+    printf '%s\n' '{}'
+    ;;
+esac
+"#,
+            serde_json::to_string(&json!({
+                "type": "error",
+                "api_version": WIRE_API_VERSION,
+                "language_id": "compose",
+                "code": "config_invalid",
+                "message": "unknown variant capabilities",
+                "diagnostics": [],
+            }))
+            .unwrap(),
+            serde_json::to_string(&json!({
+                "type": "discover_symbols",
+                "api_version": WIRE_API_VERSION,
+                "language_id": "compose",
+                "symbols": ["Button"],
+                "components": [],
+                "diagnostics": [],
+            }))
+            .unwrap()
+        ),
+    );
+    let discoverer = SubprocessLanguageDiscoverer::new(SubprocessLanguageManifest {
+        command: vec![
+            script_path.to_string_lossy().into_owned(),
+            requests_path.to_string_lossy().into_owned(),
+        ],
+        timeout: Duration::from_secs(5),
+    });
+
+    let result = discoverer
+        .discover_registry(sample_registry_request())
+        .unwrap();
+
+    assert_eq!(
+        result.document.components[0]
+            .extracted
+            .as_ref()
+            .map(|details| details.status),
+        Some(RegistryExtractionStatus::Unavailable)
+    );
+    let requests = fs::read_to_string(requests_path).unwrap();
+    let requests = requests
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        requests,
+        vec![
+            json!({
+                "type": "capabilities",
+                "api_version": WIRE_API_VERSION,
+                "language_id": "compose",
+            }),
+            json!({
+                "type": "discover",
+                "api_version": WIRE_API_VERSION,
+                "language_id": "compose",
+                "repo_root": "/repo/root",
+                "roots": ["design-system/src"],
+            }),
+        ]
+    );
+}
+
+#[test]
+fn new_engine_pack_without_enrichment_capability_uses_symbol_fallback() {
+    let temp_dir = TestDir::new("rich-discover-capability-false");
+    let requests_path = temp_dir.path().join("requests.jsonl");
+    let script_path = temp_dir.path().join("no-enrichment-pack.sh");
+    write_script(
+        &script_path,
+        &format!(
+            r#"#!/bin/sh
+request=$(cat)
+printf '%s\n' "$request" >> "$1"
+case "$request" in
+  *'"type":"capabilities"'*)
+    printf '%s\n' '{}'
+    ;;
+  *)
+    printf '%s\n' '{}'
+    ;;
+esac
+"#,
+            serde_json::to_string(&json!({
+                "type": "capabilities",
+                "api_version": WIRE_API_VERSION,
+                "language_id": "compose",
+                "registry_details_v1": false,
+            }))
+            .unwrap(),
+            serde_json::to_string(&json!({
+                "type": "discover_symbols",
+                "api_version": WIRE_API_VERSION,
+                "language_id": "compose",
+                "symbols": ["Button"],
+                "components": [{
+                    "symbol": "Button",
+                    "package": "com.acme.designsystem"
+                }],
+                "diagnostics": [],
+            }))
+            .unwrap()
+        ),
+    );
+    let discoverer = registry_discoverer(&script_path, &requests_path, Duration::from_secs(5));
+
+    let result = discoverer
+        .discover_registry(sample_registry_request())
+        .unwrap();
+
+    assert_eq!(
+        result.document.components[0].package.as_deref(),
+        Some("com.acme.designsystem")
+    );
+    assert_eq!(
+        result.document.components[0]
+            .extracted
+            .as_ref()
+            .map(|details| details.status),
+        Some(RegistryExtractionStatus::Unavailable)
+    );
+    let requests = fs::read_to_string(requests_path).unwrap();
+    assert!(requests.contains("\"type\":\"capabilities\""));
+    assert!(requests.contains("\"type\":\"discover\""));
+    assert!(!requests.contains("\"type\":\"discover_registry\""));
+}
+
+#[test]
+fn rich_discovery_uses_separate_envelope() {
+    let temp_dir = TestDir::new("rich-discover-supported");
+    let requests_path = temp_dir.path().join("requests.jsonl");
+    let script_path = temp_dir.path().join("rich-pack.sh");
+    write_script(
+        &script_path,
+        &format!(
+            r#"#!/bin/sh
+request=$(cat)
+printf '%s\n' "$request" >> "$1"
+case "$request" in
+  *'"type":"capabilities"'*)
+    printf '%s\n' '{}'
+    ;;
+  *)
+    printf '%s\n' '{}'
+    ;;
+esac
+"#,
+            serde_json::to_string(&json!({
+                "type": "capabilities",
+                "api_version": WIRE_API_VERSION,
+                "language_id": "compose",
+                "registry_details_v1": true,
+            }))
+            .unwrap(),
+            serde_json::to_string(&json!({
+                "type": "registry_details",
+                "api_version": WIRE_API_VERSION,
+                "language_id": "compose",
+                "document": {
+                    "schema_version": REGISTRY_SCHEMA_VERSION,
+                    "components": [{
+                        "id": "button",
+                        "symbol": "Button",
+                        "extracted": {"status": "complete"}
+                    }]
+                },
+                "diagnostics": [],
+            }))
+            .unwrap()
+        ),
+    );
+    let discoverer = registry_discoverer(&script_path, &requests_path, Duration::from_secs(5));
+
+    let result = discoverer
+        .discover_registry(sample_registry_request())
+        .unwrap();
+
+    assert_eq!(
+        result.document.components[0]
+            .extracted
+            .as_ref()
+            .map(|details| details.status),
+        Some(RegistryExtractionStatus::Complete)
+    );
+    let requests = fs::read_to_string(requests_path).unwrap();
+    let rich_request: Value = serde_json::from_str(requests.lines().nth(1).unwrap()).unwrap();
+    assert_eq!(rich_request["type"], "discover_registry");
+    assert_eq!(rich_request["registry"]["components"][0]["id"], "button");
+}
+
+#[test]
+fn capability_failure_does_not_hide_timeout() {
+    let temp_dir = TestDir::new("rich-discover-capability-timeout");
+    let script_path = temp_dir.path().join("slow-pack.sh");
+    write_script(&script_path, "#!/bin/sh\ncat >/dev/null\nsleep 5\n");
+    let discoverer = SubprocessLanguageDiscoverer::new(SubprocessLanguageManifest {
+        command: vec![script_path.to_string_lossy().into_owned()],
+        timeout: Duration::from_millis(25),
+    });
+
+    let error = discoverer
+        .discover_registry(sample_registry_request())
+        .unwrap_err();
+
+    assert!(matches!(error, DiscoverError::Timeout { .. }));
+}
+
+#[test]
+fn capability_failure_does_not_hide_invalid_json() {
+    let temp_dir = TestDir::new("rich-discover-capability-json");
+    let script_path = temp_dir.path().join("invalid-pack.sh");
+    write_script(
+        &script_path,
+        "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' 'not json'\n",
+    );
+    let discoverer = SubprocessLanguageDiscoverer::new(SubprocessLanguageManifest {
+        command: vec![script_path.to_string_lossy().into_owned()],
+        timeout: Duration::from_secs(5),
+    });
+
+    let error = discoverer
+        .discover_registry(sample_registry_request())
+        .unwrap_err();
+
+    assert!(matches!(error, DiscoverError::InvalidResponse { .. }));
+}
+
+#[test]
+fn capability_failure_does_not_hide_cancellation() {
+    let temp_dir = TestDir::new("rich-discover-capability-cancel");
+    let script_path = temp_dir.path().join("waiting-pack.sh");
+    write_script(&script_path, "#!/bin/sh\ncat >/dev/null\nsleep 5\n");
+    let discoverer = SubprocessLanguageDiscoverer::new(SubprocessLanguageManifest {
+        command: vec![script_path.to_string_lossy().into_owned()],
+        timeout: Duration::from_secs(5),
+    });
+    let cancellation = LanguageCancellationToken::new();
+    cancellation.cancel();
+
+    let error = discoverer
+        .discover_registry_with_cancellation(sample_registry_request(), &cancellation)
+        .unwrap_err();
+
+    assert!(matches!(error, DiscoverError::Cancelled));
+}
+
+#[test]
+fn capability_failure_does_not_hide_pack_failure() {
+    let temp_dir = TestDir::new("rich-discover-capability-pack-failure");
+    let script_path = temp_dir.path().join("failed-pack.sh");
+    write_script(
+        &script_path,
+        "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' 'pack exploded' >&2\nexit 7\n",
+    );
+    let discoverer = SubprocessLanguageDiscoverer::new(SubprocessLanguageManifest {
+        command: vec![script_path.to_string_lossy().into_owned()],
+        timeout: Duration::from_secs(5),
+    });
+
+    let error = discoverer
+        .discover_registry(sample_registry_request())
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        DiscoverError::ProcessFailed { stderr, .. } if stderr == "pack exploded"
+    ));
+}
+
+#[test]
+fn capability_rejection_does_not_hide_nonzero_exit() {
+    let temp_dir = TestDir::new("rich-discover-capability-rejection-failure");
+    let script_path = temp_dir.path().join("failed-legacy-pack.sh");
+    write_script(
+        &script_path,
+        &format!(
+            r#"#!/bin/sh
+cat >/dev/null
+printf '%s\n' '{}'
+printf '%s\n' 'probe crashed' >&2
+exit 7
+"#,
+            serde_json::to_string(&json!({
+                "type": "error",
+                "api_version": WIRE_API_VERSION,
+                "language_id": "compose",
+                "code": "config_invalid",
+                "message": "unknown variant capabilities",
+                "diagnostics": [],
+            }))
+            .unwrap()
+        ),
+    );
+    let discoverer = SubprocessLanguageDiscoverer::new(SubprocessLanguageManifest {
+        command: vec![script_path.to_string_lossy().into_owned()],
+        timeout: Duration::from_secs(5),
+    });
+
+    let error = discoverer
+        .discover_registry(sample_registry_request())
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        DiscoverError::ProcessFailed { stderr, .. } if stderr == "probe crashed"
+    ));
+}
+
+#[test]
+fn rich_discovery_error_does_not_fall_back_to_symbols() {
+    let temp_dir = TestDir::new("rich-discover-error");
+    let requests_path = temp_dir.path().join("requests.jsonl");
+    let script_path = temp_dir.path().join("rich-error-pack.sh");
+    write_script(
+        &script_path,
+        &format!(
+            r#"#!/bin/sh
+request=$(cat)
+printf '%s\n' "$request" >> "$1"
+case "$request" in
+  *'"type":"capabilities"'*)
+    printf '%s\n' '{}'
+    ;;
+  *)
+    printf '%s\n' '{}'
+    ;;
+esac
+"#,
+            serde_json::to_string(&json!({
+                "type": "capabilities",
+                "api_version": WIRE_API_VERSION,
+                "language_id": "compose",
+                "registry_details_v1": true,
+            }))
+            .unwrap(),
+            serde_json::to_string(&json!({
+                "type": "error",
+                "api_version": WIRE_API_VERSION,
+                "language_id": "compose",
+                "code": "scan_failed",
+                "message": "rich extraction failed",
+                "diagnostics": [],
+            }))
+            .unwrap()
+        ),
+    );
+    let discoverer = registry_discoverer(&script_path, &requests_path, Duration::from_secs(5));
+
+    let error = discoverer
+        .discover_registry(sample_registry_request())
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        DiscoverError::Wire {
+            code: WireErrorCode::ScanFailed,
+            message,
+            ..
+        } if message == "rich extraction failed"
+    ));
+    assert_eq!(
+        fs::read_to_string(requests_path).unwrap().lines().count(),
+        2
+    );
+}
+
 fn sample_request() -> ScanRequest {
     ScanRequest {
         request_type: ScanRequestType::Scan,
@@ -305,6 +696,43 @@ fn sample_request() -> ScanRequest {
         snapshot_id: "snap-123".to_owned(),
         config: Map::from_iter([(String::from("strict"), Value::Bool(true))]),
     }
+}
+
+fn sample_registry_request() -> DiscoverRegistryRequest {
+    DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: LanguageId::from_str("compose").unwrap(),
+        repo_root: "/repo/root".to_owned(),
+        roots: vec!["design-system/src".to_owned()],
+        registry: RegistryDocument {
+            schema_version: REGISTRY_SCHEMA_VERSION,
+            components: vec![RegistryComponent {
+                id: "button".to_owned(),
+                symbol: "Button".to_owned(),
+                package: None,
+                aliases: Vec::new(),
+                metadata: None,
+                extracted: None,
+                extra: Map::new(),
+            }],
+            tokens: Vec::new(),
+            extra: Map::new(),
+        },
+    }
+}
+
+fn registry_discoverer(
+    script_path: &Path,
+    requests_path: &Path,
+    timeout: Duration,
+) -> SubprocessLanguageDiscoverer {
+    SubprocessLanguageDiscoverer::new(SubprocessLanguageManifest {
+        command: vec![
+            script_path.to_string_lossy().into_owned(),
+            requests_path.to_string_lossy().into_owned(),
+        ],
+        timeout,
+    })
 }
 
 fn sample_scan_facts() -> ScanFacts {

@@ -6,8 +6,9 @@ use thiserror::Error;
 use wax_contract::{Diagnostic, LanguageId, ScanFacts};
 
 use crate::{
-    DiscoverRequest, DiscoverRequestType, DiscoveredRegistrySymbol, ScanRequest, ScanRequestType,
-    WIRE_API_VERSION, WireErrorCode, WirePackRequest, WirePackResponse,
+    DiscoverRegistryRequest, DiscoverRegistryResult, DiscoverRequest, DiscoverRequestType,
+    DiscoveredRegistrySymbol, ScanRequest, ScanRequestType, WIRE_API_VERSION, WireErrorCode,
+    WirePackRequest, WirePackResponse,
 };
 
 /// Handles language-specific scan and registry discovery requests over the wire protocol.
@@ -29,6 +30,24 @@ pub trait WirePackHandler {
     /// The request's API version is compatible with [`WIRE_API_VERSION`]. Implementations must
     /// convert all language-specific outcomes into a [`WirePackResponse`].
     fn discover(&self, request: DiscoverRequest) -> WirePackResponse;
+
+    /// Reports whether this handler implements rich registry discovery v1.
+    fn registry_details_v1(&self) -> bool {
+        false
+    }
+
+    /// Handles one validated rich registry discovery request.
+    ///
+    /// Existing handlers default to an unsupported response so adding this protocol extension does
+    /// not require old packs to implement enrichment.
+    fn discover_registry(&self, request: DiscoverRegistryRequest) -> WirePackResponse {
+        wire_error_response(
+            request.api_version,
+            request.language_id,
+            WireErrorCode::DiscoverUnsupported,
+            "language pack does not support rich registry discovery",
+        )
+    }
 }
 
 /// Host failures that prevent the stdio server from producing a wire response.
@@ -167,6 +186,20 @@ pub fn discover_symbols_response(
     }
 }
 
+/// Builds a successful rich registry-details wire response.
+#[must_use]
+pub fn registry_details_response(
+    request: &DiscoverRegistryRequest,
+    result: DiscoverRegistryResult,
+) -> WirePackResponse {
+    WirePackResponse::RegistryDetails {
+        api_version: request.api_version,
+        language_id: request.language_id.clone(),
+        document: result.document,
+        diagnostics: result.diagnostics,
+    }
+}
+
 /// Builds a wire error response for a language-pack failure.
 #[must_use]
 pub fn wire_error_response(
@@ -201,6 +234,20 @@ fn read_request_line<R: BufRead>(reader: &mut R) -> Result<Option<String>, WireS
 
 fn dispatch<H: WirePackHandler>(request: WirePackRequest, handler: &H) -> WirePackResponse {
     match request {
+        WirePackRequest::Capabilities {
+            api_version,
+            language_id,
+        } => {
+            if api_version != WIRE_API_VERSION {
+                unsupported_api_version_response(api_version, language_id)
+            } else {
+                WirePackResponse::Capabilities {
+                    api_version,
+                    language_id,
+                    registry_details_v1: handler.registry_details_v1(),
+                }
+            }
+        }
         WirePackRequest::Scan {
             api_version,
             language_id,
@@ -236,6 +283,25 @@ fn dispatch<H: WirePackHandler>(request: WirePackRequest, handler: &H) -> WirePa
                     language_id,
                     repo_root,
                     roots,
+                })
+            }
+        }
+        WirePackRequest::DiscoverRegistry {
+            api_version,
+            language_id,
+            repo_root,
+            roots,
+            registry,
+        } => {
+            if api_version != WIRE_API_VERSION {
+                unsupported_api_version_response(api_version, language_id)
+            } else {
+                handler.discover_registry(DiscoverRegistryRequest {
+                    api_version,
+                    language_id,
+                    repo_root,
+                    roots,
+                    registry,
                 })
             }
         }

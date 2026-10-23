@@ -23,6 +23,85 @@ fn discover_wire_request_fixture_roundtrips() {
 }
 
 #[test]
+fn old_engine_new_pack_keeps_legacy_discover_shape() {
+    let request = DiscoverRequest {
+        request_type: DiscoverRequestType::Discover,
+        api_version: WIRE_API_VERSION,
+        language_id: LanguageId::from_str("compose").unwrap(),
+        repo_root: "/repo/root".to_owned(),
+        roots: vec!["design-system/src/main/kotlin".to_owned()],
+    };
+
+    assert_eq!(
+        serde_json::to_value(WirePackRequest::from(request)).unwrap(),
+        json!({
+            "type": "discover",
+            "api_version": WIRE_API_VERSION,
+            "language_id": "compose",
+            "repo_root": "/repo/root",
+            "roots": ["design-system/src/main/kotlin"]
+        })
+    );
+}
+
+#[test]
+fn rich_discovery_uses_separate_envelope() {
+    let request = json!({
+        "type": "discover_registry",
+        "api_version": WIRE_API_VERSION,
+        "language_id": "compose",
+        "repo_root": "/repo/root",
+        "roots": ["design-system/src/main/kotlin"],
+        "registry": {
+            "schema_version": 1,
+            "components": [{"id": "button", "symbol": "Button"}]
+        }
+    });
+    let response = json!({
+        "type": "registry_details",
+        "api_version": WIRE_API_VERSION,
+        "language_id": "compose",
+        "document": {
+            "schema_version": 1,
+            "components": [{
+                "id": "button",
+                "symbol": "Button",
+                "extracted": {"status": "complete"}
+            }]
+        },
+        "diagnostics": []
+    });
+
+    let parsed_request: WirePackRequest = serde_json::from_value(request.clone()).unwrap();
+    let parsed_response: WirePackResponse = serde_json::from_value(response.clone()).unwrap();
+
+    assert_eq!(serde_json::to_value(parsed_request).unwrap(), request);
+    assert_eq!(serde_json::to_value(parsed_response).unwrap(), response);
+}
+
+#[test]
+fn capabilities_probe_roundtrips_without_changing_api_version() {
+    let request = json!({
+        "type": "capabilities",
+        "api_version": WIRE_API_VERSION,
+        "language_id": "compose"
+    });
+    let response = json!({
+        "type": "capabilities",
+        "api_version": WIRE_API_VERSION,
+        "language_id": "compose",
+        "registry_details_v1": false
+    });
+
+    let parsed_request: WirePackRequest = serde_json::from_value(request.clone()).unwrap();
+    let parsed_response: WirePackResponse = serde_json::from_value(response.clone()).unwrap();
+
+    assert_eq!(WIRE_API_VERSION, 1);
+    assert_eq!(serde_json::to_value(parsed_request).unwrap(), request);
+    assert_eq!(serde_json::to_value(parsed_response).unwrap(), response);
+}
+
+#[test]
 fn discover_success_response_fixture_roundtrips() {
     let response = json!({
         "type": "discover_symbols",

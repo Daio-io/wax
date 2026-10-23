@@ -48,17 +48,18 @@ pub use path_glob::{
 };
 
 pub use protocol::{
-    DiscoverRequest, DiscoverRequestType, NotDiscoverRequest, ScanConfig, ScanRequest,
-    ScanRequestType, WIRE_API_VERSION, WireErrorCode, WirePackRequest, WirePackResponse,
-    WireScanRequest, WireScanResponse,
+    DiscoverRegistryRequest, DiscoverRegistryResult, DiscoverRequest, DiscoverRequestType,
+    NotDiscoverRequest, ScanConfig, ScanRequest, ScanRequestType, WIRE_API_VERSION, WireErrorCode,
+    WirePackRequest, WirePackResponse, WireScanRequest, WireScanResponse,
 };
 pub use root_patterns::{
     RootPatternKind, RootResolution, RootResolutionError, has_wildcard_segment,
     resolve_source_roots,
 };
 pub use server::{
-    WirePackHandler, WireServerError, discover_symbols_response, pack_language_id, require_stdio,
-    scan_facts_response, serve_one, serve_stdio, wire_error_response,
+    WirePackHandler, WireServerError, discover_symbols_response, pack_language_id,
+    registry_details_response, require_stdio, scan_facts_response, serve_one, serve_stdio,
+    wire_error_response,
 };
 pub use timing::parse_extract_millis;
 pub use token_registry::{
