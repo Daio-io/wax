@@ -14,6 +14,7 @@ EXAMPLE="skills/wax-search/examples/search-and-use.md"
 
 [[ -f "$SKILL" ]] || fail "$SKILL is missing"
 grep -Fq -- 'name: wax-search' "$SKILL" || fail "$SKILL must declare the wax-search skill name"
+grep -Eq -- '^argument-hint:.*design-system' "$SKILL" || fail "$SKILL must declare argument-hint for the design-system / registry key"
 [[ -f "$EXAMPLE" ]] || fail "$EXAMPLE is missing"
 
 require_text() {
@@ -25,6 +26,7 @@ require_text() {
 require_text "$SKILL" 'wax search'
 require_text "$SKILL" 'wax component'
 require_text "$SKILL" 'wax token'
+require_text "$SKILL" 'wax registry list'
 require_text "$SKILL" 'command -v wax'
 require_text "$SKILL" 'npx --yes @waxhq/wax@alpha'
 require_text "$SKILL" 'Do not execute'

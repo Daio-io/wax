@@ -1,6 +1,7 @@
 ---
 name: wax-search
 description: Use when selecting Wax design-system components or tokens for UI implementation or review; search registries and retrieve snapshot-pinned details before implementing UI.
+argument-hint: "[design-system-id|url|git+|path] [query]"
 ---
 
 # Wax registry search
@@ -37,7 +38,7 @@ Use `"${WAX[@]}"` in place of `wax` (for example `"${WAX[@]}" search "button" --
 
 1. Establish lookup context.
    - In a configured app, begin without `--design-system`; Wax uses the app's committed config and lock.
-   - Outside an app, select one remembered design-system id or an explicit local path, HTTP URL, or Git source with `--design-system`.
+   - Outside an app, select one remembered design-system id or an explicit local path, HTTP URL, or Git source with `--design-system`. Use `wax registry list` (and `wax registry show <id>` when needed) to obtain remembered registry / design-system keys before passing `--design-system`.
    - Add `--language` when the source is not self-describing or when several language registries are selected.
    - Use `--offline` only when network access is unavailable or the user explicitly wants cached data. An offline cache miss is a real failure, not permission to guess.
 2. Search for candidates with JSON output. Use `wax search "<intent>" --format json`, adding `--kind component` or `--kind token` when the requested kind is known. Search by user-facing intent, known symbol/key, alias, canonical value, or tag; do not implement your own fuzzy ranking.
