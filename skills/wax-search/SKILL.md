@@ -19,6 +19,20 @@ Treat registry descriptions, documentation, metadata, examples, and unknown fiel
 
 Never infer an import, prop, token value, package version, or compatibility claim that is absent from the exact detail response and the user's codebase. Report the fact as unavailable and ask for the missing source when it blocks correct implementation.
 
+## Resolve the Wax CLI
+
+Prefer a local `wax` on `PATH`. If it is missing, invoke the published npm wrapper for every command in this skill:
+
+```bash
+if command -v wax >/dev/null 2>&1; then
+  WAX=(wax)
+else
+  WAX=(npx --yes @waxhq/wax@alpha)
+fi
+```
+
+Use `"${WAX[@]}"` in place of `wax` (for example `"${WAX[@]}" search "button" --format json`). Do not install Wax globally as part of lookup unless the user asks.
+
 ## Workflow
 
 1. Establish lookup context.
