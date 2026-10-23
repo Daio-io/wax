@@ -129,7 +129,7 @@ fn component_declarations(
     collect_component_declarations(root, source.as_bytes(), true)
         .into_iter()
         .filter_map(|component| {
-            let node = find_component_node(root, source.as_bytes(), &component.symbol)?;
+            let node = find_component_node(root, component.start_byte)?;
             Some(ComponentDeclaration {
                 symbol: component.symbol,
                 package: package.clone(),
@@ -141,13 +141,12 @@ fn component_declarations(
 
 fn find_component_node<'tree>(
     root: tree_sitter::Node<'tree>,
-    source: &[u8],
-    symbol: &str,
+    start_byte: usize,
 ) -> Option<tree_sitter::Node<'tree>> {
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
         if matches!(node.kind(), "class_declaration" | "function_declaration")
-            && declaration_symbol(node, source).as_deref() == Some(symbol)
+            && node.start_byte() == start_byte
         {
             return Some(node);
         }
@@ -156,16 +155,6 @@ fn find_component_node<'tree>(
                 stack.push(child);
             }
         }
-    }
-    None
-}
-
-fn declaration_symbol(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let name = node.child_by_field_name("name")?;
-    if let Ok(text) = name.utf8_text(source)
-        && !text.is_empty()
-    {
-        return Some(text.trim().to_owned());
     }
     None
 }
@@ -328,22 +317,19 @@ fn parameters_from_initializer(
             .map(str::trim)
             .map(|value| {
                 value
-                    .split(')')
-                    .next()
-                    .unwrap_or(value)
+                    .trim_end_matches(['}', '{'])
+                    .trim()
+                    .trim_end_matches(')')
                     .trim_end_matches(',')
                     .trim()
             })
             .and_then(non_empty);
-        let Some(parameter) = parameter_from_text(text) else {
+        let Some(mut parameter) = parameter_from_text(text) else {
             continue;
         };
-        let required = Some(default.is_none());
-        parameters.push(RegistryParameter {
-            default,
-            required,
-            ..parameter
-        });
+        parameter.default = default;
+        parameter.required = Some(parameter.default.is_none());
+        parameters.push(parameter);
     }
     parameters
 }
@@ -376,7 +362,12 @@ fn attached_source_prefix(source: &str, declaration_row: usize) -> String {
     let mut start = declaration_row.min(lines.len());
     while start > 0 {
         let previous = lines[start - 1].trim();
-        if previous.starts_with("///") || previous.starts_with('@') {
+        if previous.starts_with("///")
+            || previous.starts_with("/**")
+            || previous.starts_with('*')
+            || previous.starts_with("*/")
+            || previous.starts_with('@')
+        {
             start -= 1;
         } else {
             break;
@@ -397,7 +388,7 @@ fn nearby_available_prefix(source: &str, declaration_row: usize) -> String {
         }
         if trimmed.starts_with('@') {
             attributes.push(*line);
-        } else if !attributes.is_empty() && !trimmed.contains("struct ") {
+        } else if !attributes.is_empty() {
             break;
         }
     }
@@ -408,8 +399,14 @@ fn nearby_available_prefix(source: &str, declaration_row: usize) -> String {
 fn parse_documentation(attached: &str) -> SwiftDocumentation {
     let lines = attached
         .lines()
-        .filter_map(|line| line.trim().strip_prefix("///"))
-        .map(str::trim)
+        .filter_map(|line| {
+            let line = line.trim();
+            line.strip_prefix("///")
+                .or_else(|| line.strip_prefix("/**"))
+                .or_else(|| line.strip_prefix("*/"))
+                .or_else(|| line.strip_prefix('*'))
+                .map(str::trim)
+        })
         .collect::<Vec<_>>();
     let mut description = Vec::new();
     let mut example = Vec::new();
@@ -477,6 +474,21 @@ fn enrich_components(
                     .is_none_or(|package| declaration.package.as_ref() == Some(package))
         });
         if let Some(declaration) = declaration {
+            // Preserve prior facts when a damaged file still produces a partial declaration.
+            if damaged_paths.contains(
+                &declaration
+                    .extracted
+                    .source_evidence
+                    .as_ref()
+                    .map(|evidence| evidence.path.clone())
+                    .unwrap_or_default(),
+            ) && component.extracted.is_some()
+            {
+                if let Some(extracted) = &mut component.extracted {
+                    extracted.status = RegistryExtractionStatus::Stale;
+                }
+                continue;
+            }
             component.extracted = Some(declaration.extracted.clone());
             continue;
         }

@@ -9,6 +9,7 @@ pub(crate) struct DetectedComponent {
     pub(crate) line: u32,
     /// One-based source column.
     pub(crate) column: u32,
+    pub(crate) start_byte: usize,
 }
 
 /// Collects SwiftUI component declarations from a parsed Swift syntax tree.
@@ -82,6 +83,7 @@ fn component_from_type_declaration(
         symbol: name,
         line,
         column,
+        start_byte: node.start_byte(),
     })
 }
 
@@ -109,6 +111,7 @@ fn component_from_function_declaration(
         symbol: name,
         line,
         column,
+        start_byte: node.start_byte(),
     })
 }
 
