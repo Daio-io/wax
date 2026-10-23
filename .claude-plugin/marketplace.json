@@ -3,16 +3,16 @@
   "owner": {
     "name": "Daio-io"
   },
-  "description": "Agent skills for Wax design-system analysis and CLI workflows",
+  "description": "Agent skills for Wax registry search, registry authoring, design-system analysis, and CLI workflows",
   "homepage": "https://github.com/Daio-io/wax",
   "repository": "https://github.com/Daio-io/wax",
   "plugins": [
     {
       "name": "wax-skills",
       "source": "./",
-      "description": "Wax agent skills for registry sync and future design-system authoring workflows",
-      "version": "1.0.0",
-      "keywords": ["wax", "design-system", "registry", "compose"],
+      "description": "Wax agent skills for registry search, source-backed implementation, registry authoring, and scan analytics",
+      "version": "1.1.0",
+      "keywords": ["wax", "design-system", "registry", "search", "compose"],
       "category": "development"
     }
   ]

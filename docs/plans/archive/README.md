@@ -26,5 +26,6 @@ Completed implementation plans live here. Each plan has a corresponding **ADR** 
 | 14 | [Token inference and reporting](./2026-07-19-token-inference-reporting-plan.md) | [ADR](../../adr/2026-07-19-token-inference-reporting.md) | Complete |
 | 15 | [Compose parse recovery and UI scoping](./2026-07-22-compose-parse-recovery-plan.md) | [ADR](../../adr/2026-07-22-compose-parse-recovery.md) | Complete |
 | 16 | [Git registry sources](./2026-08-01-git-registry-sources-plan.md) | [ADR](../../adr/2026-08-01-git-registry-sources.md) | Complete |
+| 18 | [Registry search and agent workflow](./2026-10-22-registry-search-plan.md) | [ADR](../../adr/2026-10-22-registry-search.md) | Complete |
 
 **Active plans** remain in [`docs/plans/`](../README.md).

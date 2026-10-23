@@ -13,6 +13,11 @@ Use this skill to validate Wax configuration, run a fresh `wax scan`, extract de
 
 AI interpretation is an authoring aid only. Do not make `wax scan` or `wax validate` depend on agent decisions.
 
+Registry lookup is an independent lookup workflow. Use
+[`wax-search`](../wax-search/SKILL.md) when the user needs to select a component
+or token for implementation. Do not run search to alter scan metrics, fold
+search rankings into analytics, or treat a search result as observed app usage.
+
 ## Status
 
 | Artifact | Path | Status |

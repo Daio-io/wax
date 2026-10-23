@@ -13,7 +13,12 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 
 **Authorized Post-alpha UX extractions:** Phase 1 scan `--format` / `json-summary` outputs (THE-635), Phase 2a `graph-data` artifact + schema (THE-636), Phase 2b static HTML scan report (THE-639), and Phase 3 Markdown scan summary / `--baseline` deltas / CI recipe (THE-637) are explicit extractions from the Post-alpha UX plan. They may land while Phase 2B remains the sequential active plan.
 
-**Authorized Registry search extractions:** Phase 1 registry contracts and shared lookup errors (THE-754), Phase 2b compatible rich-discovery transport (THE-756), Phase 3d safe publisher discovery and explicit attachments (THE-761), and Phase 3f fuzzy search and exact entry lookup (THE-763) are explicit extractions from the Registry search tracking issue ([#327](https://github.com/Daio-io/wax/issues/327); planned roadmap order 18). They may land while Phase 2B remains the sequential active plan. The full plan document (`docs/plans/2026-10-22-registry-search-plan.md`) lands with the order-18 plan PR.
+**Registry search extraction complete:** Registry contracts, rich discovery,
+safe publisher associations, fuzzy search, snapshot-pinned detail, CLI
+integration, and the agent workflow have shipped. The completed order-18 plan
+is [archived](./archive/2026-10-22-registry-search-plan.md) with its
+[ADR](../adr/2026-10-22-registry-search.md). Phase 2B remains the sequential
+active plan.
 
 ---
 
@@ -38,6 +43,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 | 15 | Compose parse recovery and UI scoping | [archive/2026-07-22-compose-parse-recovery-plan.md](./archive/2026-07-22-compose-parse-recovery-plan.md) | `merged` | `complete` | [ADR](../adr/2026-07-22-compose-parse-recovery.md) |
 | 16 | Git registry sources | [archive/2026-08-01-git-registry-sources-plan.md](./archive/2026-08-01-git-registry-sources-plan.md) | `merged` | `complete` | [ADR](../adr/2026-08-01-git-registry-sources.md) |
 | 17 | Phase 2B — explicit resolution evidence and callee origin | [2026-08-22-phase-2b-resolution-evidence-plan.md](./2026-08-22-phase-2b-resolution-evidence-plan.md) | `merged` | `in-progress` | — |
+| 18 | Registry search and agent workflow | [archive/2026-10-22-registry-search-plan.md](./archive/2026-10-22-registry-search-plan.md) | `merged` | `complete` | [ADR](../adr/2026-10-22-registry-search.md) |
 
 **Doc status:** `pending` -> plan PR open; `merged` -> plan doc on `main`; `planned` -> not yet drafted.
 
@@ -52,7 +58,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 -> Follow the task boundaries and verification gates in the active plan.
 ```
 
-Orders 1-5, 6-16 are **complete**. Adoption Metrics v2 shipped in PRs #165, #171, and #172 and is archived. Token inference and reporting finished implementation in PRs #231, #233, #235, #236, and #237 plus closeout PR #238 and is archived. Compose parse recovery and UI scoping finished implementation in PRs #245–#247, #249, and #250 plus closeout PR #251 and is archived. Git registry sources finished implementation in PRs #262–#265 plus closeout PR #266 and is archived.
+Orders 1-16 and 18 are **complete**. Adoption Metrics v2 shipped in PRs #165, #171, and #172 and is archived. Token inference and reporting finished implementation in PRs #231, #233, #235, #236, and #237 plus closeout PR #238 and is archived. Compose parse recovery and UI scoping finished implementation in PRs #245–#247, #249, and #250 plus closeout PR #251 and is archived. Git registry sources finished implementation in PRs #262–#265 plus closeout PR #266 and is archived. Registry search shipped through THE-754–THE-765 and is archived while order 17 continues independently.
 
 ---
 

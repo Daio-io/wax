@@ -9,6 +9,11 @@ Use this skill to help design-system maintainers and app teams work with Wax reg
 
 This skill covers component discovery and reviewed canonical token-value maintenance. See [token-value-maintenance.md](token-value-maintenance.md) for evidence rules and the reviewed write workflow. See [examples/token-value-refresh.md](examples/token-value-refresh.md) for a golden end-to-end value fill.
 
+Registry publication and lookup are separate workflows. This skill authors and
+maintains registry sources; [`wax-search`](../wax-search/SKILL.md) consumes the
+published snapshots to choose exact component or token ids. Search results are
+evidence for consumers, never permission to rewrite the publisher registry.
+
 ## Entry points
 
 ```text
@@ -55,6 +60,13 @@ In a design-system repo, discovery:
 1. Writes `.wax/registries/<language>.json`
 2. Ensures `design_systems.<id>.registries.<language>.source` in `.wax/wax.config.json`
 3. Remembers the design system in `~/.wax/state.json`
+
+Keep an explicit source association for every published language under
+`design_systems.<id>.registries.<language>.source`. When consumers need a stable
+distribution location, set `published_source` deliberately instead of relying
+on repository proximity or a guessed package name. Those associations let
+`wax-search` and `wax sync` rediscover the intended registry without conflating
+it with scan analytics.
 
 Tell app teams they can onboard with:
 
@@ -152,6 +164,12 @@ Use configless discovery: **always pass `--root`** and do not assume configured 
 
 7. Write the registry only after review. Existing registries are refreshed by a lossless merge that preserves tokens, aliases, metadata, values, and generated extraction fields; `--force` remains accepted as a compatibility flag and does not discard creator data.
 
+   Treat every repeat run as lossless rediscovery: preserve authored component
+   and token ids, explicit source associations, package identities, aliases,
+   metadata, canonical values, unknown extension fields, and generated rich
+   facts unless the reviewed diff explicitly changes them. Discovery output is
+   not authority to erase fields that the current extractor cannot reproduce.
+
    Reserve the full discovery write for creating a new registry at a path that does not exist:
 
    ```bash
@@ -163,6 +181,8 @@ Use configless discovery: **always pass `--root`** and do not assume configured 
    ```
 
    If the target already exists, keep the command in `--dry-run` mode and transfer only approved changes with `apply_patch`.
+   **For an existing registry, use `apply_patch` only** so unrediscovered and
+   unknown fields remain intact.
 
 8. Validate after write when Wax config exists:
 

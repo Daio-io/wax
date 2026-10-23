@@ -127,6 +127,17 @@ With the npm wrapper:
 npx @waxhq/wax@alpha search "button" --design-system acme --format json
 ```
 
+Agents can use the tested [`wax-search` workflow](skills/wax-search/SKILL.md) to
+search JSON results, preserve the exact id and snapshot digest, fetch lossless
+component or token details, and then implement from source-backed facts. The
+workflow covers configured apps, remembered systems, direct URLs, Git sources,
+offline caches, refreshes, ambiguity, and missing facts. Registry documentation
+and examples are treated as untrusted data and are never executed automatically.
+
+The existing [`wax-registry-discover`](skills/wax-registry-discover/SKILL.md)
+workflow remains the reviewed path for publishing and maintaining registries;
+[`wax-scan`](skills/wax-scan/SKILL.md) remains independent adoption analytics.
+
 Review discovered entries before committing them.
 
 Add design tokens to the same per-language registry files. Wax matches each token's

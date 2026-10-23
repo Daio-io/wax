@@ -20,5 +20,6 @@ ADRs record significant product and engineering decisions after implementation. 
 | 2026-07-19 | [Token inference and reporting](./2026-07-19-token-inference-reporting.md) | Accepted | [Plan archive](../plans/archive/2026-07-19-token-inference-reporting-plan.md) |
 | 2026-07-22 | [Compose parse recovery and UI scoping](./2026-07-22-compose-parse-recovery.md) | Accepted | [Plan archive](../plans/archive/2026-07-22-compose-parse-recovery-plan.md) |
 | 2026-08-01 | [Git registry sources](./2026-08-01-git-registry-sources.md) | Accepted | [Plan archive](../plans/archive/2026-08-01-git-registry-sources-plan.md) |
+| 2026-10-22 | [Registry search and agent workflow](./2026-10-22-registry-search.md) | Accepted | [Plan archive](../plans/archive/2026-10-22-registry-search-plan.md) |
 
 **Active plans** (not yet implemented or deferred) remain in [`docs/plans/`](../plans/README.md).

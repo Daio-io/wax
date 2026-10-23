@@ -13,6 +13,8 @@ on:
       - "scripts/check-release-workflow.rb"
       - "scripts/render-wax-scan-fixture-report.sh"
       - "scripts/test-wax-scan-render-report.sh"
+      - "scripts/test-wax-registry-skill-contract.sh"
+      - "scripts/test-wax-search-skill-contract.sh"
       - "scripts/verify-compose-kotlin-fixtures.sh"
       - "scripts/test-verify-compose-kotlin-fixtures.sh"
       - "scripts/replay-compose-corpus.sh"
@@ -20,6 +22,9 @@ on:
       - "engine/crates/wax-lang-compose/tests/fixtures/kotlin-syntax/**"
       - "scripts/fixtures/wax-scan/**"
       - "skills/wax-scan/**"
+      - "skills/wax-registry-discover/**"
+      - "skills/wax-search/**"
+      - ".claude-plugin/**"
       - "tests/wax-scan-report-screenshot.spec.mjs"
       - "tests/goldens/**"
       - "package.json"
@@ -41,6 +46,8 @@ on:
       - "scripts/check-release-workflow.rb"
       - "scripts/render-wax-scan-fixture-report.sh"
       - "scripts/test-wax-scan-render-report.sh"
+      - "scripts/test-wax-registry-skill-contract.sh"
+      - "scripts/test-wax-search-skill-contract.sh"
       - "scripts/verify-compose-kotlin-fixtures.sh"
       - "scripts/test-verify-compose-kotlin-fixtures.sh"
       - "scripts/replay-compose-corpus.sh"
@@ -48,6 +55,9 @@ on:
       - "engine/crates/wax-lang-compose/tests/fixtures/kotlin-syntax/**"
       - "scripts/fixtures/wax-scan/**"
       - "skills/wax-scan/**"
+      - "skills/wax-registry-discover/**"
+      - "skills/wax-search/**"
+      - ".claude-plugin/**"
       - "tests/wax-scan-report-screenshot.spec.mjs"
       - "tests/goldens/**"
       - "package.json"
@@ -95,6 +105,12 @@ jobs:
 
       - name: Check formatting
         run: cargo fmt --all --check
+
+      - name: Verify wax-registry-discover skill contract
+        run: ../scripts/test-wax-registry-skill-contract.sh
+
+      - name: Verify wax-search skill contract
+        run: ../scripts/test-wax-search-skill-contract.sh
 
       - name: Test pack index generator
         run: ../scripts/test-generate-pack-index.sh
