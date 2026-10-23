@@ -366,6 +366,76 @@ fn identity_conflict_keeps_creator_content() {
 }
 
 #[test]
+fn distinct_discoveries_do_not_match_entries_added_during_merge() {
+    let existing = registry(r#"{"schema_version": 1}"#);
+    let discovered = registry(
+        r#"{
+            "schema_version": 1,
+            "components": [
+                {"id": "button-a", "symbol": "Button", "extracted": {"status": "complete"}},
+                {"id": "button-b", "symbol": "Button", "extracted": {"status": "complete"}}
+            ],
+            "tokens": [
+                {"id": "color-a", "key": "color.brand", "category": "color", "extracted": {"status": "complete"}},
+                {"id": "color-b", "key": "color.brand", "category": "color", "extracted": {"status": "complete"}}
+            ]
+        }"#,
+    );
+
+    let merged = merge_registry(Some(&existing), &discovered, true).expect("registry merges");
+
+    assert_eq!(merged.document.components.len(), 2);
+    assert_eq!(merged.document.tokens.len(), 2);
+    assert!(merged.diagnostics.is_empty());
+}
+
+#[test]
+fn exact_ids_disambiguate_ambiguous_component_and_token_fallbacks() {
+    let existing = registry(
+        r#"{
+            "schema_version": 1,
+            "components": [
+                {"id": "button-a", "symbol": "Button", "extracted": {"status": "complete", "documentation": "old a"}},
+                {"id": "button-b", "symbol": "Button", "extracted": {"status": "complete", "documentation": "old b"}}
+            ],
+            "tokens": [
+                {"id": "color-a", "key": "color.brand", "category": "color", "extracted": {"status": "complete", "documentation": "old a"}},
+                {"id": "color-b", "key": "color.brand", "category": "color", "extracted": {"status": "complete", "documentation": "old b"}}
+            ]
+        }"#,
+    );
+    let discovered = registry(
+        r#"{
+            "schema_version": 1,
+            "components": [{"id": "button-b", "symbol": "Button", "extracted": {"status": "complete", "documentation": "fresh"}}],
+            "tokens": [{"id": "color-b", "key": "color.brand", "category": "color", "extracted": {"status": "complete", "documentation": "fresh"}}]
+        }"#,
+    );
+
+    let merged = merge_registry(Some(&existing), &discovered, true).expect("registry merges");
+
+    assert_eq!(merged.diagnostics.len(), 0);
+    assert_eq!(
+        merged.document.components[1]
+            .extracted
+            .as_ref()
+            .unwrap()
+            .documentation
+            .as_deref(),
+        Some("fresh")
+    );
+    assert_eq!(
+        merged.document.tokens[1]
+            .extracted
+            .as_ref()
+            .unwrap()
+            .documentation
+            .as_deref(),
+        Some("fresh")
+    );
+}
+
+#[test]
 fn unchanged_rediscovery_is_idempotent() {
     let input = registry(
         r#"{

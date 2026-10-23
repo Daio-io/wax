@@ -126,11 +126,12 @@ pub fn merge_registry(
     let mut observed_tokens = vec![false; existing_token_count];
 
     for discovered_component in &discovered.components {
-        match resolve_component_identity(&document.components, discovered_component) {
+        match resolve_component_identity(
+            &document.components[..existing_component_count],
+            discovered_component,
+        ) {
             IdentityResolution::Match(index) => {
-                if index < existing_component_count {
-                    observed_components[index] = true;
-                }
+                observed_components[index] = true;
                 let component = &mut document.components[index];
                 let extracted = merge_extracted(
                     component.extracted.as_ref(),
@@ -180,11 +181,9 @@ pub fn merge_registry(
     }
 
     for discovered_token in &discovered.tokens {
-        match resolve_token_identity(&document.tokens, discovered_token) {
+        match resolve_token_identity(&document.tokens[..existing_token_count], discovered_token) {
             IdentityResolution::Match(index) => {
-                if index < existing_token_count {
-                    observed_tokens[index] = true;
-                }
+                observed_tokens[index] = true;
                 let token = &mut document.tokens[index];
                 let extracted = merge_extracted(
                     token.extracted.as_ref(),
@@ -348,25 +347,7 @@ fn resolve_component_identity(
         .map(|(index, _)| index)
         .collect::<Vec<_>>();
 
-    if candidates.len() > 1
-        || id_match.is_some_and(|id_index| {
-            candidates
-                .first()
-                .is_some_and(|candidate| *candidate != id_index)
-        })
-    {
-        return IdentityResolution::Conflict(
-            candidates
-                .iter()
-                .map(|index| existing[*index].id.clone())
-                .collect(),
-        );
-    }
-    if let Some(index) = id_match.or_else(|| candidates.first().copied()) {
-        IdentityResolution::Match(index)
-    } else {
-        IdentityResolution::NoMatch
-    }
+    resolve_identity(id_match, &candidates, |index| existing[index].id.clone())
 }
 
 fn resolve_token_identity(
@@ -381,24 +362,27 @@ fn resolve_token_identity(
         .map(|(index, _)| index)
         .collect::<Vec<_>>();
 
-    if candidates.len() > 1
-        || id_match.is_some_and(|id_index| {
-            candidates
-                .first()
-                .is_some_and(|candidate| *candidate != id_index)
-        })
-    {
-        return IdentityResolution::Conflict(
-            candidates
-                .iter()
-                .map(|index| existing[*index].id.clone())
-                .collect(),
-        );
+    resolve_identity(id_match, &candidates, |index| existing[index].id.clone())
+}
+
+fn resolve_identity(
+    id_match: Option<usize>,
+    candidates: &[usize],
+    candidate_id: impl Fn(usize) -> String,
+) -> IdentityResolution {
+    if let Some(id_index) = id_match {
+        // Exact IDs disambiguate ambiguous fallbacks; only conflict when a
+        // unique fallback points at a different entry than the ID.
+        if candidates.len() == 1 && candidates[0] != id_index {
+            return IdentityResolution::Conflict(vec![candidate_id(candidates[0])]);
+        }
+        return IdentityResolution::Match(id_index);
     }
-    if let Some(index) = id_match.or_else(|| candidates.first().copied()) {
-        IdentityResolution::Match(index)
-    } else {
-        IdentityResolution::NoMatch
+
+    match candidates {
+        [] => IdentityResolution::NoMatch,
+        [index] => IdentityResolution::Match(*index),
+        _ => IdentityResolution::Conflict(candidates.iter().copied().map(candidate_id).collect()),
     }
 }
 
