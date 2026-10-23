@@ -191,15 +191,10 @@ fn extracted_component(
         })
     });
     let attached = attached_source_prefix(source, node.start_position().row);
-    let declaration_attribute = source
-        .lines()
-        .take(node.start_position().row + 1)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .take(8)
-        .find(|line| line.trim_start().starts_with("@available"))
-        .unwrap_or_default();
+    let attached_attributes = nearby_available_prefix(
+        source,
+        signature_node.map_or(node.start_position().row, |node| node.start_position().row),
+    );
     let documentation = parse_documentation(&attached);
     let mut field_gaps = Vec::new();
     if signature.is_none() {
@@ -258,8 +253,7 @@ fn extracted_component(
         }),
         documentation: documentation.documentation,
         signature,
-        deprecation: deprecation_from_available(declaration_attribute)
-            .or(documentation.deprecation),
+        deprecation: deprecation_from_available(&attached_attributes).or(documentation.deprecation),
         attachments,
         field_gaps,
         extra: Map::new(),
@@ -341,12 +335,15 @@ fn parameters_from_initializer(
                     .trim()
             })
             .and_then(non_empty);
-        let Some(mut parameter) = parameter_from_text(text) else {
+        let Some(parameter) = parameter_from_text(text) else {
             continue;
         };
-        parameter.default = default;
-        parameter.required = Some(parameter.default.is_none());
-        parameters.push(parameter);
+        let required = Some(default.is_none());
+        parameters.push(RegistryParameter {
+            default,
+            required,
+            ..parameter
+        });
     }
     parameters
 }
@@ -386,6 +383,26 @@ fn attached_source_prefix(source: &str, declaration_row: usize) -> String {
         }
     }
     lines[start..declaration_row.min(lines.len())].join("\n")
+}
+
+fn nearby_available_prefix(source: &str, declaration_row: usize) -> String {
+    let lines = source.lines().collect::<Vec<_>>();
+    let end = declaration_row.min(lines.len().saturating_sub(1));
+    let start = end.saturating_sub(8);
+    let mut attributes = Vec::new();
+    for line in lines[start..=end].iter().rev() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            break;
+        }
+        if trimmed.starts_with('@') {
+            attributes.push(*line);
+        } else if !attributes.is_empty() && !trimmed.contains("struct ") {
+            break;
+        }
+    }
+    attributes.reverse();
+    attributes.join("\n")
 }
 
 fn parse_documentation(attached: &str) -> SwiftDocumentation {
@@ -474,7 +491,7 @@ fn enrich_components(
             }
             continue;
         }
-        if !damaged_paths.is_empty() {
+        if component.extracted.is_some() && !damaged_paths.is_empty() {
             continue;
         }
         component.extracted = Some(unavailable(

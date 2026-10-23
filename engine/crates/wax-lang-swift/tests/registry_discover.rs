@@ -211,7 +211,65 @@ public struct DeprecatedMemberCard: View {
             .map(|signature| signature.parameters.len()),
         Some(1)
     );
-    assert_eq!(deprecated_member.deprecation, None);
+    assert_eq!(
+        deprecated_member
+            .deprecation
+            .as_ref()
+            .and_then(|deprecation| deprecation.message.as_deref()),
+        Some("Use replacement")
+    );
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_scopes_available_deprecation_to_declaration() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let sources = tempdir.path().join("Sources");
+    fs::create_dir_all(&sources)?;
+    fs::write(
+        sources.join("Deprecations.swift"),
+        r#"@available(*, deprecated, message: "Do not use OldCard")
+public struct OldCard: View {
+    public var body: some View { Text("old") }
+}
+
+@available(iOS 17, *)
+public struct CurrentCard: View {
+    public var body: some View { Text("current") }
+}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [
+            {"id": "old", "symbol": "OldCard"},
+            {"id": "current", "symbol": "CurrentCard"}
+        ]
+    }))
+    .expect("registry fixture");
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "swift".try_into().expect("swift id"),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["Sources".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("rich discover should succeed");
+    assert!(
+        result.document.components[0]
+            .extracted
+            .as_ref()
+            .and_then(|extracted| extracted.deprecation.as_ref())
+            .is_some()
+    );
+    assert_eq!(
+        result.document.components[1]
+            .extracted
+            .as_ref()
+            .and_then(|extracted| extracted.deprecation.as_ref()),
+        None
+    );
     Ok(())
 }
 
@@ -385,7 +443,13 @@ fn discover_registry_details_preserves_facts_when_syntax_is_damaged() -> io::Res
             .and_then(|extracted| extracted.documentation.as_deref()),
         Some("Prior unrelated documentation")
     );
-    assert!(result.document.components[2].extracted.is_none());
+    assert_eq!(
+        result.document.components[2]
+            .extracted
+            .as_ref()
+            .map(|extracted| extracted.status),
+        Some(wax_contract::RegistryExtractionStatus::Unavailable)
+    );
     assert!(result.diagnostics.iter().any(|diagnostic| {
         diagnostic.code == "parse_failed"
             && diagnostic
