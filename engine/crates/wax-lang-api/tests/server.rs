@@ -64,6 +64,44 @@ fn skips_blank_lines_before_dispatching_a_valid_request() {
 }
 
 #[test]
+fn existing_handlers_advertise_no_registry_enrichment() {
+    let handler = RecordingHandler::new();
+    let input =
+        Cursor::new("{\"type\":\"capabilities\",\"api_version\":1,\"language_id\":\"test\"}\n");
+    let mut output = Vec::new();
+
+    serve_one(input, &mut output, &handler).unwrap();
+
+    assert!(handler.calls.borrow().is_empty());
+    assert!(matches!(
+        response_from_output(&output),
+        WirePackResponse::Capabilities {
+            api_version: WIRE_API_VERSION,
+            registry_details_v1: false,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn existing_handlers_reject_rich_discovery_by_default() {
+    let handler = RecordingHandler::new();
+    let input = Cursor::new(
+        "{\"type\":\"discover_registry\",\"api_version\":1,\"language_id\":\"test\",\"repo_root\":\"/repo\",\"roots\":[],\"registry\":{\"schema_version\":1,\"components\":[]}}\n",
+    );
+    let mut output = Vec::new();
+
+    serve_one(input, &mut output, &handler).unwrap();
+
+    assert!(handler.calls.borrow().is_empty());
+    assert_error_code(
+        response_from_output(&output),
+        "test",
+        WireErrorCode::DiscoverUnsupported,
+    );
+}
+
+#[test]
 fn eof_without_a_request_returns_an_invalid_request_response() {
     let handler = RecordingHandler::new();
     let mut output = Vec::new();

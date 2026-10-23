@@ -9,13 +9,14 @@ use std::process::ExitStatus;
 use std::time::Duration;
 
 use thiserror::Error;
-use wax_contract::Diagnostic;
+use wax_contract::{Diagnostic, RegistryDocument, RegistryExtracted, RegistryExtractionStatus};
 use wax_lang_api::{
-    DiscoverRequest, DiscoveredRegistrySymbol, WIRE_API_VERSION, WireErrorCode, WirePackRequest,
-    WirePackResponse, normalize_discovered_components,
+    DiscoverRegistryRequest, DiscoverRegistryResult, DiscoverRequest, DiscoverRequestType,
+    DiscoveredRegistrySymbol, WIRE_API_VERSION, WireErrorCode, WirePackRequest, WirePackResponse,
+    normalize_discovered_components,
 };
 
-use crate::subprocess_exchange::{ExchangeError, ExchangeRequest, run_exchange};
+use crate::subprocess_exchange::{ExchangeError, ExchangeOutput, ExchangeRequest, run_exchange};
 use crate::subprocess_lang::{LanguageCancellationToken, SubprocessLanguageManifest};
 
 const STDERR_PREVIEW_BYTES: usize = 64 * 1024;
@@ -85,6 +86,39 @@ impl SubprocessLanguageDiscoverer {
         cancellation: &LanguageCancellationToken,
     ) -> Result<DiscoverSymbolsResult, DiscoverError> {
         run_subprocess_discover(&self.manifest, request, cancellation)
+    }
+
+    /// Probes for rich discovery and returns an enriched registry document when supported.
+    ///
+    /// Packs that explicitly report no rich-discovery capability, or legacy packs that reject the
+    /// fixed capability probe with [`WireErrorCode::ConfigInvalid`], are queried through the legacy
+    /// symbol-discovery envelope. The supplied registry is then returned with extraction marked
+    /// unavailable.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same process, transport, timeout, cancellation, protocol, and typed wire errors
+    /// as [`Self::discover`]. Only an explicit lack of capability or the legacy
+    /// `ConfigInvalid` response to the capability probe enables fallback.
+    pub fn discover_registry(
+        &self,
+        request: DiscoverRegistryRequest,
+    ) -> Result<DiscoverRegistryResult, DiscoverError> {
+        self.discover_registry_with_cancellation(request, &LanguageCancellationToken::new())
+    }
+
+    /// Runs rich registry discovery unless cancellation is requested first.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DiscoverError::Cancelled`] when cancellation wins, plus the process, transport,
+    /// protocol, and typed wire errors documented by [`Self::discover_registry`].
+    pub fn discover_registry_with_cancellation(
+        &self,
+        request: DiscoverRegistryRequest,
+        cancellation: &LanguageCancellationToken,
+    ) -> Result<DiscoverRegistryResult, DiscoverError> {
+        run_subprocess_registry_discover(&self.manifest, request, cancellation)
     }
 }
 
@@ -202,37 +236,161 @@ fn run_subprocess_discover(
     request: DiscoverRequest,
     cancellation: &LanguageCancellationToken,
 ) -> Result<DiscoverSymbolsResult, DiscoverError> {
-    let request = serialize_wire_request(request)?;
+    let response = exchange_wire_request(
+        manifest,
+        WirePackRequest::from(request),
+        cancellation,
+        "discover-stdout",
+        false,
+    )?;
+    parse_discover_response(response)
+}
+
+fn run_subprocess_registry_discover(
+    manifest: &SubprocessLanguageManifest,
+    request: DiscoverRegistryRequest,
+    cancellation: &LanguageCancellationToken,
+) -> Result<DiscoverRegistryResult, DiscoverError> {
+    let capability_response = exchange_wire_request(
+        manifest,
+        WirePackRequest::Capabilities {
+            api_version: request.api_version,
+            language_id: request.language_id.clone(),
+        },
+        cancellation,
+        "capabilities-stdout",
+        true,
+    )?;
+
+    match capability_response {
+        WirePackResponse::Capabilities {
+            registry_details_v1: true,
+            ..
+        } => {
+            let response = exchange_wire_request(
+                manifest,
+                WirePackRequest::from(request),
+                cancellation,
+                "registry-details-stdout",
+                true,
+            )?;
+            parse_registry_details_response(response)
+        }
+        WirePackResponse::Capabilities {
+            registry_details_v1: false,
+            ..
+        }
+        | WirePackResponse::Error {
+            code: WireErrorCode::ConfigInvalid,
+            ..
+        } => run_legacy_registry_fallback(manifest, request, cancellation),
+        response => Err(response_error(response)),
+    }
+}
+
+fn run_legacy_registry_fallback(
+    manifest: &SubprocessLanguageManifest,
+    request: DiscoverRegistryRequest,
+    cancellation: &LanguageCancellationToken,
+) -> Result<DiscoverRegistryResult, DiscoverError> {
+    let legacy_request = DiscoverRequest {
+        request_type: DiscoverRequestType::Discover,
+        api_version: request.api_version,
+        language_id: request.language_id,
+        repo_root: request.repo_root,
+        roots: request.roots,
+    };
+    let legacy = run_subprocess_discover(manifest, legacy_request, cancellation)?;
+    Ok(DiscoverRegistryResult {
+        document: normalize_legacy_registry(request.registry, &legacy.components),
+        diagnostics: legacy.diagnostics,
+    })
+}
+
+fn normalize_legacy_registry(
+    mut document: RegistryDocument,
+    discovered: &[DiscoveredRegistrySymbol],
+) -> RegistryDocument {
+    for component in &mut document.components {
+        if component.package.is_none()
+            && let Some(package) = discovered
+                .iter()
+                .find(|candidate| candidate.symbol == component.symbol)
+                .and_then(|candidate| candidate.package.clone())
+        {
+            component.package = Some(package);
+        }
+        component.extracted = Some(unavailable_extraction());
+    }
+    for token in &mut document.tokens {
+        token.extracted = Some(unavailable_extraction());
+    }
+    document
+}
+
+fn unavailable_extraction() -> RegistryExtracted {
+    RegistryExtracted {
+        status: RegistryExtractionStatus::Unavailable,
+        source_evidence: None,
+        documentation: None,
+        signature: None,
+        deprecation: None,
+        attachments: Vec::new(),
+        field_gaps: Vec::new(),
+        extra: serde_json::Map::new(),
+    }
+}
+
+fn serialize_wire_request(request: &WirePackRequest) -> Result<Vec<u8>, DiscoverError> {
+    serde_json::to_vec(request).map_err(|source| DiscoverError::WriteRequest {
+        source: Box::new(source),
+    })
+}
+
+fn exchange_wire_request(
+    manifest: &SubprocessLanguageManifest,
+    request: WirePackRequest,
+    cancellation: &LanguageCancellationToken,
+    stdout_kind: &'static str,
+    fail_on_nonzero_exit: bool,
+) -> Result<WirePackResponse, DiscoverError> {
+    let request = serialize_wire_request(&request)?;
     let exchange = run_exchange(ExchangeRequest {
         command: &manifest.command,
         request: &request,
         timeout: manifest.timeout,
         cancellation,
-        stdout_kind: "discover-stdout",
+        stdout_kind,
     })
     .map_err(map_exchange_error)?;
+    parse_exchange_response(exchange, fail_on_nonzero_exit)
+}
 
-    match parse_wire_response(exchange.stdout_path()) {
-        Ok(result) => Ok(result),
-        Err(_parse_error) if !exchange.status.success() => Err(DiscoverError::ProcessFailed {
-            status: exchange.status,
-            stderr: String::from_utf8_lossy(
-                &exchange
-                    .stderr_bytes(STDERR_PREVIEW_BYTES)
-                    .unwrap_or_default(),
-            )
-            .trim()
-            .to_owned(),
-        }),
+fn parse_exchange_response(
+    exchange: ExchangeOutput,
+    fail_on_nonzero_exit: bool,
+) -> Result<WirePackResponse, DiscoverError> {
+    if fail_on_nonzero_exit && !exchange.status.success() {
+        return Err(process_failure(exchange));
+    }
+    match read_wire_response(exchange.stdout_path()) {
+        Ok(response) => Ok(response),
+        Err(_parse_error) if !exchange.status.success() => Err(process_failure(exchange)),
         Err(parse_error) => Err(parse_error),
     }
 }
 
-fn serialize_wire_request(request: DiscoverRequest) -> Result<Vec<u8>, DiscoverError> {
-    let wire_request = WirePackRequest::from(request);
-    serde_json::to_vec(&wire_request).map_err(|source| DiscoverError::WriteRequest {
-        source: Box::new(source),
-    })
+fn process_failure(exchange: ExchangeOutput) -> DiscoverError {
+    DiscoverError::ProcessFailed {
+        status: exchange.status,
+        stderr: String::from_utf8_lossy(
+            &exchange
+                .stderr_bytes(STDERR_PREVIEW_BYTES)
+                .unwrap_or_default(),
+        )
+        .trim()
+        .to_owned(),
+    }
 }
 
 fn map_exchange_error(error: ExchangeError) -> DiscoverError {
@@ -267,17 +425,22 @@ fn map_stream_error(stream: &'static str, source: io::Error) -> DiscoverError {
     }
 }
 
-fn parse_wire_response(stdout: &Path) -> Result<DiscoverSymbolsResult, DiscoverError> {
+fn read_wire_response(stdout: &Path) -> Result<WirePackResponse, DiscoverError> {
     let probe_file = File::open(stdout).map_err(|source| DiscoverError::ReadStdout { source })?;
     let probe: VersionProbe = serde_json::from_reader(BufReader::new(probe_file))
         .map_err(|source| DiscoverError::InvalidResponse { source })?;
     ensure_supported_api_version(probe.api_version)?;
 
-    let response_file =
-        File::open(stdout).map_err(|source| DiscoverError::ReadStdout { source })?;
-    let response: WirePackResponse = serde_json::from_reader(BufReader::new(response_file))
-        .map_err(|source| DiscoverError::InvalidResponse { source })?;
+    let response: WirePackResponse = serde_json::from_reader(BufReader::new(
+        File::open(stdout).map_err(|source| DiscoverError::ReadStdout { source })?,
+    ))
+    .map_err(|source| DiscoverError::InvalidResponse { source })?;
+    Ok(response)
+}
 
+fn parse_discover_response(
+    response: WirePackResponse,
+) -> Result<DiscoverSymbolsResult, DiscoverError> {
     match response {
         WirePackResponse::DiscoverSymbols {
             api_version,
@@ -300,25 +463,82 @@ fn parse_wire_response(stdout: &Path) -> Result<DiscoverSymbolsResult, DiscoverE
             ..
         } => {
             ensure_supported_api_version(api_version)?;
-            match code {
-                WireErrorCode::Timeout => Err(DiscoverError::WireTimeout {
-                    message,
-                    diagnostics,
-                }),
-                WireErrorCode::DiscoverUnsupported => Err(DiscoverError::Unsupported {
-                    message,
-                    diagnostics,
-                }),
-                _ => Err(DiscoverError::Wire {
-                    code,
-                    message,
-                    diagnostics,
-                }),
-            }
+            Err(map_wire_error(code, message, diagnostics))
         }
         WirePackResponse::ScanFacts { .. } => Err(DiscoverError::UnexpectedResponseType {
             found: "scan_facts",
         }),
+        WirePackResponse::Capabilities { .. } => Err(DiscoverError::UnexpectedResponseType {
+            found: "capabilities",
+        }),
+        WirePackResponse::RegistryDetails { .. } => Err(DiscoverError::UnexpectedResponseType {
+            found: "registry_details",
+        }),
+    }
+}
+
+fn parse_registry_details_response(
+    response: WirePackResponse,
+) -> Result<DiscoverRegistryResult, DiscoverError> {
+    match response {
+        WirePackResponse::RegistryDetails {
+            api_version,
+            document,
+            diagnostics,
+            ..
+        } => {
+            ensure_supported_api_version(api_version)?;
+            Ok(DiscoverRegistryResult {
+                document,
+                diagnostics,
+            })
+        }
+        response => Err(response_error(response)),
+    }
+}
+
+fn response_error(response: WirePackResponse) -> DiscoverError {
+    match response {
+        WirePackResponse::Error {
+            code,
+            message,
+            diagnostics,
+            ..
+        } => map_wire_error(code, message, diagnostics),
+        WirePackResponse::Capabilities { .. } => DiscoverError::UnexpectedResponseType {
+            found: "capabilities",
+        },
+        WirePackResponse::ScanFacts { .. } => DiscoverError::UnexpectedResponseType {
+            found: "scan_facts",
+        },
+        WirePackResponse::DiscoverSymbols { .. } => DiscoverError::UnexpectedResponseType {
+            found: "discover_symbols",
+        },
+        WirePackResponse::RegistryDetails { .. } => DiscoverError::UnexpectedResponseType {
+            found: "registry_details",
+        },
+    }
+}
+
+fn map_wire_error(
+    code: WireErrorCode,
+    message: String,
+    diagnostics: Vec<Diagnostic>,
+) -> DiscoverError {
+    match code {
+        WireErrorCode::Timeout => DiscoverError::WireTimeout {
+            message,
+            diagnostics,
+        },
+        WireErrorCode::DiscoverUnsupported => DiscoverError::Unsupported {
+            message,
+            diagnostics,
+        },
+        _ => DiscoverError::Wire {
+            code,
+            message,
+            diagnostics,
+        },
     }
 }
 

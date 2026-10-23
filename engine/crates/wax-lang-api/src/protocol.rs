@@ -3,7 +3,7 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use thiserror::Error;
-use wax_contract::{Diagnostic, LanguageId, ScanFacts, scan_facts_from_json};
+use wax_contract::{Diagnostic, LanguageId, RegistryDocument, ScanFacts, scan_facts_from_json};
 
 /// Current wire API version for all language pack wire requests.
 pub const WIRE_API_VERSION: u32 = 1;
@@ -63,10 +63,43 @@ pub enum DiscoverRequestType {
     Discover,
 }
 
+/// In-process rich registry discovery request used by the engine.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct DiscoverRegistryRequest {
+    /// Wire API version expected by the engine.
+    pub api_version: u32,
+    /// Language pack identifier being queried.
+    pub language_id: LanguageId,
+    /// Absolute path to the repository root.
+    pub repo_root: String,
+    /// Repo-relative source roots to inspect.
+    pub roots: Vec<String>,
+    /// Registry document whose entries should be enriched.
+    pub registry: RegistryDocument,
+}
+
+/// Successful rich registry discovery result shared by engines and language packs.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct DiscoverRegistryResult {
+    /// Registry document containing extracted details.
+    pub document: RegistryDocument,
+    /// Structured diagnostics emitted while extracting details.
+    pub diagnostics: Vec<Diagnostic>,
+}
+
 /// Unified wire protocol request envelope for scan and discover.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WirePackRequest {
+    /// Query optional language-pack capabilities.
+    Capabilities {
+        /// Wire API version expected by the engine.
+        api_version: u32,
+        /// Language pack identifier being queried.
+        language_id: LanguageId,
+    },
     /// Scan command issued over stdio.
     Scan {
         /// Wire API version expected by the engine.
@@ -91,12 +124,34 @@ pub enum WirePackRequest {
         /// Repo-relative source roots to inspect.
         roots: Vec<String>,
     },
+    /// Rich registry discovery command issued over stdio.
+    DiscoverRegistry {
+        /// Wire API version expected by the engine.
+        api_version: u32,
+        /// Language pack identifier being queried.
+        language_id: LanguageId,
+        /// Absolute path to the repository root.
+        repo_root: String,
+        /// Repo-relative source roots to inspect.
+        roots: Vec<String>,
+        /// Registry document whose entries should be enriched.
+        registry: RegistryDocument,
+    },
 }
 
 /// Unified wire protocol response envelope.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WirePackResponse {
+    /// Optional capabilities supported by the language pack.
+    Capabilities {
+        /// Wire API version used by the language pack.
+        api_version: u32,
+        /// Language pack identifier that reported its capabilities.
+        language_id: LanguageId,
+        /// Whether the pack supports rich registry discovery v1.
+        registry_details_v1: bool,
+    },
     /// Successful scan response.
     ScanFacts {
         /// Wire API version used by the language pack.
@@ -118,6 +173,17 @@ pub enum WirePackResponse {
         /// Discovered symbols with optional package identity.
         #[serde(default)]
         components: Vec<crate::discover::DiscoveredRegistrySymbol>,
+        /// Structured diagnostics emitted with the result.
+        diagnostics: Vec<Diagnostic>,
+    },
+    /// Successful rich registry discovery response.
+    RegistryDetails {
+        /// Wire API version used by the language pack.
+        api_version: u32,
+        /// Language pack identifier that produced the registry.
+        language_id: LanguageId,
+        /// Registry document containing extracted details.
+        document: RegistryDocument,
         /// Structured diagnostics emitted with the result.
         diagnostics: Vec<Diagnostic>,
     },
@@ -301,6 +367,18 @@ impl From<DiscoverRequest> for WirePackRequest {
     }
 }
 
+impl From<DiscoverRegistryRequest> for WirePackRequest {
+    fn from(request: DiscoverRegistryRequest) -> Self {
+        Self::DiscoverRegistry {
+            api_version: request.api_version,
+            language_id: request.language_id,
+            repo_root: request.repo_root,
+            roots: request.roots,
+            registry: request.registry,
+        }
+    }
+}
+
 impl TryFrom<WirePackRequest> for DiscoverRequest {
     type Error = NotDiscoverRequest;
 
@@ -318,7 +396,9 @@ impl TryFrom<WirePackRequest> for DiscoverRequest {
                 repo_root,
                 roots,
             }),
-            WirePackRequest::Scan { .. } => Err(NotDiscoverRequest),
+            WirePackRequest::Capabilities { .. }
+            | WirePackRequest::Scan { .. }
+            | WirePackRequest::DiscoverRegistry { .. } => Err(NotDiscoverRequest),
         }
     }
 }
