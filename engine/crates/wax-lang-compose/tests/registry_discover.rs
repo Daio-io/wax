@@ -288,6 +288,133 @@ fn discover_registry_details_preserves_prior_facts_as_stale_on_damaged_syntax() 
 }
 
 #[test]
+fn discover_registry_details_keeps_prior_stale_when_partial_parse_still_finds_declaration()
+-> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let src = tempdir.path().join("src");
+    fs::create_dir_all(&src)?;
+    // Recoverable damage: PrimaryButton remains in a clean range, but the file is partial.
+    fs::write(
+        src.join("Partial.kt"),
+        r#"import androidx.compose.runtime.Composable
+
+/**
+ * Prior documentation that a damaged sibling can make hard to re-extract.
+ */
+@Composable
+fun PrimaryButton() {}
+
+fun Broken(
+@Composable
+fun SecondaryButton() {}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{
+            "id": "primary",
+            "symbol": "PrimaryButton",
+            "extracted": {
+                "status": "complete",
+                "documentation": "Prior documentation that a damaged sibling can make hard to re-extract.",
+                "source_evidence": {
+                    "path": "src/Partial.kt",
+                    "start_line": 6,
+                    "end_line": 6
+                }
+            }
+        }]
+    }))
+    .unwrap();
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "compose".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("partial parse should be recoverable");
+    let extracted = result.document.components[0]
+        .extracted
+        .as_ref()
+        .expect("prior facts should be retained");
+
+    assert_eq!(
+        extracted.status,
+        wax_contract::RegistryExtractionStatus::Stale
+    );
+    assert_eq!(
+        extracted.documentation.as_deref(),
+        Some("Prior documentation that a damaged sibling can make hard to re-extract.")
+    );
+    assert!(
+        result
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "parse_failed"),
+        "expected partial-tree damage diagnostics, got {:?}",
+        result.diagnostics
+    );
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_omits_sample_tag_as_example_body() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let src = tempdir.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(
+        src.join("SampleOnly.kt"),
+        r#"package com.example
+
+import androidx.compose.runtime.Composable
+
+/**
+ * Documented button.
+ *
+ * @sample com.example.samples.SampleOnlyButtonSample
+ */
+@Composable
+fun SampleOnlyButton() {}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{
+            "id": "sample-only",
+            "symbol": "SampleOnlyButton",
+            "package": "com.example"
+        }]
+    }))
+    .unwrap();
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "compose".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("rich discover should succeed");
+    let extracted = result.document.components[0]
+        .extracted
+        .as_ref()
+        .expect("matching component should be enriched");
+
+    assert_eq!(
+        extracted.documentation.as_deref(),
+        Some("Documented button.")
+    );
+    assert!(
+        extracted.attachments.is_empty(),
+        "@sample FQN is a file reference for Phase 3d, not embedded example body: {:?}",
+        extracted.attachments
+    );
+    Ok(())
+}
+
+#[test]
 fn discover_registry_details_does_not_stale_unrelated_components_on_damage() -> io::Result<()> {
     let tempdir = tempfile::tempdir()?;
     let src = tempdir.path().join("src");

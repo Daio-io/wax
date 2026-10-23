@@ -411,7 +411,8 @@ pub(crate) fn annotation_type_name(
     for child in annotation.named_children(&mut cursor) {
         match child.kind() {
             "user_type" => return last_type_name_segment(child, source),
-            "type" => {
+            // `@Deprecated("…")` and similar annotations parse as constructor_invocation.
+            "constructor_invocation" | "type" => {
                 let mut type_cursor = child.walk();
                 for type_child in child.named_children(&mut type_cursor) {
                     if type_child.kind() == "user_type" {
@@ -436,21 +437,35 @@ fn last_type_name_segment(user_type: tree_sitter::Node<'_>, source: &[u8]) -> Op
     last_type_identifier
 }
 
-fn has_annotation_named(node: tree_sitter::Node<'_>, source: &[u8], expected: &str) -> bool {
+pub(crate) fn has_annotation_named(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    expected: &str,
+) -> bool {
+    annotation_with_name(node, source, expected).is_some()
+}
+
+/// Returns the first annotation node on `node` whose simple type name matches `expected`.
+pub(crate) fn annotation_with_name<'a>(
+    node: tree_sitter::Node<'a>,
+    source: &[u8],
+    expected: &str,
+) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
-        if child.kind() == "modifiers" {
-            let mut modifiers_cursor = child.walk();
-            for modifier in child.named_children(&mut modifiers_cursor) {
-                if modifier.kind() == "annotation"
-                    && annotation_type_name(modifier, source).as_deref() == Some(expected)
-                {
-                    return true;
-                }
+        if child.kind() != "modifiers" {
+            continue;
+        }
+        let mut modifiers_cursor = child.walk();
+        for modifier in child.named_children(&mut modifiers_cursor) {
+            if modifier.kind() == "annotation"
+                && annotation_type_name(modifier, source).as_deref() == Some(expected)
+            {
+                return Some(modifier);
             }
         }
     }
-    false
+    None
 }
 
 pub(crate) fn has_composable_annotation(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
@@ -871,6 +886,31 @@ fun Screen() {}
                 assert_eq!(
                     annotation_type_name(node, source.as_bytes()).as_deref(),
                     Some("Composable")
+                );
+                return;
+            }
+            for index in (0..node.child_count()).rev() {
+                if let Some(child) = node.child(index) {
+                    stack.push(child);
+                }
+            }
+        }
+
+        panic!("annotation not found");
+    }
+
+    #[test]
+    fn annotation_type_name_handles_constructor_invocation_annotations() {
+        let mut parser = new_parser().expect("parser");
+        let source = "@Deprecated(\"Prefer ActionButton instead.\")\nfun Unused() {}";
+        let tree = parser.parse(source.as_bytes(), None).expect("tree");
+        let root = tree.root_node();
+        let mut stack = vec![root];
+        while let Some(node) = stack.pop() {
+            if node.kind() == "annotation" {
+                assert_eq!(
+                    annotation_type_name(node, source.as_bytes()).as_deref(),
+                    Some("Deprecated")
                 );
                 return;
             }

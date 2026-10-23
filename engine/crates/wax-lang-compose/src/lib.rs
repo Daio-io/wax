@@ -43,8 +43,12 @@ use wax_lang_api::{
     DiscoverRequest, DiscoveredRegistrySymbol, ScanRequest, build_version, parse_extract_millis,
 };
 
-pub use discover::{ComposeDiscoverError, DiscoverRegistryResult, discover_registry_symbols};
-pub use registry_details::discover_registry_details;
+/// Pack-local symbol discovery result (`components` + diagnostics).
+///
+/// Distinct from [`DiscoverRegistryDetailsResult`] returned by [`discover_registry_details`].
+pub use discover::DiscoverRegistryResult;
+pub use discover::{ComposeDiscoverError, discover_registry_symbols};
+pub use registry_details::{DiscoverRegistryDetailsResult, discover_registry_details};
 use tree_sitter_scan::TreeSitterScanError;
 pub use tree_sitter_scan::{ComposeConfigMode, ComposeScanConfig};
 

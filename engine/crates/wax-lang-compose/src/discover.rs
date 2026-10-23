@@ -201,17 +201,7 @@ fn collect_symbols(
 ) {
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
-        if node.kind() == "function_declaration"
-            && clean.iter().any(|range| range.contains_node(node))
-            && !node_has_error_ancestor_within(node, clean)
-            && is_top_level_declaration(node)
-            && has_composable_annotation(node, source)
-            && !has_preview_annotation(node, source)
-            && is_public(node, source)
-            && let Some((name, _)) = function_name_from_decl(node, source)
-            && name.starts_with(|c: char| c.is_ascii_uppercase())
-            && !is_non_ui_scaffolding_composable_symbol(&name)
-        {
+        if let Some(name) = discoverable_component_name(node, source, clean) {
             insert_discovered_symbol(components, diagnostics, name, package.clone());
         }
 
@@ -221,6 +211,31 @@ fn collect_symbols(
             }
         }
     }
+}
+
+/// Shared predicate for public top-level Compose components eligible for discovery/enrichment.
+pub(crate) fn discoverable_component_name(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    clean: &[crate::kotlin_recovery::ByteRange],
+) -> Option<String> {
+    if node.kind() != "function_declaration"
+        || !clean.iter().any(|range| range.contains_node(node))
+        || node_has_error_ancestor_within(node, clean)
+        || !is_top_level_declaration(node)
+        || !has_composable_annotation(node, source)
+        || has_preview_annotation(node, source)
+        || !is_public(node, source)
+    {
+        return None;
+    }
+    let (name, _) = function_name_from_decl(node, source)?;
+    if !name.starts_with(|c: char| c.is_ascii_uppercase())
+        || is_non_ui_scaffolding_composable_symbol(&name)
+    {
+        return None;
+    }
+    Some(name)
 }
 
 fn insert_discovered_symbol(

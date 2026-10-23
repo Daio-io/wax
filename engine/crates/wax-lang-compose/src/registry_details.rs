@@ -9,18 +9,19 @@ use wax_contract::{
     RegistryExtractionStatus, RegistryFieldGap, RegistryParameter, RegistrySignature,
     RegistrySourceEvidence, RegistrySourceKind,
 };
-use wax_lang_api::{DiscoverRegistryRequest, DiscoverRegistryResult};
+use wax_lang_api::DiscoverRegistryRequest;
 
 use crate::discover::{
-    ComposeDiscoverError, ParsedKotlinSourceFile, collect_and_parse_kotlin_sources, is_public,
-    is_top_level_declaration,
+    ComposeDiscoverError, ParsedKotlinSourceFile, collect_and_parse_kotlin_sources,
+    discoverable_component_name,
 };
-use crate::kotlin_ast::{
-    collect_import_bindings, function_name_from_decl, has_composable_annotation,
-    has_preview_annotation, is_non_ui_scaffolding_composable_symbol,
-    node_has_error_ancestor_within,
-};
+use crate::kotlin_ast::{annotation_with_name, collect_import_bindings};
 use crate::kotlin_recovery::ByteRange;
+
+/// Result of rich Compose registry enrichment (`document` + diagnostics).
+///
+/// Distinct from the pack-local symbol-discovery [`crate::DiscoverRegistryResult`].
+pub type DiscoverRegistryDetailsResult = wax_lang_api::DiscoverRegistryResult;
 
 #[derive(Debug)]
 struct ComponentDeclaration {
@@ -51,7 +52,7 @@ struct KDoc {
 /// [`ComposeDiscoverError::Io`] when source discovery or reading fails.
 pub fn discover_registry_details(
     request: &DiscoverRegistryRequest,
-) -> Result<DiscoverRegistryResult, ComposeDiscoverError> {
+) -> Result<DiscoverRegistryDetailsResult, ComposeDiscoverError> {
     if request.language_id.as_str() != "compose" {
         return Err(ComposeDiscoverError::InvalidLanguageId(
             request.language_id.to_string(),
@@ -80,7 +81,7 @@ pub fn discover_registry_details(
         .validate()
         .map_err(ComposeDiscoverError::InvalidRegistry)?;
 
-    Ok(DiscoverRegistryResult {
+    Ok(DiscoverRegistryDetailsResult {
         document,
         diagnostics,
     })
@@ -122,16 +123,7 @@ fn collect_component_declarations(
 ) {
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
-        if node.kind() == "function_declaration"
-            && clean.iter().any(|range| range.contains_node(node))
-            && !node_has_error_ancestor_within(node, clean)
-            && is_top_level_declaration(node)
-            && has_composable_annotation(node, source)
-            && !has_preview_annotation(node, source)
-            && is_public(node, source)
-            && let Some((name, _)) = function_name_from_decl(node, source)
-            && name.starts_with(|c: char| c.is_ascii_uppercase())
-            && !is_non_ui_scaffolding_composable_symbol(&name)
+        if let Some(name) = discoverable_component_name(node, source, clean)
             && !declarations.iter().any(|existing| existing.symbol == name)
         {
             declarations.push(ComponentDeclaration {
@@ -444,7 +436,6 @@ fn parse_kdoc(text: &str) -> KDoc {
 
     let mut description = Vec::new();
     let mut deprecation = None;
-    let mut sample = None;
     let mut fenced = Vec::new();
     let mut in_fence = false;
 
@@ -466,10 +457,9 @@ fn parse_kdoc(text: &str) -> KDoc {
                 replaced_by: None,
                 extra: Map::new(),
             });
-        } else if let Some(value) = line.strip_prefix("@sample") {
-            sample = non_empty(value.trim());
         } else if line.starts_with('@') {
-            // Ignore other KDoc tags for description text.
+            // Ignore KDoc tags for description text. `@sample` is a file reference
+            // resolved in a later phase, not embedded example body.
         } else if !line.is_empty() {
             description.push(line);
         }
@@ -478,7 +468,7 @@ fn parse_kdoc(text: &str) -> KDoc {
     KDoc {
         documentation: non_empty(description.join("\n").trim()),
         deprecation,
-        example: non_empty(fenced.join("\n").trim()).or(sample),
+        example: non_empty(fenced.join("\n").trim()),
     }
 }
 
@@ -486,64 +476,15 @@ fn deprecated_annotation(
     node: tree_sitter::Node<'_>,
     source: &[u8],
 ) -> Option<RegistryDeprecation> {
-    let mut cursor = node.walk();
-    for child in node.named_children(&mut cursor) {
-        if child.kind() != "modifiers" {
-            continue;
-        }
-        let mut modifiers_cursor = child.walk();
-        for modifier in child.named_children(&mut modifiers_cursor) {
-            if modifier.kind() != "annotation" {
-                continue;
-            }
-            if !annotation_named(modifier, source, "Deprecated") {
-                continue;
-            }
-            let message = annotation_string_argument(modifier, source, 0);
-            let replaced_by = annotation_replace_with(modifier, source);
-            return Some(RegistryDeprecation {
-                message,
-                since: None,
-                replaced_by,
-                extra: Map::new(),
-            });
-        }
-    }
-    None
-}
-
-fn annotation_named(node: tree_sitter::Node<'_>, source: &[u8], name: &str) -> bool {
-    let mut cursor = node.walk();
-    for child in node.named_children(&mut cursor) {
-        match child.kind() {
-            "user_type" | "constructor_invocation" => {
-                if let Ok(text) = child.utf8_text(source) {
-                    let simple = text.split(['.', '(', '<']).next().unwrap_or(text);
-                    if simple == name || simple.ends_with(name) {
-                        return true;
-                    }
-                }
-                if child.kind() == "constructor_invocation" {
-                    let mut invocation_cursor = child.walk();
-                    for nested in child.named_children(&mut invocation_cursor) {
-                        if nested.kind() == "user_type"
-                            && let Ok(text) = nested.utf8_text(source)
-                        {
-                            let simple = text.split('.').next().unwrap_or(text);
-                            if simple == name {
-                                return true;
-                            }
-                        }
-                    }
-                }
-            }
-            "identifier" | "simple_identifier" if child.utf8_text(source).ok() == Some(name) => {
-                return true;
-            }
-            _ => {}
-        }
-    }
-    false
+    let annotation = annotation_with_name(node, source, "Deprecated")?;
+    let message = annotation_string_argument(annotation, source, 0);
+    let replaced_by = annotation_replace_with(annotation, source);
+    Some(RegistryDeprecation {
+        message,
+        since: None,
+        replaced_by,
+        extra: Map::new(),
+    })
 }
 
 fn annotation_string_argument(
@@ -609,6 +550,19 @@ fn enrich_components(
                     .is_none_or(|package| declaration.package.as_ref() == Some(package))
         });
         if let Some(declaration) = declaration {
+            let declaration_path_damaged = declaration
+                .extracted
+                .source_evidence
+                .as_ref()
+                .is_some_and(|evidence| damaged_paths.contains(&evidence.path));
+            if declaration_path_damaged {
+                // Clean-range hits in a damaged file are incomplete evidence: keep prior
+                // facts and mark them stale instead of trusting a full replacement.
+                if let Some(extracted) = &mut component.extracted {
+                    extracted.status = RegistryExtractionStatus::Stale;
+                }
+                continue;
+            }
             component.extracted = Some(declaration.extracted.clone());
             continue;
         }
