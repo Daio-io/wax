@@ -2720,6 +2720,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "strsim",
  "tar",
  "thiserror",
  "time",
