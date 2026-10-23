@@ -503,6 +503,126 @@ fn distinct_discoveries_do_not_match_entries_added_during_merge() {
 }
 
 #[test]
+fn id_fallback_mismatch_retains_extraction_on_both_candidates() {
+    // Exact id hits entry A while a unique package/symbol (or token key) hits B.
+    // Conflict must be diagnostic-only for both indices — A must not become not_observed.
+    let existing = registry(
+        r#"{
+            "schema_version": 1,
+            "components": [
+                {
+                    "id": "button-a",
+                    "symbol": "Card",
+                    "extracted": {"status": "complete", "documentation": "A docs"}
+                },
+                {
+                    "id": "button-b",
+                    "symbol": "Button",
+                    "package": "@acme/ui",
+                    "extracted": {"status": "complete", "documentation": "B docs"}
+                }
+            ],
+            "tokens": [
+                {
+                    "id": "color-a",
+                    "key": "color.other",
+                    "category": "color",
+                    "extracted": {"status": "complete", "documentation": "A docs"}
+                },
+                {
+                    "id": "color-b",
+                    "key": "color.brand",
+                    "category": "color",
+                    "extracted": {"status": "complete", "documentation": "B docs"}
+                }
+            ]
+        }"#,
+    );
+    let discovered = registry(
+        r#"{
+            "schema_version": 1,
+            "components": [{
+                "id": "button-a",
+                "symbol": "Button",
+                "package": "@acme/ui",
+                "extracted": {"status": "complete", "documentation": "Fresh component docs"}
+            }],
+            "tokens": [{
+                "id": "color-a",
+                "key": "color.brand",
+                "category": "color",
+                "extracted": {"status": "complete", "documentation": "Fresh token docs"}
+            }]
+        }"#,
+    );
+
+    let merged = merge_registry(Some(&existing), &discovered, true).expect("registry merges");
+
+    for (kind, index, docs) in [
+        ("component", 0usize, "A docs"),
+        ("component", 1, "B docs"),
+        ("token", 0, "A docs"),
+        ("token", 1, "B docs"),
+    ] {
+        let extracted = match kind {
+            "component" => merged.document.components[index]
+                .extracted
+                .as_ref()
+                .expect("component extracted"),
+            "token" => merged.document.tokens[index]
+                .extracted
+                .as_ref()
+                .expect("token extracted"),
+            _ => unreachable!(),
+        };
+        assert_eq!(
+            extracted.status,
+            RegistryExtractionStatus::Complete,
+            "{kind}[{index}] must retain complete extraction on id/fallback conflict"
+        );
+        assert_eq!(
+            extracted.documentation.as_deref(),
+            Some(docs),
+            "{kind}[{index}] docs must stay untouched"
+        );
+    }
+
+    assert!(!merged.changes.iter().any(|change| {
+        matches!(
+            (change.entry_kind, change.id.as_str(), change.kind),
+            (
+                RegistryMergeEntryKind::Component,
+                "button-a" | "button-b",
+                RegistryMergeChangeKind::Updated
+            ) | (
+                RegistryMergeEntryKind::Token,
+                "color-a" | "color-b",
+                RegistryMergeChangeKind::Updated
+            )
+        )
+    }));
+    assert_eq!(merged.diagnostics.len(), 2);
+    assert!(
+        merged
+            .diagnostics
+            .iter()
+            .all(|diagnostic| { diagnostic.code == RegistryMergeDiagnosticCode::IdentityConflict })
+    );
+    assert!(
+        merged.diagnostics[0].message.contains("button-a")
+            && merged.diagnostics[0].message.contains("button-b"),
+        "component conflict should name both candidates: {}",
+        merged.diagnostics[0].message
+    );
+    assert!(
+        merged.diagnostics[1].message.contains("color-a")
+            && merged.diagnostics[1].message.contains("color-b"),
+        "token conflict should name both candidates: {}",
+        merged.diagnostics[1].message
+    );
+}
+
+#[test]
 fn exact_ids_disambiguate_ambiguous_component_and_token_fallbacks() {
     let existing = registry(
         r#"{

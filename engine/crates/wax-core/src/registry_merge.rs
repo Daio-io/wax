@@ -375,9 +375,11 @@ fn resolve_token_identity(
 fn resolve_identity(id_match: Option<usize>, candidates: &[usize]) -> IdentityResolution {
     if let Some(id_index) = id_match {
         // Exact IDs disambiguate ambiguous fallbacks; only conflict when a
-        // unique fallback points at a different entry than the ID.
+        // unique fallback points at a different entry than the ID. Include both
+        // indices so conflict retention covers the id hit as well as the
+        // fallback match (diagnostics only — neither becomes not_observed).
         if candidates.len() == 1 && candidates[0] != id_index {
-            return IdentityResolution::Conflict(vec![candidates[0]]);
+            return IdentityResolution::Conflict(vec![id_index, candidates[0]]);
         }
         return IdentityResolution::Match(id_index);
     }
