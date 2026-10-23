@@ -86,6 +86,55 @@ fn stdio_cli_emits_one_scan_facts_response() {
 }
 
 #[test]
+fn stdio_cli_advertises_registry_details_v1() {
+    let request = json!({
+        "type": "capabilities",
+        "api_version": 1,
+        "language_id": "compose"
+    });
+
+    let output = run_stdio_request(&request);
+    let response: WirePackResponse = serde_json::from_str(output.trim()).unwrap();
+
+    assert!(matches!(
+        response,
+        WirePackResponse::Capabilities {
+            registry_details_v1: true,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn stdio_cli_emits_registry_details_for_rich_discovery() {
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/discover");
+    let request = json!({
+        "type": "discover_registry",
+        "api_version": 1,
+        "language_id": "compose",
+        "repo_root": repo_root,
+        "roots": ["design-system/src/main/kotlin"],
+        "registry": {
+            "schema_version": 1,
+            "components": [{
+                "id": "rich",
+                "symbol": "RichButton",
+                "package": "com.example.ds"
+            }]
+        }
+    });
+
+    let output = run_stdio_request(&request);
+    let response: WirePackResponse = serde_json::from_str(output.trim()).unwrap();
+
+    assert!(matches!(
+        response,
+        WirePackResponse::RegistryDetails { document, diagnostics, .. }
+            if document.components[0].extracted.is_some() && diagnostics.is_empty()
+    ));
+}
+
+#[test]
 fn stdio_cli_emits_discover_symbols_for_fixture_roots() {
     let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/discover");
 
