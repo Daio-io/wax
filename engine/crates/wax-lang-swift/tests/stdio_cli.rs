@@ -36,6 +36,85 @@ fn run_stdio_request(request: &Value) -> String {
 }
 
 #[test]
+fn stdio_cli_advertises_registry_details_v1() {
+    let request = json!({
+        "type": "capabilities",
+        "api_version": 1,
+        "language_id": "swift"
+    });
+
+    let output = run_stdio_request(&request);
+    let response: WirePackResponse = serde_json::from_str(output.trim()).unwrap();
+
+    assert!(matches!(
+        response,
+        WirePackResponse::Capabilities {
+            registry_details_v1: true,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn stdio_cli_emits_registry_details_for_rich_discovery() {
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rich-discover");
+    let request = json!({
+        "type": "discover_registry",
+        "api_version": 1,
+        "language_id": "swift",
+        "repo_root": repo_root,
+        "roots": ["design-system/Sources"],
+        "registry": {
+            "schema_version": 1,
+            "components": [{"id": "rich", "symbol": "RichButton"}]
+        }
+    });
+
+    let output = run_stdio_request(&request);
+    let response: WirePackResponse = serde_json::from_str(output.trim()).unwrap();
+
+    assert!(matches!(
+        response,
+        WirePackResponse::RegistryDetails { document, diagnostics, .. }
+            if document.components[0].extracted.is_some() && diagnostics.is_empty()
+    ));
+}
+
+#[test]
+fn stdio_cli_preserves_legacy_discover_response_shape() {
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/discover");
+    let request = json!({
+        "type": "discover",
+        "api_version": 1,
+        "language_id": "swift",
+        "repo_root": repo_root,
+        "roots": ["design-system/Sources"]
+    });
+
+    let output = run_stdio_request(&request);
+    let response: Value = serde_json::from_str(output.trim()).unwrap();
+    let mut fields = response
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect::<Vec<_>>();
+    fields.sort();
+
+    assert_eq!(
+        fields,
+        [
+            "api_version",
+            "components",
+            "diagnostics",
+            "language_id",
+            "symbols",
+            "type"
+        ]
+    );
+}
+
+#[test]
 fn stdio_scan_with_empty_config_returns_swift_scaffold_facts() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_wax-lang-swift"))
         .arg("--stdio")

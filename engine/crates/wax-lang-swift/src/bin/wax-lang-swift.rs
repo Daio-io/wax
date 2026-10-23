@@ -3,13 +3,15 @@ use clap::Parser;
 use std::io::{BufRead, Write};
 use wax_contract::LanguageId;
 use wax_lang_api::{
-    DiscoverRequest, ScanRequest, WireErrorCode, WirePackHandler, WirePackResponse,
-    discover_symbols_response, pack_language_id, require_stdio, scan_facts_response, serve_stdio,
-    wire_error_response,
+    DiscoverRegistryRequest, DiscoverRequest, ScanRequest, WireErrorCode, WirePackHandler,
+    WirePackResponse, discover_symbols_response, pack_language_id, registry_details_response,
+    require_stdio, scan_facts_response, serve_stdio, wire_error_response,
 };
 #[cfg(test)]
 use wax_lang_api::{WireServerError, serve_one};
-use wax_lang_swift::{SwiftDiscoverError, SwiftLanguage, SwiftScanError};
+use wax_lang_swift::{
+    SwiftDiscoverError, SwiftLanguage, SwiftScanError, discover_registry_details,
+};
 
 #[derive(Debug, Parser)]
 #[command(name = "wax-lang-swift")]
@@ -55,6 +57,17 @@ impl WirePackHandler for SwiftWireHandler {
             Err(err) => discover_error_response(request.api_version, request.language_id, err),
         }
     }
+
+    fn registry_details_v1(&self) -> bool {
+        true
+    }
+
+    fn discover_registry(&self, request: DiscoverRegistryRequest) -> WirePackResponse {
+        match discover_registry_details(&request) {
+            Ok(result) => registry_details_response(&request, result),
+            Err(err) => discover_error_response(request.api_version, request.language_id, err),
+        }
+    }
 }
 
 fn scan_error_response(
@@ -77,9 +90,9 @@ fn discover_error_response(
     err: SwiftDiscoverError,
 ) -> WirePackResponse {
     let code = match &err {
-        SwiftDiscoverError::InvalidLanguageId(_) | SwiftDiscoverError::MissingRoot(_) => {
-            WireErrorCode::ConfigInvalid
-        }
+        SwiftDiscoverError::InvalidLanguageId(_)
+        | SwiftDiscoverError::MissingRoot(_)
+        | SwiftDiscoverError::InvalidRegistry(_) => WireErrorCode::ConfigInvalid,
         SwiftDiscoverError::ParserInitFailed(_) => WireErrorCode::ParserInitFailed,
         SwiftDiscoverError::Io { .. } => WireErrorCode::ScanFailed,
     };
