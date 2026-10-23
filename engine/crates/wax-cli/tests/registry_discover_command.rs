@@ -452,6 +452,66 @@ fn dry_run_writes_summaries_and_warnings_to_stderr_not_stdout() {
 }
 
 #[test]
+fn dry_run_renders_structured_merge_changes_without_writing() {
+    let _guard = env_lock();
+    let root = TestDir::new("registry-discover-dry-run-changes");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    let _harness = setup_compose_discover_repo(&repo, false);
+    fs::create_dir_all(repo.join(".wax")).unwrap();
+    fs::write(
+        repo.join(".wax/compose.registry.json"),
+        r#"{
+  "schema_version": 1,
+  "components": [{
+    "id": "legacy",
+    "symbol": "LegacyControl",
+    "metadata": {"description": "Keep authored entry"}
+  }],
+  "tokens": []
+}
+"#,
+    )
+    .unwrap();
+
+    let output = run_discover(&repo, &["--dry-run"]);
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let registry: Value = serde_json::from_str(stdout.trim()).unwrap();
+
+    assert!(
+        registry["components"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|component| component["id"] == "legacy")
+    );
+    assert!(stderr.contains("Dry-run changes"));
+    assert!(stderr.contains("added component") || stderr.contains("updated component"));
+    assert!(stderr.contains("no destructive regeneration"));
+    assert!(!stdout.contains("Dry-run changes"));
+    assert_eq!(
+        fs::read_to_string(repo.join(".wax/compose.registry.json")).unwrap(),
+        r#"{
+  "schema_version": 1,
+  "components": [{
+    "id": "legacy",
+    "symbol": "LegacyControl",
+    "metadata": {"description": "Keep authored entry"}
+  }],
+  "tokens": []
+}
+"#
+    );
+}
+
+#[test]
 fn default_write_creates_language_specific_registry_path() {
     let _guard = env_lock();
     let root = TestDir::new("registry-discover-write");

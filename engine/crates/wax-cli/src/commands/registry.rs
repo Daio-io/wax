@@ -17,6 +17,9 @@ use wax_core::registry_memory::{
     list_remembered_design_systems, refresh_remembered_registry, show_remembered_design_system,
     update_remembered_design_system_repo_root,
 };
+use wax_core::registry_merge::{
+    RegistryMergeChange, RegistryMergeChangeKind, RegistryMergeEntryKind,
+};
 
 /// Options for `wax discover` and `wax registry discover`.
 #[derive(Debug, Clone)]
@@ -209,6 +212,8 @@ pub fn run_registry_discover(
             result.used_config_roots,
             &result.diagnostics,
         );
+        write_dry_run_changes(&result.changes);
+        write_merge_diagnostics(&result.merge_diagnostics);
         return Ok(());
     }
 
@@ -423,6 +428,38 @@ fn write_pack_diagnostics(diagnostics: &[Diagnostic]) {
     eprintln!("discovery diagnostics ({}):", diagnostics.len());
     for diagnostic in diagnostics {
         eprintln!("  {}", format_diagnostic_line(diagnostic));
+    }
+}
+
+fn write_dry_run_changes(changes: &[RegistryMergeChange]) {
+    if changes.is_empty() {
+        eprintln!("Dry-run changes: none (rediscovery is unchanged).");
+        return;
+    }
+
+    eprintln!("Dry-run changes ({}):", changes.len());
+    for change in changes {
+        let entry_kind = match change.entry_kind {
+            RegistryMergeEntryKind::Component => "component",
+            RegistryMergeEntryKind::Token => "token",
+        };
+        let kind = match change.kind {
+            RegistryMergeChangeKind::Added => "added",
+            RegistryMergeChangeKind::Updated => "updated",
+        };
+        eprintln!("  {kind} {entry_kind} {}", change.id);
+    }
+    eprintln!("Dry run keeps the existing registry file intact; no destructive regeneration.");
+}
+
+fn write_merge_diagnostics(diagnostics: &[wax_core::registry_merge::RegistryMergeDiagnostic]) {
+    if diagnostics.is_empty() {
+        return;
+    }
+
+    eprintln!("merge diagnostics ({}):", diagnostics.len());
+    for diagnostic in diagnostics {
+        eprintln!("  {}: {}", diagnostic.discovered_id, diagnostic.message);
     }
 }
 
