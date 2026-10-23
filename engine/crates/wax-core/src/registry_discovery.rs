@@ -6,12 +6,15 @@ use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
-use serde::Serialize;
 use serde_json::Value;
 use thiserror::Error;
-use wax_contract::{Diagnostic, LanguageId};
+use wax_contract::{
+    Diagnostic, LanguageId, REGISTRY_SCHEMA_VERSION, RegistryComponent, RegistryDocument,
+    RegistryError, registry_from_json,
+};
 use wax_lang_api::{
-    DiscoverRequest, DiscoverRequestType, DiscoveredRegistrySymbol, WIRE_API_VERSION,
+    DiscoverRegistryRequest, DiscoverRequest, DiscoverRequestType, DiscoveredRegistrySymbol,
+    WIRE_API_VERSION,
 };
 
 use crate::atomic_file::write_atomically_no_clobber;
@@ -23,16 +26,19 @@ use crate::config::repo_files::{default_registry_path_for_language, discover_rep
 use crate::config::waxrc::{LanguageEntry, WaxRc, WaxRcError, load_waxrc};
 use crate::global_state::{GlobalStateError, load_global_state};
 use crate::paths::{PathsError, state_file};
+use crate::registry_attachments::{RegistryAttachmentError, materialize_registry_attachments};
 use crate::registry_memory::{
     RegistryMemoryError, design_system_registry_relative_path,
     ensure_design_system_registry_source, remember_design_system,
+};
+use crate::registry_merge::{
+    RegistryMergeChange, RegistryMergeDiagnostic, RegistryMergeError, merge_registry,
 };
 use crate::registry_source::is_external_registry_source;
 use crate::subprocess_discover::{DiscoverError, SubprocessLanguageDiscoverer};
 use crate::subprocess_lang::SubprocessLanguageManifest;
 use crate::{AtomicWriteError, AtomicWriteOptions, write_atomically};
 
-const REGISTRY_SCHEMA_VERSION: u32 = 1;
 const DEFAULT_DISCOVER_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Inputs for registry discovery orchestration.
@@ -46,7 +52,7 @@ pub struct RegistryDiscoverOptions<'a> {
     pub roots: Vec<PathBuf>,
     /// When true, generate JSON but do not write a file.
     pub dry_run: bool,
-    /// When true, replace an existing output file.
+    /// Compatibility flag; existing registries are always refreshed by lossless merge.
     pub force: bool,
     /// Design-system id to remember after discovery.
     pub design_system_id: Option<&'a str>,
@@ -61,6 +67,12 @@ pub struct RegistryDiscoverResult {
     pub output_path: PathBuf,
     /// Generated registry JSON value.
     pub registry: Value,
+    /// Losslessly merged registry document.
+    pub document: RegistryDocument,
+    /// Structured entry-level changes made by discovery and merging.
+    pub changes: Vec<RegistryMergeChange>,
+    /// Structured identity diagnostics emitted by lossless merging.
+    pub merge_diagnostics: Vec<RegistryMergeDiagnostic>,
     /// Whether discovery roots were resolved from wax config instead of CLI `--root`.
     pub used_config_roots: bool,
     /// Number of source roots scanned during discovery.
@@ -69,7 +81,7 @@ pub struct RegistryDiscoverResult {
     pub wax_config_present: bool,
     /// Whether `.wax/wax.lock.json` was loaded.
     pub lockfile_present: bool,
-    /// Structured diagnostics returned by the language pack subprocess.
+    /// Structured diagnostics returned by discovery and attachment materialization.
     pub diagnostics: Vec<Diagnostic>,
     /// Whether the design system was remembered in global state.
     pub remembered_design_system: bool,
@@ -208,10 +220,8 @@ pub enum RegistryDiscoverError {
         #[source]
         source: serde_json::Error,
     },
-    /// The target registry already exists and overwrite was not forced.
-    #[error(
-        "registry already exists at {path}; rerun with --force to replace it or --dry-run to inspect the generated registry first"
-    )]
+    /// The target registry appeared concurrently during first publication.
+    #[error("registry appeared at {path} while publishing; rerun to merge the current file")]
     OutputExists {
         /// Existing output path.
         path: String,
@@ -273,20 +283,30 @@ pub enum RegistryDiscoverError {
     /// `--design-system` and `--name` must be provided together.
     #[error("--design-system and --name must be provided together")]
     IncompleteDesignSystemOptions,
-}
-
-#[derive(Debug, Serialize)]
-struct DiscoveredRegistry {
-    schema_version: u32,
-    components: Vec<DiscoveredComponent>,
-}
-
-#[derive(Debug, Serialize)]
-struct DiscoveredComponent {
-    id: String,
-    symbol: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    package: Option<String>,
+    /// An existing registry file could not be read.
+    #[error("failed to read existing registry at {path}: {source}")]
+    ReadExistingRegistry {
+        /// Registry path that could not be read.
+        path: String,
+        /// Underlying I/O failure.
+        #[source]
+        source: io::Error,
+    },
+    /// An existing registry file violated the public registry contract.
+    #[error("existing registry at {path} is invalid: {source}")]
+    InvalidExistingRegistry {
+        /// Registry path that contained invalid data.
+        path: String,
+        /// Contract parsing or validation failure.
+        #[source]
+        source: RegistryError,
+    },
+    /// Creator-associated attachment materialization failed.
+    #[error(transparent)]
+    Attachment(#[from] RegistryAttachmentError),
+    /// Lossless registry merging failed.
+    #[error(transparent)]
+    Merge(#[from] RegistryMergeError),
 }
 
 /// Discovers a registry for a single language and optionally writes it to disk.
@@ -309,6 +329,10 @@ struct DiscoveredComponent {
 /// [`RegistryDiscoverError::DiscoverSubprocess`],
 /// [`RegistryDiscoverError::DiscoverUnsupported`], or
 /// [`RegistryDiscoverError::RegistryExternalSource`] when discovery cannot run;
+/// [`RegistryDiscoverError::ReadExistingRegistry`] or
+/// [`RegistryDiscoverError::InvalidExistingRegistry`] when the publisher seed
+/// cannot be loaded; [`RegistryDiscoverError::Attachment`] or
+/// [`RegistryDiscoverError::Merge`] when enrichment cannot be safely merged;
 /// [`RegistryDiscoverError::Serialize`],
 /// [`RegistryDiscoverError::IdCollision`],
 /// [`RegistryDiscoverError::OutputExists`],
@@ -377,21 +401,45 @@ pub fn discover_registry(
     let lockfile_present = lockfile.is_some();
     let state = load_global_state(state_file()?)?;
     let pack_command = resolve_discover_pack_command(&state, lockfile.as_ref(), &language_id)?;
-    let (components, diagnostics) = discover_symbols(
+    let existing = load_existing_registry(&output_path)?;
+    let (components, mut diagnostics) = discover_symbols(
+        options.repo_root,
+        &language_id,
+        &roots,
+        pack_command.clone(),
+        DEFAULT_DISCOVER_TIMEOUT,
+    )?;
+    let discovered_seed = build_registry(&components)?;
+    let seed = merge_registry(existing.as_ref(), &discovered_seed, true)?.document;
+    let creator_seed = seed.clone();
+    let mut discovered = discover_registry_document(
         options.repo_root,
         &language_id,
         &roots,
         pack_command,
+        seed,
         DEFAULT_DISCOVER_TIMEOUT,
     )?;
-    let registry = build_registry(&components)?;
-    let registry = serde_json::to_value(&registry)
+    retain_creator_metadata(&creator_seed, &mut discovered.document);
+    diagnostics.append(&mut discovered.diagnostics);
+    diagnostics.extend(materialize_registry_attachments(
+        options.repo_root,
+        &mut discovered.document,
+    )?);
+    let merged = merge_registry(existing.as_ref(), &discovered.document, true)?;
+    let document = merged.document;
+    let changes = merged.changes;
+    let merge_diagnostics = merged.diagnostics;
+    let registry = serde_json::to_value(&document)
         .map_err(|source| RegistryDiscoverError::Serialize { source })?;
 
     if options.dry_run {
         return Ok(RegistryDiscoverResult {
             output_path,
             registry,
+            document,
+            changes,
+            merge_diagnostics,
             used_config_roots,
             root_count: roots.len(),
             wax_config_present,
@@ -401,14 +449,10 @@ pub fn discover_registry(
         });
     }
 
-    if !options.force && output_path.try_exists().unwrap_or(false) {
-        return Err(RegistryDiscoverError::OutputExists { path: path_display });
-    }
-
     let contents = serde_json::to_string_pretty(&registry)
         .map_err(|source| RegistryDiscoverError::Serialize { source })?;
     let written_bytes = format!("{contents}\n");
-    if options.force {
+    if existing.is_some() {
         write_atomically(
             &output_path,
             written_bytes.as_bytes(),
@@ -464,6 +508,9 @@ pub fn discover_registry(
     Ok(RegistryDiscoverResult {
         output_path,
         registry,
+        document,
+        changes,
+        merge_diagnostics,
         used_config_roots,
         root_count: roots.len(),
         wax_config_present,
@@ -601,6 +648,25 @@ fn load_optional_lockfile(path: &Path) -> Result<Option<WaxLock>, RegistryDiscov
         }
         Err(err) => Err(RegistryDiscoverError::Lockfile(err)),
     }
+}
+
+fn load_existing_registry(path: &Path) -> Result<Option<RegistryDocument>, RegistryDiscoverError> {
+    let raw = match fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(source) if source.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(source) => {
+            return Err(RegistryDiscoverError::ReadExistingRegistry {
+                path: path.display().to_string(),
+                source,
+            });
+        }
+    };
+    registry_from_json(&raw).map(Some).map_err(|source| {
+        RegistryDiscoverError::InvalidExistingRegistry {
+            path: path.display().to_string(),
+            source,
+        }
+    })
 }
 
 fn find_enabled_language<'a>(waxrc: &'a WaxRc, language_id: &str) -> Option<&'a LanguageEntry> {
@@ -844,6 +910,88 @@ fn discover_symbols(
     }
 }
 
+fn discover_registry_document(
+    repo_root: &Path,
+    language_id: &LanguageId,
+    roots: &[PathBuf],
+    pack_command: Vec<String>,
+    registry: RegistryDocument,
+    timeout: Duration,
+) -> Result<wax_lang_api::DiscoverRegistryResult, RegistryDiscoverError> {
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: language_id.clone(),
+        repo_root: repo_root.display().to_string(),
+        roots: request_roots(repo_root, roots),
+        registry,
+    };
+    let discoverer = SubprocessLanguageDiscoverer::new(SubprocessLanguageManifest {
+        command: pack_command,
+        timeout,
+    });
+    match discoverer.discover_registry(request) {
+        Ok(result) => Ok(result),
+        Err(DiscoverError::Unsupported { .. }) => Err(RegistryDiscoverError::DiscoverUnsupported {
+            language_id: language_id.clone(),
+        }),
+        Err(error) => Err(RegistryDiscoverError::DiscoverSubprocess(error)),
+    }
+}
+
+fn request_roots(repo_root: &Path, roots: &[PathBuf]) -> Vec<String> {
+    roots
+        .iter()
+        .map(|root| {
+            root.strip_prefix(repo_root)
+                .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_else(|_| root.display().to_string())
+        })
+        .collect()
+}
+
+fn retain_creator_metadata(seed: &RegistryDocument, discovered: &mut RegistryDocument) {
+    for component in &mut discovered.components {
+        component.metadata = seed
+            .components
+            .iter()
+            .find(|seed_component| seed_component.id == component.id)
+            .or_else(|| unique_component_identity_match(&seed.components, component))
+            .and_then(|seed_component| seed_component.metadata.clone());
+    }
+    for token in &mut discovered.tokens {
+        token.metadata = seed
+            .tokens
+            .iter()
+            .find(|seed_token| seed_token.id == token.id)
+            .or_else(|| unique_token_identity_match(&seed.tokens, &token.key))
+            .and_then(|seed_token| seed_token.metadata.clone());
+    }
+}
+
+fn unique_component_identity_match<'a>(
+    components: &'a [RegistryComponent],
+    discovered: &RegistryComponent,
+) -> Option<&'a RegistryComponent> {
+    let mut matches = components.iter().filter(|component| {
+        component.symbol == discovered.symbol
+            && match &discovered.package {
+                Some(package) => component.package.as_ref() == Some(package),
+                None => true,
+            }
+    });
+    let candidate = matches.next()?;
+    matches.next().is_none().then_some(candidate)
+}
+
+fn unique_token_identity_match<'a>(
+    tokens: &'a [wax_contract::RegistryToken],
+    key: &str,
+) -> Option<&'a wax_contract::RegistryToken> {
+    let mut matches = tokens.iter().filter(|token| token.key == key);
+    let candidate = matches.next()?;
+    matches.next().is_none().then_some(candidate)
+}
+
 fn patch_config_registry(
     config_path: &Path,
     language_id: &LanguageId,
@@ -949,7 +1097,7 @@ fn patch_lockfile_registry(
 
 fn build_registry(
     components: &[DiscoveredRegistrySymbol],
-) -> Result<DiscoveredRegistry, RegistryDiscoverError> {
+) -> Result<RegistryDocument, RegistryDiscoverError> {
     let mut seen_ids = BTreeMap::new();
     let mut registry_components = Vec::new();
     for component in normalized_components(components.to_vec()) {
@@ -961,16 +1109,22 @@ fn build_registry(
                 second_symbol: component.symbol,
             });
         }
-        registry_components.push(DiscoveredComponent {
+        registry_components.push(RegistryComponent {
             id,
             symbol: component.symbol,
             package: component.package,
+            aliases: Vec::new(),
+            metadata: None,
+            extracted: None,
+            extra: serde_json::Map::new(),
         });
     }
 
-    Ok(DiscoveredRegistry {
+    Ok(RegistryDocument {
         schema_version: REGISTRY_SCHEMA_VERSION,
         components: registry_components,
+        tokens: Vec::new(),
+        extra: serde_json::Map::new(),
     })
 }
 

@@ -226,7 +226,23 @@ fn install_discover_fixture_pack_files(
     let script = install_dir.join(format!("wax-lang-{language_id}"));
     fs::write(
         &script,
-        format!("#!/bin/sh\ncat >/dev/null\ncat <<'JSON'\n{response_json}\nJSON\n"),
+        format!(
+            r#"#!/bin/sh
+request=$(cat)
+case "$request" in
+  *'"type":"capabilities"'*)
+    cat <<'JSON'
+{{"type":"capabilities","api_version":1,"language_id":"{language_id}","registry_details_v1":false}}
+JSON
+    ;;
+  *)
+    cat <<'JSON'
+{response_json}
+JSON
+    ;;
+esac
+"#
+        ),
     )
     .expect("write discover fixture script");
     #[cfg(unix)]
@@ -538,7 +554,7 @@ fn discover_compose_then_react_writes_both_without_force() {
 }
 
 #[test]
-fn second_write_fails_without_force() {
+fn second_write_refreshes_without_force() {
     let _guard = env_lock();
     let root = TestDir::new("registry-discover-refuse-overwrite");
     let repo = root.path.join("repo");
@@ -552,11 +568,8 @@ fn second_write_fails_without_force() {
     let original = fs::read_to_string(&registry_path).unwrap();
 
     let second = run_discover(&repo, &[]);
-    assert!(!second.status.success(), "second write should fail");
+    assert!(second.status.success(), "second write should succeed");
 
-    let stderr = String::from_utf8(second.stderr).unwrap();
-    assert!(stderr.contains("--force"));
-    assert!(stderr.contains("--dry-run"));
     assert_eq!(fs::read_to_string(&registry_path).unwrap(), original);
 }
 
