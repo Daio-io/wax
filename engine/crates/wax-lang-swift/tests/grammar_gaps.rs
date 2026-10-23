@@ -11,27 +11,6 @@ fn fixture_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/discover/grammar-gaps")
 }
 
-fn assert_parse_gap_diagnostic(
-    diagnostic: &wax_contract::Diagnostic,
-    expected_file: &str,
-    expected_line: u32,
-    expected_column: u32,
-) {
-    assert_eq!(diagnostic.code, "parse_failed");
-    assert!(
-        diagnostic.message.contains("file scanned with gaps"),
-        "unexpected message: {}",
-        diagnostic.message
-    );
-    let location = diagnostic
-        .location
-        .as_ref()
-        .unwrap_or_else(|| panic!("expected location for {expected_file}"));
-    assert_eq!(location.file, expected_file);
-    assert_eq!(location.line, expected_line);
-    assert_eq!(location.column, Some(expected_column));
-}
-
 fn parse_source(source: &str) -> bool {
     let tempdir = tempfile::tempdir().expect("tempdir");
     let sources = tempdir.path().join("Sources");
@@ -246,11 +225,11 @@ fn unknown_syntax_emits_one_parse_gap_and_keeps_later_facts() {
 }
 
 #[test]
-fn empty_paren_attribute_has_error_nodes_in_current_grammar() {
+fn empty_paren_attribute_parses_cleanly_in_current_grammar() {
     let source = "import SwiftUI\nstruct V: View {\n  @Themed() private var theme\n  var body: some View { Text(\"x\") }\n}\n";
     assert!(
-        !parse_source(source),
-        "tree-sitter-swift 0.7.3 still reports error nodes for @Name()"
+        parse_source(source),
+        "tree-sitter-swift 0.7.4 should parse @Name() without error nodes"
     );
 }
 
@@ -286,12 +265,10 @@ fn discover_finds_component_with_empty_paren_attribute_fixture() {
 
     let result = discover_registry_symbols(tempdir.path(), &[sources]).expect("discover symbols");
     assert_eq!(result.symbols(), vec!["EmptyParenAttributeCard"]);
-    assert_eq!(result.diagnostics.len(), 1);
-    assert_parse_gap_diagnostic(
-        &result.diagnostics[0],
-        "Sources/EmptyParenAttribute.swift",
-        4,
-        13,
+    assert!(
+        result.diagnostics.is_empty(),
+        "empty-paren attributes are not a parse gap on tree-sitter-swift 0.7.4: {:?}",
+        result.diagnostics
     );
 }
 
@@ -316,19 +293,11 @@ fn discover_via_stdio_finds_grammar_gap_components() {
             "EmptyParenAttributeCard"
         ]
     );
-    assert_eq!(result.diagnostics.len(), 1);
-
-    let empty_paren = result
-        .diagnostics
-        .iter()
-        .find(|diagnostic| {
-            diagnostic
-                .location
-                .as_ref()
-                .is_some_and(|location| location.file.ends_with("EmptyParenAttribute.swift"))
-        })
-        .expect("EmptyParenAttribute diagnostic");
-    assert_parse_gap_diagnostic(empty_paren, "Sources/EmptyParenAttribute.swift", 4, 13);
+    assert!(
+        result.diagnostics.is_empty(),
+        "grammar-gap fixtures should discover cleanly on tree-sitter-swift 0.7.4: {:?}",
+        result.diagnostics
+    );
 }
 
 #[test]
