@@ -41,12 +41,59 @@ pub fn app_registry_relative_path(design_system_id: &str, language_id: &Language
 /// Resolved registry inputs from a remembered design system.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedRememberedRegistry {
-    /// Source written to app config `registry.source`.
+    /// Source written to app config `registry.source` when not using Git mode.
     pub config_source: String,
+    /// Git remote written to app config `registry.git` when using Git mode.
+    pub git: Option<String>,
+    /// Git tag or pinned commit written to app config `registry.tag`.
+    pub tag: Option<String>,
     /// Upstream id in `<design-system-id>/<language-id>` form.
     pub upstream: String,
     /// Local registry path relative to the design-system repo when copying is required.
     pub design_system_local_source: Option<String>,
+    /// Snapshot digest used to pin the app lock for typed remote sources.
+    pub digest: Option<String>,
+    /// Selected Git commit when the remembered source is Git-backed.
+    pub git_commit: Option<String>,
+}
+
+/// Returns the immutable blob path for a registry digest under a wax home.
+#[must_use]
+pub fn registry_blob_path(state_path: &Path, digest: &str) -> PathBuf {
+    state_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("cache/registries/blobs")
+        .join(format!("{digest}.json"))
+}
+
+/// Returns a `file://` URL for an immutable registry blob under a wax home.
+#[must_use]
+pub fn registry_blob_file_url(state_path: &Path, digest: &str) -> String {
+    format!(
+        "file://{}",
+        registry_blob_path(state_path, digest).display()
+    )
+}
+
+fn path_to_file_url(path: &Path) -> String {
+    format!("file://{}", path.display())
+}
+
+fn path_or_url_resolution(
+    config_source: String,
+    upstream: String,
+    design_system_local_source: Option<String>,
+) -> ResolvedRememberedRegistry {
+    ResolvedRememberedRegistry {
+        config_source,
+        git: None,
+        tag: None,
+        upstream,
+        design_system_local_source,
+        digest: None,
+        git_commit: None,
+    }
 }
 
 /// Errors returned while reading or updating remembered design systems.
@@ -127,6 +174,22 @@ pub enum RegistryMemoryError {
     NotLocal {
         /// Requested remembered id.
         design_system_id: String,
+    },
+    /// A typed remembered source has no snapshot for the requested language.
+    #[error("design system `{design_system_id}` has no registry for language `{language_id}`")]
+    MissingLanguage {
+        /// Remembered design-system id.
+        design_system_id: String,
+        /// Requested language id.
+        language_id: LanguageId,
+    },
+    /// A typed remembered snapshot could not be resolved for app materialization.
+    #[error("design system `{design_system_id}` snapshot `{digest}` is unavailable")]
+    SnapshotUnavailable {
+        /// Remembered design-system id.
+        design_system_id: String,
+        /// Missing snapshot digest.
+        digest: String,
     },
 }
 
@@ -382,7 +445,9 @@ pub fn delete_remembered_design_system(
 /// # Errors
 ///
 /// Returns [`RegistryMemoryError::InvalidDesignSystemId`] for an invalid
-/// remembered id, [`RegistryMemoryError::ConfigUpdate`] for missing or malformed
+/// remembered id, [`RegistryMemoryError::MissingLanguage`] or
+/// [`RegistryMemoryError::SnapshotUnavailable`] for typed remote resolution
+/// misses, [`RegistryMemoryError::ConfigUpdate`] for missing or malformed
 /// publication config, or [`RegistryMemoryError::RegistrySource`] for an unsafe
 /// local registry source.
 pub fn resolve_remembered_registry(
@@ -390,26 +455,8 @@ pub fn resolve_remembered_registry(
     language_id: &LanguageId,
 ) -> Result<ResolvedRememberedRegistry, RegistryMemoryError> {
     validate_design_system_id(&remembered.id)?;
-    if remembered.source.is_some() {
-        let snapshot = remembered
-            .snapshots
-            .iter()
-            .find(|snapshot| &snapshot.language == language_id)
-            .ok_or_else(|| RegistryMemoryError::ConfigUpdate {
-                path: remembered.state_path.display().to_string(),
-                source: Box::new(io::Error::new(
-                    io::ErrorKind::NotFound,
-                    format!(
-                        "design system `{}` has no registry for language `{language_id}`",
-                        remembered.id
-                    ),
-                )),
-            })?;
-        return Ok(ResolvedRememberedRegistry {
-            config_source: app_registry_relative_path(&remembered.id, language_id),
-            upstream: format!("{}/{}", remembered.id, language_id.as_str()),
-            design_system_local_source: Some(snapshot.digest.clone()),
-        });
+    if let Some(source) = remembered.source.as_ref() {
+        return resolve_source_backed_remembered(remembered, source, language_id);
     }
     let config_path = remembered.repo_root.join(&remembered.last_seen_config);
     let path_display = config_path.display().to_string();
@@ -482,24 +529,76 @@ pub fn resolve_remembered_registry(
         .map(str::to_owned);
     let upstream = format!("{}/{}", remembered.id, language_id.as_str());
     if let Some(published_source) = published_source.filter(|value| !value.trim().is_empty()) {
-        Ok(ResolvedRememberedRegistry {
-            config_source: published_source,
-            upstream,
-            design_system_local_source: None,
-        })
+        Ok(path_or_url_resolution(published_source, upstream, None))
     } else if is_external_registry_source(&local_source) {
-        Ok(ResolvedRememberedRegistry {
-            config_source: local_source,
-            upstream,
-            design_system_local_source: None,
-        })
+        Ok(path_or_url_resolution(local_source, upstream, None))
     } else {
         reject_repo_relative_registry_path_escape(&local_source)?;
-        Ok(ResolvedRememberedRegistry {
-            config_source: app_registry_relative_path(&remembered.id, language_id),
+        Ok(path_or_url_resolution(
+            app_registry_relative_path(&remembered.id, language_id),
             upstream,
-            design_system_local_source: Some(local_source),
-        })
+            Some(local_source),
+        ))
+    }
+}
+
+fn resolve_source_backed_remembered(
+    remembered: &RememberedDesignSystemSummary,
+    source: &RegistrySourceSpec,
+    language_id: &LanguageId,
+) -> Result<ResolvedRememberedRegistry, RegistryMemoryError> {
+    let snapshot = remembered
+        .snapshots
+        .iter()
+        .find(|snapshot| &snapshot.language == language_id)
+        .ok_or_else(|| RegistryMemoryError::MissingLanguage {
+            design_system_id: remembered.id.clone(),
+            language_id: language_id.clone(),
+        })?;
+    let upstream = format!("{}/{}", remembered.id, language_id.as_str());
+    match source {
+        RegistrySourceSpec::HttpJson { url, .. } => Ok(ResolvedRememberedRegistry {
+            config_source: url.clone(),
+            git: None,
+            tag: None,
+            upstream,
+            design_system_local_source: None,
+            digest: Some(snapshot.digest.clone()),
+            git_commit: None,
+        }),
+        RegistrySourceSpec::LocalFile { path, .. } => Ok(ResolvedRememberedRegistry {
+            config_source: path_to_file_url(path),
+            git: None,
+            tag: None,
+            upstream,
+            design_system_local_source: None,
+            digest: Some(snapshot.digest.clone()),
+            git_commit: None,
+        }),
+        RegistrySourceSpec::Git { url, tag, .. } => {
+            let pinned_tag = tag
+                .clone()
+                .or_else(|| snapshot.git_commit.clone())
+                .ok_or_else(|| RegistryMemoryError::SnapshotUnavailable {
+                    design_system_id: remembered.id.clone(),
+                    digest: snapshot.digest.clone(),
+                })?;
+            Ok(ResolvedRememberedRegistry {
+                config_source: String::new(),
+                git: Some(url.clone()),
+                tag: Some(pinned_tag),
+                upstream,
+                design_system_local_source: None,
+                digest: Some(snapshot.digest.clone()),
+                git_commit: snapshot.git_commit.clone(),
+            })
+        }
+        RegistrySourceSpec::PublisherRepository { .. } => {
+            Err(RegistryMemoryError::MissingLanguage {
+                design_system_id: remembered.id.clone(),
+                language_id: language_id.clone(),
+            })
+        }
     }
 }
 
@@ -523,19 +622,11 @@ pub fn copy_design_system_registry_to_app(
             .snapshots
             .iter()
             .find(|snapshot| snapshot.digest == design_system_local_source)
-            .ok_or_else(|| RegistryMemoryError::ConfigUpdate {
-                path: remembered.state_path.display().to_string(),
-                source: Box::new(io::Error::new(
-                    io::ErrorKind::NotFound,
-                    "remembered registry snapshot is unavailable",
-                )),
+            .ok_or_else(|| RegistryMemoryError::SnapshotUnavailable {
+                design_system_id: remembered.id.clone(),
+                digest: design_system_local_source.to_owned(),
             })?;
-        let source_path = remembered
-            .state_path
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .join("cache/registries/blobs")
-            .join(format!("{}.json", snapshot.digest));
+        let source_path = registry_blob_path(&remembered.state_path, &snapshot.digest);
         let destination_path = app_repo_root.join(app_registry_relative);
         let contents =
             fs::read(&source_path).map_err(|source| RegistryMemoryError::ConfigUpdate {
@@ -1024,6 +1115,115 @@ mod registry_memory_tests {
         );
         assert_eq!(resolved.upstream, "acme/react");
         assert!(resolved.design_system_local_source.is_none());
+        assert!(resolved.git.is_none());
+    }
+
+    #[test]
+    fn resolve_source_backed_remembered_writes_explicit_file_url() {
+        let _guard = env_lock();
+        let dir = TestDir::new("source-backed-file-url");
+        let source = dir.path.join("compose.json");
+        let bytes = br#"{"schema_version":1,"language":"compose","components":[{"id":"one","symbol":"One"}]}"#;
+        std::fs::write(&source, bytes).unwrap();
+        let state_path = dir.path.join("state.json");
+        let snapshots = add_remembered_registry(
+            &state_path,
+            "acme",
+            "Acme",
+            &RegistrySourceSpec::LocalFile {
+                path: source.clone(),
+                language: None,
+            },
+        )
+        .unwrap();
+        let remembered = show_remembered_design_system(&state_path, "acme").unwrap();
+        let language_id = LanguageId::try_from("compose").unwrap();
+
+        let resolved = resolve_remembered_registry(&remembered, &language_id).unwrap();
+
+        assert_eq!(
+            resolved.config_source,
+            format!("file://{}", source.display())
+        );
+        assert!(resolved.git.is_none());
+        assert!(resolved.design_system_local_source.is_none());
+        assert_eq!(
+            resolved.digest.as_deref(),
+            Some(snapshots[0].reference.digest.as_str())
+        );
+        assert_eq!(resolved.upstream, "acme/compose");
+    }
+
+    #[test]
+    fn resolve_source_backed_remembered_pins_default_branch_git_commit() {
+        let _guard = env_lock();
+        let dir = TestDir::new("source-backed-git");
+        let language_id = LanguageId::try_from("compose").unwrap();
+        let remembered = RememberedDesignSystemSummary {
+            id: "acme".to_owned(),
+            name: "Acme".to_owned(),
+            repo_root: PathBuf::new(),
+            last_seen_config: PathBuf::new(),
+            source: Some(RegistrySourceSpec::Git {
+                url: "https://example.com/acme.git".to_owned(),
+                tag: None,
+                language: language_id.clone(),
+            }),
+            snapshots: vec![wax_contract::RegistrySnapshotRef {
+                source: "git:https://example.com/acme.git".to_owned(),
+                language: language_id.clone(),
+                digest: "a".repeat(64),
+                system_id: None,
+                git_commit: Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_owned()),
+                extra: serde_json::Map::new(),
+            }],
+            state_path: dir.path.join("state.json"),
+        };
+
+        let resolved = resolve_remembered_registry(&remembered, &language_id).unwrap();
+
+        assert_eq!(
+            resolved.git.as_deref(),
+            Some("https://example.com/acme.git")
+        );
+        assert_eq!(
+            resolved.tag.as_deref(),
+            Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+        );
+        assert_eq!(
+            resolved.git_commit.as_deref(),
+            Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+        );
+        assert!(resolved.design_system_local_source.is_none());
+        assert!(resolved.config_source.is_empty());
+    }
+
+    #[test]
+    fn resolve_source_backed_missing_language_is_typed() {
+        let _guard = env_lock();
+        let dir = TestDir::new("source-backed-missing-lang");
+        let language_id = LanguageId::try_from("compose").unwrap();
+        let remembered = RememberedDesignSystemSummary {
+            id: "acme".to_owned(),
+            name: "Acme".to_owned(),
+            repo_root: PathBuf::new(),
+            last_seen_config: PathBuf::new(),
+            source: Some(RegistrySourceSpec::HttpJson {
+                url: "https://cdn.example.com/compose.json".to_owned(),
+                language: Some(language_id.clone()),
+            }),
+            snapshots: Vec::new(),
+            state_path: dir.path.join("state.json"),
+        };
+
+        let err = resolve_remembered_registry(&remembered, &language_id).unwrap_err();
+        assert!(matches!(
+            err,
+            RegistryMemoryError::MissingLanguage {
+                design_system_id,
+                ..
+            } if design_system_id == "acme"
+        ));
     }
 
     #[test]

@@ -1,5 +1,7 @@
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
 
 use wax_contract::LanguageId;
 use wax_contract::RegistryLookupErrorCode;
@@ -7,6 +9,46 @@ use wax_core::digest::sha256_hex;
 use wax_core::registry_cache::RegistrySourceSpec;
 use wax_core::registry_lookup::{RegistryLookupOptions, resolve_lookup_snapshots};
 use wax_core::registry_memory::add_remembered_registry;
+
+static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+fn env_lock() -> MutexGuard<'static, ()> {
+    ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
+}
+
+struct EnvVarGuard {
+    name: &'static str,
+    previous: Option<OsString>,
+}
+
+impl EnvVarGuard {
+    #[expect(
+        unsafe_code,
+        reason = "these tests hold ENV_LOCK while mutating process environment variables, which keeps env access serialized inside this test binary"
+    )]
+    fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+        let previous = std::env::var_os(name);
+        unsafe {
+            std::env::set_var(name, value);
+        }
+        Self { name, previous }
+    }
+}
+
+impl Drop for EnvVarGuard {
+    #[expect(
+        unsafe_code,
+        reason = "these tests hold ENV_LOCK while restoring process environment variables, which keeps env access serialized inside this test binary"
+    )]
+    fn drop(&mut self) {
+        unsafe {
+            match &self.previous {
+                Some(value) => std::env::set_var(self.name, value),
+                None => std::env::remove_var(self.name),
+            }
+        }
+    }
+}
 
 struct TestDir(PathBuf);
 
@@ -369,6 +411,99 @@ fn outside_context_requires_selector() {
     .expect_err("standalone lookup needs a selector");
 
     assert_eq!(error.code, RegistryLookupErrorCode::InvalidArgument);
+}
+
+#[test]
+fn remembered_selector_uses_default_state_path_when_override_absent() {
+    let _guard = env_lock();
+    let root = TestDir::new("default-state");
+    let wax_home = root.0.join("wax-home");
+    fs::create_dir_all(&wax_home).expect("create wax home");
+    let state_path = wax_home.join("state.json");
+    let source_path = root.0.join("remote-compose.json");
+    let bytes = br#"{"schema_version":1,"language":"compose","components":[{"id":"remote","symbol":"Remote"}]}"#;
+    fs::write(&source_path, bytes).expect("write source registry");
+    add_remembered_registry(
+        &state_path,
+        "acme",
+        "Acme Design System",
+        &RegistrySourceSpec::LocalFile {
+            path: source_path,
+            language: None,
+        },
+    )
+    .expect("remember registry source");
+    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
+
+    let snapshots = resolve_lookup_snapshots(&RegistryLookupOptions {
+        repo_root: root.0.join("standalone"),
+        selector: Some("acme".to_owned()),
+        language: Some(language("compose")),
+        tag: None,
+        snapshot: None,
+        offline: true,
+        state_path: None,
+    })
+    .expect("resolve remembered id via default state path");
+
+    assert_eq!(snapshots[0].reference.digest, sha256_hex(bytes));
+}
+
+#[test]
+fn remembered_id_wins_over_colliding_publisher_system_id() {
+    let _guard = env_lock();
+    let root = TestDir::new("remembered-over-publisher");
+    let repo = root.0.join("publisher");
+    fs::create_dir_all(repo.join(".wax/registries")).expect("create registries");
+    let publisher_bytes =
+        br#"{"schema_version":1,"language":"compose","components":[{"id":"publisher","symbol":"Publisher"}]}"#;
+    fs::write(repo.join(".wax/registries/compose.json"), publisher_bytes)
+        .expect("write publisher registry");
+    fs::write(
+        repo.join(".wax/wax.config.json"),
+        r#"{
+  "schema_version": 2,
+  "languages": {},
+  "design_systems": {
+    "acme": {
+      "name": "Acme",
+      "registries": {
+        "compose": {"source": ".wax/registries/compose.json"}
+      }
+    }
+  }
+}"#,
+    )
+    .expect("write publisher config");
+    let wax_home = root.0.join("wax-home");
+    let state_path = wax_home.join("state.json");
+    let remote_path = root.0.join("remote-compose.json");
+    let remembered_bytes =
+        br#"{"schema_version":1,"language":"compose","components":[{"id":"remembered","symbol":"Remembered"}]}"#;
+    fs::write(&remote_path, remembered_bytes).expect("write remembered registry");
+    add_remembered_registry(
+        &state_path,
+        "acme",
+        "Acme Remote",
+        &RegistrySourceSpec::LocalFile {
+            path: remote_path,
+            language: None,
+        },
+    )
+    .expect("remember remote");
+
+    let snapshots = resolve_lookup_snapshots(&RegistryLookupOptions {
+        repo_root: repo,
+        selector: Some("acme".to_owned()),
+        language: Some(language("compose")),
+        tag: None,
+        snapshot: None,
+        offline: true,
+        state_path: Some(state_path),
+    })
+    .expect("remembered id should win over publisher id");
+
+    assert_eq!(snapshots[0].reference.digest, sha256_hex(remembered_bytes));
 }
 
 #[test]

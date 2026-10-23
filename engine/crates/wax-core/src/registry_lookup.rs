@@ -9,6 +9,7 @@ use crate::config::lockfile::{LockedRegistry, load_lockfile};
 use crate::config::repo_files::discover_repo_files;
 use crate::config::waxrc::{LanguageEntry, LanguageRegistrySource, load_waxrc};
 use crate::global_state::load_global_state;
+use crate::paths::state_file;
 use crate::registry_cache::{
     RegistryCache, RegistryCacheError, RegistryReadPolicy, RegistrySnapshot, RegistrySourceSpec,
 };
@@ -35,8 +36,10 @@ pub struct RegistryLookupOptions {
 /// Resolves registry snapshots using repository context and explicit selection precedence.
 ///
 /// An explicit selector matching an app upstream id resolves the app's locked inputs.
-/// Without a selector, app inputs take precedence over publisher inputs. Other selectors
-/// are treated as independent paths or URLs in this initial resolution slice.
+/// Otherwise a selector is resolved as a remembered id before publisher defaults.
+/// Without a selector, app inputs take precedence over publisher inputs. Explicit
+/// path/URL selectors remain independent lookups. `state_path` overrides the default
+/// global state file used for remembered ids.
 ///
 /// # Errors
 ///
@@ -46,21 +49,34 @@ pub fn resolve_lookup_snapshots(
     options: &RegistryLookupOptions,
 ) -> Result<Vec<RegistrySnapshot>, RegistryLookupError> {
     let repo_files = discover_repo_files(&options.repo_root);
-    if repo_files.config_path.is_file() {
-        let waxrc = load_waxrc(&repo_files.config_path).map_err(invalid_registry)?;
-        if repo_files.lockfile_path.is_file() {
-            let lock = load_lockfile(&repo_files.lockfile_path).map_err(invalid_registry)?;
-            let matching_app_entries: Vec<_> = waxrc
-                .languages
-                .iter()
-                .filter(|entry| options.language.as_ref().is_none_or(|id| id == &entry.id))
-                .filter(|entry| app_selector_matches(entry, options.selector.as_deref()))
-                .filter_map(|entry| lock.registries.get(&entry.id).map(|locked| (entry, locked)))
-                .collect();
-            if !matching_app_entries.is_empty() {
-                return resolve_app_entries(options, &matching_app_entries);
-            }
+    let waxrc = if repo_files.config_path.is_file() {
+        Some(load_waxrc(&repo_files.config_path).map_err(invalid_registry)?)
+    } else {
+        None
+    };
+    if let Some(waxrc) = waxrc.as_ref()
+        && repo_files.lockfile_path.is_file()
+    {
+        let lock = load_lockfile(&repo_files.lockfile_path).map_err(invalid_registry)?;
+        let matching_app_entries: Vec<_> = waxrc
+            .languages
+            .iter()
+            .filter(|entry| options.language.as_ref().is_none_or(|id| id == &entry.id))
+            .filter(|entry| app_selector_matches(entry, options.selector.as_deref()))
+            .filter_map(|entry| lock.registries.get(&entry.id).map(|locked| (entry, locked)))
+            .collect();
+        if !matching_app_entries.is_empty() {
+            return resolve_app_entries(options, &matching_app_entries);
         }
+    }
+
+    if let Some(selector) = options.selector.as_deref()
+        && let Some(snapshots) = resolve_remembered_selector(options, selector)?
+    {
+        return Ok(snapshots);
+    }
+
+    if let Some(waxrc) = waxrc.as_ref() {
         let publisher_id = options
             .selector
             .as_ref()
@@ -91,42 +107,54 @@ pub fn resolve_lookup_snapshots(
             "registry lookup outside app or publisher context requires a selector",
         ));
     };
-    if let Some(state_path) = &options.state_path {
-        let state = load_global_state(state_path).map_err(invalid_registry)?;
-        if let Some(remembered) = state.design_systems.get(selector) {
-            let local_source;
-            let source = if let Some(source) = remembered.source.as_ref() {
-                source
-            } else {
-                local_source = RegistrySourceSpec::PublisherRepository {
-                    root: remembered.repo_root.clone(),
-                    system_id: Some(selector.to_owned()),
-                    language: options.language.clone(),
-                };
-                &local_source
-            };
-            let mut snapshots = lookup_cache(options)?
-                .resolve(
-                    source,
-                    &RegistryReadPolicy {
-                        offline: options.offline,
-                        expected_snapshot: options.snapshot.clone(),
-                    },
-                )
-                .map_err(map_cache_error)?;
-            if let Some(language) = &options.language {
-                snapshots.retain(|snapshot| &snapshot.reference.language == language);
-            }
-            if snapshots.is_empty() {
-                return Err(RegistryLookupError::new(
-                    RegistryLookupErrorCode::SourceNotFound,
-                    format!("remembered design system `{selector}` has no matching registry"),
-                ));
-            }
-            return Ok(snapshots);
-        }
-    }
     resolve_explicit_source(options, selector)
+}
+
+fn resolve_remembered_selector(
+    options: &RegistryLookupOptions,
+    selector: &str,
+) -> Result<Option<Vec<RegistrySnapshot>>, RegistryLookupError> {
+    let state_path = match &options.state_path {
+        Some(path) => path.clone(),
+        None => state_file().map_err(invalid_registry)?,
+    };
+    if !state_path.is_file() {
+        return Ok(None);
+    }
+    let state = load_global_state(&state_path).map_err(invalid_registry)?;
+    let Some(remembered) = state.design_systems.get(selector) else {
+        return Ok(None);
+    };
+    let local_source;
+    let source = if let Some(source) = remembered.source.as_ref() {
+        source
+    } else {
+        local_source = RegistrySourceSpec::PublisherRepository {
+            root: remembered.repo_root.clone(),
+            system_id: Some(selector.to_owned()),
+            language: options.language.clone(),
+        };
+        &local_source
+    };
+    let mut snapshots = lookup_cache(options)?
+        .resolve(
+            source,
+            &RegistryReadPolicy {
+                offline: options.offline,
+                expected_snapshot: options.snapshot.clone(),
+            },
+        )
+        .map_err(map_cache_error)?;
+    if let Some(language) = &options.language {
+        snapshots.retain(|snapshot| &snapshot.reference.language == language);
+    }
+    if snapshots.is_empty() {
+        return Err(RegistryLookupError::new(
+            RegistryLookupErrorCode::SourceNotFound,
+            format!("remembered design system `{selector}` has no matching registry"),
+        ));
+    }
+    Ok(Some(snapshots))
 }
 
 fn app_selector_matches(entry: &LanguageEntry, selector: Option<&str>) -> bool {
@@ -254,17 +282,7 @@ fn resolve_explicit_source(
     let mut source =
         RegistrySourceSpec::parse(selector, options.language.clone()).map_err(map_cache_error)?;
     if let Some(tag) = &options.tag {
-        match &mut source {
-            RegistrySourceSpec::Git {
-                tag: source_tag, ..
-            } => *source_tag = Some(tag.clone()),
-            _ => {
-                return Err(RegistryLookupError::new(
-                    RegistryLookupErrorCode::InvalidArgument,
-                    "--tag is only valid for a Git registry source",
-                ));
-            }
-        }
+        source = source.with_tag(tag.clone()).map_err(map_cache_error)?;
     }
     lookup_cache(options)?
         .resolve(

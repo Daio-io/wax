@@ -119,20 +119,7 @@ pub fn run_registry_add(
     let mut source = RegistrySourceSpec::parse(&options.source, options.language)
         .map_err(RegistryMemoryError::from)?;
     if let Some(tag) = options.tag {
-        match &mut source {
-            RegistrySourceSpec::Git {
-                tag: source_tag, ..
-            } => *source_tag = Some(tag),
-            _ => {
-                return Err(RegistryMemoryError::from(
-                    wax_core::registry_cache::RegistryCacheError::InvalidSourceSpec {
-                        input: options.source,
-                        reason: "--tag is only valid for a Git registry source",
-                    },
-                )
-                .into());
-            }
-        }
+        source = source.with_tag(tag).map_err(RegistryMemoryError::from)?;
     }
     let snapshots = add_remembered_registry(
         &state_path,

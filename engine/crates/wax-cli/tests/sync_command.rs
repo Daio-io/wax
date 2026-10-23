@@ -206,11 +206,9 @@ fn sync_command_refreshes_source_backed_remembered_registry() {
         },
     )
     .expect("remember source registry");
-    fs::write(
-        &source,
-        r#"{"schema_version":1,"language":"react","components":[{"id":"card","symbol":"Card"}]}"#,
-    )
-    .expect("update source registry");
+    let updated =
+        br#"{"schema_version":1,"language":"react","components":[{"id":"card","symbol":"Card"}]}"#;
+    fs::write(&source, updated).expect("update source registry");
 
     let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
     let output = Command::new(env!("CARGO_BIN_EXE_wax"))
@@ -224,9 +222,30 @@ fn sync_command_refreshes_source_backed_remembered_registry() {
         "wax sync failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let copied = fs::read_to_string(app_repo.join(".wax/registries/acme/react.json"))
-        .expect("read copied registry");
-    assert!(copied.contains("Card"));
+    let config: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(app_repo.join(".wax/wax.config.json")).expect("read config"),
+    )
+    .unwrap();
+    assert_eq!(
+        config["languages"]["react"]["registry"]["source"],
+        format!("file://{}", source.display())
+    );
+    assert_eq!(
+        config["languages"]["react"]["registry"]["upstream"],
+        "acme/react"
+    );
+    let lock: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(app_repo.join(".wax/wax.lock.json")).expect("read lock"),
+    )
+    .unwrap();
+    assert_eq!(
+        lock["registries"]["react"]["source"],
+        format!("file://{}", source.display())
+    );
+    assert_eq!(
+        lock["registries"]["react"]["sha256"],
+        wax_core::digest::sha256_hex(updated)
+    );
 }
 
 #[test]

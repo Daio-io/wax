@@ -518,21 +518,34 @@ fn prepare_language_upstream_sync(
             design_system_local_source: local_source.clone(),
             app_registry_relative: resolved.config_source.clone(),
         });
-    if update_config_registry_source(config_json, &entry.id, &resolved.config_source) {
+    if update_config_registry(config_json, &entry.id, &resolved) {
         *config_changed = true;
     }
+    let source = if let Some(git) = resolved.git.as_ref() {
+        match resolved.tag.as_deref() {
+            Some(tag) => format!("git:{git}#{tag}"),
+            None => format!("git:{git}"),
+        }
+    } else {
+        resolved.config_source.clone()
+    };
+    let prepared_lock = resolved.digest.as_ref().map(|digest| PreparedLockFields {
+        source: source.clone(),
+        sha256: digest.clone(),
+        git_commit: resolved.git_commit.clone(),
+    });
     Ok(PreparedSync {
         update: SyncUpdate {
             language_id: entry.id.clone(),
             upstream: resolved.upstream,
-            source: resolved.config_source,
-            git: None,
-            tag: None,
+            source,
+            git: resolved.git.clone(),
+            tag: resolved.tag.clone(),
             old_commit: None,
-            new_commit: None,
+            new_commit: resolved.git_commit.clone(),
         },
         registry_copy,
-        prepared_lock: None,
+        prepared_lock,
     })
 }
 
@@ -648,10 +661,10 @@ fn write_config_json(path: &Path, path_display: &str, config: &Value) -> Result<
     })
 }
 
-fn update_config_registry_source(
+fn update_config_registry(
     config: &mut Value,
     language_id: &LanguageId,
-    source: &str,
+    resolved: &crate::registry_memory::ResolvedRememberedRegistry,
 ) -> bool {
     let Some(language) = config
         .get_mut("languages")
@@ -661,17 +674,21 @@ fn update_config_registry_source(
     else {
         return false;
     };
-    let Some(registry) = language.get_mut("registry").and_then(Value::as_object_mut) else {
-        return false;
+    let desired = if let (Some(git), Some(tag)) = (resolved.git.as_ref(), resolved.tag.as_ref()) {
+        serde_json::json!({
+            "git": git,
+            "tag": tag,
+        })
+    } else {
+        serde_json::json!({
+            "source": resolved.config_source,
+            "upstream": resolved.upstream,
+        })
     };
-    let current = registry
-        .get("source")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    if current == source {
+    if language.get("registry") == Some(&desired) {
         return false;
     }
-    registry.insert("source".to_owned(), Value::String(source.to_owned()));
+    language.insert("registry".to_owned(), desired);
     true
 }
 

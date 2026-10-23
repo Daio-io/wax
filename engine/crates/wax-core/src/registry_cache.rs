@@ -585,6 +585,27 @@ impl RegistrySourceSpec {
         self.identity()
     }
 
+    /// Applies a Git tag or commit pin when this source is Git-backed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RegistryCacheError::InvalidSourceSpec`] when `--tag` is supplied
+    /// for a non-Git source.
+    pub fn with_tag(mut self, tag: String) -> Result<Self, RegistryCacheError> {
+        match &mut self {
+            Self::Git {
+                tag: source_tag, ..
+            } => {
+                *source_tag = Some(tag);
+                Ok(self)
+            }
+            _ => Err(RegistryCacheError::InvalidSourceSpec {
+                input: self.identity(),
+                reason: "--tag is only valid for a Git registry source",
+            }),
+        }
+    }
+
     /// Parses a user-facing registry source into a local, HTTP, or Git source spec.
     ///
     /// Git sources accept `git+<url>`, Git/SSH URLs, `.git` URLs, scp-style

@@ -19,27 +19,27 @@ pub struct GlobalState {
     /// Installed language packs by language id and version.
     #[serde(default)]
     pub installed_languages: BTreeMap<LanguageId, BTreeMap<String, InstalledLanguagePack>>,
-    /// Remembered design-system repositories keyed by design-system id.
+    /// Remembered design systems keyed by id (local publisher checkouts and typed remotes).
     #[serde(default)]
     pub design_systems: BTreeMap<String, RememberedDesignSystem>,
 }
 
-/// One remembered design-system repository location.
+/// One remembered design system: a local publisher checkout and/or a typed remote source.
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RememberedDesignSystem {
     /// Display name shown in prompts and lists.
     pub name: String,
-    /// Canonical repository root for the design-system project.
+    /// Canonical repository root for a local publisher checkout, when present.
     #[serde(default, skip_serializing_if = "path_is_empty")]
     pub repo_root: PathBuf,
-    /// Repo-relative path to the last seen wax config file.
+    /// Repo-relative path to the last seen wax config file for a local checkout.
     #[serde(default, skip_serializing_if = "path_is_empty")]
     pub last_seen_config: PathBuf,
-    /// Typed source for remotely or independently remembered registries.
+    /// Typed remote or independent registry source (`wax registry add` / `refresh`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<RegistrySourceSpec>,
-    /// Immutable snapshots selected when the typed source was last refreshed.
+    /// Immutable snapshots selected when the typed source was last added or refreshed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub snapshots: Vec<wax_contract::RegistrySnapshotRef>,
 }
