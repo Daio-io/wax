@@ -39,13 +39,13 @@ contracts safely instead of recreating registry parsing or ranking.
 Run from `engine/`:
 
 ```bash
-rtk cargo fmt --all
-rtk cargo fmt --all --check
-rtk proxy ../scripts/test-wax-search-skill-contract.sh
-rtk proxy ../scripts/test-wax-registry-skill-contract.sh
-rtk proxy ../scripts/test-generate-pack-index.sh
-rtk cargo test --workspace
-rtk cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all
+cargo fmt --all --check
+../scripts/test-wax-search-skill-contract.sh
+../scripts/test-wax-registry-skill-contract.sh
+../scripts/test-generate-pack-index.sh
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 All commands passed at closeout.

@@ -40,7 +40,6 @@ Prefer the returned token `key` or an explicit alias in implementation. Preserve
 Select a remembered source explicitly:
 
 ```bash
-wax search "button" --design-system acme --kind component --format json
 search_json="$(wax search "button" --design-system acme --kind component --format json)"
 component_id="$(jq -r '.results[0].id' <<<"$search_json")"
 snapshot_digest="$(jq -r '.results[0].snapshot.digest' <<<"$search_json")"
@@ -52,10 +51,17 @@ wax component "$component_id" --design-system acme --snapshot "$snapshot_digest"
 An explicit HTTP registry can be searched without remembering it. Supply a language when the document or URL cannot establish one unambiguously:
 
 ```bash
-wax search "button" \
+search_json="$(wax search "button" \
   --design-system https://design.example.com/wax/react.registry.json \
   --language react \
   --kind component \
+  --format json)"
+component_id="$(jq -r '.results[0].id' <<<"$search_json")"
+snapshot_digest="$(jq -r '.results[0].snapshot.digest' <<<"$search_json")"
+wax component "$component_id" \
+  --design-system https://design.example.com/wax/react.registry.json \
+  --language react \
+  --snapshot "$snapshot_digest" \
   --format json
 ```
 
@@ -66,11 +72,19 @@ Keep the source selector and returned digest on exact detail calls. Network cont
 Use the `git+` prefix for an explicit Git selector and pin the requested tag or commit:
 
 ```bash
-wax search "button" \
+search_json="$(wax search "button" \
   --design-system git+https://github.com/acme/design-system.git \
   --tag v2.4.0 \
   --language react \
   --kind component \
+  --format json)"
+component_id="$(jq -r '.results[0].id' <<<"$search_json")"
+snapshot_digest="$(jq -r '.results[0].snapshot.digest' <<<"$search_json")"
+wax component "$component_id" \
+  --design-system git+https://github.com/acme/design-system.git \
+  --tag v2.4.0 \
+  --language react \
+  --snapshot "$snapshot_digest" \
   --format json
 ```
 
@@ -81,7 +95,6 @@ The Git source uses the conventional `.wax/registries/<language-id>.json` path. 
 After an online lookup has populated the cache, require cached resolution with `--offline`:
 
 ```bash
-wax search "button" --design-system acme --offline --format json
 search_json="$(wax search "button" --design-system acme --offline --format json)"
 component_id="$(jq -r '.results[0].id' <<<"$search_json")"
 snapshot_digest="$(jq -r '.results[0].snapshot.digest' <<<"$search_json")"

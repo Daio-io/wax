@@ -202,6 +202,69 @@ assert_search_envelope "$no_matches"
 jq -e '.results == []' "$no_matches" >/dev/null \
   || fail "no-match example must succeed with an empty results array"
 
+# Exercise the documented ambiguity path with the same entry id in two
+# configured language registries.
+ambiguous_registry="$tmp_dir/ambiguous-registry.json"
+jq '{schema_version, components: [{id: "shared", symbol: "Shared"}], tokens: []}' \
+  "$registry" >"$ambiguous_registry"
+ambiguous_repo="$tmp_dir/ambiguous-repo"
+mkdir -p "$ambiguous_repo/.wax" "$ambiguous_repo/src"
+cp "$ambiguous_registry" "$ambiguous_repo/first.json"
+cp "$ambiguous_registry" "$ambiguous_repo/second.json"
+if command -v sha256sum >/dev/null 2>&1; then
+  ambiguous_first_digest="$(sha256sum "$ambiguous_repo/first.json" | awk '{print $1}')"
+  ambiguous_second_digest="$(sha256sum "$ambiguous_repo/second.json" | awk '{print $1}')"
+else
+  ambiguous_first_digest="$(shasum -a 256 "$ambiguous_repo/first.json" | awk '{print $1}')"
+  ambiguous_second_digest="$(shasum -a 256 "$ambiguous_repo/second.json" | awk '{print $1}')"
+fi
+cat >"$ambiguous_repo/.wax/wax.config.json" <<'JSON'
+{
+  "schema_version": 2,
+  "languages": {
+    "react": {"roots": ["src"], "registry": {"source": "first.json"}},
+    "compose": {"roots": ["src"], "registry": {"source": "second.json"}}
+  }
+}
+JSON
+cat >"$ambiguous_repo/.wax/wax.lock.json" <<JSON
+{
+  "schema_version": 2,
+  "engine_api_version": 1,
+  "wax_version": "0.1.0",
+  "registries": {
+    "react": {"source": "first.json", "sha256": "$ambiguous_first_digest"},
+    "compose": {"source": "second.json", "sha256": "$ambiguous_second_digest"}
+  },
+  "languages": {}
+}
+JSON
+ambiguous_error="$tmp_dir/ambiguous-error.json"
+if WAX_HOME="$wax_home" "$WAX_BIN" component shared --format json \
+  --repo-root "$ambiguous_repo" >"$ambiguous_error" 2>&1; then
+  fail "ambiguous component lookup must fail"
+fi
+jq -e '.code == "ambiguous_entry"' "$ambiguous_error" >/dev/null \
+  || fail "ambiguous component lookup must return ambiguous_entry"
+
+# Exercise the documented unavailable-facts path against a real detail
+# response whose optional extracted metadata is absent.
+unavailable_registry="$tmp_dir/unavailable-registry.json"
+jq '{schema_version, languages, components: [{id: "ds.sparse", symbol: "Sparse"}], tokens: []}' \
+  "$registry" >"$unavailable_registry"
+run_wax registry add sparse "$unavailable_registry" \
+  --language compose \
+  --name "Sparse Design System" >/dev/null
+unavailable_detail="$tmp_dir/unavailable-detail.json"
+run_wax component ds.sparse \
+  --design-system sparse \
+  --format json \
+  --repo-root "$repo" >"$unavailable_detail"
+assert_detail_envelope "$unavailable_detail" component ds.sparse \
+  "$(jq -er '.snapshot.digest' "$unavailable_detail")"
+jq -e '(.entry | has("extracted") | not)' "$unavailable_detail" >/dev/null \
+  || fail "unavailable detail must omit absent extracted metadata"
+
 # Exercise the documented configured-app form without a design-system selector.
 configured_repo="$tmp_dir/configured-app"
 configured_home="$tmp_dir/configured-home"
