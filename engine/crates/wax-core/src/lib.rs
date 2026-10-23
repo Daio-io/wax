@@ -17,6 +17,7 @@ pub mod paths;
 mod process_control;
 pub mod progress;
 pub mod registry;
+pub mod registry_cache;
 pub mod registry_discovery;
 pub mod registry_git;
 pub mod registry_lock;
