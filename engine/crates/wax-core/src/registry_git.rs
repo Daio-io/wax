@@ -1,7 +1,7 @@
 //! Fetches conventional registry files from Git repositories.
 
 use std::ffi::OsStr;
-use std::fs::{self, File, OpenOptions};
+use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -9,6 +9,8 @@ use std::process::{Command, Output};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use wax_contract::LanguageId;
+
+use crate::advisory_lock::AdvisoryLock;
 
 const MAX_STDERR_SUMMARY: usize = 512;
 
@@ -278,7 +280,7 @@ fn validate_commit(commit: &str) -> Result<String, RegistryGitError> {
     Ok(commit.to_ascii_lowercase())
 }
 
-fn prepare_cache(url: &str, cache_dir: &Path) -> Result<(PathBuf, CacheLock), RegistryGitError> {
+fn prepare_cache(url: &str, cache_dir: &Path) -> Result<(PathBuf, AdvisoryLock), RegistryGitError> {
     let mut digest = Sha256::new();
     digest.update(url.as_bytes());
     let key: String = digest
@@ -293,7 +295,10 @@ fn prepare_cache(url: &str, cache_dir: &Path) -> Result<(PathBuf, CacheLock), Re
         path: cache_dir.to_owned(),
         source,
     })?;
-    let lock = CacheLock::acquire(&lock_path)?;
+    let lock = AdvisoryLock::acquire(&lock_path).map_err(|source| RegistryGitError::CacheLock {
+        path: lock_path.clone(),
+        source,
+    })?;
     ensure_safe_cache_repo(&repo, cache_dir)?;
 
     let metadata = match fs::symlink_metadata(&repo) {
@@ -359,170 +364,6 @@ fn ensure_safe_cache_repo(repo: &Path, cache_dir: &Path) -> Result<(), RegistryG
         });
     }
     Ok(())
-}
-
-struct CacheLock {
-    file: File,
-}
-
-impl CacheLock {
-    fn acquire(path: &Path) -> Result<Self, RegistryGitError> {
-        let file = OpenOptions::new()
-            .create(true)
-            .read(true)
-            .write(true)
-            .truncate(false)
-            .open(path)
-            .map_err(|source| RegistryGitError::CacheLock {
-                path: path.to_owned(),
-                source,
-            })?;
-        lock_exclusive(&file).map_err(|source| RegistryGitError::CacheLock {
-            path: path.to_owned(),
-            source,
-        })?;
-        Ok(Self { file })
-    }
-}
-
-impl Drop for CacheLock {
-    fn drop(&mut self) {
-        let _ = unlock_exclusive(&self.file);
-    }
-}
-
-#[cfg(unix)]
-#[expect(
-    unsafe_code,
-    reason = "std has no cross-process file lock; flock serializes bare-repo fetch + FETCH_HEAD resolve"
-)]
-fn lock_exclusive(file: &File) -> io::Result<()> {
-    use std::os::unix::io::AsRawFd;
-
-    // SAFETY: `file` owns a valid open descriptor for the duration of this call.
-    let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
-    if result == 0 {
-        Ok(())
-    } else {
-        Err(io::Error::last_os_error())
-    }
-}
-
-#[cfg(unix)]
-#[expect(
-    unsafe_code,
-    reason = "pairs with lock_exclusive; std cannot unlock an advisory flock"
-)]
-fn unlock_exclusive(file: &File) -> io::Result<()> {
-    use std::os::unix::io::AsRawFd;
-
-    // SAFETY: `file` owns a valid open descriptor for the duration of this call.
-    let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
-    if result == 0 {
-        Ok(())
-    } else {
-        Err(io::Error::last_os_error())
-    }
-}
-
-#[cfg(windows)]
-#[expect(
-    unsafe_code,
-    reason = "std has no cross-process file lock; LockFileEx serializes bare-repo fetch + FETCH_HEAD resolve"
-)]
-fn lock_exclusive(file: &File) -> io::Result<()> {
-    use std::os::windows::io::AsRawHandle;
-
-    let mut overlapped = WindowsOverlapped::zeroed();
-    // SAFETY: `file` owns a valid handle; `overlapped` is a zeroed stack value
-    // whose address remains valid for this synchronous LockFileEx call.
-    let locked = unsafe {
-        lock_file_ex(
-            file.as_raw_handle(),
-            LOCKFILE_EXCLUSIVE_LOCK,
-            0,
-            u32::MAX,
-            u32::MAX,
-            &mut overlapped,
-        )
-    };
-    if locked == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
-}
-
-#[cfg(windows)]
-#[expect(
-    unsafe_code,
-    reason = "pairs with lock_exclusive; std cannot unlock LockFileEx ranges"
-)]
-fn unlock_exclusive(file: &File) -> io::Result<()> {
-    use std::os::windows::io::AsRawHandle;
-
-    let mut overlapped = WindowsOverlapped::zeroed();
-    // SAFETY: matches the LockFileEx call site; unlocks the same byte range.
-    let unlocked =
-        unsafe { unlock_file_ex(file.as_raw_handle(), 0, u32::MAX, u32::MAX, &mut overlapped) };
-    if unlocked == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
-}
-
-#[cfg(windows)]
-const LOCKFILE_EXCLUSIVE_LOCK: u32 = 0x0000_0002;
-
-#[cfg(windows)]
-#[repr(C)]
-struct WindowsOverlapped {
-    internal: usize,
-    internal_high: usize,
-    offset: u32,
-    offset_high: u32,
-    event: *mut core::ffi::c_void,
-}
-
-#[cfg(windows)]
-impl WindowsOverlapped {
-    fn zeroed() -> Self {
-        Self {
-            internal: 0,
-            internal_high: 0,
-            offset: 0,
-            offset_high: 0,
-            event: std::ptr::null_mut(),
-        }
-    }
-}
-
-#[cfg(windows)]
-#[expect(
-    unsafe_code,
-    reason = "LockFileEx/UnlockFileEx are not exposed by std; declarations match the Windows ABI"
-)]
-#[link(name = "kernel32")]
-unsafe extern "system" {
-    #[link_name = "LockFileEx"]
-    fn lock_file_ex(
-        file: *mut core::ffi::c_void,
-        flags: u32,
-        reserved: u32,
-        number_of_bytes_to_lock_low: u32,
-        number_of_bytes_to_lock_high: u32,
-        overlapped: *mut WindowsOverlapped,
-    ) -> i32;
-
-    #[link_name = "UnlockFileEx"]
-    fn unlock_file_ex(
-        file: *mut core::ffi::c_void,
-        reserved: u32,
-        number_of_bytes_to_unlock_low: u32,
-        number_of_bytes_to_unlock_high: u32,
-        overlapped: *mut WindowsOverlapped,
-    ) -> i32;
 }
 
 fn resolve_fetch_head(repo: &Path) -> Result<String, RegistryGitError> {

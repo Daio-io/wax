@@ -6,7 +6,8 @@ use wax_core::AtomicWriteError;
 use wax_core::global_state::{
     GlobalState, GlobalStateError, InstalledLanguagePack, load_global_state, save_global_state,
 };
-use wax_core::paths::{PathsError, lang_install_dir, state_file, wax_home};
+use wax_core::paths::{PathsError, lang_install_dir, registry_cache_dir, state_file, wax_home};
+use wax_core::registry_cache::RegistryCache;
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 static CWD_LOCK: Mutex<()> = Mutex::new(());
@@ -141,6 +142,26 @@ fn state_file_lives_under_wax_home() {
 
     let resolved = state_file().unwrap();
     assert_eq!(resolved, dir.path().join("state.json"));
+}
+
+#[test]
+fn registry_cache_dir_lives_under_wax_home_cache_registries() {
+    let _guard = env_lock();
+    let dir = TestDir::new("registry-cache-dir");
+    let _wax_home = EnvVarGuard::set("WAX_HOME", dir.path());
+
+    let resolved = registry_cache_dir().unwrap();
+    assert_eq!(resolved, dir.path().join("cache/registries"));
+}
+
+#[test]
+fn registry_cache_open_default_uses_registry_cache_dir() {
+    let _guard = env_lock();
+    let dir = TestDir::new("registry-cache-open-default");
+    let _wax_home = EnvVarGuard::set("WAX_HOME", dir.path());
+
+    let cache = RegistryCache::open_default().unwrap();
+    assert_eq!(cache.root(), dir.path().join("cache/registries"));
 }
 
 #[test]
