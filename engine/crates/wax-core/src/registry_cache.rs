@@ -3,7 +3,6 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Map;
@@ -15,13 +14,13 @@ use wax_contract::{
 use crate::advisory_lock::AdvisoryLock;
 use crate::atomic_file::write_atomically_no_clobber;
 use crate::config::waxrc::{WaxRcError, load_waxrc};
+use crate::paths::{PathsError, registry_cache_dir};
 use crate::registry_git::{RegistryGitError, fetch_git_registry};
 use crate::registry_source::{
-    RegistrySourceError, validate_repo_relative_registry_path_within_repo,
+    RegistrySourceError, fetch_http_bytes, file_url_to_path,
+    validate_repo_relative_registry_path_within_repo,
 };
 use crate::{AtomicWriteError, AtomicWriteOptions, write_atomically};
-
-const HTTP_FETCH_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// A registry source that can be resolved into one or more immutable snapshots.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,9 +85,27 @@ pub struct RegistryCache {
 
 impl RegistryCache {
     /// Opens a registry cache rooted at `root`.
+    ///
+    /// Production callers should pass [`crate::paths::registry_cache_dir`]
+    /// (`~/.wax/cache/registries`) or use [`Self::open_default`].
     #[must_use]
     pub fn open(root: PathBuf) -> Self {
         Self { root }
+    }
+
+    /// Opens the process-global registry cache under [`registry_cache_dir`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PathsError::HomeUnavailable`] when the wax home cannot be resolved.
+    pub fn open_default() -> Result<Self, PathsError> {
+        Ok(Self::open(registry_cache_dir()?))
+    }
+
+    /// Returns the cache root that holds `blobs/` and `sources/`.
+    #[must_use]
+    pub fn root(&self) -> &Path {
+        &self.root
     }
 
     /// Resolves a source from its selected cache record or fetches it when allowed.
@@ -157,7 +174,7 @@ impl RegistryCache {
     ) -> Result<Vec<RegistrySnapshot>, RegistryCacheError> {
         let fetched = match source {
             RegistrySourceSpec::HttpJson { url, language } => {
-                let bytes = fetch_http_bytes(url)?;
+                let bytes = fetch_http_registry_bytes(url)?;
                 vec![FetchedRegistry {
                     source: redact_url(url),
                     language: language.clone(),
@@ -341,20 +358,12 @@ impl RegistryCache {
         &self,
         fetched: FetchedRegistry,
     ) -> Result<RegistrySnapshot, RegistryCacheError> {
-        let text = std::str::from_utf8(&fetched.bytes).map_err(|source| {
+        let document = registry_document_from_bytes(&fetched.bytes).map_err(|source| {
             RegistryCacheError::InvalidRegistry {
                 identity: fetched.source.clone(),
-                source: RegistryError::InvalidJson(serde_json::Error::io(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    source,
-                ))),
+                source,
             }
         })?;
-        let document =
-            registry_from_json(text).map_err(|source| RegistryCacheError::InvalidRegistry {
-                identity: fetched.source.clone(),
-                source,
-            })?;
         let artifact_language = document
             .extra
             .get("language")
@@ -480,16 +489,7 @@ impl RegistryCache {
                         actual,
                     });
                 }
-                let text = std::str::from_utf8(&bytes).map_err(|error| {
-                    RegistryCacheError::InvalidCachedRegistry {
-                        snapshot: Box::new(reference.clone()),
-                        source: RegistryError::InvalidJson(serde_json::Error::io(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            error,
-                        ))),
-                    }
-                })?;
-                let document = registry_from_json(text).map_err(|source| {
+                let document = registry_document_from_bytes(&bytes).map_err(|source| {
                     RegistryCacheError::InvalidCachedRegistry {
                         snapshot: Box::new(reference.clone()),
                         source,
@@ -557,18 +557,15 @@ impl RegistrySourceSpec {
             });
         }
         if input.starts_with("file://") {
-            let url = reqwest::Url::parse(input).map_err(|error| {
-                RegistryCacheError::InvalidSourceUrl {
-                    identity: redact_url(input),
-                    message: error.to_string(),
+            let path = file_url_to_path(input).map_err(|error| match error {
+                RegistrySourceError::InvalidFileUrl { reason, .. } => {
+                    RegistryCacheError::InvalidSourceUrl {
+                        identity: redact_url(input),
+                        reason,
+                    }
                 }
+                other => other.into(),
             })?;
-            let path = url
-                .to_file_path()
-                .map_err(|()| RegistryCacheError::InvalidSourceUrl {
-                    identity: redact_url(input),
-                    message: "file URL is not an absolute local path".to_owned(),
-                })?;
             return Ok(Self::LocalFile { path, language });
         }
 
@@ -716,6 +713,16 @@ fn local_file_identity(path: &Path) -> String {
     format!("file:{}", path.display())
 }
 
+fn registry_document_from_bytes(bytes: &[u8]) -> Result<RegistryDocument, RegistryError> {
+    let text = std::str::from_utf8(bytes).map_err(|source| {
+        RegistryError::InvalidJson(serde_json::Error::io(io::Error::new(
+            io::ErrorKind::InvalidData,
+            source,
+        )))
+    })?;
+    registry_from_json(text)
+}
+
 fn redact_url(value: &str) -> String {
     let Some(scheme_end) = value.find("://") else {
         return value.to_owned();
@@ -731,57 +738,59 @@ fn redact_url(value: &str) -> String {
     format!("{}{}", &value[..authority_start], &value[host_start..])
 }
 
-fn sanitize_http_error(error: &reqwest::Error, original: &str, redacted: &str) -> String {
-    error.to_string().replace(original, redacted)
+fn redact_embedded_userinfo(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut rest = value;
+    while let Some(scheme_end) = rest.find("://") {
+        out.push_str(&rest[..scheme_end + 3]);
+        let after_scheme = &rest[scheme_end + 3..];
+        let authority_end = after_scheme
+            .find(|c: char| c == '/' || c.is_whitespace() || c == '"' || c == '\'')
+            .unwrap_or(after_scheme.len());
+        let authority = &after_scheme[..authority_end];
+        if let Some(at) = authority.rfind('@') {
+            out.push_str(&authority[at + 1..]);
+        } else {
+            out.push_str(authority);
+        }
+        rest = &after_scheme[authority_end..];
+    }
+    out.push_str(rest);
+    out
 }
 
-fn fetch_http_bytes(url: &str) -> Result<Vec<u8>, RegistryCacheError> {
-    let safe_url = redact_url(url);
-    let client = reqwest::blocking::Client::builder()
-        .timeout(HTTP_FETCH_TIMEOUT)
-        .build()
-        .map_err(|error| RegistryCacheError::HttpRequest {
-            identity: safe_url.clone(),
-            message: sanitize_http_error(&error, url, &safe_url),
-        })?;
-    let response = client
-        .get(url)
-        .send()
-        .map_err(|error| RegistryCacheError::HttpRequest {
-            identity: safe_url.clone(),
-            message: sanitize_http_error(&error, url, &safe_url),
-        })?;
-    if !response.status().is_success() {
-        return Err(RegistryCacheError::HttpStatus {
-            identity: safe_url,
-            status: response.status(),
-        });
+fn map_http_fetch_error(url: &str, error: RegistrySourceError) -> RegistryCacheError {
+    let identity = redact_url(url);
+    match error {
+        RegistrySourceError::Fetch { http, .. } => RegistryCacheError::HttpRequest {
+            identity,
+            source: http,
+        },
+        RegistrySourceError::HttpStatus { status, .. } => {
+            RegistryCacheError::HttpStatus { identity, status }
+        }
+        other => other.into(),
     }
-    response
-        .bytes()
-        .map(|bytes| bytes.to_vec())
-        .map_err(|error| RegistryCacheError::HttpRequest {
-            identity: redact_url(url),
-            message: sanitize_http_error(&error, url, &redact_url(url)),
-        })
+}
+
+fn fetch_http_registry_bytes(url: &str) -> Result<Vec<u8>, RegistryCacheError> {
+    fetch_http_bytes(url).map_err(|error| map_http_fetch_error(url, error))
 }
 
 fn read_publisher_mapping(root: &Path, source: &str) -> Result<Vec<u8>, RegistryCacheError> {
     if source.starts_with("http://") || source.starts_with("https://") {
-        return fetch_http_bytes(source);
+        return fetch_http_registry_bytes(source);
     }
     if source.starts_with("file://") {
-        let url =
-            reqwest::Url::parse(source).map_err(|error| RegistryCacheError::InvalidSourceUrl {
-                identity: redact_url(source),
-                message: error.to_string(),
-            })?;
-        let path = url
-            .to_file_path()
-            .map_err(|()| RegistryCacheError::InvalidSourceUrl {
-                identity: redact_url(source),
-                message: "file URL is not an absolute local path".to_owned(),
-            })?;
+        let path = file_url_to_path(source).map_err(|error| match error {
+            RegistrySourceError::InvalidFileUrl { reason, .. } => {
+                RegistryCacheError::InvalidSourceUrl {
+                    identity: redact_url(source),
+                    reason,
+                }
+            }
+            other => other.into(),
+        })?;
         return fs::read(&path).map_err(|source| RegistryCacheError::ReadSource { path, source });
     }
     let path = validate_repo_relative_registry_path_within_repo(root, source)?;
@@ -815,12 +824,12 @@ pub enum RegistryCacheError {
     #[error(transparent)]
     RegistrySource(#[from] RegistrySourceError),
     /// A source URL could not be parsed.
-    #[error("invalid registry source URL {identity}: {message}")]
+    #[error("invalid registry source URL {identity}: {reason}")]
     InvalidSourceUrl {
         /// Credential-free source identity.
         identity: String,
-        /// URL parse diagnostic.
-        message: String,
+        /// Static URL parse failure reason.
+        reason: &'static str,
     },
     /// A requested publisher id was absent from the repository config.
     #[error("publisher {system_id} is not configured in {root}")]
@@ -888,12 +897,16 @@ pub enum RegistryCacheError {
         source: io::Error,
     },
     /// An HTTP request failed.
-    #[error("failed to fetch registry source {identity}: {message}")]
+    #[error(
+        "failed to fetch registry source {identity}: {}",
+        redact_embedded_userinfo(&.source.to_string())
+    )]
     HttpRequest {
         /// Credential-free source identity.
         identity: String,
-        /// Sanitized request diagnostic.
-        message: String,
+        /// Underlying HTTP transport failure.
+        #[source]
+        source: reqwest::Error,
     },
     /// An HTTP source returned a non-success status.
     #[error("failed to fetch registry source {identity}: HTTP {status}")]

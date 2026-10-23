@@ -44,6 +44,17 @@ pub fn state_file() -> Result<PathBuf, PathsError> {
     Ok(wax_home()?.join("state.json"))
 }
 
+/// Returns the global immutable registry snapshot cache directory.
+///
+/// Layout: `~/.wax/cache/registries` (or `$WAX_HOME/cache/registries`).
+///
+/// # Errors
+///
+/// Returns [`PathsError::HomeUnavailable`] when the wax home cannot be resolved.
+pub fn registry_cache_dir() -> Result<PathBuf, PathsError> {
+    Ok(wax_home()?.join("cache").join("registries"))
+}
+
 /// Returns the install directory for one language pack version.
 ///
 /// # Errors

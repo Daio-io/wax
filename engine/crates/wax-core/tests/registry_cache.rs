@@ -509,6 +509,45 @@ fn source_parser_distinguishes_http_json_and_git_forms() {
 }
 
 #[test]
+fn source_parser_rejects_non_localhost_file_urls_with_typed_reason() {
+    let error = RegistrySourceSpec::parse(
+        "file://example.com/tmp/registry.json",
+        Some(language("react")),
+    )
+    .expect_err("remote file:// hosts must be rejected");
+
+    match error {
+        RegistryCacheError::InvalidSourceUrl { reason, .. } => {
+            assert_eq!(reason, "only empty host or localhost are supported");
+        }
+        other => panic!("expected InvalidSourceUrl, got {other:?}"),
+    }
+}
+
+#[test]
+fn http_transport_failure_preserves_typed_reqwest_error() {
+    let root = TempDir::new("http-typed-error");
+    let cache = RegistryCache::open(root.0.join("cache"));
+    let source = RegistrySourceSpec::HttpJson {
+        url: "http://127.0.0.1:1/registry.json".to_owned(),
+        language: Some(language("react")),
+    };
+
+    let error = cache
+        .resolve(&source, &RegistryReadPolicy::default())
+        .expect_err("refused HTTP connection must fail");
+
+    match &error {
+        RegistryCacheError::HttpRequest { source, identity } => {
+            assert!(identity.starts_with("http://127.0.0.1:1"));
+            let _typed: &reqwest::Error = source;
+            assert!(!error.to_string().is_empty());
+        }
+        other => panic!("expected HttpRequest, got {other:?}"),
+    }
+}
+
+#[test]
 fn concurrent_first_readers_share_one_fetch() {
     let root = TempDir::new("concurrent-readers");
     let cache = Arc::new(RegistryCache::open(root.0.join("cache")));

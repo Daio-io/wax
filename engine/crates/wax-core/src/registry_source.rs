@@ -442,39 +442,103 @@ fn resolve_registry_source_with_options(
     })
 }
 
+/// Fetches registry bytes over HTTP with the shared client timeout and status checks.
+///
+/// # Errors
+///
+/// Returns [`RegistrySourceError::Fetch`] for transport failures or
+/// [`RegistrySourceError::HttpStatus`] for non-success responses.
+pub(crate) fn fetch_http_bytes(url: &str) -> Result<Vec<u8>, RegistrySourceError> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(HTTP_FETCH_TIMEOUT)
+        .build()
+        .map_err(|http| RegistrySourceError::Fetch {
+            input: url.to_owned(),
+            http,
+        })?;
+    let response = client
+        .get(url)
+        .send()
+        .map_err(|http| RegistrySourceError::Fetch {
+            input: url.to_owned(),
+            http,
+        })?;
+    if !response.status().is_success() {
+        return Err(RegistrySourceError::HttpStatus {
+            input: url.to_owned(),
+            status: response.status(),
+        });
+    }
+
+    response
+        .bytes()
+        .map(|bytes| bytes.to_vec())
+        .map_err(|http| RegistrySourceError::Fetch {
+            input: url.to_owned(),
+            http,
+        })
+}
+
+/// Parses a `file://` registry URL into a local filesystem path.
+///
+/// Only empty hosts and `localhost` are accepted. Percent-encoded path
+/// segments are decoded.
+///
+/// # Errors
+///
+/// Returns [`RegistrySourceError::InvalidFileUrl`] when the URL is not a
+/// supported local file URL.
+pub(crate) fn file_url_to_path(url: &str) -> Result<PathBuf, RegistrySourceError> {
+    let Some(rest) = url.strip_prefix("file://") else {
+        return Err(RegistrySourceError::InvalidFileUrl {
+            input: url.to_owned(),
+            reason: "missing file:// prefix",
+        });
+    };
+
+    let path_part = if rest.starts_with('/') {
+        rest.to_owned()
+    } else {
+        let Some((host, path)) = rest.split_once('/') else {
+            return Err(RegistrySourceError::InvalidFileUrl {
+                input: url.to_owned(),
+                reason: "missing absolute path",
+            });
+        };
+
+        if host != "localhost" {
+            return Err(RegistrySourceError::InvalidFileUrl {
+                input: url.to_owned(),
+                reason: "only empty host or localhost are supported",
+            });
+        }
+
+        format!("/{path}")
+    };
+
+    if !path_part.starts_with('/') {
+        return Err(RegistrySourceError::InvalidFileUrl {
+            input: url.to_owned(),
+            reason: "path must be absolute",
+        });
+    }
+
+    let decoded =
+        percent_decode(&path_part).map_err(|reason| RegistrySourceError::InvalidFileUrl {
+            input: url.to_owned(),
+            reason,
+        })?;
+
+    Ok(PathBuf::from(decoded))
+}
+
 fn read_source(
     repo_root: &Path,
     source: &str,
 ) -> Result<(Vec<u8>, String, bool), RegistrySourceError> {
     if source.starts_with("http://") || source.starts_with("https://") {
-        let client = reqwest::blocking::Client::builder()
-            .timeout(HTTP_FETCH_TIMEOUT)
-            .build()
-            .map_err(|http| RegistrySourceError::Fetch {
-                input: source.to_owned(),
-                http,
-            })?;
-        let response = client
-            .get(source)
-            .send()
-            .map_err(|http| RegistrySourceError::Fetch {
-                input: source.to_owned(),
-                http,
-            })?;
-        if !response.status().is_success() {
-            return Err(RegistrySourceError::HttpStatus {
-                input: source.to_owned(),
-                status: response.status(),
-            });
-        }
-
-        return response
-            .bytes()
-            .map(|bytes| (bytes.to_vec(), String::new(), true))
-            .map_err(|http| RegistrySourceError::Fetch {
-                input: source.to_owned(),
-                http,
-            });
+        let bytes = fetch_http_bytes(source)?;
+        return Ok((bytes, String::new(), true));
     }
 
     if source.starts_with("file://") {
@@ -710,50 +774,6 @@ fn reject_symlink_path(path: &Path, source: &str) -> Result<(), RegistrySourceEr
         }),
         Ok(_) | Err(_) => Ok(()),
     }
-}
-
-fn file_url_to_path(url: &str) -> Result<PathBuf, RegistrySourceError> {
-    let Some(rest) = url.strip_prefix("file://") else {
-        return Err(RegistrySourceError::InvalidFileUrl {
-            input: url.to_owned(),
-            reason: "missing file:// prefix",
-        });
-    };
-
-    let path_part = if rest.starts_with('/') {
-        rest.to_owned()
-    } else {
-        let Some((host, path)) = rest.split_once('/') else {
-            return Err(RegistrySourceError::InvalidFileUrl {
-                input: url.to_owned(),
-                reason: "missing absolute path",
-            });
-        };
-
-        if host != "localhost" {
-            return Err(RegistrySourceError::InvalidFileUrl {
-                input: url.to_owned(),
-                reason: "only empty host or localhost are supported",
-            });
-        }
-
-        format!("/{path}")
-    };
-
-    if !path_part.starts_with('/') {
-        return Err(RegistrySourceError::InvalidFileUrl {
-            input: url.to_owned(),
-            reason: "path must be absolute",
-        });
-    }
-
-    let decoded =
-        percent_decode(&path_part).map_err(|reason| RegistrySourceError::InvalidFileUrl {
-            input: url.to_owned(),
-            reason,
-        })?;
-
-    Ok(PathBuf::from(decoded))
 }
 
 fn percent_decode(input: &str) -> Result<String, &'static str> {
