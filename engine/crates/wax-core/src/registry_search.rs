@@ -14,6 +14,12 @@ use crate::registry_cache::RegistrySnapshot;
 const DEFAULT_RESULT_LIMIT: u32 = 20;
 const MAX_SUMMARY_CHARS: usize = 240;
 const FUZZY_MATCH_THRESHOLD: f64 = 0.72;
+const SCORE_EXACT: u16 = 0;
+const SCORE_PREFIX: u16 = 20;
+const SCORE_CONTAINS: u16 = 40;
+const SCORE_FUZZY_BASE: u16 = 60;
+const SCORE_DESCRIPTIVE: u16 = 100;
+const SCORE_DOCS: u16 = 120;
 
 /// Filters and bounds applied to an in-memory registry search.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -215,60 +221,49 @@ fn serialize_entry(entry: &impl Serialize) -> Result<Value, RegistryLookupError>
 }
 
 fn component_score(component: &RegistryComponent, query: &Normalized) -> Option<u16> {
-    let mut score = best_structured_score(
+    entry_score(
         [&component.id, &component.symbol]
             .into_iter()
             .map(String::as_str),
+        component.aliases.iter().map(String::as_str),
+        component.package.iter().map(String::as_str),
+        component.metadata.as_ref(),
+        component.extracted.as_ref(),
+        &component.extra,
         query,
-        0,
-    );
-    score = min_score(
-        score,
-        best_structured_score(component.aliases.iter().map(String::as_str), query, 1),
-    );
-    score = min_score(
-        score,
-        best_structured_score(component.package.iter().map(String::as_str), query, 2),
-    );
-    min_score(
-        score,
-        descriptive_score(
-            component.metadata.as_ref(),
-            component.extracted.as_ref(),
-            &component.extra,
-            query,
-        ),
     )
 }
 
 fn token_score(token: &RegistryToken, query: &Normalized) -> Option<u16> {
-    let mut score = best_structured_score(
-        [&token.id, &token.key].into_iter().map(String::as_str),
-        query,
-        0,
-    );
-    score = min_score(
-        score,
-        best_structured_score(token.aliases.iter().map(String::as_str), query, 1),
-    );
-    score = min_score(
-        score,
-        best_structured_score(token.value.iter().map(String::as_str), query, 2),
-    );
     let category = token_category_name(token);
-    score = min_score(
-        score,
-        best_structured_score([category].into_iter(), query, 2),
-    );
-    min_score(
-        score,
-        descriptive_score(
-            token.metadata.as_ref(),
-            token.extracted.as_ref(),
-            &token.extra,
-            query,
-        ),
+    entry_score(
+        [&token.id, &token.key].into_iter().map(String::as_str),
+        token.aliases.iter().map(String::as_str),
+        token
+            .value
+            .iter()
+            .map(String::as_str)
+            .chain(std::iter::once(category)),
+        token.metadata.as_ref(),
+        token.extracted.as_ref(),
+        &token.extra,
+        query,
     )
+}
+
+fn entry_score<'a>(
+    primary: impl Iterator<Item = &'a str>,
+    aliases: impl Iterator<Item = &'a str>,
+    secondary: impl Iterator<Item = &'a str>,
+    metadata: Option<&RegistryMetadata>,
+    extracted: Option<&RegistryExtracted>,
+    extra: &Map<String, Value>,
+    query: &Normalized,
+) -> Option<u16> {
+    let mut score = best_structured_score(primary, query, 0);
+    score = min_score(score, best_structured_score(aliases, query, 1));
+    score = min_score(score, best_structured_score(secondary, query, 2));
+    min_score(score, descriptive_score(metadata, extracted, extra, query))
 }
 
 fn best_structured_score<'a>(
@@ -298,22 +293,22 @@ fn descriptive_score(
         })
         .filter_map(|field| match_score(field, query))
         .min()
-        .map(|score| 100 + score);
+        .map(|score| SCORE_DESCRIPTIVE + score);
     let summary_score = extra
         .get("summary")
         .and_then(Value::as_str)
         .and_then(|summary| match_score(summary, query))
-        .map(|score| 100 + score);
+        .map(|score| SCORE_DESCRIPTIVE + score);
     let documentation_score = extracted
         .and_then(|extracted| extracted.documentation.as_deref())
         .and_then(|documentation| match_score(documentation, query))
-        .map(|score| 120 + score);
+        .map(|score| SCORE_DOCS + score);
     let attachment_score = extracted
         .into_iter()
         .flat_map(|extracted| extracted.attachments.iter())
         .filter_map(|attachment| match_score(&attachment.content, query))
         .min()
-        .map(|score| 120 + score);
+        .map(|score| SCORE_DOCS + score);
     min_score(
         min_score(
             min_score(metadata_score, summary_score),
@@ -329,44 +324,62 @@ fn match_score(field: &str, query: &Normalized) -> Option<u16> {
         return None;
     }
     if field.spaced == query.spaced || field.compact == query.compact {
-        return Some(0);
+        return Some(SCORE_EXACT);
     }
     if field.spaced.starts_with(&query.spaced) || field.compact.starts_with(&query.compact) {
-        return Some(20);
+        return Some(SCORE_PREFIX);
     }
     if field.spaced.contains(&query.spaced) || field.compact.contains(&query.compact) {
-        return Some(40);
+        return Some(SCORE_CONTAINS);
     }
     let similarity = normalized_levenshtein(&field.compact, &query.compact);
-    (similarity >= FUZZY_MATCH_THRESHOLD).then(|| 60 + ((1.0 - similarity) * 100.0).round() as u16)
+    (similarity >= FUZZY_MATCH_THRESHOLD)
+        .then(|| SCORE_FUZZY_BASE + ((1.0 - similarity) * 100.0).round() as u16)
 }
 
 fn component_result(
     snapshot: &RegistrySnapshot,
     component: &RegistryComponent,
 ) -> RegistrySearchResult {
-    RegistrySearchResult {
-        snapshot: snapshot.reference.clone(),
-        kind: RegistryEntryKind::Component,
-        id: component.id.clone(),
-        label: component.symbol.clone(),
-        summary: entry_summary(component.metadata.as_ref(), &component.extra),
-        extraction_status: component
-            .extracted
-            .as_ref()
-            .map(|extracted| extracted.status),
-        extra: Map::new(),
-    }
+    search_result(
+        snapshot,
+        RegistryEntryKind::Component,
+        component.id.clone(),
+        component.symbol.clone(),
+        component.metadata.as_ref(),
+        component.extracted.as_ref(),
+        &component.extra,
+    )
 }
 
 fn token_result(snapshot: &RegistrySnapshot, token: &RegistryToken) -> RegistrySearchResult {
+    search_result(
+        snapshot,
+        RegistryEntryKind::Token,
+        token.id.clone(),
+        token.key.clone(),
+        token.metadata.as_ref(),
+        token.extracted.as_ref(),
+        &token.extra,
+    )
+}
+
+fn search_result(
+    snapshot: &RegistrySnapshot,
+    kind: RegistryEntryKind,
+    id: String,
+    label: String,
+    metadata: Option<&RegistryMetadata>,
+    extracted: Option<&RegistryExtracted>,
+    extra: &Map<String, Value>,
+) -> RegistrySearchResult {
     RegistrySearchResult {
         snapshot: snapshot.reference.clone(),
-        kind: RegistryEntryKind::Token,
-        id: token.id.clone(),
-        label: token.key.clone(),
-        summary: entry_summary(token.metadata.as_ref(), &token.extra),
-        extraction_status: token.extracted.as_ref().map(|extracted| extracted.status),
+        kind,
+        id,
+        label,
+        summary: entry_summary(metadata, extra),
+        extraction_status: extracted.map(|extracted| extracted.status),
         extra: Map::new(),
     }
 }
