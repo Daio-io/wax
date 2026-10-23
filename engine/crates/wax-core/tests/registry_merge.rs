@@ -358,10 +358,123 @@ fn identity_conflict_keeps_creator_content() {
             .and_then(|metadata| metadata.description.as_deref()),
         Some("Secondary authored content")
     );
+    for candidate in &merged.document.components[..2] {
+        let extracted = candidate.extracted.as_ref().expect("extracted facts");
+        assert_eq!(extracted.status, RegistryExtractionStatus::Complete);
+        assert!(
+            matches!(
+                extracted.documentation.as_deref(),
+                Some("Primary docs") | Some("Secondary docs")
+            ),
+            "conflict must not rewrite authored extraction docs"
+        );
+    }
+    assert!(!merged.changes.iter().any(|change| {
+        matches!(
+            (change.entry_kind, change.id.as_str(), change.kind),
+            (
+                RegistryMergeEntryKind::Component,
+                "primary-button" | "secondary-button",
+                RegistryMergeChangeKind::Updated
+            )
+        )
+    }));
     assert_eq!(merged.diagnostics.len(), 1);
     assert_eq!(
         merged.diagnostics[0].code,
         RegistryMergeDiagnosticCode::IdentityConflict
+    );
+}
+
+#[test]
+fn incomplete_discovery_preserves_prior_field_gaps_when_omitted() {
+    let existing = registry(
+        r#"{
+            "schema_version": 1,
+            "components": [{
+                "id": "button",
+                "symbol": "Button",
+                "extracted": {
+                    "status": "partial",
+                    "documentation": "Prior docs",
+                    "field_gaps": [{
+                        "field": "signature",
+                        "reason": "parser unavailable"
+                    }]
+                }
+            }]
+        }"#,
+    );
+    let discovered = registry(
+        r#"{
+            "schema_version": 1,
+            "components": [{
+                "id": "button",
+                "symbol": "Button",
+                "extracted": {
+                    "status": "partial",
+                    "documentation": "Fresh docs"
+                }
+            }]
+        }"#,
+    );
+
+    let merged = merge_registry(Some(&existing), &discovered, true).expect("registry merges");
+    let extracted = merged.document.components[0]
+        .extracted
+        .as_ref()
+        .expect("extracted facts");
+
+    assert_eq!(extracted.status, RegistryExtractionStatus::Partial);
+    assert_eq!(extracted.documentation.as_deref(), Some("Fresh docs"));
+    assert_eq!(extracted.field_gaps.len(), 1);
+    assert_eq!(extracted.field_gaps[0].field, "signature");
+    assert_eq!(extracted.field_gaps[0].reason, "parser unavailable");
+}
+
+#[test]
+fn complete_flag_does_not_change_retention_of_unobserved_entries() {
+    let existing = registry(
+        r#"{
+            "schema_version": 1,
+            "components": [
+                {
+                    "id": "button",
+                    "symbol": "Button",
+                    "extracted": {"status": "complete", "documentation": "Button docs"}
+                },
+                {
+                    "id": "card",
+                    "symbol": "Card",
+                    "extracted": {"status": "complete", "documentation": "Card docs"}
+                }
+            ]
+        }"#,
+    );
+    let discovered = registry(
+        r#"{
+            "schema_version": 1,
+            "components": [{
+                "id": "button",
+                "symbol": "Button",
+                "extracted": {"status": "complete", "documentation": "Fresh button docs"}
+            }]
+        }"#,
+    );
+
+    let when_complete = merge_registry(Some(&existing), &discovered, true).expect("complete merge");
+    let when_incomplete =
+        merge_registry(Some(&existing), &discovered, false).expect("incomplete merge");
+
+    assert_eq!(when_complete.document, when_incomplete.document);
+    assert_eq!(when_complete.changes, when_incomplete.changes);
+    assert_eq!(when_complete.diagnostics, when_incomplete.diagnostics);
+    assert_eq!(
+        when_complete.document.components[1]
+            .extracted
+            .as_ref()
+            .map(|facts| facts.status),
+        Some(RegistryExtractionStatus::NotObserved)
     );
 }
 

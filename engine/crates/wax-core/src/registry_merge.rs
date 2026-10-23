@@ -87,8 +87,9 @@ pub enum RegistryMergeError {
 /// Merges generated discovery facts without replacing creator-owned content.
 ///
 /// `complete` describes whether discovery enumerated the full source scope. It
-/// never authorizes pruning; entries absent from discovery are retained with a
-/// `not_observed` extraction status.
+/// is accepted for API/spec compatibility and never authorizes pruning; entries
+/// absent from discovery are retained with a `not_observed` extraction status
+/// whether `complete` is `true` or `false`.
 ///
 /// # Errors
 ///
@@ -99,7 +100,11 @@ pub fn merge_registry(
     discovered: &RegistryDocument,
     complete: bool,
 ) -> Result<RegistryMerge, RegistryMergeError> {
-    let _enumeration_was_complete = complete;
+    // Enumeration completeness is intentionally unused today: limited roots
+    // never authorize deletion, and retention/`not_observed` is identical for
+    // both values. Keep the parameter so callers can pass the discovery signal
+    // without a future API break.
+    let _ = complete;
     if let Some(existing) = existing {
         existing
             .validate()
@@ -122,136 +127,25 @@ pub fn merge_registry(
     let mut diagnostics = Vec::new();
     let existing_component_count = document.components.len();
     let existing_token_count = document.tokens.len();
-    let mut observed_components = vec![false; existing_component_count];
-    let mut observed_tokens = vec![false; existing_token_count];
 
-    for discovered_component in &discovered.components {
-        match resolve_component_identity(
-            &document.components[..existing_component_count],
-            discovered_component,
-        ) {
-            IdentityResolution::Match(index) => {
-                observed_components[index] = true;
-                let component = &mut document.components[index];
-                let extracted = merge_extracted(
-                    component.extracted.as_ref(),
-                    discovered_component.extracted.as_ref(),
-                );
-                if component.extracted != extracted {
-                    component.extracted = extracted;
-                    changes.push(updated_change(
-                        RegistryMergeEntryKind::Component,
-                        &component.id,
-                    ));
-                }
-            }
-            IdentityResolution::NoMatch => {
-                document.components.push(discovered_component.clone());
-                changes.push(RegistryMergeChange {
-                    entry_kind: RegistryMergeEntryKind::Component,
-                    id: discovered_component.id.clone(),
-                    kind: RegistryMergeChangeKind::Added,
-                });
-            }
-            IdentityResolution::Conflict(candidate_ids) => {
-                diagnostics.push(RegistryMergeDiagnostic {
-                    code: RegistryMergeDiagnosticCode::IdentityConflict,
-                    entry_kind: RegistryMergeEntryKind::Component,
-                    discovered_id: discovered_component.id.clone(),
-                    message: format!(
-                        "discovered component `{}` has ambiguous identity candidates: {}",
-                        discovered_component.id,
-                        candidate_ids.join(", ")
-                    ),
-                });
-                if !document
-                    .components
-                    .iter()
-                    .any(|component| component.id == discovered_component.id)
-                {
-                    document.components.push(discovered_component.clone());
-                    changes.push(RegistryMergeChange {
-                        entry_kind: RegistryMergeEntryKind::Component,
-                        id: discovered_component.id.clone(),
-                        kind: RegistryMergeChangeKind::Added,
-                    });
-                }
-            }
-        }
-    }
-
-    for discovered_token in &discovered.tokens {
-        match resolve_token_identity(&document.tokens[..existing_token_count], discovered_token) {
-            IdentityResolution::Match(index) => {
-                observed_tokens[index] = true;
-                let token = &mut document.tokens[index];
-                let extracted = merge_extracted(
-                    token.extracted.as_ref(),
-                    discovered_token.extracted.as_ref(),
-                );
-                if token.extracted != extracted {
-                    token.extracted = extracted;
-                    changes.push(updated_change(RegistryMergeEntryKind::Token, &token.id));
-                }
-            }
-            IdentityResolution::NoMatch => {
-                document.tokens.push(discovered_token.clone());
-                changes.push(RegistryMergeChange {
-                    entry_kind: RegistryMergeEntryKind::Token,
-                    id: discovered_token.id.clone(),
-                    kind: RegistryMergeChangeKind::Added,
-                });
-            }
-            IdentityResolution::Conflict(candidate_ids) => {
-                diagnostics.push(RegistryMergeDiagnostic {
-                    code: RegistryMergeDiagnosticCode::IdentityConflict,
-                    entry_kind: RegistryMergeEntryKind::Token,
-                    discovered_id: discovered_token.id.clone(),
-                    message: format!(
-                        "discovered token `{}` has ambiguous identity candidates: {}",
-                        discovered_token.id,
-                        candidate_ids.join(", ")
-                    ),
-                });
-                if !document
-                    .tokens
-                    .iter()
-                    .any(|token| token.id == discovered_token.id)
-                {
-                    document.tokens.push(discovered_token.clone());
-                    changes.push(RegistryMergeChange {
-                        entry_kind: RegistryMergeEntryKind::Token,
-                        id: discovered_token.id.clone(),
-                        kind: RegistryMergeChangeKind::Added,
-                    });
-                }
-            }
-        }
-    }
-
-    for (index, observed) in observed_components.into_iter().enumerate() {
-        if !observed {
-            let component = &mut document.components[index];
-            let extracted = Some(not_observed(component.extracted.as_ref()));
-            if component.extracted != extracted {
-                component.extracted = extracted;
-                changes.push(updated_change(
-                    RegistryMergeEntryKind::Component,
-                    &component.id,
-                ));
-            }
-        }
-    }
-    for (index, observed) in observed_tokens.into_iter().enumerate() {
-        if !observed {
-            let token = &mut document.tokens[index];
-            let extracted = Some(not_observed(token.extracted.as_ref()));
-            if token.extracted != extracted {
-                token.extracted = extracted;
-                changes.push(updated_change(RegistryMergeEntryKind::Token, &token.id));
-            }
-        }
-    }
+    merge_entries(
+        &mut document.components,
+        existing_component_count,
+        &discovered.components,
+        RegistryMergeEntryKind::Component,
+        resolve_component_identity,
+        &mut changes,
+        &mut diagnostics,
+    );
+    merge_entries(
+        &mut document.tokens,
+        existing_token_count,
+        &discovered.tokens,
+        RegistryMergeEntryKind::Token,
+        resolve_token_identity,
+        &mut changes,
+        &mut diagnostics,
+    );
 
     document
         .validate()
@@ -261,6 +155,117 @@ pub fn merge_registry(
         changes,
         diagnostics,
     })
+}
+
+trait MergeEntry: Clone {
+    fn id(&self) -> &str;
+    fn extracted(&self) -> Option<&RegistryExtracted>;
+    fn set_extracted(&mut self, extracted: Option<RegistryExtracted>);
+}
+
+impl MergeEntry for RegistryComponent {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn extracted(&self) -> Option<&RegistryExtracted> {
+        self.extracted.as_ref()
+    }
+
+    fn set_extracted(&mut self, extracted: Option<RegistryExtracted>) {
+        self.extracted = extracted;
+    }
+}
+
+impl MergeEntry for RegistryToken {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn extracted(&self) -> Option<&RegistryExtracted> {
+        self.extracted.as_ref()
+    }
+
+    fn set_extracted(&mut self, extracted: Option<RegistryExtracted>) {
+        self.extracted = extracted;
+    }
+}
+
+fn merge_entries<T: MergeEntry>(
+    entries: &mut Vec<T>,
+    existing_count: usize,
+    discovered_entries: &[T],
+    entry_kind: RegistryMergeEntryKind,
+    resolve: impl Fn(&[T], &T) -> IdentityResolution,
+    changes: &mut Vec<RegistryMergeChange>,
+    diagnostics: &mut Vec<RegistryMergeDiagnostic>,
+) {
+    let mut retain_extracted = vec![false; existing_count];
+    let kind_label = entry_kind_label(entry_kind);
+
+    for discovered in discovered_entries {
+        match resolve(&entries[..existing_count], discovered) {
+            IdentityResolution::Match(index) => {
+                retain_extracted[index] = true;
+                let entry = &mut entries[index];
+                let extracted = merge_extracted(entry.extracted(), discovered.extracted());
+                if entry.extracted() != extracted.as_ref() {
+                    let id = entry.id().to_owned();
+                    entry.set_extracted(extracted);
+                    changes.push(updated_change(entry_kind, &id));
+                }
+            }
+            IdentityResolution::NoMatch => {
+                changes.push(RegistryMergeChange {
+                    entry_kind,
+                    id: discovered.id().to_owned(),
+                    kind: RegistryMergeChangeKind::Added,
+                });
+                entries.push(discovered.clone());
+            }
+            IdentityResolution::Conflict(candidate_indices) => {
+                // Diagnostics only: leave candidate extraction untouched.
+                for &index in &candidate_indices {
+                    retain_extracted[index] = true;
+                }
+                let candidate_ids = candidate_indices
+                    .iter()
+                    .map(|&index| entries[index].id().to_owned())
+                    .collect::<Vec<_>>();
+                diagnostics.push(RegistryMergeDiagnostic {
+                    code: RegistryMergeDiagnosticCode::IdentityConflict,
+                    entry_kind,
+                    discovered_id: discovered.id().to_owned(),
+                    message: format!(
+                        "discovered {kind_label} `{}` has ambiguous identity candidates: {}",
+                        discovered.id(),
+                        candidate_ids.join(", ")
+                    ),
+                });
+                if !entries.iter().any(|entry| entry.id() == discovered.id()) {
+                    changes.push(RegistryMergeChange {
+                        entry_kind,
+                        id: discovered.id().to_owned(),
+                        kind: RegistryMergeChangeKind::Added,
+                    });
+                    entries.push(discovered.clone());
+                }
+            }
+        }
+    }
+
+    for (index, retain) in retain_extracted.into_iter().enumerate() {
+        if retain {
+            continue;
+        }
+        let entry = &mut entries[index];
+        let extracted = Some(not_observed(entry.extracted()));
+        if entry.extracted() != extracted.as_ref() {
+            let id = entry.id().to_owned();
+            entry.set_extracted(extracted);
+            changes.push(updated_change(entry_kind, &id));
+        }
+    }
 }
 
 fn merge_extracted(
@@ -302,7 +307,9 @@ fn merge_extracted(
     if !discovered.attachments.is_empty() {
         merged.attachments.clone_from(&discovered.attachments);
     }
-    merged.field_gaps.clone_from(&discovered.field_gaps);
+    if !discovered.field_gaps.is_empty() {
+        merged.field_gaps.clone_from(&discovered.field_gaps);
+    }
     merged.extra.extend(discovered.extra.clone());
     Some(merged)
 }
@@ -325,7 +332,7 @@ fn not_observed(existing: Option<&RegistryExtracted>) -> RegistryExtracted {
 enum IdentityResolution {
     Match(usize),
     NoMatch,
-    Conflict(Vec<String>),
+    Conflict(Vec<usize>),
 }
 
 fn resolve_component_identity(
@@ -347,7 +354,7 @@ fn resolve_component_identity(
         .map(|(index, _)| index)
         .collect::<Vec<_>>();
 
-    resolve_identity(id_match, &candidates, |index| existing[index].id.clone())
+    resolve_identity(id_match, &candidates)
 }
 
 fn resolve_token_identity(
@@ -362,19 +369,15 @@ fn resolve_token_identity(
         .map(|(index, _)| index)
         .collect::<Vec<_>>();
 
-    resolve_identity(id_match, &candidates, |index| existing[index].id.clone())
+    resolve_identity(id_match, &candidates)
 }
 
-fn resolve_identity(
-    id_match: Option<usize>,
-    candidates: &[usize],
-    candidate_id: impl Fn(usize) -> String,
-) -> IdentityResolution {
+fn resolve_identity(id_match: Option<usize>, candidates: &[usize]) -> IdentityResolution {
     if let Some(id_index) = id_match {
         // Exact IDs disambiguate ambiguous fallbacks; only conflict when a
         // unique fallback points at a different entry than the ID.
         if candidates.len() == 1 && candidates[0] != id_index {
-            return IdentityResolution::Conflict(vec![candidate_id(candidates[0])]);
+            return IdentityResolution::Conflict(vec![candidates[0]]);
         }
         return IdentityResolution::Match(id_index);
     }
@@ -382,7 +385,14 @@ fn resolve_identity(
     match candidates {
         [] => IdentityResolution::NoMatch,
         [index] => IdentityResolution::Match(*index),
-        _ => IdentityResolution::Conflict(candidates.iter().copied().map(candidate_id).collect()),
+        _ => IdentityResolution::Conflict(candidates.to_vec()),
+    }
+}
+
+fn entry_kind_label(entry_kind: RegistryMergeEntryKind) -> &'static str {
+    match entry_kind {
+        RegistryMergeEntryKind::Component => "component",
+        RegistryMergeEntryKind::Token => "token",
     }
 }
 
