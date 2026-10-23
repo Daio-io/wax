@@ -8,16 +8,19 @@
 //!
 //! End-to-end publish/merge → `wax search` / `wax component|token` coverage for
 //! each parser pack lives at the CLI binary seam in
-//! `wax-cli/tests/pack_search_integration.rs`.
+//! `wax-cli/tests/pack_search_integration.rs`. Cross-pack merge → search/detail
+//! without the CLI binary is covered in
+//! `wax-core/tests/cross_pack_registry_search.rs`.
 
 use serde_json::json;
 use std::io::Cursor;
 use std::path::PathBuf;
-use wax_contract::{LanguageId, RegistryDocument, RegistryExtractionStatus, RegistrySourceKind};
+use wax_contract::{RegistryDocument, RegistryExtractionStatus, RegistrySourceKind};
 use wax_lang_api::{
-    DiscoverRegistryRequest, DiscoverRequest, ScanRequest, WIRE_API_VERSION, WireErrorCode,
-    WirePackHandler, WirePackResponse, serve_one, wire_error_response,
+    DiscoverRegistryRequest, WIRE_API_VERSION, WireErrorCode, WirePackHandler, WirePackResponse,
+    serve_one,
 };
+use wax_lang_basic::BasicWireHandler;
 use wax_lang_compose::discover_registry_details as compose_details;
 use wax_lang_react::discover_registry_details as react_details;
 use wax_lang_swift::discover_registry_details as swift_details;
@@ -164,33 +167,6 @@ fn parser_packs_share_rich_button_enrichment_semantics() {
     }
 }
 
-/// Mirrors `wax-lang-basic`'s wire handler: symbol discover and rich discover both
-/// return [`WireErrorCode::DiscoverUnsupported`], and `registry_details_v1` stays false.
-struct BasicPackHandler;
-
-impl WirePackHandler for BasicPackHandler {
-    fn language_id(&self) -> LanguageId {
-        "basic".try_into().expect("basic language id")
-    }
-
-    fn scan(&self, _request: ScanRequest) -> WirePackResponse {
-        panic!("basic pack discovery tests must not invoke scan");
-    }
-
-    fn discover(&self, request: DiscoverRequest) -> WirePackResponse {
-        wire_error_response(
-            WIRE_API_VERSION,
-            request.language_id,
-            WireErrorCode::DiscoverUnsupported,
-            "basic does not support registry discovery yet",
-        )
-    }
-
-    fn registry_details_v1(&self) -> bool {
-        false
-    }
-}
-
 fn assert_discover_unsupported(output: &[u8]) {
     let line = std::str::from_utf8(output).expect("utf8").trim();
     let response: WirePackResponse = serde_json::from_str(line).expect("wire response");
@@ -207,7 +183,7 @@ fn assert_discover_unsupported(output: &[u8]) {
 
 #[test]
 fn basic_pack_discovery_path_returns_discover_unsupported() {
-    let handler = BasicPackHandler;
+    let handler = BasicWireHandler::new();
 
     let mut symbol_output = Vec::new();
     serve_one(

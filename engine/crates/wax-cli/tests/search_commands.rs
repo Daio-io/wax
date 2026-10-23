@@ -1,74 +1,12 @@
-use std::ffi::OsString;
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::sync::{Mutex, MutexGuard};
-use std::time::{SystemTime, UNIX_EPOCH};
+mod common;
 
+use std::fs;
+use std::path::Path;
+use std::process::Command;
+
+use common::{EnvVarGuard, TestDir, env_lock};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-fn env_lock() -> MutexGuard<'static, ()> {
-    ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
-}
-
-struct EnvVarGuard {
-    name: &'static str,
-    previous: Option<OsString>,
-}
-
-impl EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while mutating process environment variables"
-    )]
-    fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-        let previous = std::env::var_os(name);
-        unsafe {
-            std::env::set_var(name, value);
-        }
-        Self { name, previous }
-    }
-}
-
-impl Drop for EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while restoring process environment variables"
-    )]
-    fn drop(&mut self) {
-        unsafe {
-            match &self.previous {
-                Some(value) => std::env::set_var(self.name, value),
-                None => std::env::remove_var(self.name),
-            }
-        }
-    }
-}
-
-struct TestDir {
-    path: PathBuf,
-}
-
-impl TestDir {
-    fn new(name: &str) -> Self {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time should be after unix epoch")
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!("wax-cli-search-{name}-{nonce}"));
-        fs::create_dir_all(&path).expect("create temp dir");
-        Self { path }
-    }
-}
-
-impl Drop for TestDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
-}
 
 fn search_validator() -> jsonschema::Validator {
     let schema: Value = serde_json::from_str(include_str!(
@@ -1091,4 +1029,154 @@ fn clap_argument_failure_emits_json_when_format_json_selected() {
     let value: Value = serde_json::from_str(stdout.trim()).expect("json error on stdout");
     assert!(error_validator().is_valid(&value));
     assert_eq!(value["code"], "invalid_argument");
+}
+
+#[test]
+fn non_lookup_clap_failure_with_format_json_does_not_emit_lookup_error_json() {
+    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .args(["scan", "--format", "json"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.trim().is_empty()
+            || serde_json::from_str::<Value>(stdout.trim())
+                .ok()
+                .is_none_or(|value| !error_validator().is_valid(&value)),
+        "non-lookup commands must not advertise registry lookup error JSON; stdout was: {stdout}"
+    );
+}
+
+#[test]
+fn detail_snapshot_digest_pins_matching_language_after_multi_lang_refresh() {
+    let _guard = env_lock();
+    let root = TestDir::new("multi-lang-snapshot-pin");
+    let wax_home = root.path.join("wax-home");
+    let repo = root.path.join("publisher");
+    fs::create_dir_all(&wax_home).unwrap();
+    fs::create_dir_all(repo.join(".wax/registries")).unwrap();
+    write_registry(
+        &repo.join(".wax/registries/compose.json"),
+        r#"{"schema_version":1,"language":"compose","components":[{"id":"compose.chip","symbol":"Chip"}],"tokens":[]}"#,
+    );
+    write_registry(
+        &repo.join(".wax/registries/react.json"),
+        r#"{"schema_version":1,"language":"react","components":[{"id":"react.button","symbol":"Button"}],"tokens":[]}"#,
+    );
+    fs::write(
+        repo.join(".wax/wax.config.json"),
+        r#"{
+  "schema_version": 2,
+  "languages": {},
+  "design_systems": {
+    "acme": {
+      "name": "Acme",
+      "registries": {
+        "compose": {"source": ".wax/registries/compose.json"},
+        "react": {"source": ".wax/registries/react.json"}
+      }
+    }
+  }
+}"#,
+    )
+    .unwrap();
+    let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
+    let add = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .args([
+            "registry",
+            "add",
+            "acme",
+            &repo.display().to_string(),
+            "--name",
+            "Acme Multi",
+        ])
+        .env("WAX_HOME", &wax_home)
+        .output()
+        .unwrap();
+    assert!(
+        add.status.success(),
+        "registry add failed: {}",
+        String::from_utf8_lossy(&add.stderr)
+    );
+
+    let search = run_wax(
+        &wax_home,
+        &repo,
+        &[
+            "search",
+            "button",
+            "--design-system",
+            "acme",
+            "--kind",
+            "component",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(
+        search.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&search.stderr)
+    );
+    let search_value: Value =
+        serde_json::from_str(String::from_utf8(search.stdout).unwrap().trim()).unwrap();
+    let hit = search_value["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|result| result["id"] == "react.button")
+        .expect("react.button search hit");
+    let digest = hit["snapshot"]["digest"].as_str().unwrap().to_owned();
+    let source = hit["snapshot"]["source"].as_str().unwrap().to_owned();
+    assert!(
+        source.contains("react"),
+        "expected react source identity, got {source}"
+    );
+
+    write_registry(
+        &repo.join(".wax/registries/compose.json"),
+        r#"{"schema_version":1,"language":"compose","components":[{"id":"compose.chip","symbol":"NewChip"}],"tokens":[]}"#,
+    );
+    write_registry(
+        &repo.join(".wax/registries/react.json"),
+        r#"{"schema_version":1,"language":"react","components":[{"id":"react.button","symbol":"NewButton"}],"tokens":[]}"#,
+    );
+    let refresh = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .args(["registry", "refresh", "acme"])
+        .env("WAX_HOME", &wax_home)
+        .output()
+        .unwrap();
+    assert!(
+        refresh.status.success(),
+        "refresh failed: {}",
+        String::from_utf8_lossy(&refresh.stderr)
+    );
+
+    let detail = run_wax(
+        &wax_home,
+        &repo,
+        &[
+            "component",
+            "react.button",
+            "--design-system",
+            "acme",
+            "--snapshot",
+            &digest,
+            "--format",
+            "json",
+        ],
+    );
+    assert!(
+        detail.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&detail.stderr)
+    );
+    let detail_value: Value =
+        serde_json::from_str(String::from_utf8(detail.stdout).unwrap().trim()).unwrap();
+    assert!(detail_validator().is_valid(&detail_value));
+    assert_eq!(detail_value["snapshot"]["digest"], digest);
+    assert_eq!(detail_value["snapshot"]["language"], "react");
+    assert_eq!(detail_value["snapshot"]["source"], source);
+    assert_eq!(detail_value["entry"]["symbol"], "Button");
 }

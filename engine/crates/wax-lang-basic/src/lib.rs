@@ -36,7 +36,11 @@ use wax_contract::{
     CountSummary, Diagnostic, DiagnosticSeverity, LanguageId, LanguageMetadata, Metrics,
     SCHEMA_VERSION, ScanFacts, ScanFactsError, ScanStatus,
 };
-use wax_lang_api::{ScanRequest, build_version, parse_extract_millis};
+use wax_lang_api::{
+    DiscoverRequest, ScanRequest, WIRE_API_VERSION, WireErrorCode, WirePackHandler,
+    WirePackResponse, build_version, pack_language_id, parse_extract_millis, scan_facts_response,
+    wire_error_response,
+};
 
 pub use line_scan::{
     BasicConfigMode, BasicScanConfig, LineScanError, LineScanResult, parse_basic_scan_config,
@@ -109,6 +113,61 @@ impl BasicLanguage {
         facts.validate().map_err(BasicScanError::InvalidFacts)?;
 
         Ok(facts)
+    }
+}
+
+/// Stdio wire handler for the legacy basic pack.
+///
+/// Symbol discover and rich registry discover both return
+/// [`WireErrorCode::DiscoverUnsupported`], and [`WirePackHandler::registry_details_v1`]
+/// stays false so hosts fall back to symbol-only discovery.
+#[derive(Debug, Default)]
+pub struct BasicWireHandler(BasicLanguage);
+
+impl BasicWireHandler {
+    /// Creates a wire handler backed by a fresh [`BasicLanguage`].
+    #[must_use]
+    pub fn new() -> Self {
+        Self(BasicLanguage::new())
+    }
+}
+
+impl WirePackHandler for BasicWireHandler {
+    fn language_id(&self) -> LanguageId {
+        pack_language_id("basic")
+    }
+
+    fn scan(&self, request: ScanRequest) -> WirePackResponse {
+        match self.0.scan(&request) {
+            Ok(facts) => scan_facts_response(&request, facts),
+            Err(err) => {
+                let code = match &err {
+                    BasicScanError::InvalidConfig(_) | BasicScanError::InvalidLanguageId(_) => {
+                        WireErrorCode::ConfigInvalid
+                    }
+                    _ => WireErrorCode::ScanFailed,
+                };
+                wire_error_response(
+                    request.api_version,
+                    request.language_id,
+                    code,
+                    err.to_string(),
+                )
+            }
+        }
+    }
+
+    fn discover(&self, request: DiscoverRequest) -> WirePackResponse {
+        let message = format!(
+            "{} does not support registry discovery yet",
+            request.language_id
+        );
+        wire_error_response(
+            WIRE_API_VERSION,
+            request.language_id,
+            WireErrorCode::DiscoverUnsupported,
+            message,
+        )
     }
 }
 

@@ -29,7 +29,7 @@ fn main() {
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
         Err(error) => {
-            if wants_json && is_argument_failure(&error) {
+            if wants_json && is_lookup_command(&argv) && is_argument_failure(&error) {
                 let lookup_error = RegistryLookupError::new(
                     RegistryLookupErrorCode::InvalidArgument,
                     error.to_string(),
@@ -295,6 +295,12 @@ fn entry_kind_from_cli(kind: SearchEntryKind) -> RegistryEntryKind {
 
 fn args_request_json_format(argv: &[std::ffi::OsString]) -> bool {
     lookup_format_from_argv(argv) == LookupStdoutFormat::Json
+}
+
+fn is_lookup_command(argv: &[std::ffi::OsString]) -> bool {
+    argv.get(1)
+        .and_then(|arg| arg.to_str())
+        .is_some_and(|command| matches!(command, "search" | "component" | "token"))
 }
 
 fn lookup_format_from_argv(argv: &[std::ffi::OsString]) -> LookupStdoutFormat {

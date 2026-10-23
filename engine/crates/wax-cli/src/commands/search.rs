@@ -172,30 +172,104 @@ fn resolve_snapshots(
         return Ok(matching);
     }
 
-    let Some(template) = current.first() else {
+    if current.is_empty() {
         return Err(RegistryLookupError::new(
             RegistryLookupErrorCode::SnapshotMismatch,
             format!("requested snapshot digest `{digest}` was not found in the selected sources"),
         )
         .into());
-    };
+    }
 
-    let expected = RegistrySnapshotRef {
-        source: template.reference.source.clone(),
-        language: options
-            .language
-            .clone()
-            .unwrap_or_else(|| template.reference.language.clone()),
-        digest: digest.to_owned(),
-        system_id: template.reference.system_id.clone(),
-        // Historical blob reads do not require the current selection's commit.
-        git_commit: None,
-        extra: Map::new(),
+    // Digest is absent from the refreshed selection. Probe each selected source
+    // identity so multi-language / multi-source selections do not pin `current[0]`.
+    // Prefer offline cache hits first (search-to-detail after refresh), then allow
+    // online reproduction when the caller did not request `--offline`.
+    let offline_modes: &[bool] = if base.offline {
+        &[true]
+    } else {
+        &[true, false]
     };
-    Ok(resolve_lookup_snapshots(&RegistryLookupOptions {
-        snapshot: Some(expected),
-        ..base
-    })?)
+    let mut last_error = None;
+    for &offline in offline_modes {
+        let mut recovered = Vec::new();
+        for template in &current {
+            if options
+                .language
+                .as_ref()
+                .is_some_and(|language| language != &template.reference.language)
+            {
+                continue;
+            }
+            let expected = RegistrySnapshotRef {
+                source: template.reference.source.clone(),
+                language: template.reference.language.clone(),
+                digest: digest.to_owned(),
+                system_id: template.reference.system_id.clone(),
+                // Historical blob reads do not require the current selection's commit.
+                git_commit: None,
+                extra: Map::new(),
+            };
+            match resolve_lookup_snapshots(&RegistryLookupOptions {
+                snapshot: Some(expected),
+                offline,
+                ..base.clone()
+            }) {
+                Ok(snapshots) if snapshots.iter().all(snapshot_language_matches_document) => {
+                    recovered.push(snapshots);
+                }
+                Ok(_) => {}
+                Err(error)
+                    if matches!(
+                        error.code,
+                        RegistryLookupErrorCode::SnapshotMismatch
+                            | RegistryLookupErrorCode::LockedSnapshotUnavailable
+                            | RegistryLookupErrorCode::OfflineCacheMiss
+                    ) =>
+                {
+                    last_error = Some(error);
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+        match recovered.len() {
+            1 => return Ok(recovered.remove(0)),
+            0 => {}
+            _ => {
+                return Err(RegistryLookupError::new(
+                    RegistryLookupErrorCode::SnapshotMismatch,
+                    format!(
+                        "requested snapshot digest `{digest}` matched multiple selected sources"
+                    ),
+                )
+                .into());
+            }
+        }
+    }
+
+    Err(last_error
+        .unwrap_or_else(|| {
+            RegistryLookupError::new(
+                RegistryLookupErrorCode::SnapshotMismatch,
+                format!(
+                    "requested snapshot digest `{digest}` was not found in the selected sources"
+                ),
+            )
+        })
+        .into())
+}
+
+fn snapshot_language_matches_document(
+    snapshot: &wax_core::registry_cache::RegistrySnapshot,
+) -> bool {
+    match snapshot
+        .document
+        .extra
+        .get("language")
+        .and_then(|value| value.as_str())
+    {
+        Some(language) => language == snapshot.reference.language.as_str(),
+        None => true,
+    }
 }
 
 fn write_search_output(
