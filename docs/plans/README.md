@@ -13,7 +13,7 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 
 **Authorized Post-alpha UX extractions:** Phase 1 scan `--format` / `json-summary` outputs (THE-635), Phase 2a `graph-data` artifact + schema (THE-636), Phase 2b static HTML scan report (THE-639), and Phase 3 Markdown scan summary / `--baseline` deltas / CI recipe (THE-637) are explicit extractions from the Post-alpha UX plan. They may land while Phase 2B remains the sequential active plan.
 
-**Authorized Registry search extractions:** Phase 1 registry contracts and shared lookup errors (THE-754), Phase 2b compatible rich-discovery transport (THE-756), and Phase 3d safe publisher discovery and explicit attachments (THE-761) are explicit extractions from the Registry search tracking issue ([#327](https://github.com/Daio-io/wax/issues/327); planned roadmap order 18). They may land while Phase 2B remains the sequential active plan. The full plan document (`docs/plans/2026-10-22-registry-search-plan.md`) lands with the order-18 plan PR.
+**Authorized Registry search extractions:** Phase 1 registry contracts and shared lookup errors (THE-754), Phase 2b compatible rich-discovery transport (THE-756), Phase 3d safe publisher discovery and explicit attachments (THE-761), and Phase 3f fuzzy search and exact entry lookup (THE-763) are explicit extractions from the Registry search tracking issue ([#327](https://github.com/Daio-io/wax/issues/327); planned roadmap order 18). They may land while Phase 2B remains the sequential active plan. The full plan document (`docs/plans/2026-10-22-registry-search-plan.md`) lands with the order-18 plan PR.
 
 ---
 

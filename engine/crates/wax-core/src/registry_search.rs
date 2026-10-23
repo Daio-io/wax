@@ -4,8 +4,9 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 use wax_contract::{
     LanguageId, REGISTRY_LOOKUP_SCHEMA_VERSION, RegistryComponent, RegistryDetailResponse,
-    RegistryEntryKind, RegistryLookupError, RegistryLookupErrorCode, RegistryMetadata,
-    RegistrySearchFilters, RegistrySearchResponse, RegistrySearchResult, RegistryToken,
+    RegistryEntryKind, RegistryExtracted, RegistryLookupError, RegistryLookupErrorCode,
+    RegistryMetadata, RegistrySearchFilters, RegistrySearchResponse, RegistrySearchResult,
+    RegistryToken,
 };
 
 use crate::registry_cache::RegistrySnapshot;
@@ -28,11 +29,13 @@ pub struct RegistrySearchOptions {
 /// Searches validated registry snapshots without performing I/O or pack execution.
 ///
 /// Results are ranked by match quality and then by stable snapshot and entry identity.
+/// Separator-only or punctuation-only queries normalize to an empty identifier and succeed
+/// with an empty result set.
 ///
 /// # Errors
 ///
-/// Returns [`RegistryLookupErrorCode::InvalidArgument`] when `query` is empty or
-/// the requested limit is zero.
+/// Returns [`RegistryLookupErrorCode::InvalidArgument`] when `query` is empty (after trim)
+/// or the requested limit is zero.
 pub fn search_registry_entries(
     snapshots: &[RegistrySnapshot],
     query: &str,
@@ -54,13 +57,6 @@ pub fn search_registry_entries(
     }
 
     let normalized_query = Normalized::new(query);
-    if normalized_query.compact.is_empty() {
-        return Err(RegistryLookupError::new(
-            RegistryLookupErrorCode::InvalidArgument,
-            "registry search query must contain an identifier or value",
-        ));
-    }
-
     let mut selected_snapshots = snapshots
         .iter()
         .filter(|snapshot| {
@@ -72,40 +68,44 @@ pub fn search_registry_entries(
         .collect::<Vec<_>>();
     selected_snapshots.sort_by(|left, right| snapshot_key(left).cmp(&snapshot_key(right)));
 
-    let mut matches = Vec::new();
-    for snapshot in &selected_snapshots {
-        if options.kind != Some(RegistryEntryKind::Token) {
-            for component in &snapshot.document.components {
-                if let Some(score) = component_score(component, &normalized_query) {
-                    matches.push(RankedResult {
-                        score,
-                        result: component_result(snapshot, component),
-                    });
+    let results = if normalized_query.compact.is_empty() {
+        Vec::new()
+    } else {
+        let mut matches = Vec::new();
+        for snapshot in &selected_snapshots {
+            if options.kind != Some(RegistryEntryKind::Token) {
+                for component in &snapshot.document.components {
+                    if let Some(score) = component_score(component, &normalized_query) {
+                        matches.push(RankedResult {
+                            score,
+                            result: component_result(snapshot, component),
+                        });
+                    }
+                }
+            }
+            if options.kind != Some(RegistryEntryKind::Component) {
+                for token in &snapshot.document.tokens {
+                    if let Some(score) = token_score(token, &normalized_query) {
+                        matches.push(RankedResult {
+                            score,
+                            result: token_result(snapshot, token),
+                        });
+                    }
                 }
             }
         }
-        if options.kind != Some(RegistryEntryKind::Component) {
-            for token in &snapshot.document.tokens {
-                if let Some(score) = token_score(token, &normalized_query) {
-                    matches.push(RankedResult {
-                        score,
-                        result: token_result(snapshot, token),
-                    });
-                }
-            }
-        }
-    }
 
-    matches.sort_by(|left, right| {
-        left.score
-            .cmp(&right.score)
-            .then_with(|| result_key(&left.result).cmp(&result_key(&right.result)))
-    });
-    let results = matches
-        .into_iter()
-        .take(limit as usize)
-        .map(|ranked| ranked.result)
-        .collect();
+        matches.sort_by(|left, right| {
+            left.score
+                .cmp(&right.score)
+                .then_with(|| result_key(&left.result).cmp(&result_key(&right.result)))
+        });
+        matches
+            .into_iter()
+            .take(limit as usize)
+            .map(|ranked| ranked.result)
+            .collect()
+    };
 
     Ok(RegistrySearchResponse {
         schema_version: REGISTRY_LOOKUP_SCHEMA_VERSION,
@@ -232,7 +232,12 @@ fn component_score(component: &RegistryComponent, query: &Normalized) -> Option<
     );
     min_score(
         score,
-        descriptive_score(component.metadata.as_ref(), component, query),
+        descriptive_score(
+            component.metadata.as_ref(),
+            component.extracted.as_ref(),
+            &component.extra,
+            query,
+        ),
     )
 }
 
@@ -257,7 +262,12 @@ fn token_score(token: &RegistryToken, query: &Normalized) -> Option<u16> {
     );
     min_score(
         score,
-        descriptive_score(token.metadata.as_ref(), token, query),
+        descriptive_score(
+            token.metadata.as_ref(),
+            token.extracted.as_ref(),
+            &token.extra,
+            query,
+        ),
     )
 }
 
@@ -271,9 +281,10 @@ fn best_structured_score<'a>(
         .min()
 }
 
-fn descriptive_score<T: Serialize>(
+fn descriptive_score(
     metadata: Option<&RegistryMetadata>,
-    entry: &T,
+    extracted: Option<&RegistryExtracted>,
+    extra: &Map<String, Value>,
     query: &Normalized,
 ) -> Option<u16> {
     let metadata_score = metadata
@@ -288,47 +299,28 @@ fn descriptive_score<T: Serialize>(
         .filter_map(|field| match_score(field, query))
         .min()
         .map(|score| 100 + score);
-    let Ok(value) = serde_json::to_value(entry) else {
-        return metadata_score;
-    };
-    let summary_score = named_json_score(&value, &["summary"], query, 100);
-    let attachment_score = named_json_score(&value, &["documentation", "content"], query, 120);
-    min_score(min_score(metadata_score, summary_score), attachment_score)
-}
-
-fn named_json_score(value: &Value, names: &[&str], query: &Normalized, weight: u16) -> Option<u16> {
-    let mut fields = Vec::new();
-    collect_named_strings(value, names, &mut fields);
-    fields
+    let summary_score = extra
+        .get("summary")
+        .and_then(Value::as_str)
+        .and_then(|summary| match_score(summary, query))
+        .map(|score| 100 + score);
+    let documentation_score = extracted
+        .and_then(|extracted| extracted.documentation.as_deref())
+        .and_then(|documentation| match_score(documentation, query))
+        .map(|score| 120 + score);
+    let attachment_score = extracted
         .into_iter()
-        .filter_map(|field| match_score(field, query))
+        .flat_map(|extracted| extracted.attachments.iter())
+        .filter_map(|attachment| match_score(&attachment.content, query))
         .min()
-        .map(|score| weight + score)
-}
-
-fn collect_named_strings<'a>(value: &'a Value, names: &[&str], output: &mut Vec<&'a str>) {
-    match value {
-        Value::Object(object) => {
-            for (key, value) in object {
-                if names.contains(&key.as_str()) {
-                    match value {
-                        Value::String(text) => output.push(text),
-                        Value::Array(values) => {
-                            output.extend(values.iter().filter_map(Value::as_str))
-                        }
-                        _ => {}
-                    }
-                }
-                collect_named_strings(value, names, output);
-            }
-        }
-        Value::Array(values) => {
-            for value in values {
-                collect_named_strings(value, names, output);
-            }
-        }
-        _ => {}
-    }
+        .map(|score| 120 + score);
+    min_score(
+        min_score(
+            min_score(metadata_score, summary_score),
+            documentation_score,
+        ),
+        attachment_score,
+    )
 }
 
 fn match_score(field: &str, query: &Normalized) -> Option<u16> {
@@ -345,7 +337,7 @@ fn match_score(field: &str, query: &Normalized) -> Option<u16> {
     if field.spaced.contains(&query.spaced) || field.compact.contains(&query.compact) {
         return Some(40);
     }
-    let similarity = strsim::normalized_levenshtein(&field.compact, &query.compact);
+    let similarity = normalized_levenshtein(&field.compact, &query.compact);
     (similarity >= FUZZY_MATCH_THRESHOLD).then(|| 60 + ((1.0 - similarity) * 100.0).round() as u16)
 }
 
@@ -358,7 +350,7 @@ fn component_result(
         kind: RegistryEntryKind::Component,
         id: component.id.clone(),
         label: component.symbol.clone(),
-        summary: entry_summary(component.metadata.as_ref(), component),
+        summary: entry_summary(component.metadata.as_ref(), &component.extra),
         extraction_status: component
             .extracted
             .as_ref()
@@ -373,21 +365,17 @@ fn token_result(snapshot: &RegistrySnapshot, token: &RegistryToken) -> RegistryS
         kind: RegistryEntryKind::Token,
         id: token.id.clone(),
         label: token.key.clone(),
-        summary: entry_summary(token.metadata.as_ref(), token),
+        summary: entry_summary(token.metadata.as_ref(), &token.extra),
         extraction_status: token.extracted.as_ref().map(|extracted| extracted.status),
         extra: Map::new(),
     }
 }
 
-fn entry_summary<T: Serialize>(metadata: Option<&RegistryMetadata>, entry: &T) -> String {
-    let explicit_summary = serde_json::to_value(entry).ok().and_then(|value| {
-        value
-            .as_object()
-            .and_then(|object| object.get("summary"))
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-    });
-    let text = explicit_summary
+fn entry_summary(metadata: Option<&RegistryMetadata>, extra: &Map<String, Value>) -> String {
+    let text = extra
+        .get("summary")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
         .or_else(|| metadata.and_then(|metadata| metadata.description.clone()))
         .unwrap_or_default();
     text.chars().take(MAX_SUMMARY_CHARS).collect()
@@ -429,6 +417,46 @@ fn result_key(result: &RegistrySearchResult) -> (&str, &str, RegistryEntryKind, 
         result.kind,
         &result.id,
     )
+}
+
+fn normalized_levenshtein(left: &str, right: &str) -> f64 {
+    if left.is_empty() && right.is_empty() {
+        return 1.0;
+    }
+    let left_len = left.chars().count();
+    let right_len = right.chars().count();
+    let max_len = left_len.max(right_len);
+    if max_len == 0 {
+        return 1.0;
+    }
+    1.0 - (levenshtein(left, right) as f64 / max_len as f64)
+}
+
+fn levenshtein(left: &str, right: &str) -> usize {
+    let left_chars = left.chars().collect::<Vec<_>>();
+    let right_chars = right.chars().collect::<Vec<_>>();
+    let left_len = left_chars.len();
+    let right_len = right_chars.len();
+    if left_len == 0 {
+        return right_len;
+    }
+    if right_len == 0 {
+        return left_len;
+    }
+
+    let mut previous = (0..=right_len).collect::<Vec<_>>();
+    let mut current = vec![0; right_len + 1];
+    for (i, left_char) in left_chars.iter().enumerate() {
+        current[0] = i + 1;
+        for (j, right_char) in right_chars.iter().enumerate() {
+            let substitution = usize::from(left_char != right_char);
+            current[j + 1] = (previous[j + 1] + 1)
+                .min(current[j] + 1)
+                .min(previous[j] + substitution);
+        }
+        std::mem::swap(&mut previous, &mut current);
+    }
+    previous[right_len]
 }
 
 #[derive(Debug)]

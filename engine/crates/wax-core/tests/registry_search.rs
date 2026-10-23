@@ -301,6 +301,10 @@ fn exact_details_retain_metadata_extensions_and_report_stable_errors() {
     .unwrap_err();
     assert_eq!(zero_limit.code, RegistryLookupErrorCode::InvalidArgument);
 
+    let punctuation_only =
+        search_registry_entries(std::slice::from_ref(&first), "!!!", &Default::default()).unwrap();
+    assert!(punctuation_only.results.is_empty());
+
     let no_matches = search_registry_entries(
         &[first],
         "unrelated-query-with-no-match",
@@ -308,4 +312,48 @@ fn exact_details_retain_metadata_extensions_and_report_stable_errors() {
     )
     .unwrap();
     assert!(no_matches.results.is_empty());
+}
+
+#[test]
+fn search_scores_typed_extracted_fields_not_nested_extra_keys() {
+    let snapshots = [snapshot(
+        "typed-source",
+        "react",
+        registry(
+            serde_json::json!([
+                {
+                    "id": "with-extracted-docs",
+                    "symbol": "Panel",
+                    "extracted": {
+                        "status": "complete",
+                        "documentation": "Use in confirmation dialogs",
+                        "attachments": [{
+                            "kind": "example",
+                            "path": "examples/panel.tsx",
+                            "content": "Checkout submit flow"
+                        }]
+                    }
+                },
+                {
+                    "id": "nested-extra-noise",
+                    "symbol": "Card",
+                    "nested_docs": {
+                        "documentation": "Use in confirmation dialogs",
+                        "content": "Checkout submit flow"
+                    }
+                }
+            ]),
+            serde_json::json!([]),
+        ),
+    )];
+
+    for query in ["confirmation dialogs", "checkout submit"] {
+        let response = search_registry_entries(&snapshots, query, &Default::default()).unwrap();
+        assert_eq!(
+            response.results.len(),
+            1,
+            "query `{query}` should ignore nested extra documentation/content keys"
+        );
+        assert_eq!(response.results[0].id, "with-extracted-docs");
+    }
 }
