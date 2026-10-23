@@ -42,6 +42,8 @@ pub enum ReactDiscoverError {
     InvalidLanguageId(String),
     /// A configured discovery root does not exist.
     MissingRoot(PathBuf),
+    /// The input or enriched registry violates the shared registry contract.
+    InvalidRegistry(wax_contract::RegistryError),
     /// A filesystem operation failed.
     Io {
         /// Human-readable context.
@@ -58,6 +60,7 @@ impl std::fmt::Display for ReactDiscoverError {
             Self::MissingRoot(path) => {
                 write!(f, "discovery root does not exist: {}", path.display())
             }
+            Self::InvalidRegistry(error) => write!(f, "invalid React registry: {error}"),
             Self::Io { context, source } => write!(f, "{context}: {source}"),
         }
     }
@@ -67,6 +70,7 @@ impl std::error::Error for ReactDiscoverError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::InvalidLanguageId(_) | Self::MissingRoot(_) => None,
+            Self::InvalidRegistry(error) => Some(error),
             Self::Io { source, .. } => Some(source),
         }
     }
@@ -156,7 +160,7 @@ fn insert_discovered_symbol(
     components.insert(symbol, package);
 }
 
-fn repo_relative_path(parse_root: &Path, file_path: &Path) -> String {
+pub(crate) fn repo_relative_path(parse_root: &Path, file_path: &Path) -> String {
     file_path
         .strip_prefix(parse_root)
         .map(|relative| relative.to_string_lossy().replace('\\', "/"))
@@ -168,7 +172,10 @@ fn repo_relative_path(parse_root: &Path, file_path: &Path) -> String {
         })
 }
 
-fn collect_react_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), std::io::Error> {
+pub(crate) fn collect_react_files(
+    dir: &Path,
+    files: &mut Vec<PathBuf>,
+) -> Result<(), std::io::Error> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();

@@ -35,6 +35,7 @@ mod facts;
 mod files;
 mod module_graph;
 mod registry;
+mod registry_details;
 mod style_extract;
 mod swc_parse;
 mod token_extract;
@@ -55,6 +56,7 @@ pub use module_graph::{
     ReactModuleRecord, ResolvedSymbol, build_react_module_graph,
 };
 pub use registry::{ReactRegistryIndex, RegistryError, RegistryErrorKind, load_react_registry};
+pub use registry_details::discover_registry_details;
 pub use swc_parse::{
     ParsedReactModule, ReactParseError, ReactParseOutcome, SWC_PARSER_VERSION,
     parse_react_source_file,

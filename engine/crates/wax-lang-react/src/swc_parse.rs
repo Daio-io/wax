@@ -5,7 +5,11 @@ use std::path::{Path, PathBuf};
 /// SWC parser crate version from `workspace.dependencies.swc_ecma_parser` in `engine/Cargo.toml`.
 pub const SWC_PARSER_VERSION: &str = env!("SWC_PARSER_VERSION");
 
-use swc_common::{FileName, SourceMap, SourceMapper, Span, Spanned, sync::Lrc};
+use swc_common::{
+    FileName, SourceMap, SourceMapper, Span, Spanned,
+    comments::{Comment, Comments, SingleThreadedComments},
+    sync::Lrc,
+};
 use swc_ecma_ast::{EsVersion, Module};
 use swc_ecma_parser::{
     EsSyntax, Parser, StringInput, Syntax, TsSyntax, error::SyntaxError, lexer::Lexer,
@@ -32,6 +36,7 @@ pub struct ParsedReactModule {
     pub source: String,
     /// SWC module AST for the source file.
     pub module: Module,
+    comments: SingleThreadedComments,
     source_map: Lrc<SourceMap>,
 }
 
@@ -49,6 +54,23 @@ impl ParsedReactModule {
             return None;
         }
         self.source_map.span_to_snippet(span).ok()
+    }
+
+    /// Returns comments attached immediately before `span`.
+    #[must_use]
+    pub fn leading_comments(&self, span: Span) -> Vec<Comment> {
+        self.comments.get_leading(span.lo()).unwrap_or_default()
+    }
+
+    /// Maps an SWC span to inclusive one-based start and end lines.
+    #[must_use]
+    pub fn source_lines_from_span(&self, span: Span) -> Option<(u32, u32)> {
+        if span.is_dummy() {
+            return None;
+        }
+        let start = u32::try_from(self.source_map.lookup_char_pos(span.lo()).line).ok()?;
+        let end = u32::try_from(self.source_map.lookup_char_pos(span.hi()).line).ok()?;
+        Some((start, end))
     }
 }
 
@@ -125,12 +147,13 @@ pub fn parse_react_source_file(
         FileName::Custom(normalize_repo_relative_path(relative_path)).into(),
         source.clone(),
     );
+    let comments = SingleThreadedComments::default();
 
     let lexer = Lexer::new(
         syntax,
         EsVersion::Es2022,
         StringInput::from(&*source_file),
-        None,
+        Some(&comments),
     );
     let mut parser = Parser::new_from(lexer);
 
@@ -147,6 +170,7 @@ pub fn parse_react_source_file(
                 file: relative_path.to_path_buf(),
                 source,
                 module,
+                comments,
                 source_map,
             }))
         }

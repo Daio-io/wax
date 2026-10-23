@@ -3,13 +3,15 @@ use clap::Parser;
 use std::io::{BufRead, Write};
 use wax_contract::LanguageId;
 use wax_lang_api::{
-    DiscoverRequest, ScanRequest, WireErrorCode, WirePackHandler, WirePackResponse,
-    discover_symbols_response, pack_language_id, require_stdio, scan_facts_response, serve_stdio,
-    wire_error_response,
+    DiscoverRegistryRequest, DiscoverRequest, ScanRequest, WireErrorCode, WirePackHandler,
+    WirePackResponse, discover_symbols_response, pack_language_id, registry_details_response,
+    require_stdio, scan_facts_response, serve_stdio, wire_error_response,
 };
 #[cfg(test)]
 use wax_lang_api::{WireServerError, serve_one};
-use wax_lang_react::{ReactDiscoverError, ReactLanguage, ReactScanError, RegistryErrorKind};
+use wax_lang_react::{
+    ReactDiscoverError, ReactLanguage, ReactScanError, RegistryErrorKind, discover_registry_details,
+};
 
 #[derive(Debug, Parser)]
 #[command(name = "wax-lang-react")]
@@ -73,6 +75,17 @@ impl WirePackHandler for ReactWireHandler {
             Err(err) => discover_error_response(request.api_version, request.language_id, err),
         }
     }
+
+    fn registry_details_v1(&self) -> bool {
+        true
+    }
+
+    fn discover_registry(&self, request: DiscoverRegistryRequest) -> WirePackResponse {
+        match discover_registry_details(&request) {
+            Ok(result) => registry_details_response(&request, result),
+            Err(err) => discover_error_response(request.api_version, request.language_id, err),
+        }
+    }
 }
 
 fn discover_error_response(
@@ -81,9 +94,9 @@ fn discover_error_response(
     err: ReactDiscoverError,
 ) -> WirePackResponse {
     let code = match &err {
-        ReactDiscoverError::InvalidLanguageId(_) | ReactDiscoverError::MissingRoot(_) => {
-            WireErrorCode::ConfigInvalid
-        }
+        ReactDiscoverError::InvalidLanguageId(_)
+        | ReactDiscoverError::MissingRoot(_)
+        | ReactDiscoverError::InvalidRegistry(_) => WireErrorCode::ConfigInvalid,
         ReactDiscoverError::Io { .. } => WireErrorCode::ScanFailed,
     };
     wire_error_response(api_version, language_id, code, err.to_string())
