@@ -574,7 +574,7 @@ fn second_write_refreshes_without_force() {
 }
 
 #[test]
-fn force_replaces_existing_registry() {
+fn force_is_compatibility_only_during_lossless_refresh() {
     let _guard = env_lock();
     let root = TestDir::new("registry-discover-force");
     let repo = root.path.join("repo");

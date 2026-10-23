@@ -419,11 +419,11 @@ pub fn discover_registry(
     // eligible for attachment materialization and publication.
     retain_creator_metadata(&creator_seed, &mut discovered.document);
     let mut diagnostics = discovered.diagnostics;
+    let mut merged = merge_registry(existing.as_ref(), &discovered.document, true)?;
     diagnostics.extend(materialize_registry_attachments(
         options.repo_root,
-        &mut discovered.document,
+        &mut merged.document,
     )?);
-    let merged = merge_registry(existing.as_ref(), &discovered.document, true)?;
     let document = merged.document;
     let changes = merged.changes;
     let merge_diagnostics = merged.diagnostics;

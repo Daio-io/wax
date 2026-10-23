@@ -110,7 +110,7 @@ pub fn materialize_registry_attachments(
     Ok(diagnostics)
 }
 
-fn extraction(extracted: &mut Option<RegistryExtracted>) -> &mut RegistryExtracted {
+fn ensure_extracted(extracted: &mut Option<RegistryExtracted>) -> &mut RegistryExtracted {
     extracted.get_or_insert_with(|| RegistryExtracted {
         status: RegistryExtractionStatus::Partial,
         source_evidence: None,
@@ -130,7 +130,7 @@ fn append_unique_attachments(
     if attachments.is_empty() {
         return;
     }
-    let existing = &mut extraction(extracted).attachments;
+    let existing = &mut ensure_extracted(extracted).attachments;
     for attachment in attachments {
         if !existing.contains(&attachment) {
             existing.push(attachment);
