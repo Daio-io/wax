@@ -39,37 +39,19 @@ use wax_contract::{
     CountSummary, Diagnostic, DiagnosticSeverity, LanguageId, LanguageMetadata, Metrics,
     SCHEMA_VERSION, ScanFacts, ScanFactsError, ScanStatus,
 };
-use wax_lang_api::{
-    DiscoverRequest, DiscoveredRegistrySymbol, ScanRequest, build_version, parse_extract_millis,
-};
+use wax_lang_api::{DiscoverRequest, ScanRequest, build_version, parse_extract_millis};
 
 /// Pack-local symbol discovery result (`components` + diagnostics).
 ///
-/// Distinct from [`DiscoverRegistryDetailsResult`] returned by [`discover_registry_details`].
-pub use discover::DiscoverRegistryResult;
+/// Distinct from [`wax_lang_api::DiscoverRegistryResult`] (`document` + diagnostics)
+/// returned by [`discover_registry_details`].
+pub use discover::DiscoverSymbolsResult;
 pub use discover::{ComposeDiscoverError, discover_registry_symbols};
-pub use registry_details::{DiscoverRegistryDetailsResult, discover_registry_details};
+pub use registry_details::discover_registry_details;
 use tree_sitter_scan::TreeSitterScanError;
 pub use tree_sitter_scan::{ComposeConfigMode, ComposeScanConfig};
 
 const COMPOSE_LANGUAGE_ID: &str = "compose";
-
-/// Result of a Compose registry symbol discovery request.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiscoverSymbolsResult {
-    /// Discovered design-system symbols with optional package identity.
-    pub components: Vec<DiscoveredRegistrySymbol>,
-    /// Structured diagnostics emitted with the result.
-    pub diagnostics: Vec<Diagnostic>,
-}
-
-impl DiscoverSymbolsResult {
-    /// Returns discovered symbol names in stable order.
-    #[must_use]
-    pub fn symbols(&self) -> Vec<String> {
-        DiscoveredRegistrySymbol::symbol_names(&self.components)
-    }
-}
 
 /// Errors returned by [`ComposeLanguage::scan`].
 #[derive(Debug)]
@@ -186,12 +168,7 @@ impl ComposeLanguage {
             .map(|root| repo_root.join(root))
             .collect::<Vec<_>>();
 
-        let result = discover_registry_symbols(repo_root, &absolute_roots)?;
-
-        Ok(DiscoverSymbolsResult {
-            components: result.components,
-            diagnostics: result.diagnostics,
-        })
+        discover_registry_symbols(repo_root, &absolute_roots)
     }
 }
 

@@ -14,15 +14,18 @@ use crate::kotlin_ast::{
 };
 
 /// Result of discovering Compose registry symbols from Kotlin source roots.
+///
+/// Distinct from [`wax_lang_api::DiscoverRegistryResult`] (`document` + diagnostics)
+/// returned by rich registry enrichment.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiscoverRegistryResult {
+pub struct DiscoverSymbolsResult {
     /// Discovered design-system symbols with optional package identity.
     pub components: Vec<DiscoveredRegistrySymbol>,
     /// Structured diagnostics emitted while discovering symbols.
     pub diagnostics: Vec<Diagnostic>,
 }
 
-impl DiscoverRegistryResult {
+impl DiscoverSymbolsResult {
     /// Returns discovered symbol names in stable order.
     #[must_use]
     pub fn symbols(&self) -> Vec<String> {
@@ -98,7 +101,7 @@ pub(crate) struct ParsedKotlinSourceFile {
 pub fn discover_registry_symbols(
     parse_root: &Path,
     roots: &[PathBuf],
-) -> Result<DiscoverRegistryResult, ComposeDiscoverError> {
+) -> Result<DiscoverSymbolsResult, ComposeDiscoverError> {
     let mut diagnostics = Vec::new();
     let (parsed_files, _) = collect_and_parse_kotlin_sources(parse_root, roots, &mut diagnostics)?;
 
@@ -116,7 +119,7 @@ pub fn discover_registry_symbols(
         }
     }
 
-    Ok(DiscoverRegistryResult {
+    Ok(DiscoverSymbolsResult {
         components: components
             .into_iter()
             .map(|(symbol, package)| DiscoveredRegistrySymbol::new(symbol, package))
@@ -262,7 +265,7 @@ fn insert_discovered_symbol(
     components.insert(symbol, package);
 }
 
-pub(crate) fn is_top_level_declaration(node: tree_sitter::Node<'_>) -> bool {
+fn is_top_level_declaration(node: tree_sitter::Node<'_>) -> bool {
     let mut parent = node.parent();
     while let Some(current) = parent {
         match current.kind() {
@@ -274,7 +277,7 @@ pub(crate) fn is_top_level_declaration(node: tree_sitter::Node<'_>) -> bool {
     false
 }
 
-pub(crate) fn is_public(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+fn is_public(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
         if child.kind() == "modifiers" {
@@ -292,7 +295,7 @@ pub(crate) fn is_public(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
     true
 }
 
-pub(crate) fn repo_relative_path(parse_root: &Path, file_path: &Path) -> String {
+fn repo_relative_path(parse_root: &Path, file_path: &Path) -> String {
     file_path
         .strip_prefix(parse_root)
         .map(|relative| relative.to_string_lossy().replace("\\", "/"))

@@ -9,7 +9,7 @@ use wax_contract::{
     RegistryExtractionStatus, RegistryFieldGap, RegistryParameter, RegistrySignature,
     RegistrySourceEvidence, RegistrySourceKind,
 };
-use wax_lang_api::DiscoverRegistryRequest;
+use wax_lang_api::{DiscoverRegistryRequest, DiscoverRegistryResult};
 
 use crate::discover::{
     ComposeDiscoverError, ParsedKotlinSourceFile, collect_and_parse_kotlin_sources,
@@ -17,11 +17,6 @@ use crate::discover::{
 };
 use crate::kotlin_ast::{annotation_with_name, collect_import_bindings};
 use crate::kotlin_recovery::ByteRange;
-
-/// Result of rich Compose registry enrichment (`document` + diagnostics).
-///
-/// Distinct from the pack-local symbol-discovery [`crate::DiscoverRegistryResult`].
-pub type DiscoverRegistryDetailsResult = wax_lang_api::DiscoverRegistryResult;
 
 #[derive(Debug)]
 struct ComponentDeclaration {
@@ -52,7 +47,7 @@ struct KDoc {
 /// [`ComposeDiscoverError::Io`] when source discovery or reading fails.
 pub fn discover_registry_details(
     request: &DiscoverRegistryRequest,
-) -> Result<DiscoverRegistryDetailsResult, ComposeDiscoverError> {
+) -> Result<DiscoverRegistryResult, ComposeDiscoverError> {
     if request.language_id.as_str() != "compose" {
         return Err(ComposeDiscoverError::InvalidLanguageId(
             request.language_id.to_string(),
@@ -81,7 +76,7 @@ pub fn discover_registry_details(
         .validate()
         .map_err(ComposeDiscoverError::InvalidRegistry)?;
 
-    Ok(DiscoverRegistryDetailsResult {
+    Ok(DiscoverRegistryResult {
         document,
         diagnostics,
     })
@@ -558,9 +553,7 @@ fn enrich_components(
             if declaration_path_damaged {
                 // Clean-range hits in a damaged file are incomplete evidence: keep prior
                 // facts and mark them stale instead of trusting a full replacement.
-                if let Some(extracted) = &mut component.extracted {
-                    extracted.status = RegistryExtractionStatus::Stale;
-                }
+                mark_extracted_stale(&mut component.extracted);
                 continue;
             }
             component.extracted = Some(declaration.extracted.clone());
@@ -573,9 +566,7 @@ fn enrich_components(
             .and_then(|extracted| extracted.source_evidence.as_ref())
             .is_some_and(|evidence| damaged_paths.contains(&evidence.path));
         if evidence_damaged {
-            if let Some(extracted) = &mut component.extracted {
-                extracted.status = RegistryExtractionStatus::Stale;
-            }
+            mark_extracted_stale(&mut component.extracted);
             continue;
         }
 
@@ -611,9 +602,7 @@ fn enrich_explicit_tokens(
             continue;
         };
         if damaged_paths.contains(&source.path) {
-            if let Some(extracted) = &mut token.extracted {
-                extracted.status = RegistryExtractionStatus::Stale;
-            }
+            mark_extracted_stale(&mut token.extracted);
             continue;
         }
         if !repo_root.join(&source.path).is_file() {
@@ -634,6 +623,12 @@ fn enrich_explicit_tokens(
             field_gaps: Vec::new(),
             extra: Map::new(),
         });
+    }
+}
+
+fn mark_extracted_stale(extracted: &mut Option<RegistryExtracted>) {
+    if let Some(extracted) = extracted {
+        extracted.status = RegistryExtractionStatus::Stale;
     }
 }
 
