@@ -480,6 +480,96 @@ public func NoGuidanceCard() -> some View {
 }
 
 #[test]
+fn discover_registry_details_reads_initializer_parameter_documentation() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let sources = tempdir.path().join("Sources");
+    fs::create_dir_all(&sources)?;
+    fs::write(
+        sources.join("InitializerDocs.swift"),
+        r#"import SwiftUI
+
+/// Component documentation.
+public struct DocumentedCard: View {
+    /// Creates a documented card.
+    /// - Parameter title: The visible title.
+    public init(title: String) {}
+
+    public var body: some View { Text("card") }
+}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "documented-card", "symbol": "DocumentedCard"}]
+    }))
+    .expect("registry fixture");
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "swift".try_into().expect("swift id"),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["Sources".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("initializer docs should succeed");
+    let parameter = &result.document.components[0]
+        .extracted
+        .as_ref()
+        .expect("component should be enriched")
+        .signature
+        .as_ref()
+        .expect("signature should be extracted")
+        .parameters[0];
+
+    assert_eq!(parameter.description.as_deref(), Some("The visible title."));
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_classifies_parenthesized_optional_closures() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let sources = tempdir.path().join("Sources");
+    fs::create_dir_all(&sources)?;
+    fs::write(
+        sources.join("Closure.swift"),
+        r#"import SwiftUI
+
+public func ClosureCard(action: (() -> Void)?) -> some View {
+    Text("card")
+}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "closure-card", "symbol": "ClosureCard"}]
+    }))
+    .expect("registry fixture");
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "swift".try_into().expect("swift id"),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["Sources".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("closure discovery should succeed");
+    let parameter = &result.document.components[0]
+        .extracted
+        .as_ref()
+        .expect("component should be enriched")
+        .signature
+        .as_ref()
+        .expect("signature should be extracted")
+        .parameters[0];
+
+    assert_eq!(
+        parameter.type_kind,
+        Some(wax_contract::RegistryParameterTypeKind::Function)
+    );
+    Ok(())
+}
+
+#[test]
 fn discover_registry_details_extracts_swift_initializer_shapes_without_confusing_attributes()
 -> io::Result<()> {
     let tempdir = tempfile::tempdir()?;

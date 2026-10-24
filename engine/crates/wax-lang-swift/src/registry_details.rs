@@ -27,7 +27,7 @@ struct ComponentDeclaration {
     extracted: RegistryExtracted,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 struct SwiftDocumentation {
     documentation: Option<String>,
     parameter_descriptions: BTreeMap<String, String>,
@@ -236,13 +236,23 @@ fn extracted_component(
     };
     let attached = attached_source_prefix(source, node.start_position().row);
     let documentation = parse_documentation(&attached);
+    let mut parameter_descriptions = documentation.parameter_descriptions.clone();
+    if let Some(signature_node) =
+        signature_node.filter(|signature_node| signature_node.start_byte() != node.start_byte())
+    {
+        let initializer_documentation = parse_documentation(&attached_source_prefix(
+            source,
+            signature_node.start_position().row,
+        ));
+        parameter_descriptions.extend(initializer_documentation.parameter_descriptions);
+    }
     let signature = signature_node.and_then(|signature_node| {
         let text = signature_text(signature_node, source_bytes)?;
         Some(RegistrySignature {
             parameters: parameters_from_initializer(
                 signature_node,
                 source_bytes,
-                &documentation.parameter_descriptions,
+                &parameter_descriptions,
                 local_enums,
             ),
             type_text: Some(text),
@@ -422,7 +432,7 @@ fn parameter_type_facts(
     let Some(type_text) = type_text.map(str::trim) else {
         return (None, Vec::new());
     };
-    let type_text = type_text.trim_end_matches('?').trim_end();
+    let type_text = unwrap_parenthesized_type(type_text.trim_end_matches('?').trim_end());
     if type_text.contains('.') || is_custom_generic_type(type_text) {
         return (None, Vec::new());
     }
@@ -449,6 +459,37 @@ fn parameter_type_facts(
         return (Some(RegistryParameterTypeKind::Object), Vec::new());
     }
     (None, Vec::new())
+}
+
+fn unwrap_parenthesized_type(mut type_text: &str) -> &str {
+    while type_text.starts_with('(')
+        && type_text.ends_with(')')
+        && matching_outer_parentheses(type_text)
+    {
+        let inner = type_text[1..type_text.len() - 1].trim();
+        if !has_top_level_arrow(inner) {
+            break;
+        }
+        type_text = inner;
+    }
+    type_text
+}
+
+fn matching_outer_parentheses(type_text: &str) -> bool {
+    let mut depth = 0_u32;
+    for (index, byte) in type_text.as_bytes().iter().enumerate() {
+        match byte {
+            b'(' => depth += 1,
+            b')' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 && index + 1 != type_text.len() {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
+    depth == 0
 }
 
 fn is_swift_integer(type_text: &str) -> bool {
