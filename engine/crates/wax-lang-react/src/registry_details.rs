@@ -7,7 +7,7 @@ use serde_json::Map;
 use swc_common::{Span, Spanned, comments::CommentKind};
 use swc_ecma_ast::{
     Decl, DefaultDecl, Expr, ModuleDecl, ModuleItem, ObjectPat, ObjectPatProp, Pat, Stmt,
-    TsInterfaceDecl, TsKeywordTypeKind, TsType, TsTypeAliasDecl, TsTypeElement,
+    TsInterfaceDecl, TsKeywordTypeKind, TsLit, TsType, TsTypeAliasDecl, TsTypeElement,
     TsUnionOrIntersectionType,
 };
 use wax_contract::{
@@ -503,15 +503,26 @@ fn parameter_type_facts(
                 .types
                 .iter()
                 .map(|member| match &**member {
-                    TsType::TsLitType(literal) => parsed
-                        .source_slice_from_span(literal.span)
-                        .map(|value| value.trim().to_owned()),
+                    TsType::TsLitType(literal) => match &literal.lit {
+                        TsLit::Tpl(template) if !template.types.is_empty() => None,
+                        _ => parsed
+                            .source_slice_from_span(literal.span)
+                            .map(|value| value.trim().to_owned()),
+                    },
                     _ => None,
                 })
                 .collect::<Option<Vec<_>>>();
             return allowed_values.map_or_else(
                 || (None, Vec::new()),
-                |values| (Some(RegistryParameterTypeKind::Enum), values),
+                |values| {
+                    let values = values.into_iter().fold(Vec::new(), |mut unique, value| {
+                        if !unique.contains(&value) {
+                            unique.push(value);
+                        }
+                        unique
+                    });
+                    (Some(RegistryParameterTypeKind::Enum), values)
+                },
             );
         }
         _ => None,

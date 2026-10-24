@@ -196,6 +196,97 @@ export function MixedButton({ tone }: MixedButtonProps) {
 }
 
 #[test]
+fn discover_registry_details_deduplicates_enum_values() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let src = tempdir.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(
+        src.join("DuplicateButton.tsx"),
+        r#"interface DuplicateButtonProps {
+  tone: "strong" | "quiet" | "strong";
+}
+export function DuplicateButton({ tone }: DuplicateButtonProps) {
+  return <button data-tone={tone} />;
+}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "duplicate", "symbol": "DuplicateButton"}]
+    }))
+    .unwrap();
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "react".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("rich discover should succeed");
+    let parameter = &result.document.components[0]
+        .extracted
+        .as_ref()
+        .unwrap()
+        .signature
+        .as_ref()
+        .unwrap()
+        .parameters[0];
+
+    assert_eq!(parameter.type_kind, Some(RegistryParameterTypeKind::Enum));
+    assert_eq!(parameter.allowed_values, vec!["\"strong\"", "\"quiet\""]);
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_does_not_classify_open_ended_template_literal_as_enum()
+-> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let src = tempdir.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(
+        src.join("TemplateButton.tsx"),
+        r#"interface TemplateButtonProps {
+  size: `size-${string}` | "auto";
+}
+export function TemplateButton({ size }: TemplateButtonProps) {
+  return <button data-size={size} />;
+}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "template", "symbol": "TemplateButton"}]
+    }))
+    .unwrap();
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "react".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("rich discover should succeed");
+    let parameter = &result.document.components[0]
+        .extracted
+        .as_ref()
+        .unwrap()
+        .signature
+        .as_ref()
+        .unwrap()
+        .parameters[0];
+
+    assert_eq!(
+        parameter.type_text.as_deref(),
+        Some("`size-${string}` | \"auto\"")
+    );
+    assert_eq!(parameter.type_kind, None);
+    assert!(parameter.allowed_values.is_empty());
+    Ok(())
+}
+
+#[test]
 fn discover_registry_details_classifies_syntax_proven_parameter_kinds() -> io::Result<()> {
     let tempdir = tempfile::tempdir()?;
     let src = tempdir.path().join("src");
