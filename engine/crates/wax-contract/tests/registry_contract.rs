@@ -276,6 +276,7 @@ fn structured_parameter_and_guidance_validate() {
         RegistryError::ContractViolation { field, .. }
             if field == "components[0].extracted.best_practices[0].description"
     ));
+    assert_schema_invalid(&registry_schema(), &empty_guidance);
 }
 
 #[test]
