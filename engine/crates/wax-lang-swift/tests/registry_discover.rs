@@ -268,6 +268,8 @@ public func ShapeCard(
     imported: Vendor.Configuration,
     generic: Result<String, Error>,
     genericAction: (Result<String, Error>) -> Void,
+    optionalAction: (() -> Void)?,
+    scalar: (Int),
     empty: Empty,
     nested: Container.Nested
 ) -> some View {
@@ -388,6 +390,16 @@ public func ShapeCard(
             ("imported", None, vec![]),
             ("generic", None, vec![]),
             ("genericAction", None, vec![]),
+            (
+                "optionalAction",
+                Some(wax_contract::RegistryParameterTypeKind::Function),
+                vec![]
+            ),
+            (
+                "scalar",
+                Some(wax_contract::RegistryParameterTypeKind::Number),
+                vec![]
+            ),
             ("empty", None, vec![]),
             ("nested", None, vec![]),
         ]
@@ -410,6 +422,7 @@ fn discover_registry_details_omits_guidance_and_matches_internal_labels() -> io:
 /// EmptyGuidanceCard(title: "Title")
 /// ```
 /// - Guidance:
+///   Prefer this initializer for custom titles.
 public func EmptyGuidanceCard(title internalTitle: String) -> some View {
     Text(internalTitle)
 }
@@ -472,7 +485,9 @@ public func NoGuidanceCard() -> some View {
             Some("internalTitle"),
             Some("Keeps ordinary documentation."),
             Some("EmptyGuidanceCard(title: \"Title\")"),
-            None,
+            Some(
+                serde_json::json!([{"description": "Prefer this initializer for custom titles."}])
+            ),
             None,
         )
     );

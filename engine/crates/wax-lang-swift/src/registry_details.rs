@@ -244,7 +244,9 @@ fn extracted_component(
             source,
             signature_node.start_position().row,
         ));
-        parameter_descriptions.extend(initializer_documentation.parameter_descriptions);
+        for (name, description) in initializer_documentation.parameter_descriptions {
+            parameter_descriptions.entry(name).or_insert(description);
+        }
     }
     let signature = signature_node.and_then(|signature_node| {
         let text = signature_text(signature_node, source_bytes)?;
@@ -419,13 +421,13 @@ fn parameters_from_initializer(
         parameter.required = Some(parameter.default.is_none());
         parameter.description = descriptions.get(&parameter.name).cloned();
         (parameter.type_kind, parameter.allowed_values) =
-            parameter_type_facts(parameter.type_text.as_deref(), local_enums);
+            classify_parameter_type(parameter.type_text.as_deref(), local_enums);
         parameters.push(parameter);
     }
     parameters
 }
 
-fn parameter_type_facts(
+fn classify_parameter_type(
     type_text: Option<&str>,
     local_enums: &BTreeMap<String, Vec<String>>,
 ) -> (Option<RegistryParameterTypeKind>, Vec<String>) {
@@ -467,7 +469,7 @@ fn unwrap_parenthesized_type(mut type_text: &str) -> &str {
         && matching_outer_parentheses(type_text)
     {
         let inner = type_text[1..type_text.len() - 1].trim();
-        if !has_top_level_arrow(inner) {
+        if inner.contains(',') && !has_top_level_arrow(inner) {
             break;
         }
         type_text = inner;
@@ -528,16 +530,25 @@ fn has_top_level_arrow(type_text: &str) -> bool {
 
 fn is_collection_type(type_text: &str) -> bool {
     (type_text.starts_with('[') && type_text.ends_with(']'))
-        || (type_text.starts_with('(') && type_text.ends_with(')'))
-        || ["Array<", "Set<", "Dictionary<"]
+        || is_tuple_type(type_text)
+        || COLLECTION_GENERIC_PREFIXES
             .iter()
             .any(|prefix| type_text.starts_with(prefix) && type_text.ends_with('>'))
+}
+
+const COLLECTION_GENERIC_PREFIXES: [&str; 3] = ["Array<", "Set<", "Dictionary<"];
+
+fn is_tuple_type(type_text: &str) -> bool {
+    type_text.starts_with('(')
+        && type_text.ends_with(')')
+        && matching_outer_parentheses(type_text)
+        && type_text[1..type_text.len() - 1].contains(',')
 }
 
 fn is_custom_generic_type(type_text: &str) -> bool {
     type_text.contains('<')
         && type_text.contains('>')
-        && !["Array<", "Set<", "Dictionary<"]
+        && !COLLECTION_GENERIC_PREFIXES
             .iter()
             .any(|prefix| type_text.starts_with(prefix) && type_text.ends_with('>'))
 }
@@ -641,29 +652,24 @@ fn parse_documentation(attached: &str) -> SwiftDocumentation {
         let (indent, line) = lines[index];
         if line == "- Parameters:" {
             in_example = false;
-            index += 1;
-            while index < lines.len() && lines[index].0 > indent {
-                index += 1;
-            }
+            index = skip_parameter_section(&lines, index, indent);
             continue;
         }
         if line.strip_prefix("- Parameter ").is_some() {
             in_example = false;
-            index += 1;
-            while index < lines.len() && lines[index].0 > indent {
-                index += 1;
-            }
+            index = skip_parameter_section(&lines, index, indent);
             continue;
         }
         if let Some(guidance) = line.strip_prefix("- Guidance:") {
-            if let Some(description) = non_empty(guidance.trim()) {
+            let (description, next) = continued_text(&lines, index + 1, indent, guidance);
+            if let Some(description) = non_empty(&description) {
                 best_practices.push(RegistryBestPractice {
                     description,
                     extra: Map::new(),
                 });
             }
             in_example = false;
-            index += 1;
+            index = next;
             continue;
         }
         if let Some(message) = line.strip_prefix("- Deprecated:") {
@@ -691,6 +697,14 @@ fn parse_documentation(attached: &str) -> SwiftDocumentation {
         deprecation,
         example: non_empty(example.join("\n").trim()),
     }
+}
+
+fn skip_parameter_section(lines: &[(usize, &str)], mut index: usize, indent: usize) -> usize {
+    index += 1;
+    while index < lines.len() && lines[index].0 > indent {
+        index += 1;
+    }
+    index
 }
 
 fn parameter_descriptions(lines: &[(usize, &str)]) -> BTreeMap<String, String> {
