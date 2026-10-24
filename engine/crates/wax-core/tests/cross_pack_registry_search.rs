@@ -37,18 +37,26 @@ fn enriched_pack_registry(language: &str, component_id: &str, package: &str) -> 
             "symbol": "RichButton",
             "package": package,
             "metadata": {
-                "description": "Publisher seed description",
                 "tags": ["seed"]
             },
             "extracted": {
                 "status": "complete",
                 "documentation": "A button used for important actions.",
                 "signature": {
-                    "parameters": [
-                        {"name": "label", "type": "string"},
-                        {"name": "onClick", "type": "function"}
-                    ]
+                    "parameters": [{
+                        "name": "style",
+                        "type_text": "Style",
+                        "type_kind": "enum",
+                        "allowed_values": ["Compact", "Comfortable"],
+                        "description": "Visual density.",
+                        "default": "Style.Compact",
+                        "required": false
+                    }]
                 },
+                "best_practices": [
+                    {"description": "Prefer touch-first controls."},
+                    {"description": "Keep labels concise."}
+                ],
                 "deprecation": {"message": "Prefer PrimaryButton"},
                 "attachments": [{
                     "kind": "example",
@@ -84,7 +92,6 @@ fn cross_pack_merge_then_search_and_detail_share_enrichment_semantics() {
                     "symbol": "RichButton",
                     "package": package,
                     "metadata": {
-                        "description": "Publisher seed description",
                         "tags": ["seed"]
                     }
                 }]
@@ -101,8 +108,8 @@ fn cross_pack_merge_then_search_and_detail_share_enrichment_semantics() {
             merged.document.components[0]
                 .metadata
                 .as_ref()
-                .and_then(|metadata| metadata.description.as_deref()),
-            Some("Publisher seed description"),
+                .map(|metadata| metadata.tags.as_slice()),
+            Some(["seed".to_owned()].as_slice()),
             "{language} merge retains publisher metadata"
         );
         assert_eq!(
@@ -125,29 +132,32 @@ fn cross_pack_merge_then_search_and_detail_share_enrichment_semantics() {
         ));
     }
 
-    let search = search_registry_entries(
-        &snapshots,
-        "richbutton",
-        &RegistrySearchOptions {
-            kind: Some(RegistryEntryKind::Component),
-            language: None,
-            limit: Some(10),
-        },
-    )
-    .expect("cross-pack search");
-    assert_eq!(search.results.len(), 3);
-    let mut languages: Vec<_> = search
-        .results
-        .iter()
-        .map(|result| result.snapshot.language.as_str().to_owned())
-        .collect();
-    languages.sort();
-    assert_eq!(languages, vec!["compose", "react", "swift"]);
-    for result in &search.results {
-        assert_eq!(
-            result.extraction_status,
-            Some(RegistryExtractionStatus::Complete)
-        );
+    for query in ["Comfortable", "touch-first"] {
+        let search = search_registry_entries(
+            &snapshots,
+            query,
+            &RegistrySearchOptions {
+                kind: Some(RegistryEntryKind::Component),
+                language: None,
+                limit: Some(10),
+            },
+        )
+        .expect("cross-pack search");
+        assert_eq!(search.results.len(), 3, "query: {query}");
+        let mut languages: Vec<_> = search
+            .results
+            .iter()
+            .map(|result| result.snapshot.language.as_str().to_owned())
+            .collect();
+        languages.sort();
+        assert_eq!(languages, vec!["compose", "react", "swift"]);
+        for result in &search.results {
+            assert_eq!(
+                result.extraction_status,
+                Some(RegistryExtractionStatus::Complete)
+            );
+            assert_eq!(result.summary, "A button used for important actions.");
+        }
     }
 
     let react_only = search_registry_entries(
@@ -180,8 +190,23 @@ fn cross_pack_merge_then_search_and_detail_share_enrichment_semantics() {
         "A button used for important actions."
     );
     assert_eq!(
-        detail.entry["metadata"]["description"],
-        "Publisher seed description"
+        detail.entry["extracted"]["signature"]["parameters"][0],
+        serde_json::json!({
+            "name": "style",
+            "type_text": "Style",
+            "type_kind": "enum",
+            "allowed_values": ["Compact", "Comfortable"],
+            "description": "Visual density.",
+            "default": "Style.Compact",
+            "required": false
+        })
+    );
+    assert_eq!(
+        detail.entry["extracted"]["best_practices"],
+        serde_json::json!([
+            {"description": "Prefer touch-first controls."},
+            {"description": "Keep labels concise."}
+        ])
     );
 
     let token = lookup_registry_entry(&snapshots, RegistryEntryKind::Token, "swift.color.primary")

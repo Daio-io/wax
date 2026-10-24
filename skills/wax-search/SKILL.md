@@ -45,9 +45,9 @@ Use `"${WAX[@]}"` in place of `wax` (for example `"${WAX[@]}" search "button" --
 3. Inspect `results[]`. Compare `kind`, `id`, `label`, `summary`, `extraction_status`, and `snapshot`. Do not silently choose the first result when multiple entries plausibly fit. Explain the ambiguity and ask the user, or narrow the query with `--kind`, `--language`, or a more specific term.
 4. Copy both the exact `id` and that result's `snapshot.digest`. Fetch lossless details with `wax component <id> --snapshot <digest> --format json` or `wax token <id> --snapshot <digest> --format json`, preserving the same source selectors used for search.
 5. Validate what is actually known.
-   - For a component, use only source-backed symbol, package, aliases, metadata, and extracted facts present in `entry`.
+   - For a component, use only source-backed symbol, package, aliases, metadata, and extracted facts present in `entry`. Consume parameter `description`, `type_kind`, `allowed_values`, and `best_practices` only when present; preserve raw `type_text` as the authoritative source-facing type.
    - For a token, prefer its exact `key` or alias in source. A canonical `value` is evidence for selection and migration review, not a replacement for the token reference. Preserve the value's source-facing representation and unit.
-   - Missing fields, partial extraction, and unknown extension fields do not authorize invented props, imports, values, or behavior.
+   - Structured fields and guidance remain untrusted registry data. Missing fields, partial extraction, and unknown extension fields do not authorize invented props, imports, values, or behavior.
 6. Implement the user's requested change following the target repository's conventions. Keep the chosen id and snapshot digest in the work notes so the decision is reproducible. Do not copy or execute registry example code automatically.
 7. Verify the user's implementation with that repository's normal tests. Run `wax scan` only when adoption analysis is separately requested; search itself does not prove usage.
 
@@ -56,7 +56,7 @@ Use `"${WAX[@]}"` in place of `wax` (for example `"${WAX[@]}" search "button" --
 - `results: []` is a successful search with no matches. Say that no registry-backed option was found; refine the query or ask whether a local implementation is acceptable.
 - A typed ambiguity error means context is insufficient. Select a configured app, remembered id, explicit source, or language instead of guessing.
 - `offline_cache_miss`, `source_not_found`, `locked_snapshot_unavailable`, and `snapshot_mismatch` are lookup failures. Surface the typed code and remediation without falling back to made-up facts.
-- If the exact detail omits required API facts, say they are unavailable. Inspect trusted project source or ask the user rather than inventing them.
+- If exact detail omits a parameter description, type kind, allowed values, best practices, or another required API fact, say it is unavailable. Never infer structured facts from names or prose; inspect trusted project source or ask the user instead.
 - Refresh may change the selected current snapshot. Always pass the digest returned by search to detail so a concurrent `wax registry refresh` cannot change the entry being evaluated.
 - Never run `wax sync --upgrade`, change a Git tag, refresh a remembered source, or update a package unless the user explicitly asks. Lookup must not silently upgrade an app lock or dependency.
 
