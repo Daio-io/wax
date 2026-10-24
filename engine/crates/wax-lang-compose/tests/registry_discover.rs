@@ -394,6 +394,10 @@ fun DocumentedButton(label: String) {}
             }]
         })
     );
+    assert_eq!(
+        extracted.documentation.as_deref(),
+        Some("A documented button.")
+    );
     assert!(extracted.best_practices.is_empty());
     Ok(())
 }

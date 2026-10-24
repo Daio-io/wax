@@ -278,7 +278,7 @@ fn parameters_from_function(
         let (type_kind, allowed_values) = if imported_unavailable.is_some() {
             (None, Vec::new())
         } else {
-            parameter_type_facts(type_text.as_deref(), &type_facts.local_enums)
+            classify_parameter_type(type_text.as_deref(), &type_facts.local_enums)
         };
 
         parameters.push(RegistryParameter {
@@ -297,7 +297,7 @@ fn parameters_from_function(
     (parameters, field_gaps)
 }
 
-fn parameter_type_facts(
+fn classify_parameter_type(
     type_text: Option<&str>,
     local_enums: &BTreeMap<String, Vec<String>>,
 ) -> (Option<RegistryParameterTypeKind>, Vec<String>) {
@@ -699,6 +699,7 @@ fn parse_kdoc(text: &str) -> KDoc {
     let mut in_fence = false;
     let mut parameter_descriptions: BTreeMap<String, String> = BTreeMap::new();
     let mut active_parameter = None;
+    let mut ignoring_parameter_continuation = false;
     let mut best_practices = Vec::new();
 
     for line in lines {
@@ -714,6 +715,7 @@ fn parse_kdoc(text: &str) -> KDoc {
         }
         if let Some(message) = kdoc_tag_value(&line, "@deprecated") {
             active_parameter = None;
+            ignoring_parameter_continuation = false;
             deprecation = Some(RegistryDeprecation {
                 message: non_empty(message.trim()),
                 since: None,
@@ -729,11 +731,13 @@ fn parse_kdoc(text: &str) -> KDoc {
                 .get(name)
                 .is_some_and(|description| !description.is_empty());
             active_parameter = (!name.is_empty() && !already_documented).then(|| name.to_owned());
+            ignoring_parameter_continuation = already_documented;
             if !text.is_empty() && !already_documented {
                 parameter_descriptions.insert(name.to_owned(), text.to_owned());
             }
         } else if let Some(guidance) = kdoc_tag_value(&line, "@guidance") {
             active_parameter = None;
+            ignoring_parameter_continuation = false;
             let guidance = guidance
                 .trim()
                 .strip_prefix('-')
@@ -746,6 +750,7 @@ fn parse_kdoc(text: &str) -> KDoc {
             }
         } else if line.starts_with('@') {
             active_parameter = None;
+            ignoring_parameter_continuation = false;
             // Ignore KDoc tags for description text. `@sample` is a file reference
             // resolved in a later phase, not embedded example body.
         } else if !line.is_empty() {
@@ -757,7 +762,7 @@ fn parse_kdoc(text: &str) -> KDoc {
                         description.push_str(&line);
                     })
                     .or_insert(line);
-            } else {
+            } else if !ignoring_parameter_continuation {
                 description.push(line);
             }
         }
