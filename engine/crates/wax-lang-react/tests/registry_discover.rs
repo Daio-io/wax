@@ -236,7 +236,7 @@ export function DuplicateButton({ tone }: DuplicateButtonProps) {
         .parameters[0];
 
     assert_eq!(parameter.type_kind, Some(RegistryParameterTypeKind::Enum));
-    assert_eq!(parameter.allowed_values, vec!["\"strong\"", "\"quiet\""]);
+    assert_eq!(parameter.allowed_values, vec!["strong", "quiet"]);
     Ok(())
 }
 
