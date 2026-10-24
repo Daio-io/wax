@@ -7,12 +7,13 @@ use serde_json::Map;
 use swc_common::{Span, Spanned, comments::CommentKind};
 use swc_ecma_ast::{
     Decl, DefaultDecl, Expr, ModuleDecl, ModuleItem, ObjectPat, ObjectPatProp, Pat, Stmt,
-    TsInterfaceDecl, TsType, TsTypeAliasDecl, TsTypeElement,
+    TsInterfaceDecl, TsKeywordTypeKind, TsType, TsTypeAliasDecl, TsTypeElement,
+    TsUnionOrIntersectionType,
 };
 use wax_contract::{
-    RegistryAttachment, RegistryDeprecation, RegistryDocument, RegistryExtracted,
-    RegistryExtractionStatus, RegistryFieldGap, RegistryParameter, RegistrySignature,
-    RegistrySourceEvidence,
+    RegistryAttachment, RegistryBestPractice, RegistryDeprecation, RegistryDocument,
+    RegistryExtracted, RegistryExtractionStatus, RegistryFieldGap, RegistryParameter,
+    RegistryParameterTypeKind, RegistrySignature, RegistrySourceEvidence,
 };
 use wax_lang_api::{DiscoverRegistryRequest, DiscoverRegistryResult};
 
@@ -41,6 +42,7 @@ struct JsDoc {
     documentation: Option<String>,
     deprecation: Option<RegistryDeprecation>,
     example: Option<String>,
+    best_practices: Vec<RegistryBestPractice>,
 }
 
 /// Enriches an existing registry document with facts proven by React source declarations.
@@ -456,18 +458,65 @@ fn parameters_from_members(
                 .as_ref()
                 .and_then(|annotation| parsed.source_slice_from_span(annotation.type_ann.span()))
                 .map(|text| text.trim().to_owned());
+            let description = parameter_description(parsed, property.span);
+            let (type_kind, allowed_values) = property.type_ann.as_ref().map_or_else(
+                || (None, Vec::new()),
+                |annotation| parameter_type_facts(parsed, &annotation.type_ann),
+            );
             Some(RegistryParameter {
                 name,
                 type_text,
-                type_kind: None,
-                allowed_values: Vec::new(),
-                description: None,
+                type_kind,
+                allowed_values,
+                description,
                 default: None,
                 required: Some(!property.optional),
                 extra: Map::new(),
             })
         })
         .collect()
+}
+
+fn parameter_description(parsed: &ParsedReactModule, span: Span) -> Option<String> {
+    jsdoc_for_span(parsed, span).documentation
+}
+
+fn parameter_type_facts(
+    parsed: &ParsedReactModule,
+    ty: &TsType,
+) -> (Option<RegistryParameterTypeKind>, Vec<String>) {
+    let kind = match ty {
+        TsType::TsKeywordType(keyword) => match keyword.kind {
+            TsKeywordTypeKind::TsBooleanKeyword => Some(RegistryParameterTypeKind::Boolean),
+            TsKeywordTypeKind::TsStringKeyword => Some(RegistryParameterTypeKind::String),
+            TsKeywordTypeKind::TsNumberKeyword => Some(RegistryParameterTypeKind::Number),
+            TsKeywordTypeKind::TsObjectKeyword => Some(RegistryParameterTypeKind::Object),
+            _ => None,
+        },
+        TsType::TsFnOrConstructorType(_) => Some(RegistryParameterTypeKind::Function),
+        TsType::TsArrayType(_) | TsType::TsTupleType(_) => {
+            Some(RegistryParameterTypeKind::Collection)
+        }
+        TsType::TsTypeLit(_) => Some(RegistryParameterTypeKind::Object),
+        TsType::TsUnionOrIntersectionType(TsUnionOrIntersectionType::TsUnionType(union)) => {
+            let allowed_values = union
+                .types
+                .iter()
+                .map(|member| match &**member {
+                    TsType::TsLitType(literal) => parsed
+                        .source_slice_from_span(literal.span)
+                        .map(|value| value.trim().to_owned()),
+                    _ => None,
+                })
+                .collect::<Option<Vec<_>>>();
+            return allowed_values.map_or_else(
+                || (None, Vec::new()),
+                |values| (Some(RegistryParameterTypeKind::Enum), values),
+            );
+        }
+        _ => None,
+    };
+    (kind, Vec::new())
 }
 
 fn extracted_component(
@@ -533,7 +582,7 @@ fn extracted_component(
         deprecation: jsdoc.deprecation,
         attachments,
         field_gaps,
-        best_practices: Vec::new(),
+        best_practices: jsdoc.best_practices,
         extra: Map::new(),
     }
 }
@@ -603,7 +652,12 @@ fn signature_facts(
             }],
         );
     };
+    let mut parameters = definition.parameters.clone();
     let gaps = if definition.inherited {
+        for parameter in &mut parameters {
+            parameter.type_kind = None;
+            parameter.allowed_values.clear();
+        }
         vec![RegistryFieldGap {
             field: "signature.parameters".to_owned(),
             reason: format!(
@@ -614,7 +668,7 @@ fn signature_facts(
     } else {
         Vec::new()
     };
-    (type_text, definition.parameters.clone(), gaps)
+    (type_text, parameters, gaps)
 }
 
 fn pat_type_annotation(pattern: &Pat) -> Option<&swc_ecma_ast::TsTypeAnn> {
@@ -693,6 +747,7 @@ fn parse_jsdoc(text: &str) -> JsDoc {
     let mut description = Vec::new();
     let mut deprecation = None;
     let mut example = Vec::new();
+    let mut best_practices = Vec::new();
     let mut in_example = false;
     for line in lines {
         if let Some(message) = line.strip_prefix("@deprecated") {
@@ -708,6 +763,16 @@ fn parse_jsdoc(text: &str) -> JsDoc {
             if !first_line.trim().is_empty() {
                 example.push(first_line.trim());
             }
+        } else if let Some(guidance) = line.strip_prefix("@guidance") {
+            in_example = false;
+            let guidance = guidance.trim();
+            let guidance = guidance.strip_prefix('-').unwrap_or(guidance).trim();
+            if !guidance.is_empty() {
+                best_practices.push(RegistryBestPractice {
+                    description: guidance.to_owned(),
+                    extra: Map::new(),
+                });
+            }
         } else if line.starts_with('@') {
             in_example = false;
         } else if in_example {
@@ -722,6 +787,7 @@ fn parse_jsdoc(text: &str) -> JsDoc {
         documentation: non_empty(description.join("\n").trim()),
         deprecation,
         example: non_empty(example.join("\n").trim()),
+        best_practices,
     }
 }
 
