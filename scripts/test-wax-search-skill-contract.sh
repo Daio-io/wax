@@ -150,6 +150,16 @@ jq -e '.results | length == 1 and .[0].id == "ds.button"' "$component_search" >/
   || fail "component example did not select ds.button"
 jq -e '.results[0].summary == "A button used for important actions."' "$component_search" >/dev/null \
   || fail "component search did not use extracted documentation as its summary"
+
+enum_search="$tmp_dir/enum-search.json"
+run_wax search "Comfortable" \
+  --design-system acme \
+  --kind component \
+  --format json \
+  --repo-root "$repo" >"$enum_search"
+assert_search_envelope "$enum_search"
+jq -e '.results | length == 1 and .[0].id == "ds.button"' "$enum_search" >/dev/null \
+  || fail "enum value search did not select ds.button"
 component_digest="$(jq -er '.results[0].snapshot.digest' "$component_search")"
 
 token_search="$tmp_dir/token-search.json"

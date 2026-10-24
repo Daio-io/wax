@@ -156,7 +156,7 @@ fn remember_local_registry(
 
 fn prepare_pack_registry(root: &TestDir, wax_home: &Path, pack: &PackCase) -> RegistryDocument {
     let document = publish_merged_registry(pack);
-    let registry_path = root.path.join(format!("{}-guidance.json", pack.language));
+    let registry_path = root.path.join(format!("{}.registry.json", pack.language));
     fs::write(
         &registry_path,
         registry_to_json(&document).expect("serialize registry"),
@@ -277,7 +277,7 @@ fn parser_packs_search_guidance_then_return_snapshot_pinned_facts() {
     for pack in &pack_cases() {
         let document = prepare_pack_registry(&root, &wax_home, pack);
         let expected_entry = serde_json::to_value(&document.components[0]).unwrap();
-        let registry_path = root.path.join(format!("{}-guidance.json", pack.language));
+        let registry_path = root.path.join(format!("{}.registry.json", pack.language));
 
         let search = run_wax(
             &wax_home,
@@ -310,6 +310,34 @@ fn parser_packs_search_guidance_then_return_snapshot_pinned_facts() {
             .as_str()
             .expect("digest")
             .to_owned();
+
+        let enum_search = run_wax(
+            &wax_home,
+            &repo,
+            &[
+                "search",
+                "strong",
+                "--design-system",
+                pack.design_system_id,
+                "--kind",
+                "component",
+                "--format",
+                "json",
+            ],
+        );
+        assert!(
+            enum_search.status.success(),
+            "{} enum search failed: {}",
+            pack.language,
+            String::from_utf8_lossy(&enum_search.stderr)
+        );
+        let enum_search_value: Value =
+            serde_json::from_str(String::from_utf8(enum_search.stdout).unwrap().trim()).unwrap();
+        assert_eq!(
+            enum_search_value["results"][0]["id"], pack.component_id,
+            "{} enum search should find the enriched component",
+            pack.language
+        );
 
         let mut refreshed = serde_json::to_value(&document).unwrap();
         refreshed["components"][0]["symbol"] = json!("RefreshedButton");

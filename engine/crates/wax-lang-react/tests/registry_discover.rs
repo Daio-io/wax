@@ -26,6 +26,8 @@ fn discover_registry_details_returns_typed_error_for_invalid_registry() {
 
 #[test]
 fn discover_registry_details_extracts_direct_component_api_facts() {
+    // Keep this rich fixture aligned with Compose and Swift so parity tests compare
+    // the same structured facts across parser-backed packs.
     let repo_root = fixture_root();
     let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
         "schema_version": 1,
@@ -67,7 +69,7 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
                         "name": "tone",
                         "type_text": "\"strong\" | \"quiet\"",
                         "type_kind": "enum",
-                        "allowed_values": ["\"strong\"", "\"quiet\""],
+                        "allowed_values": ["strong", "quiet"],
                         "description": "Visual emphasis.",
                         "default": "\"strong\"",
                         "required": false

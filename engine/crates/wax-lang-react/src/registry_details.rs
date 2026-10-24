@@ -507,7 +507,7 @@ fn parameter_type_facts(
                         TsLit::Tpl(template) if !template.types.is_empty() => None,
                         _ => parsed
                             .source_slice_from_span(literal.span)
-                            .map(|value| value.trim().to_owned()),
+                            .map(|value| value.trim().trim_matches('"').to_owned()),
                     },
                     _ => None,
                 })

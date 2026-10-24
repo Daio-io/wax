@@ -133,11 +133,7 @@ fn summarize(language: &'static str, document: &RegistryDocument) -> PackEnrichm
         documentation: extracted.documentation.clone(),
         parameter_count: parameters.len(),
         parameter_description: enum_parameter.description.clone(),
-        enum_values: enum_parameter
-            .allowed_values
-            .iter()
-            .map(|value| value.trim_matches('"').to_owned())
-            .collect(),
+        enum_values: enum_parameter.allowed_values.iter().cloned().collect(),
         best_practices: extracted
             .best_practices
             .iter()
