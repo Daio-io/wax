@@ -102,6 +102,51 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
 }
 
 #[test]
+fn discover_registry_details_extracts_kdoc_before_opt_in_annotation() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let src = tempdir.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(
+        src.join("SeekBar.kt"),
+        r#"package com.example
+
+import androidx.compose.runtime.Composable
+
+/**
+ * A SeekBar component that allows users to select a value.
+ */
+@OptIn(ExperimentalWildApi::class)
+@Composable
+fun SeekBar() {}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "seek-bar", "symbol": "SeekBar", "package": "com.example"}]
+    }))
+    .unwrap();
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "compose".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("rich discover should succeed");
+    let extracted = result.document.components[0]
+        .extracted
+        .as_ref()
+        .expect("matching component should be enriched");
+
+    assert_eq!(
+        extracted.documentation.as_deref(),
+        Some("A SeekBar component that allows users to select a value.")
+    );
+    Ok(())
+}
+
+#[test]
 fn discover_registry_details_marks_imported_parameter_type_unavailable() -> io::Result<()> {
     let tempdir = tempfile::tempdir()?;
     let src = tempdir.path().join("src");
