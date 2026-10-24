@@ -56,8 +56,8 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
             "status": "complete",
             "source_evidence": {
                 "path": "design-system/src/rich.tsx",
-                "start_line": 25,
-                "end_line": 27
+                "start_line": 24,
+                "end_line": 26
             },
             "documentation": "A button used for important actions.",
             "signature": {
@@ -91,7 +91,7 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
                 "language": "tsx"
             }],
             "best_practices": [
-                {"description": "Use for high-priority actions."},
+                {"description": "Prefer touch-first controls."},
                 {"description": "Keep labels concise."}
             ]
         })
