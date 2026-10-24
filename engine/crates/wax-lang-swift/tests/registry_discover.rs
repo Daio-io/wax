@@ -421,8 +421,8 @@ fn discover_registry_details_omits_guidance_and_matches_internal_labels() -> io:
 /// ```swift
 /// EmptyGuidanceCard(title: "Title")
 /// ```
-/// - Guidance:
-///   Prefer this initializer for custom titles.
+/// - Guidance: Prefer this initializer
+///   for custom titles.
 public func EmptyGuidanceCard(title internalTitle: String) -> some View {
     Text(internalTitle)
 }
@@ -430,13 +430,19 @@ public func EmptyGuidanceCard(title internalTitle: String) -> some View {
 public func NoGuidanceCard() -> some View {
     Text("none")
 }
+
+/// - Guidance:
+public func BareEmptyGuidanceCard() -> some View {
+    Text("bare")
+}
 "#,
     )?;
     let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
         "schema_version": 1,
         "components": [
             {"id": "empty-guidance", "symbol": "EmptyGuidanceCard"},
-            {"id": "no-guidance", "symbol": "NoGuidanceCard"}
+            {"id": "no-guidance", "symbol": "NoGuidanceCard"},
+            {"id": "bare-empty-guidance", "symbol": "BareEmptyGuidanceCard"}
         ]
     }))
     .expect("registry fixture");
@@ -457,6 +463,10 @@ public func NoGuidanceCard() -> some View {
         .extracted
         .as_ref()
         .expect("no-guidance component should be enriched");
+    let bare_empty_guidance = result.document.components[2]
+        .extracted
+        .as_ref()
+        .expect("bare-empty-guidance component should be enriched");
 
     assert_eq!(
         (
@@ -480,6 +490,10 @@ public func NoGuidanceCard() -> some View {
                 .expect("serialize absent guidance")
                 .get("best_practices")
                 .cloned(),
+            serde_json::to_value(bare_empty_guidance)
+                .expect("serialize bare empty guidance")
+                .get("best_practices")
+                .cloned(),
         ),
         (
             Some("internalTitle"),
@@ -488,6 +502,7 @@ public func NoGuidanceCard() -> some View {
             Some(
                 serde_json::json!([{"description": "Prefer this initializer for custom titles."}])
             ),
+            None,
             None,
         )
     );

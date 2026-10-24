@@ -662,7 +662,9 @@ fn parse_documentation(attached: &str) -> SwiftDocumentation {
         }
         if let Some(guidance) = line.strip_prefix("- Guidance:") {
             let (description, next) = continued_text(&lines, index + 1, indent, guidance);
-            if let Some(description) = non_empty(&description) {
+            if !guidance.trim().is_empty()
+                && let Some(description) = non_empty(&description)
+            {
                 best_practices.push(RegistryBestPractice {
                     description,
                     extra: Map::new(),
