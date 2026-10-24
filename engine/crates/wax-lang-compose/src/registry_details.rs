@@ -1,13 +1,13 @@
 //! Source-backed Compose registry enrichment.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use serde_json::Map;
 use wax_contract::{
-    RegistryAttachment, RegistryDeprecation, RegistryDocument, RegistryExtracted,
-    RegistryExtractionStatus, RegistryFieldGap, RegistryParameter, RegistrySignature,
-    RegistrySourceEvidence, RegistrySourceKind,
+    RegistryAttachment, RegistryBestPractice, RegistryDeprecation, RegistryDocument,
+    RegistryExtracted, RegistryExtractionStatus, RegistryFieldGap, RegistryParameter,
+    RegistryParameterTypeKind, RegistrySignature, RegistrySourceEvidence, RegistrySourceKind,
 };
 use wax_lang_api::{DiscoverRegistryRequest, DiscoverRegistryResult};
 
@@ -25,9 +25,17 @@ struct ComponentDeclaration {
     extracted: RegistryExtracted,
 }
 
+struct LocalTypeFacts {
+    local_types: BTreeSet<String>,
+    imported_types: BTreeSet<String>,
+    local_enums: BTreeMap<String, Vec<String>>,
+}
+
 #[derive(Debug, Default)]
 struct KDoc {
     documentation: Option<String>,
+    parameter_descriptions: BTreeMap<String, String>,
+    best_practices: Vec<RegistryBestPractice>,
     deprecation: Option<RegistryDeprecation>,
     example: Option<String>,
 }
@@ -84,13 +92,13 @@ pub fn discover_registry_details(
 
 fn component_declarations(file: &ParsedKotlinSourceFile) -> Vec<ComponentDeclaration> {
     let source = file.parsed.source.as_bytes();
-    let local_types = local_type_names(file.parsed.primary_tree().root_node(), source);
-    let imports = collect_import_bindings(file.parsed.primary_tree().root_node(), source);
-    let imported_types = imports
-        .symbol_names
-        .keys()
-        .cloned()
-        .collect::<BTreeSet<_>>();
+    let primary_root = file.parsed.primary_tree().root_node();
+    let imports = collect_import_bindings(primary_root, source);
+    let type_facts = LocalTypeFacts {
+        local_types: local_type_names(primary_root, source),
+        imported_types: imports.symbol_names.keys().cloned().collect(),
+        local_enums: local_enum_values(primary_root, source),
+    };
 
     let mut declarations = Vec::new();
     for pass in file.parsed.passes() {
@@ -99,8 +107,7 @@ fn component_declarations(file: &ParsedKotlinSourceFile) -> Vec<ComponentDeclara
             source,
             &pass.clean,
             file,
-            &local_types,
-            &imported_types,
+            &type_facts,
             &mut declarations,
         );
     }
@@ -112,8 +119,7 @@ fn collect_component_declarations(
     source: &[u8],
     clean: &[ByteRange],
     file: &ParsedKotlinSourceFile,
-    local_types: &BTreeSet<String>,
-    imported_types: &BTreeSet<String>,
+    type_facts: &LocalTypeFacts,
     declarations: &mut Vec<ComponentDeclaration>,
 ) {
     let mut stack = vec![root];
@@ -124,7 +130,7 @@ fn collect_component_declarations(
             declarations.push(ComponentDeclaration {
                 symbol: name,
                 package: file.package.clone(),
-                extracted: extracted_component(node, source, file, local_types, imported_types),
+                extracted: extracted_component(node, source, file, type_facts),
             });
         }
 
@@ -140,13 +146,18 @@ fn extracted_component(
     node: tree_sitter::Node<'_>,
     source: &[u8],
     file: &ParsedKotlinSourceFile,
-    local_types: &BTreeSet<String>,
-    imported_types: &BTreeSet<String>,
+    type_facts: &LocalTypeFacts,
 ) -> RegistryExtracted {
-    let (parameters, mut field_gaps) =
-        parameters_from_function(node, source, local_types, imported_types);
-    let type_text = signature_type_text(node, source);
     let kdoc = kdoc_for_declaration(node, source);
+    let (parameters, mut field_gaps) = parameters_from_function(
+        node,
+        source,
+        &type_facts.local_types,
+        &type_facts.imported_types,
+        &type_facts.local_enums,
+        &kdoc.parameter_descriptions,
+    );
+    let type_text = signature_type_text(node, source);
     let deprecation = deprecated_annotation(node, source).or(kdoc.deprecation);
     let attachments = kdoc
         .example
@@ -193,7 +204,7 @@ fn extracted_component(
         deprecation,
         attachments,
         field_gaps,
-        best_practices: Vec::new(),
+        best_practices: kdoc.best_practices,
         extra: Map::new(),
     }
 }
@@ -214,6 +225,8 @@ fn parameters_from_function(
     source: &[u8],
     local_types: &BTreeSet<String>,
     imported_types: &BTreeSet<String>,
+    local_enums: &BTreeMap<String, Vec<String>>,
+    descriptions: &BTreeMap<String, String>,
 ) -> (Vec<RegistryParameter>, Vec<RegistryFieldGap>) {
     let Some(params_node) = node
         .children(&mut node.walk())
@@ -253,11 +266,16 @@ fn parameters_from_function(
             index += 2;
         }
 
-        if let Some(type_name) = type_text.as_deref().and_then(simple_type_name)
-            && imported_types.contains(type_name)
-            && !local_types.contains(type_name)
-            && !is_builtin_kotlin_type(type_name)
-        {
+        let imported_unavailable =
+            type_text
+                .as_deref()
+                .and_then(simple_type_name)
+                .filter(|type_name| {
+                    imported_types.contains(*type_name)
+                        && !local_types.contains(*type_name)
+                        && !is_builtin_kotlin_type(type_name)
+                });
+        if let Some(type_name) = imported_unavailable {
             field_gaps.push(RegistryFieldGap {
                 field: "signature.parameters".to_owned(),
                 reason: format!("parameter type `{type_name}` is imported or unavailable locally"),
@@ -265,12 +283,18 @@ fn parameters_from_function(
             });
         }
 
+        let (type_kind, allowed_values) = if imported_unavailable.is_some() {
+            (None, Vec::new())
+        } else {
+            parameter_type_facts(type_text.as_deref(), local_enums)
+        };
+
         parameters.push(RegistryParameter {
+            description: descriptions.get(&name).cloned(),
             name,
             type_text,
-            type_kind: None,
-            allowed_values: Vec::new(),
-            description: None,
+            type_kind,
+            allowed_values,
             default: default.clone(),
             required: Some(default.is_none()),
             extra: Map::new(),
@@ -279,6 +303,95 @@ fn parameters_from_function(
     }
 
     (parameters, field_gaps)
+}
+
+fn parameter_type_facts(
+    type_text: Option<&str>,
+    local_enums: &BTreeMap<String, Vec<String>>,
+) -> (Option<RegistryParameterTypeKind>, Vec<String>) {
+    let Some(type_text) = type_text.map(str::trim).filter(|text| !text.is_empty()) else {
+        return (None, Vec::new());
+    };
+    if type_text.contains("->") {
+        return (Some(RegistryParameterTypeKind::Function), Vec::new());
+    }
+
+    let direct_type = type_text.trim_end_matches('?');
+    if direct_type.contains('.') {
+        return (None, Vec::new());
+    }
+    if let Some(values) = local_enums.get(direct_type) {
+        return if values.is_empty() {
+            (None, Vec::new())
+        } else {
+            (Some(RegistryParameterTypeKind::Enum), values.clone())
+        };
+    }
+    if direct_type == "Boolean" {
+        return (Some(RegistryParameterTypeKind::Boolean), Vec::new());
+    }
+    if matches!(direct_type, "String" | "Char") {
+        return (Some(RegistryParameterTypeKind::String), Vec::new());
+    }
+    if matches!(
+        direct_type,
+        "Byte"
+            | "Short"
+            | "Int"
+            | "Long"
+            | "Float"
+            | "Double"
+            | "Number"
+            | "UByte"
+            | "UShort"
+            | "UInt"
+            | "ULong"
+    ) {
+        return (Some(RegistryParameterTypeKind::Number), Vec::new());
+    }
+    if is_collection_type(direct_type) {
+        return (Some(RegistryParameterTypeKind::Collection), Vec::new());
+    }
+    if !direct_type.contains('<') && simple_type_name(direct_type).is_some() {
+        return (Some(RegistryParameterTypeKind::Object), Vec::new());
+    }
+
+    (None, Vec::new())
+}
+
+fn is_collection_type(type_text: &str) -> bool {
+    let name = type_text
+        .split_once('<')
+        .map_or(type_text, |(name, _)| name);
+    matches!(
+        name,
+        "List"
+            | "Map"
+            | "Set"
+            | "Collection"
+            | "Iterable"
+            | "Iterator"
+            | "MutableList"
+            | "MutableMap"
+            | "MutableSet"
+            | "MutableCollection"
+            | "MutableIterable"
+            | "MutableIterator"
+            | "Array"
+            | "Sequence"
+            | "ByteArray"
+            | "ShortArray"
+            | "IntArray"
+            | "LongArray"
+            | "FloatArray"
+            | "DoubleArray"
+            | "BooleanArray"
+            | "CharArray"
+            | "UByteArray"
+            | "UShortArray"
+            | "UIntArray"
+            | "ULongArray"
+    )
 }
 
 fn parameter_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
@@ -335,9 +448,14 @@ fn is_builtin_kotlin_type(name: &str) -> bool {
             | "Float"
             | "Int"
             | "Long"
+            | "Number"
             | "Nothing"
             | "Short"
             | "String"
+            | "UByte"
+            | "UInt"
+            | "ULong"
+            | "UShort"
             | "Unit"
             | "List"
             | "Map"
@@ -388,6 +506,67 @@ fn local_type_names(root: tree_sitter::Node<'_>, source: &[u8]) -> BTreeSet<Stri
         }
     }
     names
+}
+
+fn local_enum_values(root: tree_sitter::Node<'_>, source: &[u8]) -> BTreeMap<String, Vec<String>> {
+    let mut enums = BTreeMap::new();
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "class_declaration"
+            && is_enum_class(node, source)
+            && let Some(name) = node
+                .child_by_field_name("name")
+                .and_then(|name| name.utf8_text(source).ok())
+        {
+            let values = node
+                .children(&mut node.walk())
+                .find(|child| child.kind() == "enum_class_body")
+                .map(|body| {
+                    let mut body_cursor = body.walk();
+                    body.named_children(&mut body_cursor)
+                        .filter(|child| child.kind() == "enum_entry")
+                        .filter_map(|entry| {
+                            let mut entry_cursor = entry.walk();
+                            entry
+                                .named_children(&mut entry_cursor)
+                                .find(|child| {
+                                    matches!(child.kind(), "identifier" | "simple_identifier")
+                                })
+                                .and_then(|identifier| identifier.utf8_text(source).ok())
+                                .map(str::to_owned)
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            enums.insert(name.to_owned(), values);
+        }
+        for index in (0..node.child_count()).rev() {
+            if let Some(child) = node.child(index) {
+                stack.push(child);
+            }
+        }
+    }
+    enums
+}
+
+fn is_enum_class(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if child.kind() == "enum_class_body" {
+            return true;
+        }
+        if child.kind() != "modifiers" {
+            continue;
+        }
+        let mut modifier_cursor = child.walk();
+        if child.named_children(&mut modifier_cursor).any(|modifier| {
+            modifier.kind() == "class_modifier"
+                && modifier.utf8_text(source).is_ok_and(|text| text == "enum")
+        }) {
+            return true;
+        }
+    }
+    false
 }
 
 fn kdoc_for_declaration(node: tree_sitter::Node<'_>, source: &[u8]) -> KDoc {
@@ -467,6 +646,9 @@ fn parse_kdoc(text: &str) -> KDoc {
     let mut deprecation = None;
     let mut fenced = Vec::new();
     let mut in_fence = false;
+    let mut parameter_descriptions: BTreeMap<String, String> = BTreeMap::new();
+    let mut active_parameter = None;
+    let mut best_practices = Vec::new();
 
     for line in lines {
         if line.starts_with("```") {
@@ -479,26 +661,69 @@ fn parse_kdoc(text: &str) -> KDoc {
             }
             continue;
         }
-        if let Some(message) = line.strip_prefix("@deprecated") {
+        if let Some(message) = kdoc_tag_value(&line, "@deprecated") {
+            active_parameter = None;
             deprecation = Some(RegistryDeprecation {
                 message: non_empty(message.trim()),
                 since: None,
                 replaced_by: None,
                 extra: Map::new(),
             });
+        } else if let Some(parameter) = kdoc_tag_value(&line, "@param") {
+            let parameter = parameter.trim();
+            let (name, text) = parameter
+                .split_once(char::is_whitespace)
+                .map_or((parameter, ""), |(name, text)| (name, text.trim()));
+            let already_documented = parameter_descriptions
+                .get(name)
+                .is_some_and(|description| !description.is_empty());
+            active_parameter = (!name.is_empty() && !already_documented).then(|| name.to_owned());
+            if !text.is_empty() && !already_documented {
+                parameter_descriptions.insert(name.to_owned(), text.to_owned());
+            }
+        } else if let Some(guidance) = kdoc_tag_value(&line, "@guidance") {
+            active_parameter = None;
+            let guidance = guidance
+                .trim()
+                .strip_prefix('-')
+                .map_or_else(|| guidance.trim(), |without_dash| without_dash.trim());
+            if !guidance.is_empty() {
+                best_practices.push(RegistryBestPractice {
+                    description: guidance.to_owned(),
+                    extra: Map::new(),
+                });
+            }
         } else if line.starts_with('@') {
+            active_parameter = None;
             // Ignore KDoc tags for description text. `@sample` is a file reference
             // resolved in a later phase, not embedded example body.
         } else if !line.is_empty() {
-            description.push(line);
+            if let Some(name) = &active_parameter {
+                parameter_descriptions
+                    .entry(name.clone())
+                    .and_modify(|description| {
+                        description.push(' ');
+                        description.push_str(&line);
+                    })
+                    .or_insert(line);
+            } else {
+                description.push(line);
+            }
         }
     }
 
     KDoc {
         documentation: non_empty(description.join("\n").trim()),
+        parameter_descriptions,
+        best_practices,
         deprecation,
         example: non_empty(fenced.join("\n").trim()),
     }
+}
+
+fn kdoc_tag_value<'a>(line: &'a str, tag: &str) -> Option<&'a str> {
+    let value = line.strip_prefix(tag)?;
+    (value.is_empty() || value.chars().next().is_some_and(char::is_whitespace)).then_some(value)
 }
 
 fn deprecated_annotation(

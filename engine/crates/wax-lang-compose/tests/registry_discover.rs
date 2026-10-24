@@ -63,28 +63,43 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
             "status": "complete",
             "source_evidence": {
                 "path": "design-system/src/main/kotlin/Rich.kt",
-                "start_line": 15,
-                "end_line": 22
+                "start_line": 23,
+                "end_line": 31
             },
             "documentation": "A button used for important actions.",
             "signature": {
-                "type_text": "fun RichButton(\n    text: String,\n    enabled: Boolean = true,\n    onClick: () -> Unit,\n)",
+                "type_text": "fun RichButton(\n    text: String,\n    enabled: Boolean = true,\n    onClick: () -> Unit,\n    style: Style = Style.Compact,\n)",
                 "parameters": [
                     {
                         "name": "text",
                         "type_text": "String",
+                        "type_kind": "string",
+                        "description": "Visible button label.",
                         "required": true
                     },
                     {
                         "name": "enabled",
                         "type_text": "Boolean",
+                        "type_kind": "boolean",
+                        "description": "Whether the button accepts input.",
                         "default": "true",
                         "required": false
                     },
                     {
                         "name": "onClick",
                         "type_text": "() -> Unit",
+                        "type_kind": "function",
+                        "description": "Invoked when the button is pressed.",
                         "required": true
+                    },
+                    {
+                        "name": "style",
+                        "type_text": "Style",
+                        "type_kind": "enum",
+                        "allowed_values": ["Compact", "Comfortable"],
+                        "description": "Visual density of the button.",
+                        "default": "Style.Compact",
+                        "required": false
                     }
                 ]
             },
@@ -96,7 +111,11 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
                 "path": "design-system/src/main/kotlin/Rich.kt",
                 "content": "RichButton(text = \"Go\") {}",
                 "language": "kotlin"
-            }]
+            }],
+            "best_practices": [
+                {"description": "Use one primary action per surface."},
+                {"description": "Keep labels concise."}
+            ]
         })
     );
 }
@@ -313,6 +332,148 @@ fun ImportedButton(props: ImportedProps) {}
                 "reason": "parameter type `ImportedProps` is imported or unavailable locally"
             }]
         })
+    );
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_ignores_unknown_kdoc_parameter() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let src = tempdir.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(
+        src.join("DocumentedButton.kt"),
+        r#"package com.example
+
+import androidx.compose.runtime.Composable
+
+/**
+ * A documented button.
+ * @param label First line
+ *   continued here.
+ * @param missing Must not synthesize a parameter.
+ * @param label Duplicate text is ignored.
+ *   Duplicate continuation is ignored too.
+ * @guidance
+ * @guidanceNote This is a different tag and must be ignored.
+ */
+@Composable
+fun DocumentedButton(label: String) {}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{
+            "id": "documented",
+            "symbol": "DocumentedButton",
+            "package": "com.example"
+        }]
+    }))
+    .unwrap();
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "compose".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("rich discover should succeed");
+    let extracted = result.document.components[0].extracted.as_ref().unwrap();
+
+    assert_eq!(
+        serde_json::to_value(extracted.signature.as_ref().unwrap()).unwrap(),
+        serde_json::json!({
+            "type_text": "fun DocumentedButton(label: String)",
+            "parameters": [{
+                "name": "label",
+                "type_text": "String",
+                "type_kind": "string",
+                "description": "First line continued here.",
+                "required": true
+            }]
+        })
+    );
+    assert!(extracted.best_practices.is_empty());
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_omits_empty_or_imported_enum_facts() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let src = tempdir.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(
+        src.join("Kinds.kt"),
+        r#"package com.example
+
+import androidx.compose.runtime.Composable
+import com.acme.ImportedStyle
+
+enum class Empty
+data class Config(val name: String)
+
+@Composable
+fun Kinds(
+    empty: Empty,
+    imported: ImportedStyle,
+    qualified: com.acme.QualifiedStyle,
+    generic: Wrapper<String>,
+    count: Int,
+    items: List<String>,
+    config: Config,
+) {}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "kinds", "symbol": "Kinds", "package": "com.example"}]
+    }))
+    .unwrap();
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "compose".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("rich discover should succeed");
+    let parameters = &result.document.components[0]
+        .extracted
+        .as_ref()
+        .unwrap()
+        .signature
+        .as_ref()
+        .unwrap()
+        .parameters;
+
+    assert_eq!(
+        serde_json::to_value(parameters).unwrap(),
+        serde_json::json!([
+            {"name": "empty", "type_text": "Empty", "required": true},
+            {"name": "imported", "type_text": "ImportedStyle", "required": true},
+            {"name": "qualified", "type_text": "com.acme.QualifiedStyle", "required": true},
+            {"name": "generic", "type_text": "Wrapper<String>", "required": true},
+            {
+                "name": "count",
+                "type_text": "Int",
+                "type_kind": "number",
+                "required": true
+            },
+            {
+                "name": "items",
+                "type_text": "List<String>",
+                "type_kind": "collection",
+                "required": true
+            },
+            {
+                "name": "config",
+                "type_text": "Config",
+                "type_kind": "object",
+                "required": true
+            }
+        ])
     );
     Ok(())
 }
