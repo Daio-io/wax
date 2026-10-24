@@ -1,13 +1,13 @@
 ---
 name: wax-registry-discover
-description: Use when updating Wax design-system registries from source packages; auto-detects languages and roots when needed, runs deterministic discovery, reviews candidates, proposes reviewed canonical token values, asks about ambiguous exports, remembers design systems, writes registries after explicit approval, validates config, and refreshes app inputs with wax sync.
+description: Use when updating Wax design-system registries from source packages; auto-detects languages and roots when needed, runs deterministic discovery, reviews candidates, proposes reviewed component aliases/tags and canonical token values, asks about ambiguous exports, remembers design systems, writes registries after explicit approval, validates config, and refreshes app inputs with wax sync.
 ---
 
 # Wax Registry Discover
 
 Use this skill to help design-system maintainers and app teams work with Wax registries while keeping runtime scan and validate behavior deterministic. AI review is an authoring aid only; do not make `wax scan` or `wax validate` depend on agent decisions.
 
-This skill covers component discovery and reviewed canonical token-value maintenance. See [token-value-maintenance.md](token-value-maintenance.md) for evidence rules and the reviewed write workflow. See [examples/token-value-refresh.md](examples/token-value-refresh.md) for a golden end-to-end value fill.
+This skill covers component discovery, reviewed component alias/tag enrichment, and reviewed canonical token-value maintenance. See [token-value-maintenance.md](token-value-maintenance.md) for token evidence rules and the reviewed write workflow. See [examples/component-alias-enrichment.md](examples/component-alias-enrichment.md) for a golden component enrichment pass and [examples/token-value-refresh.md](examples/token-value-refresh.md) for a golden end-to-end value fill.
 
 Registry publication and lookup are separate workflows. This skill authors and
 maintains registry sources; [`wax-search`](../wax-search/SKILL.md) consumes the
@@ -153,22 +153,32 @@ Use configless discovery: **always pass `--root`** and do not assume configured 
 
    When `package` is present, parser-backed scans count only imports from that package as resolved design-system usage.
 
-5. When refreshing canonical token values (direct or delegated), follow [token-value-maintenance.md](token-value-maintenance.md): inspect token source, attach source evidence, and group the structured diff into component changes, token additions, values filled, values changed, and potential removals.
+5. After deterministic discovery, perform a best-effort component alias/tag enrichment pass. Review each newly added component and each existing component missing useful aliases or tags; when the user asks for a full audit, review every component. Suggestions are optional:
 
-6. Review ambiguous candidates before writing:
+   - Propose user-facing synonyms and spaced or compound forms in `aliases`, such as `navbar`, `nav bar`, `topbar`, and `app bar` for `NavigationBar`.
+   - Propose coarse groupings in `tags` only when useful, such as `navigation`, `input`, or `feedback`.
+   - Base proposals on the component's symbol, id, package path, extracted documentation, and common UI vocabulary. Do not use unsupported product-specific guesses.
+   - Never treat component aliases as alternate code symbols or scan authority. They help users find components with `wax search`; deterministic discovery and language packs remain authoritative for code symbols.
+
+   Show these suggestions in a separate **Aliases/tags proposed** group in the structured review diff. Include the component id, current aliases/tags, proposed additions, and a short rationale. This is a proposal-only pass: never auto-write aliases or tags during discover.
+
+6. When refreshing canonical token values (direct or delegated), follow [token-value-maintenance.md](token-value-maintenance.md): inspect token source, attach source evidence, and group the structured diff into component changes, aliases/tags proposed, token additions, values filled, values changed, and potential removals.
+
+7. Review ambiguous candidates before writing:
 
    - Ask about exports that look like helpers, demos, previews, aliases, or duplicate public components.
    - Ask before excluding discovered symbols from the registry.
    - `--force` is retained for compatibility; existing registries are refreshed by a lossless merge.
-   - Require **explicit approval** for additions and value changes; require a separate approval for any removals.
+   - Require **explicit approval** for component additions, alias/tag additions, and value changes; require a separate approval for any removals.
 
-7. Write the registry only after review. Existing registries are refreshed by a lossless merge that preserves tokens, aliases, metadata, values, and generated extraction fields; `--force` remains accepted as a compatibility flag and does not discard creator data.
+8. Write the registry only after review. Existing registries are refreshed by a lossless merge that preserves tokens, aliases, tags, metadata, values, and generated extraction fields; `--force` remains accepted as a compatibility flag and does not discard creator data. Merge only approved alias/tag additions into existing arrays. Preserve all authored aliases and tags on rediscover, and never remove either without separate approval.
 
    Treat every repeat run as lossless rediscovery: preserve authored component
    and token ids, explicit source associations, package identities, aliases,
-   metadata, canonical values, unknown extension fields, and generated rich
-   facts unless the reviewed diff explicitly changes them. Discovery output is
-   not authority to erase fields that the current extractor cannot reproduce.
+   tags, metadata, canonical values, unknown extension fields, and generated
+   rich facts unless the reviewed diff explicitly changes them. Discovery
+   output is not authority to erase fields that the current extractor cannot
+   reproduce.
 
    Reserve the full discovery write for creating a new registry at a path that does not exist:
 
@@ -184,7 +194,7 @@ Use configless discovery: **always pass `--root`** and do not assume configured 
    **For an existing registry, use `apply_patch` only** so unrediscovered and
    unknown fields remain intact.
 
-8. Validate after write when Wax config exists:
+9. Validate after write when Wax config exists:
 
    ```bash
    wax validate
@@ -192,7 +202,7 @@ Use configless discovery: **always pass `--root`** and do not assume configured 
 
    A failed write or validation leaves the previous registry recoverable and stops before sync.
 
-9. For a delegated app flow with resolvable upstream, return to the app and run:
+10. For a delegated app flow with resolvable upstream, return to the app and run:
 
    ```bash
    wax sync
@@ -201,6 +211,13 @@ Use configless discovery: **always pass `--root`** and do not assume configured 
    ```
 
    Then regenerate the report. Only the fresh post-sync scan may reclassify observations as exact, near, or unmatched.
+
+## Alias semantics
+
+The registry uses `aliases` in two distinct contexts:
+
+- **Component aliases are search synonyms** for `wax search`, including natural-language variants that users may type. They do not change scan resolution and must not claim that another source symbol exists.
+- **Token aliases are exact source identifiers** that the scanner can match to token usage. Add them only with source evidence; do not generate them from general vocabulary.
 
 ## App workflow
 
@@ -248,10 +265,11 @@ wax registry delete <id>
 - do not blindly overwrite
 - keep discovery in `--dry-run` mode for existing registries
 - `--force` is compatibility-only; existing registries are refreshed by lossless merge
-- require explicit approval before writing additions or value changes
+- require explicit approval before writing component, alias/tag, token, or value additions and changes
 - require separate approval before any removals
 - **Never delete** components or tokens automatically
-- preserve ids, keys, aliases, categories, metadata, and values outside the approved diff
+- preserve ids, keys, aliases, tags, categories, metadata, and values outside the approved diff
+- component alias/tag suggestions are search metadata only, never scan authority
 - validate after write when Wax config exists
 - never edit an app-local synced registry as authoritative source
 - use `wax sync` for app repos with `registry.upstream`; use `wax language update` for language-pack lock refresh
