@@ -102,6 +102,164 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
 }
 
 #[test]
+fn discover_registry_details_extracts_kdoc_before_opt_in_annotation() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let src = tempdir.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(
+        src.join("SeekBar.kt"),
+        r#"package com.example
+
+import androidx.compose.runtime.Composable
+
+/**
+ * A SeekBar component that allows users to select a value.
+ */
+@OptIn(ExperimentalWildApi::class)
+@Composable
+fun SeekBar() {}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "seek-bar", "symbol": "SeekBar", "package": "com.example"}]
+    }))
+    .unwrap();
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "compose".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("rich discover should succeed");
+    let extracted = result.document.components[0]
+        .extracted
+        .as_ref()
+        .expect("matching component should be enriched");
+
+    assert_eq!(
+        extracted.documentation.as_deref(),
+        Some("A SeekBar component that allows users to select a value.")
+    );
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_extracts_kdoc_before_opt_in_on_overloads() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let src = tempdir.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(
+        src.join("DialogRepro.kt"),
+        r#"package com.example
+import androidx.compose.runtime.Composable
+
+/**
+ * Primary overload docs.
+ */
+@OptIn(ExperimentalWildApi::class)
+@Composable
+fun DialogRepro(onDismissRequest: () -> Unit, content: @Composable () -> Unit) {}
+
+/**
+ * Secondary overload docs.
+ */
+@Composable
+fun DialogRepro(title: String, onDismissRequest: () -> Unit) {}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "dialog-repro", "symbol": "DialogRepro", "package": "com.example"}]
+    }))
+    .unwrap();
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "compose".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("rich discover should succeed");
+    let extracted = result.document.components[0]
+        .extracted
+        .as_ref()
+        .expect("matching component should be enriched");
+
+    assert_eq!(
+        extracted.documentation.as_deref(),
+        Some("Primary overload docs.")
+    );
+    let start_line = extracted
+        .source_evidence
+        .as_ref()
+        .and_then(|evidence| evidence.start_line)
+        .expect("source evidence start_line");
+    // Span must include leading @OptIn so the line before start_line is the KDoc closer.
+    assert_eq!(start_line, 7);
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_extracts_kdoc_before_opt_in_on_extension_after_sibling()
+-> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let src = tempdir.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(
+        src.join("BarItemRepro.kt"),
+        r#"package com.example
+import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.RowScope
+
+@Composable
+fun NavigationBarX(content: @Composable RowScope.() -> Unit) {}
+
+/**
+ * A navigation bar item for use within a NavigationBar.
+ */
+@OptIn(ExperimentalWildApi::class)
+@Composable
+fun RowScope.BarItemX(selected: Boolean, onClick: () -> Unit) {}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "bar-item-x", "symbol": "BarItemX", "package": "com.example"}]
+    }))
+    .unwrap();
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "compose".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("rich discover should succeed");
+    let extracted = result.document.components[0]
+        .extracted
+        .as_ref()
+        .expect("matching component should be enriched");
+
+    assert_eq!(
+        extracted.documentation.as_deref(),
+        Some("A navigation bar item for use within a NavigationBar.")
+    );
+    let start_line = extracted
+        .source_evidence
+        .as_ref()
+        .and_then(|evidence| evidence.start_line)
+        .expect("source evidence start_line");
+    // Span must include leading @OptIn so the line before start_line is the KDoc closer.
+    assert_eq!(start_line, 11);
+    Ok(())
+}
+
+#[test]
 fn discover_registry_details_marks_imported_parameter_type_unavailable() -> io::Result<()> {
     let tempdir = tempfile::tempdir()?;
     let src = tempdir.path().join("src");

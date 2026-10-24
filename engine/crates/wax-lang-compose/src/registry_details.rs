@@ -171,7 +171,7 @@ fn extracted_component(
 
     let source_evidence = Some(RegistrySourceEvidence {
         path: file.relative_path.clone(),
-        start_line: Some(u32::try_from(node.start_position().row + 1).unwrap_or(u32::MAX)),
+        start_line: Some(declaration_start_line(node)),
         end_line: Some(u32::try_from(node.end_position().row + 1).unwrap_or(u32::MAX)),
         extra: Map::new(),
     });
@@ -393,6 +393,22 @@ fn kdoc_for_declaration(node: tree_sitter::Node<'_>, source: &[u8]) -> KDoc {
     parse_kdoc(comment)
 }
 
+/// Start line for source evidence, including leading annotations that tree-sitter
+/// sometimes emits as siblings (`annotated_expression`) instead of `modifiers`.
+fn declaration_start_line(node: tree_sitter::Node<'_>) -> u32 {
+    let mut start_row = node.start_position().row;
+    let mut previous = node.prev_sibling();
+    while let Some(sibling) = previous {
+        if is_detachable_leading_annotation(sibling) {
+            start_row = sibling.start_position().row;
+            previous = sibling.prev_sibling();
+            continue;
+        }
+        break;
+    }
+    u32::try_from(start_row + 1).unwrap_or(u32::MAX)
+}
+
 fn previous_block_comment<'a>(node: tree_sitter::Node<'a>, source: &'a [u8]) -> Option<&'a str> {
     let mut previous = node.prev_sibling();
     while let Some(sibling) = previous {
@@ -404,13 +420,27 @@ fn previous_block_comment<'a>(node: tree_sitter::Node<'a>, source: &'a [u8]) -> 
                 }
                 return None;
             }
+            // Skip line comments and leading annotations that the grammar detached
+            // from the declaration's modifiers list (e.g. `@OptIn` / `@Deprecated`
+            // before `@Composable` in overload or extension shapes).
             "line_comment" => {
+                previous = sibling.prev_sibling();
+            }
+            kind if is_detachable_leading_annotation_kind(kind) => {
                 previous = sibling.prev_sibling();
             }
             _ => return None,
         }
     }
     None
+}
+
+fn is_detachable_leading_annotation(node: tree_sitter::Node<'_>) -> bool {
+    is_detachable_leading_annotation_kind(node.kind())
+}
+
+fn is_detachable_leading_annotation_kind(kind: &str) -> bool {
+    matches!(kind, "annotated_expression" | "annotation")
 }
 
 fn parse_kdoc(text: &str) -> KDoc {
