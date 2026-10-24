@@ -181,6 +181,36 @@ pub struct RegistrySourceEvidence {
     pub extra: Map<String, Value>,
 }
 
+/// Normalized kind of a public parameter type.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RegistryParameterTypeKind {
+    /// Boolean parameter.
+    Boolean,
+    /// String parameter.
+    String,
+    /// Numeric parameter.
+    Number,
+    /// Parameter constrained to a set of allowed values.
+    Enum,
+    /// Callable parameter.
+    Function,
+    /// Collection parameter.
+    Collection,
+    /// Structured object parameter.
+    Object,
+}
+
+/// Generated best-practice guidance for a registry entry.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RegistryBestPractice {
+    /// Human-readable guidance.
+    pub description: String,
+    /// Unknown guidance fields preserved across round trips.
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
 /// Parameter fact extracted from a public declaration.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RegistryParameter {
@@ -189,6 +219,15 @@ pub struct RegistryParameter {
     /// Source type text when available.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub type_text: Option<String>,
+    /// Normalized parameter type kind when it can be classified.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub type_kind: Option<RegistryParameterTypeKind>,
+    /// Allowed values for enum parameters.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_values: Vec<String>,
+    /// Human-readable parameter documentation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     /// Default expression text when available.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default: Option<String>,
@@ -283,6 +322,9 @@ pub struct RegistryExtracted {
     /// Fields that could not be fully extracted.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub field_gaps: Vec<RegistryFieldGap>,
+    /// Generated usage guidance.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub best_practices: Vec<RegistryBestPractice>,
     /// Unknown extracted fields preserved across round trips.
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -430,6 +472,36 @@ fn validate_extracted(field: &str, extracted: &RegistryExtracted) -> Result<(), 
             if let Some(type_text) = &parameter.type_text {
                 require_non_empty(&format!("{parameter_field}.type_text"), type_text)?;
             }
+            if let Some(description) = &parameter.description {
+                require_non_empty(&format!("{parameter_field}.description"), description)?;
+            }
+            let mut allowed_values = BTreeSet::new();
+            for (value_index, value) in parameter.allowed_values.iter().enumerate() {
+                let value_field = format!("{parameter_field}.allowed_values[{value_index}]");
+                require_non_empty(&value_field, value)?;
+                if !allowed_values.insert(value) {
+                    return Err(RegistryError::ContractViolation {
+                        field: value_field,
+                        message: format!("duplicate allowed value `{value}`"),
+                    });
+                }
+            }
+            match parameter.type_kind {
+                Some(RegistryParameterTypeKind::Enum) if parameter.allowed_values.is_empty() => {
+                    return Err(RegistryError::ContractViolation {
+                        field: format!("{parameter_field}.allowed_values"),
+                        message: "enum parameters require at least one allowed value".to_owned(),
+                    });
+                }
+                Some(RegistryParameterTypeKind::Enum) => {}
+                _ if !parameter.allowed_values.is_empty() => {
+                    return Err(RegistryError::ContractViolation {
+                        field: format!("{parameter_field}.allowed_values"),
+                        message: "allowed values require type_kind `enum`".to_owned(),
+                    });
+                }
+                _ => {}
+            }
             if let Some(default) = &parameter.default {
                 require_non_empty(&format!("{parameter_field}.default"), default)?;
             }
@@ -458,6 +530,12 @@ fn validate_extracted(field: &str, extracted: &RegistryExtracted) -> Result<(), 
         let gap_field = format!("{field}.field_gaps[{index}]");
         require_non_empty(&format!("{gap_field}.field"), &gap.field)?;
         require_non_empty(&format!("{gap_field}.reason"), &gap.reason)?;
+    }
+    for (index, best_practice) in extracted.best_practices.iter().enumerate() {
+        require_non_empty(
+            &format!("{field}.best_practices[{index}].description"),
+            &best_practice.description,
+        )?;
     }
     Ok(())
 }

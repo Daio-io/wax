@@ -103,6 +103,21 @@
         }
       }
     },
+    "parameter_type_kind": {
+      "type": "string",
+      "enum": ["boolean", "string", "number", "enum", "function", "collection", "object"]
+    },
+    "best_practice": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["description"],
+      "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "parameter": {
       "type": "object",
       "additionalProperties": true,
@@ -116,6 +131,21 @@
           "type": "string",
           "minLength": 1
         },
+        "type_kind": {
+          "$ref": "#/$defs/parameter_type_kind"
+        },
+        "allowed_values": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
         "default": {
           "type": "string",
           "minLength": 1
@@ -123,7 +153,34 @@
         "required": {
           "type": "boolean"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type_kind": {
+                "const": "enum"
+              }
+            },
+            "required": ["type_kind"]
+          },
+          "then": {
+            "required": ["allowed_values"],
+            "properties": {
+              "allowed_values": {
+                "minItems": 1
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "allowed_values": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
     },
     "signature": {
       "type": "object",
@@ -226,6 +283,12 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/field_gap"
+          }
+        },
+        "best_practices": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/best_practice"
           }
         }
       }

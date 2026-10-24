@@ -8,6 +8,121 @@ fn registry(json: &str) -> RegistryDocument {
 }
 
 #[test]
+fn partial_discovery_with_guidance_replaces_best_practices() {
+    let existing = registry(
+        r#"{
+            "schema_version": 1,
+            "components": [{
+                "id": "button",
+                "symbol": "Button",
+                "extracted": {
+                    "status": "complete",
+                    "best_practices": [{"description": "Old guidance"}]
+                }
+            }]
+        }"#,
+    );
+    let discovered = registry(
+        r#"{
+            "schema_version": 1,
+            "components": [{
+                "id": "button",
+                "symbol": "Button",
+                "extracted": {
+                    "status": "partial",
+                    "best_practices": [{"description": "Fresh guidance"}]
+                }
+            }]
+        }"#,
+    );
+
+    let merged = merge_registry(Some(&existing), &discovered, false).expect("registry merges");
+    let best_practices = &merged.document.components[0]
+        .extracted
+        .as_ref()
+        .expect("extracted facts")
+        .best_practices;
+
+    assert_eq!(best_practices.len(), 1);
+    assert_eq!(best_practices[0].description, "Fresh guidance");
+}
+
+#[test]
+fn complete_discovery_clears_obsolete_best_practices() {
+    let existing = registry(
+        r#"{
+            "schema_version": 1,
+            "components": [{
+                "id": "button",
+                "symbol": "Button",
+                "extracted": {
+                    "status": "complete",
+                    "best_practices": [{"description": "Obsolete guidance"}]
+                }
+            }]
+        }"#,
+    );
+    let discovered = registry(
+        r#"{
+            "schema_version": 1,
+            "components": [{
+                "id": "button",
+                "symbol": "Button",
+                "extracted": {"status": "complete"}
+            }]
+        }"#,
+    );
+
+    let merged = merge_registry(Some(&existing), &discovered, true).expect("registry merges");
+
+    assert!(
+        merged.document.components[0]
+            .extracted
+            .as_ref()
+            .expect("extracted facts")
+            .best_practices
+            .is_empty()
+    );
+}
+
+#[test]
+fn partial_discovery_without_guidance_retains_prior_best_practices() {
+    let existing = registry(
+        r#"{
+            "schema_version": 1,
+            "components": [{
+                "id": "button",
+                "symbol": "Button",
+                "extracted": {
+                    "status": "complete",
+                    "best_practices": [{"description": "Retained guidance"}]
+                }
+            }]
+        }"#,
+    );
+    let discovered = registry(
+        r#"{
+            "schema_version": 1,
+            "components": [{
+                "id": "button",
+                "symbol": "Button",
+                "extracted": {"status": "partial"}
+            }]
+        }"#,
+    );
+
+    let merged = merge_registry(Some(&existing), &discovered, false).expect("registry merges");
+    let best_practices = &merged.document.components[0]
+        .extracted
+        .as_ref()
+        .expect("extracted facts")
+        .best_practices;
+
+    assert_eq!(best_practices.len(), 1);
+    assert_eq!(best_practices[0].description, "Retained guidance");
+}
+
+#[test]
 fn rediscovery_preserves_creator_content_and_tokens() {
     let existing = registry(
         r##"{

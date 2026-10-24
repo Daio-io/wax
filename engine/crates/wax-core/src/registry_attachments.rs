@@ -119,6 +119,7 @@ fn ensure_extracted(extracted: &mut Option<RegistryExtracted>) -> &mut RegistryE
         deprecation: None,
         attachments: Vec::new(),
         field_gaps: Vec::new(),
+        best_practices: Vec::new(),
         extra: serde_json::Map::new(),
     })
 }

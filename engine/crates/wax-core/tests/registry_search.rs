@@ -232,6 +232,15 @@ fn exact_details_retain_metadata_extensions_and_report_stable_errors() {
         "extracted": {
             "status": "complete",
             "documentation": "Use for primary actions.",
+            "signature": {
+                "parameters": [{
+                    "name": "size",
+                    "type_kind": "enum",
+                    "allowed_values": ["small", "large"],
+                    "description": "Visual size"
+                }]
+            },
+            "best_practices": [{"description": "Use one primary action"}],
             "attachments": [{
                 "kind": "example",
                 "path": "examples/button.tsx",
@@ -259,6 +268,14 @@ fn exact_details_retain_metadata_extensions_and_report_stable_errors() {
     assert_eq!(
         detail.entry["extracted"]["attachments"][0]["framework"],
         "react"
+    );
+    assert_eq!(
+        detail.entry["extracted"]["signature"]["parameters"][0]["type_kind"],
+        "enum"
+    );
+    assert_eq!(
+        detail.entry["extracted"]["best_practices"][0]["description"],
+        "Use one primary action"
     );
 
     let absent = lookup_registry_entry(
@@ -327,6 +344,25 @@ fn search_scores_typed_extracted_fields_not_nested_extra_keys() {
                     "extracted": {
                         "status": "complete",
                         "documentation": "Use in confirmation dialogs",
+                        "signature": {
+                            "parameters": [
+                                {
+                                    "name": "emphasisLevel",
+                                    "type_text": "InteractionMode",
+                                    "type_kind": "enum",
+                                    "allowed_values": ["prominent", "quiet"],
+                                    "description": "Visual priority treatment",
+                                    "default": "quiet"
+                                },
+                                {
+                                    "name": "items",
+                                    "type_kind": "collection"
+                                }
+                            ]
+                        },
+                        "best_practices": [{
+                            "description": "Avoid competing hero actions"
+                        }],
                         "attachments": [{
                             "kind": "example",
                             "path": "examples/panel.tsx",
@@ -339,8 +375,38 @@ fn search_scores_typed_extracted_fields_not_nested_extra_keys() {
                     "symbol": "Card",
                     "nested_docs": {
                         "documentation": "Use in confirmation dialogs",
-                        "content": "Checkout submit flow"
+                        "content": "Checkout submit flow",
+                        "name": "emphasisLevel",
+                        "type_text": "InteractionMode",
+                        "type_kind": "collection",
+                        "allowed_values": ["prominent"],
+                        "description": "Visual priority treatment",
+                        "default": "quiet",
+                        "best_practice": "Avoid competing hero actions"
                     }
+                },
+                {
+                    "id": "all-summary-sources",
+                    "symbol": "SummaryPrimary",
+                    "summary": "Published summary",
+                    "metadata": {"description": "Creator description"},
+                    "extracted": {
+                        "status": "complete",
+                        "documentation": "Generated documentation"
+                    }
+                },
+                {
+                    "id": "metadata-summary",
+                    "symbol": "MetadataSummary",
+                    "metadata": {"description": "Creator fallback"},
+                    "extracted": {
+                        "status": "complete",
+                        "documentation": "Generated fallback"
+                    }
+                },
+                {
+                    "id": "empty-summary",
+                    "symbol": "EmptySummary"
                 }
             ]),
             serde_json::json!([]),
@@ -355,5 +421,39 @@ fn search_scores_typed_extracted_fields_not_nested_extra_keys() {
             "query `{query}` should ignore nested extra documentation/content keys"
         );
         assert_eq!(response.results[0].id, "with-extracted-docs");
+    }
+
+    for query in [
+        "emphasis level",
+        "interaction mode",
+        "collection",
+        "prominent",
+        "quiet",
+        "visual priority treatment",
+        "competing hero actions",
+    ] {
+        let response = search_registry_entries(&snapshots, query, &Default::default()).unwrap();
+        assert_eq!(
+            response.results.len(),
+            1,
+            "query `{query}` should index only typed extracted fields"
+        );
+        assert_eq!(response.results[0].id, "with-extracted-docs");
+    }
+
+    let response =
+        search_registry_entries(&snapshots, "confirmation dialogs", &Default::default()).unwrap();
+    assert_eq!(response.results[0].summary, "Use in confirmation dialogs");
+
+    for (query, expected_summary) in [
+        ("summary primary", "Published summary"),
+        ("metadata summary", "Creator fallback"),
+        ("empty summary", ""),
+    ] {
+        let response = search_registry_entries(&snapshots, query, &Default::default()).unwrap();
+        assert_eq!(
+            response.results[0].summary, expected_summary,
+            "query: {query}"
+        );
     }
 }
