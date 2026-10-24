@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::{fs, io};
 
-use wax_contract::RegistryDocument;
+use wax_contract::{RegistryDocument, RegistryParameterTypeKind};
 use wax_lang_api::{
     DiscoverRegistryRequest, DiscoverRequest, DiscoverRequestType, WIRE_API_VERSION,
 };
@@ -56,8 +56,8 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
             "status": "complete",
             "source_evidence": {
                 "path": "design-system/src/rich.tsx",
-                "start_line": 22,
-                "end_line": 24
+                "start_line": 25,
+                "end_line": 27
             },
             "documentation": "A button used for important actions.",
             "signature": {
@@ -66,12 +66,17 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
                     {
                         "name": "tone",
                         "type_text": "\"strong\" | \"quiet\"",
+                        "type_kind": "enum",
+                        "allowed_values": ["\"strong\"", "\"quiet\""],
+                        "description": "Visual emphasis.",
                         "default": "\"strong\"",
                         "required": false
                     },
                     {
                         "name": "disabled",
                         "type_text": "boolean",
+                        "type_kind": "boolean",
+                        "description": "Prevents interaction.",
                         "required": true
                     }
                 ]
@@ -84,7 +89,11 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
                 "path": "design-system/src/rich.tsx",
                 "content": "<Button tone=\"quiet\" />",
                 "language": "tsx"
-            }]
+            }],
+            "best_practices": [
+                {"description": "Use for high-priority actions."},
+                {"description": "Keep labels concise."}
+            ]
         })
     );
 }
@@ -133,6 +142,208 @@ export const ImportedButton = ({ size }: ImportedProps) => <button data-size={si
                 "reason": "props type `ImportedProps` is imported or unavailable locally"
             }]
         })
+    );
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_omits_structured_kind_for_mixed_union() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let src = tempdir.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(
+        src.join("MixedButton.tsx"),
+        r#"interface MixedButtonProps {
+  tone: "strong" | CustomTone;
+}
+export function MixedButton({ tone }: MixedButtonProps) {
+  return <button data-tone={tone} />;
+}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "mixed", "symbol": "MixedButton"}]
+    }))
+    .unwrap();
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "react".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("rich discover should succeed");
+    let parameter = &result.document.components[0]
+        .extracted
+        .as_ref()
+        .unwrap()
+        .signature
+        .as_ref()
+        .unwrap()
+        .parameters[0];
+
+    assert_eq!(
+        serde_json::to_value(parameter).unwrap(),
+        serde_json::json!({
+            "name": "tone",
+            "type_text": "\"strong\" | CustomTone",
+            "required": true
+        })
+    );
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_deduplicates_enum_values() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let src = tempdir.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(
+        src.join("DuplicateButton.tsx"),
+        r#"interface DuplicateButtonProps {
+  tone: "strong" | "quiet" | "strong";
+}
+export function DuplicateButton({ tone }: DuplicateButtonProps) {
+  return <button data-tone={tone} />;
+}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "duplicate", "symbol": "DuplicateButton"}]
+    }))
+    .unwrap();
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "react".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("rich discover should succeed");
+    let parameter = &result.document.components[0]
+        .extracted
+        .as_ref()
+        .unwrap()
+        .signature
+        .as_ref()
+        .unwrap()
+        .parameters[0];
+
+    assert_eq!(parameter.type_kind, Some(RegistryParameterTypeKind::Enum));
+    assert_eq!(parameter.allowed_values, vec!["\"strong\"", "\"quiet\""]);
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_does_not_classify_open_ended_template_literal_as_enum()
+-> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let src = tempdir.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(
+        src.join("TemplateButton.tsx"),
+        r#"interface TemplateButtonProps {
+  size: `size-${string}` | "auto";
+}
+export function TemplateButton({ size }: TemplateButtonProps) {
+  return <button data-size={size} />;
+}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "template", "symbol": "TemplateButton"}]
+    }))
+    .unwrap();
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "react".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("rich discover should succeed");
+    let parameter = &result.document.components[0]
+        .extracted
+        .as_ref()
+        .unwrap()
+        .signature
+        .as_ref()
+        .unwrap()
+        .parameters[0];
+
+    assert_eq!(
+        parameter.type_text.as_deref(),
+        Some("`size-${string}` | \"auto\"")
+    );
+    assert_eq!(parameter.type_kind, None);
+    assert!(parameter.allowed_values.is_empty());
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_classifies_syntax_proven_parameter_kinds() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let src = tempdir.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(
+        src.join("FactButton.tsx"),
+        r#"interface FactButtonProps {
+  label: string;
+  count: number;
+  onPress: () => void;
+  items: string[];
+  pair: [string, number];
+  settings: { compact: boolean };
+  metadata: object;
+}
+export function FactButton(props: FactButtonProps) {
+  return <button>{props.label}</button>;
+}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "facts", "symbol": "FactButton"}]
+    }))
+    .unwrap();
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "react".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("rich discover should succeed");
+    let parameters = &result.document.components[0]
+        .extracted
+        .as_ref()
+        .unwrap()
+        .signature
+        .as_ref()
+        .unwrap()
+        .parameters;
+
+    assert_eq!(
+        parameters
+            .iter()
+            .map(|parameter| parameter.type_kind)
+            .collect::<Vec<_>>(),
+        vec![
+            Some(RegistryParameterTypeKind::String),
+            Some(RegistryParameterTypeKind::Number),
+            Some(RegistryParameterTypeKind::Function),
+            Some(RegistryParameterTypeKind::Collection),
+            Some(RegistryParameterTypeKind::Collection),
+            Some(RegistryParameterTypeKind::Object),
+            Some(RegistryParameterTypeKind::Object),
+        ]
     );
     Ok(())
 }
@@ -418,11 +629,13 @@ fn discover_registry_details_extracts_inline_props_type_literal() -> io::Result<
                     {
                         "name": "label",
                         "type_text": "string",
+                        "type_kind": "string",
                         "required": true
                     },
                     {
                         "name": "optional",
                         "type_text": "boolean",
+                        "type_kind": "boolean",
                         "required": false
                     }
                 ]
