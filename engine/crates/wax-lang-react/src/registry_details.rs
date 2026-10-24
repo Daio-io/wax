@@ -459,6 +459,9 @@ fn parameters_from_members(
             Some(RegistryParameter {
                 name,
                 type_text,
+                type_kind: None,
+                allowed_values: Vec::new(),
+                description: None,
                 default: None,
                 required: Some(!property.optional),
                 extra: Map::new(),
@@ -530,6 +533,7 @@ fn extracted_component(
         deprecation: jsdoc.deprecation,
         attachments,
         field_gaps,
+        best_practices: Vec::new(),
         extra: Map::new(),
     }
 }
@@ -809,6 +813,7 @@ fn enrich_explicit_tokens(
             deprecation: None,
             attachments: Vec::new(),
             field_gaps: Vec::new(),
+            best_practices: Vec::new(),
             extra: Map::new(),
         });
     }
@@ -827,6 +832,7 @@ fn unavailable(field: &str, reason: &str) -> RegistryExtracted {
             reason: reason.to_owned(),
             extra: Map::new(),
         }],
+        best_practices: Vec::new(),
         extra: Map::new(),
     }
 }

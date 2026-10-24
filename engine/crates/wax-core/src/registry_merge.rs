@@ -313,6 +313,9 @@ fn merge_extracted(
     if !discovered.field_gaps.is_empty() {
         merged.field_gaps.clone_from(&discovered.field_gaps);
     }
+    if !discovered.best_practices.is_empty() {
+        merged.best_practices.clone_from(&discovered.best_practices);
+    }
     merged.extra.extend(discovered.extra.clone());
     Some(merged)
 }
@@ -326,6 +329,7 @@ fn not_observed(existing: Option<&RegistryExtracted>) -> RegistryExtracted {
         deprecation: None,
         attachments: Vec::new(),
         field_gaps: Vec::new(),
+        best_practices: Vec::new(),
         extra: serde_json::Map::new(),
     });
     extracted.status = RegistryExtractionStatus::NotObserved;

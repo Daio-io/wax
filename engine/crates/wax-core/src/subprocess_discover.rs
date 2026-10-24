@@ -416,6 +416,7 @@ fn unavailable_extraction() -> RegistryExtracted {
         deprecation: None,
         attachments: Vec::new(),
         field_gaps: Vec::new(),
+        best_practices: Vec::new(),
         extra: serde_json::Map::new(),
     }
 }

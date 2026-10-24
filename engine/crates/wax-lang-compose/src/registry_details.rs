@@ -193,6 +193,7 @@ fn extracted_component(
         deprecation,
         attachments,
         field_gaps,
+        best_practices: Vec::new(),
         extra: Map::new(),
     }
 }
@@ -267,6 +268,9 @@ fn parameters_from_function(
         parameters.push(RegistryParameter {
             name,
             type_text,
+            type_kind: None,
+            allowed_values: Vec::new(),
+            description: None,
             default: default.clone(),
             required: Some(default.is_none()),
             extra: Map::new(),
@@ -651,6 +655,7 @@ fn enrich_explicit_tokens(
             deprecation: None,
             attachments: Vec::new(),
             field_gaps: Vec::new(),
+            best_practices: Vec::new(),
             extra: Map::new(),
         });
     }
@@ -675,6 +680,7 @@ fn unavailable(field: &str, reason: &str) -> RegistryExtracted {
             reason: reason.to_owned(),
             extra: Map::new(),
         }],
+        best_practices: Vec::new(),
         extra: Map::new(),
     }
 }
