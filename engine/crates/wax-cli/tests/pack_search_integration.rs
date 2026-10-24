@@ -154,6 +154,23 @@ fn remember_local_registry(
     );
 }
 
+fn prepare_pack_registry(root: &TestDir, wax_home: &Path, pack: &PackCase) -> RegistryDocument {
+    let document = publish_merged_registry(pack);
+    let registry_path = root.path.join(format!("{}-guidance.json", pack.language));
+    fs::write(
+        &registry_path,
+        registry_to_json(&document).expect("serialize registry"),
+    )
+    .expect("write registry");
+    remember_local_registry(
+        wax_home,
+        pack.design_system_id,
+        pack.language,
+        &registry_path,
+    );
+    document
+}
+
 fn run_wax(wax_home: &Path, repo: &Path, args: &[&str]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_wax"))
         .args(args)
@@ -175,19 +192,7 @@ fn parser_packs_publish_merge_then_search_and_detail() {
     let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
 
     for pack in &pack_cases() {
-        let document = publish_merged_registry(pack);
-        let registry_path = root.path.join(format!("{}.registry.json", pack.language));
-        fs::write(
-            &registry_path,
-            registry_to_json(&document).expect("serialize registry"),
-        )
-        .expect("write registry");
-        remember_local_registry(
-            &wax_home,
-            pack.design_system_id,
-            pack.language,
-            &registry_path,
-        );
+        let _document = prepare_pack_registry(&root, &wax_home, pack);
 
         let search = run_wax(
             &wax_home,
@@ -270,33 +275,16 @@ fn parser_packs_search_guidance_then_return_snapshot_pinned_facts() {
     let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
 
     for pack in &pack_cases() {
-        let document = publish_merged_registry(pack);
+        let document = prepare_pack_registry(&root, &wax_home, pack);
         let expected_entry = serde_json::to_value(&document.components[0]).unwrap();
-        let guidance_query = document.components[0]
-            .extracted
-            .as_ref()
-            .and_then(|extracted| extracted.best_practices.first())
-            .map(|practice| practice.description.as_str())
-            .expect("pack guidance");
         let registry_path = root.path.join(format!("{}-guidance.json", pack.language));
-        fs::write(
-            &registry_path,
-            registry_to_json(&document).expect("serialize registry"),
-        )
-        .expect("write registry");
-        remember_local_registry(
-            &wax_home,
-            pack.design_system_id,
-            pack.language,
-            &registry_path,
-        );
 
         let search = run_wax(
             &wax_home,
             &repo,
             &[
                 "search",
-                guidance_query,
+                "touch-first",
                 "--design-system",
                 pack.design_system_id,
                 "--kind",

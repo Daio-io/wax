@@ -18,8 +18,7 @@ export interface ButtonProps {
  * @deprecated Use ActionButton instead.
  * @example
  * <Button tone="quiet" />
- * @guidance - Use for high-priority actions.
- * @guidance -
+ * @guidance Prefer touch-first controls.
  * @guidance Keep labels concise.
  */
 export function RichButton({ tone = "strong", disabled }: ButtonProps) {

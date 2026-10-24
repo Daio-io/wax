@@ -2,10 +2,10 @@ import SwiftUI
 
 /// A button used for important actions.
 /// - Parameters:
-///   - tone: Controls the button's visual emphasis.
+///   - tone: Visual emphasis.
 ///   - disabled: Whether the button ignores interaction.
-/// - Guidance: Use quiet for secondary actions.
-/// - Guidance: Reserve strong for the primary action.
+/// - Guidance: Prefer touch-first controls.
+/// - Guidance: Keep labels concise.
 ///
 /// Example:
 /// ```swift

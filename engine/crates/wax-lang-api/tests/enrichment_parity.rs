@@ -133,7 +133,11 @@ fn summarize(language: &'static str, document: &RegistryDocument) -> PackEnrichm
         documentation: extracted.documentation.clone(),
         parameter_count: parameters.len(),
         parameter_description: enum_parameter.description.clone(),
-        enum_values: enum_parameter.allowed_values.clone(),
+        enum_values: enum_parameter
+            .allowed_values
+            .iter()
+            .map(|value| value.trim_matches('"').to_owned())
+            .collect(),
         best_practices: extracted
             .best_practices
             .iter()
@@ -196,6 +200,24 @@ fn parser_packs_share_rich_button_enrichment_semantics() {
         assert!(
             pack.has_example_attachment,
             "{} should materialize an example attachment",
+            pack.language
+        );
+    }
+
+    for pack in &packs[1..] {
+        assert_eq!(
+            pack.parameter_description, packs[0].parameter_description,
+            "{} should match React's enum parameter description",
+            pack.language
+        );
+        assert_eq!(
+            pack.enum_values, packs[0].enum_values,
+            "{} should match React's enum values",
+            pack.language
+        );
+        assert_eq!(
+            pack.best_practices, packs[0].best_practices,
+            "{} should match React's ordered best practices",
             pack.language
         );
     }
