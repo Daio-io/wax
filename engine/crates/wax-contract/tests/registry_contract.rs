@@ -50,6 +50,13 @@ fn assert_schema_valid(validator: &jsonschema::Validator, value: &serde_json::Va
     );
 }
 
+fn assert_schema_invalid(validator: &jsonschema::Validator, value: &serde_json::Value) {
+    assert!(
+        validator.iter_errors(value).next().is_some(),
+        "expected schema rejection\nvalue={value}"
+    );
+}
+
 #[test]
 fn legacy_and_enriched_registry_roundtrip() {
     let component_only = registry_from_json(&fixture("legacy-component-only.json"))
@@ -248,6 +255,7 @@ fn structured_parameter_and_guidance_validate() {
             matches!(error, RegistryError::ContractViolation { ref field, .. } if field == expected_field),
             "case: {case}; error: {error}"
         );
+        assert_schema_invalid(&registry_schema(), &input);
     }
 
     let empty_guidance = serde_json::json!({
