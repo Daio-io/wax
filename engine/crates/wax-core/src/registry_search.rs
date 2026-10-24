@@ -5,8 +5,8 @@ use serde_json::{Map, Value};
 use wax_contract::{
     LanguageId, REGISTRY_LOOKUP_SCHEMA_VERSION, RegistryComponent, RegistryDetailResponse,
     RegistryEntryKind, RegistryExtracted, RegistryLookupError, RegistryLookupErrorCode,
-    RegistryMetadata, RegistrySearchFilters, RegistrySearchResponse, RegistrySearchResult,
-    RegistryToken,
+    RegistryMetadata, RegistryParameterTypeKind, RegistrySearchFilters, RegistrySearchResponse,
+    RegistrySearchResult, RegistryToken,
 };
 
 use crate::registry_cache::RegistrySnapshot;
@@ -299,9 +299,42 @@ fn descriptive_score(
         .and_then(Value::as_str)
         .and_then(|summary| match_score(summary, query))
         .map(|score| SCORE_DESCRIPTIVE + score);
+    let parameter_score = extracted
+        .into_iter()
+        .flat_map(|extracted| extracted.signature.iter())
+        .flat_map(|signature| signature.parameters.iter())
+        .flat_map(|parameter| {
+            std::iter::once(parameter.name.as_str())
+                .chain(parameter.type_text.iter().map(String::as_str))
+                .chain(
+                    parameter
+                        .type_kind
+                        .iter()
+                        .map(|kind| parameter_type_kind_name(*kind)),
+                )
+                .chain(parameter.allowed_values.iter().map(String::as_str))
+                .chain(parameter.default.iter().map(String::as_str))
+        })
+        .filter_map(|field| match_score(field, query))
+        .min()
+        .map(|score| SCORE_DESCRIPTIVE + score);
     let documentation_score = extracted
         .and_then(|extracted| extracted.documentation.as_deref())
         .and_then(|documentation| match_score(documentation, query))
+        .map(|score| SCORE_DOCS + score);
+    let parameter_description_score = extracted
+        .into_iter()
+        .flat_map(|extracted| extracted.signature.iter())
+        .flat_map(|signature| signature.parameters.iter())
+        .flat_map(|parameter| parameter.description.iter())
+        .filter_map(|description| match_score(description, query))
+        .min()
+        .map(|score| SCORE_DOCS + score);
+    let best_practice_score = extracted
+        .into_iter()
+        .flat_map(|extracted| extracted.best_practices.iter())
+        .filter_map(|best_practice| match_score(&best_practice.description, query))
+        .min()
         .map(|score| SCORE_DOCS + score);
     let attachment_score = extracted
         .into_iter()
@@ -309,13 +342,18 @@ fn descriptive_score(
         .filter_map(|attachment| match_score(&attachment.content, query))
         .min()
         .map(|score| SCORE_DOCS + score);
-    min_score(
-        min_score(
-            min_score(metadata_score, summary_score),
-            documentation_score,
-        ),
+    [
+        metadata_score,
+        summary_score,
+        parameter_score,
+        documentation_score,
+        parameter_description_score,
+        best_practice_score,
         attachment_score,
-    )
+    ]
+    .into_iter()
+    .flatten()
+    .min()
 }
 
 fn match_score(field: &str, query: &Normalized) -> Option<u16> {
@@ -378,20 +416,37 @@ fn search_result(
         kind,
         id,
         label,
-        summary: entry_summary(metadata, extra),
+        summary: entry_summary(metadata, extracted, extra),
         extraction_status: extracted.map(|extracted| extracted.status),
         extra: Map::new(),
     }
 }
 
-fn entry_summary(metadata: Option<&RegistryMetadata>, extra: &Map<String, Value>) -> String {
+fn entry_summary(
+    metadata: Option<&RegistryMetadata>,
+    extracted: Option<&RegistryExtracted>,
+    extra: &Map<String, Value>,
+) -> String {
     let text = extra
         .get("summary")
         .and_then(Value::as_str)
         .map(str::to_owned)
         .or_else(|| metadata.and_then(|metadata| metadata.description.clone()))
+        .or_else(|| extracted.and_then(|extracted| extracted.documentation.clone()))
         .unwrap_or_default();
     text.chars().take(MAX_SUMMARY_CHARS).collect()
+}
+
+fn parameter_type_kind_name(kind: RegistryParameterTypeKind) -> &'static str {
+    match kind {
+        RegistryParameterTypeKind::Boolean => "boolean",
+        RegistryParameterTypeKind::String => "string",
+        RegistryParameterTypeKind::Number => "number",
+        RegistryParameterTypeKind::Enum => "enum",
+        RegistryParameterTypeKind::Function => "function",
+        RegistryParameterTypeKind::Collection => "collection",
+        RegistryParameterTypeKind::Object => "object",
+    }
 }
 
 fn token_category_name(token: &RegistryToken) -> &'static str {

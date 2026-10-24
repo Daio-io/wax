@@ -2,8 +2,9 @@ use std::collections::BTreeSet;
 
 use wax_contract::{
     RegistryDetailResponse, RegistryDocument, RegistryEntryKind, RegistryError,
-    RegistryExtractionStatus, RegistryLookupError, RegistryLookupErrorCode, RegistrySearchResponse,
-    RegistrySnapshotRef, TokenCategory, registry_from_json, registry_to_json,
+    RegistryExtractionStatus, RegistryLookupError, RegistryLookupErrorCode,
+    RegistryParameterTypeKind, RegistrySearchResponse, RegistrySnapshotRef, TokenCategory,
+    registry_from_json, registry_to_json,
 };
 
 fn fixture(name: &str) -> String {
@@ -114,6 +115,25 @@ fn legacy_and_enriched_registry_roundtrip() {
     assert_eq!(metadata.sources.len(), 3);
     let extracted = button.extracted.as_ref().expect("extracted");
     assert_eq!(extracted.status, RegistryExtractionStatus::Partial);
+    let parameters = &extracted.signature.as_ref().expect("signature").parameters;
+    assert_eq!(
+        parameters[0].type_kind,
+        Some(RegistryParameterTypeKind::String)
+    );
+    assert_eq!(
+        parameters[0].description.as_deref(),
+        Some("Visible button label")
+    );
+    assert_eq!(
+        parameters[0].extra.get("type"),
+        Some(&serde_json::json!("legacy-string"))
+    );
+    assert_eq!(parameters[3].allowed_values, ["small", "medium", "large"]);
+    assert_eq!(extracted.best_practices.len(), 1);
+    assert_eq!(
+        extracted.best_practices[0].extra.get("source"),
+        Some(&serde_json::json!("design-guidelines"))
+    );
     assert_eq!(extracted.field_gaps.len(), 1);
     assert_eq!(
         extracted
@@ -159,10 +179,123 @@ fn legacy_and_enriched_registry_roundtrip() {
 }
 
 #[test]
+fn structured_parameter_and_guidance_validate() {
+    let valid = serde_json::json!({
+        "schema_version": 1,
+        "components": [{
+            "id": "button",
+            "symbol": "Button",
+            "extracted": {
+                "status": "complete",
+                "signature": {
+                    "parameters": [{
+                        "name": "size",
+                        "type_kind": "enum",
+                        "allowed_values": ["small", "large"],
+                        "description": "Visual size"
+                    }]
+                },
+                "best_practices": [{"description": "Use one primary action"}]
+            }
+        }]
+    });
+    registry_from_json(&valid.to_string()).expect("structured facts should validate");
+    assert_schema_valid(&registry_schema(), &valid);
+
+    let invalid_cases = [
+        (
+            "empty parameter description",
+            serde_json::json!({"description": ""}),
+            "components[0].extracted.signature.parameters[0].description",
+        ),
+        (
+            "empty allowed value",
+            serde_json::json!({"type_kind": "enum", "allowed_values": [""]}),
+            "components[0].extracted.signature.parameters[0].allowed_values[0]",
+        ),
+        (
+            "duplicate allowed value",
+            serde_json::json!({"type_kind": "enum", "allowed_values": ["small", "small"]}),
+            "components[0].extracted.signature.parameters[0].allowed_values[1]",
+        ),
+        (
+            "allowed values on non-enum",
+            serde_json::json!({"type_kind": "string", "allowed_values": ["small"]}),
+            "components[0].extracted.signature.parameters[0].allowed_values",
+        ),
+        (
+            "enum without allowed values",
+            serde_json::json!({"type_kind": "enum"}),
+            "components[0].extracted.signature.parameters[0].allowed_values",
+        ),
+    ];
+
+    for (case, mut parameter, expected_field) in invalid_cases {
+        parameter["name"] = serde_json::json!("value");
+        let input = serde_json::json!({
+            "schema_version": 1,
+            "components": [{
+                "id": "button",
+                "symbol": "Button",
+                "extracted": {
+                    "status": "complete",
+                    "signature": {"parameters": [parameter]}
+                }
+            }]
+        });
+        let error = registry_from_json(&input.to_string()).expect_err(case);
+        assert!(
+            matches!(error, RegistryError::ContractViolation { ref field, .. } if field == expected_field),
+            "case: {case}; error: {error}"
+        );
+    }
+
+    let empty_guidance = serde_json::json!({
+        "schema_version": 1,
+        "components": [{
+            "id": "button",
+            "symbol": "Button",
+            "extracted": {
+                "status": "complete",
+                "best_practices": [{"description": ""}]
+            }
+        }]
+    });
+    let error = registry_from_json(&empty_guidance.to_string())
+        .expect_err("empty best-practice description must fail");
+    assert!(matches!(
+        error,
+        RegistryError::ContractViolation { field, .. }
+            if field == "components[0].extracted.best_practices[0].description"
+    ));
+}
+
+#[test]
 fn malformed_known_fields_and_duplicate_ids_fail() {
     let err = registry_from_json(r#"{"schema_version":1,"components":[{"id":"a","symbol":1}]}"#)
         .expect_err("symbol must be a string");
     assert!(matches!(err, RegistryError::InvalidJson(_)));
+
+    for malformed_parameter in [
+        serde_json::json!({"name": "size", "type_kind": "choice"}),
+        serde_json::json!({"name": "size", "allowed_values": "small"}),
+        serde_json::json!({"name": "size", "description": false}),
+    ] {
+        let input = serde_json::json!({
+            "schema_version": 1,
+            "components": [{
+                "id": "button",
+                "symbol": "Button",
+                "extracted": {
+                    "status": "complete",
+                    "signature": {"parameters": [malformed_parameter]}
+                }
+            }]
+        });
+        let err = registry_from_json(&input.to_string())
+            .expect_err("malformed structured parameter field must fail");
+        assert!(matches!(err, RegistryError::InvalidJson(_)));
+    }
 
     let err = registry_from_json(r#"{"schema_version":2,"components":[{"id":"a","symbol":"A"}]}"#)
         .expect_err("schema_version must remain 1");
