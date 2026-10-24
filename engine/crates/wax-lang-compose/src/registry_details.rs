@@ -312,7 +312,7 @@ fn parameter_type_facts(
     let Some(type_text) = type_text.map(str::trim).filter(|text| !text.is_empty()) else {
         return (None, Vec::new());
     };
-    if type_text.contains("->") {
+    if has_top_level_function_arrow(type_text) {
         return (Some(RegistryParameterTypeKind::Function), Vec::new());
     }
 
@@ -357,6 +357,34 @@ fn parameter_type_facts(
     }
 
     (None, Vec::new())
+}
+
+fn has_top_level_function_arrow(type_text: &str) -> bool {
+    let mut angle_depth: usize = 0;
+    let mut paren_depth: usize = 0;
+    let mut bracket_depth: usize = 0;
+    let chars = type_text.chars().collect::<Vec<_>>();
+
+    for (index, character) in chars.iter().copied().enumerate() {
+        match character {
+            '<' => angle_depth += 1,
+            '>' => angle_depth = angle_depth.saturating_sub(1),
+            '(' => paren_depth += 1,
+            ')' => paren_depth = paren_depth.saturating_sub(1),
+            '[' => bracket_depth += 1,
+            ']' => bracket_depth = bracket_depth.saturating_sub(1),
+            '-' if chars.get(index + 1) == Some(&'>')
+                && angle_depth == 0
+                && paren_depth == 0
+                && bracket_depth == 0 =>
+            {
+                return true;
+            }
+            _ => {}
+        }
+    }
+
+    false
 }
 
 fn is_collection_type(type_text: &str) -> bool {
@@ -513,6 +541,9 @@ fn local_enum_values(root: tree_sitter::Node<'_>, source: &[u8]) -> BTreeMap<Str
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
         if node.kind() == "class_declaration"
+            && node
+                .parent()
+                .is_some_and(|parent| parent.kind() == "source_file")
             && is_enum_class(node, source)
             && let Some(name) = node
                 .child_by_field_name("name")

@@ -479,6 +479,96 @@ fun Kinds(
 }
 
 #[test]
+fn discover_registry_details_classifies_outer_collection_with_function_argument() -> io::Result<()>
+{
+    let tempdir = tempfile::tempdir()?;
+    let src = tempdir.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(
+        src.join("Callbacks.kt"),
+        r#"package com.example
+
+@Composable
+fun Callbacks(callbacks: List<() -> Unit>) {}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "callbacks", "symbol": "Callbacks", "package": "com.example"}]
+    }))
+    .unwrap();
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "compose".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("rich discover should succeed");
+    let parameter = &result.document.components[0]
+        .extracted
+        .as_ref()
+        .unwrap()
+        .signature
+        .as_ref()
+        .unwrap()
+        .parameters[0];
+
+    assert_eq!(
+        parameter.type_kind,
+        Some(wax_contract::RegistryParameterTypeKind::Collection)
+    );
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_does_not_use_nested_enum_with_same_name() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let src = tempdir.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(
+        src.join("Styles.kt"),
+        r#"package com.example
+
+enum class Style { Compact, Comfortable }
+
+object Unrelated {
+    enum class Style { Wrong, AlsoWrong }
+}
+
+@Composable
+fun Styled(style: Style) {}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "styled", "symbol": "Styled", "package": "com.example"}]
+    }))
+    .unwrap();
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "compose".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("rich discover should succeed");
+    let parameter = &result.document.components[0]
+        .extracted
+        .as_ref()
+        .unwrap()
+        .signature
+        .as_ref()
+        .unwrap()
+        .parameters[0];
+
+    assert_eq!(parameter.allowed_values, vec!["Compact", "Comfortable"]);
+    Ok(())
+}
+
+#[test]
 fn discover_registry_details_enriches_only_explicitly_associated_tokens() -> io::Result<()> {
     let tempdir = tempfile::tempdir()?;
     let src = tempdir.path().join("src");
