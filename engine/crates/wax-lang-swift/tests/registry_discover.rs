@@ -53,8 +53,8 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
             "status": "complete",
             "source_evidence": {
                 "path": "design-system/Sources/AcmeDesignSystem/RichComponents.swift",
-                "start_line": 9,
-                "end_line": 16
+                "start_line": 14,
+                "end_line": 21
             },
             "documentation": "A button used for important actions.",
             "signature": {
@@ -63,12 +63,17 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
                     {
                         "name": "tone",
                         "type_text": "Tone",
+                        "type_kind": "enum",
+                        "allowed_values": ["strong", "quiet"],
+                        "description": "Controls the button's visual emphasis.",
                         "default": ".strong",
                         "required": false
                     },
                     {
                         "name": "disabled",
                         "type_text": "Bool",
+                        "type_kind": "boolean",
+                        "description": "Whether the button ignores interaction.",
                         "required": true
                     }
                 ]
@@ -81,9 +86,77 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
                 "path": "design-system/Sources/AcmeDesignSystem/RichComponents.swift",
                 "content": "RichButton(tone: .quiet, disabled: false)",
                 "language": "swift"
-            }]
+            }],
+            "best_practices": [
+                {"description": "Use quiet for secondary actions."},
+                {"description": "Reserve strong for the primary action."}
+            ]
         })
     );
+}
+
+#[test]
+fn discover_registry_details_parses_docc_parameter_blocks_and_continuations() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let sources = tempdir.path().join("Sources");
+    fs::create_dir_all(&sources)?;
+    fs::write(
+        sources.join("DocumentedCard.swift"),
+        r#"import SwiftUI
+
+/// Renders documented content.
+/// - Parameter title: The visible title
+///   shown above the content.
+/// - Parameters:
+///   - internalAction: Runs when selected.
+///   - missing: Must not synthesize a parameter.
+///   - count:
+///   - count: Number of rows.
+///   - title: A duplicate must not replace the first description.
+public func DocumentedCard(
+    _ title: String,
+    action internalAction: () -> Void,
+    count: Int
+) -> some View {
+    Text(title)
+}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "documented", "symbol": "DocumentedCard"}]
+    }))
+    .expect("registry fixture");
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "swift".try_into().expect("swift id"),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["Sources".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("documented discover should succeed");
+    let parameters = &result.document.components[0]
+        .extracted
+        .as_ref()
+        .expect("component should be enriched")
+        .signature
+        .as_ref()
+        .expect("function should have a signature")
+        .parameters;
+
+    assert_eq!(
+        parameters
+            .iter()
+            .map(|parameter| (parameter.name.as_str(), parameter.description.as_deref()))
+            .collect::<Vec<_>>(),
+        vec![
+            ("title", Some("The visible title shown above the content.")),
+            ("internalAction", Some("Runs when selected.")),
+            ("count", Some("Number of rows.")),
+        ]
+    );
+    Ok(())
 }
 
 #[test]
@@ -96,7 +169,10 @@ fn discover_registry_details_marks_imported_type_facts_unavailable() -> io::Resu
         r#"import SwiftUI
 import VendorKit
 
-public func ImportedCard(configuration: VendorKit.Configuration) -> some View {
+public func ImportedCard(
+    configuration: VendorKit.Configuration,
+    result: Result<String, Error>
+) -> some View {
     Text(configuration.title)
 }
 
@@ -138,6 +214,268 @@ public func ImportedCard(configuration: VendorKit.Configuration) -> some View {
         gap.field == "signature.parameters.configuration.type_details"
             && gap.reason.contains("imported")
     }));
+    assert_eq!(
+        extracted
+            .field_gaps
+            .iter()
+            .map(|gap| gap.field.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "signature.parameters.configuration.type_details",
+            "signature.parameters.result.type_details",
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_classifies_direct_swift_type_shapes() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let sources = tempdir.path().join("Sources");
+    fs::create_dir_all(&sources)?;
+    fs::write(
+        sources.join("ShapeCard.swift"),
+        r#"import SwiftUI
+
+enum Tone {
+    case strong, quiet
+}
+
+enum Empty {}
+
+struct Container {
+    enum Nested {
+        case value
+    }
+}
+
+public func ShapeCard(
+    enabled: Bool?,
+    title: Character,
+    subtitle: String,
+    count: Int16,
+    unsigned: UInt8,
+    opacity: Float,
+    ratio: Double,
+    action: () -> Void,
+    names: [String],
+    items: Array<String>,
+    tags: Set<String>,
+    lookup: Dictionary<String, Int>,
+    pair: (String, Int),
+    tone: Tone?,
+    configuration: Configuration,
+    imported: Vendor.Configuration,
+    generic: Result<String, Error>,
+    genericAction: (Result<String, Error>) -> Void,
+    empty: Empty,
+    nested: Container.Nested
+) -> some View {
+    Text("shape")
+}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "shape", "symbol": "ShapeCard"}]
+    }))
+    .expect("registry fixture");
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "swift".try_into().expect("swift id"),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["Sources".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("shape discover should succeed");
+    let parameters = &result.document.components[0]
+        .extracted
+        .as_ref()
+        .expect("component should be enriched")
+        .signature
+        .as_ref()
+        .expect("function should have a signature")
+        .parameters;
+
+    assert_eq!(
+        parameters
+            .iter()
+            .map(|parameter| {
+                (
+                    parameter.name.as_str(),
+                    parameter.type_kind,
+                    parameter.allowed_values.clone(),
+                )
+            })
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                "enabled",
+                Some(wax_contract::RegistryParameterTypeKind::Boolean),
+                vec![]
+            ),
+            (
+                "title",
+                Some(wax_contract::RegistryParameterTypeKind::String),
+                vec![]
+            ),
+            (
+                "subtitle",
+                Some(wax_contract::RegistryParameterTypeKind::String),
+                vec![]
+            ),
+            (
+                "count",
+                Some(wax_contract::RegistryParameterTypeKind::Number),
+                vec![]
+            ),
+            (
+                "unsigned",
+                Some(wax_contract::RegistryParameterTypeKind::Number),
+                vec![]
+            ),
+            (
+                "opacity",
+                Some(wax_contract::RegistryParameterTypeKind::Number),
+                vec![]
+            ),
+            (
+                "ratio",
+                Some(wax_contract::RegistryParameterTypeKind::Number),
+                vec![]
+            ),
+            (
+                "action",
+                Some(wax_contract::RegistryParameterTypeKind::Function),
+                vec![]
+            ),
+            (
+                "names",
+                Some(wax_contract::RegistryParameterTypeKind::Collection),
+                vec![]
+            ),
+            (
+                "items",
+                Some(wax_contract::RegistryParameterTypeKind::Collection),
+                vec![]
+            ),
+            (
+                "tags",
+                Some(wax_contract::RegistryParameterTypeKind::Collection),
+                vec![]
+            ),
+            (
+                "lookup",
+                Some(wax_contract::RegistryParameterTypeKind::Collection),
+                vec![]
+            ),
+            (
+                "pair",
+                Some(wax_contract::RegistryParameterTypeKind::Collection),
+                vec![]
+            ),
+            (
+                "tone",
+                Some(wax_contract::RegistryParameterTypeKind::Enum),
+                vec!["strong".to_owned(), "quiet".to_owned()]
+            ),
+            (
+                "configuration",
+                Some(wax_contract::RegistryParameterTypeKind::Object),
+                vec![]
+            ),
+            ("imported", None, vec![]),
+            ("generic", None, vec![]),
+            ("genericAction", None, vec![]),
+            ("empty", None, vec![]),
+            ("nested", None, vec![]),
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_omits_guidance_and_matches_internal_labels() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let sources = tempdir.path().join("Sources");
+    fs::create_dir_all(&sources)?;
+    fs::write(
+        sources.join("Guidance.swift"),
+        r#"import SwiftUI
+
+/// Keeps ordinary documentation.
+/// Example:
+/// ```swift
+/// EmptyGuidanceCard(title: "Title")
+/// ```
+/// - Guidance:
+public func EmptyGuidanceCard(title internalTitle: String) -> some View {
+    Text(internalTitle)
+}
+
+public func NoGuidanceCard() -> some View {
+    Text("none")
+}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [
+            {"id": "empty-guidance", "symbol": "EmptyGuidanceCard"},
+            {"id": "no-guidance", "symbol": "NoGuidanceCard"}
+        ]
+    }))
+    .expect("registry fixture");
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "swift".try_into().expect("swift id"),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["Sources".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("guidance discover should succeed");
+    let empty_guidance = result.document.components[0]
+        .extracted
+        .as_ref()
+        .expect("empty-guidance component should be enriched");
+    let no_guidance = result.document.components[1]
+        .extracted
+        .as_ref()
+        .expect("no-guidance component should be enriched");
+
+    assert_eq!(
+        (
+            empty_guidance
+                .signature
+                .as_ref()
+                .and_then(|signature| signature
+                    .parameters
+                    .first()
+                    .map(|parameter| parameter.name.as_str())),
+            empty_guidance.documentation.as_deref(),
+            empty_guidance
+                .attachments
+                .first()
+                .map(|attachment| attachment.content.as_str()),
+            serde_json::to_value(empty_guidance)
+                .expect("serialize empty guidance")
+                .get("best_practices")
+                .cloned(),
+            serde_json::to_value(no_guidance)
+                .expect("serialize absent guidance")
+                .get("best_practices")
+                .cloned(),
+        ),
+        (
+            Some("internalTitle"),
+            Some("Keeps ordinary documentation."),
+            Some("EmptyGuidanceCard(title: \"Title\")"),
+            None,
+            None,
+        )
+    );
     Ok(())
 }
 

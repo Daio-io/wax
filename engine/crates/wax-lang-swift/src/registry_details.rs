@@ -1,12 +1,13 @@
 //! Source-backed Swift registry enrichment.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde_json::Map;
 use wax_contract::{
-    RegistryAttachment, RegistryDeprecation, RegistryDocument, RegistryExtracted,
-    RegistryExtractionStatus, RegistryFieldGap, RegistryParameter, RegistrySignature,
-    RegistrySourceEvidence, RegistrySourceKind,
+    RegistryAttachment, RegistryBestPractice, RegistryDeprecation, RegistryDocument,
+    RegistryExtracted, RegistryExtractionStatus, RegistryFieldGap, RegistryParameter,
+    RegistryParameterTypeKind, RegistrySignature, RegistrySourceEvidence, RegistrySourceKind,
 };
 use wax_lang_api::{
     DiscoverRegistryRequest, DiscoverRegistryResult, swift_module_from_source_path,
@@ -29,6 +30,8 @@ struct ComponentDeclaration {
 #[derive(Debug, Default)]
 struct SwiftDocumentation {
     documentation: Option<String>,
+    parameter_descriptions: BTreeMap<String, String>,
+    best_practices: Vec<RegistryBestPractice>,
     deprecation: Option<RegistryDeprecation>,
     example: Option<String>,
 }
@@ -126,6 +129,7 @@ fn component_declarations(
     package: Option<String>,
     damaged: bool,
 ) -> Vec<ComponentDeclaration> {
+    let local_enums = local_enum_values(root, source.as_bytes());
     collect_component_declarations(root, source.as_bytes(), true)
         .into_iter()
         .filter_map(|component| {
@@ -133,10 +137,68 @@ fn component_declarations(
             Some(ComponentDeclaration {
                 symbol: component.symbol,
                 package: package.clone(),
-                extracted: extracted_component(node, source, path, damaged),
+                extracted: extracted_component(node, source, path, damaged, &local_enums),
             })
         })
         .collect()
+}
+
+fn local_enum_values(root: tree_sitter::Node<'_>, source: &[u8]) -> BTreeMap<String, Vec<String>> {
+    let mut enums = BTreeMap::new();
+    let mut cursor = root.walk();
+    for declaration in root.named_children(&mut cursor) {
+        if declaration.kind() != "class_declaration"
+            || declaration
+                .child_by_field_name("declaration_kind")
+                .and_then(|kind| kind.utf8_text(source).ok())
+                != Some("enum")
+        {
+            continue;
+        }
+        let Some(name_node) = declaration.child_by_field_name("name") else {
+            continue;
+        };
+        let Ok(name) = name_node.utf8_text(source) else {
+            continue;
+        };
+        if !is_simple_identifier(name)
+            || declaration
+                .named_children(&mut declaration.walk())
+                .any(|child| child.kind() == "type_parameters")
+        {
+            continue;
+        }
+        let values = declaration
+            .child_by_field_name("body")
+            .map(|body| {
+                let mut values = Vec::new();
+                let mut body_cursor = body.walk();
+                for entry in body.named_children(&mut body_cursor) {
+                    if entry.kind() != "enum_entry" {
+                        continue;
+                    }
+                    for index in 0..entry.child_count() {
+                        let Ok(field_index) = u32::try_from(index) else {
+                            continue;
+                        };
+                        if entry.field_name_for_child(field_index) != Some("name") {
+                            continue;
+                        }
+                        if let Some(value) = entry
+                            .child(index)
+                            .and_then(|child| child.utf8_text(source).ok())
+                            .and_then(non_empty)
+                        {
+                            values.push(value);
+                        }
+                    }
+                }
+                values
+            })
+            .unwrap_or_default();
+        enums.insert(name.to_owned(), values);
+    }
+    enums
 }
 
 fn find_component_node<'tree>(
@@ -164,6 +226,7 @@ fn extracted_component(
     source: &str,
     path: &str,
     damaged: bool,
+    local_enums: &BTreeMap<String, Vec<String>>,
 ) -> RegistryExtracted {
     let source_bytes = source.as_bytes();
     let signature_node = if node.kind() == "function_declaration" {
@@ -171,20 +234,25 @@ fn extracted_component(
     } else {
         find_direct_initializer(node, source_bytes)
     };
+    let attached = attached_source_prefix(source, node.start_position().row);
+    let documentation = parse_documentation(&attached);
     let signature = signature_node.and_then(|signature_node| {
         let text = signature_text(signature_node, source_bytes)?;
         Some(RegistrySignature {
-            parameters: parameters_from_initializer(signature_node, source_bytes),
+            parameters: parameters_from_initializer(
+                signature_node,
+                source_bytes,
+                &documentation.parameter_descriptions,
+                local_enums,
+            ),
             type_text: Some(text),
             extra: Map::new(),
         })
     });
-    let attached = attached_source_prefix(source, node.start_position().row);
     let attached_attributes = nearby_available_prefix(
         source,
         signature_node.map_or(node.start_position().row, |node| node.start_position().row),
     );
-    let documentation = parse_documentation(&attached);
     let mut field_gaps = Vec::new();
     if signature.is_none() {
         field_gaps.push(RegistryFieldGap {
@@ -195,15 +263,22 @@ fn extracted_component(
     }
     if let Some(signature) = &signature {
         field_gaps.extend(signature.parameters.iter().filter_map(|parameter| {
-            parameter
-                .type_text
-                .as_deref()
-                .filter(|type_text| type_text.contains('.'))
-                .map(|_| RegistryFieldGap {
-                    field: format!("signature.parameters.{}.type_details", parameter.name),
-                    reason: "imported type metadata requires compiler resolution".to_owned(),
-                    extra: Map::new(),
-                })
+            let type_text = parameter.type_text.as_deref()?;
+            let reason = if type_text.contains('.') {
+                "imported type metadata requires compiler resolution"
+            } else if parameter.type_kind.is_none()
+                && type_text.contains('<')
+                && type_text.contains('>')
+            {
+                "generic type metadata requires compiler resolution"
+            } else {
+                return None;
+            };
+            Some(RegistryFieldGap {
+                field: format!("signature.parameters.{}.type_details", parameter.name),
+                reason: reason.to_owned(),
+                extra: Map::new(),
+            })
         }));
     }
     if damaged {
@@ -245,7 +320,7 @@ fn extracted_component(
         deprecation: deprecation_from_available(&attached_attributes).or(documentation.deprecation),
         attachments,
         field_gaps,
-        best_practices: Vec::new(),
+        best_practices: documentation.best_practices,
         extra: Map::new(),
     }
 }
@@ -297,6 +372,8 @@ fn find_top_level_body(text: &str) -> Option<usize> {
 fn parameters_from_initializer(
     initializer: tree_sitter::Node<'_>,
     source: &[u8],
+    descriptions: &BTreeMap<String, String>,
+    local_enums: &BTreeMap<String, Vec<String>>,
 ) -> Vec<RegistryParameter> {
     let mut parameters = Vec::new();
     let mut cursor = initializer.walk();
@@ -330,9 +407,106 @@ fn parameters_from_initializer(
         };
         parameter.default = default;
         parameter.required = Some(parameter.default.is_none());
+        parameter.description = descriptions.get(&parameter.name).cloned();
+        (parameter.type_kind, parameter.allowed_values) =
+            parameter_type_facts(parameter.type_text.as_deref(), local_enums);
         parameters.push(parameter);
     }
     parameters
+}
+
+fn parameter_type_facts(
+    type_text: Option<&str>,
+    local_enums: &BTreeMap<String, Vec<String>>,
+) -> (Option<RegistryParameterTypeKind>, Vec<String>) {
+    let Some(type_text) = type_text.map(str::trim) else {
+        return (None, Vec::new());
+    };
+    let type_text = type_text.trim_end_matches('?').trim_end();
+    if type_text.contains('.') || is_custom_generic_type(type_text) {
+        return (None, Vec::new());
+    }
+    let kind = match type_text {
+        "Bool" => Some(RegistryParameterTypeKind::Boolean),
+        "String" | "Character" => Some(RegistryParameterTypeKind::String),
+        "Float" | "Double" => Some(RegistryParameterTypeKind::Number),
+        _ if is_swift_integer(type_text) => Some(RegistryParameterTypeKind::Number),
+        _ if has_top_level_arrow(type_text) => Some(RegistryParameterTypeKind::Function),
+        _ if is_collection_type(type_text) => Some(RegistryParameterTypeKind::Collection),
+        _ => None,
+    };
+    if kind.is_some() {
+        return (kind, Vec::new());
+    }
+    if let Some(values) = local_enums.get(type_text) {
+        return if values.is_empty() {
+            (None, Vec::new())
+        } else {
+            (Some(RegistryParameterTypeKind::Enum), values.clone())
+        };
+    }
+    if is_simple_identifier(type_text) {
+        return (Some(RegistryParameterTypeKind::Object), Vec::new());
+    }
+    (None, Vec::new())
+}
+
+fn is_swift_integer(type_text: &str) -> bool {
+    ["Int", "UInt"].iter().any(|prefix| {
+        type_text.strip_prefix(prefix).is_some_and(|suffix| {
+            suffix.is_empty() || suffix.chars().all(|character| character.is_ascii_digit())
+        })
+    })
+}
+
+fn has_top_level_arrow(type_text: &str) -> bool {
+    let mut angle_depth = 0_u32;
+    let mut bracket_depth = 0_u32;
+    let mut paren_depth = 0_u32;
+    let bytes = type_text.as_bytes();
+    for (index, byte) in bytes.iter().enumerate() {
+        match byte {
+            b'<' => angle_depth += 1,
+            b'>' => angle_depth = angle_depth.saturating_sub(1),
+            b'[' => bracket_depth += 1,
+            b']' => bracket_depth = bracket_depth.saturating_sub(1),
+            b'(' => paren_depth += 1,
+            b')' => paren_depth = paren_depth.saturating_sub(1),
+            b'-' if angle_depth == 0
+                && bracket_depth == 0
+                && paren_depth == 0
+                && bytes.get(index + 1) == Some(&b'>') =>
+            {
+                return true;
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+fn is_collection_type(type_text: &str) -> bool {
+    (type_text.starts_with('[') && type_text.ends_with(']'))
+        || (type_text.starts_with('(') && type_text.ends_with(')'))
+        || ["Array<", "Set<", "Dictionary<"]
+            .iter()
+            .any(|prefix| type_text.starts_with(prefix) && type_text.ends_with('>'))
+}
+
+fn is_custom_generic_type(type_text: &str) -> bool {
+    type_text.contains('<')
+        && type_text.contains('>')
+        && !["Array<", "Set<", "Dictionary<"]
+            .iter()
+            .any(|prefix| type_text.starts_with(prefix) && type_text.ends_with('>'))
+}
+
+fn is_simple_identifier(value: &str) -> bool {
+    let mut characters = value.chars();
+    characters
+        .next()
+        .is_some_and(|character| character == '_' || character.is_alphabetic())
+        && characters.all(|character| character == '_' || character.is_alphanumeric())
 }
 
 fn parameter_from_text(text: &str) -> Option<RegistryParameter> {
@@ -340,8 +514,7 @@ fn parameter_from_text(text: &str) -> Option<RegistryParameter> {
     let label_parts = labels.split_whitespace().collect::<Vec<_>>();
     let name = match label_parts.as_slice() {
         [name] => *name,
-        ["_", internal, ..] => *internal,
-        [external, ..] => *external,
+        [_, internal, ..] => *internal,
         [] => return None,
     };
     let (type_text, default) = value
@@ -404,20 +577,54 @@ fn parse_documentation(attached: &str) -> SwiftDocumentation {
     let lines = attached
         .lines()
         .filter_map(|line| {
-            let line = line.trim();
-            line.strip_prefix("///")
+            let line = line.trim_start();
+            let content = line
+                .strip_prefix("///")
                 .or_else(|| line.strip_prefix("/**"))
                 .or_else(|| line.strip_prefix("*/"))
-                .or_else(|| line.strip_prefix('*'))
-                .map(str::trim)
+                .or_else(|| line.strip_prefix('*'))?;
+            let content = content.trim_end();
+            let text = content.trim_start();
+            Some((content.len() - text.len(), text))
         })
         .collect::<Vec<_>>();
+    let parameter_descriptions = parameter_descriptions(&lines);
     let mut description = Vec::new();
     let mut example = Vec::new();
+    let mut best_practices = Vec::new();
     let mut in_example = false;
     let mut in_fence = false;
     let mut deprecation = None;
-    for line in lines {
+    let mut index = 0;
+    while index < lines.len() {
+        let (indent, line) = lines[index];
+        if line == "- Parameters:" {
+            in_example = false;
+            index += 1;
+            while index < lines.len() && lines[index].0 > indent {
+                index += 1;
+            }
+            continue;
+        }
+        if line.strip_prefix("- Parameter ").is_some() {
+            in_example = false;
+            index += 1;
+            while index < lines.len() && lines[index].0 > indent {
+                index += 1;
+            }
+            continue;
+        }
+        if let Some(guidance) = line.strip_prefix("- Guidance:") {
+            if let Some(description) = non_empty(guidance.trim()) {
+                best_practices.push(RegistryBestPractice {
+                    description,
+                    extra: Map::new(),
+                });
+            }
+            in_example = false;
+            index += 1;
+            continue;
+        }
         if let Some(message) = line.strip_prefix("- Deprecated:") {
             deprecation = Some(RegistryDeprecation {
                 message: non_empty(message.trim()),
@@ -434,11 +641,79 @@ fn parse_documentation(attached: &str) -> SwiftDocumentation {
         } else if !line.is_empty() {
             description.push(line);
         }
+        index += 1;
     }
     SwiftDocumentation {
         documentation: non_empty(description.join("\n").trim()),
+        parameter_descriptions,
+        best_practices,
         deprecation,
         example: non_empty(example.join("\n").trim()),
+    }
+}
+
+fn parameter_descriptions(lines: &[(usize, &str)]) -> BTreeMap<String, String> {
+    let mut descriptions = BTreeMap::new();
+    let mut index = 0;
+    while index < lines.len() {
+        let (indent, line) = lines[index];
+        if let Some(parameter) = line.strip_prefix("- Parameter ") {
+            if let Some((name, initial)) = parameter.split_once(':') {
+                let (description, next) = continued_text(lines, index + 1, indent, initial);
+                insert_first_non_empty(&mut descriptions, name.trim(), description);
+                index = next;
+                continue;
+            }
+        } else if line == "- Parameters:" {
+            index += 1;
+            while index < lines.len() && lines[index].0 > indent {
+                let (parameter_indent, parameter_line) = lines[index];
+                if let Some((name, initial)) = parameter_line
+                    .strip_prefix("- ")
+                    .and_then(|parameter| parameter.split_once(':'))
+                {
+                    let (description, next) =
+                        continued_text(lines, index + 1, parameter_indent, initial);
+                    insert_first_non_empty(&mut descriptions, name.trim(), description);
+                    index = next;
+                } else {
+                    index += 1;
+                }
+            }
+            continue;
+        }
+        index += 1;
+    }
+    descriptions
+}
+
+fn continued_text(
+    lines: &[(usize, &str)],
+    mut index: usize,
+    marker_indent: usize,
+    initial: &str,
+) -> (String, usize) {
+    let mut parts = Vec::new();
+    if !initial.trim().is_empty() {
+        parts.push(initial.trim());
+    }
+    while index < lines.len() && lines[index].0 > marker_indent {
+        let continuation = lines[index].1.trim();
+        if !continuation.is_empty() {
+            parts.push(continuation);
+        }
+        index += 1;
+    }
+    (parts.join(" "), index)
+}
+
+fn insert_first_non_empty(
+    descriptions: &mut BTreeMap<String, String>,
+    name: &str,
+    description: String,
+) {
+    if !name.is_empty() && !description.is_empty() {
+        descriptions.entry(name.to_owned()).or_insert(description);
     }
 }
 
