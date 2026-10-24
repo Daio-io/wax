@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Skill-contract smoke test for reviewed token registry maintenance.
+# Skill-contract smoke test for reviewed registry maintenance.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -28,6 +28,12 @@ require_text "skills/wax-registry-discover/SKILL.md" "structured diff"
 require_text "skills/wax-registry-discover/SKILL.md" "explicit approval"
 require_text "skills/wax-registry-discover/SKILL.md" "Never delete"
 require_text "skills/wax-registry-discover/SKILL.md" 'For an existing registry, use `apply_patch` only'
+require_text "skills/wax-registry-discover/SKILL.md" "Aliases/tags proposed"
+require_text "skills/wax-registry-discover/SKILL.md" "symbol, id, package path, extracted documentation, and common UI vocabulary"
+require_text "skills/wax-registry-discover/SKILL.md" "Never treat component aliases as alternate code symbols or scan authority"
+require_text "skills/wax-registry-discover/SKILL.md" "Component aliases are search synonyms"
+require_text "skills/wax-registry-discover/SKILL.md" "Token aliases are exact source identifiers"
+require_text "skills/wax-registry-discover/SKILL.md" "examples/component-alias-enrichment.md"
 require_text "skills/wax-registry-discover/token-value-maintenance.md" "source evidence"
 require_text "skills/wax-registry-discover/token-value-maintenance.md" 'For an existing registry, use `apply_patch` only'
 require_text "skills/wax-registry-discover/token-value-maintenance.md" "Source file / line"
@@ -46,24 +52,30 @@ require_text "skills/wax-registry-discover/examples/token-value-refresh.md" "Con
 require_text "skills/wax-registry-discover/examples/token-value-refresh.md" "Unassessed observations: 0"
 require_text "skills/wax-registry-discover/examples/token-value-refresh.md" "validation passed"
 require_text "skills/wax-registry-discover/examples/token-value-refresh.md" "updated compose registry from"
+require_text "skills/wax-registry-discover/examples/component-alias-enrichment.md" "Aliases/tags proposed"
+require_text "skills/wax-registry-discover/examples/component-alias-enrichment.md" "Explicit approval"
+require_text "skills/wax-registry-discover/examples/component-alias-enrichment.md" 'wax search "navbar"'
+require_text "skills/wax-registry-discover/examples/component-alias-enrichment.md" "ds.navigation-bar"
 require_text "skills/wax-scan/SKILL.md" "unassessed"
 require_text "skills/wax-scan/SKILL.md" "wax-registry-discover"
 require_text "skills/wax-scan/SKILL.md" 'Inspect each unassessed row'
 require_text "skills/wax-scan/SKILL.md" "unsupported_canonical_format"
 
-GOLDEN="skills/wax-registry-discover/examples/token-value-refresh.md"
+TOKEN_GOLDEN="skills/wax-registry-discover/examples/token-value-refresh.md"
+ALIAS_GOLDEN="skills/wax-registry-discover/examples/component-alias-enrichment.md"
 EXPECTED_CANONICAL_VALUE="16.dp"
 TOKEN_ID="space.medium"
 
 extract_labeled_json() {
-  local label="$1"
-  local dest="$2"
+  local source="$1"
+  local label="$2"
+  local dest="$3"
   awk -v label="$label" '
     $0 ~ label { found = 1; next }
     found && /^```json$/ { in_block = 1; next }
     found && in_block && /^```$/ { exit }
     found && in_block { print }
-  ' "$GOLDEN" >"$dest"
+  ' "$source" >"$dest"
   if [[ ! -s "$dest" ]]; then
     fail "could not extract JSON block after label: $label"
   fi
@@ -73,8 +85,8 @@ BEFORE_JSON="$(mktemp)"
 AFTER_JSON="$(mktemp)"
 trap 'rm -f "$BEFORE_JSON" "$AFTER_JSON"' EXIT
 
-extract_labeled_json "Before registry" "$BEFORE_JSON"
-extract_labeled_json "After registry" "$AFTER_JSON"
+extract_labeled_json "$TOKEN_GOLDEN" "Before registry" "$BEFORE_JSON"
+extract_labeled_json "$TOKEN_GOLDEN" "After registry" "$AFTER_JSON"
 
 jq -e . "$BEFORE_JSON" >/dev/null || fail "before registry JSON does not parse"
 jq -e . "$AFTER_JSON" >/dev/null || fail "after registry JSON does not parse"
@@ -124,5 +136,43 @@ fi
 if (( AFTER_COMPONENT_COUNT < BEFORE_COMPONENT_COUNT )); then
   fail "after component count ($AFTER_COMPONENT_COUNT) is lower than before ($BEFORE_COMPONENT_COUNT)"
 fi
+
+BEFORE_ALIAS_JSON="$(mktemp)"
+AFTER_ALIAS_JSON="$(mktemp)"
+trap 'rm -f "$BEFORE_JSON" "$AFTER_JSON" "$BEFORE_ALIAS_JSON" "$AFTER_ALIAS_JSON"' EXIT
+
+extract_labeled_json "$ALIAS_GOLDEN" "Before registry" "$BEFORE_ALIAS_JSON"
+extract_labeled_json "$ALIAS_GOLDEN" "After registry" "$AFTER_ALIAS_JSON"
+
+jq -e . "$BEFORE_ALIAS_JSON" >/dev/null || fail "before alias registry JSON does not parse"
+jq -e . "$AFTER_ALIAS_JSON" >/dev/null || fail "after alias registry JSON does not parse"
+
+jq -e '
+  .components
+  | map(select(.id == "ds.navigation-bar"))
+  | length == 1
+  and (.[0].aliases | index("navbar") | not)
+' "$BEFORE_ALIAS_JSON" >/dev/null \
+  || fail "before alias registry must not contain the proposed navbar synonym"
+
+jq -e '
+  .components
+  | map(select(.id == "ds.navigation-bar"))
+  | length == 1
+  and (["navbar", "nav bar", "topbar", "app bar"] - .[0].aliases | length == 0)
+  and (.[0].tags | index("navigation") != null)
+' "$AFTER_ALIAS_JSON" >/dev/null \
+  || fail "after alias registry must contain the approved aliases and navigation tag"
+
+jq -e --slurpfile after "$AFTER_ALIAS_JSON" '
+  (.components |= map(
+    if .id == "ds.navigation-bar"
+    then .aliases += ["navbar", "nav bar", "topbar", "app bar"]
+      | .tags += ["navigation"]
+    else .
+    end
+  )) == $after[0]
+' "$BEFORE_ALIAS_JSON" >/dev/null \
+  || fail "after alias registry must equal before registry plus only the approved aliases and tag"
 
 echo "OK: wax-registry skill contract"
