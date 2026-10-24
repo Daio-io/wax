@@ -523,6 +523,49 @@ fun Callbacks(callbacks: List<() -> Unit>) {}
 }
 
 #[test]
+fn discover_registry_details_classifies_nullable_parenthesized_function() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let src = tempdir.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(
+        src.join("NullableCallback.kt"),
+        r#"package com.example
+
+@Composable
+fun NullableCallback(callback: (() -> Unit)?) {}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "nullable-callback", "symbol": "NullableCallback", "package": "com.example"}]
+    }))
+    .unwrap();
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "compose".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("rich discover should succeed");
+    let parameter = &result.document.components[0]
+        .extracted
+        .as_ref()
+        .unwrap()
+        .signature
+        .as_ref()
+        .unwrap()
+        .parameters[0];
+
+    assert_eq!(
+        parameter.type_kind,
+        Some(wax_contract::RegistryParameterTypeKind::Function)
+    );
+    Ok(())
+}
+
+#[test]
 fn discover_registry_details_does_not_use_nested_enum_with_same_name() -> io::Result<()> {
     let tempdir = tempfile::tempdir()?;
     let src = tempdir.path().join("src");

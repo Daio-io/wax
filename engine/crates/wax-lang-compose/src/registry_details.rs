@@ -25,7 +25,7 @@ struct ComponentDeclaration {
     extracted: RegistryExtracted,
 }
 
-struct LocalTypeFacts {
+struct ParameterTypeFacts {
     local_types: BTreeSet<String>,
     imported_types: BTreeSet<String>,
     local_enums: BTreeMap<String, Vec<String>>,
@@ -94,7 +94,7 @@ fn component_declarations(file: &ParsedKotlinSourceFile) -> Vec<ComponentDeclara
     let source = file.parsed.source.as_bytes();
     let primary_root = file.parsed.primary_tree().root_node();
     let imports = collect_import_bindings(primary_root, source);
-    let type_facts = LocalTypeFacts {
+    let type_facts = ParameterTypeFacts {
         local_types: local_type_names(primary_root, source),
         imported_types: imports.symbol_names.keys().cloned().collect(),
         local_enums: local_enum_values(primary_root, source),
@@ -119,7 +119,7 @@ fn collect_component_declarations(
     source: &[u8],
     clean: &[ByteRange],
     file: &ParsedKotlinSourceFile,
-    type_facts: &LocalTypeFacts,
+    type_facts: &ParameterTypeFacts,
     declarations: &mut Vec<ComponentDeclaration>,
 ) {
     let mut stack = vec![root];
@@ -146,17 +146,11 @@ fn extracted_component(
     node: tree_sitter::Node<'_>,
     source: &[u8],
     file: &ParsedKotlinSourceFile,
-    type_facts: &LocalTypeFacts,
+    type_facts: &ParameterTypeFacts,
 ) -> RegistryExtracted {
     let kdoc = kdoc_for_declaration(node, source);
-    let (parameters, mut field_gaps) = parameters_from_function(
-        node,
-        source,
-        &type_facts.local_types,
-        &type_facts.imported_types,
-        &type_facts.local_enums,
-        &kdoc.parameter_descriptions,
-    );
+    let (parameters, mut field_gaps) =
+        parameters_from_function(node, source, type_facts, &kdoc.parameter_descriptions);
     let type_text = signature_type_text(node, source);
     let deprecation = deprecated_annotation(node, source).or(kdoc.deprecation);
     let attachments = kdoc
@@ -223,9 +217,7 @@ fn signature_type_text(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<Str
 fn parameters_from_function(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    local_types: &BTreeSet<String>,
-    imported_types: &BTreeSet<String>,
-    local_enums: &BTreeMap<String, Vec<String>>,
+    type_facts: &ParameterTypeFacts,
     descriptions: &BTreeMap<String, String>,
 ) -> (Vec<RegistryParameter>, Vec<RegistryFieldGap>) {
     let Some(params_node) = node
@@ -271,8 +263,8 @@ fn parameters_from_function(
                 .as_deref()
                 .and_then(simple_type_name)
                 .filter(|type_name| {
-                    imported_types.contains(*type_name)
-                        && !local_types.contains(*type_name)
+                    type_facts.imported_types.contains(*type_name)
+                        && !type_facts.local_types.contains(*type_name)
                         && !is_builtin_kotlin_type(type_name)
                 });
         if let Some(type_name) = imported_unavailable {
@@ -286,7 +278,7 @@ fn parameters_from_function(
         let (type_kind, allowed_values) = if imported_unavailable.is_some() {
             (None, Vec::new())
         } else {
-            parameter_type_facts(type_text.as_deref(), local_enums)
+            parameter_type_facts(type_text.as_deref(), &type_facts.local_enums)
         };
 
         parameters.push(RegistryParameter {
@@ -312,11 +304,11 @@ fn parameter_type_facts(
     let Some(type_text) = type_text.map(str::trim).filter(|text| !text.is_empty()) else {
         return (None, Vec::new());
     };
-    if has_top_level_function_arrow(type_text) {
+    let direct_type = type_text.trim_end_matches('?').trim();
+    if has_top_level_function_arrow(strip_outer_parentheses(direct_type)) {
         return (Some(RegistryParameterTypeKind::Function), Vec::new());
     }
 
-    let direct_type = type_text.trim_end_matches('?');
     if direct_type.contains('.') {
         return (None, Vec::new());
     }
@@ -357,6 +349,34 @@ fn parameter_type_facts(
     }
 
     (None, Vec::new())
+}
+
+fn strip_outer_parentheses(mut type_text: &str) -> &str {
+    loop {
+        let Some(stripped) = type_text
+            .strip_prefix('(')
+            .and_then(|text| text.strip_suffix(')'))
+        else {
+            return type_text;
+        };
+        let mut depth = 0;
+        let mut encloses_all = true;
+        for (index, character) in type_text.char_indices() {
+            match character {
+                '(' => depth += 1,
+                ')' => depth -= 1,
+                _ => {}
+            }
+            if depth == 0 && index < type_text.len() - 1 {
+                encloses_all = false;
+                break;
+            }
+        }
+        if !encloses_all {
+            return type_text;
+        }
+        type_text = stripped.trim();
+    }
 }
 
 fn has_top_level_function_arrow(type_text: &str) -> bool {
