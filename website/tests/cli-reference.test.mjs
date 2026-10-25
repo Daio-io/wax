@@ -62,4 +62,11 @@ test('CLI reference covers the complete Clap command surface', async () => {
   ]) {
     assert.match(html, new RegExp(required), required);
   }
+
+  assert.match(html, /wax(?:<!-- -->)? uninstall(?:<!-- -->)? --full/);
+  assert.doesNotMatch(html, /wax(?:<!-- -->)? uninstall(?:<!-- -->)? \[--full\]/);
+  assert.match(
+    html,
+    /(?:requires[\s\S]{0,80}--full|--full[\s\S]{0,80}(?:is )?required)/i,
+  );
 });

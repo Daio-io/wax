@@ -5,6 +5,11 @@ sidebar_position: 5
 
 # Troubleshooting
 
+Failure modes below map to the CLI command modules under
+[`commands`](https://github.com/Daio-io/wax/tree/main/engine/crates/wax-cli/src/commands)
+and the schemas under
+[`wax-contract/schemas`](https://github.com/Daio-io/wax/tree/main/engine/crates/wax-contract/schemas).
+
 ## `wax init` needs a terminal
 
 Interactive initialization requires a TTY. In scripts, provide one or more

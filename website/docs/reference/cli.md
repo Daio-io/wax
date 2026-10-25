@@ -254,12 +254,13 @@ The root defaults to `.`.
 ## `wax uninstall`
 
 ```text
-wax uninstall [--full]
+wax uninstall --full
 ```
 
-Remove Wax global state and best-effort binary install paths. `--full` removes
-the complete `~/.wax` global directory. Repository-local `.wax/` directories
-are not global uninstall state.
+`--full` is required. Without it, `wax uninstall` errors with
+`FullFlagRequired` and makes no changes. With `--full`, the command removes the
+complete `~/.wax` global directory and best-effort binary install paths
+together. Repository-local `.wax/` directories are not global uninstall state.
 
 Implementation details and command-specific errors are in the
 [`commands` modules](https://github.com/Daio-io/wax/tree/main/engine/crates/wax-cli/src/commands).

@@ -17,7 +17,7 @@ Unknown top-level fields are rejected.
   "languages": {
     "react": {
       "roots": {"web": ["src"]},
-      "registry": ".wax/registries/react.json"
+      "registry": ".wax/react.registry.json"
     }
   },
   "outputs": [

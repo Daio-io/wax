@@ -20,10 +20,12 @@ wax init --non-interactive --language react --language compose
 ```
 
 Initialization writes repository-local `.wax/wax.config.json`,
-`.wax/wax.lock.json`, registry scaffolds under `.wax/registries/`, and the
-appropriate generated-output entries in `.gitignore`. Commit the config,
-lockfile, and reviewed registries. Generated `.wax/out/` files and downloaded
-global `~/.wax/` state do not belong in the repository.
+`.wax/wax.lock.json`, default registry scaffolds at
+`.wax/<language-id>.registry.json`, and the appropriate generated-output
+entries in `.gitignore`. Commit the config, lockfile, and reviewed registries.
+Generated `.wax/out/` files and downloaded global `~/.wax/` state do not belong
+in the repository. Remembered design-system copies and publisher layouts use
+`.wax/registries/` separately from this default scaffold path.
 
 `wax init` configures the repository. It does not run registry discovery or a
 scan. Check the result, then scan:

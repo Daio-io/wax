@@ -76,6 +76,8 @@ test('guide sources and production routes cover the documented workflow', async 
   );
   assert.match(initialization, /\.wax\/wax\.config\.json/);
   assert.match(initialization, /\.wax\/wax\.lock\.json/);
+  assert.match(initialization, /\.wax\/(?:<[^>]+>|\w+)\.registry\.json/);
+  assert.doesNotMatch(initialization, /registry scaffolds under [`']?\.wax\/registries\//);
 
   const configuration = await readFile(
     new URL('reference/configuration.md', docs),
@@ -83,6 +85,20 @@ test('guide sources and production routes cover the documented workflow', async 
   );
   assert.match(configuration, /schema_version[^\n]*2/);
   assert.match(configuration, /waxrc\.schema\.json/);
+  assert.match(configuration, /"registry":\s*"\.wax\/react\.registry\.json"/);
+  assert.doesNotMatch(
+    configuration,
+    /"registry":\s*"\.wax\/registries\/react\.json"/,
+  );
+
+  assert.match(quickStart, /~\/\.wax\//);
+  assert.match(quickStart, /github\.com\/Daio-io\/wax/);
+
+  const troubleshooting = await readFile(
+    new URL('guides/troubleshooting.md', docs),
+    'utf8',
+  );
+  assert.match(troubleshooting, /github\.com\/Daio-io\/wax/);
 
   const registry = await readFile(
     new URL('reference/registry.md', docs),
