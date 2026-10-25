@@ -111,6 +111,20 @@
         "summary": {
           "type": "string"
         },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
         "extraction_status": {
           "$ref": "#/$defs/extraction_status"
         }

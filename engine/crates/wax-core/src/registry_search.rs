@@ -225,7 +225,12 @@ fn component_score(component: &RegistryComponent, query: &Normalized) -> Option<
         [&component.id, &component.symbol]
             .into_iter()
             .map(String::as_str),
-        component.aliases.iter().map(String::as_str),
+        component.aliases.iter().map(String::as_str).chain(
+            component
+                .metadata
+                .iter()
+                .flat_map(|metadata| metadata.tags.iter().map(String::as_str)),
+        ),
         component.package.iter().map(String::as_str),
         component.metadata.as_ref(),
         component.details.as_ref(),
@@ -238,7 +243,12 @@ fn token_score(token: &RegistryToken, query: &Normalized) -> Option<u16> {
     let category = token_category_name(token);
     entry_score(
         [&token.id, &token.key].into_iter().map(String::as_str),
-        token.aliases.iter().map(String::as_str),
+        token.aliases.iter().map(String::as_str).chain(
+            token
+                .metadata
+                .iter()
+                .flat_map(|metadata| metadata.tags.iter().map(String::as_str)),
+        ),
         token
             .value
             .iter()
@@ -253,7 +263,7 @@ fn token_score(token: &RegistryToken, query: &Normalized) -> Option<u16> {
 
 fn entry_score<'a>(
     primary: impl Iterator<Item = &'a str>,
-    aliases: impl Iterator<Item = &'a str>,
+    aliases_and_tags: impl Iterator<Item = &'a str>,
     secondary: impl Iterator<Item = &'a str>,
     metadata: Option<&RegistryMetadata>,
     details: Option<&RegistryDetails>,
@@ -261,7 +271,7 @@ fn entry_score<'a>(
     query: &Normalized,
 ) -> Option<u16> {
     let mut score = best_structured_score(primary, query, 0);
-    score = min_score(score, best_structured_score(aliases, query, 1));
+    score = min_score(score, best_structured_score(aliases_and_tags, query, 1));
     score = min_score(score, best_structured_score(secondary, query, 2));
     min_score(score, descriptive_score(metadata, details, extra, query))
 }
@@ -284,13 +294,7 @@ fn descriptive_score(
 ) -> Option<u16> {
     let metadata_score = metadata
         .into_iter()
-        .flat_map(|metadata| {
-            metadata
-                .tags
-                .iter()
-                .map(String::as_str)
-                .chain(metadata.description.iter().map(String::as_str))
-        })
+        .flat_map(|metadata| metadata.description.iter().map(String::as_str))
         .filter_map(|field| match_score(field, query))
         .min()
         .map(|score| SCORE_DESCRIPTIVE + score);
@@ -382,8 +386,15 @@ fn component_result(
     search_result(
         snapshot,
         RegistryEntryKind::Component,
-        component.id.clone(),
-        component.symbol.clone(),
+        SearchResultIdentity {
+            id: &component.id,
+            label: &component.symbol,
+            aliases: &component.aliases,
+            tags: component
+                .metadata
+                .as_ref()
+                .map_or(&[], |metadata| metadata.tags.as_slice()),
+        },
         component.metadata.as_ref(),
         component.details.as_ref(),
         &component.extra,
@@ -394,19 +405,32 @@ fn token_result(snapshot: &RegistrySnapshot, token: &RegistryToken) -> RegistryS
     search_result(
         snapshot,
         RegistryEntryKind::Token,
-        token.id.clone(),
-        token.key.clone(),
+        SearchResultIdentity {
+            id: &token.id,
+            label: &token.key,
+            aliases: &token.aliases,
+            tags: token
+                .metadata
+                .as_ref()
+                .map_or(&[], |metadata| metadata.tags.as_slice()),
+        },
         token.metadata.as_ref(),
         token.details.as_ref(),
         &token.extra,
     )
 }
 
+struct SearchResultIdentity<'a> {
+    id: &'a str,
+    label: &'a str,
+    aliases: &'a [String],
+    tags: &'a [String],
+}
+
 fn search_result(
     snapshot: &RegistrySnapshot,
     kind: RegistryEntryKind,
-    id: String,
-    label: String,
+    identity: SearchResultIdentity<'_>,
     metadata: Option<&RegistryMetadata>,
     details: Option<&RegistryDetails>,
     extra: &Map<String, Value>,
@@ -414,9 +438,11 @@ fn search_result(
     RegistrySearchResult {
         snapshot: snapshot.reference.clone(),
         kind,
-        id,
-        label,
+        id: identity.id.to_owned(),
+        label: identity.label.to_owned(),
         summary: entry_summary(metadata, details, extra),
+        aliases: identity.aliases.to_vec(),
+        tags: identity.tags.to_vec(),
         extraction_status: details.map(|details| details.status),
         extra: Map::new(),
     }

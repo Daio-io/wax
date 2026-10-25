@@ -465,6 +465,8 @@ fn search_detail_and_error_json_match_schemas_and_preserve_extensions() {
             id: "ds.button".to_owned(),
             label: "Button".to_owned(),
             summary: "Primary action control".to_owned(),
+            aliases: vec!["ActionButton".to_owned()],
+            tags: vec!["action".to_owned(), "control".to_owned()],
             extraction_status: Some(RegistryExtractionStatus::Partial),
             extra: [("score_hint".to_owned(), serde_json::json!(0.91))]
                 .into_iter()
@@ -477,6 +479,8 @@ fn search_detail_and_error_json_match_schemas_and_preserve_extensions() {
     };
     let search_value = serde_json::to_value(&search).unwrap();
     assert_eq!(search_value["filters"]["client"], "agent");
+    assert_eq!(search_value["results"][0]["aliases"][0], "ActionButton");
+    assert_eq!(search_value["results"][0]["tags"][0], "action");
     assert_eq!(search_value["results"][0]["score_hint"], 0.91);
     assert_eq!(search_value["trace_id"], "t-1");
     assert_schema_valid(&search_schema(), &search_value);
