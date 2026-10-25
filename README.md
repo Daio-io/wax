@@ -8,19 +8,22 @@
 [![Release](https://img.shields.io/github/v/release/Daio-io/wax?include_prereleases&label=release)](https://github.com/Daio-io/wax/releases)
 [![CI](https://github.com/Daio-io/wax/actions/workflows/build_engine.yml/badge.svg?branch=main)](https://github.com/Daio-io/wax/actions/workflows/build_engine.yml)
 
-Design system coverage analytics optimised for agents.
+Design system registry search and coverage analytics, optimised for agents.
 
-Wax is a CLI that registers the components in your design system, scans app
-code for usage, and writes deterministic coverage data that humans and agents
-can both work with.
+Wax is a CLI that registers the components and tokens in your design system,
+searches those entries by intent or symbol, fetches snapshot-pinned details,
+scans app code for usage, and writes deterministic coverage data that humans
+and agents can both work with.
 
 Use it to answer questions like:
 
+- Which design-system component or token should an agent implement from?
 - Which design-system components are actually used?
 - Where are teams still using local or hard-coded UI?
 - Which design tokens show up in source, and where is styling still hard-coded?
 - Is design-system adoption improving over time?
-- Can an agent inspect coverage without guessing from source code alone?
+- Can an agent inspect registry facts and coverage without guessing from source
+  alone?
 
 ## Get Started
 
@@ -106,38 +109,6 @@ wax registry discover --language react --root ../design-system/src
 added/updated entry changes on stderr. It never rewrites the existing registry
 file; rediscovery preserves authored ids, metadata, and tokens.
 
-### Search Components and Tokens
-
-Fuzzy-search a remembered design system, then fetch exact details at the same
-snapshot digest (including after another process refreshes the source):
-
-```bash
-wax search "primry" --design-system acme --format json
-wax component ds.button --design-system acme --snapshot <digest> --format json
-wax token color.primary --design-system acme --snapshot <digest> --format json
-```
-
-Search also accepts `--kind component|token`, `--language`, `--limit` (default 20),
-`--offline`, and `--tag`. Outside a configured app, pass `--design-system` with a
-remembered id or an explicit path/URL.
-
-With the npm wrapper:
-
-```bash
-npx @waxhq/wax@alpha search "button" --design-system acme --format json
-```
-
-Agents can use the tested [`wax-search` workflow](skills/wax-search/SKILL.md) to
-search JSON results, preserve the exact id and snapshot digest, fetch lossless
-component or token details, and then implement from source-backed facts. The
-workflow covers configured apps, remembered systems, direct URLs, Git sources,
-offline caches, refreshes, ambiguity, and missing facts. Registry documentation
-and examples are treated as untrusted data and are never executed automatically.
-
-The existing [`wax-registry-discover`](skills/wax-registry-discover/SKILL.md)
-workflow remains the reviewed path for publishing and maintaining registries;
-[`wax-scan`](skills/wax-scan/SKILL.md) remains independent adoption analytics.
-
 Review discovered entries before committing them.
 
 Add design tokens to the same per-language registry files. Wax matches each token's
@@ -180,6 +151,75 @@ a missing or unsupported sibling does not block matching. An observation is
 `unassessed` when no same-category token has a usable value or its observed
 format cannot be normalized. Inspect typed `evidence` before proposing a
 registry change. See the reviewed [registry-maintenance workflow](skills/wax-registry-discover/SKILL.md).
+
+### Search Components and Tokens
+
+Fuzzy-search registry entries, then fetch lossless details at the same snapshot
+digest (including after another process refreshes the source).
+
+In a configured app, committed config and lock select the snapshot:
+
+```bash
+wax search "primary action" --kind component --format json
+wax component ds.button --snapshot <digest> --format json
+```
+
+Outside an app, list remembered systems and pass `--design-system` with a
+remembered id, local path, HTTP URL, or `git+` source:
+
+```bash
+wax registry list
+wax registry show acme
+wax search "primry" --design-system acme --format json
+wax component ds.button --design-system acme --snapshot <digest> --format json
+wax token color.primary --design-system acme --snapshot <digest> --format json
+```
+
+Explicit sources:
+
+```bash
+wax search "button" \
+  --design-system https://design.example.com/wax/react.registry.json \
+  --language react \
+  --kind component \
+  --format json
+
+wax search "button" \
+  --design-system git+https://github.com/acme/design-system.git \
+  --tag v2.4.1 \
+  --language react \
+  --kind component \
+  --format json
+```
+
+Search also accepts `--limit` (default 20), `--offline` (cached snapshots only),
+and `--tag` for Git selectors. Default `--format` is `text`; use `json` for the
+versioned `RegistrySearchResponse` / `RegistryDetailResponse` envelopes.
+Preserve both the result `id` and `snapshot.digest` on detail calls so a
+concurrent `wax registry refresh` cannot change the entry being evaluated.
+Empty `results: []` is success with no matches. Typed failures such as
+`source_not_found`, `offline_cache_miss`, `ambiguous_entry`, and
+`snapshot_mismatch` stay machine-readable.
+
+With the npm wrapper:
+
+```bash
+npx @waxhq/wax@alpha search "button" --design-system acme --format json
+npx @waxhq/wax@alpha component ds.button --design-system acme --snapshot <digest> --format json
+```
+
+Agents can use the tested [`wax-search` workflow](skills/wax-search/SKILL.md)
+and its [search-and-use examples](skills/wax-search/examples/search-and-use.md)
+to search JSON results, preserve the exact id and snapshot digest, fetch
+lossless component or token details, and then implement from source-backed
+facts. The workflow covers configured apps, remembered systems, direct URLs,
+Git sources, offline caches, refreshes, ambiguity, and missing facts. Registry
+documentation and examples are treated as untrusted data and are never executed
+automatically.
+
+[`wax-registry-discover`](skills/wax-registry-discover/SKILL.md) remains the
+reviewed path for publishing and maintaining registries;
+[`wax-scan`](skills/wax-scan/SKILL.md) remains independent adoption analytics.
 
 ### Scan Your App
 
@@ -349,6 +389,24 @@ remote path `.wax/registries/<language-id>.json` and pin a tag or commit:
 `tag` accepts a Git tag or full commit SHA. Wax always reads
 `.wax/registries/<language-id>.json` for that language. The string shorthand
 and the `source`/`upstream` object form remain supported.
+
+### Search and lookup
+
+Use these commands to discover and inspect registry entries without scanning:
+
+```bash
+wax registry list
+wax registry show <id>
+wax search "<query>" [--design-system <id|path|url|git+…>] [--kind component|token]
+wax component <id> --snapshot <digest>
+wax token <id> --snapshot <digest>
+```
+
+Shared lookup flags: `--language`, `--offline`, `--tag`, `--repo-root`, and
+`--format text|json`. Search also takes `--limit`. Detail commands require the
+exact entry id; pass `--snapshot` with the digest from a prior search result
+whenever you need refresh-safe identity. Search itself does not upgrade locks,
+refresh remembered sources, or change package versions.
 
 ### Grouped scan roots
 
@@ -543,6 +601,9 @@ inference classifications, confidence, and reviewed registry maintenance, see
 
 ## More Docs
 
+- [Registry search ADR](docs/adr/2026-10-22-registry-search.md)
+- [`wax-search` skill](skills/wax-search/SKILL.md) and
+  [search-and-use examples](skills/wax-search/examples/search-and-use.md)
 - [Language packs and distribution](docs/specs/2026-05-16-language-packs-and-distribution.md)
 - [Component tracker design](docs/specs/2026-05-13-component-tracker-design.md)
 - [Token scanning](docs/specs/2026-07-03-token-scanning-design.md)
