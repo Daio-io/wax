@@ -601,6 +601,7 @@ inference classifications, confidence, and reviewed registry maintenance, see
 
 ## More Docs
 
+- [Wax website](https://daio-io.github.io/wax/)
 - [Registry search ADR](docs/adr/2026-10-22-registry-search.md)
 - [`wax-search` skill](skills/wax-search/SKILL.md) and
   [search-and-use examples](skills/wax-search/examples/search-and-use.md)
