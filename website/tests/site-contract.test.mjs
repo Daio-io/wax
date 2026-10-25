@@ -15,6 +15,8 @@ test('build emits the GitHub project-page routes', async () => {
   assert.match(home, /href=["']?\/wax\/docs\/getting-started\/["']?/);
   assert.match(home, /https:\/\/github\.com\/Daio-io\/wax/);
   assert.match(start, /npm install -g @waxhq\/wax@alpha/);
+  assert.match(start, /brew tap Daio-io\/wax/);
+  assert.match(start, /brew install wax/);
   assert.doesNotMatch(
     `${home}\n${start}`,
     /href=["']?\/docs\/|src=["']?\/assets\//,
