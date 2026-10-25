@@ -255,11 +255,10 @@ fn aliases_and_tags<'a>(
     aliases: &'a [String],
     metadata: Option<&'a RegistryMetadata>,
 ) -> impl Iterator<Item = &'a str> {
-    aliases.iter().map(String::as_str).chain(
-        metadata
-            .into_iter()
-            .flat_map(|metadata| metadata.tags.iter().map(String::as_str)),
-    )
+    aliases
+        .iter()
+        .map(String::as_str)
+        .chain(metadata_tags(metadata).iter().map(String::as_str))
 }
 
 fn entry_score<'a>(
