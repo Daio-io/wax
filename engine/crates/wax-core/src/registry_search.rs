@@ -225,12 +225,7 @@ fn component_score(component: &RegistryComponent, query: &Normalized) -> Option<
         [&component.id, &component.symbol]
             .into_iter()
             .map(String::as_str),
-        component.aliases.iter().map(String::as_str).chain(
-            component
-                .metadata
-                .iter()
-                .flat_map(|metadata| metadata.tags.iter().map(String::as_str)),
-        ),
+        aliases_and_tags(&component.aliases, component.metadata.as_ref()),
         component.package.iter().map(String::as_str),
         component.metadata.as_ref(),
         component.details.as_ref(),
@@ -243,12 +238,7 @@ fn token_score(token: &RegistryToken, query: &Normalized) -> Option<u16> {
     let category = token_category_name(token);
     entry_score(
         [&token.id, &token.key].into_iter().map(String::as_str),
-        token.aliases.iter().map(String::as_str).chain(
-            token
-                .metadata
-                .iter()
-                .flat_map(|metadata| metadata.tags.iter().map(String::as_str)),
-        ),
+        aliases_and_tags(&token.aliases, token.metadata.as_ref()),
         token
             .value
             .iter()
@@ -258,6 +248,17 @@ fn token_score(token: &RegistryToken, query: &Normalized) -> Option<u16> {
         token.details.as_ref(),
         &token.extra,
         query,
+    )
+}
+
+fn aliases_and_tags<'a>(
+    aliases: &'a [String],
+    metadata: Option<&'a RegistryMetadata>,
+) -> impl Iterator<Item = &'a str> {
+    aliases.iter().map(String::as_str).chain(
+        metadata
+            .into_iter()
+            .flat_map(|metadata| metadata.tags.iter().map(String::as_str)),
     )
 }
 
@@ -390,10 +391,7 @@ fn component_result(
             id: &component.id,
             label: &component.symbol,
             aliases: &component.aliases,
-            tags: component
-                .metadata
-                .as_ref()
-                .map_or(&[], |metadata| metadata.tags.as_slice()),
+            tags: metadata_tags(component.metadata.as_ref()),
         },
         component.metadata.as_ref(),
         component.details.as_ref(),
@@ -409,15 +407,16 @@ fn token_result(snapshot: &RegistrySnapshot, token: &RegistryToken) -> RegistryS
             id: &token.id,
             label: &token.key,
             aliases: &token.aliases,
-            tags: token
-                .metadata
-                .as_ref()
-                .map_or(&[], |metadata| metadata.tags.as_slice()),
+            tags: metadata_tags(token.metadata.as_ref()),
         },
         token.metadata.as_ref(),
         token.details.as_ref(),
         &token.extra,
     )
+}
+
+fn metadata_tags(metadata: Option<&RegistryMetadata>) -> &[String] {
+    metadata.map_or(&[], |metadata| metadata.tags.as_slice())
 }
 
 struct SearchResultIdentity<'a> {

@@ -115,7 +115,7 @@ fn tag_match_outranks_description_only_match() {
                 {
                     "id": "described-navigation",
                     "symbol": "Breadcrumbs",
-                    "metadata": {"description": "navigation"}
+                    "metadata": {"description": "navigation breadcrumbs"}
                 }
             ]),
             serde_json::json!([]),
@@ -133,6 +133,18 @@ fn tag_match_outranks_description_only_match() {
         ["tagged-navigation", "described-navigation"]
     );
     assert_eq!(response.results[0].tags, ["navigation"]);
+
+    let description_only = search_registry_entries(
+        &snapshots,
+        "breadcrumbs",
+        &RegistrySearchOptions {
+            kind: Some(RegistryEntryKind::Component),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(description_only.results[0].id, "described-navigation");
+    assert!(description_only.results[0].tags.is_empty());
 }
 
 #[test]
@@ -146,8 +158,8 @@ fn token_tag_and_empty_metadata_edges() {
                 "symbol": "PlainComponent"
             }]),
             serde_json::json!([{
-                "id": "color-brand",
-                "key": "color.brand",
+                "id": "color-primary",
+                "key": "color.primary",
                 "category": "color",
                 "metadata": {"tags": ["brand"]}
             }]),
