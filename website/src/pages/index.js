@@ -8,6 +8,7 @@ import styles from './index.module.css';
 function HomepageHeader() {
   const {siteConfig} = useDocusaurusContext();
   const logoUrl = useBaseUrl('/img/wax-full-logo.png');
+  const repositoryUrl = `https://github.com/${siteConfig.organizationName}/${siteConfig.projectName}`;
 
   return (
     <header className={styles.hero}>
@@ -26,7 +27,7 @@ function HomepageHeader() {
           </Link>
           <Link
             className="button button--outline button--secondary button--lg"
-            href="https://github.com/Daio-io/wax">
+            href={repositoryUrl}>
             GitHub
           </Link>
         </div>
@@ -36,10 +37,12 @@ function HomepageHeader() {
 }
 
 export default function Home() {
+  const {siteConfig} = useDocusaurusContext();
+
   return (
     <Layout
       title="Design system coverage analytics"
-      description="Design system coverage analytics for agents">
+      description={siteConfig.tagline}>
       <main>
         <HomepageHeader />
       </main>

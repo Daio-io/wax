@@ -53,6 +53,13 @@ scripts/install.sh --help
 
 For documentation-only changes, inspect the rendered Markdown when practical and ensure links point to current plan/spec files.
 
+For website changes, run:
+
+```bash
+npm --prefix website ci
+npm --prefix website test
+```
+
 ## Planning Discipline
 
 - Use `docs/plans/README.md` as the source of truth for plan order, active implementation phase, and gates. Completed plans live in `docs/plans/archive/` with ADR records in `docs/adr/`.
