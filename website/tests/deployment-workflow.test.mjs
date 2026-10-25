@@ -14,6 +14,7 @@ test('Pages workflow verifies PRs and deploys main via artifacts', async () => {
     'pull_request:',
     'branches: [main]',
     'npm test',
+    'pages: read',
     'actions/configure-pages@v5',
     'actions/upload-pages-artifact@v4',
     'path: website/build',
