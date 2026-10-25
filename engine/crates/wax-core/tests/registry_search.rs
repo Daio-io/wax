@@ -72,6 +72,10 @@ fn fuzzy_search_covers_components_tokens_and_aliases() {
 
     let alias = search_registry_entries(&snapshots, "action_button", &options).unwrap();
     assert_eq!(alias.results[0].id, "primary-button");
+    assert_eq!(alias.results[0].aliases, ["ActionButton"]);
+
+    let tag = search_registry_entries(&snapshots, "controls", &options).unwrap();
+    assert_eq!(tag.results[0].tags, ["controls"]);
 
     let value = search_registry_entries(&snapshots, "#ff00aa", &options).unwrap();
     assert_eq!(value.results[0].id, "color-primary");
@@ -94,6 +98,82 @@ fn fuzzy_search_covers_components_tokens_and_aliases() {
 
     let category = search_registry_entries(&snapshots, "color", &options).unwrap();
     assert_eq!(category.results[0].id, "color-primary");
+}
+
+#[test]
+fn tag_match_outranks_description_only_match() {
+    let snapshots = [snapshot(
+        "tag-ranking",
+        "react",
+        registry(
+            serde_json::json!([
+                {
+                    "id": "tagged-navigation",
+                    "symbol": "Menu",
+                    "metadata": {"tags": ["navigation"]}
+                },
+                {
+                    "id": "described-navigation",
+                    "symbol": "Breadcrumbs",
+                    "metadata": {"description": "navigation breadcrumbs"}
+                }
+            ]),
+            serde_json::json!([]),
+        ),
+    )];
+
+    let response = search_registry_entries(&snapshots, "navigation", &Default::default()).unwrap();
+
+    assert_eq!(
+        response
+            .results
+            .iter()
+            .map(|result| result.id.as_str())
+            .collect::<Vec<_>>(),
+        ["tagged-navigation", "described-navigation"]
+    );
+    assert_eq!(response.results[0].tags, ["navigation"]);
+
+    let description_only = search_registry_entries(
+        &snapshots,
+        "breadcrumbs",
+        &RegistrySearchOptions {
+            kind: Some(RegistryEntryKind::Component),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(description_only.results[0].id, "described-navigation");
+    assert!(description_only.results[0].tags.is_empty());
+}
+
+#[test]
+fn token_tag_and_empty_metadata_edges() {
+    let snapshots = [snapshot(
+        "metadata-edges",
+        "react",
+        registry(
+            serde_json::json!([{
+                "id": "plain-component",
+                "symbol": "PlainComponent"
+            }]),
+            serde_json::json!([{
+                "id": "color-primary",
+                "key": "color.primary",
+                "category": "color",
+                "metadata": {"tags": ["brand"]}
+            }]),
+        ),
+    )];
+
+    let tagged = search_registry_entries(&snapshots, "brand", &Default::default()).unwrap();
+    assert_eq!(tagged.results[0].tags, ["brand"]);
+
+    let plain =
+        search_registry_entries(&snapshots, "plain component", &Default::default()).unwrap();
+    let value = serde_json::to_value(&plain.results[0]).unwrap();
+    assert!(value.get("aliases").is_none());
+    assert!(value.get("tags").is_none());
 }
 
 #[test]

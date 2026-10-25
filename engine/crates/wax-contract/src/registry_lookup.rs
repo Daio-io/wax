@@ -67,6 +67,12 @@ pub struct RegistrySearchResult {
     pub label: String,
     /// Bounded summary text for the hit.
     pub summary: String,
+    /// Alternative names that can be used to find this entry.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
+    /// Structured metadata tags that can be used to find this entry.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
     /// Extraction status when enrichment is present.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extraction_status: Option<RegistryExtractionStatus>,

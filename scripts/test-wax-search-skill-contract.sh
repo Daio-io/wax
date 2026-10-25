@@ -27,6 +27,7 @@ require_text "$SKILL" 'wax search'
 require_text "$SKILL" 'wax component'
 require_text "$SKILL" 'wax token'
 require_text "$SKILL" 'wax registry list'
+require_text "$SKILL" '`aliases` and `tags`'
 require_text "$SKILL" 'command -v wax'
 require_text "$SKILL" 'npx --yes @waxhq/wax@alpha'
 require_text "$SKILL" 'Do not execute'
@@ -150,6 +151,11 @@ jq -e '.results | length == 1 and .[0].id == "ds.button"' "$component_search" >/
   || fail "component example did not select ds.button"
 jq -e '.results[0].summary == "A button used for important actions."' "$component_search" >/dev/null \
   || fail "component search did not use documentation from details as its summary"
+jq -e '
+  .results[0].aliases == ["Btn"]
+  and .results[0].tags == ["action", "form"]
+' "$component_search" >/dev/null \
+  || fail "component search did not expose aliases and tags"
 
 enum_search="$tmp_dir/enum-search.json"
 run_wax search "Comfortable" \

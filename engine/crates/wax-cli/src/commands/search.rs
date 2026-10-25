@@ -334,6 +334,12 @@ fn write_search_text(
         if !result.summary.is_empty() {
             writeln!(writer, "  summary: {}", result.summary).map_err(write_error)?;
         }
+        if !result.aliases.is_empty() {
+            writeln!(writer, "  aliases: {}", result.aliases.join(", ")).map_err(write_error)?;
+        }
+        if !result.tags.is_empty() {
+            writeln!(writer, "  tags: {}", result.tags.join(", ")).map_err(write_error)?;
+        }
         if let Some(status) = result.extraction_status {
             writeln!(writer, "  extraction: {}", extraction_status_label(status))
                 .map_err(write_error)?;

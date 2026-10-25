@@ -152,8 +152,45 @@ fn search_json_finds_fuzzy_component_and_keeps_stdout_schema_valid() {
     );
     assert_eq!(value["results"][0]["id"], "ds.button");
     assert_eq!(value["results"][0]["kind"], "component");
+    assert_eq!(
+        value["results"][0]["aliases"],
+        serde_json::json!(["ActionButton"])
+    );
+    assert_eq!(value["results"][0]["tags"], serde_json::json!(["control"]));
     assert!(!stdout.contains("error:"));
     assert!(!stderr.contains('{'), "progress must not emit JSON objects");
+}
+
+#[test]
+fn search_text_includes_aliases_and_tags() {
+    let _guard = env_lock();
+    let root = TestDir::new("search-text-fields");
+    let wax_home = root.path.join("wax-home");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(&wax_home).unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    let registry = root.path.join("registry.json");
+    write_registry(&registry, fixture_registry());
+    let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
+    remember_local_registry(&wax_home, "acme", &registry);
+
+    let output = run_wax(
+        &wax_home,
+        &repo,
+        &["search", "button", "--design-system", "acme"],
+    );
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("  aliases: ActionButton"),
+        "stdout: {stdout}"
+    );
+    assert!(stdout.contains("  tags: control"), "stdout: {stdout}");
 }
 
 #[test]
