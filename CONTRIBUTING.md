@@ -17,6 +17,7 @@ Other important surfaces:
 - [scripts](scripts): release helpers, pack index generation, installer
 - [homebrew](homebrew): Homebrew formula
 - [packages/cli](packages/cli): npm wrapper
+- [website](website): Docusaurus website package
 - [skills](skills) and [.claude-plugin](.claude-plugin): optional AI skills and plugin metadata
 
 For changes to scanning, config, registries, or language packs, start with the [scan code map](docs/scan-code-map.md).
@@ -68,6 +69,14 @@ cargo clippy -p wax-core --all-targets -- -D warnings
 ```
 
 Always run `cargo fmt` before committing Rust changes.
+
+For website changes, install the isolated package and run its production build
+and contract tests:
+
+```bash
+npm --prefix website ci
+npm --prefix website test
+```
 
 For release and install changes, also run the relevant script checks when applicable:
 

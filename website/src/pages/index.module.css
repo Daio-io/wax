@@ -1,0 +1,46 @@
+.hero {
+  align-items: center;
+  background: var(--wax-cream);
+  display: flex;
+  min-height: calc(100vh - var(--ifm-navbar-height));
+  padding: 5rem 1.5rem;
+  text-align: center;
+}
+
+.heroContent {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.logo {
+  height: auto;
+  max-width: min(100%, 476px);
+}
+
+.tagline {
+  color: var(--wax-ink);
+  font-size: clamp(1.25rem, 3vw, 2rem);
+  margin: 0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: center;
+}
+
+@media screen and (max-width: 600px) {
+  .hero {
+    min-height: auto;
+    padding: 4rem 1rem;
+  }
+
+  .actions {
+    align-items: stretch;
+    flex-direction: column;
+    width: 100%;
+  }
+}

@@ -19,6 +19,7 @@ Release and install surfaces live outside `engine/` and are still part of the pr
 - `scripts/` for release artifact generation, pack indexes, and curl installation.
 - `homebrew/` for the draft Homebrew formula.
 - `packages/cli/` for the optional `@waxhq/wax` npm wrapper.
+- `website/` for the Docusaurus documentation site.
 
 Keep generated scan output out of git, especially `.wax/` and global `~/.wax/` state.
 
@@ -51,6 +52,13 @@ scripts/install.sh --help
 ```
 
 For documentation-only changes, inspect the rendered Markdown when practical and ensure links point to current plan/spec files.
+
+For website changes, run:
+
+```bash
+npm --prefix website ci
+npm --prefix website test
+```
 
 ## Planning Discipline
 
