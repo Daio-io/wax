@@ -66,7 +66,7 @@ fn rich_discovery_uses_separate_envelope() {
             "components": [{
                 "id": "button",
                 "symbol": "Button",
-                "extracted": {"status": "complete"}
+                "details": {"status": "complete"}
             }]
         },
         "diagnostics": []

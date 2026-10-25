@@ -114,11 +114,11 @@ fn enrich_swift() -> PackEnrichment {
 }
 
 fn summarize(language: &'static str, document: &RegistryDocument) -> PackEnrichment {
-    let extracted = document.components[0]
-        .extracted
+    let details = document.components[0]
+        .details
         .as_ref()
         .expect("enriched component");
-    let parameters = extracted
+    let parameters = details
         .signature
         .as_ref()
         .map(|signature| signature.parameters.as_slice())
@@ -129,18 +129,18 @@ fn summarize(language: &'static str, document: &RegistryDocument) -> PackEnrichm
         .expect("enum parameter");
     PackEnrichment {
         language,
-        status: extracted.status,
-        documentation: extracted.documentation.clone(),
+        status: details.status,
+        documentation: details.documentation.clone(),
         parameter_count: parameters.len(),
         parameter_description: enum_parameter.description.clone(),
         enum_values: enum_parameter.allowed_values.to_vec(),
-        best_practices: extracted
+        best_practices: details
             .best_practices
             .iter()
             .map(|practice| practice.description.clone())
             .collect(),
-        has_deprecation: extracted.deprecation.is_some(),
-        has_example_attachment: extracted
+        has_deprecation: details.deprecation.is_some(),
+        has_example_attachment: details
             .attachments
             .iter()
             .any(|attachment| attachment.kind == RegistrySourceKind::Example),

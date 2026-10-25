@@ -15,7 +15,7 @@ fn partial_discovery_with_guidance_replaces_best_practices() {
             "components": [{
                 "id": "button",
                 "symbol": "Button",
-                "extracted": {
+                "details": {
                     "status": "complete",
                     "best_practices": [{"description": "Old guidance"}]
                 }
@@ -28,7 +28,7 @@ fn partial_discovery_with_guidance_replaces_best_practices() {
             "components": [{
                 "id": "button",
                 "symbol": "Button",
-                "extracted": {
+                "details": {
                     "status": "partial",
                     "best_practices": [{"description": "Fresh guidance"}]
                 }
@@ -38,9 +38,9 @@ fn partial_discovery_with_guidance_replaces_best_practices() {
 
     let merged = merge_registry(Some(&existing), &discovered, false).expect("registry merges");
     let best_practices = &merged.document.components[0]
-        .extracted
+        .details
         .as_ref()
-        .expect("extracted facts")
+        .expect("details")
         .best_practices;
 
     assert_eq!(best_practices.len(), 1);
@@ -55,7 +55,7 @@ fn complete_discovery_clears_obsolete_best_practices() {
             "components": [{
                 "id": "button",
                 "symbol": "Button",
-                "extracted": {
+                "details": {
                     "status": "complete",
                     "best_practices": [{"description": "Obsolete guidance"}]
                 }
@@ -68,7 +68,7 @@ fn complete_discovery_clears_obsolete_best_practices() {
             "components": [{
                 "id": "button",
                 "symbol": "Button",
-                "extracted": {"status": "complete"}
+                "details": {"status": "complete"}
             }]
         }"#,
     );
@@ -77,9 +77,9 @@ fn complete_discovery_clears_obsolete_best_practices() {
 
     assert!(
         merged.document.components[0]
-            .extracted
+            .details
             .as_ref()
-            .expect("extracted facts")
+            .expect("details")
             .best_practices
             .is_empty()
     );
@@ -93,7 +93,7 @@ fn partial_discovery_without_guidance_retains_prior_best_practices() {
             "components": [{
                 "id": "button",
                 "symbol": "Button",
-                "extracted": {
+                "details": {
                     "status": "complete",
                     "best_practices": [{"description": "Retained guidance"}]
                 }
@@ -106,16 +106,16 @@ fn partial_discovery_without_guidance_retains_prior_best_practices() {
             "components": [{
                 "id": "button",
                 "symbol": "Button",
-                "extracted": {"status": "partial"}
+                "details": {"status": "partial"}
             }]
         }"#,
     );
 
     let merged = merge_registry(Some(&existing), &discovered, false).expect("registry merges");
     let best_practices = &merged.document.components[0]
-        .extracted
+        .details
         .as_ref()
-        .expect("extracted facts")
+        .expect("details")
         .best_practices;
 
     assert_eq!(best_practices.len(), 1);
@@ -137,7 +137,7 @@ fn rediscovery_preserves_creator_content_and_tokens() {
                     "description": "Use for important actions",
                     "owner": "design-systems"
                 },
-                "extracted": {
+                "details": {
                     "status": "complete",
                     "documentation": "Old generated docs"
                 },
@@ -150,7 +150,7 @@ fn rediscovery_preserves_creator_content_and_tokens() {
                 "aliases": ["brand.color"],
                 "value": "#663399",
                 "metadata": {"description": "Canonical brand color"},
-                "extracted": {
+                "details": {
                     "status": "complete",
                     "documentation": "Old token docs"
                 },
@@ -165,7 +165,7 @@ fn rediscovery_preserves_creator_content_and_tokens() {
                 "id": "generated-button-id",
                 "symbol": "Button",
                 "package": "@acme/ui",
-                "extracted": {
+                "details": {
                     "status": "complete",
                     "documentation": "Fresh generated docs"
                 }
@@ -175,7 +175,7 @@ fn rediscovery_preserves_creator_content_and_tokens() {
                 "key": "color.brand",
                 "category": "color",
                 "value": "rgb(102 51 153)",
-                "extracted": {
+                "details": {
                     "status": "complete",
                     "documentation": "Fresh token docs"
                 }
@@ -198,9 +198,9 @@ fn rediscovery_preserves_creator_content_and_tokens() {
     assert_eq!(component.extra["review_state"], "approved");
     assert_eq!(
         component
-            .extracted
+            .details
             .as_ref()
-            .and_then(|extracted| extracted.documentation.as_deref()),
+            .and_then(|details| details.documentation.as_deref()),
         Some("Fresh generated docs")
     );
 
@@ -210,9 +210,9 @@ fn rediscovery_preserves_creator_content_and_tokens() {
     assert_eq!(token.extra["visibility"], "public");
     assert_eq!(
         token
-            .extracted
+            .details
             .as_ref()
-            .and_then(|extracted| extracted.documentation.as_deref()),
+            .and_then(|details| details.documentation.as_deref()),
         Some("Fresh token docs")
     );
 
@@ -249,7 +249,7 @@ fn partial_or_narrow_discovery_does_not_prune() {
                     "id": "button",
                     "symbol": "Button",
                     "package": "ui",
-                    "extracted": {
+                    "details": {
                         "status": "complete",
                         "documentation": "Old button docs",
                         "signature": {"type_text": "fun Button(old: String)"}
@@ -259,7 +259,7 @@ fn partial_or_narrow_discovery_does_not_prune() {
                     "id": "card",
                     "symbol": "Card",
                     "package": "ui",
-                    "extracted": {
+                    "details": {
                         "status": "complete",
                         "documentation": "Card docs"
                     }
@@ -268,7 +268,7 @@ fn partial_or_narrow_discovery_does_not_prune() {
                     "id": "badge",
                     "symbol": "Badge",
                     "package": "ui",
-                    "extracted": {
+                    "details": {
                         "status": "complete",
                         "documentation": "Badge docs"
                     }
@@ -278,7 +278,7 @@ fn partial_or_narrow_discovery_does_not_prune() {
                 "id": "spacing-small",
                 "key": "spacing.small",
                 "category": "spacing",
-                "extracted": {
+                "details": {
                     "status": "complete",
                     "documentation": "Old spacing docs",
                     "deprecation": {"message": "Use spacing.medium"}
@@ -294,7 +294,7 @@ fn partial_or_narrow_discovery_does_not_prune() {
                     "id": "button",
                     "symbol": "Button",
                     "package": "ui",
-                    "extracted": {
+                    "details": {
                         "status": "complete",
                         "documentation": "Fresh button docs"
                     }
@@ -309,7 +309,7 @@ fn partial_or_narrow_discovery_does_not_prune() {
                 "id": "spacing-small",
                 "key": "spacing.small",
                 "category": "spacing",
-                "extracted": {
+                "details": {
                     "status": "partial",
                     "documentation": "Fresh spacing docs",
                     "field_gaps": [{
@@ -325,12 +325,12 @@ fn partial_or_narrow_discovery_does_not_prune() {
 
     let button = &merged.document.components[0];
     assert_eq!(
-        button.extracted.as_ref().map(|facts| facts.status),
+        button.details.as_ref().map(|facts| facts.status),
         Some(RegistryExtractionStatus::Complete)
     );
     assert!(
         button
-            .extracted
+            .details
             .as_ref()
             .and_then(|facts| facts.signature.as_ref())
             .is_none()
@@ -338,11 +338,11 @@ fn partial_or_narrow_discovery_does_not_prune() {
 
     let card = &merged.document.components[1];
     assert_eq!(
-        card.extracted.as_ref().map(|facts| facts.status),
+        card.details.as_ref().map(|facts| facts.status),
         Some(RegistryExtractionStatus::NotObserved)
     );
     assert_eq!(
-        card.extracted
+        card.details
             .as_ref()
             .and_then(|facts| facts.documentation.as_deref()),
         Some("Card docs")
@@ -350,12 +350,12 @@ fn partial_or_narrow_discovery_does_not_prune() {
 
     let badge = &merged.document.components[2];
     assert_eq!(
-        badge.extracted.as_ref().map(|facts| facts.status),
+        badge.details.as_ref().map(|facts| facts.status),
         Some(RegistryExtractionStatus::Stale)
     );
     assert_eq!(
         badge
-            .extracted
+            .details
             .as_ref()
             .and_then(|facts| facts.documentation.as_deref()),
         Some("Badge docs")
@@ -363,19 +363,19 @@ fn partial_or_narrow_discovery_does_not_prune() {
 
     let token = &merged.document.tokens[0];
     assert_eq!(
-        token.extracted.as_ref().map(|facts| facts.status),
+        token.details.as_ref().map(|facts| facts.status),
         Some(RegistryExtractionStatus::Partial)
     );
     assert_eq!(
         token
-            .extracted
+            .details
             .as_ref()
             .and_then(|facts| facts.documentation.as_deref()),
         Some("Fresh spacing docs")
     );
     assert_eq!(
         token
-            .extracted
+            .details
             .as_ref()
             .and_then(|facts| facts.deprecation.as_ref())
             .and_then(|deprecation| deprecation.message.as_deref()),
@@ -391,7 +391,7 @@ fn clean_extraction_removes_obsolete_generated_fields() {
             "components": [{
                 "id": "button",
                 "symbol": "Button",
-                "extracted": {
+                "details": {
                     "status": "complete",
                     "documentation": "Old docs",
                     "signature": {"type_text": "fun Button(old: String)"},
@@ -406,7 +406,7 @@ fn clean_extraction_removes_obsolete_generated_fields() {
             "components": [{
                 "id": "button",
                 "symbol": "Button",
-                "extracted": {
+                "details": {
                     "status": "complete",
                     "documentation": "Fresh docs"
                 }
@@ -415,13 +415,13 @@ fn clean_extraction_removes_obsolete_generated_fields() {
     );
 
     let merged = merge_registry(Some(&existing), &discovered, true).expect("registry merges");
-    let extracted = merged.document.components[0]
-        .extracted
+    let details = merged.document.components[0]
+        .details
         .as_ref()
-        .expect("extracted facts");
+        .expect("details");
 
-    assert!(extracted.signature.is_none());
-    assert!(!extracted.extra.contains_key("old_extractor_field"));
+    assert!(details.signature.is_none());
+    assert!(!details.extra.contains_key("old_extractor_field"));
 }
 
 #[test]
@@ -434,13 +434,13 @@ fn identity_conflict_keeps_creator_content() {
                     "id": "primary-button",
                     "symbol": "Button",
                     "metadata": {"description": "Primary authored content"},
-                    "extracted": {"status": "complete", "documentation": "Primary docs"}
+                    "details": {"status": "complete", "documentation": "Primary docs"}
                 },
                 {
                     "id": "secondary-button",
                     "symbol": "Button",
                     "metadata": {"description": "Secondary authored content"},
-                    "extracted": {"status": "complete", "documentation": "Secondary docs"}
+                    "details": {"status": "complete", "documentation": "Secondary docs"}
                 }
             ]
         }"#,
@@ -451,7 +451,7 @@ fn identity_conflict_keeps_creator_content() {
             "components": [{
                 "id": "generated-button",
                 "symbol": "Button",
-                "extracted": {"status": "complete", "documentation": "Fresh docs"}
+                "details": {"status": "complete", "documentation": "Fresh docs"}
             }]
         }"#,
     );
@@ -474,11 +474,11 @@ fn identity_conflict_keeps_creator_content() {
         Some("Secondary authored content")
     );
     for candidate in &merged.document.components[..2] {
-        let extracted = candidate.extracted.as_ref().expect("extracted facts");
-        assert_eq!(extracted.status, RegistryExtractionStatus::Complete);
+        let details = candidate.details.as_ref().expect("details");
+        assert_eq!(details.status, RegistryExtractionStatus::Complete);
         assert!(
             matches!(
-                extracted.documentation.as_deref(),
+                details.documentation.as_deref(),
                 Some("Primary docs") | Some("Secondary docs")
             ),
             "conflict must not rewrite authored extraction docs"
@@ -509,7 +509,7 @@ fn incomplete_discovery_preserves_prior_field_gaps_when_omitted() {
             "components": [{
                 "id": "button",
                 "symbol": "Button",
-                "extracted": {
+                "details": {
                     "status": "partial",
                     "documentation": "Prior docs",
                     "field_gaps": [{
@@ -526,7 +526,7 @@ fn incomplete_discovery_preserves_prior_field_gaps_when_omitted() {
             "components": [{
                 "id": "button",
                 "symbol": "Button",
-                "extracted": {
+                "details": {
                     "status": "partial",
                     "documentation": "Fresh docs"
                 }
@@ -535,16 +535,16 @@ fn incomplete_discovery_preserves_prior_field_gaps_when_omitted() {
     );
 
     let merged = merge_registry(Some(&existing), &discovered, true).expect("registry merges");
-    let extracted = merged.document.components[0]
-        .extracted
+    let details = merged.document.components[0]
+        .details
         .as_ref()
-        .expect("extracted facts");
+        .expect("details");
 
-    assert_eq!(extracted.status, RegistryExtractionStatus::Partial);
-    assert_eq!(extracted.documentation.as_deref(), Some("Fresh docs"));
-    assert_eq!(extracted.field_gaps.len(), 1);
-    assert_eq!(extracted.field_gaps[0].field, "signature");
-    assert_eq!(extracted.field_gaps[0].reason, "parser unavailable");
+    assert_eq!(details.status, RegistryExtractionStatus::Partial);
+    assert_eq!(details.documentation.as_deref(), Some("Fresh docs"));
+    assert_eq!(details.field_gaps.len(), 1);
+    assert_eq!(details.field_gaps[0].field, "signature");
+    assert_eq!(details.field_gaps[0].reason, "parser unavailable");
 }
 
 #[test]
@@ -556,12 +556,12 @@ fn complete_flag_does_not_change_retention_of_unobserved_entries() {
                 {
                     "id": "button",
                     "symbol": "Button",
-                    "extracted": {"status": "complete", "documentation": "Button docs"}
+                    "details": {"status": "complete", "documentation": "Button docs"}
                 },
                 {
                     "id": "card",
                     "symbol": "Card",
-                    "extracted": {"status": "complete", "documentation": "Card docs"}
+                    "details": {"status": "complete", "documentation": "Card docs"}
                 }
             ]
         }"#,
@@ -572,7 +572,7 @@ fn complete_flag_does_not_change_retention_of_unobserved_entries() {
             "components": [{
                 "id": "button",
                 "symbol": "Button",
-                "extracted": {"status": "complete", "documentation": "Fresh button docs"}
+                "details": {"status": "complete", "documentation": "Fresh button docs"}
             }]
         }"#,
     );
@@ -586,7 +586,7 @@ fn complete_flag_does_not_change_retention_of_unobserved_entries() {
     assert_eq!(when_complete.diagnostics, when_incomplete.diagnostics);
     assert_eq!(
         when_complete.document.components[1]
-            .extracted
+            .details
             .as_ref()
             .map(|facts| facts.status),
         Some(RegistryExtractionStatus::NotObserved)
@@ -600,12 +600,12 @@ fn distinct_discoveries_do_not_match_entries_added_during_merge() {
         r#"{
             "schema_version": 1,
             "components": [
-                {"id": "button-a", "symbol": "Button", "extracted": {"status": "complete"}},
-                {"id": "button-b", "symbol": "Button", "extracted": {"status": "complete"}}
+                {"id": "button-a", "symbol": "Button", "details": {"status": "complete"}},
+                {"id": "button-b", "symbol": "Button", "details": {"status": "complete"}}
             ],
             "tokens": [
-                {"id": "color-a", "key": "color.brand", "category": "color", "extracted": {"status": "complete"}},
-                {"id": "color-b", "key": "color.brand", "category": "color", "extracted": {"status": "complete"}}
+                {"id": "color-a", "key": "color.brand", "category": "color", "details": {"status": "complete"}},
+                {"id": "color-b", "key": "color.brand", "category": "color", "details": {"status": "complete"}}
             ]
         }"#,
     );
@@ -628,13 +628,13 @@ fn id_fallback_mismatch_retains_extraction_on_both_candidates() {
                 {
                     "id": "button-a",
                     "symbol": "Card",
-                    "extracted": {"status": "complete", "documentation": "A docs"}
+                    "details": {"status": "complete", "documentation": "A docs"}
                 },
                 {
                     "id": "button-b",
                     "symbol": "Button",
                     "package": "@acme/ui",
-                    "extracted": {"status": "complete", "documentation": "B docs"}
+                    "details": {"status": "complete", "documentation": "B docs"}
                 }
             ],
             "tokens": [
@@ -642,13 +642,13 @@ fn id_fallback_mismatch_retains_extraction_on_both_candidates() {
                     "id": "color-a",
                     "key": "color.other",
                     "category": "color",
-                    "extracted": {"status": "complete", "documentation": "A docs"}
+                    "details": {"status": "complete", "documentation": "A docs"}
                 },
                 {
                     "id": "color-b",
                     "key": "color.brand",
                     "category": "color",
-                    "extracted": {"status": "complete", "documentation": "B docs"}
+                    "details": {"status": "complete", "documentation": "B docs"}
                 }
             ]
         }"#,
@@ -660,13 +660,13 @@ fn id_fallback_mismatch_retains_extraction_on_both_candidates() {
                 "id": "button-a",
                 "symbol": "Button",
                 "package": "@acme/ui",
-                "extracted": {"status": "complete", "documentation": "Fresh component docs"}
+                "details": {"status": "complete", "documentation": "Fresh component docs"}
             }],
             "tokens": [{
                 "id": "color-a",
                 "key": "color.brand",
                 "category": "color",
-                "extracted": {"status": "complete", "documentation": "Fresh token docs"}
+                "details": {"status": "complete", "documentation": "Fresh token docs"}
             }]
         }"#,
     );
@@ -679,24 +679,24 @@ fn id_fallback_mismatch_retains_extraction_on_both_candidates() {
         ("token", 0, "A docs"),
         ("token", 1, "B docs"),
     ] {
-        let extracted = match kind {
+        let details = match kind {
             "component" => merged.document.components[index]
-                .extracted
+                .details
                 .as_ref()
-                .expect("component extracted"),
+                .expect("component details"),
             "token" => merged.document.tokens[index]
-                .extracted
+                .details
                 .as_ref()
-                .expect("token extracted"),
+                .expect("token details"),
             _ => unreachable!(),
         };
         assert_eq!(
-            extracted.status,
+            details.status,
             RegistryExtractionStatus::Complete,
             "{kind}[{index}] must retain complete extraction on id/fallback conflict"
         );
         assert_eq!(
-            extracted.documentation.as_deref(),
+            details.documentation.as_deref(),
             Some(docs),
             "{kind}[{index}] docs must stay untouched"
         );
@@ -743,20 +743,20 @@ fn exact_ids_disambiguate_ambiguous_component_and_token_fallbacks() {
         r#"{
             "schema_version": 1,
             "components": [
-                {"id": "button-a", "symbol": "Button", "extracted": {"status": "complete", "documentation": "old a"}},
-                {"id": "button-b", "symbol": "Button", "extracted": {"status": "complete", "documentation": "old b"}}
+                {"id": "button-a", "symbol": "Button", "details": {"status": "complete", "documentation": "old a"}},
+                {"id": "button-b", "symbol": "Button", "details": {"status": "complete", "documentation": "old b"}}
             ],
             "tokens": [
-                {"id": "color-a", "key": "color.brand", "category": "color", "extracted": {"status": "complete", "documentation": "old a"}},
-                {"id": "color-b", "key": "color.brand", "category": "color", "extracted": {"status": "complete", "documentation": "old b"}}
+                {"id": "color-a", "key": "color.brand", "category": "color", "details": {"status": "complete", "documentation": "old a"}},
+                {"id": "color-b", "key": "color.brand", "category": "color", "details": {"status": "complete", "documentation": "old b"}}
             ]
         }"#,
     );
     let discovered = registry(
         r#"{
             "schema_version": 1,
-            "components": [{"id": "button-b", "symbol": "Button", "extracted": {"status": "complete", "documentation": "fresh"}}],
-            "tokens": [{"id": "color-b", "key": "color.brand", "category": "color", "extracted": {"status": "complete", "documentation": "fresh"}}]
+            "components": [{"id": "button-b", "symbol": "Button", "details": {"status": "complete", "documentation": "fresh"}}],
+            "tokens": [{"id": "color-b", "key": "color.brand", "category": "color", "details": {"status": "complete", "documentation": "fresh"}}]
         }"#,
     );
 
@@ -765,7 +765,7 @@ fn exact_ids_disambiguate_ambiguous_component_and_token_fallbacks() {
     assert_eq!(merged.diagnostics.len(), 0);
     assert_eq!(
         merged.document.components[1]
-            .extracted
+            .details
             .as_ref()
             .unwrap()
             .documentation
@@ -774,7 +774,7 @@ fn exact_ids_disambiguate_ambiguous_component_and_token_fallbacks() {
     );
     assert_eq!(
         merged.document.tokens[1]
-            .extracted
+            .details
             .as_ref()
             .unwrap()
             .documentation
@@ -795,7 +795,7 @@ fn unchanged_rediscovery_is_idempotent() {
                 "package": "ui",
                 "aliases": ["PrimaryButton"],
                 "metadata": {"tags": ["action"]},
-                "extracted": {
+                "details": {
                     "status": "complete",
                     "documentation": "Button docs",
                     "extractor_extension": "stable"
@@ -806,7 +806,7 @@ fn unchanged_rediscovery_is_idempotent() {
                 "key": "color.brand",
                 "category": "color",
                 "value": "rebeccapurple",
-                "extracted": {"status": "complete"}
+                "details": {"status": "complete"}
             }]
         }"#,
     );

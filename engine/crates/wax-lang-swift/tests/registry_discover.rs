@@ -42,13 +42,13 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
     };
 
     let result = discover_registry_details(&request).expect("rich discover should succeed");
-    let extracted = result.document.components[0]
-        .extracted
+    let details = result.document.components[0]
+        .details
         .as_ref()
         .expect("matching component should be enriched");
 
     assert_eq!(
-        serde_json::to_value(extracted).expect("serialize extracted facts"),
+        serde_json::to_value(details).expect("serialize details"),
         serde_json::json!({
             "status": "complete",
             "source_evidence": {
@@ -137,7 +137,7 @@ public func DocumentedCard(
 
     let result = discover_registry_details(&request).expect("documented discover should succeed");
     let parameters = &result.document.components[0]
-        .extracted
+        .details
         .as_ref()
         .expect("component should be enriched")
         .signature
@@ -192,13 +192,13 @@ public func ImportedCard(
     };
 
     let result = discover_registry_details(&request).expect("rich discover should succeed");
-    let extracted = result.document.components[0]
-        .extracted
+    let details = result.document.components[0]
+        .details
         .as_ref()
         .expect("component should be enriched");
 
     assert_eq!(
-        extracted.signature.as_ref().and_then(|signature| {
+        details.signature.as_ref().and_then(|signature| {
             signature
                 .parameters
                 .first()
@@ -207,15 +207,15 @@ public func ImportedCard(
         Some("VendorKit.Configuration")
     );
     assert_eq!(
-        extracted.status,
+        details.status,
         wax_contract::RegistryExtractionStatus::Partial
     );
-    assert!(extracted.field_gaps.iter().any(|gap| {
+    assert!(details.field_gaps.iter().any(|gap| {
         gap.field == "signature.parameters.configuration.type_details"
             && gap.reason.contains("imported")
     }));
     assert_eq!(
-        extracted
+        details
             .field_gaps
             .iter()
             .map(|gap| gap.field.as_str())
@@ -292,7 +292,7 @@ public func ShapeCard(
 
     let result = discover_registry_details(&request).expect("shape discover should succeed");
     let parameters = &result.document.components[0]
-        .extracted
+        .details
         .as_ref()
         .expect("component should be enriched")
         .signature
@@ -456,15 +456,15 @@ public func BareEmptyGuidanceCard() -> some View {
 
     let result = discover_registry_details(&request).expect("guidance discover should succeed");
     let empty_guidance = result.document.components[0]
-        .extracted
+        .details
         .as_ref()
         .expect("empty-guidance component should be enriched");
     let no_guidance = result.document.components[1]
-        .extracted
+        .details
         .as_ref()
         .expect("no-guidance component should be enriched");
     let bare_empty_guidance = result.document.components[2]
-        .extracted
+        .details
         .as_ref()
         .expect("bare-empty-guidance component should be enriched");
 
@@ -543,12 +543,12 @@ public struct DocumentedCard: View {
 
     let result = discover_registry_details(&request).expect("initializer docs should succeed");
     let parameter = &result.document.components[0]
-        .extracted
+        .details
         .as_ref()
         .expect("component should be enriched")
         .signature
         .as_ref()
-        .expect("signature should be extracted")
+        .expect("signature should be details")
         .parameters[0];
 
     assert_eq!(parameter.description.as_deref(), Some("The visible title."));
@@ -584,12 +584,12 @@ public func ClosureCard(action: (() -> Void)?) -> some View {
 
     let result = discover_registry_details(&request).expect("closure discovery should succeed");
     let parameter = &result.document.components[0]
-        .extracted
+        .details
         .as_ref()
         .expect("component should be enriched")
         .signature
         .as_ref()
-        .expect("signature should be extracted")
+        .expect("signature should be details")
         .parameters[0];
 
     assert_eq!(
@@ -640,7 +640,7 @@ public struct DeprecatedMemberCard: View {
 
     let result = discover_registry_details(&request).expect("rich discover should succeed");
     let attributed = result.document.components[0]
-        .extracted
+        .details
         .as_ref()
         .expect("attributed component should be enriched");
     assert_eq!(
@@ -659,7 +659,7 @@ public struct DeprecatedMemberCard: View {
     assert_eq!(attributed.deprecation, None);
 
     let deprecated_member = result.document.components[1]
-        .extracted
+        .details
         .as_ref()
         .expect("optional initializer component should be enriched");
     assert_eq!(
@@ -716,16 +716,16 @@ public struct CurrentCard: View {
     let result = discover_registry_details(&request).expect("rich discover should succeed");
     assert!(
         result.document.components[0]
-            .extracted
+            .details
             .as_ref()
-            .and_then(|extracted| extracted.deprecation.as_ref())
+            .and_then(|details| details.deprecation.as_ref())
             .is_some()
     );
     assert_eq!(
         result.document.components[1]
-            .extracted
+            .details
             .as_ref()
-            .and_then(|extracted| extracted.deprecation.as_ref()),
+            .and_then(|details| details.deprecation.as_ref()),
         None
     );
     Ok(())
@@ -760,18 +760,18 @@ public struct SynthesizedCard: View {
     };
 
     let result = discover_registry_details(&request).expect("rich discover should succeed");
-    let extracted = result.document.components[0]
-        .extracted
+    let details = result.document.components[0]
+        .details
         .as_ref()
         .expect("component should be enriched");
 
     assert_eq!(
-        extracted.status,
+        details.status,
         wax_contract::RegistryExtractionStatus::Partial
     );
-    assert!(extracted.signature.is_none());
+    assert!(details.signature.is_none());
     assert!(
-        extracted
+        details
             .field_gaps
             .iter()
             .any(|gap| { gap.field == "signature.parameters" && gap.reason.contains("compiler") })
@@ -832,13 +832,13 @@ fn discover_registry_details_enriches_only_explicit_existing_tokens() -> io::Res
     assert_eq!(result.document.tokens[1].value, original_tokens[1].value);
     assert_eq!(
         result.document.tokens[0]
-            .extracted
+            .details
             .as_ref()
-            .and_then(|extracted| extracted.source_evidence.as_ref())
+            .and_then(|details| details.source_evidence.as_ref())
             .map(|evidence| evidence.path.as_str()),
         Some("Sources/DesignTokens.swift")
     );
-    assert!(result.document.tokens[1].extracted.is_none());
+    assert!(result.document.tokens[1].details.is_none());
     assert_eq!(result.document.tokens.len(), 2);
     Ok(())
 }
@@ -858,7 +858,7 @@ fn discover_registry_details_preserves_facts_when_syntax_is_damaged() -> io::Res
             {
                 "id": "damaged",
                 "symbol": "DamagedCard",
-                "extracted": {
+                "details": {
                     "status": "complete",
                     "source_evidence": {"path": "Sources/Damaged.swift"},
                     "documentation": "Prior damaged documentation"
@@ -867,7 +867,7 @@ fn discover_registry_details_preserves_facts_when_syntax_is_damaged() -> io::Res
             {
                 "id": "unrelated",
                 "symbol": "UnrelatedCard",
-                "extracted": {
+                "details": {
                     "status": "complete",
                     "source_evidence": {"path": "Sources/Other.swift"},
                     "documentation": "Prior unrelated documentation"
@@ -889,23 +889,23 @@ fn discover_registry_details_preserves_facts_when_syntax_is_damaged() -> io::Res
 
     assert_eq!(
         result.document.components[0]
-            .extracted
+            .details
             .as_ref()
-            .map(|extracted| extracted.status),
+            .map(|details| details.status),
         Some(wax_contract::RegistryExtractionStatus::Stale)
     );
     assert_eq!(
         result.document.components[1]
-            .extracted
+            .details
             .as_ref()
-            .and_then(|extracted| extracted.documentation.as_deref()),
+            .and_then(|details| details.documentation.as_deref()),
         Some("Prior unrelated documentation")
     );
     assert_eq!(
         result.document.components[2]
-            .extracted
+            .details
             .as_ref()
-            .map(|extracted| extracted.status),
+            .map(|details| details.status),
         Some(wax_contract::RegistryExtractionStatus::Unavailable)
     );
     assert!(result.diagnostics.iter().any(|diagnostic| {

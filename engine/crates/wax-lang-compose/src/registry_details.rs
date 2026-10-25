@@ -5,8 +5,8 @@ use std::path::Path;
 
 use serde_json::Map;
 use wax_contract::{
-    RegistryAttachment, RegistryBestPractice, RegistryDeprecation, RegistryDocument,
-    RegistryExtracted, RegistryExtractionStatus, RegistryFieldGap, RegistryParameter,
+    RegistryAttachment, RegistryBestPractice, RegistryDeprecation, RegistryDetails,
+    RegistryDocument, RegistryExtractionStatus, RegistryFieldGap, RegistryParameter,
     RegistryParameterTypeKind, RegistrySignature, RegistrySourceEvidence, RegistrySourceKind,
 };
 use wax_lang_api::{DiscoverRegistryRequest, DiscoverRegistryResult};
@@ -22,7 +22,7 @@ use crate::kotlin_recovery::ByteRange;
 struct ComponentDeclaration {
     symbol: String,
     package: Option<String>,
-    extracted: RegistryExtracted,
+    details: RegistryDetails,
 }
 
 struct ParameterTypeFacts {
@@ -130,7 +130,7 @@ fn collect_component_declarations(
             declarations.push(ComponentDeclaration {
                 symbol: name,
                 package: file.package.clone(),
-                extracted: extracted_component(node, source, file, type_facts),
+                details: component_details(node, source, file, type_facts),
             });
         }
 
@@ -142,12 +142,12 @@ fn collect_component_declarations(
     }
 }
 
-fn extracted_component(
+fn component_details(
     node: tree_sitter::Node<'_>,
     source: &[u8],
     file: &ParsedKotlinSourceFile,
     type_facts: &ParameterTypeFacts,
-) -> RegistryExtracted {
+) -> RegistryDetails {
     let kdoc = kdoc_for_declaration(node, source);
     let (parameters, mut field_gaps) =
         parameters_from_function(node, source, type_facts, &kdoc.parameter_descriptions);
@@ -186,7 +186,7 @@ fn extracted_component(
         RegistryExtractionStatus::Partial
     };
 
-    RegistryExtracted {
+    RegistryDetails {
         status,
         source_evidence,
         documentation: kdoc.documentation,
@@ -861,37 +861,37 @@ fn enrich_components(
         });
         if let Some(declaration) = declaration {
             let declaration_path_damaged = declaration
-                .extracted
+                .details
                 .source_evidence
                 .as_ref()
                 .is_some_and(|evidence| damaged_paths.contains(&evidence.path));
             if declaration_path_damaged {
                 // Clean-range hits in a damaged file are incomplete evidence: keep prior
                 // facts and mark them stale instead of trusting a full replacement.
-                mark_extracted_stale(&mut component.extracted);
+                mark_details_stale(&mut component.details);
                 continue;
             }
-            component.extracted = Some(declaration.extracted.clone());
+            component.details = Some(declaration.details.clone());
             continue;
         }
 
         let evidence_damaged = component
-            .extracted
+            .details
             .as_ref()
-            .and_then(|extracted| extracted.source_evidence.as_ref())
+            .and_then(|details| details.source_evidence.as_ref())
             .is_some_and(|evidence| damaged_paths.contains(&evidence.path));
         if evidence_damaged {
-            mark_extracted_stale(&mut component.extracted);
+            mark_details_stale(&mut component.details);
             continue;
         }
 
         // Unrelated parse damage is incomplete evidence: preserve prior facts instead of
         // generating removals. Only emit unavailable when the scan had no damage.
-        if component.extracted.is_some() && !damaged_paths.is_empty() {
+        if component.details.is_some() && !damaged_paths.is_empty() {
             continue;
         }
 
-        component.extracted = Some(unavailable(
+        component.details = Some(unavailable(
             "source_evidence",
             "no matching directly declared Compose declaration was observed",
         ));
@@ -917,13 +917,13 @@ fn enrich_explicit_tokens(
             continue;
         };
         if damaged_paths.contains(&source.path) {
-            mark_extracted_stale(&mut token.extracted);
+            mark_details_stale(&mut token.details);
             continue;
         }
         if !repo_root.join(&source.path).is_file() {
             continue;
         }
-        token.extracted = Some(RegistryExtracted {
+        token.details = Some(RegistryDetails {
             status: RegistryExtractionStatus::Complete,
             source_evidence: Some(RegistrySourceEvidence {
                 path: source.path.clone(),
@@ -942,14 +942,14 @@ fn enrich_explicit_tokens(
     }
 }
 
-fn mark_extracted_stale(extracted: &mut Option<RegistryExtracted>) {
-    if let Some(extracted) = extracted {
-        extracted.status = RegistryExtractionStatus::Stale;
+fn mark_details_stale(details: &mut Option<RegistryDetails>) {
+    if let Some(details) = details {
+        details.status = RegistryExtractionStatus::Stale;
     }
 }
 
-fn unavailable(field: &str, reason: &str) -> RegistryExtracted {
-    RegistryExtracted {
+fn unavailable(field: &str, reason: &str) -> RegistryDetails {
+    RegistryDetails {
         status: RegistryExtractionStatus::Unavailable,
         source_evidence: None,
         documentation: None,

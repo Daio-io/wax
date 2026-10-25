@@ -83,9 +83,9 @@ pub struct DiscoverRegistryRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct DiscoverRegistryResult {
-    /// Registry document containing extracted details.
+    /// Registry document containing discovered details.
     pub document: RegistryDocument,
-    /// Structured diagnostics emitted while extracting details.
+    /// Structured diagnostics emitted while discovering details.
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -182,7 +182,7 @@ pub enum WirePackResponse {
         api_version: u32,
         /// Language pack identifier that produced the registry.
         language_id: LanguageId,
-        /// Registry document containing extracted details.
+        /// Registry document containing discovered details.
         document: RegistryDocument,
         /// Structured diagnostics emitted with the result.
         diagnostics: Vec<Diagnostic>,

@@ -407,7 +407,7 @@ case "$request" in
     printf '%s\n' '{"type":"capabilities","api_version":1,"language_id":"compose","registry_details_v1":true}'
     ;;
   *'"type":"discover_registry"'*)
-    printf '%s\n' '{"type":"registry_details","api_version":1,"language_id":"compose","document":{"schema_version":1,"components":[{"id":"button","symbol":"Button","metadata":{"sources":[{"kind":"documentation","path":"pack-injected.md"}]},"extracted":{"status":"partial","documentation":"Generated docs"}},{"id":"card","symbol":"Card","metadata":{"sources":[{"kind":"example","path":"secret.txt"}]},"extracted":{"status":"complete"}}]},"diagnostics":[]}'
+    printf '%s\n' '{"type":"registry_details","api_version":1,"language_id":"compose","document":{"schema_version":1,"components":[{"id":"button","symbol":"Button","metadata":{"sources":[{"kind":"documentation","path":"pack-injected.md"}]},"details":{"status":"partial","documentation":"Generated docs"}},{"id":"card","symbol":"Card","metadata":{"sources":[{"kind":"example","path":"secret.txt"}]},"details":{"status":"complete"}}]},"diagnostics":[]}'
     ;;
   *)
     printf '%s\n' '{"type":"discover_symbols","api_version":1,"language_id":"compose","symbols":["Button"],"diagnostics":[]}'
@@ -555,7 +555,7 @@ fun XMLButton() {}
             {
                 "id": "ds.xml-button",
                 "symbol": "XMLButton",
-                "extracted": {"status": "unavailable"}
+                "details": {"status": "unavailable"}
             }
         ])
     );
@@ -1332,7 +1332,7 @@ fn dry_run_returns_losslessly_merged_rich_document_and_structured_changes() {
         .expect("new rich component");
     assert!(card.metadata.is_none());
     assert!(
-        card.extracted
+        card.details
             .as_ref()
             .expect("rich card extraction")
             .attachments
@@ -1340,7 +1340,7 @@ fn dry_run_returns_losslessly_merged_rich_document_and_structured_changes() {
     );
     assert_eq!(
         result.document.components[0]
-            .extracted
+            .details
             .as_ref()
             .expect("rich extraction")
             .attachments[0]

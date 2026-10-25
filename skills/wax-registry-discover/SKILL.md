@@ -157,7 +157,7 @@ Use configless discovery: **always pass `--root`** and do not assume configured 
 
    - Propose user-facing synonyms and spaced or compound forms in `aliases`, such as `navbar`, `nav bar`, `topbar`, and `app bar` for `NavigationBar`.
    - Propose coarse groupings in `tags` only when useful, such as `navigation`, `input`, or `feedback`.
-   - Base proposals on the component's symbol, id, package path, extracted documentation, and common UI vocabulary. Do not use unsupported product-specific guesses.
+   - Base proposals on the component's symbol, id, package path, documentation in `details`, and common UI vocabulary. Do not use unsupported product-specific guesses.
    - Never treat component aliases as alternate code symbols or scan authority. They help users find components with `wax search`; deterministic discovery and language packs remain authoritative for code symbols.
 
    Show these suggestions in a separate **Aliases/tags proposed** group in the structured review diff. Include the component id, current aliases/tags, proposed additions, and a short rationale. This is a proposal-only pass: never auto-write aliases or tags during discover.
@@ -171,7 +171,7 @@ Use configless discovery: **always pass `--root`** and do not assume configured 
    - `--force` is retained for compatibility; existing registries are refreshed by a lossless merge.
    - Require **explicit approval** for component additions, alias/tag additions, and value changes; require a separate approval for any removals.
 
-8. Write the registry only after review. Existing registries are refreshed by a lossless merge that preserves tokens, aliases, tags, metadata, values, and generated extraction fields; `--force` remains accepted as a compatibility flag and does not discard creator data. Merge only approved alias/tag additions into existing arrays. Preserve all authored aliases and tags on rediscover, and never remove either without separate approval.
+8. Write the registry only after review. Existing registries are refreshed by a lossless merge that preserves tokens, aliases, tags, metadata, values, and generated details; `--force` remains accepted as a compatibility flag and does not discard creator data. Merge only approved alias/tag additions into existing arrays. Preserve all authored aliases and tags on rediscover, and never remove either without separate approval.
 
    Treat every repeat run as lossless rediscovery: preserve authored component
    and token ids, explicit source associations, package identities, aliases,

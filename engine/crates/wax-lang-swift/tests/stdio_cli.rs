@@ -76,7 +76,7 @@ fn stdio_cli_emits_registry_details_for_rich_discovery() {
     assert!(matches!(
         response,
         WirePackResponse::RegistryDetails { document, diagnostics, .. }
-            if document.components[0].extracted.is_some() && diagnostics.is_empty()
+            if document.components[0].details.is_some() && diagnostics.is_empty()
     ));
 }
 

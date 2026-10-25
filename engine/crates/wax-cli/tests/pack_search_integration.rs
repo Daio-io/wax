@@ -108,9 +108,9 @@ fn publish_merged_registry(pack: &PackCase) -> RegistryDocument {
     );
     assert!(
         document.components[0]
-            .extracted
+            .details
             .as_ref()
-            .is_some_and(|extracted| extracted.documentation.as_deref()
+            .is_some_and(|details| details.documentation.as_deref()
                 == Some("A button used for important actions.")),
         "{} merge should keep enrichment documentation",
         pack.language
@@ -253,7 +253,7 @@ fn parser_packs_publish_merge_then_search_and_detail() {
         assert_eq!(detail_value["kind"], "component");
         assert_eq!(detail_value["entry"]["id"], pack.component_id);
         assert_eq!(
-            detail_value["entry"]["extracted"]["documentation"],
+            detail_value["entry"]["details"]["documentation"],
             "A button used for important actions."
         );
         assert_eq!(
@@ -341,8 +341,8 @@ fn parser_packs_search_guidance_then_return_snapshot_pinned_facts() {
 
         let mut refreshed = serde_json::to_value(&document).unwrap();
         refreshed["components"][0]["symbol"] = json!("RefreshedButton");
-        refreshed["components"][0]["extracted"]["signature"]["parameters"] = json!([]);
-        refreshed["components"][0]["extracted"]["best_practices"] = json!([]);
+        refreshed["components"][0]["details"]["signature"]["parameters"] = json!([]);
+        refreshed["components"][0]["details"]["best_practices"] = json!([]);
         fs::write(
             &registry_path,
             serde_json::to_vec_pretty(&refreshed).unwrap(),
@@ -383,7 +383,7 @@ fn parser_packs_search_guidance_then_return_snapshot_pinned_facts() {
         let detail: Value =
             serde_json::from_str(String::from_utf8(detail.stdout).unwrap().trim()).unwrap();
         assert_eq!(detail["entry"], expected_entry);
-        let enum_parameter = detail["entry"]["extracted"]["signature"]["parameters"]
+        let enum_parameter = detail["entry"]["details"]["signature"]["parameters"]
             .as_array()
             .unwrap()
             .iter()
@@ -394,7 +394,7 @@ fn parser_packs_search_guidance_then_return_snapshot_pinned_facts() {
             2
         );
         assert_eq!(
-            detail["entry"]["extracted"]["best_practices"]
+            detail["entry"]["details"]["best_practices"]
                 .as_array()
                 .unwrap()
                 .len(),

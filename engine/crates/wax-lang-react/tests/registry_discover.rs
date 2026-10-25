@@ -47,13 +47,13 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
     };
 
     let result = discover_registry_details(&request).expect("rich discover should succeed");
-    let extracted = result.document.components[0]
-        .extracted
+    let details = result.document.components[0]
+        .details
         .as_ref()
         .expect("matching component should be enriched");
 
     assert_eq!(
-        serde_json::to_value(extracted).unwrap(),
+        serde_json::to_value(details).unwrap(),
         serde_json::json!({
             "status": "complete",
             "source_evidence": {
@@ -125,10 +125,10 @@ export const ImportedButton = ({ size }: ImportedProps) => <button data-size={si
     };
 
     let result = discover_registry_details(&request).expect("rich discover should succeed");
-    let extracted = result.document.components[0].extracted.as_ref().unwrap();
+    let details = result.document.components[0].details.as_ref().unwrap();
 
     assert_eq!(
-        serde_json::to_value(extracted).unwrap(),
+        serde_json::to_value(details).unwrap(),
         serde_json::json!({
             "status": "partial",
             "source_evidence": {
@@ -178,7 +178,7 @@ export function MixedButton({ tone }: MixedButtonProps) {
 
     let result = discover_registry_details(&request).expect("rich discover should succeed");
     let parameter = &result.document.components[0]
-        .extracted
+        .details
         .as_ref()
         .unwrap()
         .signature
@@ -227,7 +227,7 @@ export function DuplicateButton({ tone }: DuplicateButtonProps) {
 
     let result = discover_registry_details(&request).expect("rich discover should succeed");
     let parameter = &result.document.components[0]
-        .extracted
+        .details
         .as_ref()
         .unwrap()
         .signature
@@ -271,7 +271,7 @@ export function TemplateButton({ size }: TemplateButtonProps) {
 
     let result = discover_registry_details(&request).expect("rich discover should succeed");
     let parameter = &result.document.components[0]
-        .extracted
+        .details
         .as_ref()
         .unwrap()
         .signature
@@ -324,7 +324,7 @@ export function FactButton(props: FactButtonProps) {
 
     let result = discover_registry_details(&request).expect("rich discover should succeed");
     let parameters = &result.document.components[0]
-        .extracted
+        .details
         .as_ref()
         .unwrap()
         .signature
@@ -382,10 +382,10 @@ export function ExtendedButton({ label }: ExtendedProps) {
     };
 
     let result = discover_registry_details(&request).expect("rich discover should succeed");
-    let extracted = result.document.components[0].extracted.as_ref().unwrap();
+    let details = result.document.components[0].details.as_ref().unwrap();
 
     assert_eq!(
-        serde_json::to_value(extracted).unwrap(),
+        serde_json::to_value(details).unwrap(),
         serde_json::json!({
             "status": "partial",
             "source_evidence": {
@@ -469,7 +469,7 @@ fn discover_registry_details_enriches_only_explicitly_associated_tokens() -> io:
                     "end_line": 1,
                     "language": "react"
                 }]},
-                "extracted": {
+                "details": {
                     "status": "complete",
                     "source_evidence": {
                         "path": "src/tokens.ts",
@@ -500,7 +500,7 @@ fn discover_registry_details_preserves_prior_facts_as_stale_on_damaged_syntax() 
         "components": [{
             "id": "broken",
             "symbol": "Broken",
-            "extracted": {
+            "details": {
                 "status": "complete",
                 "documentation": "Prior documentation",
                 "source_evidence": {
@@ -523,7 +523,7 @@ fn discover_registry_details_preserves_prior_facts_as_stale_on_damaged_syntax() 
     let result = discover_registry_details(&request).expect("damaged source should be recoverable");
 
     assert_eq!(
-        serde_json::to_value(result.document.components[0].extracted.as_ref().unwrap()).unwrap(),
+        serde_json::to_value(result.document.components[0].details.as_ref().unwrap()).unwrap(),
         serde_json::json!({
             "status": "stale",
             "documentation": "Prior documentation",
@@ -553,7 +553,7 @@ fn discover_registry_details_does_not_stale_unrelated_components_on_damage() -> 
         "components": [{
             "id": "other",
             "symbol": "Other",
-            "extracted": {
+            "details": {
                 "status": "complete",
                 "documentation": "Prior documentation",
                 "source_evidence": {
@@ -574,14 +574,14 @@ fn discover_registry_details_does_not_stale_unrelated_components_on_damage() -> 
     };
 
     let result = discover_registry_details(&request).expect("damaged source should be recoverable");
-    let extracted = result.document.components[0].extracted.as_ref().unwrap();
+    let details = result.document.components[0].details.as_ref().unwrap();
 
     assert_eq!(
-        extracted.status,
+        details.status,
         wax_contract::RegistryExtractionStatus::Complete
     );
     assert_eq!(
-        extracted.documentation.as_deref(),
+        details.documentation.as_deref(),
         Some("Prior documentation")
     );
     assert!(result.diagnostics.iter().any(|d| d.code == "parse_failed"));
@@ -614,10 +614,10 @@ fn discover_registry_details_extracts_inline_props_type_literal() -> io::Result<
     };
 
     let result = discover_registry_details(&request).expect("rich discover should succeed");
-    let extracted = result.document.components[0].extracted.as_ref().unwrap();
+    let details = result.document.components[0].details.as_ref().unwrap();
 
     assert_eq!(
-        serde_json::to_value(extracted).unwrap(),
+        serde_json::to_value(details).unwrap(),
         serde_json::json!({
             "status": "complete",
             "source_evidence": {
@@ -702,7 +702,7 @@ export default function DefaultPanel({ title }: { title: string }) {
             .components
             .iter()
             .find(|component| component.symbol == symbol)
-            .and_then(|component| component.extracted.as_ref())
+            .and_then(|component| component.details.as_ref())
             .expect("component should be enriched")
     };
 

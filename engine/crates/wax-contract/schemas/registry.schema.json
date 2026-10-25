@@ -252,7 +252,7 @@
         }
       }
     },
-    "extracted": {
+    "details": {
       "type": "object",
       "additionalProperties": true,
       "required": ["status"],
@@ -320,8 +320,8 @@
         "metadata": {
           "$ref": "#/$defs/registry_metadata"
         },
-        "extracted": {
-          "$ref": "#/$defs/extracted"
+        "details": {
+          "$ref": "#/$defs/details"
         }
       }
     },
@@ -355,8 +355,8 @@
         "metadata": {
           "$ref": "#/$defs/registry_metadata"
         },
-        "extracted": {
-          "$ref": "#/$defs/extracted"
+        "details": {
+          "$ref": "#/$defs/details"
         }
       }
     }

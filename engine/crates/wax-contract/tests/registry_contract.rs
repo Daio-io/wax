@@ -58,6 +58,82 @@ fn assert_schema_invalid(validator: &jsonschema::Validator, value: &serde_json::
 }
 
 #[test]
+fn registry_details_roundtrip_uses_details_field() {
+    let input = serde_json::json!({
+        "schema_version": 1,
+        "components": [{
+            "id": "button",
+            "symbol": "Button",
+            "details": {
+                "status": "complete",
+                "documentation": "Primary action"
+            }
+        }]
+    });
+
+    let document = registry_from_json(&input.to_string()).expect("details should deserialize");
+    assert_eq!(
+        document.components[0]
+            .details
+            .as_ref()
+            .and_then(|details| details.documentation.as_deref()),
+        Some("Primary action")
+    );
+
+    let encoded = serde_json::to_value(&document).expect("details should serialize");
+    assert_eq!(
+        encoded["components"][0]["details"],
+        input["components"][0]["details"]
+    );
+    assert!(encoded["components"][0].get("extracted").is_none());
+    assert_schema_valid(&registry_schema(), &encoded);
+}
+
+#[test]
+fn legacy_extracted_field_is_read_as_details_and_published_as_details() {
+    let input = serde_json::json!({
+        "schema_version": 1,
+        "components": [{
+            "id": "button",
+            "symbol": "Button",
+            "extracted": {"status": "partial", "documentation": "Legacy docs"}
+        }],
+        "tokens": [{
+            "id": "color-primary",
+            "key": "color.primary",
+            "category": "color",
+            "extracted": {"status": "complete", "documentation": "Legacy token docs"}
+        }]
+    });
+
+    let document = registry_from_json(&input.to_string()).expect("legacy registry should load");
+    assert_eq!(
+        document.components[0]
+            .details
+            .as_ref()
+            .unwrap()
+            .documentation
+            .as_deref(),
+        Some("Legacy docs")
+    );
+    assert_eq!(
+        document.tokens[0]
+            .details
+            .as_ref()
+            .unwrap()
+            .documentation
+            .as_deref(),
+        Some("Legacy token docs")
+    );
+
+    let encoded = serde_json::to_value(&document).expect("legacy registry should serialize");
+    assert!(encoded["components"][0].get("extracted").is_none());
+    assert!(encoded["tokens"][0].get("extracted").is_none());
+    assert_eq!(encoded["components"][0]["details"]["status"], "partial");
+    assert_eq!(encoded["tokens"][0]["details"]["status"], "complete");
+}
+
+#[test]
 fn legacy_and_enriched_registry_roundtrip() {
     let component_only = registry_from_json(&fixture("legacy-component-only.json"))
         .expect("component-only registry should load");
@@ -65,7 +141,7 @@ fn legacy_and_enriched_registry_roundtrip() {
     assert_eq!(component_only.components.len(), 2);
     assert!(component_only.tokens.is_empty());
     assert!(component_only.components[0].metadata.is_none());
-    assert!(component_only.components[0].extracted.is_none());
+    assert!(component_only.components[0].details.is_none());
     assert_eq!(
         component_only.components[1].package.as_deref(),
         Some("com.acme.design")
@@ -117,9 +193,9 @@ fn legacy_and_enriched_registry_roundtrip() {
         Some("design-system")
     );
     assert_eq!(metadata.sources.len(), 3);
-    let extracted = button.extracted.as_ref().expect("extracted");
-    assert_eq!(extracted.status, RegistryExtractionStatus::Partial);
-    let parameters = &extracted.signature.as_ref().expect("signature").parameters;
+    let details = button.details.as_ref().expect("details");
+    assert_eq!(details.status, RegistryExtractionStatus::Partial);
+    let parameters = &details.signature.as_ref().expect("signature").parameters;
     assert_eq!(
         parameters[0].type_kind,
         Some(RegistryParameterTypeKind::Enum)
@@ -133,14 +209,14 @@ fn legacy_and_enriched_registry_roundtrip() {
         parameters[3].extra.get("type"),
         Some(&serde_json::json!("legacy-string"))
     );
-    assert_eq!(extracted.best_practices.len(), 2);
+    assert_eq!(details.best_practices.len(), 2);
     assert_eq!(
-        extracted.best_practices[0].extra.get("source"),
+        details.best_practices[0].extra.get("source"),
         Some(&serde_json::json!("design-guidelines"))
     );
-    assert_eq!(extracted.field_gaps.len(), 1);
+    assert_eq!(details.field_gaps.len(), 1);
     assert_eq!(
-        extracted
+        details
             .extra
             .get("extractor_version")
             .and_then(|v| v.as_str()),
@@ -176,7 +252,7 @@ fn legacy_and_enriched_registry_roundtrip() {
         "design-system"
     );
     assert_eq!(
-        enriched_json["components"][0]["extracted"]["extractor_version"],
+        enriched_json["components"][0]["details"]["extractor_version"],
         "1.2.3"
     );
     assert_eq!(enriched_json["tokens"][0]["token_ext"], 1);
@@ -189,7 +265,7 @@ fn structured_parameter_and_guidance_validate() {
         "components": [{
             "id": "button",
             "symbol": "Button",
-            "extracted": {
+            "details": {
                 "status": "complete",
                 "signature": {
                     "parameters": [{
@@ -210,27 +286,27 @@ fn structured_parameter_and_guidance_validate() {
         (
             "empty parameter description",
             serde_json::json!({"description": ""}),
-            "components[0].extracted.signature.parameters[0].description",
+            "components[0].details.signature.parameters[0].description",
         ),
         (
             "empty allowed value",
             serde_json::json!({"type_kind": "enum", "allowed_values": [""]}),
-            "components[0].extracted.signature.parameters[0].allowed_values[0]",
+            "components[0].details.signature.parameters[0].allowed_values[0]",
         ),
         (
             "duplicate allowed value",
             serde_json::json!({"type_kind": "enum", "allowed_values": ["small", "small"]}),
-            "components[0].extracted.signature.parameters[0].allowed_values[1]",
+            "components[0].details.signature.parameters[0].allowed_values[1]",
         ),
         (
             "allowed values on non-enum",
             serde_json::json!({"type_kind": "string", "allowed_values": ["small"]}),
-            "components[0].extracted.signature.parameters[0].allowed_values",
+            "components[0].details.signature.parameters[0].allowed_values",
         ),
         (
             "enum without allowed values",
             serde_json::json!({"type_kind": "enum"}),
-            "components[0].extracted.signature.parameters[0].allowed_values",
+            "components[0].details.signature.parameters[0].allowed_values",
         ),
     ];
 
@@ -241,7 +317,7 @@ fn structured_parameter_and_guidance_validate() {
             "components": [{
                 "id": "button",
                 "symbol": "Button",
-                "extracted": {
+                "details": {
                     "status": "complete",
                     "signature": {"parameters": [parameter]}
                 }
@@ -260,7 +336,7 @@ fn structured_parameter_and_guidance_validate() {
         "components": [{
             "id": "button",
             "symbol": "Button",
-            "extracted": {
+            "details": {
                 "status": "complete",
                 "best_practices": [{"description": ""}]
             }
@@ -271,7 +347,7 @@ fn structured_parameter_and_guidance_validate() {
     assert!(matches!(
         error,
         RegistryError::ContractViolation { field, .. }
-            if field == "components[0].extracted.best_practices[0].description"
+            if field == "components[0].details.best_practices[0].description"
     ));
     assert_schema_invalid(&registry_schema(), &empty_guidance);
 }
@@ -292,7 +368,7 @@ fn malformed_known_fields_and_duplicate_ids_fail() {
             "components": [{
                 "id": "button",
                 "symbol": "Button",
-                "extracted": {
+                "details": {
                     "status": "complete",
                     "signature": {"parameters": [malformed_parameter]}
                 }

@@ -46,7 +46,7 @@ fn fuzzy_search_covers_components_tokens_and_aliases() {
                     "description": "Primary action control",
                     "tags": ["controls"]
                 },
-                "extracted": {
+                "details": {
                     "status": "complete",
                     "documentation": "Use in confirmation dialogs",
                     "attachments": [{
@@ -229,7 +229,7 @@ fn exact_details_retain_metadata_extensions_and_report_stable_errors() {
             "tags": ["control"],
             "owner": "design-systems"
         },
-        "extracted": {
+        "details": {
             "status": "complete",
             "documentation": "Use for primary actions.",
             "signature": {
@@ -266,15 +266,15 @@ fn exact_details_retain_metadata_extensions_and_report_stable_errors() {
     assert_eq!(detail.entry["legacy_flag"], true);
     assert_eq!(detail.entry["metadata"]["owner"], "design-systems");
     assert_eq!(
-        detail.entry["extracted"]["attachments"][0]["framework"],
+        detail.entry["details"]["attachments"][0]["framework"],
         "react"
     );
     assert_eq!(
-        detail.entry["extracted"]["signature"]["parameters"][0]["type_kind"],
+        detail.entry["details"]["signature"]["parameters"][0]["type_kind"],
         "enum"
     );
     assert_eq!(
-        detail.entry["extracted"]["best_practices"][0]["description"],
+        detail.entry["details"]["best_practices"][0]["description"],
         "Use one primary action"
     );
 
@@ -332,16 +332,16 @@ fn exact_details_retain_metadata_extensions_and_report_stable_errors() {
 }
 
 #[test]
-fn search_scores_typed_extracted_fields_not_nested_extra_keys() {
+fn search_scores_typed_detail_fields_not_nested_extra_keys() {
     let snapshots = [snapshot(
         "typed-source",
         "react",
         registry(
             serde_json::json!([
                 {
-                    "id": "with-extracted-docs",
+                    "id": "with-details-docs",
                     "symbol": "Panel",
-                    "extracted": {
+                    "details": {
                         "status": "complete",
                         "documentation": "Use in confirmation dialogs",
                         "signature": {
@@ -390,7 +390,7 @@ fn search_scores_typed_extracted_fields_not_nested_extra_keys() {
                     "symbol": "SummaryPrimary",
                     "summary": "Published summary",
                     "metadata": {"description": "Creator description"},
-                    "extracted": {
+                    "details": {
                         "status": "complete",
                         "documentation": "Generated documentation"
                     }
@@ -399,7 +399,7 @@ fn search_scores_typed_extracted_fields_not_nested_extra_keys() {
                     "id": "metadata-summary",
                     "symbol": "MetadataSummary",
                     "metadata": {"description": "Creator fallback"},
-                    "extracted": {
+                    "details": {
                         "status": "complete",
                         "documentation": "Generated fallback"
                     }
@@ -420,7 +420,7 @@ fn search_scores_typed_extracted_fields_not_nested_extra_keys() {
             1,
             "query `{query}` should ignore nested extra documentation/content keys"
         );
-        assert_eq!(response.results[0].id, "with-extracted-docs");
+        assert_eq!(response.results[0].id, "with-details-docs");
     }
 
     for query in [
@@ -436,9 +436,9 @@ fn search_scores_typed_extracted_fields_not_nested_extra_keys() {
         assert_eq!(
             response.results.len(),
             1,
-            "query `{query}` should index only typed extracted fields"
+            "query `{query}` should index only typed details fields"
         );
-        assert_eq!(response.results[0].id, "with-extracted-docs");
+        assert_eq!(response.results[0].id, "with-details-docs");
     }
 
     let response =

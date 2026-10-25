@@ -65,9 +65,9 @@ pub struct RegistryComponent {
     /// Creator-owned metadata for this entry.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<RegistryMetadata>,
-    /// Generated extraction facts for this entry.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub extracted: Option<RegistryExtracted>,
+    /// Discovered details for this entry.
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "extracted")]
+    pub details: Option<RegistryDetails>,
     /// Unknown entry fields preserved across round trips.
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -91,9 +91,9 @@ pub struct RegistryToken {
     /// Creator-owned metadata for this entry.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<RegistryMetadata>,
-    /// Generated extraction facts for this entry.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub extracted: Option<RegistryExtracted>,
+    /// Discovered details for this entry.
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "extracted")]
+    pub details: Option<RegistryDetails>,
     /// Unknown entry fields preserved across round trips.
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -299,9 +299,9 @@ pub struct RegistryFieldGap {
     pub extra: Map<String, Value>,
 }
 
-/// Generated extraction facts for a registry entry.
+/// Human-facing details discovered for a registry entry.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct RegistryExtracted {
+pub struct RegistryDetails {
     /// Extraction completeness status.
     pub status: RegistryExtractionStatus,
     /// Source evidence for the declaration when observed.
@@ -325,7 +325,7 @@ pub struct RegistryExtracted {
     /// Generated usage guidance.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub best_practices: Vec<RegistryBestPractice>,
-    /// Unknown extracted fields preserved across round trips.
+    /// Unknown detail fields preserved across round trips.
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
@@ -387,8 +387,8 @@ impl RegistryDocument {
             if let Some(metadata) = &component.metadata {
                 validate_metadata(&format!("{field}.metadata"), metadata)?;
             }
-            if let Some(extracted) = &component.extracted {
-                validate_extracted(&format!("{field}.extracted"), extracted)?;
+            if let Some(details) = &component.details {
+                validate_details(&format!("{field}.details"), details)?;
             }
         }
 
@@ -412,8 +412,8 @@ impl RegistryDocument {
             if let Some(metadata) = &token.metadata {
                 validate_metadata(&format!("{field}.metadata"), metadata)?;
             }
-            if let Some(extracted) = &token.extracted {
-                validate_extracted(&format!("{field}.extracted"), extracted)?;
+            if let Some(details) = &token.details {
+                validate_details(&format!("{field}.details"), details)?;
             }
         }
 
@@ -447,11 +447,11 @@ fn validate_metadata(field: &str, metadata: &RegistryMetadata) -> Result<(), Reg
     Ok(())
 }
 
-fn validate_extracted(field: &str, extracted: &RegistryExtracted) -> Result<(), RegistryError> {
-    if let Some(documentation) = &extracted.documentation {
+fn validate_details(field: &str, details: &RegistryDetails) -> Result<(), RegistryError> {
+    if let Some(documentation) = &details.documentation {
         require_non_empty(&format!("{field}.documentation"), documentation)?;
     }
-    if let Some(evidence) = &extracted.source_evidence {
+    if let Some(evidence) = &details.source_evidence {
         require_non_empty(&format!("{field}.source_evidence.path"), &evidence.path)?;
         if let (Some(start), Some(end)) = (evidence.start_line, evidence.end_line)
             && start > end
@@ -462,7 +462,7 @@ fn validate_extracted(field: &str, extracted: &RegistryExtracted) -> Result<(), 
             });
         }
     }
-    if let Some(signature) = &extracted.signature {
+    if let Some(signature) = &details.signature {
         if let Some(type_text) = &signature.type_text {
             require_non_empty(&format!("{field}.signature.type_text"), type_text)?;
         }
@@ -507,7 +507,7 @@ fn validate_extracted(field: &str, extracted: &RegistryExtracted) -> Result<(), 
             }
         }
     }
-    if let Some(deprecation) = &extracted.deprecation {
+    if let Some(deprecation) = &details.deprecation {
         if let Some(message) = &deprecation.message {
             require_non_empty(&format!("{field}.deprecation.message"), message)?;
         }
@@ -518,7 +518,7 @@ fn validate_extracted(field: &str, extracted: &RegistryExtracted) -> Result<(), 
             require_non_empty(&format!("{field}.deprecation.replaced_by"), replaced_by)?;
         }
     }
-    for (index, attachment) in extracted.attachments.iter().enumerate() {
+    for (index, attachment) in details.attachments.iter().enumerate() {
         let attachment_field = format!("{field}.attachments[{index}]");
         require_non_empty(&format!("{attachment_field}.path"), &attachment.path)?;
         // Content may be empty for intentionally blank examples.
@@ -526,12 +526,12 @@ fn validate_extracted(field: &str, extracted: &RegistryExtracted) -> Result<(), 
             require_non_empty(&format!("{attachment_field}.language"), language)?;
         }
     }
-    for (index, gap) in extracted.field_gaps.iter().enumerate() {
+    for (index, gap) in details.field_gaps.iter().enumerate() {
         let gap_field = format!("{field}.field_gaps[{index}]");
         require_non_empty(&format!("{gap_field}.field"), &gap.field)?;
         require_non_empty(&format!("{gap_field}.reason"), &gap.reason)?;
     }
-    for (index, best_practice) in extracted.best_practices.iter().enumerate() {
+    for (index, best_practice) in details.best_practices.iter().enumerate() {
         require_non_empty(
             &format!("{field}.best_practices[{index}].description"),
             &best_practice.description,
