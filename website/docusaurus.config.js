@@ -27,9 +27,18 @@ const config = {
       title: 'wax',
       items: [
         {
-          type: 'docSidebar',
-          sidebarId: 'docs',
+          to: '/docs/getting-started/',
           label: 'Docs',
+          position: 'left',
+        },
+        {
+          to: '/docs/reference/cli/',
+          label: 'CLI',
+          position: 'left',
+        },
+        {
+          to: '/docs/skills/',
+          label: 'Skills',
           position: 'left',
         },
         {
@@ -44,7 +53,11 @@ const config = {
       links: [
         {
           title: 'Docs',
-          items: [{label: 'Get started', to: '/docs/getting-started/'}],
+          items: [
+            {label: 'Get started', to: '/docs/getting-started/'},
+            {label: 'CLI reference', to: '/docs/reference/cli/'},
+            {label: 'Agent skills', to: '/docs/skills/'},
+          ],
         },
         {
           title: 'Project',
