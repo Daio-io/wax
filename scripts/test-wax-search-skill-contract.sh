@@ -149,7 +149,7 @@ assert_search_envelope "$component_search"
 jq -e '.results | length == 1 and .[0].id == "ds.button"' "$component_search" >/dev/null \
   || fail "component example did not select ds.button"
 jq -e '.results[0].summary == "A button used for important actions."' "$component_search" >/dev/null \
-  || fail "component search did not use extracted documentation as its summary"
+  || fail "component search did not use documentation from details as its summary"
 
 enum_search="$tmp_dir/enum-search.json"
 run_wax search "Comfortable" \
@@ -192,11 +192,11 @@ assert_detail_envelope "$component_detail" component ds.button "$component_diges
 jq -e '.entry.symbol == "Button" and .entry.package == "com.acme.ui"' "$component_detail" >/dev/null \
   || fail "snapshot-pinned component detail changed after refresh"
 jq -e '
-  .entry.extracted.signature.parameters[0].type_kind == "enum"
-  and (.entry.extracted.signature.parameters[0].allowed_values | length == 2)
+  .entry.details.signature.parameters[0].type_kind == "enum"
+  and (.entry.details.signature.parameters[0].allowed_values | length == 2)
 ' "$component_detail" >/dev/null \
   || fail "snapshot-pinned detail omitted structured enum values"
-jq -e '.entry.extracted.best_practices | length == 2' "$component_detail" >/dev/null \
+jq -e '.entry.details.best_practices | length == 2' "$component_detail" >/dev/null \
   || fail "snapshot-pinned detail omitted structured guidance"
 
 token_detail="$tmp_dir/token-detail.json"
@@ -274,7 +274,7 @@ jq -e '.code == "ambiguous_entry"' "$ambiguous_error" >/dev/null \
   || fail "ambiguous component lookup must return ambiguous_entry"
 
 # Exercise the documented unavailable-facts path against a real detail
-# response whose optional extracted metadata is absent.
+# response whose optional details object is absent.
 unavailable_registry="$tmp_dir/unavailable-registry.json"
 jq '{schema_version, languages, components: [{id: "ds.sparse", symbol: "Sparse"}], tokens: []}' \
   "$registry" >"$unavailable_registry"
@@ -288,8 +288,8 @@ run_wax component ds.sparse \
   --repo-root "$repo" >"$unavailable_detail"
 assert_detail_envelope "$unavailable_detail" component ds.sparse \
   "$(jq -er '.snapshot.digest' "$unavailable_detail")"
-jq -e '(.entry | has("extracted") | not)' "$unavailable_detail" >/dev/null \
-  || fail "unavailable detail must omit absent extracted metadata"
+jq -e '(.entry | has("details") | not)' "$unavailable_detail" >/dev/null \
+  || fail "unavailable detail must omit the absent details object"
 
 # Exercise the documented configured-app form without a design-system selector.
 configured_repo="$tmp_dir/configured-app"

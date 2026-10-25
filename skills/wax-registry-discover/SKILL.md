@@ -157,7 +157,7 @@ Use configless discovery: **always pass `--root`** and do not assume configured 
 
    - Propose user-facing synonyms and spaced or compound forms in `aliases`, such as `navbar`, `nav bar`, `topbar`, and `app bar` for `NavigationBar`.
    - Propose coarse groupings in `tags` only when useful, such as `navigation`, `input`, or `feedback`.
-   - Base proposals on the component's symbol, id, package path, extracted documentation, and common UI vocabulary. Do not use unsupported product-specific guesses.
+   - Base proposals on the component's symbol, id, package path, documentation in `details`, and common UI vocabulary. Do not use unsupported product-specific guesses.
    - Never treat component aliases as alternate code symbols or scan authority. They help users find components with `wax search`; deterministic discovery and language packs remain authoritative for code symbols.
 
    Show these suggestions in a separate **Aliases/tags proposed** group in the structured review diff. Include the component id, current aliases/tags, proposed additions, and a short rationale. This is a proposal-only pass: never auto-write aliases or tags during discover.

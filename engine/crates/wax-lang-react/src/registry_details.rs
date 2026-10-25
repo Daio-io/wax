@@ -11,8 +11,8 @@ use swc_ecma_ast::{
     TsUnionOrIntersectionType,
 };
 use wax_contract::{
-    RegistryAttachment, RegistryBestPractice, RegistryDeprecation, RegistryDocument,
-    RegistryExtracted, RegistryExtractionStatus, RegistryFieldGap, RegistryParameter,
+    RegistryAttachment, RegistryBestPractice, RegistryDeprecation, RegistryDetails,
+    RegistryDocument, RegistryExtractionStatus, RegistryFieldGap, RegistryParameter,
     RegistryParameterTypeKind, RegistrySignature, RegistrySourceEvidence,
 };
 use wax_lang_api::{DiscoverRegistryRequest, DiscoverRegistryResult};
@@ -34,7 +34,7 @@ struct PropsDefinition {
 struct ComponentDeclaration {
     symbol: String,
     package: Option<String>,
-    extracted: RegistryExtracted,
+    details: RegistryDetails,
 }
 
 #[derive(Debug, Default)]
@@ -117,7 +117,7 @@ fn component_declarations(
                     declarations.push(ComponentDeclaration {
                         symbol: function.ident.sym.to_string(),
                         package: package.clone(),
-                        extracted: extracted_component(
+                        details: component_details(
                             parsed,
                             export.span,
                             signature_span_for_function(export.span, &function.function),
@@ -140,7 +140,7 @@ fn component_declarations(
                             declarations.push(ComponentDeclaration {
                                 symbol,
                                 package: package.clone(),
-                                extracted: extracted_component(
+                                details: component_details(
                                     parsed,
                                     export.span,
                                     implementation.signature_span,
@@ -161,7 +161,7 @@ fn component_declarations(
                     declarations.push(ComponentDeclaration {
                         symbol: ident.sym.to_string(),
                         package: package.clone(),
-                        extracted: extracted_component(
+                        details: component_details(
                             parsed,
                             default_decl.span,
                             signature_span_for_function(default_decl.span, &function.function),
@@ -178,7 +178,7 @@ fn component_declarations(
                             declarations.push(ComponentDeclaration {
                                 symbol: ident.sym.to_string(),
                                 package: package.clone(),
-                                extracted: extracted_component(
+                                details: component_details(
                                     parsed,
                                     default_expr.span,
                                     implementation.signature_span,
@@ -198,7 +198,7 @@ fn component_declarations(
                             declarations.push(ComponentDeclaration {
                                 symbol,
                                 package: package.clone(),
-                                extracted: extracted_component(
+                                details: component_details(
                                     parsed,
                                     default_expr.span,
                                     implementation.signature_span,
@@ -530,13 +530,13 @@ fn parameter_type_facts(
     (kind, Vec::new())
 }
 
-fn extracted_component(
+fn component_details(
     parsed: &ParsedReactModule,
     span: Span,
     signature_span: Span,
     parameter: Option<&Pat>,
     props: &BTreeMap<String, PropsDefinition>,
-) -> RegistryExtracted {
+) -> RegistryDetails {
     let (props_type_text, mut parameters, mut field_gaps) =
         signature_facts(parsed, parameter, props);
     let type_text = parsed
@@ -581,7 +581,7 @@ fn extracted_component(
         RegistryExtractionStatus::Partial
     };
 
-    RegistryExtracted {
+    RegistryDetails {
         status,
         source_evidence,
         documentation: jsdoc.documentation,
@@ -821,29 +821,29 @@ fn enrich_components(
                     .is_none_or(|package| declaration.package.as_ref() == Some(package))
         });
         if let Some(declaration) = declaration {
-            component.extracted = Some(declaration.extracted.clone());
+            component.details = Some(declaration.details.clone());
             continue;
         }
 
         let evidence_damaged = component
-            .extracted
+            .details
             .as_ref()
-            .and_then(|extracted| extracted.source_evidence.as_ref())
+            .and_then(|details| details.source_evidence.as_ref())
             .is_some_and(|evidence| damaged_paths.contains(&evidence.path));
         if evidence_damaged {
-            if let Some(extracted) = &mut component.extracted {
-                extracted.status = RegistryExtractionStatus::Stale;
+            if let Some(details) = &mut component.details {
+                details.status = RegistryExtractionStatus::Stale;
             }
             continue;
         }
 
         // Unrelated parse damage is incomplete evidence: preserve prior facts instead of
         // generating removals. Only emit unavailable when the scan had no damage.
-        if component.extracted.is_some() && !damaged_paths.is_empty() {
+        if component.details.is_some() && !damaged_paths.is_empty() {
             continue;
         }
 
-        component.extracted = Some(unavailable(
+        component.details = Some(unavailable(
             "source_evidence",
             "no matching directly exported React declaration was observed",
         ));
@@ -869,15 +869,15 @@ fn enrich_explicit_tokens(
             continue;
         };
         if damaged_paths.contains(&source.path) {
-            if let Some(extracted) = &mut token.extracted {
-                extracted.status = RegistryExtractionStatus::Stale;
+            if let Some(details) = &mut token.details {
+                details.status = RegistryExtractionStatus::Stale;
             }
             continue;
         }
         if !repo_root.join(&source.path).is_file() {
             continue;
         }
-        token.extracted = Some(RegistryExtracted {
+        token.details = Some(RegistryDetails {
             status: RegistryExtractionStatus::Complete,
             source_evidence: Some(RegistrySourceEvidence {
                 path: source.path.clone(),
@@ -896,8 +896,8 @@ fn enrich_explicit_tokens(
     }
 }
 
-fn unavailable(field: &str, reason: &str) -> RegistryExtracted {
-    RegistryExtracted {
+fn unavailable(field: &str, reason: &str) -> RegistryDetails {
+    RegistryDetails {
         status: RegistryExtractionStatus::Unavailable,
         source_evidence: None,
         documentation: None,

@@ -6,7 +6,7 @@ use std::path::{Component, Path};
 
 use thiserror::Error;
 use wax_contract::{
-    Diagnostic, DiagnosticSeverity, RegistryAttachment, RegistryDocument, RegistryExtracted,
+    Diagnostic, DiagnosticSeverity, RegistryAttachment, RegistryDetails, RegistryDocument,
     RegistryExtractionStatus, RegistrySourceAssociation,
 };
 
@@ -96,7 +96,7 @@ pub fn materialize_registry_attachments(
         };
         let attachments =
             materialize_sources(&canonical_repo_root, &metadata.sources, &mut diagnostics)?;
-        append_unique_attachments(&mut component.extracted, attachments);
+        append_unique_attachments(&mut component.details, attachments);
     }
     for token in &mut document.tokens {
         let Some(metadata) = &token.metadata else {
@@ -104,14 +104,14 @@ pub fn materialize_registry_attachments(
         };
         let attachments =
             materialize_sources(&canonical_repo_root, &metadata.sources, &mut diagnostics)?;
-        append_unique_attachments(&mut token.extracted, attachments);
+        append_unique_attachments(&mut token.details, attachments);
     }
 
     Ok(diagnostics)
 }
 
-fn ensure_extracted(extracted: &mut Option<RegistryExtracted>) -> &mut RegistryExtracted {
-    extracted.get_or_insert_with(|| RegistryExtracted {
+fn ensure_details(details: &mut Option<RegistryDetails>) -> &mut RegistryDetails {
+    details.get_or_insert_with(|| RegistryDetails {
         status: RegistryExtractionStatus::Partial,
         source_evidence: None,
         documentation: None,
@@ -125,13 +125,13 @@ fn ensure_extracted(extracted: &mut Option<RegistryExtracted>) -> &mut RegistryE
 }
 
 fn append_unique_attachments(
-    extracted: &mut Option<RegistryExtracted>,
+    details: &mut Option<RegistryDetails>,
     attachments: Vec<RegistryAttachment>,
 ) {
     if attachments.is_empty() {
         return;
     }
-    let existing = &mut ensure_extracted(extracted).attachments;
+    let existing = &mut ensure_details(details).attachments;
     for attachment in attachments {
         if !existing.contains(&attachment) {
             existing.push(attachment);

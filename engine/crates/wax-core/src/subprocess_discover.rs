@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use thiserror::Error;
 use wax_contract::{
-    Diagnostic, RegistryComponent, RegistryDocument, RegistryExtracted, RegistryExtractionStatus,
+    Diagnostic, RegistryComponent, RegistryDetails, RegistryDocument, RegistryExtractionStatus,
 };
 use wax_lang_api::{
     DiscoverRegistryRequest, DiscoverRegistryResult, DiscoverRequest, DiscoverRequestType,
@@ -342,7 +342,7 @@ fn normalize_legacy_registry(
             if component.package.is_none() {
                 component.package.clone_from(&candidate.package);
             }
-            component.extracted = Some(unavailable_extraction());
+            component.details = Some(unavailable_extraction());
             continue;
         }
 
@@ -360,7 +360,7 @@ fn normalize_legacy_registry(
             package: candidate.package,
             aliases: Vec::new(),
             metadata: None,
-            extracted: Some(unavailable_extraction()),
+            details: Some(unavailable_extraction()),
             extra: serde_json::Map::new(),
         });
     }
@@ -407,8 +407,8 @@ fn kebab_case_symbol(symbol: &str) -> String {
     result.trim_matches('-').to_owned()
 }
 
-fn unavailable_extraction() -> RegistryExtracted {
-    RegistryExtracted {
+fn unavailable_extraction() -> RegistryDetails {
+    RegistryDetails {
         status: RegistryExtractionStatus::Unavailable,
         source_evidence: None,
         documentation: None,

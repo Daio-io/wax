@@ -68,7 +68,7 @@ fn materializes_requested_inclusive_line_excerpt() {
 
     assert!(diagnostics.is_empty());
     let attachment = &document.components[0]
-        .extracted
+        .details
         .as_ref()
         .expect("generated extraction")
         .attachments[0];
@@ -91,7 +91,7 @@ fn preserves_pack_generated_attachments_when_materializing_sources() {
             "metadata": {
               "sources": [{"kind": "documentation", "path": "docs/button.md"}]
             },
-            "extracted": {
+            "details": {
               "status": "partial",
               "attachments": [{
                 "kind": "example",
@@ -107,7 +107,7 @@ fn preserves_pack_generated_attachments_when_materializing_sources() {
         .expect("attachment materialization should succeed");
 
     let attachments = &document.components[0]
-        .extracted
+        .details
         .as_ref()
         .expect("generated extraction")
         .attachments;
@@ -144,7 +144,7 @@ fn missing_associated_file_is_reported_without_failing_other_attachments() {
     assert_eq!(diagnostics[0].code, "registry_attachment_missing");
     assert_eq!(
         document.components[0]
-            .extracted
+            .details
             .as_ref()
             .expect("generated extraction")
             .attachments
@@ -177,7 +177,7 @@ fn external_link_association_is_reported_without_network_access() {
 
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(diagnostics[0].code, "registry_attachment_unsupported");
-    assert!(document.components[0].extracted.is_none());
+    assert!(document.components[0].details.is_none());
 }
 
 #[test]

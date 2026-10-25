@@ -29,7 +29,7 @@ require_text "skills/wax-registry-discover/SKILL.md" "explicit approval"
 require_text "skills/wax-registry-discover/SKILL.md" "Never delete"
 require_text "skills/wax-registry-discover/SKILL.md" 'For an existing registry, use `apply_patch` only'
 require_text "skills/wax-registry-discover/SKILL.md" "Aliases/tags proposed"
-require_text "skills/wax-registry-discover/SKILL.md" "symbol, id, package path, extracted documentation, and common UI vocabulary"
+require_text "skills/wax-registry-discover/SKILL.md" 'symbol, id, package path, documentation in `details`, and common UI vocabulary'
 require_text "skills/wax-registry-discover/SKILL.md" "Never treat component aliases as alternate code symbols or scan authority"
 require_text "skills/wax-registry-discover/SKILL.md" "Component aliases are search synonyms"
 require_text "skills/wax-registry-discover/SKILL.md" "Token aliases are exact source identifiers"

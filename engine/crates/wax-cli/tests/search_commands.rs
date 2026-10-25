@@ -94,7 +94,7 @@ fn fixture_registry() -> &'static str {
       "description": "Primary action control",
       "tags": ["control"]
     },
-    "extracted": {
+    "details": {
       "status": "complete",
       "documentation": "Use for primary actions."
     },
@@ -434,7 +434,7 @@ fn component_and_token_detail_json_include_complete_sections() {
         "Primary action control"
     );
     assert_eq!(
-        component_value["entry"]["extracted"]["documentation"],
+        component_value["entry"]["details"]["documentation"],
         "Use for primary actions."
     );
 
@@ -874,8 +874,8 @@ fn detail_reports_missing_metadata_duplicate_ids_and_snapshot_mismatch() {
         "text detail must render missing metadata explicitly, got:\n{missing_stdout}"
     );
     assert!(
-        missing_stdout.contains("extracted:") && missing_stdout.contains("<missing>"),
-        "text detail must render missing extracted explicitly, got:\n{missing_stdout}"
+        missing_stdout.contains("details:") && missing_stdout.contains("<missing>"),
+        "text detail must render missing details explicitly, got:\n{missing_stdout}"
     );
 
     let duplicate = root.path.join("duplicate.json");
@@ -1014,7 +1014,7 @@ fn text_search_and_detail_render_readable_sections() {
     assert!(detail_stdout.contains("kind: component"));
     assert!(detail_stdout.contains("id: ds.button"));
     assert!(detail_stdout.contains("metadata:"));
-    assert!(detail_stdout.contains("extracted:"));
+    assert!(detail_stdout.contains("details:"));
     assert!(detail_stdout.contains("Primary action control"));
 }
 

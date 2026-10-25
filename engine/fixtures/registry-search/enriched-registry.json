@@ -31,7 +31,7 @@
           }
         ]
       },
-      "extracted": {
+      "details": {
         "status": "partial",
         "documentation": "A button used for important actions.",
         "source_evidence": {
@@ -123,7 +123,7 @@
         "description": "Brand primary",
         "tags": ["color"]
       },
-      "extracted": {
+      "details": {
         "status": "complete",
         "documentation": "Primary brand color"
       }

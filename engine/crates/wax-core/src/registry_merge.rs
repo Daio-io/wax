@@ -3,8 +3,8 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use wax_contract::{
-    RegistryComponent, RegistryDocument, RegistryError, RegistryExtracted,
-    RegistryExtractionStatus, RegistryToken,
+    RegistryComponent, RegistryDetails, RegistryDocument, RegistryError, RegistryExtractionStatus,
+    RegistryToken,
 };
 
 /// Result of merging discovered facts into an optional authored registry.
@@ -159,8 +159,8 @@ pub fn merge_registry(
 
 trait MergeEntry: Clone {
     fn id(&self) -> &str;
-    fn extracted(&self) -> Option<&RegistryExtracted>;
-    fn set_extracted(&mut self, extracted: Option<RegistryExtracted>);
+    fn details(&self) -> Option<&RegistryDetails>;
+    fn set_details(&mut self, details: Option<RegistryDetails>);
 }
 
 impl MergeEntry for RegistryComponent {
@@ -168,12 +168,12 @@ impl MergeEntry for RegistryComponent {
         &self.id
     }
 
-    fn extracted(&self) -> Option<&RegistryExtracted> {
-        self.extracted.as_ref()
+    fn details(&self) -> Option<&RegistryDetails> {
+        self.details.as_ref()
     }
 
-    fn set_extracted(&mut self, extracted: Option<RegistryExtracted>) {
-        self.extracted = extracted;
+    fn set_details(&mut self, details: Option<RegistryDetails>) {
+        self.details = details;
     }
 }
 
@@ -182,12 +182,12 @@ impl MergeEntry for RegistryToken {
         &self.id
     }
 
-    fn extracted(&self) -> Option<&RegistryExtracted> {
-        self.extracted.as_ref()
+    fn details(&self) -> Option<&RegistryDetails> {
+        self.details.as_ref()
     }
 
-    fn set_extracted(&mut self, extracted: Option<RegistryExtracted>) {
-        self.extracted = extracted;
+    fn set_details(&mut self, details: Option<RegistryDetails>) {
+        self.details = details;
     }
 }
 
@@ -200,18 +200,18 @@ fn merge_entries<T: MergeEntry>(
     changes: &mut Vec<RegistryMergeChange>,
     diagnostics: &mut Vec<RegistryMergeDiagnostic>,
 ) {
-    let mut retain_extracted = vec![false; existing_count];
+    let mut retain_details = vec![false; existing_count];
     let kind_label = entry_kind_label(entry_kind);
 
     for discovered in discovered_entries {
         match resolve(&entries[..existing_count], discovered) {
             IdentityResolution::Match(index) => {
-                retain_extracted[index] = true;
+                retain_details[index] = true;
                 let entry = &mut entries[index];
-                let extracted = merge_extracted(entry.extracted(), discovered.extracted());
-                if entry.extracted() != extracted.as_ref() {
+                let details = merge_details(entry.details(), discovered.details());
+                if entry.details() != details.as_ref() {
                     let id = entry.id().to_owned();
-                    entry.set_extracted(extracted);
+                    entry.set_details(details);
                     changes.push(updated_change(entry_kind, &id));
                 }
             }
@@ -226,7 +226,7 @@ fn merge_entries<T: MergeEntry>(
             IdentityResolution::Conflict(candidate_indices) => {
                 // Diagnostics only: leave candidate extraction untouched.
                 for &index in &candidate_indices {
-                    retain_extracted[index] = true;
+                    retain_details[index] = true;
                 }
                 let candidate_ids = candidate_indices
                     .iter()
@@ -254,28 +254,28 @@ fn merge_entries<T: MergeEntry>(
         }
     }
 
-    for (index, retain) in retain_extracted.into_iter().enumerate() {
+    for (index, retain) in retain_details.into_iter().enumerate() {
         if retain {
             continue;
         }
         let entry = &mut entries[index];
-        let extracted = Some(not_observed(entry.extracted()));
-        if entry.extracted() != extracted.as_ref() {
+        let details = Some(not_observed(entry.details()));
+        if entry.details() != details.as_ref() {
             let id = entry.id().to_owned();
-            entry.set_extracted(extracted);
+            entry.set_details(details);
             changes.push(updated_change(entry_kind, &id));
         }
     }
 }
 
-fn merge_extracted(
-    existing: Option<&RegistryExtracted>,
-    discovered: Option<&RegistryExtracted>,
-) -> Option<RegistryExtracted> {
+fn merge_details(
+    existing: Option<&RegistryDetails>,
+    discovered: Option<&RegistryDetails>,
+) -> Option<RegistryDetails> {
     let Some(discovered) = discovered else {
-        return existing.cloned().map(|mut extracted| {
-            extracted.status = RegistryExtractionStatus::Stale;
-            extracted
+        return existing.cloned().map(|mut details| {
+            details.status = RegistryExtractionStatus::Stale;
+            details
         });
     };
     let Some(existing) = existing else {
@@ -320,8 +320,8 @@ fn merge_extracted(
     Some(merged)
 }
 
-fn not_observed(existing: Option<&RegistryExtracted>) -> RegistryExtracted {
-    let mut extracted = existing.cloned().unwrap_or_else(|| RegistryExtracted {
+fn not_observed(existing: Option<&RegistryDetails>) -> RegistryDetails {
+    let mut details = existing.cloned().unwrap_or_else(|| RegistryDetails {
         status: RegistryExtractionStatus::NotObserved,
         source_evidence: None,
         documentation: None,
@@ -332,8 +332,8 @@ fn not_observed(existing: Option<&RegistryExtracted>) -> RegistryExtracted {
         best_practices: Vec::new(),
         extra: serde_json::Map::new(),
     });
-    extracted.status = RegistryExtractionStatus::NotObserved;
-    extracted
+    details.status = RegistryExtractionStatus::NotObserved;
+    details
 }
 
 enum IdentityResolution {

@@ -339,7 +339,7 @@ fn new_engine_old_pack_uses_symbol_fallback() {
 
     assert_eq!(
         result.document.components[0]
-            .extracted
+            .details
             .as_ref()
             .map(|details| details.status),
         Some(RegistryExtractionStatus::Unavailable)
@@ -405,7 +405,7 @@ fn new_engine_pack_without_enrichment_capability_uses_symbol_fallback() {
     );
     assert_eq!(
         result.document.components[0]
-            .extracted
+            .details
             .as_ref()
             .map(|details| details.status),
         Some(RegistryExtractionStatus::Unavailable)
@@ -438,7 +438,7 @@ fn rich_discovery_uses_separate_envelope() {
                 "components": [{
                     "id": "button",
                     "symbol": "Button",
-                    "extracted": {"status": "complete"}
+                    "details": {"status": "complete"}
                 }]
             },
             "diagnostics": [],
@@ -452,7 +452,7 @@ fn rich_discovery_uses_separate_envelope() {
 
     assert_eq!(
         result.document.components[0]
-            .extracted
+            .details
             .as_ref()
             .map(|details| details.status),
         Some(RegistryExtractionStatus::Complete)
@@ -648,7 +648,7 @@ fn sample_registry_request() -> DiscoverRegistryRequest {
                 package: None,
                 aliases: Vec::new(),
                 metadata: None,
-                extracted: None,
+                details: None,
                 extra: Map::new(),
             }],
             tokens: Vec::new(),

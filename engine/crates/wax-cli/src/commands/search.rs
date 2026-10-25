@@ -373,7 +373,7 @@ fn write_detail_text(
     }
 
     write_pretty_entry_section(writer, &response.entry, "metadata")?;
-    write_pretty_entry_section(writer, &response.entry, "extracted")?;
+    write_pretty_entry_section(writer, &response.entry, "details")?;
 
     writeln!(writer, "\nentry:").map_err(write_error)?;
     writeln!(

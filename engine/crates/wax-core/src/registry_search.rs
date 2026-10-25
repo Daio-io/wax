@@ -4,7 +4,7 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 use wax_contract::{
     LanguageId, REGISTRY_LOOKUP_SCHEMA_VERSION, RegistryComponent, RegistryDetailResponse,
-    RegistryEntryKind, RegistryExtracted, RegistryLookupError, RegistryLookupErrorCode,
+    RegistryDetails, RegistryEntryKind, RegistryLookupError, RegistryLookupErrorCode,
     RegistryMetadata, RegistryParameterTypeKind, RegistrySearchFilters, RegistrySearchResponse,
     RegistrySearchResult, RegistryToken,
 };
@@ -228,7 +228,7 @@ fn component_score(component: &RegistryComponent, query: &Normalized) -> Option<
         component.aliases.iter().map(String::as_str),
         component.package.iter().map(String::as_str),
         component.metadata.as_ref(),
-        component.extracted.as_ref(),
+        component.details.as_ref(),
         &component.extra,
         query,
     )
@@ -245,7 +245,7 @@ fn token_score(token: &RegistryToken, query: &Normalized) -> Option<u16> {
             .map(String::as_str)
             .chain(std::iter::once(category)),
         token.metadata.as_ref(),
-        token.extracted.as_ref(),
+        token.details.as_ref(),
         &token.extra,
         query,
     )
@@ -256,14 +256,14 @@ fn entry_score<'a>(
     aliases: impl Iterator<Item = &'a str>,
     secondary: impl Iterator<Item = &'a str>,
     metadata: Option<&RegistryMetadata>,
-    extracted: Option<&RegistryExtracted>,
+    details: Option<&RegistryDetails>,
     extra: &Map<String, Value>,
     query: &Normalized,
 ) -> Option<u16> {
     let mut score = best_structured_score(primary, query, 0);
     score = min_score(score, best_structured_score(aliases, query, 1));
     score = min_score(score, best_structured_score(secondary, query, 2));
-    min_score(score, descriptive_score(metadata, extracted, extra, query))
+    min_score(score, descriptive_score(metadata, details, extra, query))
 }
 
 fn best_structured_score<'a>(
@@ -278,7 +278,7 @@ fn best_structured_score<'a>(
 
 fn descriptive_score(
     metadata: Option<&RegistryMetadata>,
-    extracted: Option<&RegistryExtracted>,
+    details: Option<&RegistryDetails>,
     extra: &Map<String, Value>,
     query: &Normalized,
 ) -> Option<u16> {
@@ -299,9 +299,9 @@ fn descriptive_score(
         .and_then(Value::as_str)
         .and_then(|summary| match_score(summary, query))
         .map(|score| SCORE_DESCRIPTIVE + score);
-    let parameter_score = extracted
+    let parameter_score = details
         .into_iter()
-        .flat_map(|extracted| extracted.signature.iter())
+        .flat_map(|details| details.signature.iter())
         .flat_map(|signature| signature.parameters.iter())
         .flat_map(|parameter| {
             std::iter::once(parameter.name.as_str())
@@ -318,27 +318,27 @@ fn descriptive_score(
         .filter_map(|field| match_score(field, query))
         .min()
         .map(|score| SCORE_DESCRIPTIVE + score);
-    let documentation_score = extracted
-        .and_then(|extracted| extracted.documentation.as_deref())
+    let documentation_score = details
+        .and_then(|details| details.documentation.as_deref())
         .and_then(|documentation| match_score(documentation, query))
         .map(|score| SCORE_DOCS + score);
-    let parameter_description_score = extracted
+    let parameter_description_score = details
         .into_iter()
-        .flat_map(|extracted| extracted.signature.iter())
+        .flat_map(|details| details.signature.iter())
         .flat_map(|signature| signature.parameters.iter())
         .flat_map(|parameter| parameter.description.iter())
         .filter_map(|description| match_score(description, query))
         .min()
         .map(|score| SCORE_DOCS + score);
-    let best_practice_score = extracted
+    let best_practice_score = details
         .into_iter()
-        .flat_map(|extracted| extracted.best_practices.iter())
+        .flat_map(|details| details.best_practices.iter())
         .filter_map(|best_practice| match_score(&best_practice.description, query))
         .min()
         .map(|score| SCORE_DOCS + score);
-    let attachment_score = extracted
+    let attachment_score = details
         .into_iter()
-        .flat_map(|extracted| extracted.attachments.iter())
+        .flat_map(|details| details.attachments.iter())
         .filter_map(|attachment| match_score(&attachment.content, query))
         .min()
         .map(|score| SCORE_DOCS + score);
@@ -385,7 +385,7 @@ fn component_result(
         component.id.clone(),
         component.symbol.clone(),
         component.metadata.as_ref(),
-        component.extracted.as_ref(),
+        component.details.as_ref(),
         &component.extra,
     )
 }
@@ -397,7 +397,7 @@ fn token_result(snapshot: &RegistrySnapshot, token: &RegistryToken) -> RegistryS
         token.id.clone(),
         token.key.clone(),
         token.metadata.as_ref(),
-        token.extracted.as_ref(),
+        token.details.as_ref(),
         &token.extra,
     )
 }
@@ -408,7 +408,7 @@ fn search_result(
     id: String,
     label: String,
     metadata: Option<&RegistryMetadata>,
-    extracted: Option<&RegistryExtracted>,
+    details: Option<&RegistryDetails>,
     extra: &Map<String, Value>,
 ) -> RegistrySearchResult {
     RegistrySearchResult {
@@ -416,15 +416,15 @@ fn search_result(
         kind,
         id,
         label,
-        summary: entry_summary(metadata, extracted, extra),
-        extraction_status: extracted.map(|extracted| extracted.status),
+        summary: entry_summary(metadata, details, extra),
+        extraction_status: details.map(|details| details.status),
         extra: Map::new(),
     }
 }
 
 fn entry_summary(
     metadata: Option<&RegistryMetadata>,
-    extracted: Option<&RegistryExtracted>,
+    details: Option<&RegistryDetails>,
     extra: &Map<String, Value>,
 ) -> String {
     let text = extra
@@ -432,7 +432,7 @@ fn entry_summary(
         .and_then(Value::as_str)
         .map(str::to_owned)
         .or_else(|| metadata.and_then(|metadata| metadata.description.clone()))
-        .or_else(|| extracted.and_then(|extracted| extracted.documentation.clone()))
+        .or_else(|| details.and_then(|details| details.documentation.clone()))
         .unwrap_or_default();
     text.chars().take(MAX_SUMMARY_CHARS).collect()
 }

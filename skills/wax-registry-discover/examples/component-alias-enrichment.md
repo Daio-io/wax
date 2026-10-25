@@ -6,7 +6,7 @@ Golden workflow for proposing and applying search-oriented component metadata af
 
 - Deterministic `wax registry discover --dry-run` found no component identity changes.
 - The publisher registry already contains `ds.navigation-bar`, including an authored alias and tag that must survive rediscovery.
-- The component symbol, id, package path, and extracted documentation all support common navigation vocabulary.
+- The component symbol, id, package path, and documentation in `details` all support common navigation vocabulary.
 
 ## Before registry
 

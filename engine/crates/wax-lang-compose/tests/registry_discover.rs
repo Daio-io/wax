@@ -52,13 +52,13 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
     };
 
     let result = discover_registry_details(&request).expect("rich discover should succeed");
-    let extracted = result.document.components[0]
-        .extracted
+    let details = result.document.components[0]
+        .details
         .as_ref()
         .expect("matching component should be enriched");
 
     assert_eq!(
-        serde_json::to_value(extracted).unwrap(),
+        serde_json::to_value(details).unwrap(),
         serde_json::json!({
             "status": "complete",
             "source_evidence": {
@@ -153,13 +153,13 @@ fun SeekBar() {}
     };
 
     let result = discover_registry_details(&request).expect("rich discover should succeed");
-    let extracted = result.document.components[0]
-        .extracted
+    let details = result.document.components[0]
+        .details
         .as_ref()
         .expect("matching component should be enriched");
 
     assert_eq!(
-        extracted.documentation.as_deref(),
+        details.documentation.as_deref(),
         Some("A SeekBar component that allows users to select a value.")
     );
     Ok(())
@@ -203,16 +203,16 @@ fun DialogRepro(title: String, onDismissRequest: () -> Unit) {}
     };
 
     let result = discover_registry_details(&request).expect("rich discover should succeed");
-    let extracted = result.document.components[0]
-        .extracted
+    let details = result.document.components[0]
+        .details
         .as_ref()
         .expect("matching component should be enriched");
 
     assert_eq!(
-        extracted.documentation.as_deref(),
+        details.documentation.as_deref(),
         Some("Primary overload docs.")
     );
-    let start_line = extracted
+    let start_line = details
         .source_evidence
         .as_ref()
         .and_then(|evidence| evidence.start_line)
@@ -259,16 +259,16 @@ fun RowScope.BarItemX(selected: Boolean, onClick: () -> Unit) {}
     };
 
     let result = discover_registry_details(&request).expect("rich discover should succeed");
-    let extracted = result.document.components[0]
-        .extracted
+    let details = result.document.components[0]
+        .details
         .as_ref()
         .expect("matching component should be enriched");
 
     assert_eq!(
-        extracted.documentation.as_deref(),
+        details.documentation.as_deref(),
         Some("A navigation bar item for use within a NavigationBar.")
     );
-    let start_line = extracted
+    let start_line = details
         .source_evidence
         .as_ref()
         .and_then(|evidence| evidence.start_line)
@@ -308,10 +308,10 @@ fun ImportedButton(props: ImportedProps) {}
     };
 
     let result = discover_registry_details(&request).expect("rich discover should succeed");
-    let extracted = result.document.components[0].extracted.as_ref().unwrap();
+    let details = result.document.components[0].details.as_ref().unwrap();
 
     assert_eq!(
-        serde_json::to_value(extracted).unwrap(),
+        serde_json::to_value(details).unwrap(),
         serde_json::json!({
             "status": "partial",
             "source_evidence": {
@@ -379,10 +379,10 @@ fun DocumentedButton(label: String) {}
     };
 
     let result = discover_registry_details(&request).expect("rich discover should succeed");
-    let extracted = result.document.components[0].extracted.as_ref().unwrap();
+    let details = result.document.components[0].details.as_ref().unwrap();
 
     assert_eq!(
-        serde_json::to_value(extracted.signature.as_ref().unwrap()).unwrap(),
+        serde_json::to_value(details.signature.as_ref().unwrap()).unwrap(),
         serde_json::json!({
             "type_text": "fun DocumentedButton(label: String)",
             "parameters": [{
@@ -395,10 +395,10 @@ fun DocumentedButton(label: String) {}
         })
     );
     assert_eq!(
-        extracted.documentation.as_deref(),
+        details.documentation.as_deref(),
         Some("A documented button.")
     );
-    assert!(extracted.best_practices.is_empty());
+    assert!(details.best_practices.is_empty());
     Ok(())
 }
 
@@ -444,7 +444,7 @@ fun Kinds(
 
     let result = discover_registry_details(&request).expect("rich discover should succeed");
     let parameters = &result.document.components[0]
-        .extracted
+        .details
         .as_ref()
         .unwrap()
         .signature
@@ -511,7 +511,7 @@ fun Callbacks(callbacks: List<() -> Unit>) {}
 
     let result = discover_registry_details(&request).expect("rich discover should succeed");
     let parameter = &result.document.components[0]
-        .extracted
+        .details
         .as_ref()
         .unwrap()
         .signature
@@ -554,7 +554,7 @@ fun NullableCallback(callback: (() -> Unit)?) {}
 
     let result = discover_registry_details(&request).expect("rich discover should succeed");
     let parameter = &result.document.components[0]
-        .extracted
+        .details
         .as_ref()
         .unwrap()
         .signature
@@ -603,7 +603,7 @@ fun Styled(style: Style) {}
 
     let result = discover_registry_details(&request).expect("rich discover should succeed");
     let parameter = &result.document.components[0]
-        .extracted
+        .details
         .as_ref()
         .unwrap()
         .signature
@@ -674,7 +674,7 @@ fn discover_registry_details_enriches_only_explicitly_associated_tokens() -> io:
                     "end_line": 2,
                     "language": "kotlin"
                 }]},
-                "extracted": {
+                "details": {
                     "status": "complete",
                     "source_evidence": {
                         "path": "src/Tokens.kt",
@@ -705,7 +705,7 @@ fn discover_registry_details_preserves_prior_facts_as_stale_on_damaged_syntax() 
         "components": [{
             "id": "broken",
             "symbol": "Broken",
-            "extracted": {
+            "details": {
                 "status": "complete",
                 "documentation": "Prior documentation",
                 "source_evidence": {
@@ -728,7 +728,7 @@ fn discover_registry_details_preserves_prior_facts_as_stale_on_damaged_syntax() 
     let result = discover_registry_details(&request).expect("damaged source should be recoverable");
 
     assert_eq!(
-        serde_json::to_value(result.document.components[0].extracted.as_ref().unwrap()).unwrap(),
+        serde_json::to_value(result.document.components[0].details.as_ref().unwrap()).unwrap(),
         serde_json::json!({
             "status": "stale",
             "documentation": "Prior documentation",
@@ -770,7 +770,7 @@ fun SecondaryButton() {}
         "components": [{
             "id": "primary",
             "symbol": "PrimaryButton",
-            "extracted": {
+            "details": {
                 "status": "complete",
                 "documentation": "Prior documentation that a damaged sibling can make hard to re-extract.",
                 "source_evidence": {
@@ -791,17 +791,17 @@ fun SecondaryButton() {}
     };
 
     let result = discover_registry_details(&request).expect("partial parse should be recoverable");
-    let extracted = result.document.components[0]
-        .extracted
+    let details = result.document.components[0]
+        .details
         .as_ref()
         .expect("prior facts should be retained");
 
     assert_eq!(
-        extracted.status,
+        details.status,
         wax_contract::RegistryExtractionStatus::Stale
     );
     assert_eq!(
-        extracted.documentation.as_deref(),
+        details.documentation.as_deref(),
         Some("Prior documentation that a damaged sibling can make hard to re-extract.")
     );
     assert!(
@@ -853,19 +853,16 @@ fun SampleOnlyButton() {}
     };
 
     let result = discover_registry_details(&request).expect("rich discover should succeed");
-    let extracted = result.document.components[0]
-        .extracted
+    let details = result.document.components[0]
+        .details
         .as_ref()
         .expect("matching component should be enriched");
 
-    assert_eq!(
-        extracted.documentation.as_deref(),
-        Some("Documented button.")
-    );
+    assert_eq!(details.documentation.as_deref(), Some("Documented button."));
     assert!(
-        extracted.attachments.is_empty(),
+        details.attachments.is_empty(),
         "@sample FQN is a file reference for Phase 3d, not embedded example body: {:?}",
-        extracted.attachments
+        details.attachments
     );
     Ok(())
 }
@@ -882,7 +879,7 @@ fn discover_registry_details_does_not_stale_unrelated_components_on_damage() -> 
         "components": [{
             "id": "other",
             "symbol": "Other",
-            "extracted": {
+            "details": {
                 "status": "complete",
                 "documentation": "Prior documentation",
                 "source_evidence": {
@@ -903,14 +900,14 @@ fn discover_registry_details_does_not_stale_unrelated_components_on_damage() -> 
     };
 
     let result = discover_registry_details(&request).expect("damaged source should be recoverable");
-    let extracted = result.document.components[0].extracted.as_ref().unwrap();
+    let details = result.document.components[0].details.as_ref().unwrap();
 
     assert_eq!(
-        extracted.status,
+        details.status,
         wax_contract::RegistryExtractionStatus::Complete
     );
     assert_eq!(
-        extracted.documentation.as_deref(),
+        details.documentation.as_deref(),
         Some("Prior documentation")
     );
     assert!(result.diagnostics.iter().any(|d| d.code == "parse_failed"));

@@ -5,8 +5,8 @@ use std::path::Path;
 
 use serde_json::Map;
 use wax_contract::{
-    RegistryAttachment, RegistryBestPractice, RegistryDeprecation, RegistryDocument,
-    RegistryExtracted, RegistryExtractionStatus, RegistryFieldGap, RegistryParameter,
+    RegistryAttachment, RegistryBestPractice, RegistryDeprecation, RegistryDetails,
+    RegistryDocument, RegistryExtractionStatus, RegistryFieldGap, RegistryParameter,
     RegistryParameterTypeKind, RegistrySignature, RegistrySourceEvidence, RegistrySourceKind,
 };
 use wax_lang_api::{
@@ -24,7 +24,7 @@ use crate::swift_ast::{
 struct ComponentDeclaration {
     symbol: String,
     package: Option<String>,
-    extracted: RegistryExtracted,
+    details: RegistryDetails,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -137,7 +137,7 @@ fn component_declarations(
             Some(ComponentDeclaration {
                 symbol: component.symbol,
                 package: package.clone(),
-                extracted: extracted_component(node, source, path, damaged, &local_enums),
+                details: component_details(node, source, path, damaged, &local_enums),
             })
         })
         .collect()
@@ -221,13 +221,13 @@ fn find_component_node<'tree>(
     None
 }
 
-fn extracted_component(
+fn component_details(
     node: tree_sitter::Node<'_>,
     source: &str,
     path: &str,
     damaged: bool,
     local_enums: &BTreeMap<String, Vec<String>>,
-) -> RegistryExtracted {
+) -> RegistryDetails {
     let source_bytes = source.as_bytes();
     let signature_node = if node.kind() == "function_declaration" {
         Some(node)
@@ -296,7 +296,7 @@ fn extracted_component(
     if damaged {
         field_gaps.push(RegistryFieldGap {
             field: "source".to_owned(),
-            reason: "the source file contains syntax damage, so extracted facts may be incomplete"
+            reason: "the source file contains syntax damage, so details facts may be incomplete"
                 .to_owned(),
             extra: Map::new(),
         });
@@ -319,7 +319,7 @@ fn extracted_component(
         })
         .unwrap_or_default();
 
-    RegistryExtracted {
+    RegistryDetails {
         status,
         source_evidence: Some(RegistrySourceEvidence {
             path: path.to_owned(),
@@ -813,36 +813,36 @@ fn enrich_components(
             // Preserve prior facts when a damaged file still produces a partial declaration.
             if damaged_paths.contains(
                 &declaration
-                    .extracted
+                    .details
                     .source_evidence
                     .as_ref()
                     .map(|evidence| evidence.path.clone())
                     .unwrap_or_default(),
-            ) && component.extracted.is_some()
+            ) && component.details.is_some()
             {
-                if let Some(extracted) = &mut component.extracted {
-                    extracted.status = RegistryExtractionStatus::Stale;
+                if let Some(details) = &mut component.details {
+                    details.status = RegistryExtractionStatus::Stale;
                 }
                 continue;
             }
-            component.extracted = Some(declaration.extracted.clone());
+            component.details = Some(declaration.details.clone());
             continue;
         }
         let evidence_damaged = component
-            .extracted
+            .details
             .as_ref()
-            .and_then(|extracted| extracted.source_evidence.as_ref())
+            .and_then(|details| details.source_evidence.as_ref())
             .is_some_and(|evidence| damaged_paths.contains(&evidence.path));
         if evidence_damaged {
-            if let Some(extracted) = &mut component.extracted {
-                extracted.status = RegistryExtractionStatus::Stale;
+            if let Some(details) = &mut component.details {
+                details.status = RegistryExtractionStatus::Stale;
             }
             continue;
         }
-        if component.extracted.is_some() && !damaged_paths.is_empty() {
+        if component.details.is_some() && !damaged_paths.is_empty() {
             continue;
         }
-        component.extracted = Some(unavailable(
+        component.details = Some(unavailable(
             "source_evidence",
             "no matching public Swift View or function declaration was observed",
         ));
@@ -868,15 +868,15 @@ fn enrich_explicit_tokens(
             continue;
         };
         if damaged_paths.contains(&source.path) {
-            if let Some(extracted) = &mut token.extracted {
-                extracted.status = RegistryExtractionStatus::Stale;
+            if let Some(details) = &mut token.details {
+                details.status = RegistryExtractionStatus::Stale;
             }
             continue;
         }
         if !repo_root.join(&source.path).is_file() {
             continue;
         }
-        token.extracted = Some(RegistryExtracted {
+        token.details = Some(RegistryDetails {
             status: RegistryExtractionStatus::Complete,
             source_evidence: Some(RegistrySourceEvidence {
                 path: source.path.clone(),
@@ -895,8 +895,8 @@ fn enrich_explicit_tokens(
     }
 }
 
-fn unavailable(field: &str, reason: &str) -> RegistryExtracted {
-    RegistryExtracted {
+fn unavailable(field: &str, reason: &str) -> RegistryDetails {
+    RegistryDetails {
         status: RegistryExtractionStatus::Unavailable,
         source_evidence: None,
         documentation: None,

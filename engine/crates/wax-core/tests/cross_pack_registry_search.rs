@@ -39,7 +39,7 @@ fn enriched_pack_registry(language: &str, component_id: &str, package: &str) -> 
             "metadata": {
                 "tags": ["seed"]
             },
-            "extracted": {
+            "details": {
                 "status": "complete",
                 "documentation": "A button used for important actions.",
                 "signature": {
@@ -114,9 +114,9 @@ fn cross_pack_merge_then_search_and_detail_share_enrichment_semantics() {
         );
         assert_eq!(
             merged.document.components[0]
-                .extracted
+                .details
                 .as_ref()
-                .map(|extracted| extracted.status),
+                .map(|details| details.status),
             Some(RegistryExtractionStatus::Complete),
             "{language} merge keeps complete enrichment"
         );
@@ -186,11 +186,11 @@ fn cross_pack_merge_then_search_and_detail_share_enrichment_semantics() {
     assert_eq!(detail.snapshot.language.as_str(), "compose");
     assert_eq!(detail.entry["symbol"], "RichButton");
     assert_eq!(
-        detail.entry["extracted"]["documentation"],
+        detail.entry["details"]["documentation"],
         "A button used for important actions."
     );
     assert_eq!(
-        detail.entry["extracted"]["signature"]["parameters"][0],
+        detail.entry["details"]["signature"]["parameters"][0],
         serde_json::json!({
             "name": "style",
             "type_text": "Style",
@@ -202,7 +202,7 @@ fn cross_pack_merge_then_search_and_detail_share_enrichment_semantics() {
         })
     );
     assert_eq!(
-        detail.entry["extracted"]["best_practices"],
+        detail.entry["details"]["best_practices"],
         serde_json::json!([
             {"description": "Prefer touch-first controls."},
             {"description": "Keep labels concise."}

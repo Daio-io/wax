@@ -23,7 +23,7 @@ mod registry_lookup;
 
 pub use registry::{
     REGISTRY_SCHEMA_VERSION, RegistryAttachment, RegistryBestPractice, RegistryComponent,
-    RegistryDeprecation, RegistryDocument, RegistryError, RegistryExtracted,
+    RegistryDeprecation, RegistryDetails, RegistryDocument, RegistryError,
     RegistryExtractionStatus, RegistryFieldGap, RegistryMetadata, RegistryParameter,
     RegistryParameterTypeKind, RegistrySignature, RegistrySourceAssociation,
     RegistrySourceEvidence, RegistrySourceKind, RegistryToken, registry_from_json,
