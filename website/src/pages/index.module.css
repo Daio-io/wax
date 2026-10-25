@@ -1,6 +1,6 @@
 .hero {
   align-items: center;
-  background: #fffaf0;
+  background: var(--wax-cream);
   display: flex;
   min-height: calc(100vh - var(--ifm-navbar-height));
   padding: 5rem 1.5rem;
@@ -20,7 +20,7 @@
 }
 
 .tagline {
-  color: #28251f;
+  color: var(--wax-ink);
   font-size: clamp(1.25rem, 3vw, 2rem);
   margin: 0;
 }

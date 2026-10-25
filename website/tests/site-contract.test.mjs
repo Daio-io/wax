@@ -11,12 +11,12 @@ test('build emits the GitHub project-page routes', async () => {
     'utf8',
   );
 
-  assert.match(home, /href="?\/wax\/docs\/getting-started\/"?/);
+  assert.match(home, /href="\/wax\/docs\/getting-started\/"/);
   assert.match(home, /https:\/\/github\.com\/Daio-io\/wax/);
   assert.match(start, /npm install -g @waxhq\/wax@alpha/);
   assert.doesNotMatch(
     `${home}\n${start}`,
-    /href="?\/docs\/|src="?\/assets\//,
+    /href="\/docs\/|src="\/assets\//,
   );
 
   await access(new URL('404.html', build));

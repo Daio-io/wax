@@ -2,6 +2,7 @@
   "name": "wax-website",
   "private": true,
   "version": "0.0.0",
+  "type": "module",
   "scripts": {
     "start": "docusaurus start",
     "build": "docusaurus build",
