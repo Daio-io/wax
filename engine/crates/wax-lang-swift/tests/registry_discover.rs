@@ -48,7 +48,7 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
         .expect("matching component should be enriched");
 
     assert_eq!(
-        serde_json::to_value(details).expect("serialize details facts"),
+        serde_json::to_value(details).expect("serialize details"),
         serde_json::json!({
             "status": "complete",
             "source_evidence": {

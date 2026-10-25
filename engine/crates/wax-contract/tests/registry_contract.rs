@@ -90,6 +90,50 @@ fn registry_details_roundtrip_uses_details_field() {
 }
 
 #[test]
+fn legacy_extracted_field_is_read_as_details_and_published_as_details() {
+    let input = serde_json::json!({
+        "schema_version": 1,
+        "components": [{
+            "id": "button",
+            "symbol": "Button",
+            "extracted": {"status": "partial", "documentation": "Legacy docs"}
+        }],
+        "tokens": [{
+            "id": "color-primary",
+            "key": "color.primary",
+            "category": "color",
+            "extracted": {"status": "complete", "documentation": "Legacy token docs"}
+        }]
+    });
+
+    let document = registry_from_json(&input.to_string()).expect("legacy registry should load");
+    assert_eq!(
+        document.components[0]
+            .details
+            .as_ref()
+            .unwrap()
+            .documentation
+            .as_deref(),
+        Some("Legacy docs")
+    );
+    assert_eq!(
+        document.tokens[0]
+            .details
+            .as_ref()
+            .unwrap()
+            .documentation
+            .as_deref(),
+        Some("Legacy token docs")
+    );
+
+    let encoded = serde_json::to_value(&document).expect("legacy registry should serialize");
+    assert!(encoded["components"][0].get("extracted").is_none());
+    assert!(encoded["tokens"][0].get("extracted").is_none());
+    assert_eq!(encoded["components"][0]["details"]["status"], "partial");
+    assert_eq!(encoded["tokens"][0]["details"]["status"], "complete");
+}
+
+#[test]
 fn legacy_and_enriched_registry_roundtrip() {
     let component_only = registry_from_json(&fixture("legacy-component-only.json"))
         .expect("component-only registry should load");

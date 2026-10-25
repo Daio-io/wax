@@ -70,7 +70,7 @@ fn materializes_requested_inclusive_line_excerpt() {
     let attachment = &document.components[0]
         .details
         .as_ref()
-        .expect("generated extraction")
+        .expect("generated details")
         .attachments[0];
     assert_eq!(attachment.content, "first detail\nsecond detail\n");
     assert_eq!(attachment.path, "docs/button.md");
@@ -109,7 +109,7 @@ fn preserves_pack_generated_attachments_when_materializing_sources() {
     let attachments = &document.components[0]
         .details
         .as_ref()
-        .expect("generated extraction")
+        .expect("generated details")
         .attachments;
     assert_eq!(attachments.len(), 2);
     assert_eq!(attachments[0].path, "<jsdoc>");
@@ -146,7 +146,7 @@ fn missing_associated_file_is_reported_without_failing_other_attachments() {
         document.components[0]
             .details
             .as_ref()
-            .expect("generated extraction")
+            .expect("generated details")
             .attachments
             .len(),
         1

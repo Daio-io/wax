@@ -40,7 +40,7 @@ fn partial_discovery_with_guidance_replaces_best_practices() {
     let best_practices = &merged.document.components[0]
         .details
         .as_ref()
-        .expect("details facts")
+        .expect("details")
         .best_practices;
 
     assert_eq!(best_practices.len(), 1);
@@ -79,7 +79,7 @@ fn complete_discovery_clears_obsolete_best_practices() {
         merged.document.components[0]
             .details
             .as_ref()
-            .expect("details facts")
+            .expect("details")
             .best_practices
             .is_empty()
     );
@@ -115,7 +115,7 @@ fn partial_discovery_without_guidance_retains_prior_best_practices() {
     let best_practices = &merged.document.components[0]
         .details
         .as_ref()
-        .expect("details facts")
+        .expect("details")
         .best_practices;
 
     assert_eq!(best_practices.len(), 1);
@@ -418,7 +418,7 @@ fn clean_extraction_removes_obsolete_generated_fields() {
     let details = merged.document.components[0]
         .details
         .as_ref()
-        .expect("details facts");
+        .expect("details");
 
     assert!(details.signature.is_none());
     assert!(!details.extra.contains_key("old_extractor_field"));
@@ -474,7 +474,7 @@ fn identity_conflict_keeps_creator_content() {
         Some("Secondary authored content")
     );
     for candidate in &merged.document.components[..2] {
-        let details = candidate.details.as_ref().expect("details facts");
+        let details = candidate.details.as_ref().expect("details");
         assert_eq!(details.status, RegistryExtractionStatus::Complete);
         assert!(
             matches!(
@@ -538,7 +538,7 @@ fn incomplete_discovery_preserves_prior_field_gaps_when_omitted() {
     let details = merged.document.components[0]
         .details
         .as_ref()
-        .expect("details facts");
+        .expect("details");
 
     assert_eq!(details.status, RegistryExtractionStatus::Partial);
     assert_eq!(details.documentation.as_deref(), Some("Fresh docs"));

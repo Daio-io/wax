@@ -66,7 +66,7 @@ pub struct RegistryComponent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<RegistryMetadata>,
     /// Discovered details for this entry.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "extracted")]
     pub details: Option<RegistryDetails>,
     /// Unknown entry fields preserved across round trips.
     #[serde(flatten)]
@@ -92,7 +92,7 @@ pub struct RegistryToken {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<RegistryMetadata>,
     /// Discovered details for this entry.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "extracted")]
     pub details: Option<RegistryDetails>,
     /// Unknown entry fields preserved across round trips.
     #[serde(flatten)]

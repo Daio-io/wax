@@ -4,6 +4,10 @@
 
 ### Breaking
 
+- **Registry entry details** — Registry enrichment moved from the published
+  `extracted` field to `details`. Legacy `extracted` input remains readable
+  and is rewritten as `details`.
+
 - **Grouped roots / scan schema v4** — `SourceLocation` now carries optional
   `root_group`; merged scans expose deterministic root-group metadata and
   per-group/language summaries with raw status, origin, and invocation-adoption
