@@ -40,6 +40,8 @@ require_text "$EXAMPLE" 'wax registry refresh'
 require_text "$EXAMPLE" '--snapshot "$snapshot_digest"'
 require_text "$EXAMPLE" 'No matches'
 require_text "$EXAMPLE" 'Ambiguous'
+require_text "$EXAMPLE" 'Structured parameter and guidance facts'
+require_text "$EXAMPLE" 'type_text'
 require_text ".claude-plugin/plugin.json" "registry search"
 require_text ".claude-plugin/marketplace.json" "registry search"
 require_text "README.md" "skills/wax-search/SKILL.md"
@@ -138,7 +140,7 @@ run_wax registry add acme "$registry" \
   --name "Acme Design System" >/dev/null
 
 component_search="$tmp_dir/component-search.json"
-run_wax search "primary action" \
+run_wax search "touch-first" \
   --design-system acme \
   --kind component \
   --format json \
@@ -146,6 +148,18 @@ run_wax search "primary action" \
 assert_search_envelope "$component_search"
 jq -e '.results | length == 1 and .[0].id == "ds.button"' "$component_search" >/dev/null \
   || fail "component example did not select ds.button"
+jq -e '.results[0].summary == "A button used for important actions."' "$component_search" >/dev/null \
+  || fail "component search did not use extracted documentation as its summary"
+
+enum_search="$tmp_dir/enum-search.json"
+run_wax search "Comfortable" \
+  --design-system acme \
+  --kind component \
+  --format json \
+  --repo-root "$repo" >"$enum_search"
+assert_search_envelope "$enum_search"
+jq -e '.results | length == 1 and .[0].id == "ds.button"' "$enum_search" >/dev/null \
+  || fail "enum value search did not select ds.button"
 component_digest="$(jq -er '.results[0].snapshot.digest' "$component_search")"
 
 token_search="$tmp_dir/token-search.json"
@@ -177,6 +191,13 @@ run_wax component ds.button \
 assert_detail_envelope "$component_detail" component ds.button "$component_digest"
 jq -e '.entry.symbol == "Button" and .entry.package == "com.acme.ui"' "$component_detail" >/dev/null \
   || fail "snapshot-pinned component detail changed after refresh"
+jq -e '
+  .entry.extracted.signature.parameters[0].type_kind == "enum"
+  and (.entry.extracted.signature.parameters[0].allowed_values | length == 2)
+' "$component_detail" >/dev/null \
+  || fail "snapshot-pinned detail omitted structured enum values"
+jq -e '.entry.extracted.best_practices | length == 2' "$component_detail" >/dev/null \
+  || fail "snapshot-pinned detail omitted structured guidance"
 
 token_detail="$tmp_dir/token-detail.json"
 run_wax token color.primary \

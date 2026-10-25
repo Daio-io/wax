@@ -68,7 +68,7 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
             },
             "documentation": "A button used for important actions.",
             "signature": {
-                "type_text": "fun RichButton(\n    text: String,\n    enabled: Boolean = true,\n    onClick: () -> Unit,\n    style: Style = Style.Compact,\n)",
+                "type_text": "fun RichButton(\n    text: String,\n    enabled: Boolean = true,\n    onClick: () -> Unit,\n    style: Style = Style.strong,\n)",
                 "parameters": [
                     {
                         "name": "text",
@@ -96,9 +96,9 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
                         "name": "style",
                         "type_text": "Style",
                         "type_kind": "enum",
-                        "allowed_values": ["Compact", "Comfortable"],
-                        "description": "Visual density of the button.",
-                        "default": "Style.Compact",
+                        "allowed_values": ["strong", "quiet"],
+                        "description": "Visual emphasis.",
+                        "default": "Style.strong",
                         "required": false
                     }
                 ]
@@ -113,7 +113,7 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
                 "language": "kotlin"
             }],
             "best_practices": [
-                {"description": "Use one primary action per surface."},
+                {"description": "Prefer touch-first controls."},
                 {"description": "Keep labels concise."}
             ]
         })

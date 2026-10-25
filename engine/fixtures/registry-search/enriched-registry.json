@@ -10,7 +10,6 @@
       "aliases": ["Btn"],
       "legacy_flag": true,
       "metadata": {
-        "description": "Primary action control",
         "tags": ["action", "form"],
         "author": "design-system",
         "sources": [
@@ -34,7 +33,7 @@
       },
       "extracted": {
         "status": "partial",
-        "documentation": "Renders a pressable button.",
+        "documentation": "A button used for important actions.",
         "source_evidence": {
           "path": "src/Button.kt",
           "start_line": 10,
@@ -44,12 +43,13 @@
           "type_text": "fun Button(text: String, onClick: () -> Unit)",
           "parameters": [
             {
-              "name": "text",
-              "type": "legacy-string",
-              "type_text": "String",
-              "type_kind": "string",
-              "description": "Visible button label",
-              "required": true
+              "name": "style",
+              "type_text": "Style",
+              "type_kind": "enum",
+              "allowed_values": ["Compact", "Comfortable"],
+              "description": "Visual density.",
+              "default": "Style.Compact",
+              "required": false
             },
             {
               "name": "onClick",
@@ -66,12 +66,12 @@
               "default": "true"
             },
             {
-              "name": "size",
-              "type_text": "ButtonSize",
-              "type_kind": "enum",
-              "allowed_values": ["small", "medium", "large"],
-              "description": "Visual size of the button",
-              "default": "medium"
+              "name": "text",
+              "type": "legacy-string",
+              "type_text": "String",
+              "type_kind": "string",
+              "description": "Visible button label",
+              "required": true
             }
           ]
         },
@@ -101,8 +101,11 @@
         ],
         "best_practices": [
           {
-            "description": "Use one primary action per surface.",
+            "description": "Prefer touch-first controls.",
             "source": "design-guidelines"
+          },
+          {
+            "description": "Keep labels concise."
           }
         ],
         "extractor_version": "1.2.3"

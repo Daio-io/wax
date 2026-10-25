@@ -506,7 +506,11 @@ extraction facts, including source evidence, documentation, signatures and
 parameters (including descriptions, type kinds, and allowed values), best
 practices, deprecation, attachments, and explicit field gaps. These fields
 are optional so legacy component-only and token-bearing registries remain
-valid; unknown fields are preserved when a registry is read and written.
+valid; an omitted description, `type_kind`, `allowed_values`, or
+`best_practices` field means that fact is unavailable. When structured
+parameter hints are present, raw `type_text` remains the authoritative
+source-facing type. Unknown fields are preserved when a registry is read and
+written.
 
 Registry search and detail responses use versioned envelopes with a snapshot
 identity containing the source, language, and content digest. Optional system

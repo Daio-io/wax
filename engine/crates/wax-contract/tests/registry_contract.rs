@@ -110,10 +110,7 @@ fn legacy_and_enriched_registry_roundtrip() {
         Some(&serde_json::json!(true))
     );
     let metadata = button.metadata.as_ref().expect("metadata");
-    assert_eq!(
-        metadata.description.as_deref(),
-        Some("Primary action control")
-    );
+    assert_eq!(metadata.description, None);
     assert_eq!(metadata.tags, vec!["action", "form"]);
     assert_eq!(
         metadata.extra.get("author").and_then(|v| v.as_str()),
@@ -125,18 +122,18 @@ fn legacy_and_enriched_registry_roundtrip() {
     let parameters = &extracted.signature.as_ref().expect("signature").parameters;
     assert_eq!(
         parameters[0].type_kind,
-        Some(RegistryParameterTypeKind::String)
+        Some(RegistryParameterTypeKind::Enum)
     );
     assert_eq!(
         parameters[0].description.as_deref(),
-        Some("Visible button label")
+        Some("Visual density.")
     );
+    assert_eq!(parameters[0].allowed_values, ["Compact", "Comfortable"]);
     assert_eq!(
-        parameters[0].extra.get("type"),
+        parameters[3].extra.get("type"),
         Some(&serde_json::json!("legacy-string"))
     );
-    assert_eq!(parameters[3].allowed_values, ["small", "medium", "large"]);
-    assert_eq!(extracted.best_practices.len(), 1);
+    assert_eq!(extracted.best_practices.len(), 2);
     assert_eq!(
         extracted.best_practices[0].extra.get("source"),
         Some(&serde_json::json!("design-guidelines"))

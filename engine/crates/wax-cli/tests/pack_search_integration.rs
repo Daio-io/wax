@@ -12,7 +12,7 @@ use std::process::Command;
 
 use common::{EnvVarGuard, TestDir, env_lock};
 use serde_json::{Value, json};
-use wax_contract::{RegistryDocument, RegistryMetadata, registry_to_json};
+use wax_contract::{RegistryDocument, registry_to_json};
 use wax_core::registry_merge::merge_registry;
 use wax_lang_api::{DiscoverRegistryRequest, WIRE_API_VERSION};
 use wax_lang_compose::discover_registry_details as compose_details;
@@ -84,7 +84,6 @@ fn seed_registry(component_id: &str, package: &str) -> RegistryDocument {
             "symbol": "RichButton",
             "package": package,
             "metadata": {
-                "description": "Publisher seed description",
                 "tags": ["seed"]
             }
         }]
@@ -120,8 +119,8 @@ fn publish_merged_registry(pack: &PackCase) -> RegistryDocument {
         document.components[0]
             .metadata
             .as_ref()
-            .and_then(|metadata: &RegistryMetadata| metadata.description.as_deref()),
-        Some("Publisher seed description"),
+            .map(|metadata| metadata.tags.as_slice()),
+        Some(["seed".to_owned()].as_slice()),
         "{} merge should retain publisher metadata",
         pack.language
     );
@@ -155,6 +154,23 @@ fn remember_local_registry(
     );
 }
 
+fn prepare_pack_registry(root: &TestDir, wax_home: &Path, pack: &PackCase) -> RegistryDocument {
+    let document = publish_merged_registry(pack);
+    let registry_path = root.path.join(format!("{}.registry.json", pack.language));
+    fs::write(
+        &registry_path,
+        registry_to_json(&document).expect("serialize registry"),
+    )
+    .expect("write registry");
+    remember_local_registry(
+        wax_home,
+        pack.design_system_id,
+        pack.language,
+        &registry_path,
+    );
+    document
+}
+
 fn run_wax(wax_home: &Path, repo: &Path, args: &[&str]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_wax"))
         .args(args)
@@ -176,19 +192,7 @@ fn parser_packs_publish_merge_then_search_and_detail() {
     let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
 
     for pack in &pack_cases() {
-        let document = publish_merged_registry(pack);
-        let registry_path = root.path.join(format!("{}.registry.json", pack.language));
-        fs::write(
-            &registry_path,
-            registry_to_json(&document).expect("serialize registry"),
-        )
-        .expect("write registry");
-        remember_local_registry(
-            &wax_home,
-            pack.design_system_id,
-            pack.language,
-            &registry_path,
-        );
+        let _document = prepare_pack_registry(&root, &wax_home, pack);
 
         let search = run_wax(
             &wax_home,
@@ -253,9 +257,149 @@ fn parser_packs_publish_merge_then_search_and_detail() {
             "A button used for important actions."
         );
         assert_eq!(
-            detail_value["entry"]["metadata"]["description"],
-            "Publisher seed description"
+            search_value["results"][0]["summary"],
+            "A button used for important actions."
         );
         assert_eq!(detail_value["snapshot"]["digest"], digest);
+    }
+}
+
+#[test]
+fn parser_packs_search_guidance_then_return_snapshot_pinned_facts() {
+    let _guard = env_lock();
+    let root = TestDir::new("pack-guidance-snapshot");
+    let wax_home = root.path.join("wax-home");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(&wax_home).unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
+
+    for pack in &pack_cases() {
+        let document = prepare_pack_registry(&root, &wax_home, pack);
+        let expected_entry = serde_json::to_value(&document.components[0]).unwrap();
+        let registry_path = root.path.join(format!("{}.registry.json", pack.language));
+
+        let search = run_wax(
+            &wax_home,
+            &repo,
+            &[
+                "search",
+                "touch-first",
+                "--design-system",
+                pack.design_system_id,
+                "--kind",
+                "component",
+                "--format",
+                "json",
+            ],
+        );
+        assert!(
+            search.status.success(),
+            "{} guidance search failed: {}",
+            pack.language,
+            String::from_utf8_lossy(&search.stderr)
+        );
+        let search_value: Value =
+            serde_json::from_str(String::from_utf8(search.stdout).unwrap().trim()).unwrap();
+        assert_eq!(search_value["results"][0]["id"], pack.component_id);
+        assert_eq!(
+            search_value["results"][0]["summary"],
+            "A button used for important actions."
+        );
+        let digest = search_value["results"][0]["snapshot"]["digest"]
+            .as_str()
+            .expect("digest")
+            .to_owned();
+
+        let enum_search = run_wax(
+            &wax_home,
+            &repo,
+            &[
+                "search",
+                "strong",
+                "--design-system",
+                pack.design_system_id,
+                "--kind",
+                "component",
+                "--format",
+                "json",
+            ],
+        );
+        assert!(
+            enum_search.status.success(),
+            "{} enum search failed: {}",
+            pack.language,
+            String::from_utf8_lossy(&enum_search.stderr)
+        );
+        let enum_search_value: Value =
+            serde_json::from_str(String::from_utf8(enum_search.stdout).unwrap().trim()).unwrap();
+        assert_eq!(
+            enum_search_value["results"][0]["id"], pack.component_id,
+            "{} enum search should find the enriched component",
+            pack.language
+        );
+
+        let mut refreshed = serde_json::to_value(&document).unwrap();
+        refreshed["components"][0]["symbol"] = json!("RefreshedButton");
+        refreshed["components"][0]["extracted"]["signature"]["parameters"] = json!([]);
+        refreshed["components"][0]["extracted"]["best_practices"] = json!([]);
+        fs::write(
+            &registry_path,
+            serde_json::to_vec_pretty(&refreshed).unwrap(),
+        )
+        .expect("write refreshed registry");
+        let refresh = Command::new(env!("CARGO_BIN_EXE_wax"))
+            .args(["registry", "refresh", pack.design_system_id])
+            .env("WAX_HOME", &wax_home)
+            .output()
+            .expect("spawn registry refresh");
+        assert!(
+            refresh.status.success(),
+            "{} refresh failed: {}",
+            pack.language,
+            String::from_utf8_lossy(&refresh.stderr)
+        );
+
+        let detail = run_wax(
+            &wax_home,
+            &repo,
+            &[
+                "component",
+                pack.component_id,
+                "--design-system",
+                pack.design_system_id,
+                "--snapshot",
+                &digest,
+                "--format",
+                "json",
+            ],
+        );
+        assert!(
+            detail.status.success(),
+            "{} pinned detail failed: {}",
+            pack.language,
+            String::from_utf8_lossy(&detail.stderr)
+        );
+        let detail: Value =
+            serde_json::from_str(String::from_utf8(detail.stdout).unwrap().trim()).unwrap();
+        assert_eq!(detail["entry"], expected_entry);
+        let enum_parameter = detail["entry"]["extracted"]["signature"]["parameters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|parameter| parameter["type_kind"] == "enum")
+            .expect("enum parameter");
+        assert_eq!(
+            enum_parameter["allowed_values"].as_array().unwrap().len(),
+            2
+        );
+        assert_eq!(
+            detail["entry"]["extracted"]["best_practices"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(detail["snapshot"]["digest"], digest);
     }
 }

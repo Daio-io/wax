@@ -65,7 +65,7 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
                         "type_text": "Tone",
                         "type_kind": "enum",
                         "allowed_values": ["strong", "quiet"],
-                        "description": "Controls the button's visual emphasis.",
+                        "description": "Visual emphasis.",
                         "default": ".strong",
                         "required": false
                     },
@@ -88,8 +88,8 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
                 "language": "swift"
             }],
             "best_practices": [
-                {"description": "Use quiet for secondary actions."},
-                {"description": "Reserve strong for the primary action."}
+                {"description": "Prefer touch-first controls."},
+                {"description": "Keep labels concise."}
             ]
         })
     );

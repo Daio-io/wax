@@ -43,6 +43,9 @@ struct PackEnrichment {
     status: RegistryExtractionStatus,
     documentation: Option<String>,
     parameter_count: usize,
+    parameter_description: Option<String>,
+    enum_values: Vec<String>,
+    best_practices: Vec<String>,
     has_deprecation: bool,
     has_example_attachment: bool,
 }
@@ -115,15 +118,27 @@ fn summarize(language: &'static str, document: &RegistryDocument) -> PackEnrichm
         .extracted
         .as_ref()
         .expect("enriched component");
+    let parameters = extracted
+        .signature
+        .as_ref()
+        .map(|signature| signature.parameters.as_slice())
+        .unwrap_or_default();
+    let enum_parameter = parameters
+        .iter()
+        .find(|parameter| !parameter.allowed_values.is_empty())
+        .expect("enum parameter");
     PackEnrichment {
         language,
         status: extracted.status,
         documentation: extracted.documentation.clone(),
-        parameter_count: extracted
-            .signature
-            .as_ref()
-            .map(|signature| signature.parameters.len())
-            .unwrap_or_default(),
+        parameter_count: parameters.len(),
+        parameter_description: enum_parameter.description.clone(),
+        enum_values: enum_parameter.allowed_values.to_vec(),
+        best_practices: extracted
+            .best_practices
+            .iter()
+            .map(|practice| practice.description.clone())
+            .collect(),
         has_deprecation: extracted.deprecation.is_some(),
         has_example_attachment: extracted
             .attachments
@@ -155,6 +170,25 @@ fn parser_packs_share_rich_button_enrichment_semantics() {
             pack.language
         );
         assert!(
+            pack.parameter_description
+                .as_deref()
+                .is_some_and(|description| !description.is_empty()),
+            "{} should describe its enum parameter",
+            pack.language
+        );
+        assert_eq!(
+            pack.enum_values.len(),
+            2,
+            "{} should extract both enum values",
+            pack.language
+        );
+        assert_eq!(
+            pack.best_practices.len(),
+            2,
+            "{} should preserve both ordered guidance items",
+            pack.language
+        );
+        assert!(
             pack.has_deprecation,
             "{} should surface deprecation notes when present",
             pack.language
@@ -162,6 +196,24 @@ fn parser_packs_share_rich_button_enrichment_semantics() {
         assert!(
             pack.has_example_attachment,
             "{} should materialize an example attachment",
+            pack.language
+        );
+    }
+
+    for pack in &packs[1..] {
+        assert_eq!(
+            pack.parameter_description, packs[0].parameter_description,
+            "{} should match React's enum parameter description",
+            pack.language
+        );
+        assert_eq!(
+            pack.enum_values, packs[0].enum_values,
+            "{} should match React's enum values",
+            pack.language
+        );
+        assert_eq!(
+            pack.best_practices, packs[0].best_practices,
+            "{} should match React's ordered best practices",
             pack.language
         );
     }
