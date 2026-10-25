@@ -30,6 +30,7 @@ install the exact `<id>@<version>` first, then scan with `--no-auto-install`:
 ```bash
 wax language install react@<version>
 wax language doctor
+wax scan --no-auto-install
 ```
 
 The pack index override is `--pack-index` or `WAX_PACK_INDEX`.

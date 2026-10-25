@@ -69,4 +69,9 @@ test('CLI reference covers the complete Clap command surface', async () => {
     html,
     /(?:requires[\s\S]{0,80}--full|--full[\s\S]{0,80}(?:is )?required)/i,
   );
+  assert.match(
+    html,
+    /`wax uninstall` requires `--full`|wax uninstall(?:<!-- -->)? requires(?:<!-- -->)? --full/,
+  );
+  assert.doesNotMatch(html, /FullFlagRequired/);
 });

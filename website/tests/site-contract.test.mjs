@@ -29,6 +29,19 @@ test('build emits the GitHub project-page routes', async () => {
   assert.match(home, /Measure adoption/);
   assert.match(home, /Work with agents/);
   assert.match(home, /https:\/\/github\.com\/Daio-io\/wax/);
+  assert.match(home, /<footer[\s\S]*class=["']?[^"'>]*footer__link-item/);
+  assert.match(
+    home,
+    /class=["']?[^"'>]*footer__link-item[^"'>]*["']?[^>]*>Get started</,
+  );
+  assert.match(
+    home,
+    /class=["']?[^"'>]*footer__link-item[^"'>]*["']?[^>]*>CLI reference</,
+  );
+  assert.match(
+    home,
+    /class=["']?[^"'>]*footer__link-item[^"'>]*["']?[^>]*>Agent skills</,
+  );
   assert.match(start, /Install Wax/);
   assert.match(start, /wax init/);
   assert.match(start, /wax validate/);

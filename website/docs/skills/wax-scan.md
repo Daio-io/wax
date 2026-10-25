@@ -20,11 +20,10 @@ Safety boundary: Analyze only fresh validated scan evidence, and never write inf
 
 ## Happy path
 
-Validate first, optionally refresh an upstream registry when explicitly wanted,
-then scan afresh:
+Validate first, optionally refresh an upstream registry with `wax sync` when
+explicitly wanted, then scan afresh:
 
 ```bash
-wax sync
 wax validate
 wax scan
 skills/wax-scan/scripts/extract-insights.sh .wax/out/scan-merged.json

@@ -5,14 +5,15 @@ sidebar_position: 3
 
 # Scan a repository
 
-Validate committed repository-local inputs before scanning. Sync first when you
-want to refresh app registry snapshots from remembered global sources:
+Validate committed repository-local inputs before scanning:
 
 ```bash
 wax validate
-wax sync
 wax scan
 ```
+
+Optionally run `wax sync` between validate and scan when you want to refresh
+app registry snapshots from remembered global sources.
 
 Wax writes the merged facts to `.wax/out/scan-merged.json`. The default scan is
 best effort: it can produce an artifact and exit successfully when a language is

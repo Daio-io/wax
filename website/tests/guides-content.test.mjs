@@ -99,6 +99,18 @@ test('guide sources and production routes cover the documented workflow', async 
     'utf8',
   );
   assert.match(troubleshooting, /github\.com\/Daio-io\/wax/);
+  assert.match(
+    troubleshooting,
+    /wax language install[\s\S]*?wax language doctor[\s\S]*?wax scan --no-auto-install/,
+  );
+
+  const scan = await readFile(new URL('guides/scan.md', docs), 'utf8');
+  const scanPrimary = scan.match(/```bash\n([\s\S]*?)```/);
+  assert.ok(scanPrimary, 'scan guide needs a primary bash recipe');
+  assert.match(scanPrimary[1], /^wax validate$/m);
+  assert.match(scanPrimary[1], /^wax scan$/m);
+  assert.doesNotMatch(scanPrimary[1], /^wax sync$/m);
+  assert.match(scan, /optional(?:ly)?[\s\S]{0,80}wax sync|wax sync[\s\S]{0,80}optional/i);
 
   const registry = await readFile(
     new URL('reference/registry.md', docs),
@@ -108,7 +120,10 @@ test('guide sources and production routes cover the documented workflow', async 
   assert.match(registry, /registry\.schema\.json/);
 
   const ci = await readFile(new URL('guides/ci.md', docs), 'utf8');
-  assert.match(ci, /wax scan --no-auto-install --strict/);
+  assert.match(
+    ci,
+    /wax language install[\s\S]*?wax validate[\s\S]*?wax scan --no-auto-install --strict/,
+  );
 
   const allHtml = await Promise.all(
     (await htmlFiles(buildRoot)).map((file) => readFile(file, 'utf8')),

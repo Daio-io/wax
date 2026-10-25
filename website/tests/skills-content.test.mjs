@@ -45,4 +45,15 @@ test('every shipped skill has a discoverable page and safety boundary', async ()
     );
     safetyBoundaries.add(boundary);
   }
+
+  const waxScan = await readFile(new URL('wax-scan.md', docsRoot), 'utf8');
+  const happyPath = waxScan.match(/## Happy path[\s\S]*?```bash\n([\s\S]*?)```/);
+  assert.ok(happyPath, 'wax-scan needs a happy-path bash block');
+  assert.match(happyPath[1], /^wax validate$/m);
+  assert.match(happyPath[1], /^wax scan$/m);
+  assert.doesNotMatch(happyPath[1], /^wax sync$/m);
+  assert.match(
+    waxScan,
+    /optional(?:ly)?[\s\S]{0,120}(?:refresh|sync)|wax sync[\s\S]{0,80}optional/i,
+  );
 });
