@@ -342,7 +342,7 @@ fn normalize_legacy_registry(
             if component.package.is_none() {
                 component.package.clone_from(&candidate.package);
             }
-            component.details = Some(unavailable_extraction());
+            component.details = Some(unavailable_details());
             continue;
         }
 
@@ -360,7 +360,7 @@ fn normalize_legacy_registry(
             package: candidate.package,
             aliases: Vec::new(),
             metadata: None,
-            details: Some(unavailable_extraction()),
+            details: Some(unavailable_details()),
             extra: serde_json::Map::new(),
         });
     }
@@ -407,7 +407,7 @@ fn kebab_case_symbol(symbol: &str) -> String {
     result.trim_matches('-').to_owned()
 }
 
-fn unavailable_extraction() -> RegistryDetails {
+fn unavailable_details() -> RegistryDetails {
     RegistryDetails {
         status: RegistryExtractionStatus::Unavailable,
         source_evidence: None,

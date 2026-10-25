@@ -502,7 +502,7 @@ cargo build --release -p wax-cli
 
 Registry documents use schema version 1. A document may contain components,
 tokens, or both. Enriched entries may add creator metadata and generated
-extraction facts, including source evidence, documentation, signatures and
+generated details, including source evidence, documentation, signatures and
 parameters (including descriptions, type kinds, and allowed values), best
 practices, deprecation, attachments, and explicit field gaps. These fields
 are optional so legacy component-only and token-bearing registries remain

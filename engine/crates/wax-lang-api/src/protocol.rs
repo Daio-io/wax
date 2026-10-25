@@ -85,7 +85,7 @@ pub struct DiscoverRegistryRequest {
 pub struct DiscoverRegistryResult {
     /// Registry document containing discovered details.
     pub document: RegistryDocument,
-    /// Structured diagnostics emitted while extracting details.
+    /// Structured diagnostics emitted while discovering details.
     pub diagnostics: Vec<Diagnostic>,
 }
 

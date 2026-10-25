@@ -171,7 +171,7 @@ Use configless discovery: **always pass `--root`** and do not assume configured 
    - `--force` is retained for compatibility; existing registries are refreshed by a lossless merge.
    - Require **explicit approval** for component additions, alias/tag additions, and value changes; require a separate approval for any removals.
 
-8. Write the registry only after review. Existing registries are refreshed by a lossless merge that preserves tokens, aliases, tags, metadata, values, and generated extraction fields; `--force` remains accepted as a compatibility flag and does not discard creator data. Merge only approved alias/tag additions into existing arrays. Preserve all authored aliases and tags on rediscover, and never remove either without separate approval.
+8. Write the registry only after review. Existing registries are refreshed by a lossless merge that preserves tokens, aliases, tags, metadata, values, and generated details; `--force` remains accepted as a compatibility flag and does not discard creator data. Merge only approved alias/tag additions into existing arrays. Preserve all authored aliases and tags on rediscover, and never remove either without separate approval.
 
    Treat every repeat run as lossless rediscovery: preserve authored component
    and token ids, explicit source associations, package identities, aliases,

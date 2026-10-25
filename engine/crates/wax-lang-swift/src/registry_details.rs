@@ -296,8 +296,9 @@ fn component_details(
     if damaged {
         field_gaps.push(RegistryFieldGap {
             field: "source".to_owned(),
-            reason: "the source file contains syntax damage, so details facts may be incomplete"
-                .to_owned(),
+            reason:
+                "the source file contains syntax damage, so discovered details may be incomplete"
+                    .to_owned(),
             extra: Map::new(),
         });
     }
