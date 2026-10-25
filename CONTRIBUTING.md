@@ -78,6 +78,11 @@ npm --prefix website ci
 npm --prefix website test
 ```
 
+`main` deploys the site through the Docs workflow and the `github-pages`
+environment. Repository **Settings → Pages → Source** must be **GitHub Actions**
+(not a branch). The release-owned `gh-pages` branch still only carries the pack
+index (`index.json`) and must not be used as the website publish target.
+
 For release and install changes, also run the relevant script checks when applicable:
 
 ```bash
