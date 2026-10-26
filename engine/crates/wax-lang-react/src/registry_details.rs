@@ -667,15 +667,15 @@ fn signature_facts(
         }
         TsType::TsTypeRef(reference) => match &reference.type_name {
             swc_ecma_ast::TsEntityName::Ident(ident) => ident.sym.as_ref(),
-            swc_ecma_ast::TsEntityName::TsQualifiedName(_) => {
-                return (
+            swc_ecma_ast::TsEntityName::TsQualifiedName(qualified) => {
+                let package = match &qualified.left {
+                    swc_ecma_ast::TsEntityName::Ident(ident) => ident.sym.to_string(),
+                    swc_ecma_ast::TsEntityName::TsQualifiedName(_) => String::new(),
+                };
+                return imported_props_parameters(
+                    parameter,
                     type_text,
-                    Vec::new(),
-                    vec![RegistryFieldGap {
-                        field: "signature.parameters".to_owned(),
-                        reason: "props type is imported or unavailable locally".to_owned(),
-                        extra: Map::new(),
-                    }],
+                    (!package.is_empty()).then_some(package),
                 );
             }
         },
@@ -693,22 +693,8 @@ fn signature_facts(
         }
     };
     let Some(definition) = props.get(type_name) else {
-        if let (Some(name), Some(package)) = (pat_name(parameter), imports.get(type_name)) {
-            return (
-                type_text.clone(),
-                vec![RegistryParameter {
-                    name: name.to_owned(),
-                    type_text,
-                    package: Some(package.clone()),
-                    type_kind: None,
-                    allowed_values: Vec::new(),
-                    description: None,
-                    default: None,
-                    required: Some(true),
-                    extra: Map::new(),
-                }],
-                Vec::new(),
-            );
+        if let Some(package) = imports.get(type_name) {
+            return imported_props_parameters(parameter, type_text, Some(package.clone()));
         }
         return (
             type_text,
@@ -737,6 +723,60 @@ fn signature_facts(
         Vec::new()
     };
     (type_text, parameters, gaps)
+}
+
+fn imported_props_parameters(
+    parameter: &Pat,
+    type_text: Option<String>,
+    package: Option<String>,
+) -> (
+    Option<String>,
+    Vec<RegistryParameter>,
+    Vec<RegistryFieldGap>,
+) {
+    let parameters = match parameter {
+        Pat::Object(object) => object
+            .props
+            .iter()
+            .filter_map(|property| match property {
+                ObjectPatProp::Assign(assign) => Some(assign.key.sym.to_string()),
+                ObjectPatProp::KeyValue(key_value) => match &key_value.key {
+                    swc_ecma_ast::PropName::Ident(ident) => Some(ident.sym.to_string()),
+                    swc_ecma_ast::PropName::Str(value) => {
+                        Some(value.value.to_string_lossy().into_owned())
+                    }
+                    _ => None,
+                },
+                ObjectPatProp::Rest(_) => None,
+            })
+            .map(|name| RegistryParameter {
+                name,
+                type_text: None,
+                package: package.clone(),
+                type_kind: None,
+                allowed_values: Vec::new(),
+                description: None,
+                default: None,
+                required: Some(true),
+                extra: Map::new(),
+            })
+            .collect(),
+        _ => pat_name(parameter)
+            .into_iter()
+            .map(|name| RegistryParameter {
+                name: name.to_owned(),
+                type_text: type_text.clone(),
+                package: package.clone(),
+                type_kind: None,
+                allowed_values: Vec::new(),
+                description: None,
+                default: None,
+                required: Some(true),
+                extra: Map::new(),
+            })
+            .collect(),
+    };
+    (type_text, parameters, Vec::new())
 }
 
 fn imported_type_name(ty: &TsType) -> Option<&str> {

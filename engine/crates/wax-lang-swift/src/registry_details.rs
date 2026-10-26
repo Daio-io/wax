@@ -365,10 +365,14 @@ fn package_for_parameter_type(
 ) -> Option<String> {
     let direct_type = unwrap_parenthesized_type(type_text.trim_end_matches('?').trim());
     if let Some((qualifier, _)) = direct_type.split_once('.') {
-        return (!local_types.contains(qualifier)).then(|| qualifier.to_owned());
+        return imports
+            .module_imports
+            .iter()
+            .any(|package| package == qualifier)
+            .then(|| qualifier.to_owned());
     }
     (!local_types.contains(direct_type))
-        .then(|| imports.symbol_packages.get(direct_type).cloned())
+        .then(|| imports.package_for_symbol(direct_type))
         .flatten()
 }
 

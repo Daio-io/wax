@@ -108,7 +108,7 @@ fn discover_registry_details_records_imported_props_package_without_a_gap() -> i
     fs::write(
         src.join("ImportedButton.tsx"),
         r#"import type { ImportedProps } from "@acme/ui";
-export const ImportedButton = (props: ImportedProps) => <button data-size={props.size} />;
+export const ImportedButton = ({ size }: ImportedProps) => <button data-size={size} />;
 "#,
     )?;
     let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
@@ -137,10 +137,9 @@ export const ImportedButton = (props: ImportedProps) => <button data-size={props
                 "end_line": 2
             },
             "signature": {
-                "type_text": "export const ImportedButton = (props: ImportedProps) =>",
+                "type_text": "export const ImportedButton = ({ size }: ImportedProps) =>",
                 "parameters": [{
-                    "name": "props",
-                    "type_text": "ImportedProps",
+                    "name": "size",
                     "package": "@acme/ui",
                     "required": true
                 }]

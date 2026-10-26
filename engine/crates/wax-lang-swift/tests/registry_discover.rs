@@ -223,6 +223,7 @@ fn discover_registry_details_classifies_direct_swift_type_shapes() -> io::Result
     fs::write(
         sources.join("ShapeCard.swift"),
         r#"import SwiftUI
+import Vendor
 
 enum Tone {
     case strong, quiet

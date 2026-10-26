@@ -149,8 +149,9 @@ fn component_details(
     type_facts: &ParameterTypeFacts,
 ) -> RegistryDetails {
     let kdoc = kdoc_for_declaration(node, source);
-    let (parameters, mut field_gaps) =
+    let parameters =
         parameters_from_function(node, source, type_facts, &kdoc.parameter_descriptions);
+    let mut field_gaps = Vec::new();
     let type_text = signature_type_text(node, source);
     let deprecation = deprecated_annotation(node, source).or(kdoc.deprecation);
     let attachments = kdoc
@@ -219,12 +220,12 @@ fn parameters_from_function(
     source: &[u8],
     type_facts: &ParameterTypeFacts,
     descriptions: &BTreeMap<String, String>,
-) -> (Vec<RegistryParameter>, Vec<RegistryFieldGap>) {
+) -> Vec<RegistryParameter> {
     let Some(params_node) = node
         .children(&mut node.walk())
         .find(|child| child.kind() == "function_value_parameters")
     else {
-        return (Vec::new(), Vec::new());
+        return Vec::new();
     };
 
     let mut parameters = Vec::new();
@@ -289,7 +290,7 @@ fn parameters_from_function(
         index += 1;
     }
 
-    (parameters, Vec::new())
+    parameters
 }
 
 fn classify_parameter_type(
