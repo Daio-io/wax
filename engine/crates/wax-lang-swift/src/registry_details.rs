@@ -372,7 +372,7 @@ fn package_for_parameter_type(
             .then(|| qualifier.to_owned());
     }
     (!local_types.contains(direct_type))
-        .then(|| imports.package_for_symbol(direct_type))
+        .then(|| imports.symbol_packages.get(direct_type).cloned())
         .flatten()
 }
 
