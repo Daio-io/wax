@@ -675,7 +675,7 @@ fn signature_facts(
                 return imported_props_parameters(
                     parameter,
                     type_text,
-                    (!package.is_empty()).then_some(package),
+                    imports.get(&package).cloned(),
                 );
             }
         },
@@ -735,32 +735,17 @@ fn imported_props_parameters(
     Vec<RegistryFieldGap>,
 ) {
     let parameters = match parameter {
-        Pat::Object(object) => object
-            .props
-            .iter()
-            .filter_map(|property| match property {
-                ObjectPatProp::Assign(assign) => Some(assign.key.sym.to_string()),
-                ObjectPatProp::KeyValue(key_value) => match &key_value.key {
-                    swc_ecma_ast::PropName::Ident(ident) => Some(ident.sym.to_string()),
-                    swc_ecma_ast::PropName::Str(value) => {
-                        Some(value.value.to_string_lossy().into_owned())
-                    }
-                    _ => None,
-                },
-                ObjectPatProp::Rest(_) => None,
-            })
-            .map(|name| RegistryParameter {
-                name,
-                type_text: None,
-                package: package.clone(),
-                type_kind: None,
-                allowed_values: Vec::new(),
-                description: None,
-                default: None,
-                required: Some(true),
-                extra: Map::new(),
-            })
-            .collect(),
+        Pat::Object(_) => vec![RegistryParameter {
+            name: "props".to_owned(),
+            type_text: type_text.clone(),
+            package,
+            type_kind: None,
+            allowed_values: Vec::new(),
+            description: None,
+            default: None,
+            required: Some(true),
+            extra: Map::new(),
+        }],
         _ => pat_name(parameter)
             .into_iter()
             .map(|name| RegistryParameter {
