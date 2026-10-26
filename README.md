@@ -561,14 +561,15 @@ cargo build --release -p wax-cli
 Registry documents use schema version 1. A document may contain components,
 tokens, or both. Enriched entries may add creator metadata and details,
 including source evidence, documentation, signatures and
-parameters (including descriptions, type kinds, and allowed values), best
+parameters (including descriptions, optional import packages, type kinds, and allowed values), best
 practices, deprecation, attachments, and explicit field gaps. These fields
 are optional so legacy component-only and token-bearing registries remain
-valid; an omitted description, `type_kind`, `allowed_values`, or
+valid; an omitted parameter `package`, description, `type_kind`, `allowed_values`, or
 `best_practices` field means that fact is unavailable. When structured
 parameter hints are present, raw `type_text` remains the authoritative
-source-facing type. Unknown fields are preserved when a registry is read and
-written.
+source-facing type. Consumers should prefer a parameter's `package` for imports
+when it is present rather than deriving a package from `type_text`. Unknown
+fields are preserved when a registry is read and written.
 
 Registry search and detail responses use versioned envelopes with a snapshot
 identity containing the source, language, and content digest. Optional system

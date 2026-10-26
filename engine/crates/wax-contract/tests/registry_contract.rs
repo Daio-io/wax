@@ -284,6 +284,11 @@ fn structured_parameter_and_guidance_validate() {
 
     let invalid_cases = [
         (
+            "empty parameter package",
+            serde_json::json!({"package": ""}),
+            "components[0].details.signature.parameters[0].package",
+        ),
+        (
             "empty parameter description",
             serde_json::json!({"description": ""}),
             "components[0].details.signature.parameters[0].description",
@@ -350,6 +355,42 @@ fn structured_parameter_and_guidance_validate() {
             if field == "components[0].details.best_practices[0].description"
     ));
     assert_schema_invalid(&registry_schema(), &empty_guidance);
+}
+
+#[test]
+fn parameter_package_roundtrips_as_a_typed_field() {
+    let input = serde_json::json!({
+        "schema_version": 1,
+        "components": [{
+            "id": "button",
+            "symbol": "Button",
+            "details": {
+                "status": "complete",
+                "signature": {
+                    "parameters": [{
+                        "name": "props",
+                        "type_text": "ImportedProps",
+                        "package": "com.acme"
+                    }]
+                }
+            }
+        }]
+    });
+
+    let document = registry_from_json(&input.to_string()).expect("parameter package should load");
+    let parameter = &document.components[0]
+        .details
+        .as_ref()
+        .unwrap()
+        .signature
+        .as_ref()
+        .unwrap()
+        .parameters[0];
+    assert_eq!(parameter.package.as_deref(), Some("com.acme"));
+
+    let encoded = serde_json::to_value(&document).expect("parameter package should serialize");
+    assert_eq!(encoded, input);
+    assert_schema_valid(&registry_schema(), &encoded);
 }
 
 #[test]

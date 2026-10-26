@@ -131,6 +131,10 @@
           "type": "string",
           "minLength": 1
         },
+        "package": {
+          "type": "string",
+          "minLength": 1
+        },
         "type_kind": {
           "$ref": "#/$defs/parameter_type_kind"
         },

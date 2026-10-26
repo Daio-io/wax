@@ -1,6 +1,6 @@
 //! Source-backed Swift registry enrichment.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use serde_json::Map;
@@ -16,8 +16,9 @@ use wax_lang_api::{
 use crate::component_detect::collect_component_declarations;
 use crate::discover::SwiftDiscoverError;
 use crate::swift_ast::{
-    ParseSwiftFileError, collect_swift_files, new_parser, parse_swift_file_permissive,
-    partial_tree_parse_diagnostic, tree_has_syntax_errors, unparseable_file_diagnostic,
+    ImportBindings, ParseSwiftFileError, collect_import_bindings, collect_swift_files, new_parser,
+    parse_swift_file_permissive, partial_tree_parse_diagnostic, tree_has_syntax_errors,
+    unparseable_file_diagnostic,
 };
 
 #[derive(Debug)]
@@ -130,6 +131,8 @@ fn component_declarations(
     damaged: bool,
 ) -> Vec<ComponentDeclaration> {
     let local_enums = local_enum_values(root, source.as_bytes());
+    let local_types = local_type_names(root, source.as_bytes());
+    let imports = collect_import_bindings(root, source.as_bytes());
     collect_component_declarations(root, source.as_bytes(), true)
         .into_iter()
         .filter_map(|component| {
@@ -137,10 +140,38 @@ fn component_declarations(
             Some(ComponentDeclaration {
                 symbol: component.symbol,
                 package: package.clone(),
-                details: component_details(node, source, path, damaged, &local_enums),
+                details: component_details(
+                    node,
+                    source,
+                    path,
+                    damaged,
+                    &local_enums,
+                    &local_types,
+                    &imports,
+                ),
             })
         })
         .collect()
+}
+
+fn local_type_names(root: tree_sitter::Node<'_>, source: &[u8]) -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "class_declaration"
+            && let Some(name) = node
+                .child_by_field_name("name")
+                .and_then(|name| name.utf8_text(source).ok())
+        {
+            names.insert(name.to_owned());
+        }
+        for index in (0..node.child_count()).rev() {
+            if let Some(child) = node.child(index) {
+                stack.push(child);
+            }
+        }
+    }
+    names
 }
 
 fn local_enum_values(root: tree_sitter::Node<'_>, source: &[u8]) -> BTreeMap<String, Vec<String>> {
@@ -227,6 +258,8 @@ fn component_details(
     path: &str,
     damaged: bool,
     local_enums: &BTreeMap<String, Vec<String>>,
+    local_types: &BTreeSet<String>,
+    imports: &ImportBindings,
 ) -> RegistryDetails {
     let source_bytes = source.as_bytes();
     let signature_node = if node.kind() == "function_declaration" {
@@ -250,13 +283,20 @@ fn component_details(
     }
     let signature = signature_node.and_then(|signature_node| {
         let text = signature_text(signature_node, source_bytes)?;
+        let mut parameters = parameters_from_initializer(
+            signature_node,
+            source_bytes,
+            &parameter_descriptions,
+            local_enums,
+        );
+        for parameter in &mut parameters {
+            parameter.package = parameter
+                .type_text
+                .as_deref()
+                .and_then(|type_text| package_for_parameter_type(type_text, local_types, imports));
+        }
         Some(RegistrySignature {
-            parameters: parameters_from_initializer(
-                signature_node,
-                source_bytes,
-                &parameter_descriptions,
-                local_enums,
-            ),
+            parameters,
             type_text: Some(text),
             extra: Map::new(),
         })
@@ -272,26 +312,6 @@ fn component_details(
             reason: "no direct initializer was observed; synthesized or inherited initializer facts require compiler resolution".to_owned(),
             extra: Map::new(),
         });
-    }
-    if let Some(signature) = &signature {
-        field_gaps.extend(signature.parameters.iter().filter_map(|parameter| {
-            let type_text = parameter.type_text.as_deref()?;
-            let reason = if type_text.contains('.') {
-                "imported type metadata requires compiler resolution"
-            } else if parameter.type_kind.is_none()
-                && type_text.contains('<')
-                && type_text.contains('>')
-            {
-                "generic type metadata requires compiler resolution"
-            } else {
-                return None;
-            };
-            Some(RegistryFieldGap {
-                field: format!("signature.parameters.{}.type_details", parameter.name),
-                reason: reason.to_owned(),
-                extra: Map::new(),
-            })
-        }));
     }
     if damaged {
         field_gaps.push(RegistryFieldGap {
@@ -336,6 +356,24 @@ fn component_details(
         best_practices: documentation.best_practices,
         extra: Map::new(),
     }
+}
+
+fn package_for_parameter_type(
+    type_text: &str,
+    local_types: &BTreeSet<String>,
+    imports: &ImportBindings,
+) -> Option<String> {
+    let direct_type = unwrap_parenthesized_type(type_text.trim_end_matches('?').trim());
+    if let Some((qualifier, _)) = direct_type.split_once('.') {
+        return imports
+            .module_imports
+            .iter()
+            .any(|package| package == qualifier)
+            .then(|| qualifier.to_owned());
+    }
+    (!local_types.contains(direct_type))
+        .then(|| imports.symbol_packages.get(direct_type).cloned())
+        .flatten()
 }
 
 fn find_direct_initializer<'tree>(
@@ -578,6 +616,7 @@ fn parameter_from_text(text: &str) -> Option<RegistryParameter> {
     Some(RegistryParameter {
         name: name.to_owned(),
         type_text: non_empty(type_text),
+        package: None,
         type_kind: None,
         allowed_values: Vec::new(),
         description: None,

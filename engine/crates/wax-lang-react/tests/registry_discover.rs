@@ -101,13 +101,13 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
 }
 
 #[test]
-fn discover_registry_details_marks_imported_props_unavailable() -> io::Result<()> {
+fn discover_registry_details_records_imported_props_package_without_a_gap() -> io::Result<()> {
     let tempdir = tempfile::tempdir()?;
     let src = tempdir.path().join("src");
     fs::create_dir_all(&src)?;
     fs::write(
         src.join("ImportedButton.tsx"),
-        r#"import type { ImportedProps } from "./types";
+        r#"import type { ImportedProps } from "@acme/ui";
 export const ImportedButton = ({ size }: ImportedProps) => <button data-size={size} />;
 "#,
     )?;
@@ -130,19 +130,69 @@ export const ImportedButton = ({ size }: ImportedProps) => <button data-size={si
     assert_eq!(
         serde_json::to_value(details).unwrap(),
         serde_json::json!({
-            "status": "partial",
+            "status": "complete",
             "source_evidence": {
                 "path": "src/ImportedButton.tsx",
                 "start_line": 2,
                 "end_line": 2
             },
             "signature": {
-                "type_text": "export const ImportedButton = ({ size }: ImportedProps) =>"
+                "type_text": "export const ImportedButton = ({ size }: ImportedProps) =>",
+                "parameters": [{
+                    "name": "props",
+                    "type_text": "ImportedProps",
+                    "package": "@acme/ui",
+                    "required": true
+                }]
+            }
+        })
+    );
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_omits_unobserved_qualified_props_package() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let src = tempdir.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(
+        src.join("QualifiedButton.tsx"),
+        r#"export const QualifiedButton = (props: React.HTMLAttributes<HTMLButtonElement>) => <button {...props} />;
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "qualified", "symbol": "QualifiedButton"}]
+    }))
+    .unwrap();
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "react".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry,
+    };
+
+    let result = discover_registry_details(&request).expect("rich discover should succeed");
+    let details = result.document.components[0].details.as_ref().unwrap();
+
+    assert_eq!(
+        serde_json::to_value(details).unwrap(),
+        serde_json::json!({
+            "status": "complete",
+            "source_evidence": {
+                "path": "src/QualifiedButton.tsx",
+                "start_line": 1,
+                "end_line": 1
             },
-            "field_gaps": [{
-                "field": "signature.parameters",
-                "reason": "props type `ImportedProps` is imported or unavailable locally"
-            }]
+            "signature": {
+                "type_text": "export const QualifiedButton = (props: React.HTMLAttributes<HTMLButtonElement>) =>",
+                "parameters": [{
+                    "name": "props",
+                    "type_text": "React.HTMLAttributes<HTMLButtonElement>",
+                    "required": true
+                }]
+            }
         })
     );
     Ok(())

@@ -101,6 +101,36 @@ fn fuzzy_search_covers_components_tokens_and_aliases() {
 }
 
 #[test]
+fn search_matches_parameter_package() {
+    let snapshots = [snapshot(
+        "file:./.wax/react.registry.json",
+        "react",
+        registry(
+            serde_json::json!([{
+                "id": "imported-button",
+                "symbol": "Button",
+                "details": {
+                    "status": "complete",
+                    "signature": {
+                        "parameters": [{
+                            "name": "props",
+                            "type_text": "ImportedProps",
+                            "package": "@acme/ui-types"
+                        }]
+                    }
+                }
+            }]),
+            serde_json::json!([]),
+        ),
+    )];
+
+    let response =
+        search_registry_entries(&snapshots, "@acme/ui-types", &Default::default()).unwrap();
+
+    assert_eq!(response.results[0].id, "imported-button");
+}
+
+#[test]
 fn tag_match_outranks_description_only_match() {
     let snapshots = [snapshot(
         "tag-ranking",

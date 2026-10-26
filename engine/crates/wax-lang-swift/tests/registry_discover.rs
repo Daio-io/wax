@@ -160,7 +160,8 @@ public func DocumentedCard(
 }
 
 #[test]
-fn discover_registry_details_marks_imported_type_facts_unavailable() -> io::Result<()> {
+fn discover_registry_details_records_imported_type_package_without_enrichment_gaps()
+-> io::Result<()> {
     let tempdir = tempfile::tempdir()?;
     let sources = tempdir.path().join("Sources/DesignSystem");
     fs::create_dir_all(&sources)?;
@@ -202,29 +203,15 @@ public func ImportedCard(
             signature
                 .parameters
                 .first()
-                .and_then(|parameter| parameter.type_text.as_deref())
+                .map(|parameter| (parameter.type_text.as_deref(), parameter.package.as_deref()))
         }),
-        Some("VendorKit.Configuration")
+        Some((Some("VendorKit.Configuration"), Some("VendorKit")))
     );
     assert_eq!(
         details.status,
-        wax_contract::RegistryExtractionStatus::Partial
+        wax_contract::RegistryExtractionStatus::Complete
     );
-    assert!(details.field_gaps.iter().any(|gap| {
-        gap.field == "signature.parameters.configuration.type_details"
-            && gap.reason.contains("imported")
-    }));
-    assert_eq!(
-        details
-            .field_gaps
-            .iter()
-            .map(|gap| gap.field.as_str())
-            .collect::<Vec<_>>(),
-        vec![
-            "signature.parameters.configuration.type_details",
-            "signature.parameters.result.type_details",
-        ]
-    );
+    assert!(details.field_gaps.is_empty());
     Ok(())
 }
 
@@ -236,6 +223,7 @@ fn discover_registry_details_classifies_direct_swift_type_shapes() -> io::Result
     fs::write(
         sources.join("ShapeCard.swift"),
         r#"import SwiftUI
+import Vendor
 
 enum Tone {
     case strong, quiet
@@ -403,6 +391,18 @@ public func ShapeCard(
             ("empty", None, vec![]),
             ("nested", None, vec![]),
         ]
+    );
+    assert_eq!(
+        parameters
+            .iter()
+            .filter_map(|parameter| {
+                parameter
+                    .package
+                    .as_deref()
+                    .map(|package| (parameter.name.as_str(), package))
+            })
+            .collect::<Vec<_>>(),
+        [("imported", "Vendor")]
     );
     Ok(())
 }

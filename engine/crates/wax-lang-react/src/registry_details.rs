@@ -6,8 +6,8 @@ use std::path::Path;
 use serde_json::Map;
 use swc_common::{Span, Spanned, comments::CommentKind};
 use swc_ecma_ast::{
-    Decl, DefaultDecl, Expr, ModuleDecl, ModuleItem, ObjectPat, ObjectPatProp, Pat, Stmt,
-    TsInterfaceDecl, TsKeywordTypeKind, TsLit, TsType, TsTypeAliasDecl, TsTypeElement,
+    Decl, DefaultDecl, Expr, ImportSpecifier, ModuleDecl, ModuleItem, ObjectPat, ObjectPatProp,
+    Pat, Stmt, TsInterfaceDecl, TsKeywordTypeKind, TsLit, TsType, TsTypeAliasDecl, TsTypeElement,
     TsUnionOrIntersectionType,
 };
 use wax_contract::{
@@ -104,7 +104,8 @@ fn component_declarations(
     parsed: &ParsedReactModule,
     package: Option<String>,
 ) -> Vec<ComponentDeclaration> {
-    let props = collect_props_definitions(parsed);
+    let imports = collect_import_packages(parsed);
+    let props = collect_props_definitions(parsed, &imports);
     let wrapper_callees = react_wrapper_callees(&parsed.module.body);
     let locals = local_component_impls(parsed);
     let mut declarations = Vec::new();
@@ -123,6 +124,7 @@ fn component_declarations(
                             signature_span_for_function(export.span, &function.function),
                             parameter,
                             &props,
+                            &imports,
                         ),
                     });
                 }
@@ -146,6 +148,7 @@ fn component_declarations(
                                     implementation.signature_span,
                                     implementation.parameter,
                                     &props,
+                                    &imports,
                                 ),
                             });
                         }
@@ -167,6 +170,7 @@ fn component_declarations(
                             signature_span_for_function(default_decl.span, &function.function),
                             parameter,
                             &props,
+                            &imports,
                         ),
                     });
                 }
@@ -184,6 +188,7 @@ fn component_declarations(
                                     implementation.signature_span,
                                     implementation.parameter,
                                     &props,
+                                    &imports,
                                 ),
                             });
                         }
@@ -204,6 +209,7 @@ fn component_declarations(
                                     implementation.signature_span,
                                     implementation.parameter,
                                     &props,
+                                    &imports,
                                 ),
                             });
                         }
@@ -387,7 +393,29 @@ fn signature_span_for_function(span: Span, function: &swc_ecma_ast::Function) ->
     )
 }
 
-fn collect_props_definitions(parsed: &ParsedReactModule) -> BTreeMap<String, PropsDefinition> {
+fn collect_import_packages(parsed: &ParsedReactModule) -> BTreeMap<String, String> {
+    let mut imports = BTreeMap::new();
+    for item in &parsed.module.body {
+        let ModuleItem::ModuleDecl(ModuleDecl::Import(import)) = item else {
+            continue;
+        };
+        let package = import.src.value.to_string_lossy().into_owned();
+        for specifier in &import.specifiers {
+            let local = match specifier {
+                ImportSpecifier::Default(specifier) => &specifier.local,
+                ImportSpecifier::Namespace(specifier) => &specifier.local,
+                ImportSpecifier::Named(specifier) => &specifier.local,
+            };
+            imports.insert(local.sym.to_string(), package.clone());
+        }
+    }
+    imports
+}
+
+fn collect_props_definitions(
+    parsed: &ParsedReactModule,
+    imports: &BTreeMap<String, String>,
+) -> BTreeMap<String, PropsDefinition> {
     let mut definitions = BTreeMap::new();
     for item in &parsed.module.body {
         let decl = match item {
@@ -399,11 +427,11 @@ fn collect_props_definitions(parsed: &ParsedReactModule) -> BTreeMap<String, Pro
             Some(Decl::TsInterface(interface)) => {
                 definitions.insert(
                     interface.id.sym.to_string(),
-                    props_from_interface(parsed, interface),
+                    props_from_interface(parsed, interface, imports),
                 );
             }
             Some(Decl::TsTypeAlias(alias)) => {
-                if let Some(definition) = props_from_alias(parsed, alias) {
+                if let Some(definition) = props_from_alias(parsed, alias, imports) {
                     definitions.insert(alias.id.sym.to_string(), definition);
                 }
             }
@@ -416,9 +444,10 @@ fn collect_props_definitions(parsed: &ParsedReactModule) -> BTreeMap<String, Pro
 fn props_from_interface(
     parsed: &ParsedReactModule,
     interface: &TsInterfaceDecl,
+    imports: &BTreeMap<String, String>,
 ) -> PropsDefinition {
     PropsDefinition {
-        parameters: parameters_from_members(parsed, &interface.body.body),
+        parameters: parameters_from_members(parsed, &interface.body.body, imports),
         inherited: !interface.extends.is_empty(),
     }
 }
@@ -426,12 +455,13 @@ fn props_from_interface(
 fn props_from_alias(
     parsed: &ParsedReactModule,
     alias: &TsTypeAliasDecl,
+    imports: &BTreeMap<String, String>,
 ) -> Option<PropsDefinition> {
     let TsType::TsTypeLit(literal) = &*alias.type_ann else {
         return None;
     };
     Some(PropsDefinition {
-        parameters: parameters_from_members(parsed, &literal.members),
+        parameters: parameters_from_members(parsed, &literal.members, imports),
         inherited: false,
     })
 }
@@ -439,6 +469,7 @@ fn props_from_alias(
 fn parameters_from_members(
     parsed: &ParsedReactModule,
     members: &[TsTypeElement],
+    imports: &BTreeMap<String, String>,
 ) -> Vec<RegistryParameter> {
     members
         .iter()
@@ -463,9 +494,16 @@ fn parameters_from_members(
                 || (None, Vec::new()),
                 |annotation| parameter_type_facts(parsed, &annotation.type_ann),
             );
+            let package = property
+                .type_ann
+                .as_ref()
+                .and_then(|annotation| imported_type_name(&annotation.type_ann))
+                .and_then(|name| imports.get(name))
+                .cloned();
             Some(RegistryParameter {
                 name,
                 type_text,
+                package,
                 type_kind,
                 allowed_values,
                 description,
@@ -536,9 +574,10 @@ fn component_details(
     signature_span: Span,
     parameter: Option<&Pat>,
     props: &BTreeMap<String, PropsDefinition>,
+    imports: &BTreeMap<String, String>,
 ) -> RegistryDetails {
     let (props_type_text, mut parameters, mut field_gaps) =
-        signature_facts(parsed, parameter, props);
+        signature_facts(parsed, parameter, props, imports);
     let type_text = parsed
         .source_slice_from_span(signature_span)
         .map(|text| text.trim().to_owned());
@@ -602,6 +641,7 @@ fn signature_facts(
     parsed: &ParsedReactModule,
     parameter: Option<&Pat>,
     props: &BTreeMap<String, PropsDefinition>,
+    imports: &BTreeMap<String, String>,
 ) -> (
     Option<String>,
     Vec<RegistryParameter>,
@@ -621,21 +661,21 @@ fn signature_facts(
         TsType::TsTypeLit(literal) => {
             return (
                 type_text,
-                parameters_from_members(parsed, &literal.members),
+                parameters_from_members(parsed, &literal.members, imports),
                 Vec::new(),
             );
         }
         TsType::TsTypeRef(reference) => match &reference.type_name {
             swc_ecma_ast::TsEntityName::Ident(ident) => ident.sym.as_ref(),
-            swc_ecma_ast::TsEntityName::TsQualifiedName(_) => {
-                return (
+            swc_ecma_ast::TsEntityName::TsQualifiedName(qualified) => {
+                let package = match &qualified.left {
+                    swc_ecma_ast::TsEntityName::Ident(ident) => ident.sym.to_string(),
+                    swc_ecma_ast::TsEntityName::TsQualifiedName(_) => String::new(),
+                };
+                return imported_props_parameters(
+                    parameter,
                     type_text,
-                    Vec::new(),
-                    vec![RegistryFieldGap {
-                        field: "signature.parameters".to_owned(),
-                        reason: "props type is imported or unavailable locally".to_owned(),
-                        extra: Map::new(),
-                    }],
+                    imports.get(&package).cloned(),
                 );
             }
         },
@@ -653,6 +693,9 @@ fn signature_facts(
         }
     };
     let Some(definition) = props.get(type_name) else {
+        if let Some(package) = imports.get(type_name) {
+            return imported_props_parameters(parameter, type_text, Some(package.clone()));
+        }
         return (
             type_text,
             Vec::new(),
@@ -680,6 +723,63 @@ fn signature_facts(
         Vec::new()
     };
     (type_text, parameters, gaps)
+}
+
+fn imported_props_parameters(
+    parameter: &Pat,
+    type_text: Option<String>,
+    package: Option<String>,
+) -> (
+    Option<String>,
+    Vec<RegistryParameter>,
+    Vec<RegistryFieldGap>,
+) {
+    let parameters = match parameter {
+        Pat::Object(_) => vec![RegistryParameter {
+            name: "props".to_owned(),
+            type_text: type_text.clone(),
+            package,
+            type_kind: None,
+            allowed_values: Vec::new(),
+            description: None,
+            default: None,
+            required: Some(true),
+            extra: Map::new(),
+        }],
+        _ => pat_name(parameter)
+            .into_iter()
+            .map(|name| RegistryParameter {
+                name: name.to_owned(),
+                type_text: type_text.clone(),
+                package: package.clone(),
+                type_kind: None,
+                allowed_values: Vec::new(),
+                description: None,
+                default: None,
+                required: Some(true),
+                extra: Map::new(),
+            })
+            .collect(),
+    };
+    (type_text, parameters, Vec::new())
+}
+
+fn imported_type_name(ty: &TsType) -> Option<&str> {
+    let TsType::TsTypeRef(reference) = ty else {
+        return None;
+    };
+    match &reference.type_name {
+        swc_ecma_ast::TsEntityName::Ident(ident) => Some(ident.sym.as_ref()),
+        swc_ecma_ast::TsEntityName::TsQualifiedName(_) => None,
+    }
+}
+
+fn pat_name(pattern: &Pat) -> Option<&str> {
+    match pattern {
+        Pat::Ident(ident) => Some(ident.id.sym.as_ref()),
+        Pat::Assign(assign) => pat_name(&assign.left),
+        _ => None,
+    }
 }
 
 fn pat_type_annotation(pattern: &Pat) -> Option<&swc_ecma_ast::TsTypeAnn> {
