@@ -15,7 +15,7 @@ use crate::discover::{
     ComposeDiscoverError, ParsedKotlinSourceFile, collect_and_parse_kotlin_sources,
     discoverable_component_name,
 };
-use crate::kotlin_ast::{annotation_with_name, collect_import_bindings};
+use crate::kotlin_ast::{ImportBindings, annotation_with_name, collect_import_bindings};
 use crate::kotlin_recovery::ByteRange;
 
 #[derive(Debug)]
@@ -27,7 +27,7 @@ struct ComponentDeclaration {
 
 struct ParameterTypeFacts {
     local_types: BTreeSet<String>,
-    imported_types: BTreeSet<String>,
+    imports: ImportBindings,
     local_enums: BTreeMap<String, Vec<String>>,
 }
 
@@ -96,7 +96,7 @@ fn component_declarations(file: &ParsedKotlinSourceFile) -> Vec<ComponentDeclara
     let imports = collect_import_bindings(primary_root, source);
     let type_facts = ParameterTypeFacts {
         local_types: local_type_names(primary_root, source),
-        imported_types: imports.symbol_names.keys().cloned().collect(),
+        imports,
         local_enums: local_enum_values(primary_root, source),
     };
 
@@ -228,7 +228,6 @@ fn parameters_from_function(
     };
 
     let mut parameters = Vec::new();
-    let mut field_gaps = Vec::new();
     let mut cursor = params_node.walk();
     let children = params_node.children(&mut cursor).collect::<Vec<_>>();
     let mut index = 0;
@@ -258,24 +257,19 @@ fn parameters_from_function(
             index += 2;
         }
 
-        let imported_unavailable =
-            type_text
-                .as_deref()
-                .and_then(simple_type_name)
-                .filter(|type_name| {
-                    type_facts.imported_types.contains(*type_name)
-                        && !type_facts.local_types.contains(*type_name)
-                        && !is_builtin_kotlin_type(type_name)
-                });
-        if let Some(type_name) = imported_unavailable {
-            field_gaps.push(RegistryFieldGap {
-                field: "signature.parameters".to_owned(),
-                reason: format!("parameter type `{type_name}` is imported or unavailable locally"),
-                extra: Map::new(),
+        let imported_type = type_text
+            .as_deref()
+            .and_then(simple_type_name)
+            .filter(|type_name| {
+                !type_facts.local_types.contains(*type_name)
+                    && !is_builtin_kotlin_type(type_name)
+                    && type_facts.imports.package_for_symbol(type_name).is_some()
             });
-        }
+        let package = imported_type
+            .and_then(|type_name| type_facts.imports.package_for_symbol(type_name))
+            .map(str::to_owned);
 
-        let (type_kind, allowed_values) = if imported_unavailable.is_some() {
+        let (type_kind, allowed_values) = if imported_type.is_some() {
             (None, Vec::new())
         } else {
             classify_parameter_type(type_text.as_deref(), &type_facts.local_enums)
@@ -285,6 +279,7 @@ fn parameters_from_function(
             description: descriptions.get(&name).cloned(),
             name,
             type_text,
+            package,
             type_kind,
             allowed_values,
             default: default.clone(),
@@ -294,7 +289,7 @@ fn parameters_from_function(
         index += 1;
     }
 
-    (parameters, field_gaps)
+    (parameters, Vec::new())
 }
 
 fn classify_parameter_type(

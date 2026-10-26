@@ -279,7 +279,7 @@ fun RowScope.BarItemX(selected: Boolean, onClick: () -> Unit) {}
 }
 
 #[test]
-fn discover_registry_details_marks_imported_parameter_type_unavailable() -> io::Result<()> {
+fn discover_registry_details_records_imported_parameter_package_without_a_gap() -> io::Result<()> {
     let tempdir = tempfile::tempdir()?;
     let src = tempdir.path().join("src");
     fs::create_dir_all(&src)?;
@@ -313,7 +313,7 @@ fun ImportedButton(props: ImportedProps) {}
     assert_eq!(
         serde_json::to_value(details).unwrap(),
         serde_json::json!({
-            "status": "partial",
+            "status": "complete",
             "source_evidence": {
                 "path": "src/ImportedButton.kt",
                 "start_line": 6,
@@ -324,13 +324,10 @@ fun ImportedButton(props: ImportedProps) {}
                 "parameters": [{
                     "name": "props",
                     "type_text": "ImportedProps",
+                    "package": "com.acme",
                     "required": true
                 }]
-            },
-            "field_gaps": [{
-                "field": "signature.parameters",
-                "reason": "parameter type `ImportedProps` is imported or unavailable locally"
-            }]
+            }
         })
     );
     Ok(())
@@ -456,7 +453,12 @@ fun Kinds(
         serde_json::to_value(parameters).unwrap(),
         serde_json::json!([
             {"name": "empty", "type_text": "Empty", "required": true},
-            {"name": "imported", "type_text": "ImportedStyle", "required": true},
+            {
+                "name": "imported",
+                "type_text": "ImportedStyle",
+                "package": "com.acme",
+                "required": true
+            },
             {"name": "qualified", "type_text": "com.acme.QualifiedStyle", "required": true},
             {"name": "generic", "type_text": "Wrapper<String>", "required": true},
             {

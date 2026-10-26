@@ -101,14 +101,14 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
 }
 
 #[test]
-fn discover_registry_details_marks_imported_props_unavailable() -> io::Result<()> {
+fn discover_registry_details_records_imported_props_package_without_a_gap() -> io::Result<()> {
     let tempdir = tempfile::tempdir()?;
     let src = tempdir.path().join("src");
     fs::create_dir_all(&src)?;
     fs::write(
         src.join("ImportedButton.tsx"),
-        r#"import type { ImportedProps } from "./types";
-export const ImportedButton = ({ size }: ImportedProps) => <button data-size={size} />;
+        r#"import type { ImportedProps } from "@acme/ui";
+export const ImportedButton = (props: ImportedProps) => <button data-size={props.size} />;
 "#,
     )?;
     let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
@@ -130,19 +130,21 @@ export const ImportedButton = ({ size }: ImportedProps) => <button data-size={si
     assert_eq!(
         serde_json::to_value(details).unwrap(),
         serde_json::json!({
-            "status": "partial",
+            "status": "complete",
             "source_evidence": {
                 "path": "src/ImportedButton.tsx",
                 "start_line": 2,
                 "end_line": 2
             },
             "signature": {
-                "type_text": "export const ImportedButton = ({ size }: ImportedProps) =>"
-            },
-            "field_gaps": [{
-                "field": "signature.parameters",
-                "reason": "props type `ImportedProps` is imported or unavailable locally"
-            }]
+                "type_text": "export const ImportedButton = (props: ImportedProps) =>",
+                "parameters": [{
+                    "name": "props",
+                    "type_text": "ImportedProps",
+                    "package": "@acme/ui",
+                    "required": true
+                }]
+            }
         })
     );
     Ok(())

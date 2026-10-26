@@ -219,6 +219,9 @@ pub struct RegistryParameter {
     /// Source type text when available.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub type_text: Option<String>,
+    /// Import or module package for this parameter's type when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub package: Option<String>,
     /// Normalized parameter type kind when it can be classified.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub type_kind: Option<RegistryParameterTypeKind>,
@@ -471,6 +474,9 @@ fn validate_details(field: &str, details: &RegistryDetails) -> Result<(), Regist
             require_non_empty(&format!("{parameter_field}.name"), &parameter.name)?;
             if let Some(type_text) = &parameter.type_text {
                 require_non_empty(&format!("{parameter_field}.type_text"), type_text)?;
+            }
+            if let Some(package) = &parameter.package {
+                require_non_empty(&format!("{parameter_field}.package"), package)?;
             }
             if let Some(description) = &parameter.description {
                 require_non_empty(&format!("{parameter_field}.description"), description)?;

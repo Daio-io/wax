@@ -310,6 +310,7 @@ fn descriptive_score(
         .flat_map(|parameter| {
             std::iter::once(parameter.name.as_str())
                 .chain(parameter.type_text.iter().map(String::as_str))
+                .chain(parameter.package.iter().map(String::as_str))
                 .chain(
                     parameter
                         .type_kind
