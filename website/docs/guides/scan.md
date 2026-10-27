@@ -27,6 +27,7 @@ Useful focused runs include:
 
 ```bash
 wax scan --no-auto-install --strict
+wax scan --compact
 wax scan --root-group mobile
 wax scan --format json-summary
 wax scan --format markdown --baseline .wax/out/previous-summary.json
@@ -39,6 +40,11 @@ wax scan --output json-summary=.wax/out/summary.json \
 Paths are repository-relative unless `--allow-absolute-output` is explicit.
 Stdout formats are `summary`, `quiet`, `json-summary`, and `markdown`; artifact
 formats are `json-summary`, `graph-data`, `markdown`, and `html`.
+`--compact` is an agent-oriented text projection: it emits one stdout line with
+the merged artifact path, language statuses, headline adoption and token counts,
+failure count, artifact count, and ephemeral marker. Read
+`.wax/out/scan-merged.json` for full analytics. It cannot be combined with an
+explicit `--format`; default rich output and JSON contracts remain unchanged.
 
 The [scan-output reference](../reference/scan-output.md) describes each contract.
 Exact CLI behavior lives in

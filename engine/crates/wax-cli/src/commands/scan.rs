@@ -88,6 +88,8 @@ pub struct ScanCommandOptions {
     pub root_group: Option<String>,
     /// Stdout format for scan results.
     pub format: ScanStdoutFormat,
+    /// Whether to emit one terse agent-oriented result line.
+    pub compact: bool,
     /// CLI `--output` requests, already parsed.
     pub cli_outputs: Vec<ScanOutputRequest>,
     /// Whether absolute artifact paths are allowed.
@@ -438,6 +440,7 @@ fn load_config_outputs_and_attempt_registry_sync(
             for (upstream, _error) in failures {
                 write_scan_warning_line(
                     options.format,
+                    options.compact,
                     writer,
                     &format!(
                         "warning: registry sync failed for {upstream}; scanning with current registry source. Run `wax sync` for details."
@@ -446,7 +449,7 @@ fn load_config_outputs_and_attempt_registry_sync(
             }
         }
         Err(error) => {
-            write_scan_sync_warning(options.format, writer)?;
+            write_scan_sync_warning(options.format, options.compact, writer)?;
             let _ = error;
         }
     }
@@ -455,14 +458,17 @@ fn load_config_outputs_and_attempt_registry_sync(
 
 fn write_scan_warning_line(
     format: ScanStdoutFormat,
+    compact: bool,
     writer: &mut impl Write,
     line: &str,
 ) -> Result<(), ScanCommandError> {
-    match format {
-        ScanStdoutFormat::Summary => writeln!(writer, "{line}").map_err(write_error),
-        ScanStdoutFormat::Quiet | ScanStdoutFormat::JsonSummary | ScanStdoutFormat::Markdown => {
-            writeln!(io::stderr(), "{line}").map_err(write_error)
-        }
+    match (compact, format) {
+        (true, _) => writeln!(io::stderr(), "{line}").map_err(write_error),
+        (false, ScanStdoutFormat::Summary) => writeln!(writer, "{line}").map_err(write_error),
+        (
+            false,
+            ScanStdoutFormat::Quiet | ScanStdoutFormat::JsonSummary | ScanStdoutFormat::Markdown,
+        ) => writeln!(io::stderr(), "{line}").map_err(write_error),
     }
 }
 
@@ -516,7 +522,7 @@ fn finish_scan_outputs(
     );
     emit_stdout_format(
         writer,
-        options.format,
+        options,
         merged,
         &output_path,
         &written,
@@ -767,10 +773,12 @@ fn write_error(source: io::Error) -> ScanCommandError {
 
 fn write_scan_sync_warning(
     format: ScanStdoutFormat,
+    compact: bool,
     writer: &mut impl Write,
 ) -> Result<(), ScanCommandError> {
     write_scan_warning_line(
         format,
+        compact,
         writer,
         "warning: registry sync failed; scanning with current registry source. Run `wax sync` for details.",
     )
@@ -1016,14 +1024,17 @@ fn summary_with_deltas(
 
 fn emit_stdout_format(
     writer: &mut impl Write,
-    format: ScanStdoutFormat,
+    options: &ScanCommandOptions,
     merged: &MergedScan,
     output_path: &Path,
     written: &[WrittenArtifact],
     summary: &super::scan_summary::JsonSummary,
     ephemeral: bool,
 ) -> Result<(), ScanCommandError> {
-    match format {
+    if options.compact {
+        return write_compact_scan_summary(writer, merged, output_path, written, ephemeral);
+    }
+    match options.format {
         ScanStdoutFormat::Summary => {
             write_scan_summary(writer, merged, output_path, written, ephemeral)
         }
@@ -1041,6 +1052,50 @@ fn emit_stdout_format(
             write!(writer, "{}", render_markdown_summary(summary)).map_err(write_error)
         }
     }
+}
+
+fn write_compact_scan_summary(
+    writer: &mut impl Write,
+    merged: &MergedScan,
+    output_path: &Path,
+    written: &[WrittenArtifact],
+    ephemeral: bool,
+) -> Result<(), ScanCommandError> {
+    write!(writer, "scan={} languages=", output_path.display()).map_err(write_error)?;
+    for (index, (language_id, facts)) in merged.languages.iter().enumerate() {
+        if index > 0 {
+            write!(writer, ",").map_err(write_error)?;
+        }
+        write!(writer, "{language_id}:{}", status_label(facts.status)).map_err(write_error)?;
+    }
+
+    match merged.repo_summary.metrics.invocation_adoption_ratio {
+        Some(ratio) => write!(writer, " coverage={:.1}%", ratio * 100.0),
+        None => write!(writer, " coverage=n/a"),
+    }
+    .map_err(write_error)?;
+
+    let raw = &merged.repo_summary.counts.raw_invocations;
+    let tokens = &merged.token_inference.counts;
+    writeln!(
+        writer,
+        " resolved={} candidate={} local={} unresolved={} token_refs={} assessed={}/{} exact={} near={} unmatched={} unassessed={} failures={} artifacts={} ephemeral={}",
+        raw.resolved,
+        raw.candidate,
+        raw.local,
+        raw.unresolved,
+        merged.repo_summary.counts.tokens.token_reference_site_count,
+        tokens.assessed_observation_count,
+        tokens.hardcoded_observation_count,
+        tokens.exact_replacement_candidate_count,
+        tokens.near_replacement_candidate_count,
+        tokens.unmatched_observation_count,
+        tokens.unassessed_observation_count,
+        failure_diagnostics(merged).len(),
+        written.len(),
+        ephemeral,
+    )
+    .map_err(write_error)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -2281,6 +2336,7 @@ mod tests {
                 scan_concurrency: None,
                 root_group: None,
                 format: crate::cli::ScanStdoutFormat::Summary,
+                compact: false,
                 cli_outputs: Vec::new(),
                 allow_absolute_output: false,
                 baseline: None,
@@ -2319,6 +2375,7 @@ mod tests {
                 scan_concurrency: None,
                 root_group: None,
                 format: crate::cli::ScanStdoutFormat::Summary,
+                compact: false,
                 cli_outputs: Vec::new(),
                 allow_absolute_output: false,
                 baseline: None,
@@ -2365,6 +2422,7 @@ mod tests {
                 scan_concurrency: None,
                 root_group: None,
                 format: crate::cli::ScanStdoutFormat::Summary,
+                compact: false,
                 cli_outputs: Vec::new(),
                 allow_absolute_output: false,
                 baseline: None,

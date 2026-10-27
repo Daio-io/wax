@@ -52,8 +52,9 @@ search rankings into analytics, or treat a search result as observed app usage.
    Otherwise rely on scan-time best-effort sync. If sync warnings appear, mention that `wax sync` shows details and that the scan continued with current registry inputs.
 3. Run `wax validate`.
    - Failures: stop, show validation errors, do not scan.
-4. Run a fresh `wax scan`.
+4. Run a fresh `wax scan --compact` to keep initial context lean.
    - Pass `--no-auto-install --strict` when the user requests CI mode.
+   - Treat compact output as a status handoff only; read the merged artifact for full analytics.
 5. Read `.wax/out/scan-merged.json`.
    - If `--baseline <path>` is provided, read the baseline file for trend deltas.
 6. Run the deterministic extractor:

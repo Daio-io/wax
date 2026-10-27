@@ -48,6 +48,8 @@ pub struct SearchCommandOptions {
     pub kind: Option<RegistryEntryKind>,
     /// Maximum results across every selected snapshot.
     pub limit: u32,
+    /// Whether to emit the terse agent-oriented shortlist.
+    pub compact: bool,
 }
 
 /// Options for `wax component` and `wax token`.
@@ -113,7 +115,11 @@ pub fn run_search(
             limit: Some(options.limit),
         },
     )?;
-    write_search_output(options.lookup.format, &response, writer)
+    if options.compact {
+        write_search_compact(&response, writer)
+    } else {
+        write_search_output(options.lookup.format, &response, writer)
+    }
 }
 
 /// Runs `wax component` or `wax token`.
@@ -281,6 +287,37 @@ fn write_search_output(
         LookupStdoutFormat::Json => write_json(response, writer),
         LookupStdoutFormat::Text => write_search_text(response, writer),
     }
+}
+
+fn write_search_compact(
+    response: &RegistrySearchResponse,
+    writer: &mut impl Write,
+) -> Result<(), SearchCommandError> {
+    writeln!(writer, "results={}", response.results.len()).map_err(write_error)?;
+    for result in &response.results {
+        writeln!(
+            writer,
+            "{}\tid={}\tlabel={}\tlanguage={}\tdigest={}\tsource={}",
+            entry_kind_label(result.kind),
+            compact_field(&result.id),
+            compact_field(&result.label),
+            result.snapshot.language,
+            result.snapshot.digest,
+            compact_field(&result.snapshot.source),
+        )
+        .map_err(write_error)?;
+    }
+    Ok(())
+}
+
+fn compact_field(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| match character {
+            '\r' | '\n' | '\t' => ' ',
+            other => other,
+        })
+        .collect()
 }
 
 fn write_detail_output(

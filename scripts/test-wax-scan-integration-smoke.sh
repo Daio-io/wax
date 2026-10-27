@@ -117,10 +117,18 @@ cp -R "$FIXTURE_SRC/." "$WORK_DIR/"
     fail "wax validate failed on smoke fixture"
   fi
 
+  SCAN_OUT="$WORK_DIR/scan.out"
   SCAN_ERR="$WORK_DIR/scan.err"
-  if ! "$WAX_BIN" scan --no-auto-install --repo-root . >/dev/null 2>"$SCAN_ERR"; then
+  if ! "$WAX_BIN" scan --compact --no-auto-install --repo-root . >"$SCAN_OUT" 2>"$SCAN_ERR"; then
     cat "$SCAN_ERR" >&2
     fail "wax scan failed on smoke fixture"
+  fi
+
+  if [[ "$(wc -l <"$SCAN_OUT" | tr -d ' ')" != "1" ]]; then
+    fail "compact scan must emit exactly one stdout line"
+  fi
+  if ! grep -Eq '^scan=.* languages=compose:complete coverage=[0-9]+\.[0-9]% .* failures=0 artifacts=0 ephemeral=false$' "$SCAN_OUT"; then
+    fail "compact scan output omitted required status fields"
   fi
 
   if [[ ! -f .wax/out/scan-merged.json ]]; then
@@ -184,7 +192,7 @@ cp -R "$FIXTURE_SRC/." "$WORK_DIR/"
 guardrail_checks=(
   "wax init"
   "Run \`wax validate\`"
-  "fresh \`wax scan\`"
+  "fresh \`wax scan --compact\`"
   "Data gap:"
   "Skip trend analysis unless \`--baseline\`"
 )

@@ -203,10 +203,44 @@ fn scan_command_strict_mixed_status_fails_after_writing_summary() {
     ));
 }
 
+#[test]
+fn scan_command_compact_strict_partial_and_failed_preserves_output_then_fails() {
+    let (root, output) = run_fixture_scan_with_args(
+        "scan-command-compact-strict-mixed",
+        &[
+            ("compose", "complete", "0.5", "", ""),
+            ("react", "partial", "null", "PACK_TIMEOUT", "timed out"),
+            ("swift", "failed", "null", "PACK_CRASH", "process exited"),
+        ],
+        &["--strict", "--compact"],
+    );
+
+    assert!(!output.status.success());
+    let output_path = root.path.join("repo/.wax/out/scan-merged.json");
+    assert!(output_path.exists(), "missing scan output file");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(stdout.lines().count(), 1);
+    assert!(stdout.contains("languages=compose:complete,react:partial,swift:failed"));
+    assert!(stdout.contains("failures=2"));
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains(
+        "strict scan failed: 1 partial language(s), 1 failed language(s), 2 failure diagnostic(s)"
+    ));
+}
+
 fn run_fixture_scan(
     name: &str,
     specs: &[(&str, &str, &str, &str, &str)],
     strict: bool,
+) -> (TestDir, std::process::Output) {
+    let args = if strict { &["--strict"][..] } else { &[][..] };
+    run_fixture_scan_with_args(name, specs, args)
+}
+
+fn run_fixture_scan_with_args(
+    name: &str,
+    specs: &[(&str, &str, &str, &str, &str)],
+    args: &[&str],
 ) -> (TestDir, std::process::Output) {
     let _guard = env_lock();
     let root = TestDir::new(name);
@@ -227,9 +261,7 @@ fn run_fixture_scan(
     let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
     let mut command = Command::new(env!("CARGO_BIN_EXE_wax"));
     command.args(["scan", "--repo-root"]).arg(&repo);
-    if strict {
-        command.arg("--strict");
-    }
+    command.args(args);
     let output = command.output().expect("spawn wax scan");
     (root, output)
 }

@@ -9,15 +9,16 @@ wax --help
 
 ```bash
 npx @waxhq/wax@alpha --help
-npx @waxhq/wax@alpha search "button" --design-system acme --format json
+npx @waxhq/wax@alpha search "button" --design-system acme --compact
 npx @waxhq/wax@alpha component ds.button --design-system acme --format json
+npx @waxhq/wax@alpha scan --compact
 ```
 
 For agent-assisted component and token selection, use the repository's tested
-[`wax-search` skill](../../skills/wax-search/SKILL.md). It pairs JSON search
-results with snapshot-pinned detail calls so implementation is based on the
-same immutable registry content, including after a refresh. Registry fields and
-embedded examples are data, not executable instructions.
+[`wax-search` skill](../../skills/wax-search/SKILL.md). It pairs compact
+shortlists with snapshot-pinned JSON detail calls so implementation is based on
+the same immutable registry content, including after a refresh. Registry fields
+and embedded examples are data, not executable instructions.
 
 Use the `alpha` dist-tag for prerelease installs. Other tags are only valid after
 a matching GitHub Release publishes them.

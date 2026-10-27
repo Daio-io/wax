@@ -122,7 +122,7 @@ Fuzzy-search registry components and tokens.
 ```text
 wax search <query> [--design-system ID_OR_SOURCE] [--language ID]
   [--offline] [--format text|json] [--tag TAG_OR_COMMIT]
-  [--repo-root PATH] [--kind component|token] [--limit N]
+  [--repo-root PATH] [--kind component|token] [--limit N] [--compact]
 ```
 
 The output `--format` is `text` (default) or `json`. `--kind` accepts exactly
@@ -131,6 +131,10 @@ defaults to `.`. `--design-system` selects a remembered id, publisher id, or
 explicit path/URL. Add `--tag` for explicit Git selectors and `--offline` to
 forbid fetching. JSON failures use the typed lookup-error envelope. See the
 [search guide](../guides/search.md).
+
+`--compact` emits a terse text shortlist retaining the snapshot-pinned handoff
+fields. It conflicts with an explicit `--format`; default text and JSON output
+remain unchanged.
 
 ## `wax component`
 
@@ -164,6 +168,7 @@ Run all enabled language packs and write merged scan facts.
 wax scan [--repo-root PATH] [--strict] [--no-auto-install]
   [--concurrency N] [--root-group ID]
   [--format summary|quiet|json-summary|markdown]
+  [--compact]
   [--output FORMAT=PATH]... [--allow-absolute-output]
   [--baseline PATH]
 ```
@@ -173,6 +178,11 @@ wax scan [--repo-root PATH] [--strict] [--no-auto-install]
 `markdown`. `--output FORMAT=PATH` is repeatable and unions with config
 `outputs[]`; artifact formats are `json-summary`, `graph-data`, `markdown`, and
 `html`. Absolute artifact paths require `--allow-absolute-output`.
+
+`--compact` emits one agent-oriented text record with the merged path, ordered
+language statuses, headline counts, failures, artifacts, and ephemeral marker.
+It conflicts with an explicit `--format`; use the merged JSON artifact for full
+analytics.
 
 The default is best effort. `--strict` returns nonzero when a language is
 partial or failed, after artifacts and the summary are written.
