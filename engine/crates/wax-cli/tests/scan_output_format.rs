@@ -31,6 +31,97 @@ fn format_summary_default_matches_legacy_prefix() {
 }
 
 #[test]
+fn compact_summary_is_one_line_with_status_and_headline_counts() {
+    let _guard = env_lock();
+    let (_root, repo, _wax_home) = setup_scan_repo(
+        "scan-format-compact",
+        &[
+            ("react", "partial", "null", "", ""),
+            ("compose", "complete", "0.5", "", ""),
+        ],
+    );
+
+    let output = run_scan(
+        &repo,
+        &["--compact", "--output", "markdown=.wax/out/scan-summary.md"],
+    );
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let merged = repo.join(".wax/out/scan-merged.json");
+    assert_eq!(
+        stdout,
+        format!(
+            "scan={} languages=compose:complete,react:partial coverage=100.0% resolved=1 candidate=1 local=0 unresolved=0 token_refs=0 assessed=0/0 exact=0 near=0 unmatched=0 unassessed=0 failures=0 artifacts=1 ephemeral=false\n",
+            merged.display()
+        )
+    );
+}
+
+#[test]
+fn compact_summary_uses_na_when_coverage_is_unavailable() {
+    let _guard = env_lock();
+    let (_root, repo, _wax_home) = setup_scan_repo(
+        "scan-format-compact-no-coverage",
+        &[("react", "partial", "null", "", "")],
+    );
+
+    let output = run_scan(&repo, &["--compact"]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains(" coverage=n/a "), "stdout: {stdout}");
+}
+
+#[test]
+fn compact_sync_warning_goes_to_stderr() {
+    let _guard = env_lock();
+    let (_root, repo, _wax_home) = setup_scan_repo(
+        "scan-format-compact-sync-stderr",
+        &[("react", "complete", "0.5", "", "")],
+    );
+    fs::write(
+        repo.join(".wax/wax.config.json"),
+        r#"{
+  "schema_version": 2,
+  "languages": {
+    "react": {
+      "registry": {
+        "source": ".wax/react.registry.json",
+        "upstream": "acme/react"
+      }
+    }
+  }
+}"#,
+    )
+    .unwrap();
+
+    let output = run_scan(&repo, &["--compact"]);
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(output.status.success(), "stderr: {stderr}");
+    assert!(!stdout.contains("warning: registry sync failed"));
+    assert!(stderr.contains("warning: registry sync failed"));
+    assert_eq!(stdout.lines().count(), 1);
+}
+
+#[test]
+fn compact_rejects_explicit_format() {
+    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .args(["scan", "--compact", "--format", "quiet"])
+        .output()
+        .expect("spawn wax scan");
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("cannot be used with '--format"));
+}
+
+#[test]
 fn format_quiet_path_only() {
     let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(

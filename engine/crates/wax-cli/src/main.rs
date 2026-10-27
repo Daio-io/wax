@@ -185,6 +185,7 @@ fn main() {
                 query: args.query,
                 kind: args.kind.map(entry_kind_from_cli),
                 limit: args.limit,
+                compact: args.compact,
             },
             &mut stdout,
         )
@@ -223,6 +224,7 @@ fn main() {
                     scan_concurrency: args.scan_concurrency,
                     root_group: args.root_group,
                     format: args.format,
+                    compact: args.compact,
                     cli_outputs,
                     allow_absolute_output: args.allow_absolute_output,
                     baseline: args.baseline,

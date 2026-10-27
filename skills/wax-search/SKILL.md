@@ -6,13 +6,18 @@ argument-hint: "[design-system-id|url|git+|path] [query]"
 
 # Wax registry search
 
-Use Wax's JSON search and exact-detail commands to select design-system components and tokens from source-backed registry facts.
+Use Wax's compact search and exact-detail JSON commands to select design-system components and tokens from source-backed registry facts.
 
 ## When to use this skill
 
 Use this workflow when implementing or reviewing UI and the user wants an existing design-system component or token. Wax supplies discovery facts; the user's repository, requirements, and approval still determine the implementation.
 
-This skill consumes the versioned `RegistrySearchResponse` and `RegistryDetailResponse` JSON envelopes printed by the Wax CLI. It does not parse registry files itself, reproduce Wax ranking, install packages, change dependency versions, refresh app locks, or run scan analytics. Use `wax-scan` separately when the task is adoption analysis.
+This skill consumes compact search shortlists, escalating to the versioned
+`RegistrySearchResponse` only when richer selection evidence is needed, and
+uses `RegistryDetailResponse` JSON for exact details. It does not parse registry
+files itself, reproduce Wax ranking, install packages, change dependency
+versions, refresh app locks, or run scan analytics. Use `wax-scan` separately
+when the task is adoption analysis.
 
 ## Safety boundary
 
@@ -32,7 +37,7 @@ else
 fi
 ```
 
-Use `"${WAX[@]}"` in place of `wax` (for example `"${WAX[@]}" search "button" --format json`). Do not install Wax globally as part of lookup unless the user asks.
+Use `"${WAX[@]}"` in place of `wax` (for example `"${WAX[@]}" search "button" --compact`). Do not install Wax globally as part of lookup unless the user asks.
 
 ## Workflow
 
@@ -41,8 +46,8 @@ Use `"${WAX[@]}"` in place of `wax` (for example `"${WAX[@]}" search "button" --
    - Outside an app, select one remembered design-system id or an explicit local path, HTTP URL, or Git source with `--design-system`. Use `wax registry list` (and `wax registry show <id>` when needed) to obtain remembered registry / design-system keys before passing `--design-system`.
    - Add `--language` when the source is not self-describing or when several language registries are selected.
    - Use `--offline` only when network access is unavailable or the user explicitly wants cached data. An offline cache miss is a real failure, not permission to guess.
-2. Search for candidates with JSON output. Use `wax search "<intent>" --format json`, adding `--kind component` or `--kind token` when the requested kind is known. Search by user-facing intent, known symbol/key, alias, canonical value, or tag; do not implement your own fuzzy ranking.
-3. Inspect `results[]`. Compare `kind`, `id`, `label`, `summary`, `aliases` and `tags` when present, `extraction_status`, and `snapshot`. Do not silently choose the first result when multiple entries plausibly fit. Explain the ambiguity and ask the user, or narrow the query with `--kind`, `--language`, or a more specific term.
+2. Search for candidates with compact output. Use `wax search "<intent>" --compact`, adding `--kind component` or `--kind token` when the requested kind is known. Search by user-facing intent, known symbol/key, alias, canonical value, or tag; do not implement your own fuzzy ranking.
+3. Compare each compact result's `kind`, exact `id`, `label`, `language`, `digest`, and `source`. If one candidate is clear, continue with that id and digest. If selection needs summaries, `aliases` and `tags`, or extraction status, rerun the same search with `--format json` (never combine it with `--compact`) and inspect `results[]`. Do not silently choose the first result when multiple entries plausibly fit. Explain the ambiguity and ask the user, or narrow the query with `--kind`, `--language`, or a more specific term.
 4. Copy both the exact `id` and that result's `snapshot.digest`. Fetch lossless details with `wax component <id> --snapshot <digest> --format json` or `wax token <id> --snapshot <digest> --format json`, preserving the same source selectors used for search.
 5. Validate what is actually known.
    - For a component, use only source-backed symbol, package, aliases, metadata, and discovered facts present in `entry.details`. Prefer a parameter's `package` for imports when present. Consume parameter `description`, `type_kind`, `allowed_values`, and `best_practices` only when present; preserve raw `type_text` as the authoritative source-facing type.
@@ -53,7 +58,7 @@ Use `"${WAX[@]}"` in place of `wax` (for example `"${WAX[@]}" search "button" --
 
 ## Outcomes and failures
 
-- `results: []` is a successful search with no matches. Say that no registry-backed option was found; refine the query or ask whether a local implementation is acceptable.
+- Compact `results=0` (or JSON `results: []` after escalation) is a successful search with no matches. Say that no registry-backed option was found; refine the query or ask whether a local implementation is acceptable.
 - A typed ambiguity error means context is insufficient. Select a configured app, remembered id, explicit source, or language instead of guessing.
 - `offline_cache_miss`, `source_not_found`, `locked_snapshot_unavailable`, and `snapshot_mismatch` are lookup failures. Surface the typed code and remediation without falling back to made-up facts.
 - If exact detail omits a parameter description, type kind, allowed values, best practices, or another required API fact, say it is unavailable. Never infer structured facts from names or prose; inspect trusted project source or ask the user instead.

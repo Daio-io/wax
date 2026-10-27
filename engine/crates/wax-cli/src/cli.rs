@@ -99,6 +99,9 @@ pub struct SearchArgs {
     /// Maximum results across every selected snapshot.
     #[arg(long, default_value_t = 20, value_parser = clap::value_parser!(u32))]
     pub limit: u32,
+    /// Emit a terse agent-oriented shortlist instead of rich text.
+    #[arg(long, conflicts_with = "format")]
+    pub compact: bool,
 }
 
 /// Arguments for `wax component` and `wax token`.
@@ -363,6 +366,9 @@ pub struct ScanArgs {
     /// Stdout format for scan results.
     #[arg(long, value_enum, default_value_t = ScanStdoutFormat::Summary)]
     pub format: ScanStdoutFormat,
+    /// Emit one terse agent-oriented result line instead of the rich summary.
+    #[arg(long, conflicts_with = "format")]
+    pub compact: bool,
     /// Write an artifact as `FORMAT=PATH`. Repeatable; unions with config `outputs[]`.
     #[arg(long = "output", value_name = "FORMAT=PATH", action = clap::ArgAction::Append)]
     pub outputs: Vec<String>,

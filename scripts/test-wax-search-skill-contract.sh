@@ -27,6 +27,7 @@ require_text "$SKILL" 'wax search'
 require_text "$SKILL" 'wax component'
 require_text "$SKILL" 'wax token'
 require_text "$SKILL" 'wax registry list'
+require_text "$SKILL" '--compact'
 require_text "$SKILL" '`aliases` and `tags`'
 require_text "$SKILL" 'command -v wax'
 require_text "$SKILL" 'npx --yes @waxhq/wax@alpha'
@@ -139,6 +140,17 @@ assert_detail_envelope() {
 run_wax registry add acme "$registry" \
   --language compose \
   --name "Acme Design System" >/dev/null
+
+component_compact="$tmp_dir/component-search.compact"
+run_wax search "touch-first" \
+  --design-system acme \
+  --kind component \
+  --compact \
+  --repo-root "$repo" >"$component_compact"
+grep -Eq '^results=1$' "$component_compact" \
+  || fail "compact component search did not emit its result count"
+grep -Eq $'^component\tid=ds\.button\tlabel=Button\tlanguage=compose\tdigest=[0-9a-f]{64}\tsource=.+$' "$component_compact" \
+  || fail "compact component search omitted snapshot-actionable fields"
 
 component_search="$tmp_dir/component-search.json"
 run_wax search "touch-first" \

@@ -160,7 +160,7 @@ digest (including after another process refreshes the source).
 In a configured app, committed config and lock select the snapshot:
 
 ```bash
-wax search "primary action" --kind component --format json
+wax search "primary action" --kind component --compact
 wax component ds.button --snapshot <digest> --format json
 ```
 
@@ -170,7 +170,7 @@ remembered id, local path, HTTP URL, or `git+` source:
 ```bash
 wax registry list
 wax registry show acme
-wax search "primry" --design-system acme --format json
+wax search "primry" --design-system acme --compact
 wax component ds.button --design-system acme --snapshot <digest> --format json
 wax token color.primary --design-system acme --snapshot <digest> --format json
 ```
@@ -193,8 +193,12 @@ wax search "button" \
 ```
 
 Search also accepts `--limit` (default 20), `--offline` (cached snapshots only),
-and `--tag` for Git selectors. Default `--format` is `text`; use `json` for the
-versioned `RegistrySearchResponse` / `RegistryDetailResponse` envelopes.
+and `--tag` for Git selectors. `--compact` emits a terse text shortlist with the
+id, label, language, snapshot digest, and source; rerun with `--format json` when
+selection needs summaries, aliases, tags, or extraction status. `--compact` and
+an explicit `--format` are mutually exclusive. Default `--format` remains
+`text`; `json` remains the versioned `RegistrySearchResponse` /
+`RegistryDetailResponse` envelope.
 Preserve both the result `id` and `snapshot.digest` on detail calls so a
 concurrent `wax registry refresh` cannot change the entry being evaluated.
 Empty `results: []` is success with no matches. Typed failures such as
@@ -204,7 +208,7 @@ Empty `results: []` is success with no matches. Typed failures such as
 With the npm wrapper:
 
 ```bash
-npx @waxhq/wax@alpha search "button" --design-system acme --format json
+npx @waxhq/wax@alpha search "button" --design-system acme --compact
 npx @waxhq/wax@alpha component ds.button --design-system acme --snapshot <digest> --format json
 ```
 
@@ -239,6 +243,7 @@ Run a scan:
 
 ```bash
 wax scan
+wax scan --compact
 ```
 
 Wax writes results under `.wax/out/`, including `.wax/out/scan-merged.json`.
@@ -252,6 +257,10 @@ wax scan --no-auto-install --strict
 ```
 
 Stdout `--format`: `summary` (default), `quiet`, `json-summary`, `markdown`.
+For agent calls, `--compact` emits one text record with the artifact path,
+language statuses, headline adoption/token counts, failure count, and artifact
+count. Read `.wax/out/scan-merged.json` for full analytics. `--compact` and an
+explicit `--format` are mutually exclusive; rich defaults are unchanged.
 Artifacts: repeatable `--output FORMAT=PATH` or `.wax/wax.config.json` `outputs[]`
 (`json-summary`, `graph-data`, `markdown`, `html`). Optional `--baseline PATH`
 compares against a prior json-summary or scan-merged.json.

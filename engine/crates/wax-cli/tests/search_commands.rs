@@ -194,6 +194,92 @@ fn search_text_includes_aliases_and_tags() {
 }
 
 #[test]
+fn search_compact_is_terse_and_snapshot_actionable() {
+    let _guard = env_lock();
+    let root = TestDir::new("search-compact");
+    let wax_home = root.path.join("wax-home");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(&wax_home).unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    let registry = root.path.join("registry.json");
+    let registry_body = fixture_registry().replace(
+        r#""symbol": "Button""#,
+        r#""symbol": "Button\tPrimary\nCTA""#,
+    );
+    write_registry(&registry, &registry_body);
+    let digest = sha256_hex(registry_body.as_bytes());
+    let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
+    remember_local_registry(&wax_home, "acme", &registry);
+
+    let output = run_wax(
+        &wax_home,
+        &repo,
+        &["search", "primary", "--design-system", "acme", "--compact"],
+    );
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let expected = format!(
+        "results=2\ncomponent\tid=ds.button\tlabel=Button Primary CTA\tlanguage=react\tdigest={digest}\tsource=file:{}\ntoken\tid=color.primary\tlabel=color.primary\tlanguage=react\tdigest={digest}\tsource=file:{}\n",
+        registry.display(),
+        registry.display()
+    );
+    assert_eq!(stdout, expected);
+}
+
+#[test]
+fn search_compact_no_match_is_count_only() {
+    let _guard = env_lock();
+    let root = TestDir::new("search-compact-empty");
+    let wax_home = root.path.join("wax-home");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(&wax_home).unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    let registry = root.path.join("registry.json");
+    write_registry(&registry, fixture_registry());
+    let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
+    remember_local_registry(&wax_home, "acme", &registry);
+
+    let output = run_wax(
+        &wax_home,
+        &repo,
+        &[
+            "search",
+            "unrelated-query-with-no-match",
+            "--design-system",
+            "acme",
+            "--compact",
+        ],
+    );
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "results=0\n");
+}
+
+#[test]
+fn search_compact_rejects_explicit_format() {
+    let root = TestDir::new("search-compact-format-conflict");
+
+    let output = run_wax(
+        &root.path.join("wax-home"),
+        &root.path.join("repo"),
+        &["search", "button", "--compact", "--format", "json"],
+    );
+
+    assert_eq!(output.status.code(), Some(2));
+    let rendered = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(rendered.contains("cannot be used with '--format"));
+}
+
+#[test]
 fn search_rejects_empty_query_and_zero_limit_with_typed_json_errors() {
     let _guard = env_lock();
     let root = TestDir::new("search-invalid");
