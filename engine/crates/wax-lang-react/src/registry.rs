@@ -152,13 +152,6 @@ pub fn load_react_registry(path: &Path) -> Result<ReactRegistryIndex, RegistryEr
         }
     }
 
-    if design_system_components.is_empty() {
-        return Err(RegistryError::invalid(format!(
-            "registry at {} must declare at least one React component symbol",
-            path.display()
-        )));
-    }
-
     design_system_components.sort_by(|left, right| left.symbol.cmp(&right.symbol));
     let design_system_tokens =
         parse_registry_tokens(&value).map_err(|err| RegistryError::invalid(err.to_string()))?;

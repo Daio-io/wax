@@ -1,6 +1,6 @@
 use std::fs;
 
-use wax_contract::{LanguageId, ScanFacts};
+use wax_contract::{LanguageId, MatchStatus, ScanFacts};
 use wax_lang_api::{ScanRequest, ScanRequestType, WIRE_API_VERSION};
 use wax_lang_compose::{ComposeLanguage, ComposeScanError};
 
@@ -9,6 +9,63 @@ fn registry_key_is_accepted_as_canonical_registry_path() {
     let facts = scan_with_config(valid_config()).expect("registry key should scan");
 
     assert_eq!(facts.counts.registry.component_count, 2);
+}
+
+#[test]
+fn configured_scan_with_componentless_registry_reports_non_registry_facts() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let repo_root = tempdir.path();
+    fs::create_dir_all(repo_root.join("design-system")).expect("create registry dir");
+    fs::create_dir_all(repo_root.join("app/src/main/kotlin")).expect("create source dir");
+    fs::write(
+        repo_root.join("design-system/registry.json"),
+        r#"{"schema_version":1,"components":[],"tokens":[{"id":"color.primary","key":"Theme.colors.primary","category":"color"}]}"#,
+    )
+    .expect("write registry");
+    fs::write(
+        repo_root.join("app/src/main/kotlin/Screen.kt"),
+        "@Composable\nfun LocalCard() {}\n\n@Composable\nfun Screen() {\n    LocalCard()\n    UnknownCard()\n    val color = Theme.colors.primary\n}\n",
+    )
+    .expect("write source");
+
+    let mut config = serde_json::Map::new();
+    config.insert(
+        "registry".to_owned(),
+        serde_json::json!("design-system/registry.json"),
+    );
+    config.insert(
+        "roots".to_owned(),
+        serde_json::json!(["app/src/main/kotlin"]),
+    );
+    let request = ScanRequest {
+        request_type: ScanRequestType::Scan,
+        api_version: WIRE_API_VERSION,
+        language_id: LanguageId::try_from("compose").expect("compose id must be valid"),
+        repo_root: repo_root.display().to_string(),
+        snapshot_id: "snap-componentless-registry".to_owned(),
+        config,
+    };
+
+    let facts = ComposeLanguage::new()
+        .scan(&request)
+        .expect("empty components must scan");
+
+    assert_eq!(facts.counts.registry.component_count, 0);
+    assert!(
+        facts
+            .local_components
+            .iter()
+            .any(|component| component.symbol == "LocalCard")
+    );
+    assert!(facts.usage_sites.iter().any(|site| {
+        site.symbol == "UnknownCard" && site.match_status == MatchStatus::Unresolved
+    }));
+    assert!(
+        facts
+            .token_sites
+            .iter()
+            .any(|site| site.token_id == "color.primary")
+    );
 }
 
 #[test]

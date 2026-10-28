@@ -226,7 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn invalid_registry_maps_to_scan_failed_wire_error() {
+    fn empty_registry_maps_to_scan_facts_wire_response() {
         let temp = tempfile::tempdir().expect("temp dir should be created");
         let registry_dir = temp.path().join("design-system");
         std::fs::create_dir_all(&registry_dir).expect("registry dir should be created");
@@ -241,7 +241,7 @@ mod tests {
             "api_version": 1,
             "language_id": "react",
             "repo_root": temp.path().to_string_lossy(),
-            "snapshot_id": "snap-invalid-registry",
+            "snapshot_id": "snap-empty-registry",
             "config": {
                 "registry": "design-system/registry.json",
                 "roots": ["src"]
@@ -255,11 +255,11 @@ mod tests {
         let line = std::str::from_utf8(&output).unwrap().trim();
         let response: WirePackResponse = serde_json::from_str(line).unwrap();
         match response {
-            WirePackResponse::Error { code, message, .. } => {
-                assert_eq!(code, WireErrorCode::ScanFailed);
-                assert!(message.contains("invalid react registry"));
+            WirePackResponse::ScanFacts { facts, .. } => {
+                assert!(facts.design_system_components.is_empty());
+                assert_eq!(facts.counts.registry.component_count, 0);
             }
-            other => panic!("expected error response, got {other:?}"),
+            other => panic!("expected scan_facts response, got {other:?}"),
         }
     }
 
