@@ -111,6 +111,20 @@ test('guide sources and production routes cover the documented workflow', async 
   assert.match(scanPrimary[1], /^wax scan$/m);
   assert.doesNotMatch(scanPrimary[1], /^wax sync$/m);
   assert.match(scan, /optional(?:ly)?[\s\S]{0,80}wax sync|wax sync[\s\S]{0,80}optional/i);
+  assert.match(
+    scan,
+    /wax scan --language react --root src \\\n {2}--design-system https:\/\/design\.example\.com\/wax\/react\.registry\.json/,
+  );
+  assert.match(
+    scan,
+    /wax scan --language react --root src \\\n {2}--design-system acme --offline/,
+  );
+  assert.match(scan, /configless|without `?\.wax\/wax\.config\.json`?/i);
+  assert.match(scan, /wax init/);
+  assert.match(
+    scan,
+    /do not create[\s\S]{0,80}\.wax\/wax\.config\.json|write[\s\S]{0,40}cache[\s\S]{0,80}\.wax\/out\//i,
+  );
 
   const registry = await readFile(
     new URL('reference/registry.md', docs),

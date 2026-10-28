@@ -14,7 +14,8 @@ Safety boundary: Analyze only fresh validated scan evidence, and never write inf
 ## Prerequisites
 
 - Repository-local `.wax/wax.config.json` and, for locked language packs,
-  `.wax/wax.lock.json`.
+  `.wax/wax.lock.json` — or a complete one-shot configless selection
+  (`--design-system`, `--language`, and at least one `--root`).
 - The Wax CLI and any required language packs.
 - The skill's extractor and optional HTML template from the repository.
 
@@ -28,6 +29,20 @@ wax validate
 wax scan
 skills/wax-scan/scripts/extract-insights.sh .wax/out/scan-merged.json
 ```
+
+When `.wax/wax.config.json` is missing, run a configless one-shot scan with the
+complete explicit selections (no validate step). It may write cache and
+`.wax/out/`, but must not write repo config, lockfiles, or `.wax/registries/`:
+
+```bash
+wax scan --language react --root src \
+  --design-system https://design.example.com/wax/react.registry.json
+skills/wax-scan/scripts/extract-insights.sh .wax/out/scan-merged.json
+```
+
+Pass `--tag` only for a Git selector. Pass `--offline` only when the exact
+selection is already cached. Guide non-interactive callers without complete
+flags to `wax init` for reproducible CI/team scans.
 
 For CI, pass through strict offline-install behavior:
 

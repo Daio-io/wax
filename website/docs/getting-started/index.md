@@ -14,6 +14,9 @@ Take a repository from setup to its first design-system scan:
 3. Run `wax validate` to check the configuration and language-pack lockfile.
 4. Run `wax scan` to produce the first set of scan facts.
 
+For a one-shot scan without committed config, see
+[configless scans in the scan guide](../guides/scan.md).
+
 The quick-start commands are defined in
 [`cli.rs`](https://github.com/Daio-io/wax/blob/main/engine/crates/wax-cli/src/cli.rs).
 

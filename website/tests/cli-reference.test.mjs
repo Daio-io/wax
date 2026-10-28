@@ -74,4 +74,23 @@ test('CLI reference covers the complete Clap command surface', async () => {
     /`wax uninstall` requires `--full`|wax uninstall(?:<!-- -->)? requires(?:<!-- -->)? --full/,
   );
   assert.doesNotMatch(html, /FullFlagRequired/);
+
+  const scanSection = html.match(
+    /id=wax-scan[\s\S]*?<\/h2>([\s\S]*?)(?=<h2[\s\S]*?id=wax-)/,
+  );
+  assert.ok(scanSection, 'CLI reference needs a wax scan section');
+  for (const required of [
+    '--design-system',
+    '--language',
+    '--root',
+    '--tag',
+    '--offline',
+    'ID_OR_SOURCE',
+  ]) {
+    assert.match(scanSection[1], new RegExp(required), `scan ${required}`);
+  }
+  assert.match(
+    scanSection[1],
+    /configless|without[\s\S]{0,40}wax\.config\.json/i,
+  );
 });
