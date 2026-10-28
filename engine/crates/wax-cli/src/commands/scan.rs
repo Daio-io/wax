@@ -30,7 +30,7 @@ use wax_contract::{
 use wax_core::config::lockfile::{LockedRegistry, WAX_LOCK_SCHEMA_VERSION, WaxLock};
 use wax_core::config::repo_files::PREFERRED_CONFIG_RELATIVE_PATH;
 use wax_core::config::waxrc::{
-    AdoptionConfig, EngineConfig, LanguageEntry, LanguageRegistrySource,
+    AdoptionConfig, EngineConfig, LanguageEntry, LanguageRegistrySource, RootPathError,
     SCAN_OUTPUT_FORMAT_GRAPH_DATA, SCAN_OUTPUT_FORMAT_HTML, SCAN_OUTPUT_FORMAT_JSON_SUMMARY,
     SCAN_OUTPUT_FORMAT_MARKDOWN, ScanOutputSpec, WAXRC_SCHEMA_VERSION, WaxRc, WaxRcError,
     is_deferred_scan_output_format, load_waxrc,
@@ -101,19 +101,13 @@ impl EphemeralScanSelections {
             return Err(ScanCommandError::IncompleteConfiglessSelection { missing });
         }
 
-        let language =
-            args.language
-                .ok_or_else(|| ScanCommandError::IncompleteConfiglessSelection {
-                    missing: vec!["--language"],
-                })?;
+        let language = args.language.expect("language presence checked above");
         Ok(Some(Self {
             languages: vec![language.clone()],
             scan_roots: BTreeMap::from([(language, args.roots)]),
-            design_system: args.design_system.ok_or_else(|| {
-                ScanCommandError::IncompleteConfiglessSelection {
-                    missing: vec!["--design-system"],
-                }
-            })?,
+            design_system: args
+                .design_system
+                .expect("design-system presence checked above"),
             tag: args.tag,
             offline: args.offline,
         }))
@@ -188,7 +182,8 @@ pub enum ScanCommandError {
         /// Invalid root path.
         path: PathBuf,
         /// Stable explanation of the violated rule.
-        reason: &'static str,
+        #[source]
+        reason: RootPathError,
     },
     /// Engine scan failed.
     #[error(transparent)]
@@ -608,14 +603,7 @@ fn validate_ephemeral_scan_roots(
 ) -> Result<(), ScanCommandError> {
     for roots in selections.scan_roots.values() {
         for (index, root) in roots.iter().enumerate() {
-            if let Err(error) = wax_core::config::waxrc::validate_repo_relative_root(root) {
-                let reason = match error {
-                    wax_core::config::waxrc::RootPathError::Empty => "must be non-empty",
-                    wax_core::config::waxrc::RootPathError::Absolute => "must be repo-relative",
-                    wax_core::config::waxrc::RootPathError::ParentSegment => {
-                        "must not contain parent-directory segments"
-                    }
-                };
+            if let Err(reason) = wax_core::config::waxrc::validate_repo_relative_root(root) {
                 return Err(ScanCommandError::InvalidScanRoot {
                     index,
                     path: root.clone(),

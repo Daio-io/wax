@@ -16,13 +16,16 @@ pub const WAXRC_SCHEMA_VERSION: u32 = 2;
 pub const DEFAULT_NUMERIC_TOKEN_TOLERANCE: f64 = 2.0;
 
 /// Why a repository-relative scan root is invalid.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum RootPathError {
     /// The root is empty.
+    #[error("must be non-empty")]
     Empty,
     /// The root is absolute.
+    #[error("must be repo-relative")]
     Absolute,
     /// The root contains a parent-directory segment.
+    #[error("must not contain parent-directory segments")]
     ParentSegment,
 }
 
@@ -829,13 +832,8 @@ impl LanguageEntryRaw {
 fn validate_root_paths(field: &str, roots: &[String]) -> Result<(), serde_json::Error> {
     for (index, root) in roots.iter().enumerate() {
         if let Err(error) = validate_repo_relative_root(Path::new(root)) {
-            let message = match error {
-                RootPathError::Empty => "must be non-empty",
-                RootPathError::Absolute => "must be repo-relative",
-                RootPathError::ParentSegment => "must not contain parent-directory segments",
-            };
             return Err(serde_json::Error::custom(format!(
-                "{field}[{index}] {message}"
+                "{field}[{index}] {error}"
             )));
         }
     }
