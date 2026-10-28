@@ -24,8 +24,8 @@ use std::sync::Arc;
 use thiserror::Error;
 use wax_contract::{
     Diagnostic, HardcodedStyleInference, HardcodedStyleSite, LanguageId, MergedScan,
-    RegistryLookupError, RegistryLookupErrorCode, ScanStatus, TokenInferenceClassification,
-    TokenInferenceConfidence, TokenInferenceEvidence, TokenReplacementSuggestion,
+    RegistryLookupError, ScanStatus, TokenInferenceClassification, TokenInferenceConfidence,
+    TokenInferenceEvidence, TokenReplacementSuggestion,
 };
 use wax_core::config::lockfile::{LockedRegistry, WAX_LOCK_SCHEMA_VERSION, WaxLock};
 use wax_core::config::repo_files::PREFERRED_CONFIG_RELATIVE_PATH;
@@ -203,10 +203,9 @@ pub enum ScanCommandError {
     #[error(transparent)]
     RegistryMemory(#[from] wax_core::registry_memory::RegistryMemoryError),
     /// Registry snapshot selection failed.
-    #[error("registry lookup failed ({code}): {source}")]
+    #[error("registry lookup failed ({}): {source}", source.code.as_str())]
     RegistryLookup {
         /// Stable machine-readable registry lookup error code.
-        code: &'static str,
         /// Typed registry lookup failure.
         #[source]
         source: RegistryLookupError,
@@ -378,17 +377,7 @@ pub enum ScanCommandError {
 
 impl From<RegistryLookupError> for ScanCommandError {
     fn from(source: RegistryLookupError) -> Self {
-        let code = match source.code {
-            RegistryLookupErrorCode::InvalidArgument => "invalid_argument",
-            RegistryLookupErrorCode::SourceNotFound => "source_not_found",
-            RegistryLookupErrorCode::InvalidRegistry => "invalid_registry",
-            RegistryLookupErrorCode::OfflineCacheMiss => "offline_cache_miss",
-            RegistryLookupErrorCode::LockedSnapshotUnavailable => "locked_snapshot_unavailable",
-            RegistryLookupErrorCode::AmbiguousEntry => "ambiguous_entry",
-            RegistryLookupErrorCode::EntryNotFound => "entry_not_found",
-            RegistryLookupErrorCode::SnapshotMismatch => "snapshot_mismatch",
-        };
-        Self::RegistryLookup { code, source }
+        Self::RegistryLookup { source }
     }
 }
 
@@ -619,20 +608,14 @@ fn validate_ephemeral_scan_roots(
 ) -> Result<(), ScanCommandError> {
     for roots in selections.scan_roots.values() {
         for (index, root) in roots.iter().enumerate() {
-            let normalized = normalize_repo_relative_path(root);
-            let is_windows_absolute = normalized.len() >= 3
-                && normalized.as_bytes()[1] == b':'
-                && normalized.as_bytes()[2] == b'/';
-            let reason = if root.as_os_str().is_empty() {
-                Some("must be non-empty")
-            } else if normalized.starts_with('/') || is_windows_absolute {
-                Some("must be repo-relative")
-            } else if normalized.split('/').any(|segment| segment == "..") {
-                Some("must not contain parent-directory segments")
-            } else {
-                None
-            };
-            if let Some(reason) = reason {
+            if let Err(error) = wax_core::config::waxrc::validate_repo_relative_root(root) {
+                let reason = match error {
+                    wax_core::config::waxrc::RootPathError::Empty => "must be non-empty",
+                    wax_core::config::waxrc::RootPathError::Absolute => "must be repo-relative",
+                    wax_core::config::waxrc::RootPathError::ParentSegment => {
+                        "must not contain parent-directory segments"
+                    }
+                };
                 return Err(ScanCommandError::InvalidScanRoot {
                     index,
                     path: root.clone(),
@@ -804,7 +787,7 @@ fn exactly_one_registry_snapshot(
     language_id: &LanguageId,
     snapshots: Vec<RegistrySnapshot>,
 ) -> Result<RegistrySnapshot, ScanCommandError> {
-    if snapshots.len() != 1 {
+    if snapshots.len() > 1 {
         return Err(ScanCommandError::AmbiguousRegistrySnapshots {
             language: language_id.clone(),
             count: snapshots.len(),
@@ -813,9 +796,11 @@ fn exactly_one_registry_snapshot(
     snapshots
         .into_iter()
         .next()
-        .ok_or_else(|| ScanCommandError::AmbiguousRegistrySnapshots {
-            language: language_id.clone(),
-            count: 0,
+        .ok_or_else(|| ScanCommandError::RegistryLookup {
+            source: RegistryLookupError::new(
+                wax_core::RegistryLookupErrorCode::SourceNotFound,
+                format!("no registry snapshot resolved for language `{language_id}`"),
+            ),
         })
 }
 
