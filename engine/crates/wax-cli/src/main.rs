@@ -13,7 +13,7 @@ use wax_cli::commands::registry::{
     run_registry_list, run_registry_refresh, run_registry_show, run_registry_update,
 };
 use wax_cli::commands::scan::parse_output_flag;
-use wax_cli::commands::scan::{ScanCommandOptions, run_scan_cli};
+use wax_cli::commands::scan::{EphemeralScanSelections, ScanCommandOptions, run_scan_cli};
 use wax_cli::commands::search::{
     DetailCommandOptions, LookupCommandOptions, SearchCommandError, SearchCommandOptions,
     run_detail, run_search, write_lookup_error_json,
@@ -211,6 +211,7 @@ fn main() {
         )
         .map_err(Into::into),
         Commands::Scan(args) => (|| {
+            let ephemeral = EphemeralScanSelections::from_cli(args.configless)?;
             let cli_outputs = args
                 .outputs
                 .iter()
@@ -231,7 +232,7 @@ fn main() {
                     state_path: None,
                     pack_index_url: None,
                     target_triple: None,
-                    ephemeral: None,
+                    ephemeral,
                 },
                 &mut stdout,
             )

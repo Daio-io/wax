@@ -347,10 +347,38 @@ pub enum ScanStdoutFormat {
 
 /// Arguments for `wax scan`.
 #[derive(Debug, Args)]
+#[group(
+    id = "configless_scan",
+    multiple = true,
+    requires_all = ["design_system", "language", "roots"]
+)]
+pub struct ConfiglessScanArgs {
+    /// Remembered design-system id or explicit local, HTTP, or Git source.
+    #[arg(long = "design-system", value_name = "ID_OR_SOURCE")]
+    pub design_system: Option<String>,
+    /// Language pack id to scan.
+    #[arg(long, value_name = "ID")]
+    pub language: Option<LanguageId>,
+    /// Repository-relative source root. Repeat for multiple roots.
+    #[arg(long = "root", value_name = "PATH", action = clap::ArgAction::Append)]
+    pub roots: Vec<PathBuf>,
+    /// Optional Git tag or commit for an explicit Git selector.
+    #[arg(long, requires = "design_system")]
+    pub tag: Option<String>,
+    /// Resolve only an already cached registry snapshot.
+    #[arg(long, requires = "design_system")]
+    pub offline: bool,
+}
+
+/// Arguments for `wax scan`.
+#[derive(Debug, Args)]
 pub struct ScanArgs {
     /// Repository root containing wax config and lock files.
     #[arg(long, default_value = ".")]
     pub repo_root: PathBuf,
+    #[command(flatten)]
+    /// Explicit selections for a one-shot scan without repository config.
+    pub configless: ConfiglessScanArgs,
     /// Exit nonzero when any language scan is partial or failed.
     #[arg(long)]
     pub strict: bool,
@@ -361,7 +389,11 @@ pub struct ScanArgs {
     #[arg(long = "concurrency", value_parser = clap::value_parser!(u32).range(1..))]
     pub scan_concurrency: Option<u32>,
     /// Scan only roots assigned to this repository-wide root group.
-    #[arg(long = "root-group", value_name = "ID")]
+    #[arg(
+        long = "root-group",
+        value_name = "ID",
+        conflicts_with = "configless_scan"
+    )]
     pub root_group: Option<String>,
     /// Stdout format for scan results.
     #[arg(long, value_enum, default_value_t = ScanStdoutFormat::Summary)]

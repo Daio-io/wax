@@ -14,7 +14,7 @@ use super::scan_summary::{
 };
 use super::scan_summary_md::render_markdown_summary;
 use super::state_path::resolve_state_path;
-use crate::cli::ScanStdoutFormat;
+use crate::cli::{ConfiglessScanArgs, ScanStdoutFormat};
 use crate::progress::{CliProgress, optional_scan_progress_sink};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -23,9 +23,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use thiserror::Error;
 use wax_contract::{
-    Diagnostic, HardcodedStyleInference, HardcodedStyleSite, LanguageId, MergedScan, ScanStatus,
-    TokenInferenceClassification, TokenInferenceConfidence, TokenInferenceEvidence,
-    TokenReplacementSuggestion,
+    Diagnostic, HardcodedStyleInference, HardcodedStyleSite, LanguageId, MergedScan,
+    RegistryLookupError, RegistryLookupErrorCode, ScanStatus, TokenInferenceClassification,
+    TokenInferenceConfidence, TokenInferenceEvidence, TokenReplacementSuggestion,
 };
 use wax_core::config::lockfile::{LockedRegistry, WAX_LOCK_SCHEMA_VERSION, WaxLock};
 use wax_core::config::repo_files::PREFERRED_CONFIG_RELATIVE_PATH;
@@ -37,9 +37,10 @@ use wax_core::config::waxrc::{
 };
 use wax_core::paths::PathsError;
 use wax_core::registry::{fetch_pack_index, select_target_artifact};
+use wax_core::registry_cache::RegistrySnapshot;
+use wax_core::registry_lookup::{RegistryLookupOptions, resolve_lookup_snapshots};
 use wax_core::registry_memory::{
-    RememberedDesignSystemSummary, list_remembered_design_systems, resolve_remembered_registry,
-    show_remembered_design_system,
+    RememberedDesignSystemSummary, list_remembered_design_systems, registry_blob_file_url,
 };
 use wax_core::registry_source::{RegistrySourceInput, resolve_registry_source};
 use wax_core::sync::{SyncError, SyncOptions, best_effort_sync_app_registries};
@@ -60,8 +61,63 @@ pub struct EphemeralScanSelections {
     pub languages: Vec<LanguageId>,
     /// Scan roots keyed by language id.
     pub scan_roots: BTreeMap<LanguageId, Vec<PathBuf>>,
-    /// Remembered design-system id supplying registry inputs.
-    pub design_system_id: String,
+    /// Remembered design-system id or explicit registry source.
+    pub design_system: String,
+    /// Optional Git tag or commit for an explicit Git selector.
+    pub tag: Option<String>,
+    /// Whether registry resolution must use only cached bytes.
+    pub offline: bool,
+}
+
+impl EphemeralScanSelections {
+    /// Converts explicit configless CLI flags into ephemeral scan selections.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ScanCommandError::IncompleteConfiglessSelection`] when some,
+    /// but not all, required configless selections are supplied by a caller
+    /// that bypasses Clap validation.
+    pub fn from_cli(args: ConfiglessScanArgs) -> Result<Option<Self>, ScanCommandError> {
+        let any_present = args.design_system.is_some()
+            || args.language.is_some()
+            || !args.roots.is_empty()
+            || args.tag.is_some()
+            || args.offline;
+        if !any_present {
+            return Ok(None);
+        }
+
+        let mut missing = Vec::new();
+        if args.design_system.is_none() {
+            missing.push("--design-system");
+        }
+        if args.language.is_none() {
+            missing.push("--language");
+        }
+        if args.roots.is_empty() {
+            missing.push("--root");
+        }
+        if !missing.is_empty() {
+            return Err(ScanCommandError::IncompleteConfiglessSelection { missing });
+        }
+
+        let language =
+            args.language
+                .ok_or_else(|| ScanCommandError::IncompleteConfiglessSelection {
+                    missing: vec!["--language"],
+                })?;
+        Ok(Some(Self {
+            languages: vec![language.clone()],
+            scan_roots: BTreeMap::from([(language, args.roots)]),
+            design_system: args.design_system.ok_or_else(|| {
+                ScanCommandError::IncompleteConfiglessSelection {
+                    missing: vec!["--design-system"],
+                }
+            })?,
+            tag: args.tag,
+            offline: args.offline,
+        }))
+    }
 }
 
 /// One resolved scan artifact output request.
@@ -109,6 +165,31 @@ pub struct ScanCommandOptions {
 /// Errors returned by `wax scan`.
 #[derive(Debug, Error)]
 pub enum ScanCommandError {
+    /// A programmatic configless selection omitted required fields.
+    #[error("incomplete configless scan selection; missing required flag(s): {missing:?}")]
+    IncompleteConfiglessSelection {
+        /// Required flags that were not supplied.
+        missing: Vec<&'static str>,
+    },
+    /// Explicit configless selections cannot override committed config.
+    #[error(
+        "explicit configless scan selections cannot be used with committed repository config at {config_path}",
+        config_path = config_path.display()
+    )]
+    ConfiglessSelectionConflictsWithConfig {
+        /// Existing repository config path.
+        config_path: PathBuf,
+    },
+    /// A configless or prompted scan root violates repository path rules.
+    #[error("scan root[{index}] `{path}` {reason}", path = path.display())]
+    InvalidScanRoot {
+        /// Zero-based root index within its language selection.
+        index: usize,
+        /// Invalid root path.
+        path: PathBuf,
+        /// Stable explanation of the violated rule.
+        reason: &'static str,
+    },
     /// Engine scan failed.
     #[error(transparent)]
     Engine(#[from] EngineError),
@@ -121,6 +202,25 @@ pub enum ScanCommandError {
     /// Remembered design-system memory failed.
     #[error(transparent)]
     RegistryMemory(#[from] wax_core::registry_memory::RegistryMemoryError),
+    /// Registry snapshot selection failed.
+    #[error("registry lookup failed ({code}): {source}")]
+    RegistryLookup {
+        /// Stable machine-readable registry lookup error code.
+        code: &'static str,
+        /// Typed registry lookup failure.
+        #[source]
+        source: RegistryLookupError,
+    },
+    /// Registry selection did not resolve exactly one snapshot for the language.
+    #[error(
+        "registry selector resolved {count} snapshots for language `{language}`; expected exactly one"
+    )]
+    AmbiguousRegistrySnapshots {
+        /// Requested language id.
+        language: LanguageId,
+        /// Number of matching snapshots.
+        count: usize,
+    },
     /// Legacy sync wrapper retained for API compatibility.
     ///
     /// Current scan entry points report best-effort sync failures as warnings.
@@ -276,6 +376,22 @@ pub enum ScanCommandError {
     },
 }
 
+impl From<RegistryLookupError> for ScanCommandError {
+    fn from(source: RegistryLookupError) -> Self {
+        let code = match source.code {
+            RegistryLookupErrorCode::InvalidArgument => "invalid_argument",
+            RegistryLookupErrorCode::SourceNotFound => "source_not_found",
+            RegistryLookupErrorCode::InvalidRegistry => "invalid_registry",
+            RegistryLookupErrorCode::OfflineCacheMiss => "offline_cache_miss",
+            RegistryLookupErrorCode::LockedSnapshotUnavailable => "locked_snapshot_unavailable",
+            RegistryLookupErrorCode::AmbiguousEntry => "ambiguous_entry",
+            RegistryLookupErrorCode::EntryNotFound => "entry_not_found",
+            RegistryLookupErrorCode::SnapshotMismatch => "snapshot_mismatch",
+        };
+        Self::RegistryLookup { code, source }
+    }
+}
+
 impl From<BaselineError> for ScanCommandError {
     fn from(error: BaselineError) -> Self {
         match error {
@@ -317,20 +433,19 @@ impl From<HtmlWriteError> for ScanCommandError {
 /// # Errors
 ///
 /// Returns [`ScanCommandError::RequiresInit`] when config and usable ephemeral
-/// selections are unavailable; [`ScanCommandError::Paths`] when ephemeral setup
-/// or pre-scan upstream sync needs an implicit global state path that cannot be
-/// resolved;
-/// `ScanCommandError::Engine(EngineError::RegistrySource(..))` when the
-/// no-config ephemeral flow resolves a remembered design-system registry source
-/// that cannot be read, fetched, validated, or materialized locally
-/// (`RegistrySourceError::UnsupportedScheme`, `PlainAbsolutePath`,
-/// `PathEscapesRepo`, `InvalidFileUrl`, `Read`, `Fetch`, `HttpStatus`,
-/// `MalformedJson`, `InvalidShape`, or `CacheWrite`);
-/// [`ScanCommandError::Config`] when configured pre-scan sync cannot load wax
-/// config; [`ScanCommandError::Language`] or [`ScanCommandError::Registry`] when
-/// ephemeral pack metadata cannot be resolved;
-/// [`ScanCommandError::RegistryMemory`] when remembered registry state cannot be
-/// listed or resolved; [`ScanCommandError::Engine`] when the scan fails; or
+/// selections are unavailable; [`ScanCommandError::ConfiglessSelectionConflictsWithConfig`]
+/// when explicit one-shot selections accompany committed config;
+/// [`ScanCommandError::InvalidScanRoot`] when an explicit or prompted root is
+/// empty, absolute, or escaping; [`ScanCommandError::Paths`] when ephemeral
+/// setup needs an implicit global state path that cannot be resolved;
+/// [`ScanCommandError::RegistryLookup`] or
+/// [`ScanCommandError::AmbiguousRegistrySnapshots`] when the selected registry
+/// cannot resolve to exactly one immutable snapshot; [`ScanCommandError::Config`]
+/// when configured pre-scan sync cannot load wax config;
+/// [`ScanCommandError::Language`] or [`ScanCommandError::Registry`] when
+/// ephemeral pack metadata cannot be resolved; [`ScanCommandError::RegistryMemory`]
+/// when remembered registry state cannot be listed for prompts;
+/// [`ScanCommandError::Engine`] when the scan fails; or
 /// [`ScanCommandError::IncompleteScan`] when strict mode finds a partial or
 /// failed language result after output is written; or
 /// [`ScanCommandError::TokenInferenceJoin`] when token inference cannot be
@@ -343,6 +458,9 @@ pub fn run_scan_cli(
 ) -> Result<(), ScanCommandError> {
     let config_path = options.repo_root.join(PREFERRED_CONFIG_RELATIVE_PATH);
     if config_path.is_file() {
+        if options.ephemeral.is_some() {
+            return Err(ScanCommandError::ConfiglessSelectionConflictsWithConfig { config_path });
+        }
         return run_scan(options, writer, false);
     }
 
@@ -477,6 +595,7 @@ fn run_ephemeral_scan(
     selections: EphemeralScanSelections,
     writer: &mut impl Write,
 ) -> Result<(), ScanCommandError> {
+    validate_ephemeral_scan_roots(&selections)?;
     let state_path = resolve_state_path(options.state_path.as_deref())?;
     let ephemeral = build_ephemeral_scan_config(&options, &selections, &state_path)?;
     let progress = Arc::new(CliProgress::new());
@@ -493,6 +612,36 @@ fn run_ephemeral_scan(
     progress.finish();
 
     finish_scan_outputs(&options, &merged, &[], writer, true)
+}
+
+fn validate_ephemeral_scan_roots(
+    selections: &EphemeralScanSelections,
+) -> Result<(), ScanCommandError> {
+    for roots in selections.scan_roots.values() {
+        for (index, root) in roots.iter().enumerate() {
+            let normalized = normalize_repo_relative_path(root);
+            let is_windows_absolute = normalized.len() >= 3
+                && normalized.as_bytes()[1] == b':'
+                && normalized.as_bytes()[2] == b'/';
+            let reason = if root.as_os_str().is_empty() {
+                Some("must be non-empty")
+            } else if normalized.starts_with('/') || is_windows_absolute {
+                Some("must be repo-relative")
+            } else if normalized.split('/').any(|segment| segment == "..") {
+                Some("must not contain parent-directory segments")
+            } else {
+                None
+            };
+            if let Some(reason) = reason {
+                return Err(ScanCommandError::InvalidScanRoot {
+                    index,
+                    path: root.clone(),
+                    reason,
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 fn finish_scan_outputs(
@@ -567,7 +716,6 @@ fn build_ephemeral_scan_config(
     selections: &EphemeralScanSelections,
     state_path: &Path,
 ) -> Result<EphemeralScanConfig, ScanCommandError> {
-    let remembered = show_remembered_design_system(state_path, &selections.design_system_id)?;
     let registry_url = resolve_registry_url(options.pack_index_url.clone());
     let manifests = fetch_pack_index(&registry_url).map_err(LanguageCommandError::from)?;
     let target = options
@@ -594,9 +742,17 @@ fn build_ephemeral_scan_config(
             .into_iter()
             .map(|root| root.to_string_lossy().into_owned())
             .collect();
-        let resolved = resolve_remembered_registry(&remembered, language_id)?;
-        // Prefer the cached blob for typed remotes so ephemeral scans do not require the original remote.
-        let scan_source = resolved.ephemeral_scan_source(&remembered)?;
+        let snapshots = resolve_lookup_snapshots(&RegistryLookupOptions {
+            repo_root: options.repo_root.clone(),
+            selector: Some(selections.design_system.clone()),
+            language: Some(language_id.clone()),
+            tag: selections.tag.clone(),
+            snapshot: None,
+            offline: selections.offline,
+            state_path: Some(state_path.to_path_buf()),
+        })?;
+        let snapshot = exactly_one_registry_snapshot(language_id, snapshots)?;
+        let scan_source = registry_blob_file_url(state_path, &snapshot.reference.digest);
         let registry_source = resolve_registry_source(RegistrySourceInput {
             repo_root: &options.repo_root,
             language_id: language_id.as_str(),
@@ -642,6 +798,25 @@ fn build_ephemeral_scan_config(
         },
         lockfile,
     })
+}
+
+fn exactly_one_registry_snapshot(
+    language_id: &LanguageId,
+    snapshots: Vec<RegistrySnapshot>,
+) -> Result<RegistrySnapshot, ScanCommandError> {
+    if snapshots.len() != 1 {
+        return Err(ScanCommandError::AmbiguousRegistrySnapshots {
+            language: language_id.clone(),
+            count: snapshots.len(),
+        });
+    }
+    snapshots
+        .into_iter()
+        .next()
+        .ok_or_else(|| ScanCommandError::AmbiguousRegistrySnapshots {
+            language: language_id.clone(),
+            count: 0,
+        })
 }
 
 trait ScanPrompts {
@@ -749,12 +924,14 @@ fn collect_ephemeral_scan_selections(
     }
 
     let remembered = list_remembered_design_systems(state_path)?;
-    let design_system_id = prompts.select_remembered_design_system(&remembered)?;
+    let design_system = prompts.select_remembered_design_system(&remembered)?;
 
     Ok(EphemeralScanSelections {
         languages,
         scan_roots,
-        design_system_id,
+        design_system,
+        tag: None,
+        offline: false,
     })
 }
 
@@ -2388,7 +2565,9 @@ mod tests {
                         LanguageId::from_str("react").expect("valid language id"),
                         vec![PathBuf::from("src")],
                     )]),
-                    design_system_id: "acme".to_owned(),
+                    design_system: "acme".to_owned(),
+                    tag: None,
+                    offline: false,
                 }),
             },
             &mut output,

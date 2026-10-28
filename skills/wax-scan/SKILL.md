@@ -36,11 +36,17 @@ search rankings into analytics, or treat a search result as observed app usage.
 | `--baseline <path>` | Compare against a prior `scan-merged.json` for limited trend deltas |
 | `--no-auto-install` | Pass through to `wax scan` for CI runs with committed lockfiles |
 | `--strict` | Make partial or failed language results fail the CI scan after writing output |
+| `--design-system <id-or-source>` | Run one configless scan using a remembered id or explicit local, HTTP, or Git registry source |
+| `--language <id>` | Select the single language for a configless scan; requires `--design-system` and at least one `--root` |
+| `--root <path>` | Add a repo-relative configless scan root; repeat for multiple roots |
+| `--tag <tag-or-commit>` | Refine an explicit Git registry selector |
+| `--offline` | Forbid registry source I/O and require the selected immutable snapshot in cache |
 
 ## Workflow
 
 1. Verify Wax config at `.wax/wax.config.json`.
-   - Missing + non-interactive stdin: stop and guide the user to `wax init` for CI/scripts.
+   - Missing + complete `--design-system`, `--language`, and `--root` selections: run the one-shot configless scan with those flags. It may write cache and `.wax/out/`, but must not write repo config, lockfiles, or `.wax/registries/`.
+   - Missing + non-interactive stdin without complete explicit selections: stop and guide the user to `wax init` for reproducible CI/team scans.
    - Missing + interactive TTY: `wax scan` can run an ephemeral prompt-driven scan without writing config; suggest `wax init` afterward to save the setup.
 2. When the repo has `registry.upstream` configured and the user wants explicit refresh before scanning, run:
 
@@ -50,9 +56,11 @@ search rankings into analytics, or treat a search result as observed app usage.
    ```
 
    Otherwise rely on scan-time best-effort sync. If sync warnings appear, mention that `wax sync` shows details and that the scan continued with current registry inputs.
-3. Run `wax validate`.
+3. Run `wax validate` when committed config exists. A configless one-shot scan has no saved config to validate.
    - Failures: stop, show validation errors, do not scan.
 4. Run a fresh `wax scan --compact` to keep initial context lean.
+   - For a configless run, pass the complete explicit selections, for example `wax scan --compact --language react --root src --design-system https://design.example.com/wax/react.registry.json`.
+   - Pass `--tag` only for a Git selector. Pass `--offline` only when the exact selection has already been cached.
    - Pass `--no-auto-install --strict` when the user requests CI mode.
    - Treat compact output as a status handoff only; read the merged artifact for full analytics.
 5. Read `.wax/out/scan-merged.json`.

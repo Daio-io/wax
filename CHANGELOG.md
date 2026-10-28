@@ -26,6 +26,10 @@
 
 ### Features
 
+- Support one-shot configless `wax scan` runs with one `--language`, repeatable
+  repo-relative `--root` values, and `--design-system` selecting a remembered
+  id or local, HTTP, or Git registry. `--tag` refines Git selectors and
+  `--offline` reuses an immutable cached snapshot without source I/O.
 - Add the `wax-search` agent workflow for source-backed component and token
   selection. Tested examples cover configured apps, remembered systems, offline
   caches, refresh-safe snapshot detail, ambiguity, no matches, and unavailable
