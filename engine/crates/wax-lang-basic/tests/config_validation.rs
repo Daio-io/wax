@@ -10,6 +10,59 @@ fn registry_key_is_accepted_as_canonical_registry_path() {
 }
 
 #[test]
+fn configured_scan_with_componentless_registry_still_reports_tokens() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let repo_root = tempdir.path();
+    std::fs::create_dir_all(repo_root.join("design-system")).expect("create registry dir");
+    std::fs::create_dir_all(repo_root.join("app/src")).expect("create source dir");
+    std::fs::write(
+        repo_root.join("design-system/registry.json"),
+        r#"{"schema_version":1,"components":[],"tokens":[{"id":"color.primary","key":"Theme.colors.primary","category":"color"}]}"#,
+    )
+    .expect("write registry");
+    std::fs::write(
+        repo_root.join("app/src/Screen.src"),
+        "Theme.colors.primary\n",
+    )
+    .expect("write source");
+
+    let mut config = serde_json::Map::new();
+    config.insert(
+        "registry".to_owned(),
+        serde_json::json!("design-system/registry.json"),
+    );
+    config.insert("roots".to_owned(), serde_json::json!(["app/src"]));
+    config.insert("file_extensions".to_owned(), serde_json::json!(["src"]));
+    let request = ScanRequest {
+        request_type: ScanRequestType::Scan,
+        api_version: WIRE_API_VERSION,
+        language_id: LanguageId::try_from("basic").expect("basic id must be valid"),
+        repo_root: repo_root.display().to_string(),
+        snapshot_id: "snap-componentless-registry".to_owned(),
+        config,
+    };
+
+    let facts = BasicLanguage::new()
+        .scan(&request)
+        .expect("empty components must scan");
+
+    assert_eq!(facts.counts.registry.component_count, 0);
+    assert!(facts.design_system_components.is_empty());
+    assert!(
+        facts
+            .token_sites
+            .iter()
+            .any(|site| site.token_id == "color.primary")
+    );
+    assert!(
+        facts
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "basic_capability_gap")
+    );
+}
+
+#[test]
 fn empty_roots_array_is_config_error_not_scaffold() {
     let mut config = serde_json::Map::new();
     config.insert(

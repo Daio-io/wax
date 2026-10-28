@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use wax_contract::{LanguageId, ScanFacts, ScanStatus};
+use wax_contract::{LanguageId, MatchStatus, ScanFacts, ScanStatus};
 use wax_lang_api::{ScanConfig, ScanRequest, ScanRequestType, WIRE_API_VERSION};
 use wax_lang_swift::{SwiftLanguage, SwiftScanError};
 
@@ -81,6 +81,52 @@ fn configured_scan_loads_registry_and_reports_missing_root_as_partial() {
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.code == "root_not_found")
+    );
+}
+
+#[test]
+fn configured_scan_with_componentless_registry_reports_non_registry_facts() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let repo_root = tempdir.path();
+    fs::create_dir_all(repo_root.join("design-system")).expect("create registry dir");
+    fs::create_dir_all(repo_root.join("Sources/App")).expect("create source dir");
+    fs::write(
+        repo_root.join("design-system/registry.json"),
+        r#"{"schema_version":1,"components":[],"tokens":[{"id":"color.primary","key":"Theme.colors.primary","category":"color"}]}"#,
+    )
+    .expect("write registry");
+    fs::write(
+        repo_root.join("Sources/App/Screen.swift"),
+        "import SwiftUI\n\nstruct LocalCard: View {\n    var body: some View { Text(\"Local\") }\n}\n\nstruct Screen: View {\n    var body: some View {\n        let color = Theme.colors.primary\n        LocalCard()\n        UnknownCard()\n    }\n}\n",
+    )
+    .expect("write source");
+
+    let mut config = ScanConfig::new();
+    config.insert(
+        "registry".to_owned(),
+        serde_json::json!("design-system/registry.json"),
+    );
+    config.insert("roots".to_owned(), serde_json::json!(["Sources/App"]));
+
+    let facts = SwiftLanguage::new()
+        .scan(&request(repo_root, config))
+        .expect("empty components must scan");
+
+    assert_eq!(facts.counts.registry.component_count, 0);
+    assert!(
+        facts
+            .local_components
+            .iter()
+            .any(|component| component.symbol == "LocalCard")
+    );
+    assert!(facts.usage_sites.iter().any(|site| {
+        site.symbol == "UnknownCard" && site.match_status == MatchStatus::Unresolved
+    }));
+    assert!(
+        facts
+            .token_sites
+            .iter()
+            .any(|site| site.token_id == "color.primary")
     );
 }
 

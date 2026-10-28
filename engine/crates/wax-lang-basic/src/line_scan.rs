@@ -429,13 +429,6 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, LineScanError> {
         }
     }
 
-    if canonical_symbols.is_empty() {
-        return Err(LineScanError::RegistryInvalid {
-            path: path.to_path_buf(),
-            reason: "registry must declare at least one component symbol".to_owned(),
-        });
-    }
-
     canonical_symbols.sort();
 
     let tokens = parse_registry_tokens(&value).map_err(|err| LineScanError::RegistryInvalid {

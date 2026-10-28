@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use wax_contract::{LanguageId, ScanStatus};
+use wax_contract::{LanguageId, MatchStatus, ScanStatus};
 use wax_lang_api::{ScanRequest, ScanRequestType, WIRE_API_VERSION};
 use wax_lang_react::{ReactConfigMode, ReactLanguage, ReactScanError, parse_react_scan_config};
 
@@ -110,6 +110,52 @@ fn valid_configured_config_loads_registry_symbols() {
     assert_eq!(facts.metrics.files_scanned, 2);
     assert!(facts.diagnostics.is_empty());
     assert_eq!(facts.language.parser_name, "swc");
+}
+
+#[test]
+fn configured_scan_with_componentless_registry_reports_non_registry_facts() {
+    let temp = tempfile::tempdir().expect("temp dir should be created");
+    let registry_dir = temp.path().join("design-system");
+    std::fs::create_dir_all(&registry_dir).expect("registry dir should be created");
+    std::fs::write(
+        registry_dir.join("registry.json"),
+        r#"{"schema_version":1,"components":[],"tokens":[{"id":"color.primary","key":"theme.colors.primary","category":"color"}]}"#,
+    )
+    .expect("registry fixture should be written");
+    let src_dir = temp.path().join("src");
+    std::fs::create_dir_all(&src_dir).expect("src dir should be created");
+    std::fs::write(
+        src_dir.join("App.tsx"),
+        "export const LocalCard = () => <div />;\nexport function App() { return <><LocalCard/><UnknownCard/>{theme.colors.primary}</>; }\n",
+    )
+    .expect("source fixture should be written");
+
+    let facts = scan_with_repo_root(
+        temp.path().to_string_lossy().as_ref(),
+        serde_json::Value::Object(valid_config()),
+    )
+    .expect("empty components must scan");
+
+    assert_eq!(facts.counts.registry.component_count, 0);
+    assert!(
+        facts
+            .local_components
+            .iter()
+            .any(|component| component.symbol == "LocalCard")
+    );
+    assert!(
+        facts.usage_sites.iter().any(|site| {
+            site.symbol == "UnknownCard" && site.match_status == MatchStatus::Unresolved
+        }),
+        "expected unresolved UnknownCard, got: {:?}",
+        facts.usage_sites
+    );
+    assert!(
+        facts
+            .token_sites
+            .iter()
+            .any(|site| site.token_id == "color.primary")
+    );
 }
 
 #[test]
