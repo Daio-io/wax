@@ -87,30 +87,28 @@ impl EphemeralScanSelections {
             return Ok(None);
         }
 
-        let mut missing = Vec::new();
-        if args.design_system.is_none() {
-            missing.push("--design-system");
+        match (args.design_system, args.language) {
+            (Some(design_system), Some(language)) if !args.roots.is_empty() => Ok(Some(Self {
+                languages: vec![language.clone()],
+                scan_roots: BTreeMap::from([(language, args.roots)]),
+                design_system,
+                tag: args.tag,
+                offline: args.offline,
+            })),
+            (design_system, language) => {
+                let mut missing = Vec::new();
+                if design_system.is_none() {
+                    missing.push("--design-system");
+                }
+                if language.is_none() {
+                    missing.push("--language");
+                }
+                if args.roots.is_empty() {
+                    missing.push("--root");
+                }
+                Err(ScanCommandError::IncompleteConfiglessSelection { missing })
+            }
         }
-        if args.language.is_none() {
-            missing.push("--language");
-        }
-        if args.roots.is_empty() {
-            missing.push("--root");
-        }
-        if !missing.is_empty() {
-            return Err(ScanCommandError::IncompleteConfiglessSelection { missing });
-        }
-
-        let language = args.language.expect("language presence checked above");
-        Ok(Some(Self {
-            languages: vec![language.clone()],
-            scan_roots: BTreeMap::from([(language, args.roots)]),
-            design_system: args
-                .design_system
-                .expect("design-system presence checked above"),
-            tag: args.tag,
-            offline: args.offline,
-        }))
     }
 }
 
