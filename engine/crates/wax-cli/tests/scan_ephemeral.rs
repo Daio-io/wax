@@ -1,14 +1,17 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs;
+use std::io::{Read, Write};
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, MutexGuard};
+use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
-use wax_cli::cli::ScanStdoutFormat;
+use wax_cli::cli::{ConfiglessScanArgs, ScanStdoutFormat};
 use wax_cli::commands::scan::{
-    EphemeralScanSelections, ScanCommandOptions, ScanOutputRequest, repo_relative_dir_has_entries,
-    repo_relative_path_exists, run_scan_cli,
+    EphemeralScanSelections, ScanCommandError, ScanCommandOptions, ScanOutputRequest,
+    repo_relative_dir_has_entries, repo_relative_path_exists, run_scan_cli,
 };
 use wax_contract::LanguageId;
 use wax_core::registry_cache::RegistrySourceSpec;
@@ -116,6 +119,86 @@ fn write_pack_artifact(path: &Path, pack_name: &str) -> String {
 
 fn file_url(path: &Path) -> String {
     format!("file://{}", path.display())
+}
+
+fn host_target() -> &'static str {
+    if cfg!(all(target_arch = "aarch64", target_os = "macos")) {
+        "aarch64-apple-darwin"
+    } else if cfg!(all(target_arch = "x86_64", target_os = "macos")) {
+        "x86_64-apple-darwin"
+    } else if cfg!(all(
+        target_arch = "x86_64",
+        target_os = "linux",
+        target_env = "gnu"
+    )) {
+        "x86_64-unknown-linux-gnu"
+    } else if cfg!(all(
+        target_arch = "aarch64",
+        target_os = "linux",
+        target_env = "gnu"
+    )) {
+        "aarch64-unknown-linux-gnu"
+    } else if cfg!(all(
+        target_arch = "x86_64",
+        target_os = "windows",
+        target_env = "msvc"
+    )) {
+        "x86_64-pc-windows-msvc"
+    } else if cfg!(all(
+        target_arch = "aarch64",
+        target_os = "windows",
+        target_env = "msvc"
+    )) {
+        "aarch64-pc-windows-msvc"
+    } else {
+        "unsupported-target"
+    }
+}
+
+fn setup_binary_scan_pack(root: &Path) -> (PathBuf, String) {
+    let artifact_path = root.join("basic.tgz");
+    let digest = write_pack_artifact(&artifact_path, "wax-lang-basic");
+    let wax_home = root.join("wax-home");
+    fs::create_dir_all(&wax_home).expect("create wax home");
+    install_basic_scan_fixture_pack(&wax_home, &digest, wax_contract::ScanStatus::Complete);
+    let installed_manifest = wax_home.join("langs/basic/0.1.0/manifest.json");
+    let manifest = fs::read_to_string(&installed_manifest)
+        .expect("read installed manifest")
+        .replace("test-target", host_target());
+    fs::write(installed_manifest, manifest).expect("update installed manifest target");
+    let pack_index = root.join("pack-index.json");
+    fs::write(
+        &pack_index,
+        format!(
+            r#"[{{"id":"basic","version":"0.1.0","api_version":1,"targets":{{"{}":{{"url":"{}","sha256":"{}"}}}}}}]"#,
+            host_target(),
+            file_url(&artifact_path),
+            digest
+        ),
+    )
+    .expect("write pack index fixture");
+    (wax_home, file_url(&pack_index))
+}
+
+fn serve_registry_once(body: Vec<u8>) -> (String, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind registry fixture");
+    let address = listener.local_addr().expect("registry fixture address");
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept registry request");
+        let mut request = [0_u8; 4096];
+        let _ = stream.read(&mut request).expect("read registry request");
+        let headers = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        stream
+            .write_all(headers.as_bytes())
+            .expect("write registry response headers");
+        stream
+            .write_all(&body)
+            .expect("write registry response body");
+    });
+    (format!("http://{address}/basic.registry.json"), handle)
 }
 
 #[cfg(unix)]
@@ -281,6 +364,329 @@ fn scan_without_config_non_tty_suggests_init() {
 }
 
 #[test]
+fn configless_flags_require_design_system_language_and_root() {
+    let root = TestDir::new("configless-required-flags");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(&repo).expect("create repo");
+
+    for supplied_args in [
+        vec!["--design-system", "acme"],
+        vec!["--language", "basic"],
+        vec!["--root", "src"],
+        vec!["--design-system", "acme", "--language", "basic"],
+        vec!["--design-system", "acme", "--root", "src"],
+        vec!["--language", "basic", "--root", "src"],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+            .arg("scan")
+            .arg("--repo-root")
+            .arg(&repo)
+            .args(&supplied_args)
+            .stdin(Stdio::null())
+            .output()
+            .expect("run wax scan");
+
+        assert!(
+            !output.status.success(),
+            "partial configless arguments unexpectedly succeeded: {supplied_args:?}"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("required"),
+            "partial configless arguments should report required peers; args={supplied_args:?}, stderr={stderr}"
+        );
+    }
+}
+
+#[test]
+fn configless_direct_conversion_returns_typed_incomplete_selection() {
+    let error = EphemeralScanSelections::from_cli(ConfiglessScanArgs {
+        design_system: Some("acme".to_owned()),
+        language: None,
+        roots: vec![PathBuf::from("src")],
+        tag: None,
+        offline: false,
+    })
+    .expect_err("incomplete direct selection should fail");
+
+    assert!(matches!(
+        error,
+        ScanCommandError::IncompleteConfiglessSelection { missing }
+            if missing == vec!["--language"]
+    ));
+}
+
+#[test]
+fn configless_flags_conflict_with_root_group() {
+    let root = TestDir::new("configless-root-group-conflict");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(&repo).expect("create repo");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .arg("scan")
+        .arg("--repo-root")
+        .arg(&repo)
+        .args([
+            "--design-system",
+            "acme",
+            "--language",
+            "basic",
+            "--root",
+            "src",
+            "--root-group",
+            "production",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .expect("run wax scan");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cannot be used with"),
+        "stderr was: {stderr}"
+    );
+}
+
+#[test]
+fn configless_local_registry_scan_non_tty() {
+    let _guard = env_lock();
+    let root = TestDir::new("configless-local-registry");
+    let artifact_path = root.path.join("basic.tgz");
+    let digest = write_pack_artifact(&artifact_path, "wax-lang-basic");
+    let wax_home = root.path.join("wax-home");
+    fs::create_dir_all(&wax_home).expect("create wax home");
+    install_basic_scan_fixture_pack(&wax_home, &digest, wax_contract::ScanStatus::Complete);
+    let installed_manifest = wax_home.join("langs/basic/0.1.0/manifest.json");
+    let manifest = fs::read_to_string(&installed_manifest)
+        .expect("read installed manifest")
+        .replace("test-target", host_target());
+    fs::write(installed_manifest, manifest).expect("update installed manifest target");
+    let pack_index = root.path.join("pack-index.json");
+    fs::write(
+        &pack_index,
+        format!(
+            r#"[{{"id":"basic","version":"0.1.0","api_version":1,"targets":{{"{}":{{"url":"{}","sha256":"{}"}}}}}}]"#,
+            host_target(),
+            file_url(&artifact_path),
+            digest
+        ),
+    )
+    .expect("write pack index fixture");
+    let registry = root.path.join("basic.registry.json");
+    fs::write(
+        &registry,
+        r#"{"schema_version":1,"language":"basic","components":[]}"#,
+    )
+    .expect("write registry fixture");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(repo.join("src")).expect("create scan root");
+    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
+    let _pack_index = EnvVarGuard::set("WAX_PACK_INDEX", file_url(&pack_index));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .arg("scan")
+        .arg("--repo-root")
+        .arg(&repo)
+        .args(["--language", "basic", "--root", "src", "--design-system"])
+        .arg(&registry)
+        .args(["--no-auto-install", "--strict"])
+        .stdin(Stdio::null())
+        .output()
+        .expect("run configless local scan");
+
+    assert!(
+        output.status.success(),
+        "stderr was: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(repo_relative_path_exists(
+        &repo,
+        ".wax/out/scan-merged.json"
+    ));
+    assert!(!repo_relative_path_exists(&repo, ".wax/wax.config.json"));
+    assert!(!repo_relative_path_exists(&repo, ".wax/wax.lock.json"));
+    assert!(!repo_relative_dir_has_entries(&repo, ".wax/registries"));
+}
+
+#[test]
+fn configless_selection_rejected_when_config_exists() {
+    let root = TestDir::new("configless-config-conflict");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(repo.join(".wax")).expect("create config directory");
+    fs::write(
+        repo.join(".wax/wax.config.json"),
+        r#"{"schema_version":2,"languages":[]}"#,
+    )
+    .expect("write committed config");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .arg("scan")
+        .arg("--repo-root")
+        .arg(&repo)
+        .args([
+            "--language",
+            "basic",
+            "--root",
+            "src",
+            "--design-system",
+            "acme",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .expect("run conflicting scan");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cannot be used with committed repository config"),
+        "stderr was: {stderr}"
+    );
+}
+
+#[test]
+fn configless_roots_use_config_equivalent_validation() {
+    let root = TestDir::new("configless-root-validation");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(&repo).expect("create repo");
+    let absolute = root.path.join("absolute");
+    let cases = [
+        ("", "a value is required"),
+        (
+            absolute.to_str().expect("utf-8 path"),
+            "must be repo-relative",
+        ),
+        ("../src", "must not contain parent-directory segments"),
+    ];
+
+    for (scan_root, expected) in cases {
+        let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+            .arg("scan")
+            .arg("--repo-root")
+            .arg(&repo)
+            .args([
+                "--language",
+                "basic",
+                "--root",
+                scan_root,
+                "--design-system",
+                "acme",
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .expect("run scan with invalid root");
+
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains(expected),
+            "root={scan_root:?}, stderr was: {stderr}"
+        );
+    }
+}
+
+#[test]
+fn configless_http_then_offline_cached_scan() {
+    let _guard = env_lock();
+    let root = TestDir::new("configless-http-offline");
+    let (wax_home, pack_index) = setup_binary_scan_pack(&root.path);
+    let repo = root.path.join("repo");
+    fs::create_dir_all(repo.join("src")).expect("create scan root");
+    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
+    let _pack_index = EnvVarGuard::set("WAX_PACK_INDEX", pack_index);
+    let (registry_url, server) =
+        serve_registry_once(br#"{"schema_version":1,"language":"basic","components":[]}"#.to_vec());
+
+    let first = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .arg("scan")
+        .arg("--repo-root")
+        .arg(&repo)
+        .args([
+            "--language",
+            "basic",
+            "--root",
+            "src",
+            "--design-system",
+            &registry_url,
+            "--no-auto-install",
+            "--strict",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .expect("run online HTTP scan");
+    server.join().expect("join registry fixture");
+    assert!(
+        first.status.success(),
+        "online stderr was: {}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+
+    let second = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .arg("scan")
+        .arg("--repo-root")
+        .arg(&repo)
+        .args([
+            "--language",
+            "basic",
+            "--root",
+            "src",
+            "--design-system",
+            &registry_url,
+            "--offline",
+            "--no-auto-install",
+            "--strict",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .expect("run cached offline HTTP scan");
+
+    assert!(
+        second.status.success(),
+        "offline stderr was: {}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+}
+
+#[test]
+fn configless_offline_cache_miss_is_typed() {
+    let _guard = env_lock();
+    let root = TestDir::new("configless-offline-miss");
+    let (wax_home, pack_index) = setup_binary_scan_pack(&root.path);
+    let repo = root.path.join("repo");
+    fs::create_dir_all(repo.join("src")).expect("create scan root");
+    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
+    let _pack_index = EnvVarGuard::set("WAX_PACK_INDEX", pack_index);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .arg("scan")
+        .arg("--repo-root")
+        .arg(&repo)
+        .args([
+            "--language",
+            "basic",
+            "--root",
+            "src",
+            "--design-system",
+            "http://127.0.0.1:9/unseen.registry.json",
+            "--offline",
+            "--no-auto-install",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .expect("run offline cache miss scan");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("offline_cache_miss"),
+        "stderr was: {stderr}"
+    );
+    assert!(!repo_relative_path_exists(&repo, ".wax/wax.config.json"));
+    assert!(!repo_relative_path_exists(&repo, ".wax/wax.lock.json"));
+    assert!(!repo_relative_dir_has_entries(&repo, ".wax/registries"));
+}
+
+#[test]
 fn ephemeral_scan_does_not_write_repo_config_or_registries() {
     let _guard = env_lock();
     let root = TestDir::new("scan-ephemeral");
@@ -331,7 +737,9 @@ fn ephemeral_scan_does_not_write_repo_config_or_registries() {
                     LanguageId::try_from("basic").unwrap(),
                     vec![PathBuf::from("src")],
                 )]),
-                design_system_id: "acme".to_owned(),
+                design_system: "acme".to_owned(),
+                tag: None,
+                offline: false,
             }),
         },
         &mut Vec::new(),
@@ -403,7 +811,9 @@ fn ephemeral_json_summary_stdout_omits_init_hint() {
                     LanguageId::try_from("basic").unwrap(),
                     vec![PathBuf::from("src")],
                 )]),
-                design_system_id: "acme".to_owned(),
+                design_system: "acme".to_owned(),
+                tag: None,
+                offline: false,
             }),
         },
         &mut output,
@@ -474,7 +884,9 @@ fn ephemeral_output_writes_json_summary_under_repo_root() {
                     LanguageId::try_from("basic").unwrap(),
                     vec![PathBuf::from("src")],
                 )]),
-                design_system_id: "acme".to_owned(),
+                design_system: "acme".to_owned(),
+                tag: None,
+                offline: false,
             }),
         },
         &mut output,
@@ -537,7 +949,9 @@ fn ephemeral_strict_scan_writes_output_before_failing_on_partial_result() {
                     LanguageId::try_from("basic").unwrap(),
                     vec![PathBuf::from("src")],
                 )]),
-                design_system_id: "acme".to_owned(),
+                design_system: "acme".to_owned(),
+                tag: None,
+                offline: false,
             }),
         },
         &mut output,
@@ -614,7 +1028,9 @@ fn ephemeral_scan_uses_source_backed_remembered_registry_without_publisher_check
                     LanguageId::try_from("basic").unwrap(),
                     vec![PathBuf::from("src")],
                 )]),
-                design_system_id: "acme".to_owned(),
+                design_system: "acme".to_owned(),
+                tag: None,
+                offline: false,
             }),
         },
         &mut Vec::new(),

@@ -167,6 +167,8 @@ Run all enabled language packs and write merged scan facts.
 ```text
 wax scan [--repo-root PATH] [--strict] [--no-auto-install]
   [--concurrency N] [--root-group ID]
+  [--design-system ID_OR_SOURCE] [--language ID] [--root PATH]...
+  [--tag TAG_OR_COMMIT] [--offline]
   [--format summary|quiet|json-summary|markdown]
   [--compact]
   [--output FORMAT=PATH]... [--allow-absolute-output]
@@ -178,6 +180,14 @@ wax scan [--repo-root PATH] [--strict] [--no-auto-install]
 `markdown`. `--output FORMAT=PATH` is repeatable and unions with config
 `outputs[]`; artifact formats are `json-summary`, `graph-data`, `markdown`, and
 `html`. Absolute artifact paths require `--allow-absolute-output`.
+
+Without `.wax/wax.config.json`, pass a complete configless selection together:
+`--design-system` (remembered id or explicit local/HTTP/`git+` source),
+`--language`, and at least one repo-relative `--root`. `--tag` refines an
+explicit Git selector. `--offline` resolves only an already cached immutable
+snapshot. Configless runs write operational cache and `.wax/out/` only; use
+`wax init` for reproducible saved setup. `--root-group` conflicts with the
+configless flag group.
 
 `--compact` emits one agent-oriented text record with the merged path, ordered
 language statuses, headline counts, failures, artifacts, and ephemeral marker.

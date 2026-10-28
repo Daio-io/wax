@@ -56,4 +56,14 @@ test('every shipped skill has a discoverable page and safety boundary', async ()
     waxScan,
     /optional(?:ly)?[\s\S]{0,120}(?:refresh|sync)|wax sync[\s\S]{0,80}optional/i,
   );
+  assert.match(waxScan, /--design-system/);
+  assert.match(waxScan, /--language/);
+  assert.match(waxScan, /--root/);
+  assert.match(waxScan, /--offline/);
+  assert.match(
+    waxScan,
+    /wax scan[\s\S]{0,120}--language react --root src[\s\S]{0,80}--design-system/,
+  );
+  assert.match(waxScan, /configless|one-shot/i);
+  assert.match(waxScan, /wax init/);
 });

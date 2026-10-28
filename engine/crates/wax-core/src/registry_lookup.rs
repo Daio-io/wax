@@ -13,6 +13,7 @@ use crate::paths::state_file;
 use crate::registry_cache::{
     RegistryCache, RegistryCacheError, RegistryReadPolicy, RegistrySnapshot, RegistrySourceSpec,
 };
+use crate::registry_memory::{resolve_remembered_registry, show_remembered_design_system};
 
 /// Inputs used to select immutable registry snapshots.
 #[derive(Debug, Clone)]
@@ -126,15 +127,39 @@ fn resolve_remembered_selector(
         return Ok(None);
     };
     let local_source;
+    let published_source;
     let source = if let Some(source) = remembered.source.as_ref() {
         source
     } else {
-        local_source = RegistrySourceSpec::PublisherRepository {
-            root: remembered.repo_root.clone(),
-            system_id: Some(selector.to_owned()),
-            language: options.language.clone(),
+        let state_path = match &options.state_path {
+            Some(path) => path.clone(),
+            None => state_file().map_err(invalid_registry)?,
         };
-        &local_source
+        let summary =
+            show_remembered_design_system(&state_path, selector).map_err(invalid_registry)?;
+        let resolved = resolve_remembered_registry(
+            &summary,
+            options.language.as_ref().ok_or_else(|| {
+                RegistryLookupError::new(
+                    RegistryLookupErrorCode::InvalidArgument,
+                    "remembered publisher lookup requires a language",
+                )
+            })?,
+        )
+        .map_err(invalid_registry)?;
+        if resolved.design_system_local_source.is_none() {
+            published_source =
+                RegistrySourceSpec::parse(&resolved.config_source, options.language.clone())
+                    .map_err(map_cache_error)?;
+            &published_source
+        } else {
+            local_source = RegistrySourceSpec::PublisherRepository {
+                root: remembered.repo_root.clone(),
+                system_id: Some(selector.to_owned()),
+                language: options.language.clone(),
+            };
+            &local_source
+        }
     };
     let cache = lookup_cache(options)?;
     let mut snapshots = if let Some(expected) = &options.snapshot {

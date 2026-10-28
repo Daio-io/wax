@@ -15,6 +15,43 @@ pub const WAXRC_SCHEMA_VERSION: u32 = 2;
 /// Default absolute numeric tolerance for near token matching.
 pub const DEFAULT_NUMERIC_TOKEN_TOLERANCE: f64 = 2.0;
 
+/// Why a repository-relative scan root is invalid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum RootPathError {
+    /// The root is empty.
+    #[error("must be non-empty")]
+    Empty,
+    /// The root is absolute.
+    #[error("must be repo-relative")]
+    Absolute,
+    /// The root contains a parent-directory segment.
+    #[error("must not contain parent-directory segments")]
+    ParentSegment,
+}
+
+/// Validates one repository-relative scan root.
+///
+/// # Errors
+///
+/// Returns the violated path rule when `root` is empty, absolute, or escapes
+/// the repository with a parent-directory segment.
+pub fn validate_repo_relative_root(root: &Path) -> Result<(), RootPathError> {
+    let normalized = normalize_repo_relative_path(root);
+    let is_windows_absolute = normalized.len() >= 3
+        && normalized.as_bytes()[1] == b':'
+        && normalized.as_bytes()[2] == b'/';
+    if root.as_os_str().is_empty() || root.to_string_lossy().trim().is_empty() {
+        return Err(RootPathError::Empty);
+    }
+    if normalized.starts_with('/') || is_windows_absolute {
+        return Err(RootPathError::Absolute);
+    }
+    if normalized.split('/').any(|segment| segment == "..") {
+        return Err(RootPathError::ParentSegment);
+    }
+    Ok(())
+}
+
 fn default_numeric_token_tolerance() -> f64 {
     DEFAULT_NUMERIC_TOKEN_TOLERANCE
 }
@@ -794,23 +831,9 @@ impl LanguageEntryRaw {
 
 fn validate_root_paths(field: &str, roots: &[String]) -> Result<(), serde_json::Error> {
     for (index, root) in roots.iter().enumerate() {
-        let normalized = normalize_repo_relative_path(Path::new(root));
-        let is_windows_absolute = normalized.len() >= 3
-            && normalized.as_bytes()[1] == b':'
-            && normalized.as_bytes()[2] == b'/';
-        if root.trim().is_empty() {
+        if let Err(error) = validate_repo_relative_root(Path::new(root)) {
             return Err(serde_json::Error::custom(format!(
-                "{field}[{index}] must be non-empty"
-            )));
-        }
-        if normalized.starts_with('/') || is_windows_absolute {
-            return Err(serde_json::Error::custom(format!(
-                "{field}[{index}] must be repo-relative"
-            )));
-        }
-        if normalized.split('/').any(|segment| segment == "..") {
-            return Err(serde_json::Error::custom(format!(
-                "{field}[{index}] must not contain parent-directory segments"
+                "{field}[{index}] {error}"
             )));
         }
     }

@@ -246,6 +246,26 @@ wax scan
 wax scan --compact
 ```
 
+For a one-shot scan in a repository without `.wax/wax.config.json`, select one
+language, repeat `--root` for each repository-relative source root, and provide
+a remembered design-system id or an explicit local, HTTP, or `git+` registry
+source:
+
+```bash
+wax scan --language react --root src \
+  --design-system https://design.example.com/wax/react.registry.json
+
+wax scan --language react --root src \
+  --design-system acme --offline
+```
+
+`--tag` refines an explicit Git selector. `--offline` forbids registry source
+I/O and requires the selected immutable snapshot to already be cached. These
+configless scans write operational cache and `.wax/out/` data only; they do not
+create `.wax/wax.config.json`, `.wax/wax.lock.json`, or `.wax/registries/`.
+Use `wax init` and committed config/lockfiles for reproducible team and CI
+scans.
+
 Wax writes results under `.wax/out/`, including `.wax/out/scan-merged.json`.
 The default scan is best effort: it exits zero when the scan artifact is
 produced, even if a language reports `partial` or `failed`. For CI, add

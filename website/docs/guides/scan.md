@@ -15,6 +15,26 @@ wax scan
 Optionally run `wax sync` between validate and scan when you want to refresh
 app registry snapshots from remembered global sources.
 
+For a one-shot configless scan in a repository without `.wax/wax.config.json`,
+select one language, repeat `--root` for each repository-relative source root,
+and provide a remembered design-system id or an explicit local, HTTP, or `git+`
+registry source:
+
+```bash
+wax scan --language react --root src \
+  --design-system https://design.example.com/wax/react.registry.json
+
+wax scan --language react --root src \
+  --design-system acme --offline
+```
+
+`--tag` refines an explicit Git selector. `--offline` forbids registry source
+I/O and requires the selected immutable snapshot to already be cached. These
+configless scans write operational cache and `.wax/out/` data only; they do not
+create `.wax/wax.config.json`, `.wax/wax.lock.json`, or `.wax/registries/`.
+Use `wax init` and committed config/lockfiles for reproducible team and CI
+scans.
+
 Wax writes the merged facts to `.wax/out/scan-merged.json`. The default scan is
 best effort: it can produce an artifact and exit successfully when a language is
 `partial` or `failed`. Use strict mode when those statuses must fail the run:

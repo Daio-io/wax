@@ -10,7 +10,7 @@ use wax_core::digest::sha256_hex;
 use wax_core::global_state::{GlobalState, RememberedDesignSystem, save_global_state};
 use wax_core::registry_cache::{RegistryCache, RegistrySourceSpec};
 use wax_core::registry_lookup::{RegistryLookupOptions, resolve_lookup_snapshots};
-use wax_core::registry_memory::add_remembered_registry;
+use wax_core::registry_memory::{add_remembered_registry, remember_design_system};
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -506,6 +506,53 @@ fn remembered_id_wins_over_colliding_publisher_system_id() {
     .expect("remembered id should win over publisher id");
 
     assert_eq!(snapshots[0].reference.digest, sha256_hex(remembered_bytes));
+}
+
+#[test]
+fn remembered_local_publisher_uses_published_source() {
+    let root = TestDir::new("remembered-published-source");
+    let repo = root.0.join("publisher");
+    fs::create_dir_all(repo.join(".wax/registries")).expect("create registries");
+    let authoring = br#"{"schema_version":1,"language":"compose","components":[{"id":"authoring","symbol":"Authoring"}]}"#;
+    let published = br#"{"schema_version":1,"language":"compose","components":[{"id":"published","symbol":"Published"}]}"#;
+    fs::write(repo.join(".wax/registries/compose.json"), authoring)
+        .expect("write authoring registry");
+    let published_path = root.0.join("published-compose.json");
+    fs::write(&published_path, published).expect("write published registry");
+    fs::write(
+        repo.join(".wax/wax.config.json"),
+        format!(
+            r#"{{
+  "schema_version": 2,
+  "languages": {{}},
+  "design_systems": {{
+    "acme": {{
+      "name": "Acme",
+      "registries": {{
+        "compose": {{"source": ".wax/registries/compose.json", "published_source": "file://{}"}}
+      }}
+    }}
+  }}
+}}"#,
+            published_path.display()
+        ),
+    )
+    .expect("write publisher config");
+    let state_path = root.0.join("wax-home/state.json");
+    remember_design_system(&state_path, "acme", "Acme", &repo).expect("remember publisher");
+
+    let snapshots = resolve_lookup_snapshots(&RegistryLookupOptions {
+        repo_root: root.0.join("standalone"),
+        selector: Some("acme".to_owned()),
+        language: Some(language("compose")),
+        tag: None,
+        snapshot: None,
+        offline: false,
+        state_path: Some(state_path),
+    })
+    .expect("resolve remembered publisher");
+
+    assert_eq!(snapshots[0].reference.digest, sha256_hex(published));
 }
 
 #[test]

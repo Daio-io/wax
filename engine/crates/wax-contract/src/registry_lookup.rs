@@ -140,6 +140,23 @@ pub enum RegistryLookupErrorCode {
     SnapshotMismatch,
 }
 
+impl RegistryLookupErrorCode {
+    /// Returns the stable serialized error-code label.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::InvalidArgument => "invalid_argument",
+            Self::SourceNotFound => "source_not_found",
+            Self::InvalidRegistry => "invalid_registry",
+            Self::OfflineCacheMiss => "offline_cache_miss",
+            Self::LockedSnapshotUnavailable => "locked_snapshot_unavailable",
+            Self::AmbiguousEntry => "ambiguous_entry",
+            Self::EntryNotFound => "entry_not_found",
+            Self::SnapshotMismatch => "snapshot_mismatch",
+        }
+    }
+}
+
 /// Typed registry lookup failure used by JSON output and core boundaries.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Error)]
 #[error("{message}")]
