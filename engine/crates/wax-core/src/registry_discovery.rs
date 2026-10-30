@@ -418,9 +418,9 @@ pub fn discover_registry(
     )?;
     // Packs may emit provisional metadata; only creator-authored associations are
     // eligible for attachment materialization and publication.
-    retain_creator_metadata(&creator_seed, &mut discovered.document);
+    retain_creator_metadata(&creator_seed, &mut discovered.document, write_mode);
     let mut diagnostics = discovered.diagnostics;
-    let mut merged = write_mode.publish(existing.as_ref(), &discovered.document)?;
+    let mut merged = write_mode.apply(existing.as_ref(), &discovered.document)?;
     diagnostics.extend(materialize_registry_attachments(
         options.repo_root,
         &mut merged.document,
@@ -927,7 +927,7 @@ impl DiscoveryWriteMode {
         if force { Self::Replace } else { Self::Merge }
     }
 
-    fn publish(
+    fn apply(
         self,
         existing: Option<&RegistryDocument>,
         discovered: &RegistryDocument,
@@ -945,12 +945,17 @@ fn repo_relative_path(repo_root: &Path, path: &Path) -> String {
         .unwrap_or_else(|_| path.display().to_string())
 }
 
-fn retain_creator_metadata(seed: &RegistryDocument, discovered: &mut RegistryDocument) {
+fn retain_creator_metadata(
+    seed: &RegistryDocument,
+    discovered: &mut RegistryDocument,
+    mode: DiscoveryWriteMode,
+) {
     for component in &mut discovered.components {
-        component.metadata = seed
-            .components
-            .iter()
-            .find(|seed_component| seed_component.id == component.id)
+        let by_id = seed.components.iter().find(|seed_component| {
+            seed_component.id == component.id
+                && (mode.matches_by_id() || seed_component.symbol == component.symbol)
+        });
+        component.metadata = by_id
             .or_else(|| unique_component_identity_match(&seed.components, component))
             .and_then(|seed_component| seed_component.metadata.clone());
     }
@@ -961,6 +966,12 @@ fn retain_creator_metadata(seed: &RegistryDocument, discovered: &mut RegistryDoc
             .find(|seed_token| seed_token.id == token.id)
             .or_else(|| unique_token_identity_match(&seed.tokens, &token.key))
             .and_then(|seed_token| seed_token.metadata.clone());
+    }
+}
+
+impl DiscoveryWriteMode {
+    fn matches_by_id(self) -> bool {
+        matches!(self, Self::Merge)
     }
 }
 

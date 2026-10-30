@@ -57,7 +57,7 @@ wax registry discover --language ID [--root PATH]... [--dry-run] [--force]
 
 `--language` is required; `--root` is repeatable; `--repo-root` defaults to `.`.
 `--dry-run` prints merged registry JSON without writing. `--force` is retained
-for compatibility; existing registries are refreshed by lossless merge.
+to replace the discovered component set; symbols no longer returned are pruned while matched authored fields are preserved.
 
 ### `wax registry add`
 

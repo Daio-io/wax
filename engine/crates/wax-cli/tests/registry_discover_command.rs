@@ -724,6 +724,11 @@ fn force_prunes_symbols_absent_from_discovery() {
             .iter()
             .any(|component| component["symbol"] == "SecondaryButton")
     );
+    assert!(
+        components
+            .iter()
+            .any(|component| component["symbol"] == "QualifiedButton")
+    );
     assert_eq!(components[0]["metadata"]["description"], "Keep me");
     assert_eq!(written["tokens"][0]["id"], "color.brand");
 }

@@ -168,17 +168,18 @@ Use configless discovery: **always pass `--root`** and do not assume configured 
 
    - Ask about exports that look like helpers, demos, previews, aliases, or duplicate public components.
    - Ask before excluding discovered symbols from the registry.
-   - `--force` is retained for compatibility; existing registries are refreshed by a lossless merge.
+   - `--force` replaces the discovered component set, pruning symbols no longer returned by the language pack while preserving matched authored fields.
    - Require **explicit approval** for component additions, alias/tag additions, and value changes; require a separate approval for any removals.
 
-8. Write the registry only after review. Existing registries are refreshed by a lossless merge that preserves tokens, aliases, tags, metadata, values, and generated details; `--force` remains accepted as a compatibility flag and does not discard creator data. Merge only approved alias/tag additions into existing arrays. Preserve all authored aliases and tags on rediscover, and never remove either without separate approval.
+8. Write the registry only after review. Existing registries are refreshed by a lossless merge by default; with `--force`, replace the discovered component set while preserving explicit tokens, root extensions, and matched authored fields. Merge only approved alias/tag additions into existing arrays. Preserve all authored aliases and tags on rediscover, and never remove either without separate approval.
 
-   Treat every repeat run as lossless rediscovery: preserve authored component
-   and token ids, explicit source associations, package identities, aliases,
-   tags, metadata, canonical values, unknown extension fields, and generated
-   rich facts unless the reviewed diff explicitly changes them. Discovery
-   output is not authority to erase fields that the current extractor cannot
-   reproduce.
+   Treat repeat runs without `--force` as lossless rediscovery: preserve
+   authored component and token ids, explicit source associations, package
+   identities, aliases, tags, metadata, canonical values, unknown extension
+   fields, and generated rich facts unless the reviewed diff explicitly
+   changes them. With `--force`, preserve those fields only for components
+   matched to symbols returned by the current discovery. Discovery output is
+   not authority to erase fields that the current extractor cannot reproduce.
 
    Reserve the full discovery write for creating a new registry at a path that does not exist:
 
@@ -264,10 +265,10 @@ wax registry delete <id>
 - pass `--design-system` and `--name` when discovering in a design-system repo
 - do not blindly overwrite
 - keep discovery in `--dry-run` mode for existing registries
-- `--force` is compatibility-only; existing registries are refreshed by lossless merge
+- `--force` replaces the discovered component set and prunes symbols no longer returned
 - require explicit approval before writing component, alias/tag, token, or value additions and changes
 - require separate approval before any removals
-- **Never delete** components or tokens automatically
+- Never delete tokens automatically; `--force` may remove components absent from discovery
 - preserve ids, keys, aliases, tags, categories, metadata, and values outside the approved diff
 - component alias/tag suggestions are search metadata only, never scan authority
 - validate after write when Wax config exists

@@ -69,9 +69,9 @@ scan.
 
 ## Failures and guardrails
 
-- Keep existing registries in `--dry-run` mode; `--force` is compatibility-only
-  and does not authorize destructive replacement.
-- Never delete components or tokens automatically, and never remove authored
+- Keep existing registries in `--dry-run` mode; `--force` replaces the discovered
+  component set and prunes symbols no longer returned.
+- Never delete tokens automatically, and never remove authored
   aliases, metadata, values, or unknown fields outside the approved diff.
 - Ask about helper/demo/preview exports and ambiguous public components.
 - Resolve the publisher before editing; stop rather than treat an app snapshot
