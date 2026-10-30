@@ -28,7 +28,8 @@ use crate::registry_memory::{
     ensure_design_system_registry_source, remember_design_system,
 };
 use crate::registry_merge::{
-    RegistryMergeChange, RegistryMergeDiagnostic, RegistryMergeError, merge_registry,
+    RegistryMerge, RegistryMergeChange, RegistryMergeDiagnostic, RegistryMergeError,
+    merge_registry, replace_registry,
 };
 use crate::registry_source::is_external_registry_source;
 use crate::subprocess_discover::{DiscoverError, SubprocessLanguageDiscoverer};
@@ -48,7 +49,7 @@ pub struct RegistryDiscoverOptions<'a> {
     pub roots: Vec<PathBuf>,
     /// When true, generate JSON but do not write a file.
     pub dry_run: bool,
-    /// Compatibility flag; existing registries are always refreshed by lossless merge.
+    /// Replace the current discovered component set, pruning symbols no longer found.
     pub force: bool,
     /// Design-system id to remember after discovery.
     pub design_system_id: Option<&'a str>,
@@ -63,7 +64,7 @@ pub struct RegistryDiscoverResult {
     pub output_path: PathBuf,
     /// Generated registry JSON value.
     pub registry: Value,
-    /// Losslessly merged registry document.
+    /// Resulting registry document after merging or replacement.
     pub document: RegistryDocument,
     /// Structured entry-level changes made by discovery and merging.
     pub changes: Vec<RegistryMergeChange>,
@@ -398,8 +399,6 @@ pub fn discover_registry(
     let state = load_global_state(state_file()?)?;
     let pack_command = resolve_discover_pack_command(&state, lockfile.as_ref(), &language_id)?;
     let existing = load_existing_registry(&output_path)?;
-    // `force` remains a compatibility flag; publishing always uses the lossless merge path.
-    let _ = options.force;
     let seed = existing.clone().unwrap_or_else(|| RegistryDocument {
         schema_version: REGISTRY_SCHEMA_VERSION,
         components: Vec::new(),
@@ -407,19 +406,21 @@ pub fn discover_registry(
         extra: serde_json::Map::new(),
     });
     let creator_seed = seed.clone();
+    let write_mode = DiscoveryWriteMode::from_force(options.force);
     let mut discovered = discover_registry_document(
         options.repo_root,
         &language_id,
         &roots,
         pack_command,
         seed,
+        write_mode,
         DEFAULT_DISCOVER_TIMEOUT,
     )?;
     // Packs may emit provisional metadata; only creator-authored associations are
     // eligible for attachment materialization and publication.
-    retain_creator_metadata(&creator_seed, &mut discovered.document);
+    retain_creator_metadata(&creator_seed, &mut discovered.document, write_mode);
     let mut diagnostics = discovered.diagnostics;
-    let mut merged = merge_registry(existing.as_ref(), &discovered.document, true)?;
+    let mut merged = write_mode.apply(existing.as_ref(), &discovered.document)?;
     diagnostics.extend(materialize_registry_attachments(
         options.repo_root,
         &mut merged.document,
@@ -879,6 +880,7 @@ fn discover_registry_document(
     roots: &[PathBuf],
     pack_command: Vec<String>,
     registry: RegistryDocument,
+    mode: DiscoveryWriteMode,
     timeout: Duration,
 ) -> Result<wax_lang_api::DiscoverRegistryResult, RegistryDiscoverError> {
     let request = DiscoverRegistryRequest {
@@ -892,7 +894,11 @@ fn discover_registry_document(
         command: pack_command,
         timeout,
     });
-    match discoverer.discover_registry(request) {
+    let result = match mode {
+        DiscoveryWriteMode::Merge => discoverer.discover_registry(request),
+        DiscoveryWriteMode::Replace => discoverer.discover_replacement_registry(request),
+    };
+    match result {
         Ok(result) => Ok(result),
         Err(DiscoverError::Unsupported { .. }) => Err(RegistryDiscoverError::DiscoverUnsupported {
             language_id: language_id.clone(),
@@ -910,18 +916,46 @@ fn discover_registry_document(
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum DiscoveryWriteMode {
+    Merge,
+    Replace,
+}
+
+impl DiscoveryWriteMode {
+    fn from_force(force: bool) -> Self {
+        if force { Self::Replace } else { Self::Merge }
+    }
+
+    fn apply(
+        self,
+        existing: Option<&RegistryDocument>,
+        discovered: &RegistryDocument,
+    ) -> Result<RegistryMerge, RegistryMergeError> {
+        match self {
+            Self::Merge => merge_registry(existing, discovered, true),
+            Self::Replace => replace_registry(existing, discovered),
+        }
+    }
+}
+
 fn repo_relative_path(repo_root: &Path, path: &Path) -> String {
     path.strip_prefix(repo_root)
         .map(|relative| relative.to_string_lossy().replace('\\', "/"))
         .unwrap_or_else(|_| path.display().to_string())
 }
 
-fn retain_creator_metadata(seed: &RegistryDocument, discovered: &mut RegistryDocument) {
+fn retain_creator_metadata(
+    seed: &RegistryDocument,
+    discovered: &mut RegistryDocument,
+    mode: DiscoveryWriteMode,
+) {
     for component in &mut discovered.components {
-        component.metadata = seed
-            .components
-            .iter()
-            .find(|seed_component| seed_component.id == component.id)
+        let by_id = seed.components.iter().find(|seed_component| {
+            seed_component.id == component.id
+                && (mode.matches_by_id() || seed_component.symbol == component.symbol)
+        });
+        component.metadata = by_id
             .or_else(|| unique_component_identity_match(&seed.components, component))
             .and_then(|seed_component| seed_component.metadata.clone());
     }
@@ -932,6 +966,12 @@ fn retain_creator_metadata(seed: &RegistryDocument, discovered: &mut RegistryDoc
             .find(|seed_token| seed_token.id == token.id)
             .or_else(|| unique_token_identity_match(&seed.tokens, &token.key))
             .and_then(|seed_token| seed_token.metadata.clone());
+    }
+}
+
+impl DiscoveryWriteMode {
+    fn matches_by_id(self) -> bool {
+        matches!(self, Self::Merge)
     }
 }
 

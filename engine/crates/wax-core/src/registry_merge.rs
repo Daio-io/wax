@@ -1,4 +1,4 @@
-//! Lossless merging of discovered registry facts into authored registries.
+//! Merging and replacing discovered registry facts in authored registries.
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -10,7 +10,7 @@ use wax_contract::{
 /// Result of merging discovered facts into an optional authored registry.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RegistryMerge {
-    /// Losslessly merged registry document.
+    /// Resulting registry document after merging or replacement.
     pub document: RegistryDocument,
     /// Entry-level changes suitable for a preview UI.
     pub changes: Vec<RegistryMergeChange>,
@@ -36,6 +36,8 @@ pub enum RegistryMergeChangeKind {
     Added,
     /// Generated facts or observation status changed on an existing entry.
     Updated,
+    /// An entry absent from a replacement document was removed.
+    Removed,
 }
 
 /// Structured entry-level change returned for merge previews.
@@ -70,7 +72,7 @@ pub struct RegistryMergeDiagnostic {
     pub message: String,
 }
 
-/// Typed failures returned by [`merge_registry`].
+/// Typed failures returned by [`merge_registry`] and [`replace_registry`].
 #[derive(Debug, Error)]
 pub enum RegistryMergeError {
     /// The existing registry violates the public registry contract.
@@ -105,14 +107,7 @@ pub fn merge_registry(
     // both values. Keep the parameter so callers can pass the discovery signal
     // without a future API break.
     let _ = complete;
-    if let Some(existing) = existing {
-        existing
-            .validate()
-            .map_err(RegistryMergeError::InvalidExisting)?;
-    }
-    discovered
-        .validate()
-        .map_err(RegistryMergeError::InvalidDiscovered)?;
+    validate_inputs(existing, discovered)?;
 
     let Some(existing) = existing else {
         return Ok(RegistryMerge {
@@ -157,10 +152,123 @@ pub fn merge_registry(
     })
 }
 
-trait MergeEntry: Clone {
+/// Replaces an existing registry and reports stable-id entry changes.
+///
+/// Removals follow existing document order. Additions and updates follow the
+/// replacement document order, with components preceding tokens in both cases.
+///
+/// # Errors
+///
+/// Returns [`RegistryMergeError`] when either input violates the registry
+/// contract.
+pub fn replace_registry(
+    existing: Option<&RegistryDocument>,
+    replacement: &RegistryDocument,
+) -> Result<RegistryMerge, RegistryMergeError> {
+    validate_inputs(existing, replacement)?;
+
+    let Some(existing) = existing else {
+        return Ok(RegistryMerge {
+            document: replacement.clone(),
+            changes: discovered_changes(replacement),
+            diagnostics: Vec::new(),
+        });
+    };
+
+    let mut changes = Vec::new();
+    append_removed_changes(
+        &existing.components,
+        &replacement.components,
+        RegistryMergeEntryKind::Component,
+        &mut changes,
+    );
+    append_removed_changes(
+        &existing.tokens,
+        &replacement.tokens,
+        RegistryMergeEntryKind::Token,
+        &mut changes,
+    );
+    append_replacement_changes(
+        &existing.components,
+        &replacement.components,
+        RegistryMergeEntryKind::Component,
+        &mut changes,
+    );
+    append_replacement_changes(
+        &existing.tokens,
+        &replacement.tokens,
+        RegistryMergeEntryKind::Token,
+        &mut changes,
+    );
+
+    Ok(RegistryMerge {
+        document: replacement.clone(),
+        changes,
+        diagnostics: Vec::new(),
+    })
+}
+
+fn validate_inputs(
+    existing: Option<&RegistryDocument>,
+    discovered: &RegistryDocument,
+) -> Result<(), RegistryMergeError> {
+    if let Some(existing) = existing {
+        existing
+            .validate()
+            .map_err(RegistryMergeError::InvalidExisting)?;
+    }
+    discovered
+        .validate()
+        .map_err(RegistryMergeError::InvalidDiscovered)?;
+    Ok(())
+}
+
+trait MergeEntry: Clone + PartialEq {
     fn id(&self) -> &str;
     fn details(&self) -> Option<&RegistryDetails>;
     fn set_details(&mut self, details: Option<RegistryDetails>);
+}
+
+fn append_removed_changes<T: MergeEntry>(
+    existing: &[T],
+    replacement: &[T],
+    entry_kind: RegistryMergeEntryKind,
+    changes: &mut Vec<RegistryMergeChange>,
+) {
+    changes.extend(
+        existing
+            .iter()
+            .filter(|entry| {
+                !replacement
+                    .iter()
+                    .any(|replacement| replacement.id() == entry.id())
+            })
+            .map(|entry| RegistryMergeChange {
+                entry_kind,
+                id: entry.id().to_owned(),
+                kind: RegistryMergeChangeKind::Removed,
+            }),
+    );
+}
+
+fn append_replacement_changes<T: MergeEntry>(
+    existing: &[T],
+    replacement: &[T],
+    entry_kind: RegistryMergeEntryKind,
+    changes: &mut Vec<RegistryMergeChange>,
+) {
+    changes.extend(replacement.iter().filter_map(|entry| {
+        let kind = match existing.iter().find(|existing| existing.id() == entry.id()) {
+            Some(existing) if existing == entry => return None,
+            Some(_) => RegistryMergeChangeKind::Updated,
+            None => RegistryMergeChangeKind::Added,
+        };
+        Some(RegistryMergeChange {
+            entry_kind,
+            id: entry.id().to_owned(),
+            kind,
+        })
+    }));
 }
 
 impl MergeEntry for RegistryComponent {

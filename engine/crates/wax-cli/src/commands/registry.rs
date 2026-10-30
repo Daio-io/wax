@@ -32,7 +32,7 @@ pub struct RegistryDiscoverCommandOptions {
     pub roots: Vec<PathBuf>,
     /// When true, print registry JSON to stdout without writing a file.
     pub dry_run: bool,
-    /// When true, replace an existing registry file.
+    /// Replace the current discovered component set, pruning symbols no longer found.
     pub force: bool,
     /// Design-system id to remember after discovery.
     pub design_system_id: Option<String>,
@@ -446,6 +446,7 @@ fn write_dry_run_changes(changes: &[RegistryMergeChange]) {
         let kind = match change.kind {
             RegistryMergeChangeKind::Added => "added",
             RegistryMergeChangeKind::Updated => "updated",
+            RegistryMergeChangeKind::Removed => "removed",
         };
         eprintln!("  {kind} {entry_kind} {}", change.id);
     }

@@ -2,7 +2,7 @@
 //!
 //! The shared subprocess exchange owns stdio transport, spooling, and cleanup.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::io::{self, BufReader};
 use std::path::Path;
@@ -108,6 +108,37 @@ impl SubprocessLanguageDiscoverer {
         request: DiscoverRegistryRequest,
     ) -> Result<DiscoverRegistryResult, DiscoverError> {
         self.discover_registry_with_cancellation(request, &LanguageCancellationToken::new())
+    }
+
+    /// Discovers the current symbol set, then enriches a replacement registry seed.
+    ///
+    /// Explicit tokens and root extensions are preserved. Existing components are
+    /// retained only when one current symbol uniquely identifies them, which keeps
+    /// stable ids and creator-owned fields without carrying forward missing symbols.
+    ///
+    /// # Errors
+    ///
+    /// Returns the process, transport, timeout, protocol, and typed wire errors
+    /// documented by [`Self::discover`] and [`Self::discover_registry`]. Also
+    /// returns [`DiscoverError::IdCollision`] when distinct current symbols
+    /// generate the same registry id.
+    pub fn discover_replacement_registry(
+        &self,
+        mut request: DiscoverRegistryRequest,
+    ) -> Result<DiscoverRegistryResult, DiscoverError> {
+        let symbols = self.discover(DiscoverRequest {
+            request_type: DiscoverRequestType::Discover,
+            api_version: request.api_version,
+            language_id: request.language_id.clone(),
+            repo_root: request.repo_root.clone(),
+            roots: request.roots.clone(),
+        })?;
+        request.registry = replacement_seed(request.registry, symbols.components)?;
+        let mut enriched = self.discover_registry(request)?;
+        let mut diagnostics = symbols.diagnostics;
+        diagnostics.append(&mut enriched.diagnostics);
+        enriched.diagnostics = diagnostics;
+        Ok(enriched)
     }
 
     /// Runs rich registry discovery unless cancellation is requested first.
@@ -365,6 +396,79 @@ fn normalize_legacy_registry(
         });
     }
     Ok(document)
+}
+
+fn replacement_seed(
+    mut document: RegistryDocument,
+    discovered: Vec<DiscoveredRegistrySymbol>,
+) -> Result<RegistryDocument, DiscoverError> {
+    let existing = std::mem::take(&mut document.components);
+    let mut components = Vec::new();
+    let mut seen_ids = BTreeMap::new();
+    let mut matched_existing = BTreeSet::new();
+
+    for candidate in normalized_symbol_components(discovered) {
+        let generated_id = format!("ds.{}", kebab_case_symbol(&candidate.symbol));
+        let id_match = existing
+            .iter()
+            .position(|component| component.id == generated_id);
+        let identity_matches = existing
+            .iter()
+            .enumerate()
+            .filter(|(_, component)| {
+                component_package_matches(component, &candidate)
+                    && (component.symbol == candidate.symbol
+                        || component.aliases.contains(&candidate.symbol))
+            })
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        let matched = match (id_match, identity_matches.as_slice()) {
+            (Some(index), []) => Some(index),
+            (Some(index), [identity_index]) if index == *identity_index => Some(index),
+            (None, [index]) => Some(*index),
+            _ => None,
+        };
+        if let Some(index) = matched
+            && !matched_existing.insert(index)
+        {
+            continue;
+        }
+        let component = matched.map_or_else(
+            || RegistryComponent {
+                id: generated_id,
+                symbol: candidate.symbol,
+                package: candidate.package,
+                aliases: Vec::new(),
+                metadata: None,
+                details: None,
+                extra: serde_json::Map::new(),
+            },
+            |index| existing[index].clone(),
+        );
+
+        if let Some(first_symbol) = seen_ids.insert(component.id.clone(), component.symbol.clone())
+        {
+            return Err(DiscoverError::IdCollision {
+                id: component.id,
+                first_symbol,
+                second_symbol: component.symbol,
+            });
+        }
+        components.push(component);
+    }
+
+    document.components = components;
+    Ok(document)
+}
+
+fn component_package_matches(
+    component: &RegistryComponent,
+    discovered: &DiscoveredRegistrySymbol,
+) -> bool {
+    discovered
+        .package
+        .as_ref()
+        .is_none_or(|package| component.package.as_ref() == Some(package))
 }
 
 fn normalized_symbol_components(

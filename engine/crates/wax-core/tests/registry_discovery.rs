@@ -1100,14 +1100,14 @@ fn default_write_targets_centralized_registry_path() {
 }
 
 #[test]
-fn existing_registry_refreshes_without_force_and_preserves_creator_fields() {
+fn rediscovery_without_force_retains_unobserved_components() {
     let repo = TestRepo::new("registry-discovery-safe-refresh");
     let _guard = env_lock();
     let (_wax_home, _wax_home_guard) = install_compose_pack_fixture();
     write_compose_lockfile(repo.path());
     let output_path = repo.path().join(".wax/compose.registry.json");
     fs::create_dir_all(output_path.parent().expect("registry parent")).unwrap();
-    let original_contents = r#"{"schema_version":1,"components":[{"id":"primary","symbol":"PrimaryButton","metadata":{"description":"Authored"}}],"tokens":[{"id":"color.brand","key":"color.brand","category":"color"}]}
+    let original_contents = r#"{"schema_version":1,"components":[{"id":"primary","symbol":"PrimaryButton","metadata":{"description":"Authored"}},{"id":"legacy","symbol":"LegacyControl"}],"tokens":[{"id":"color.brand","key":"color.brand","category":"color"}]}
 "#;
     fs::write(&output_path, original_contents).unwrap();
 
@@ -1130,6 +1130,7 @@ fn existing_registry_refreshes_without_force_and_preserves_creator_fields() {
         Some("Authored")
     );
     assert_eq!(result.document.tokens.len(), 1);
+    assert_eq!(result.document.components[1].id, "legacy");
 }
 
 #[test]
@@ -1166,7 +1167,73 @@ fn invalid_existing_registry_failure_keeps_previous_file_recoverable() {
 }
 
 #[test]
-fn force_is_compatible_but_does_not_discard_creator_fields() {
+fn failed_forced_discovery_leaves_previous_file_unchanged() {
+    let repo = TestRepo::new("registry-discovery-force-failure");
+    let _guard = env_lock();
+    let (wax_home, _wax_home_guard) = install_compose_pack_fixture();
+    write_compose_lockfile(repo.path());
+    let script_path = wax_home.join("langs/compose/0.1.0/wax-lang-compose");
+    let marker_path = wax_home.join("replacement-discover-started");
+    fs::write(
+        &script_path,
+        format!(
+            r#"#!/bin/sh
+request=$(cat)
+case "$request" in
+  *'"type":"capabilities"'*)
+    printf '%s\n' '{{"type":"capabilities","api_version":1,"language_id":"compose","registry_details_v1":false}}'
+    ;;
+  *)
+    if [ -f '{}' ]; then
+      printf '%s\n' 'replacement enrichment failed' >&2
+      exit 7
+    fi
+    touch '{}'
+    printf '%s\n' '{{"type":"discover_symbols","api_version":1,"language_id":"compose","symbols":["PrimaryButton"],"diagnostics":[]}}'
+    ;;
+esac
+"#,
+            marker_path.display(),
+            marker_path.display(),
+        ),
+    )
+    .expect("replace fixture pack script");
+    #[cfg(unix)]
+    {
+        let mut permissions = fs::metadata(&script_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&script_path, permissions).unwrap();
+    }
+    let output_path = repo.path().join(".wax/compose.registry.json");
+    fs::create_dir_all(output_path.parent().expect("registry parent"))
+        .expect("create registry dir");
+    let original_contents =
+        r#"{"schema_version":1,"components":[{"id":"legacy","symbol":"LegacyControl"}]}"#;
+    fs::write(&output_path, original_contents).expect("seed registry");
+
+    let error = discover_registry(RegistryDiscoverOptions {
+        repo_root: repo.path(),
+        language_id: "compose",
+        roots: vec![compose_fixture_root()],
+        dry_run: false,
+        force: true,
+        design_system_id: None,
+        design_system_name: None,
+    })
+    .expect_err("failed replacement enrichment should abort publication");
+
+    assert!(matches!(
+        error,
+        RegistryDiscoverError::DiscoverSubprocess(_)
+    ));
+    assert_eq!(
+        fs::read_to_string(output_path).expect("read recoverable registry"),
+        original_contents
+    );
+}
+
+#[test]
+fn force_prunes_unobserved_components_and_keeps_observed_creator_fields() {
     let repo = TestRepo::new("registry-discovery-force");
     let _guard = env_lock();
     let (_wax_home, _wax_home_guard) = install_compose_pack_fixture();
@@ -1175,7 +1242,7 @@ fn force_is_compatible_but_does_not_discard_creator_fields() {
     fs::create_dir_all(output_path.parent().expect("registry parent")).unwrap();
     fs::write(
         &output_path,
-        r#"{"schema_version":1,"components":[{"id":"primary","symbol":"PrimaryButton","metadata":{"description":"Keep me"}}]}"#,
+        r#"{"schema_version":1,"publisher":"design-systems","components":[{"id":"primary","symbol":"PrimaryButton","metadata":{"description":"Keep me"}},{"id":"legacy","symbol":"LegacyControl"}],"tokens":[{"id":"color.brand","key":"color.brand","category":"color"}]}"#,
     )
     .unwrap();
 
@@ -1192,10 +1259,35 @@ fn force_is_compatible_but_does_not_discard_creator_fields() {
 
     let written = fs::read_to_string(&output_path).expect("read written registry");
     let written_json: serde_json::Value = serde_json::from_str(&written).expect("valid json");
-    assert_eq!(written_json["schema_version"], json!(1));
     assert_eq!(
-        written_json["components"][0]["metadata"]["description"],
-        json!("Keep me")
+        written_json,
+        json!({
+            "schema_version": 1,
+            "publisher": "design-systems",
+            "components": [
+                {
+                    "id": "primary",
+                    "symbol": "PrimaryButton",
+                    "metadata": {"description": "Keep me"},
+                    "details": {"status": "unavailable"},
+                },
+                {
+                    "id": "ds.qualified-button",
+                    "symbol": "QualifiedButton",
+                    "details": {"status": "unavailable"},
+                },
+                {
+                    "id": "ds.secondary-button",
+                    "symbol": "SecondaryButton",
+                    "details": {"status": "unavailable"},
+                },
+            ],
+            "tokens": [{
+                "id": "color.brand",
+                "key": "color.brand",
+                "category": "color",
+            }],
+        })
     );
 }
 

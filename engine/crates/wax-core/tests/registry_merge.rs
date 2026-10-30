@@ -1,10 +1,112 @@
 use wax_contract::{RegistryDocument, RegistryExtractionStatus, registry_from_json};
 use wax_core::registry_merge::{
     RegistryMergeChangeKind, RegistryMergeDiagnosticCode, RegistryMergeEntryKind, merge_registry,
+    replace_registry,
 };
 
 fn registry(json: &str) -> RegistryDocument {
     registry_from_json(json).expect("valid registry fixture")
+}
+
+#[test]
+fn replacement_reports_added_updated_and_removed_entries() {
+    let existing = registry(
+        r#"{
+            "schema_version": 1,
+            "components": [
+                {"id": "button", "symbol": "Button", "details": {"status": "complete"}},
+                {"id": "legacy", "symbol": "Legacy"}
+            ],
+            "tokens": [
+                {"id": "color.brand", "key": "color.brand", "category": "color"},
+                {"id": "color.legacy", "key": "color.legacy", "category": "color"}
+            ]
+        }"#,
+    );
+    let replacement = registry(
+        r#"{
+            "schema_version": 1,
+            "components": [
+                {"id": "button", "symbol": "Button", "details": {"status": "partial"}},
+                {"id": "card", "symbol": "Card"}
+            ],
+            "tokens": [
+                {"id": "color.brand", "key": "color.brand", "category": "color"},
+                {"id": "spacing.small", "key": "spacing.small", "category": "spacing"}
+            ]
+        }"#,
+    );
+
+    let result = replace_registry(Some(&existing), &replacement).expect("registry replaces");
+
+    assert_eq!(result.document, replacement);
+    assert_eq!(
+        result
+            .changes
+            .iter()
+            .map(|change| (change.entry_kind, change.id.as_str(), change.kind))
+            .collect::<Vec<_>>(),
+        [
+            (
+                RegistryMergeEntryKind::Component,
+                "legacy",
+                RegistryMergeChangeKind::Removed,
+            ),
+            (
+                RegistryMergeEntryKind::Token,
+                "color.legacy",
+                RegistryMergeChangeKind::Removed,
+            ),
+            (
+                RegistryMergeEntryKind::Component,
+                "button",
+                RegistryMergeChangeKind::Updated,
+            ),
+            (
+                RegistryMergeEntryKind::Component,
+                "card",
+                RegistryMergeChangeKind::Added,
+            ),
+            (
+                RegistryMergeEntryKind::Token,
+                "spacing.small",
+                RegistryMergeChangeKind::Added,
+            ),
+        ]
+    );
+}
+
+#[test]
+fn replacement_with_no_existing_registry_reports_additions() {
+    let replacement = registry(
+        r#"{
+            "schema_version": 1,
+            "components": [{"id": "button", "symbol": "Button"}],
+            "tokens": [{"id": "color.brand", "key": "color.brand", "category": "color"}]
+        }"#,
+    );
+
+    let result = replace_registry(None, &replacement).expect("registry replaces");
+
+    assert_eq!(
+        result
+            .changes
+            .iter()
+            .map(|change| (change.entry_kind, change.id.as_str(), change.kind))
+            .collect::<Vec<_>>(),
+        [
+            (
+                RegistryMergeEntryKind::Component,
+                "button",
+                RegistryMergeChangeKind::Added,
+            ),
+            (
+                RegistryMergeEntryKind::Token,
+                "color.brand",
+                RegistryMergeChangeKind::Added,
+            ),
+        ]
+    );
 }
 
 #[test]
