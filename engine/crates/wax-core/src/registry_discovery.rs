@@ -28,8 +28,8 @@ use crate::registry_memory::{
     ensure_design_system_registry_source, remember_design_system,
 };
 use crate::registry_merge::{
-    RegistryMergeChange, RegistryMergeDiagnostic, RegistryMergeError, merge_registry,
-    replace_registry,
+    RegistryMerge, RegistryMergeChange, RegistryMergeDiagnostic, RegistryMergeError,
+    merge_registry, replace_registry,
 };
 use crate::registry_source::is_external_registry_source;
 use crate::subprocess_discover::{DiscoverError, SubprocessLanguageDiscoverer};
@@ -64,7 +64,7 @@ pub struct RegistryDiscoverResult {
     pub output_path: PathBuf,
     /// Generated registry JSON value.
     pub registry: Value,
-    /// Losslessly merged registry document.
+    /// Resulting registry document after merging or replacement.
     pub document: RegistryDocument,
     /// Structured entry-level changes made by discovery and merging.
     pub changes: Vec<RegistryMergeChange>,
@@ -406,28 +406,21 @@ pub fn discover_registry(
         extra: serde_json::Map::new(),
     });
     let creator_seed = seed.clone();
+    let write_mode = DiscoveryWriteMode::from_force(options.force);
     let mut discovered = discover_registry_document(
         options.repo_root,
         &language_id,
         &roots,
         pack_command,
         seed,
-        if options.force {
-            DiscoveryWriteMode::Replace
-        } else {
-            DiscoveryWriteMode::Merge
-        },
+        write_mode,
         DEFAULT_DISCOVER_TIMEOUT,
     )?;
     // Packs may emit provisional metadata; only creator-authored associations are
     // eligible for attachment materialization and publication.
     retain_creator_metadata(&creator_seed, &mut discovered.document);
     let mut diagnostics = discovered.diagnostics;
-    let mut merged = if options.force {
-        replace_registry(existing.as_ref(), &discovered.document)?
-    } else {
-        merge_registry(existing.as_ref(), &discovered.document, true)?
-    };
+    let mut merged = write_mode.publish(existing.as_ref(), &discovered.document)?;
     diagnostics.extend(materialize_registry_attachments(
         options.repo_root,
         &mut merged.document,
@@ -927,6 +920,23 @@ fn discover_registry_document(
 enum DiscoveryWriteMode {
     Merge,
     Replace,
+}
+
+impl DiscoveryWriteMode {
+    fn from_force(force: bool) -> Self {
+        if force { Self::Replace } else { Self::Merge }
+    }
+
+    fn publish(
+        self,
+        existing: Option<&RegistryDocument>,
+        discovered: &RegistryDocument,
+    ) -> Result<RegistryMerge, RegistryMergeError> {
+        match self {
+            Self::Merge => merge_registry(existing, discovered, true),
+            Self::Replace => replace_registry(existing, discovered),
+        }
+    }
 }
 
 fn repo_relative_path(repo_root: &Path, path: &Path) -> String {

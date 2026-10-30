@@ -1,4 +1,4 @@
-//! Lossless merging of discovered registry facts into authored registries.
+//! Merging and replacing discovered registry facts in authored registries.
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -10,7 +10,7 @@ use wax_contract::{
 /// Result of merging discovered facts into an optional authored registry.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RegistryMerge {
-    /// Losslessly merged registry document.
+    /// Resulting registry document after merging or replacement.
     pub document: RegistryDocument,
     /// Entry-level changes suitable for a preview UI.
     pub changes: Vec<RegistryMergeChange>,
@@ -72,7 +72,7 @@ pub struct RegistryMergeDiagnostic {
     pub message: String,
 }
 
-/// Typed failures returned by [`merge_registry`].
+/// Typed failures returned by [`merge_registry`] and [`replace_registry`].
 #[derive(Debug, Error)]
 pub enum RegistryMergeError {
     /// The existing registry violates the public registry contract.
@@ -107,14 +107,7 @@ pub fn merge_registry(
     // both values. Keep the parameter so callers can pass the discovery signal
     // without a future API break.
     let _ = complete;
-    if let Some(existing) = existing {
-        existing
-            .validate()
-            .map_err(RegistryMergeError::InvalidExisting)?;
-    }
-    discovered
-        .validate()
-        .map_err(RegistryMergeError::InvalidDiscovered)?;
+    validate_inputs(existing, discovered)?;
 
     let Some(existing) = existing else {
         return Ok(RegistryMerge {
@@ -172,14 +165,7 @@ pub fn replace_registry(
     existing: Option<&RegistryDocument>,
     replacement: &RegistryDocument,
 ) -> Result<RegistryMerge, RegistryMergeError> {
-    if let Some(existing) = existing {
-        existing
-            .validate()
-            .map_err(RegistryMergeError::InvalidExisting)?;
-    }
-    replacement
-        .validate()
-        .map_err(RegistryMergeError::InvalidDiscovered)?;
+    validate_inputs(existing, replacement)?;
 
     let Some(existing) = existing else {
         return Ok(RegistryMerge {
@@ -220,6 +206,21 @@ pub fn replace_registry(
         changes,
         diagnostics: Vec::new(),
     })
+}
+
+fn validate_inputs(
+    existing: Option<&RegistryDocument>,
+    discovered: &RegistryDocument,
+) -> Result<(), RegistryMergeError> {
+    if let Some(existing) = existing {
+        existing
+            .validate()
+            .map_err(RegistryMergeError::InvalidExisting)?;
+    }
+    discovered
+        .validate()
+        .map_err(RegistryMergeError::InvalidDiscovered)?;
+    Ok(())
 }
 
 trait MergeEntry: Clone + PartialEq {
