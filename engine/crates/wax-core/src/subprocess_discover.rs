@@ -2,7 +2,7 @@
 //!
 //! The shared subprocess exchange owns stdio transport, spooling, and cleanup.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::io::{self, BufReader};
 use std::path::Path;
@@ -405,6 +405,7 @@ fn replacement_seed(
     let existing = std::mem::take(&mut document.components);
     let mut components = Vec::new();
     let mut seen_ids = BTreeMap::new();
+    let mut matched_existing = BTreeSet::new();
 
     for candidate in normalized_symbol_components(discovered) {
         let generated_id = format!("ds.{}", kebab_case_symbol(&candidate.symbol));
@@ -427,6 +428,11 @@ fn replacement_seed(
             (None, [index]) => Some(*index),
             _ => None,
         };
+        if let Some(index) = matched
+            && !matched_existing.insert(index)
+        {
+            continue;
+        }
         let component = matched.map_or_else(
             || RegistryComponent {
                 id: generated_id,

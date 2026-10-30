@@ -116,6 +116,54 @@ fn replacement_discovery_preserves_unique_authored_identity_and_alias_match() {
 }
 
 #[test]
+fn replacement_discovery_coalesces_canonical_and_alias_matches() {
+    let temp_dir = TestDir::new("replacement-canonical-and-alias-match");
+    let requests_path = temp_dir.path().join("requests.jsonl");
+    let script_path = temp_dir.path().join("mock-replacement-pack.sh");
+    write_replacement_script_with_symbols(&script_path, &["PrimaryAction", "PrimaryButton"]);
+    let discoverer = SubprocessLanguageDiscoverer::new(SubprocessLanguageManifest {
+        command: vec![
+            script_path.to_string_lossy().into_owned(),
+            requests_path.to_string_lossy().into_owned(),
+        ],
+        timeout: Duration::from_secs(5),
+    });
+    let mut registry = replacement_registry();
+    registry.components[0] = RegistryComponent {
+        id: "component.primary-action".to_owned(),
+        symbol: "PrimaryAction".to_owned(),
+        package: Some("com.acme.designsystem".to_owned()),
+        aliases: vec!["PrimaryButton".to_owned()],
+        metadata: None,
+        details: None,
+        extra: Map::new(),
+    };
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "compose".try_into().unwrap(),
+        repo_root: "/tmp/repo".to_owned(),
+        roots: vec!["design-system/src/main/kotlin".to_owned()],
+        registry,
+    };
+
+    discoverer
+        .discover_replacement_registry(request)
+        .expect("canonical and alias observations identify one component");
+
+    let requests = fs::read_to_string(requests_path).unwrap();
+    let rich_request: Value = serde_json::from_str(requests.lines().nth(2).unwrap()).unwrap();
+    assert_eq!(
+        rich_request["registry"]["components"],
+        json!([{
+            "id": "component.primary-action",
+            "symbol": "PrimaryAction",
+            "package": "com.acme.designsystem",
+            "aliases": ["PrimaryButton"],
+        }])
+    );
+}
+
+#[test]
 fn replacement_discovery_does_not_copy_ambiguous_authored_metadata() {
     let temp_dir = TestDir::new("replacement-ambiguous-match");
     let requests_path = temp_dir.path().join("requests.jsonl");
@@ -245,6 +293,14 @@ JSON
 }
 
 fn write_replacement_script(script_path: &Path) {
+    write_replacement_script_with_symbols(script_path, &["PrimaryButton"]);
+}
+
+fn write_replacement_script_with_symbols(script_path: &Path, symbols: &[&str]) {
+    let components = symbols
+        .iter()
+        .map(|symbol| json!({"symbol": symbol, "package": "com.acme.designsystem"}))
+        .collect::<Vec<_>>();
     write_script(
         script_path,
         &format!(
@@ -267,11 +323,8 @@ esac
                 "type": "discover_symbols",
                 "api_version": WIRE_API_VERSION,
                 "language_id": "compose",
-                "symbols": ["PrimaryButton"],
-                "components": [{
-                    "symbol": "PrimaryButton",
-                    "package": "com.acme.designsystem",
-                }],
+                "symbols": symbols,
+                "components": components,
                 "diagnostics": [],
             }))
             .unwrap(),
