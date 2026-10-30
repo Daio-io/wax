@@ -29,6 +29,7 @@ use crate::registry_memory::{
 };
 use crate::registry_merge::{
     RegistryMergeChange, RegistryMergeDiagnostic, RegistryMergeError, merge_registry,
+    replace_registry,
 };
 use crate::registry_source::is_external_registry_source;
 use crate::subprocess_discover::{DiscoverError, SubprocessLanguageDiscoverer};
@@ -48,7 +49,7 @@ pub struct RegistryDiscoverOptions<'a> {
     pub roots: Vec<PathBuf>,
     /// When true, generate JSON but do not write a file.
     pub dry_run: bool,
-    /// Compatibility flag; existing registries are always refreshed by lossless merge.
+    /// Replace the current discovered component set, pruning symbols no longer found.
     pub force: bool,
     /// Design-system id to remember after discovery.
     pub design_system_id: Option<&'a str>,
@@ -398,8 +399,6 @@ pub fn discover_registry(
     let state = load_global_state(state_file()?)?;
     let pack_command = resolve_discover_pack_command(&state, lockfile.as_ref(), &language_id)?;
     let existing = load_existing_registry(&output_path)?;
-    // `force` remains a compatibility flag; publishing always uses the lossless merge path.
-    let _ = options.force;
     let seed = existing.clone().unwrap_or_else(|| RegistryDocument {
         schema_version: REGISTRY_SCHEMA_VERSION,
         components: Vec::new(),
@@ -413,13 +412,22 @@ pub fn discover_registry(
         &roots,
         pack_command,
         seed,
+        if options.force {
+            DiscoveryWriteMode::Replace
+        } else {
+            DiscoveryWriteMode::Merge
+        },
         DEFAULT_DISCOVER_TIMEOUT,
     )?;
     // Packs may emit provisional metadata; only creator-authored associations are
     // eligible for attachment materialization and publication.
     retain_creator_metadata(&creator_seed, &mut discovered.document);
     let mut diagnostics = discovered.diagnostics;
-    let mut merged = merge_registry(existing.as_ref(), &discovered.document, true)?;
+    let mut merged = if options.force {
+        replace_registry(existing.as_ref(), &discovered.document)?
+    } else {
+        merge_registry(existing.as_ref(), &discovered.document, true)?
+    };
     diagnostics.extend(materialize_registry_attachments(
         options.repo_root,
         &mut merged.document,
@@ -879,6 +887,7 @@ fn discover_registry_document(
     roots: &[PathBuf],
     pack_command: Vec<String>,
     registry: RegistryDocument,
+    mode: DiscoveryWriteMode,
     timeout: Duration,
 ) -> Result<wax_lang_api::DiscoverRegistryResult, RegistryDiscoverError> {
     let request = DiscoverRegistryRequest {
@@ -892,7 +901,11 @@ fn discover_registry_document(
         command: pack_command,
         timeout,
     });
-    match discoverer.discover_registry(request) {
+    let result = match mode {
+        DiscoveryWriteMode::Merge => discoverer.discover_registry(request),
+        DiscoveryWriteMode::Replace => discoverer.discover_replacement_registry(request),
+    };
+    match result {
         Ok(result) => Ok(result),
         Err(DiscoverError::Unsupported { .. }) => Err(RegistryDiscoverError::DiscoverUnsupported {
             language_id: language_id.clone(),
@@ -908,6 +921,12 @@ fn discover_registry_document(
         }),
         Err(error) => Err(RegistryDiscoverError::DiscoverSubprocess(error)),
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum DiscoveryWriteMode {
+    Merge,
+    Replace,
 }
 
 fn repo_relative_path(repo_root: &Path, path: &Path) -> String {

@@ -452,7 +452,7 @@ fn dry_run_writes_summaries_and_warnings_to_stderr_not_stdout() {
 }
 
 #[test]
-fn dry_run_renders_structured_merge_changes_without_writing() {
+fn rediscovery_without_force_remains_lossless() {
     let _guard = env_lock();
     let root = TestDir::new("registry-discover-dry-run-changes");
     let repo = root.path.join("repo");
@@ -509,6 +509,60 @@ fn dry_run_renders_structured_merge_changes_without_writing() {
 }
 "#
     );
+}
+
+#[test]
+fn force_dry_run_previews_removal_without_writing() {
+    let _guard = env_lock();
+    let root = TestDir::new("registry-discover-force-dry-run");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    let _harness = setup_compose_discover_repo(&repo, false);
+    let registry_path = repo.join(".wax/compose.registry.json");
+    fs::create_dir_all(registry_path.parent().unwrap()).unwrap();
+    let original = r#"{
+  "schema_version": 1,
+  "components": [
+    {"id": "primary", "symbol": "PrimaryButton"},
+    {"id": "legacy", "symbol": "LegacyControl"}
+  ]
+}
+"#;
+    fs::write(&registry_path, original).unwrap();
+
+    let output = run_discover(&repo, &["--force", "--dry-run"]);
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let registry: Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert!(
+        !registry["components"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|component| component["id"] == "legacy")
+    );
+    assert!(stderr.contains("removed component legacy"));
+    assert!(!stdout.contains("removed component"));
+    assert_eq!(fs::read_to_string(registry_path).unwrap(), original);
+}
+
+#[test]
+fn discover_help_describes_force_replacement_and_pruning() {
+    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .args(["registry", "discover", "--help"])
+        .output()
+        .expect("spawn wax registry discover help");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("Replace the current discovered component set"));
+    assert!(stdout.contains("pruning symbols no longer found"));
 }
 
 #[test]
@@ -634,18 +688,21 @@ fn second_write_refreshes_without_force() {
 }
 
 #[test]
-fn force_is_compatibility_only_during_lossless_refresh() {
+fn force_prunes_symbols_absent_from_discovery() {
     let _guard = env_lock();
     let root = TestDir::new("registry-discover-force");
     let repo = root.path.join("repo");
     fs::create_dir_all(&repo).unwrap();
     let _harness = setup_compose_discover_repo(&repo, false);
 
-    let first = run_discover(&repo, &[]);
-    assert!(first.status.success());
-
     let registry_path = repo.join(".wax/compose.registry.json");
-    fs::write(&registry_path, "{\"schema_version\":1,\"components\":[]}\n").unwrap();
+    fs::create_dir_all(registry_path.parent().unwrap()).unwrap();
+    fs::write(
+        &registry_path,
+        r#"{"schema_version":1,"components":[{"id":"primary","symbol":"PrimaryButton","metadata":{"description":"Keep me"}},{"id":"legacy","symbol":"LegacyControl"}],"tokens":[{"id":"color.brand","key":"color.brand","category":"color"}]}
+"#,
+    )
+    .unwrap();
 
     let forced = run_discover(&repo, &["--force"]);
     assert!(
@@ -656,7 +713,19 @@ fn force_is_compatibility_only_during_lossless_refresh() {
 
     let written: Value =
         serde_json::from_str(&fs::read_to_string(&registry_path).unwrap()).unwrap();
-    assert!(written["components"].as_array().unwrap().len() >= 2);
+    let components = written["components"].as_array().unwrap();
+    assert!(
+        !components
+            .iter()
+            .any(|component| component["id"] == "legacy")
+    );
+    assert!(
+        components
+            .iter()
+            .any(|component| component["symbol"] == "SecondaryButton")
+    );
+    assert_eq!(components[0]["metadata"]["description"], "Keep me");
+    assert_eq!(written["tokens"][0]["id"], "color.brand");
 }
 
 #[test]
