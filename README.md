@@ -48,11 +48,9 @@ bun:
 bun install -g --trust @waxhq/wax@alpha
 ```
 
-Or run without a global install:
-
-```bash
-bunx --trust @waxhq/wax@alpha --help
-```
+Unlike npm, Bun blocks dependency lifecycle scripts by default. The `--trust`
+flag lets `@waxhq/wax` run its `postinstall` script, which downloads the Wax
+binary used by the wrapper.
 
 Curl:
 
