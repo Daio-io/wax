@@ -21,6 +21,22 @@ brew install wax
 npm install -g @waxhq/wax@alpha
 ```
 
+## bun alpha
+
+```bash
+bun install -g --trust @waxhq/wax@alpha
+```
+
+Unlike npm, Bun blocks dependency lifecycle scripts by default. The `--trust`
+flag lets `@waxhq/wax` run its `postinstall` script, which downloads the Wax
+binary used by the wrapper.
+
+To run Wax without a global install, use `bunx` with the same trust flag:
+
+```bash
+bunx --trust @waxhq/wax@alpha
+```
+
 ## Curl
 
 ```bash

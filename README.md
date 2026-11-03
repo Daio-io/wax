@@ -42,6 +42,16 @@ npm:
 npm install -g @waxhq/wax@alpha
 ```
 
+bun:
+
+```bash
+bun install -g --trust @waxhq/wax@alpha
+```
+
+Unlike npm, Bun blocks dependency lifecycle scripts by default. The `--trust`
+flag lets `@waxhq/wax` run its `postinstall` script, which downloads the Wax
+binary used by the wrapper.
+
 Curl:
 
 ```bash
@@ -210,6 +220,13 @@ With the npm wrapper:
 ```bash
 npx @waxhq/wax@alpha search "button" --design-system acme --compact
 npx @waxhq/wax@alpha component ds.button --design-system acme --snapshot <digest> --format json
+```
+
+With bunx:
+
+```bash
+bunx --trust @waxhq/wax@alpha search "button" --design-system acme --compact
+bunx --trust @waxhq/wax@alpha component ds.button --design-system acme --snapshot <digest> --format json
 ```
 
 Agents can use the tested [`wax-search` workflow](skills/wax-search/SKILL.md)
