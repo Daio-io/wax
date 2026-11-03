@@ -58,8 +58,8 @@ test('guide sources and production routes cover the documented workflow', async 
   for (const expected of [
     'brew install wax',
     'npm install -g @waxhq/wax@alpha',
-    'bun install -g @waxhq/wax@alpha',
-    'bunx @waxhq/wax@alpha',
+    'bun install -g --trust @waxhq/wax@alpha',
+    'bunx --trust @waxhq/wax@alpha',
     'scripts/install.sh | bash',
     'cargo build --release -p wax-cli',
     'wax --version',
@@ -73,8 +73,8 @@ test('guide sources and production routes cover the documented workflow', async 
     'utf8',
   );
   for (const expected of [
-    'bun install -g @waxhq/wax@alpha',
-    'bunx @waxhq/wax@alpha',
+    'bun install -g --trust @waxhq/wax@alpha',
+    'bunx --trust @waxhq/wax@alpha',
   ]) {
     assert.match(rootReadme, new RegExp(expected));
   }

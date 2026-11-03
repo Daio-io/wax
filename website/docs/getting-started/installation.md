@@ -24,13 +24,13 @@ npm install -g @waxhq/wax@alpha
 ## bun alpha
 
 ```bash
-bun install -g @waxhq/wax@alpha
+bun install -g --trust @waxhq/wax@alpha
 ```
 
 Or run without a global install:
 
 ```bash
-bunx @waxhq/wax@alpha --help
+bunx --trust @waxhq/wax@alpha --help
 ```
 
 ## Curl
