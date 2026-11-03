@@ -42,6 +42,18 @@ npm:
 npm install -g @waxhq/wax@alpha
 ```
 
+bun:
+
+```bash
+bun install -g @waxhq/wax@alpha
+```
+
+Or run without a global install:
+
+```bash
+bunx @waxhq/wax@alpha --help
+```
+
 Curl:
 
 ```bash
@@ -210,6 +222,13 @@ With the npm wrapper:
 ```bash
 npx @waxhq/wax@alpha search "button" --design-system acme --compact
 npx @waxhq/wax@alpha component ds.button --design-system acme --snapshot <digest> --format json
+```
+
+With bunx:
+
+```bash
+bunx @waxhq/wax@alpha search "button" --design-system acme --compact
+bunx @waxhq/wax@alpha component ds.button --design-system acme --snapshot <digest> --format json
 ```
 
 Agents can use the tested [`wax-search` workflow](skills/wax-search/SKILL.md)

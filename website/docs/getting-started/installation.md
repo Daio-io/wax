@@ -21,6 +21,18 @@ brew install wax
 npm install -g @waxhq/wax@alpha
 ```
 
+## bun alpha
+
+```bash
+bun install -g @waxhq/wax@alpha
+```
+
+Or run without a global install:
+
+```bash
+bunx @waxhq/wax@alpha --help
+```
+
 ## Curl
 
 ```bash

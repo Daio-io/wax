@@ -58,12 +58,25 @@ test('guide sources and production routes cover the documented workflow', async 
   for (const expected of [
     'brew install wax',
     'npm install -g @waxhq/wax@alpha',
+    'bun install -g @waxhq/wax@alpha',
+    'bunx @waxhq/wax@alpha',
     'scripts/install.sh | bash',
     'cargo build --release -p wax-cli',
     'wax --version',
     'wax --help',
   ]) {
     assert.match(installation, new RegExp(expected.replaceAll('|', '\\|')));
+  }
+
+  const rootReadme = await readFile(
+    new URL('../README.md', website),
+    'utf8',
+  );
+  for (const expected of [
+    'bun install -g @waxhq/wax@alpha',
+    'bunx @waxhq/wax@alpha',
+  ]) {
+    assert.match(rootReadme, new RegExp(expected));
   }
 
   const initialization = await readFile(
