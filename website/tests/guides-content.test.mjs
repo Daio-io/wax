@@ -63,7 +63,7 @@ test('guide sources and production routes cover the documented workflow', async 
   for (const expected of [
     'brew install wax',
     'npm install -g @waxhq/wax@alpha',
-    bunCommands[0],
+    ...bunCommands,
     'scripts/install.sh | bash',
     'cargo build --release -p wax-cli',
     'wax --version',
