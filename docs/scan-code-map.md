@@ -14,6 +14,12 @@ The [repo file paths](../engine/crates/wax-core/src/config/repo_files.rs), [conf
 
 For registry inputs, start at [source resolution](../engine/crates/wax-core/src/registry_source.rs), then the [Git fetch helper](../engine/crates/wax-core/src/registry_git.rs). Check the [registry source tests](../engine/crates/wax-core/tests/registry_source.rs) and focused tests in `registry_git.rs`.
 
+## Registry discovery and search
+
+The [registry contract](../engine/crates/wax-contract/src/registry.rs) and [schema](../engine/crates/wax-contract/schemas/registry.schema.json) define rich entry details. Discovery runs through [core](../engine/crates/wax-core/src/registry_discovery.rs), with detail extraction in the [Compose](../engine/crates/wax-lang-compose/src/registry_details.rs), [React](../engine/crates/wax-lang-react/src/registry_details.rs), and [Swift](../engine/crates/wax-lang-swift/src/registry_details.rs) packs. Check the [contract tests](../engine/crates/wax-contract/tests/registry_contract.rs), [core discovery tests](../engine/crates/wax-core/tests/registry_discovery.rs), and each pack's `registry_discover` tests.
+
+The [search and detail commands](../engine/crates/wax-cli/src/commands/search.rs) call core's [search](../engine/crates/wax-core/src/registry_search.rs) and [lookup](../engine/crates/wax-core/src/registry_lookup.rs). Check the [CLI tests](../engine/crates/wax-cli/tests/search_commands.rs), [search tests](../engine/crates/wax-core/tests/registry_search.rs), and [lookup tests](../engine/crates/wax-core/tests/registry_lookup.rs).
+
 ## Contracts and language packs
 
 Shared scan requests live in the [language API](../engine/crates/wax-lang-api/src/lib.rs). Fact types and validation live in the [contract](../engine/crates/wax-contract/src/lib.rs) and [scan facts schema](../engine/crates/wax-contract/schemas/scan-facts.schema.json). Check the [contract tests](../engine/crates/wax-contract/tests/schema_roundtrip.rs) and affected pack fixtures.

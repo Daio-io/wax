@@ -24,6 +24,13 @@ For changes to scanning, config, registries, or language packs, start with the [
 
 Keep generated scan output out of git, especially `.wax/` outputs and global `~/.wax/` state.
 
+## Feature closeout
+
+Before opening a feature PR, review the affected user entry points: CLI help,
+the root README, website, npm package README, and agent skills. Update the
+applicable guidance in the same PR, or record in the PR why an affected entry
+point needs no change. Check documented commands against the CLI help or behavior.
+
 ## Local development
 
 Rustup with Rust 1.95.0 is required for engine development. The repository's
