@@ -67,6 +67,7 @@ npm --prefix website test
 - Treat one checked task as one focused PR unless explicitly directed otherwise.
 - Tick off every completed plan checkbox in the same PR, including the task heading and each completed step under it.
 - Before opening or updating a task PR, review the active plan section and make sure completed implementation, verification, and commit steps are reflected there.
+- For feature closeout, check the documentation impact guidance in [CONTRIBUTING.md](CONTRIBUTING.md#feature-closeout).
 - Do not start the next plan or phase until the roadmap and plan gates allow it.
 - If a task updates release behavior, keep README, install docs, changelog, scripts, and plan checkboxes consistent in the same PR when the plan calls for it.
 
