@@ -242,6 +242,14 @@ fn app_selector_matches(
     match selector {
         None => true,
         Some(selector) => {
+            if let Some(LanguageRegistrySource::Git {
+                system: Some(system),
+                ..
+            }) = &entry.registry_source
+                && system == selector
+            {
+                return true;
+            }
             if entry
                 .registry_source
                 .as_ref()
@@ -295,7 +303,21 @@ fn app_source_spec(
     locked: &LockedRegistry,
 ) -> Result<RegistrySourceSpec, RegistryLookupError> {
     match entry.registry_source.as_ref() {
-        Some(LanguageRegistrySource::Git { git, tag }) => Ok(RegistrySourceSpec::Git {
+        Some(LanguageRegistrySource::Git {
+            git,
+            tag,
+            subdir: Some(subdir),
+            system: Some(system),
+        }) => Ok(RegistrySourceSpec::GitSystem {
+            url: git.clone(),
+            tag: tag.clone(),
+            subdir: subdir.clone(),
+            system_id: system.clone(),
+        }),
+        Some(LanguageRegistrySource::Git {
+            git, tag, subdir, ..
+        }) => Ok(RegistrySourceSpec::Git {
+            subdir: subdir.clone(),
             url: git.clone(),
             tag: Some(tag.clone()),
             language: entry.id.clone(),
@@ -326,13 +348,24 @@ fn app_snapshot_ref(
         .and_then(LanguageRegistrySource::upstream)
         .and_then(|upstream| upstream.split_once('/'))
         .map(|(system_id, _)| system_id.to_owned());
+    let mut extra = Map::new();
+    if let Some(subdir) = &locked.subdir {
+        extra.insert("subdir".into(), subdir.clone().into());
+    }
+    if let Some(definition) = &locked.definition {
+        extra.insert("definition".into(), serde_json::json!(definition));
+    }
     RegistrySnapshotRef {
         source: source.identity(),
         language: entry.id.clone(),
         digest: locked.sha256.clone(),
-        system_id,
+        system_id: locked
+            .definition
+            .as_ref()
+            .map(|pin| pin.system_id.clone())
+            .or(system_id),
         git_commit: locked.commit.clone(),
-        extra: Map::new(),
+        extra,
     }
 }
 

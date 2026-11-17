@@ -11,7 +11,7 @@ use time::OffsetDateTime;
 use wax_contract::LanguageId;
 
 /// Current `wax.lock.json` schema version written by this engine.
-pub const WAX_LOCK_SCHEMA_VERSION: u32 = 2;
+pub const WAX_LOCK_SCHEMA_VERSION: u32 = 3;
 const MIN_SUPPORTED_WAX_LOCK_SCHEMA_VERSION: u32 = 1;
 
 /// Repository lockfile pinning the language pack artifacts selected for a repo.
@@ -50,6 +50,12 @@ pub struct LockedRegistry {
     /// Full Git commit object id that produced this pin.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub commit: Option<String>,
+    /// Optional repository-relative directory containing the registry bundle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subdir: Option<String>,
+    /// Exact publisher definition selected with this registry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub definition: Option<wax_contract::RegistryDefinitionPin>,
 }
 
 /// Lockfile entry for one resolved language pack.
@@ -209,6 +215,12 @@ pub fn load_lockfile(path: impl AsRef<Path>) -> Result<WaxLock, LockfileError> {
             source,
         })?;
 
+    validate_bundle_registry_locks(&lock.registries).map_err(|source| {
+        LockfileError::InvalidConfig {
+            path: path_display.clone(),
+            source: serde_json::Error::custom(source),
+        }
+    })?;
     for (language_id, registry) in &lock.registries {
         let metadata = [
             registry.git.is_some(),
@@ -241,4 +253,77 @@ pub fn check_waxrc_lockfile_languages(waxrc: &WaxRc, lockfile: &WaxLock) -> WaxL
         missing_enabled_languages: enabled.difference(&locked).cloned().collect(),
         stale_locked_languages: locked.difference(&enabled).cloned().collect(),
     }
+}
+
+/// Checks nested bundle metadata and cross-language agreement without source I/O.
+///
+/// # Errors
+/// Rejects partial pins, unsafe paths, and definitions with mixed commit/hash pins.
+pub fn validate_bundle_registry_locks(
+    registries: &BTreeMap<LanguageId, LockedRegistry>,
+) -> Result<(), wax_contract::CatalogError> {
+    let mut bundles = BTreeMap::new();
+    for registry in registries.values() {
+        if registry.source.starts_with("git-system:") && registry.subdir.is_none() {
+            return Err(wax_contract::CatalogError(
+                "nested Git source requires subdir".into(),
+            ));
+        }
+        if registry.definition.is_some() && registry.subdir.is_none() {
+            return Err(wax_contract::CatalogError(
+                "definition requires subdir".into(),
+            ));
+        }
+        if let Some(subdir) = &registry.subdir {
+            wax_contract::validate_artifact_path(subdir)?;
+            if registry.git.is_none()
+                || registry.tag.is_none()
+                || registry.commit.as_ref().is_none_or(|commit| {
+                    !matches!(commit.len(), 40 | 64)
+                        || !commit
+                            .bytes()
+                            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                })
+                || !wax_contract::valid_sha256(&registry.sha256)
+            {
+                return Err(wax_contract::CatalogError(
+                    "partial bundle Git metadata".into(),
+                ));
+            }
+            if registry.source
+                != crate::registry_git::git_source_identity(
+                    registry.git.as_deref().unwrap_or_default(),
+                    registry.tag.as_deref().unwrap_or_default(),
+                    Some(subdir),
+                    registry
+                        .definition
+                        .as_ref()
+                        .map(|pin| pin.system_id.as_str()),
+                )
+            {
+                return Err(wax_contract::CatalogError(
+                    "bundle source identity does not match pins".into(),
+                ));
+            }
+            if let Some(definition) = &registry.definition {
+                definition.validate()?;
+                if definition.path != format!("{subdir}/.wax/wax.config.json") {
+                    return Err(wax_contract::CatalogError(
+                        "definition path does not match subdir".into(),
+                    ));
+                }
+                let key = (&registry.git, subdir, &definition.system_id);
+                let value = (&registry.commit, &definition.sha256);
+                if bundles
+                    .insert(key, value)
+                    .is_some_and(|previous| previous != value)
+                {
+                    return Err(wax_contract::CatalogError(
+                        "bundle languages have mixed definition pins".into(),
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
 }

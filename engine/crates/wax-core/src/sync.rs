@@ -62,6 +62,8 @@ struct PreparedLockFields {
     source: String,
     sha256: String,
     git_commit: Option<String>,
+    subdir: Option<String>,
+    definition: Option<wax_contract::RegistryDefinitionPin>,
 }
 
 #[derive(Debug, Clone)]
@@ -94,6 +96,9 @@ type BestEffortSyncResult = Result<(Vec<SyncUpdate>, Vec<(String, SyncError)>), 
 /// Errors returned while syncing app registries.
 #[derive(Debug, Error)]
 pub enum SyncError {
+    /// Bundle languages disagree on immutable publisher metadata.
+    #[error(transparent)]
+    Bundle(#[from] wax_contract::CatalogError),
     /// Global wax paths could not be resolved for an upstream registry.
     #[error(transparent)]
     Paths(#[from] PathsError),
@@ -522,10 +527,15 @@ fn prepare_language_upstream_sync(
         *config_changed = true;
     }
     let source = if let Some(git) = resolved.git.as_ref() {
-        match resolved.tag.as_deref() {
-            Some(tag) => format!("git:{git}#{tag}"),
-            None => format!("git:{git}"),
-        }
+        crate::registry_git::git_source_identity(
+            git,
+            resolved.tag.as_deref().unwrap_or("HEAD"),
+            resolved.subdir.as_deref(),
+            resolved
+                .definition
+                .as_ref()
+                .map(|pin| pin.system_id.as_str()),
+        )
     } else {
         resolved.config_source.clone()
     };
@@ -533,6 +543,8 @@ fn prepare_language_upstream_sync(
         source: source.clone(),
         sha256: digest.clone(),
         git_commit: resolved.git_commit.clone(),
+        subdir: resolved.subdir.clone(),
+        definition: resolved.definition.clone(),
     });
     Ok(PreparedSync {
         update: SyncUpdate {
@@ -574,7 +586,7 @@ fn prepare_language_git_sync(
         options.upgrade,
     )?;
     let (git, tag) = match entry.registry_source.as_ref() {
-        Some(crate::config::waxrc::LanguageRegistrySource::Git { git, tag }) => {
+        Some(crate::config::waxrc::LanguageRegistrySource::Git { git, tag, .. }) => {
             (Some(git.clone()), Some(tag.clone()))
         }
         _ => (None, None),
@@ -597,13 +609,15 @@ fn prepare_language_git_sync(
             source: resolved.source,
             sha256: resolved.sha256,
             git_commit: resolved.git_commit,
+            subdir: resolved.subdir,
+            definition: resolved.definition,
         }),
     })
 }
 
 fn git_sync_label(entry: &LanguageEntry) -> String {
     match entry.registry_source.as_ref() {
-        Some(crate::config::waxrc::LanguageRegistrySource::Git { git, tag }) => {
+        Some(crate::config::waxrc::LanguageRegistrySource::Git { git, tag, .. }) => {
             format!("{}@{tag}", crate::registry_git::redact_git_remote(git))
         }
         _ => unreachable!("git sync labels require a Git registry source"),
@@ -698,13 +712,15 @@ fn refresh_registry_locks(
         let prepared = refreshed_languages
             .iter()
             .find(|prepared| prepared.update.language_id == entry.id);
-        let (source, sha256, git_commit) = if let Some(prepared_lock) =
+        let (source, sha256, git_commit, subdir, definition) = if let Some(prepared_lock) =
             prepared.and_then(|prepared| prepared.prepared_lock.as_ref())
         {
             (
                 prepared_lock.source.clone(),
                 prepared_lock.sha256.clone(),
                 prepared_lock.git_commit.clone(),
+                prepared_lock.subdir.clone(),
+                prepared_lock.definition.clone(),
             )
         } else {
             let is_git = entry.registry_source.as_ref().is_some_and(|source| {
@@ -720,9 +736,17 @@ fn refresh_registry_locks(
                 lockfile.registries.get(&entry.id),
                 is_git && upgrade,
             )?;
-            (resolved.source, resolved.sha256, resolved.git_commit)
+            (
+                resolved.source,
+                resolved.sha256,
+                resolved.git_commit,
+                resolved.subdir,
+                resolved.definition,
+            )
         };
         let refreshed = LockedRegistry {
+            subdir,
+            definition,
             source,
             sha256,
             git: entry
@@ -757,6 +781,7 @@ fn refresh_registry_locks(
 }
 
 fn save_lockfile(path: &Path, lockfile: &WaxLock) -> Result<(), SyncError> {
+    crate::config::lockfile::validate_bundle_registry_locks(&lockfile.registries)?;
     let mut lockfile = lockfile.clone();
     lockfile.schema_version = WAX_LOCK_SCHEMA_VERSION;
     let contents =
@@ -1284,6 +1309,8 @@ mod sync_tests {
             roots: Vec::new(),
             root_groups: Default::default(),
             registry_source: Some(crate::config::waxrc::LanguageRegistrySource::Git {
+                subdir: None,
+                system: None,
                 git: "https://x-access-token:secret@github.com/org/repo.git".to_owned(),
                 tag: "v1".to_owned(),
             }),
@@ -1314,6 +1341,8 @@ mod sync_tests {
                 roots: Vec::new(),
                 root_groups: Default::default(),
                 registry_source: Some(crate::config::waxrc::LanguageRegistrySource::Git {
+                    subdir: None,
+                    system: None,
                     git: "https://example.invalid/repo.git".to_owned(),
                     tag: "v1".to_owned(),
                 }),
@@ -1334,6 +1363,8 @@ mod sync_tests {
             },
             registry_copy: None,
             prepared_lock: Some(PreparedLockFields {
+                subdir: None,
+                definition: None,
                 source: "git:https://example.invalid/repo.git#v1".to_owned(),
                 sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                     .to_owned(),

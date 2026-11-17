@@ -19,6 +19,11 @@
 #![deny(missing_docs)]
 
 mod registry;
+mod registry_catalog;
+pub use registry_catalog::{
+    ArtifactDigest, Catalog, CatalogEntry, CatalogError, RegistryBundlePin, RegistryDefinitionPin,
+    UpstreamPin, valid_git_commit, valid_sha256, validate_artifact_path,
+};
 mod registry_lookup;
 
 pub use registry::{

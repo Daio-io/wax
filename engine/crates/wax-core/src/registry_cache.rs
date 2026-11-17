@@ -13,9 +13,12 @@ use wax_contract::{
 
 use crate::advisory_lock::AdvisoryLock;
 use crate::atomic_file::write_atomically_no_clobber;
-use crate::config::waxrc::{WaxRcError, load_waxrc};
+use crate::config::waxrc::{WaxRcError, load_waxrc, parse_waxrc_bytes};
 use crate::paths::{PathsError, registry_cache_dir};
-use crate::registry_git::{RegistryGitError, fetch_git_registry, fetch_git_registry_at_commit};
+use crate::registry_git::{
+    RegistryGitError, conventional_git_registry_path, fetch_git_files, fetch_git_registry,
+    fetch_git_registry_at_commit,
+};
 use crate::registry_source::{
     RegistrySourceError, fetch_http_bytes, file_url_to_path,
     validate_repo_relative_registry_path_within_repo,
@@ -49,6 +52,17 @@ pub enum RegistrySourceSpec {
         /// Language represented by the registry when the artifact does not declare it.
         language: Option<LanguageId>,
     },
+    /// A Git repository subdirectory containing one complete publisher bundle.
+    GitSystem {
+        /// Repository remote.
+        url: String,
+        /// Selected tag or full commit.
+        tag: String,
+        /// Relative bundle directory.
+        subdir: String,
+        /// Selected publisher slug.
+        system_id: String,
+    },
     /// A Git repository containing conventional registry files.
     Git {
         /// Git remote URL.
@@ -57,6 +71,9 @@ pub enum RegistrySourceSpec {
         tag: Option<String>,
         /// Language whose conventional registry file should be read.
         language: LanguageId,
+        /// Optional relative directory for a conventional registry.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        subdir: Option<String>,
     },
 }
 
@@ -123,16 +140,19 @@ impl RegistryCache {
         let identity = source.identity();
         let selection_identity = source.selection_identity();
         if let Some(expected) = &policy.expected_snapshot {
+            expected.validate_bundle_metadata()?;
             self.validate_expected_source(source, expected)?;
             match self.load_references(std::slice::from_ref(expected)) {
                 Ok(snapshot) => return Ok(snapshot),
                 Err(RegistryCacheError::SnapshotUnavailable { .. }) if !policy.offline => {
                     let mut fetched = self.fetch_expected(source, expected)?;
+                    fetched.retain(|snapshot| snapshot.reference.language == expected.language);
                     if fetched.len() == 1
                         && fetched[0].reference.source == expected.source
                         && fetched[0].reference.language == expected.language
                         && fetched[0].reference.digest == expected.digest
                         && fetched[0].reference.git_commit == expected.git_commit
+                        && fetched[0].reference.extra == expected.extra
                     {
                         fetched[0].reference = expected.clone();
                         return Ok(fetched);
@@ -163,6 +183,64 @@ impl RegistryCache {
         source: &RegistrySourceSpec,
         expected: &RegistrySnapshotRef,
     ) -> Result<Vec<RegistrySnapshot>, RegistryCacheError> {
+        if let RegistrySourceSpec::GitSystem {
+            url,
+            subdir,
+            system_id,
+            ..
+        } = source
+        {
+            let commit = expected.git_commit.as_deref().ok_or_else(|| {
+                RegistryCacheError::InvalidSourceSpec {
+                    input: source.identity(),
+                    reason: "bundle snapshot requires commit",
+                }
+            })?;
+            let mut snapshots = self.fetch_bundle(source, url, commit, subdir, system_id)?;
+            if let Some(value) = expected.extra.get("provenance") {
+                let artifact: wax_contract::ArtifactDigest = serde_json::from_value(value.clone())
+                    .map_err(|_| RegistryCacheError::InvalidSourceSpec {
+                        input: source.identity(),
+                        reason: "invalid provenance pin",
+                    })?;
+                artifact.validate()?;
+                let path = format!("{subdir}/{}", artifact.path);
+                let mut fetched =
+                    fetch_git_files(url, commit, &[&path], &self.root.join("git"), false)?;
+                let bytes = fetched.files.remove(&path).unwrap_or_default();
+                let actual = crate::digest::sha256_hex(&bytes);
+                if actual != artifact.sha256 {
+                    return Err(RegistryCacheError::DigestMismatch {
+                        path: PathBuf::from(path),
+                        expected: artifact.sha256,
+                        actual,
+                    });
+                }
+                self.write_blob(&actual, &bytes)?;
+                for snapshot in &mut snapshots {
+                    snapshot
+                        .reference
+                        .extra
+                        .insert("provenance".into(), value.clone());
+                }
+            }
+            return Ok(snapshots);
+        }
+        if let RegistrySourceSpec::Git {
+            url,
+            language,
+            subdir: Some(subdir),
+            ..
+        } = source
+        {
+            let commit = expected.git_commit.as_deref().ok_or_else(|| {
+                RegistryCacheError::InvalidSourceSpec {
+                    input: source.identity(),
+                    reason: "nested snapshot requires commit",
+                }
+            })?;
+            return self.fetch_nested_registry(source, url, commit, subdir, language);
+        }
         if let RegistrySourceSpec::Git { url, language, .. } = source
             && let Some(commit) = expected.git_commit.as_deref()
         {
@@ -192,6 +270,187 @@ impl RegistryCache {
         let selection_identity = source.selection_identity();
         let _lock = self.acquire_selection_lock(&selection_identity)?;
         self.fetch_and_select(source, &selection_identity)
+    }
+
+    pub(crate) fn refresh_with<E: From<RegistryCacheError>>(
+        &self,
+        source: &RegistrySourceSpec,
+        persist: impl FnOnce(&[RegistrySnapshot]) -> Result<(), E>,
+    ) -> Result<Vec<RegistrySnapshot>, E> {
+        let identity = source.selection_identity();
+        let _lock = self.acquire_selection_lock(&identity)?;
+        let snapshots = self.fetch_snapshots(source)?;
+        persist(&snapshots)?;
+        self.write_selection(
+            &identity,
+            snapshots.iter().map(|s| s.reference.clone()).collect(),
+        )?;
+        Ok(snapshots)
+    }
+
+    /// Resolves a catalogue bundle, checking every expected artifact before selecting it.
+    /// The catalogue's read snapshot supplies `reference`; entries contain no Git commit.
+    ///
+    /// # Errors
+    /// Returns typed validation, digest, or cache errors; failed checks preserve selection.
+    pub fn resolve_catalog_entry(
+        &self,
+        url: &str,
+        reference: &str,
+        entry: &wax_contract::CatalogEntry,
+        policy: &RegistryReadPolicy,
+    ) -> Result<Vec<RegistrySnapshot>, RegistryCacheError> {
+        wax_contract::Catalog {
+            schema_version: 1,
+            entries: vec![entry.clone()],
+        }
+        .validate()?;
+        let source = RegistrySourceSpec::GitSystem {
+            url: url.to_owned(),
+            tag: reference.to_owned(),
+            subdir: entry.subdir.clone(),
+            system_id: entry.id.clone(),
+        };
+        let identity = source.selection_identity();
+        let _lock = self.acquire_selection_lock(&identity)?;
+        let snapshots = if let Some(expected) = &policy.expected_snapshot {
+            let mut snapshots = self.resolve(&source, policy)?;
+            for (language, artifact) in &entry.registries {
+                if language == &expected.language {
+                    continue;
+                }
+                let mut sibling = expected.clone();
+                sibling.language = language.clone();
+                sibling.digest = artifact.sha256.clone();
+                snapshots.extend(self.resolve(
+                    &source,
+                    &RegistryReadPolicy {
+                        offline: policy.offline,
+                        expected_snapshot: Some(sibling),
+                    },
+                )?);
+            }
+            snapshots.sort_by(|left, right| left.reference.language.cmp(&right.reference.language));
+            (snapshots, false)
+        } else if let Some(references) = self.load_selection(&identity)? {
+            (self.load_references(&references)?, false)
+        } else {
+            if policy.offline {
+                return Err(RegistryCacheError::OfflineCacheMiss { identity });
+            }
+            (self.fetch_snapshots(&source)?, true)
+        };
+        let (mut snapshots, select) = snapshots;
+        let first = snapshots
+            .first()
+            .ok_or_else(|| RegistryCacheError::InvalidSourceSpec {
+                input: identity.clone(),
+                reason: "empty bundle",
+            })?;
+        let commit = first.reference.git_commit.as_deref().ok_or_else(|| {
+            RegistryCacheError::InvalidSourceSpec {
+                input: identity.clone(),
+                reason: "missing bundle commit",
+            }
+        })?;
+        let provenance_path = format!("{}/{}", entry.subdir, entry.provenance.path);
+        if !policy.offline {
+            let mut fetched = fetch_git_files(
+                url,
+                commit,
+                &[&provenance_path],
+                &self.root.join("git"),
+                false,
+            )?;
+            let bytes = fetched.files.remove(&provenance_path).unwrap_or_default();
+            let actual = crate::digest::sha256_hex(&bytes);
+            if actual != entry.provenance.sha256 {
+                return Err(RegistryCacheError::DigestMismatch {
+                    path: PathBuf::from(provenance_path),
+                    expected: entry.provenance.sha256.clone(),
+                    actual,
+                });
+            }
+            self.write_blob(&actual, &bytes)?;
+        } else {
+            self.verify_artifact_blob(&entry.provenance)?;
+        }
+        let definition_path = format!("{}/{}", entry.subdir, entry.definition.path);
+        if entry.registries.len() != snapshots.len() {
+            return Err(RegistryCacheError::InvalidSourceSpec {
+                input: identity,
+                reason: "catalogue language set differs from bundle",
+            });
+        }
+        for snapshot in &mut snapshots {
+            let pin: wax_contract::RegistryDefinitionPin = serde_json::from_value(
+                snapshot
+                    .reference
+                    .extra
+                    .get("definition")
+                    .cloned()
+                    .unwrap_or_default(),
+            )
+            .map_err(|_| RegistryCacheError::InvalidSourceSpec {
+                input: identity.clone(),
+                reason: "missing definition",
+            })?;
+            if pin.path != definition_path || pin.sha256 != entry.definition.sha256 {
+                return Err(RegistryCacheError::DigestMismatch {
+                    path: PathBuf::from(&definition_path),
+                    expected: entry.definition.sha256.clone(),
+                    actual: pin.sha256,
+                });
+            }
+            let registry = entry
+                .registries
+                .get(&snapshot.reference.language)
+                .ok_or_else(|| RegistryCacheError::InvalidSourceSpec {
+                    input: identity.clone(),
+                    reason: "catalogue language absent",
+                })?;
+            if registry.path != conventional_git_registry_path(&snapshot.reference.language)
+                || registry.sha256 != snapshot.reference.digest
+            {
+                return Err(RegistryCacheError::DigestMismatch {
+                    path: PathBuf::from(&registry.path),
+                    expected: registry.sha256.clone(),
+                    actual: snapshot.reference.digest.clone(),
+                });
+            }
+            snapshot
+                .reference
+                .extra
+                .insert("provenance".into(), serde_json::json!(entry.provenance));
+        }
+        if select {
+            self.write_selection(
+                &identity,
+                snapshots.iter().map(|s| s.reference.clone()).collect(),
+            )?;
+        }
+        Ok(snapshots)
+    }
+
+    fn verify_artifact_blob(
+        &self,
+        artifact: &wax_contract::ArtifactDigest,
+    ) -> Result<(), RegistryCacheError> {
+        artifact.validate()?;
+        let path = self.blob_path(&artifact.sha256);
+        let bytes = fs::read(&path).map_err(|source| RegistryCacheError::CacheRead {
+            path: path.clone(),
+            source,
+        })?;
+        let actual = crate::digest::sha256_hex(&bytes);
+        if actual != artifact.sha256 {
+            return Err(RegistryCacheError::DigestMismatch {
+                path,
+                expected: artifact.sha256.clone(),
+                actual,
+            });
+        }
+        Ok(())
     }
 
     fn acquire_selection_lock(
@@ -230,6 +489,14 @@ impl RegistryCache {
         source: &RegistrySourceSpec,
     ) -> Result<Vec<RegistrySnapshot>, RegistryCacheError> {
         let fetched = match source {
+            RegistrySourceSpec::GitSystem {
+                url,
+                tag,
+                subdir,
+                system_id,
+            } => {
+                return self.fetch_bundle(source, url, tag, subdir, system_id);
+            }
             RegistrySourceSpec::HttpJson { url, language } => {
                 let bytes = fetch_http_registry_bytes(url)?;
                 vec![FetchedRegistry {
@@ -258,7 +525,21 @@ impl RegistryCache {
                 system_id,
                 language,
             } => self.fetch_publisher(root, system_id.as_deref(), language.as_ref())?,
-            RegistrySourceSpec::Git { url, tag, language } => {
+            RegistrySourceSpec::Git {
+                url,
+                tag,
+                language,
+                subdir,
+            } => {
+                if let Some(subdir) = subdir {
+                    return self.fetch_nested_registry(
+                        source,
+                        url,
+                        tag.as_deref().unwrap_or("HEAD"),
+                        subdir,
+                        language,
+                    );
+                }
                 let reference = tag.as_deref().unwrap_or("HEAD");
                 let fetched = fetch_git_registry(url, reference, language, &self.root.join("git"))?;
                 vec![FetchedRegistry {
@@ -275,6 +556,123 @@ impl RegistryCache {
             .into_iter()
             .map(|fetched| self.validate_and_store(fetched))
             .collect()
+    }
+
+    fn fetch_nested_registry(
+        &self,
+        source: &RegistrySourceSpec,
+        url: &str,
+        reference: &str,
+        subdir: &str,
+        language: &LanguageId,
+    ) -> Result<Vec<RegistrySnapshot>, RegistryCacheError> {
+        crate::registry_git::validate_git_path(subdir)?;
+        let path = format!("{subdir}/{}", conventional_git_registry_path(language));
+        let mut fetched = fetch_git_files(url, reference, &[&path], &self.root.join("git"), false)?;
+        let mut snapshot = self.validate_and_store(FetchedRegistry {
+            source: source.identity(),
+            language: Some(language.clone()),
+            system_id: None,
+            git_commit: Some(fetched.commit),
+            bytes: fetched.files.remove(&path).unwrap_or_default(),
+        })?;
+        snapshot
+            .reference
+            .extra
+            .insert("subdir".into(), subdir.into());
+        Ok(vec![snapshot])
+    }
+
+    fn fetch_bundle(
+        &self,
+        source: &RegistrySourceSpec,
+        url: &str,
+        reference: &str,
+        subdir: &str,
+        system_id: &str,
+    ) -> Result<Vec<RegistrySnapshot>, RegistryCacheError> {
+        crate::registry_git::validate_git_path(subdir)?;
+        if LanguageId::try_from(system_id).is_err() {
+            return Err(RegistryCacheError::InvalidSourceSpec {
+                input: source.identity(),
+                reason: "invalid bundle system id",
+            });
+        }
+        let definition_path = format!("{subdir}/.wax/wax.config.json");
+        let mut definition = fetch_git_files(
+            url,
+            reference,
+            &[&definition_path],
+            &self.root.join("git"),
+            false,
+        )?;
+        let bytes = definition
+            .files
+            .remove(&definition_path)
+            .unwrap_or_default();
+        let config = parse_waxrc_bytes(&bytes, Path::new(&definition_path))?;
+        let system = config.design_systems.get(system_id).ok_or_else(|| {
+            RegistryCacheError::PublisherNotFound {
+                root: PathBuf::from(subdir),
+                system_id: system_id.to_owned(),
+            }
+        })?;
+        if system.registries.is_empty() {
+            return Err(RegistryCacheError::PublisherHasNoRegistries {
+                root: PathBuf::from(subdir),
+                system_id: system_id.to_owned(),
+            });
+        }
+        let mut paths = Vec::new();
+        for (language, registry) in &system.registries {
+            if registry.source != conventional_git_registry_path(language) {
+                return Err(RegistryCacheError::InvalidSourceSpec {
+                    input: source.identity(),
+                    reason: "bundle registries must use conventional relative paths",
+                });
+            }
+            paths.push(format!("{subdir}/{}", registry.source));
+        }
+        let path_refs: Vec<_> = paths.iter().map(String::as_str).collect();
+        let mut fetched = fetch_git_files(
+            url,
+            &definition.commit,
+            &path_refs,
+            &self.root.join("git"),
+            true,
+        )?;
+        let digest = crate::digest::sha256_hex(&bytes);
+        let pin = wax_contract::RegistryDefinitionPin {
+            system_id: system_id.to_owned(),
+            path: definition_path,
+            sha256: digest.clone(),
+        };
+        let pin_value =
+            serde_json::to_value(&pin).map_err(|source| RegistryCacheError::SelectionEncoding {
+                identity: "bundle definition".into(),
+                source,
+            })?;
+        let mut snapshots = Vec::new();
+        for ((language, _), path) in system.registries.iter().zip(&paths) {
+            let mut snapshot = self.validate_and_store(FetchedRegistry {
+                source: source.identity(),
+                language: Some(language.clone()),
+                system_id: Some(system_id.to_owned()),
+                git_commit: Some(fetched.commit.clone()),
+                bytes: fetched.files.remove(path).unwrap_or_default(),
+            })?;
+            snapshot
+                .reference
+                .extra
+                .insert("subdir".into(), subdir.into());
+            snapshot
+                .reference
+                .extra
+                .insert("definition".into(), pin_value.clone());
+            snapshots.push(snapshot);
+        }
+        self.write_blob(&digest, &bytes)?;
+        Ok(snapshots)
     }
 
     fn fetch_publisher(
@@ -517,6 +915,53 @@ impl RegistryCache {
         references
             .iter()
             .map(|reference| {
+                reference.validate_bundle_metadata()?;
+                if let Some(value) = reference.extra.get("provenance") {
+                    let artifact = serde_json::from_value(value.clone()).map_err(|_| {
+                        RegistryCacheError::InvalidSourceSpec {
+                            input: reference.source.clone(),
+                            reason: "malformed provenance",
+                        }
+                    })?;
+                    self.verify_artifact_blob(&artifact)
+                        .map_err(|error| match error {
+                            RegistryCacheError::CacheRead { source, .. }
+                                if source.kind() == io::ErrorKind::NotFound =>
+                            {
+                                RegistryCacheError::SnapshotUnavailable {
+                                    snapshot: Box::new(reference.clone()),
+                                }
+                            }
+                            other => other,
+                        })?;
+                }
+                if let Some(value) = reference.extra.get("definition") {
+                    let pin: wax_contract::RegistryDefinitionPin =
+                        serde_json::from_value(value.clone()).map_err(|_| {
+                            RegistryCacheError::InvalidSourceSpec {
+                                input: reference.source.clone(),
+                                reason: "malformed definition pin",
+                            }
+                        })?;
+                    pin.validate()
+                        .map_err(|_| RegistryCacheError::InvalidSourceSpec {
+                            input: reference.source.clone(),
+                            reason: "invalid definition pin",
+                        })?;
+                    let path = self.blob_path(&pin.sha256);
+                    let bytes =
+                        fs::read(&path).map_err(|_| RegistryCacheError::SnapshotUnavailable {
+                            snapshot: Box::new(reference.clone()),
+                        })?;
+                    let actual = crate::digest::sha256_hex(&bytes);
+                    if actual != pin.sha256 {
+                        return Err(RegistryCacheError::DigestMismatch {
+                            path,
+                            expected: pin.sha256,
+                            actual,
+                        });
+                    }
+                }
                 let path = self.blob_path(&reference.digest);
                 let bytes = fs::read(&path).map_err(|source| {
                     if source.kind() == io::ErrorKind::NotFound {
@@ -607,6 +1052,12 @@ impl RegistrySourceSpec {
                 *source_tag = Some(tag);
                 Ok(self)
             }
+            Self::GitSystem {
+                tag: source_tag, ..
+            } => {
+                *source_tag = tag;
+                Ok(self)
+            }
             _ => Err(RegistryCacheError::InvalidSourceSpec {
                 input: self.identity(),
                 reason: "--tag is only valid for a Git registry source",
@@ -677,7 +1128,12 @@ impl RegistrySourceSpec {
             } else {
                 url.to_owned()
             };
-            return Ok(Self::Git { url, tag, language });
+            return Ok(Self::Git {
+                url,
+                tag,
+                language,
+                subdir: None,
+            });
         }
 
         if input.starts_with("http://") || input.starts_with("https://") {
@@ -701,8 +1157,27 @@ impl RegistrySourceSpec {
                 format!("publisher:{}", root.display())
             }
             Self::HttpJson { url, .. } => redact_url(url),
+            Self::GitSystem {
+                url,
+                tag,
+                subdir,
+                system_id,
+            } => crate::registry_git::git_source_identity(url, tag, Some(subdir), Some(system_id)),
+            Self::Git {
+                url,
+                tag,
+                subdir: Some(subdir),
+                ..
+            } => crate::registry_git::git_source_identity(
+                url,
+                tag.as_deref().unwrap_or("HEAD"),
+                Some(subdir),
+                None,
+            ),
             Self::Git { url, tag, .. } => match tag {
-                Some(tag) => format!("git:{}#{tag}", redact_url(url)),
+                Some(tag) => {
+                    crate::registry_git::git_source_identity(&redact_url(url), tag, None, None)
+                }
                 None => format!("git:{}", redact_url(url)),
             },
         }
@@ -725,6 +1200,7 @@ impl RegistrySourceSpec {
                 system_id.as_deref().unwrap_or_default(),
                 language.as_ref().map_or("", LanguageId::as_str)
             ),
+            Self::GitSystem { .. } => self.identity(),
             Self::Git { language, .. } => {
                 format!("{}|language={}", self.identity(), language.as_str())
             }
@@ -739,8 +1215,27 @@ impl RegistrySourceSpec {
                     .is_none_or(|language| language == &reference.language)
                     && reference.source == self.identity()
             }
-            Self::Git { language, .. } => {
-                language == &reference.language && reference.source == self.identity()
+            Self::GitSystem {
+                system_id, subdir, ..
+            } => {
+                reference.source == self.identity()
+                    && reference.system_id.as_ref() == Some(system_id)
+                    && reference
+                        .extra
+                        .get("subdir")
+                        .and_then(serde_json::Value::as_str)
+                        == Some(subdir.as_str())
+            }
+            Self::Git {
+                language, subdir, ..
+            } => {
+                language == &reference.language
+                    && reference.source == self.identity()
+                    && reference
+                        .extra
+                        .get("subdir")
+                        .and_then(serde_json::Value::as_str)
+                        == subdir.as_deref()
             }
             Self::PublisherRepository {
                 root,
@@ -878,6 +1373,9 @@ fn read_publisher_mapping(root: &Path, source: &str) -> Result<Vec<u8>, Registry
 /// Typed failures returned while resolving registry snapshots.
 #[derive(Debug, Error)]
 pub enum RegistryCacheError {
+    /// Catalogue or artifact metadata failed validation.
+    #[error(transparent)]
+    Catalog(#[from] wax_contract::CatalogError),
     /// Offline mode had no selected snapshot for the requested source.
     #[error("registry source {identity} is not available in the offline cache")]
     OfflineCacheMiss {

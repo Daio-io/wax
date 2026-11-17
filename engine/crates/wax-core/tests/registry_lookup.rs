@@ -687,10 +687,12 @@ fn git_app_lock_matches_remembered_id_selector() {
     state.design_systems.insert(
         "acme".to_owned(),
         RememberedDesignSystem {
+            bundle_pin: None,
             name: "Acme Design System".to_owned(),
             repo_root: PathBuf::new(),
             last_seen_config: PathBuf::new(),
             source: Some(RegistrySourceSpec::Git {
+                subdir: None,
                 url: git_url.to_owned(),
                 tag: Some("v2.0.0".to_owned()),
                 language: language("compose"),

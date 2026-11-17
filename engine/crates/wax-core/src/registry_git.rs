@@ -1,5 +1,6 @@
 //! Fetches conventional registry files from Git repositories.
 
+use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::fs;
 use std::io;
@@ -26,6 +27,12 @@ pub struct GitRegistryFetch {
 /// Errors returned while resolving and reading a Git-backed registry.
 #[derive(Debug, Error)]
 pub enum RegistryGitError {
+    /// A full commit was unavailable without network access.
+    #[error("Git commit {commit} is not available offline")]
+    OfflineCacheMiss {
+        /// Requested object id.
+        commit: String,
+    },
     /// The Git URL or ref was empty or contained invalid control characters.
     #[error("invalid Git {kind}: {value:?}")]
     InvalidInput {
@@ -138,93 +145,135 @@ pub fn fetch_git_registry(
     language_id: &LanguageId,
     cache_dir: &Path,
 ) -> Result<GitRegistryFetch, RegistryGitError> {
-    validate_input("URL", git_url)?;
-    validate_input("ref", tag_or_sha)?;
-    let (cache_repo, _lock) = prepare_cache(git_url, cache_dir)?;
-    let output = run_git(
-        "fetch registry ref",
-        [
-            OsStr::new("--git-dir"),
-            cache_repo.as_os_str(),
-            OsStr::new("fetch"),
-            OsStr::new("--force"),
-            OsStr::new("--depth=1"),
-            OsStr::new("--no-tags"),
-            OsStr::new("--"),
-            OsStr::new(git_url),
-            OsStr::new(tag_or_sha),
-        ],
-    )?;
-    if !output.status.success() {
-        return Err(fetch_failed(git_url, tag_or_sha, &output));
-    }
-    let commit = resolve_fetch_head(&cache_repo)?;
-    read_registry(&cache_repo, &commit, language_id)
+    let path = conventional_git_registry_path(language_id);
+    let mut fetched = fetch_git_files(git_url, tag_or_sha, &[&path], cache_dir, false)?;
+    Ok(GitRegistryFetch {
+        commit: fetched.commit,
+        bytes: fetched.files.remove(&path).unwrap_or_default(),
+    })
 }
 
 /// Reads a registry at an exact full commit, fetching that object if needed.
 ///
 /// # Errors
-///
-/// Returns [`RegistryGitError`] when the locked object is invalid, unavailable,
-/// does not match the requested commit, or its conventional file cannot be read.
+/// Returns a typed Git error for invalid or unavailable objects.
 pub fn fetch_git_registry_at_commit(
     git_url: &str,
     commit: &str,
     language_id: &LanguageId,
     cache_dir: &Path,
 ) -> Result<GitRegistryFetch, RegistryGitError> {
-    validate_input("URL", git_url)?;
     let commit = validate_commit(commit)?;
-    let (cache_repo, _lock) = prepare_cache(git_url, cache_dir)?;
+    fetch_git_registry(git_url, &commit, language_id, cache_dir)
+}
 
-    let verify_arg = format!("{commit}^{{commit}}");
-    let cached = run_git(
-        "check cached commit",
-        [
-            OsStr::new("--git-dir"),
-            cache_repo.as_os_str(),
-            OsStr::new("rev-parse"),
-            OsStr::new("--verify"),
-            OsStr::new(&verify_arg),
-        ],
-    )?;
-    let resolved = if cached.status.success() {
-        parse_commit(&cached)?
-    } else {
-        let fetched = run_git(
-            "fetch locked commit",
+/// Exact regular-file bytes read together at one immutable Git commit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitFilesFetch {
+    /// Full commit object id.
+    pub commit: String,
+    /// Repository-relative paths and their exact bytes.
+    pub files: BTreeMap<String, Vec<u8>>,
+}
+
+/// Fetches a reference once and reads regular blobs at that commit, without checkout.
+/// Offline reads require a full commit already in the bare cache.
+///
+/// # Errors
+/// Returns a typed error for unsafe paths, non-regular files, or unavailable objects.
+pub fn fetch_git_files(
+    url: &str,
+    reference: &str,
+    paths: &[&str],
+    cache_dir: &Path,
+    offline: bool,
+) -> Result<GitFilesFetch, RegistryGitError> {
+    validate_input("URL", url)?;
+    validate_input("ref", reference)?;
+    for path in paths {
+        validate_git_path(path)?;
+    }
+    let full_commit = validate_commit(reference).ok();
+    if offline && full_commit.is_none() {
+        return Err(RegistryGitError::OfflineCacheMiss {
+            commit: reference.to_owned(),
+        });
+    }
+    let (repo, _lock) = prepare_cache(url, cache_dir)?;
+    let cached = if let Some(commit) = &full_commit {
+        let object = format!("{commit}^{{commit}}");
+        let output = run_git(
+            "check cached commit",
             [
                 OsStr::new("--git-dir"),
-                cache_repo.as_os_str(),
+                repo.as_os_str(),
+                OsStr::new("rev-parse"),
+                OsStr::new("--verify"),
+                OsStr::new(&object),
+            ],
+        )?;
+        if output.status.success() {
+            Some(parse_commit(&output)?)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let commit = if let Some(commit) = cached {
+        commit
+    } else {
+        if offline {
+            return Err(RegistryGitError::OfflineCacheMiss {
+                commit: reference.to_owned(),
+            });
+        }
+        let output = run_git(
+            "fetch registry ref",
+            [
+                OsStr::new("--git-dir"),
+                repo.as_os_str(),
                 OsStr::new("fetch"),
                 OsStr::new("--force"),
                 OsStr::new("--depth=1"),
                 OsStr::new("--no-tags"),
                 OsStr::new("--"),
-                OsStr::new(git_url),
-                OsStr::new(&commit),
+                OsStr::new(url),
+                OsStr::new(reference),
             ],
         )?;
-        if !fetched.status.success() {
-            return Err(fetch_failed(git_url, &commit, &fetched));
+        if !output.status.success() {
+            return Err(fetch_failed(url, reference, &output));
         }
-        let fetched_commit = resolve_fetch_head(&cache_repo)?;
-        if fetched_commit != commit {
-            return Err(RegistryGitError::LockedCommitMismatch {
-                requested: commit,
-                resolved: fetched_commit,
-            });
-        }
-        fetched_commit
+        resolve_fetch_head(&repo)?
     };
-    if resolved != commit {
+    if let Some(expected) = full_commit
+        && expected != commit
+    {
         return Err(RegistryGitError::LockedCommitMismatch {
-            requested: commit,
-            resolved,
+            requested: expected,
+            resolved: commit,
         });
     }
-    read_registry(&cache_repo, &commit, language_id)
+    let files = paths
+        .iter()
+        .map(|path| Ok(((*path).to_owned(), read_blob(&repo, &commit, path)?)))
+        .collect::<Result<_, RegistryGitError>>()?;
+    Ok(GitFilesFetch { commit, files })
+}
+
+/// Validates a slash-separated, repository-relative Git artifact path.
+///
+/// # Errors
+/// Rejects traversal, empty, option-like, absolute, backslash and control segments.
+pub fn validate_git_path(path: &str) -> Result<(), RegistryGitError> {
+    if wax_contract::validate_artifact_path(path).is_err() {
+        return Err(RegistryGitError::InvalidInput {
+            kind: "path",
+            value: path.to_owned(),
+        });
+    }
+    Ok(())
 }
 
 fn validate_input(kind: &'static str, value: &str) -> Result<(), RegistryGitError> {
@@ -397,49 +446,51 @@ fn parse_commit(output: &Output) -> Result<String, RegistryGitError> {
     Ok(commit)
 }
 
-fn read_registry(
-    repo: &Path,
-    commit: &str,
-    language_id: &LanguageId,
-) -> Result<GitRegistryFetch, RegistryGitError> {
-    let path = conventional_git_registry_path(language_id);
-    let object = format!("{commit}:{path}");
-    let exists = run_git(
-        "check registry file",
+fn read_blob(repo: &Path, commit: &str, path: &str) -> Result<Vec<u8>, RegistryGitError> {
+    // ls-tree checks the mode as cat-file alone also accepts symlink blobs.
+    let entry = run_git(
+        "check regular blob",
         [
             OsStr::new("--git-dir"),
             repo.as_os_str(),
-            OsStr::new("cat-file"),
-            OsStr::new("-e"),
-            OsStr::new(&object),
+            OsStr::new("ls-tree"),
+            OsStr::new("-z"),
+            OsStr::new(commit),
+            OsStr::new("--"),
+            OsStr::new(path),
         ],
     )?;
-    if !exists.status.success() {
+    if entry.stdout.is_empty() {
         return Err(RegistryGitError::RegistryFileAbsent {
-            path,
+            path: path.to_owned(),
             commit: commit.to_owned(),
         });
     }
+    if !entry.stdout.starts_with(b"100644 blob ") && !entry.stdout.starts_with(b"100755 blob ") {
+        return Err(RegistryGitError::InvalidInput {
+            kind: "regular blob path",
+            value: path.to_owned(),
+        });
+    }
+    let object = format!("{commit}:{path}");
     let output = run_git(
         "read registry file",
         [
             OsStr::new("--git-dir"),
             repo.as_os_str(),
-            OsStr::new("show"),
+            OsStr::new("cat-file"),
+            OsStr::new("blob"),
             OsStr::new(&object),
         ],
     )?;
     if !output.status.success() {
         return Err(RegistryGitError::RegistryRead {
-            path,
+            path: path.to_owned(),
             commit: commit.to_owned(),
             stderr: stderr_summary(&output),
         });
     }
-    Ok(GitRegistryFetch {
-        commit: commit.to_owned(),
-        bytes: output.stdout,
-    })
+    Ok(output.stdout)
 }
 
 fn run_git<'a>(
@@ -471,6 +522,32 @@ fn status_string(output: &Output) -> String {
         .status
         .code()
         .map_or_else(|| "signal".to_owned(), |code| code.to_string())
+}
+
+/// Canonical Git identity shared by config, cache, locks and offline validation.
+#[must_use]
+pub fn git_source_identity(
+    url: &str,
+    reference: &str,
+    subdir: Option<&str>,
+    system: Option<&str>,
+) -> String {
+    match subdir {
+        None => format!("git:{}#{}", url.trim(), reference.trim()),
+        Some(subdir) => {
+            // A tuple serializes infallibly; the JSON array separates every field unambiguously.
+            let canonical = serde_json::json!([
+                redact_git_remote(url.trim()),
+                reference.trim(),
+                subdir,
+                system
+            ]);
+            format!(
+                "git-system:{}",
+                crate::digest::sha256_hex(canonical.to_string().as_bytes())
+            )
+        }
+    }
 }
 
 #[cfg(test)]

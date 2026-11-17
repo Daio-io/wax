@@ -118,7 +118,7 @@ pub fn resolve_language_registry_source(
 pub fn ensure_language_registry_source_supported(
     registry: Option<&LanguageRegistrySource>,
 ) -> Result<(), RegistrySourceError> {
-    if let Some(LanguageRegistrySource::Git { git, tag }) = registry {
+    if let Some(LanguageRegistrySource::Git { git, tag, .. }) = registry {
         return Err(RegistrySourceError::GitRegistryResolutionNotWired {
             git: git.clone(),
             tag: tag.clone(),
@@ -138,11 +138,18 @@ pub struct ResolvedRegistrySource {
     pub sha256: String,
     /// Full Git commit object id when resolved from Git.
     pub git_commit: Option<String>,
+    /// Selected bundle directory when using nested Git.
+    pub subdir: Option<String>,
+    /// Immutable publisher definition shared by the bundle languages.
+    pub definition: Option<wax_contract::RegistryDefinitionPin>,
 }
 
 /// Typed failures while resolving registry sources.
 #[derive(Debug, Error)]
 pub enum RegistrySourceError {
+    /// Nested registry bundle resolution failed.
+    #[error(transparent)]
+    Bundle(Box<crate::registry_cache::RegistryCacheError>),
     /// A git registry was configured before git registry resolution was implemented.
     #[error("git registry resolution is not wired yet for {git}@{tag}")]
     GitRegistryResolutionNotWired {
@@ -319,8 +326,17 @@ fn resolve_registry_source_with_options(
     upgrade: bool,
     allow_missing_components: bool,
 ) -> Result<ResolvedRegistrySource, RegistrySourceError> {
-    if let Some(LanguageRegistrySource::Git { git, tag }) = registry {
-        let canonical_source = format!("git:{}#{}", git.trim(), tag.trim());
+    if let Some(LanguageRegistrySource::Git {
+        git,
+        tag,
+        subdir: Some(subdir),
+        system,
+    }) = registry
+    {
+        return resolve_nested_git(&input, git, tag, subdir, system.as_deref(), locked);
+    }
+    if let Some(LanguageRegistrySource::Git { git, tag, .. }) = registry {
+        let canonical_source = crate::registry_git::git_source_identity(git, tag, None, None);
         let fetch = if !upgrade {
             match locked {
                 Some(lock) if lock.git.is_some() || lock.tag.is_some() || lock.commit.is_some() => {
@@ -412,6 +428,8 @@ fn resolve_registry_source_with_options(
             &fetch.bytes,
         )?;
         return Ok(ResolvedRegistrySource {
+            subdir: None,
+            definition: None,
             source: canonical_source,
             repo_relative_path: path,
             sha256,
@@ -435,6 +453,8 @@ fn resolve_registry_source_with_options(
     };
 
     Ok(ResolvedRegistrySource {
+        subdir: None,
+        definition: None,
         source,
         repo_relative_path,
         sha256,
@@ -811,6 +831,106 @@ fn from_hex(byte: u8) -> Option<u8> {
     }
 }
 
+fn resolve_nested_git(
+    input: &RegistrySourceInput<'_>,
+    git: &str,
+    tag: &str,
+    subdir: &str,
+    system: Option<&str>,
+    locked: Option<&LockedRegistry>,
+) -> Result<ResolvedRegistrySource, RegistrySourceError> {
+    use crate::registry_cache::{RegistryCache, RegistryReadPolicy, RegistrySourceSpec};
+    let invalid = || RegistrySourceError::InvalidGitLock {
+        language_id: input.language_id.to_owned(),
+    };
+    let language = wax_contract::LanguageId::try_from(input.language_id).map_err(|_| invalid())?;
+    let source = match system {
+        Some(system) => RegistrySourceSpec::GitSystem {
+            url: git.to_owned(),
+            tag: tag.to_owned(),
+            subdir: subdir.to_owned(),
+            system_id: system.to_owned(),
+        },
+        None => RegistrySourceSpec::Git {
+            url: git.to_owned(),
+            tag: Some(tag.to_owned()),
+            subdir: Some(subdir.to_owned()),
+            language: language.clone(),
+        },
+    };
+    let identity = source.identity();
+    let locked = locked.filter(|lock| lock.source == identity);
+    let expected = if let Some(lock) = locked {
+        if lock.git.as_deref() != Some(git)
+            || lock.tag.as_deref() != Some(tag)
+            || lock.subdir.as_deref() != Some(subdir)
+            || lock.commit.is_none()
+            || lock.definition.as_ref().map(|pin| pin.system_id.as_str()) != system
+        {
+            return Err(invalid());
+        }
+        let mut extra = serde_json::Map::new();
+        extra.insert("subdir".into(), subdir.into());
+        if let Some(definition) = &lock.definition {
+            extra.insert("definition".into(), serde_json::json!(definition));
+        }
+        Some(wax_contract::RegistrySnapshotRef {
+            source: identity.clone(),
+            language: language.clone(),
+            digest: lock.sha256.clone(),
+            system_id: system.map(str::to_owned),
+            git_commit: lock.commit.clone(),
+            extra,
+        })
+    } else {
+        None
+    };
+    let cache = RegistryCache::open(input.repo_root.join(REGISTRY_CACHE_RELATIVE_DIR));
+    let snapshots = cache
+        .resolve(
+            &source,
+            &RegistryReadPolicy {
+                offline: false,
+                expected_snapshot: expected,
+            },
+        )
+        .map_err(|error| RegistrySourceError::Bundle(Box::new(error)))?;
+    let snapshot = snapshots
+        .into_iter()
+        .find(|snapshot| snapshot.reference.language == language)
+        .ok_or_else(invalid)?;
+    let bytes = fs::read(RegistryCache::blob_path_for(
+        cache.root(),
+        &snapshot.reference.digest,
+    ))
+    .map_err(|io| RegistrySourceError::Read {
+        input: identity.clone(),
+        io,
+    })?;
+    let path = materialize_external_registry(
+        input.repo_root,
+        input.language_id,
+        &identity,
+        &snapshot.reference.digest,
+        &bytes,
+    )?;
+    let definition = snapshot
+        .reference
+        .extra
+        .get("definition")
+        .map(|value| serde_json::from_value(value.clone()))
+        .transpose()
+        .map_err(|_| invalid())?;
+    Ok(ResolvedRegistrySource {
+        source: identity,
+        repo_relative_path: path,
+        sha256: snapshot.reference.digest,
+        git_commit: snapshot.reference.git_commit,
+        subdir: Some(subdir.to_owned()),
+        definition,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -946,6 +1066,8 @@ mod tests {
         fn locked(&self, commit: &str, sha256: &str) -> LockedRegistry {
             let git = self.remote_url();
             LockedRegistry {
+                subdir: None,
+                definition: None,
                 source: format!("git:{git}#v1"),
                 sha256: sha256.to_owned(),
                 git: Some(git),
@@ -964,6 +1086,8 @@ mod tests {
         let repo = fixture.root.join("app");
         fs::create_dir_all(&repo).expect("app repo");
         let registry = LanguageRegistrySource::Git {
+            subdir: None,
+            system: None,
             git: fixture.remote_url(),
             tag: "v1".to_owned(),
         };

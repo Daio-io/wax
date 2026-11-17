@@ -42,6 +42,9 @@ pub struct RememberedDesignSystem {
     /// Immutable snapshots selected when the typed source was last added or refreshed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub snapshots: Vec<wax_contract::RegistrySnapshotRef>,
+    /// Complete immutable bundle pin for a Git publisher source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bundle_pin: Option<wax_contract::RegistryBundlePin>,
 }
 
 /// Metadata for one installed language pack.
@@ -59,6 +62,9 @@ fn path_is_empty(path: &Path) -> bool {
 /// Errors returned while loading or saving global wax state.
 #[derive(Debug, Error)]
 pub enum GlobalStateError {
+    /// Remembered bundle pins are malformed or disagree across languages.
+    #[error("invalid remembered bundle metadata: {0}")]
+    Bundle(#[from] wax_contract::CatalogError),
     /// The file could not be read from disk.
     #[error("failed to read wax global state from {path}: {source}")]
     Read {
@@ -159,6 +165,49 @@ pub fn load_global_state(path: impl AsRef<Path>) -> Result<GlobalState, GlobalSt
 fn validate_global_state(state: &GlobalState, path_display: &str) -> Result<(), GlobalStateError> {
     validate_global_state_versions(state, path_display)?;
     validate_global_state_design_systems(state, path_display)?;
+    for entry in state.design_systems.values() {
+        for snapshot in &entry.snapshots {
+            snapshot.validate_bundle_metadata()?;
+        }
+        if let Some(RegistrySourceSpec::GitSystem {
+            url,
+            subdir,
+            system_id,
+            ..
+        }) = &entry.source
+        {
+            let pin = entry.bundle_pin.as_ref().ok_or_else(|| {
+                wax_contract::CatalogError("Git system requires bundle pin".into())
+            })?;
+            pin.validate()?;
+            let references: BTreeMap<_, _> = entry
+                .snapshots
+                .iter()
+                .map(|s| (s.language.clone(), s.clone()))
+                .collect();
+            if &pin.repo != url
+                || &pin.subdir != subdir
+                || &pin.system_id != system_id
+                || pin.registries != references
+                || references.len() != entry.snapshots.len()
+                || entry.snapshots.iter().any(|s| {
+                    entry
+                        .source
+                        .as_ref()
+                        .is_none_or(|source| s.source != source.identity())
+                })
+            {
+                return Err(wax_contract::CatalogError(
+                    "remembered bundle does not match source".into(),
+                )
+                .into());
+            }
+        } else if entry.bundle_pin.is_some() {
+            return Err(
+                wax_contract::CatalogError("bundle pin requires Git system source".into()).into(),
+            );
+        }
+    }
     Ok(())
 }
 
@@ -259,6 +308,7 @@ mod global_state_design_systems_tests {
                     last_seen_config: PathBuf::from(".wax/wax.config.json"),
                     source: None,
                     snapshots: Vec::new(),
+                    bundle_pin: None,
                 },
             )]),
         };

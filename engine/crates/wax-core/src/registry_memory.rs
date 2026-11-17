@@ -55,6 +55,10 @@ pub struct ResolvedRememberedRegistry {
     pub digest: Option<String>,
     /// Selected Git commit when the remembered source is Git-backed.
     pub git_commit: Option<String>,
+    /// Selected Git bundle directory.
+    pub subdir: Option<String>,
+    /// Selected publisher definition.
+    pub definition: Option<wax_contract::RegistryDefinitionPin>,
 }
 
 impl ResolvedRememberedRegistry {
@@ -62,10 +66,14 @@ impl ResolvedRememberedRegistry {
     #[must_use]
     pub fn to_config_registry_value(&self) -> Value {
         if let (Some(git), Some(tag)) = (self.git.as_ref(), self.tag.as_ref()) {
-            serde_json::json!({
-                "git": git,
-                "tag": tag,
-            })
+            let mut value = serde_json::json!({ "git": git, "tag": tag });
+            if let Some(subdir) = &self.subdir {
+                value["subdir"] = subdir.clone().into();
+            }
+            if let Some(definition) = &self.definition {
+                value["system"] = definition.system_id.clone().into();
+            }
+            value
         } else {
             serde_json::json!({
                 "source": self.config_source,
@@ -132,6 +140,8 @@ fn path_or_url_resolution(
     design_system_local_source: Option<String>,
 ) -> ResolvedRememberedRegistry {
     ResolvedRememberedRegistry {
+        subdir: None,
+        definition: None,
         config_source,
         git: None,
         tag: None,
@@ -270,6 +280,8 @@ pub struct RememberedDesignSystemSummary {
     pub source: Option<RegistrySourceSpec>,
     /// Immutable snapshots selected by the most recent add or refresh.
     pub snapshots: Vec<wax_contract::RegistrySnapshotRef>,
+    /// Complete bundle selected with the remembered snapshots.
+    pub bundle_pin: Option<wax_contract::RegistryBundlePin>,
     /// State file used to locate the shared immutable snapshot cache.
     pub state_path: PathBuf,
 }
@@ -300,6 +312,7 @@ pub fn remember_design_system(
             last_seen_config: PathBuf::from(LAST_SEEN_CONFIG_RELATIVE_PATH),
             source: None,
             snapshots: Vec::new(),
+            bundle_pin: None,
         },
     );
     save_global_state(state_path, &state)?;
@@ -334,21 +347,24 @@ pub fn add_remembered_registry(
             requested_name: name.to_owned(),
         });
     }
-    let snapshots = registry_cache_for_state(state_path).refresh(source)?;
-    state.design_systems.insert(
-        design_system_id.to_owned(),
-        RememberedDesignSystem {
-            name: name.to_owned(),
-            repo_root: PathBuf::new(),
-            last_seen_config: PathBuf::new(),
-            source: Some(source.clone()),
-            snapshots: snapshots
-                .iter()
-                .map(|snapshot| snapshot.reference.clone())
-                .collect(),
-        },
-    );
-    save_global_state(state_path, &state)?;
+    let snapshots = registry_cache_for_state(state_path).refresh_with(source, |snapshots| {
+        state.design_systems.insert(
+            design_system_id.to_owned(),
+            RememberedDesignSystem {
+                name: name.to_owned(),
+                repo_root: PathBuf::new(),
+                last_seen_config: PathBuf::new(),
+                source: Some(source.clone()),
+                bundle_pin: bundle_pin(source, snapshots)?,
+                snapshots: snapshots
+                    .iter()
+                    .map(|snapshot| snapshot.reference.clone())
+                    .collect(),
+            },
+        );
+        save_global_state(state_path, &state)?;
+        Ok::<(), RegistryMemoryError>(())
+    })?;
     Ok(snapshots)
 }
 
@@ -366,9 +382,10 @@ pub fn refresh_remembered_registry(
     validate_design_system_id(design_system_id)?;
     let state_path = state_path.as_ref();
     let mut state = load_global_state(state_path)?;
-    let entry = state
+    let mut entry = state
         .design_systems
-        .get_mut(design_system_id)
+        .get(design_system_id)
+        .cloned()
         .ok_or_else(|| RegistryMemoryError::NotFound {
             design_system_id: design_system_id.to_owned(),
         })?;
@@ -378,12 +395,19 @@ pub fn refresh_remembered_registry(
         .ok_or_else(|| RegistryMemoryError::NotRemote {
             design_system_id: design_system_id.to_owned(),
         })?;
-    let snapshots = registry_cache_for_state(state_path).refresh(source)?;
-    entry.snapshots = snapshots
-        .iter()
-        .map(|snapshot| snapshot.reference.clone())
-        .collect();
-    save_global_state(state_path, &state)?;
+    let source = source.clone();
+    let snapshots = registry_cache_for_state(state_path).refresh_with(&source, |snapshots| {
+        entry.bundle_pin = bundle_pin(&source, snapshots)?;
+        entry.snapshots = snapshots
+            .iter()
+            .map(|snapshot| snapshot.reference.clone())
+            .collect();
+        state
+            .design_systems
+            .insert(design_system_id.to_owned(), entry);
+        save_global_state(state_path, &state)?;
+        Ok::<(), RegistryMemoryError>(())
+    })?;
     Ok(snapshots)
 }
 
@@ -413,6 +437,7 @@ pub fn list_remembered_design_systems(
             last_seen_config: entry.last_seen_config.clone(),
             source: entry.source.clone(),
             snapshots: entry.snapshots.clone(),
+            bundle_pin: entry.bundle_pin.clone(),
             state_path: state_path.to_owned(),
         })
         .collect())
@@ -444,6 +469,7 @@ pub fn show_remembered_design_system(
         last_seen_config: entry.last_seen_config.clone(),
         source: entry.source.clone(),
         snapshots: entry.snapshots.clone(),
+        bundle_pin: entry.bundle_pin.clone(),
         state_path: state_path.to_owned(),
     })
 }
@@ -603,6 +629,8 @@ fn resolve_source_backed_remembered(
     let upstream = format!("{}/{}", remembered.id, language_id.as_str());
     match source {
         RegistrySourceSpec::HttpJson { url, .. } => Ok(ResolvedRememberedRegistry {
+            subdir: None,
+            definition: None,
             config_source: url.clone(),
             git: None,
             tag: None,
@@ -612,6 +640,8 @@ fn resolve_source_backed_remembered(
             git_commit: None,
         }),
         RegistrySourceSpec::LocalFile { path, .. } => Ok(ResolvedRememberedRegistry {
+            subdir: None,
+            definition: None,
             config_source: path_to_file_url(path),
             git: None,
             tag: None,
@@ -620,7 +650,36 @@ fn resolve_source_backed_remembered(
             digest: Some(snapshot.digest.clone()),
             git_commit: None,
         }),
-        RegistrySourceSpec::Git { url, tag, .. } => {
+        RegistrySourceSpec::GitSystem {
+            url,
+            tag,
+            subdir,
+            system_id,
+        } => {
+            let definition = remembered
+                .bundle_pin
+                .as_ref()
+                .filter(|pin| pin.system_id == *system_id)
+                .map(|pin| pin.definition.clone())
+                .ok_or_else(|| RegistryMemoryError::SnapshotUnavailable {
+                    design_system_id: remembered.id.clone(),
+                    digest: snapshot.digest.clone(),
+                })?;
+            Ok(ResolvedRememberedRegistry {
+                config_source: String::new(),
+                git: Some(url.clone()),
+                tag: Some(tag.clone()),
+                subdir: Some(subdir.clone()),
+                definition: Some(definition),
+                upstream,
+                design_system_local_source: None,
+                digest: Some(snapshot.digest.clone()),
+                git_commit: snapshot.git_commit.clone(),
+            })
+        }
+        RegistrySourceSpec::Git {
+            url, tag, subdir, ..
+        } => {
             let pinned_tag = tag
                 .clone()
                 .or_else(|| snapshot.git_commit.clone())
@@ -636,6 +695,8 @@ fn resolve_source_backed_remembered(
                 design_system_local_source: None,
                 digest: Some(snapshot.digest.clone()),
                 git_commit: snapshot.git_commit.clone(),
+                subdir: subdir.clone(),
+                definition: None,
             })
         }
         RegistrySourceSpec::PublisherRepository { .. } => {
@@ -855,6 +916,52 @@ fn write_config(
         source,
     })?;
     Ok(())
+}
+
+fn bundle_pin(
+    source: &RegistrySourceSpec,
+    snapshots: &[RegistrySnapshot],
+) -> Result<Option<wax_contract::RegistryBundlePin>, RegistryMemoryError> {
+    let RegistrySourceSpec::GitSystem {
+        url,
+        subdir,
+        system_id,
+        ..
+    } = source
+    else {
+        return Ok(None);
+    };
+    let invalid = || RegistryMemoryError::MissingRemoteDigest {
+        design_system_id: system_id.clone(),
+    };
+    let first = snapshots.first().ok_or_else(invalid)?;
+    let definition = first
+        .reference
+        .extra
+        .get("definition")
+        .cloned()
+        .ok_or_else(invalid)?;
+    let definition = serde_json::from_value(definition).map_err(|_| invalid())?;
+    let provenance = first
+        .reference
+        .extra
+        .get("provenance")
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|_| invalid())?;
+    Ok(Some(wax_contract::RegistryBundlePin {
+        repo: url.clone(),
+        commit: first.reference.git_commit.clone().ok_or_else(invalid)?,
+        subdir: subdir.clone(),
+        system_id: system_id.clone(),
+        definition,
+        provenance,
+        registries: snapshots
+            .iter()
+            .map(|s| (s.reference.language.clone(), s.reference.clone()))
+            .collect(),
+    }))
 }
 
 #[cfg(test)]
@@ -1129,6 +1236,7 @@ mod registry_memory_tests {
             last_seen_config: PathBuf::from(LAST_SEEN_CONFIG_RELATIVE_PATH),
             source: None,
             snapshots: Vec::new(),
+            bundle_pin: None,
             state_path: dir.path.join("state.json"),
         };
         let language_id = LanguageId::try_from("react").unwrap();
@@ -1185,11 +1293,13 @@ mod registry_memory_tests {
         let dir = TestDir::new("source-backed-git");
         let language_id = LanguageId::try_from("compose").unwrap();
         let remembered = RememberedDesignSystemSummary {
+            bundle_pin: None,
             id: "acme".to_owned(),
             name: "Acme".to_owned(),
             repo_root: PathBuf::new(),
             last_seen_config: PathBuf::new(),
             source: Some(RegistrySourceSpec::Git {
+                subdir: None,
                 url: "https://example.com/acme.git".to_owned(),
                 tag: None,
                 language: language_id.clone(),
@@ -1238,6 +1348,7 @@ mod registry_memory_tests {
                 language: Some(language_id.clone()),
             }),
             snapshots: Vec::new(),
+            bundle_pin: None,
             state_path: dir.path.join("state.json"),
         };
 
@@ -1283,6 +1394,7 @@ mod registry_memory_tests {
             last_seen_config: PathBuf::from(LAST_SEEN_CONFIG_RELATIVE_PATH),
             source: None,
             snapshots: Vec::new(),
+            bundle_pin: None,
             state_path: dir.path.join("state.json"),
         };
         let language_id = LanguageId::try_from("react").unwrap();
@@ -1310,6 +1422,7 @@ mod registry_memory_tests {
             last_seen_config: PathBuf::from(LAST_SEEN_CONFIG_RELATIVE_PATH),
             source: None,
             snapshots: Vec::new(),
+            bundle_pin: None,
             state_path: dir.path.join("state.json"),
         };
         let language_id = LanguageId::try_from("react").unwrap();

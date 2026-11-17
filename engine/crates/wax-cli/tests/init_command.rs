@@ -122,7 +122,7 @@ fn init_loads_file_copy_of_alpha_pack_index() {
     let lockfile: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(repo.join(".wax/wax.lock.json")).unwrap())
             .unwrap();
-    assert_eq!(lockfile["schema_version"], 2);
+    assert_eq!(lockfile["schema_version"], 3);
     let expected_version = option_env!("WAX_BUILD_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
     assert_eq!(lockfile["wax_version"], expected_version);
     assert!(
@@ -613,6 +613,15 @@ fn init_non_interactive_source_backed_remembered_writes_explicit_url() {
 
 #[test]
 fn init_non_interactive_git_remembered_writes_git_tag_and_pins_commit() {
+    init_git_remembered(false);
+}
+
+#[test]
+fn init_nested_git_remembered_copies_bundle_definition_pin() {
+    init_git_remembered(true);
+}
+
+fn init_git_remembered(nested: bool) {
     use std::process::Output;
     use wax_core::digest::sha256_hex;
 
@@ -654,6 +663,15 @@ fn init_non_interactive_git_remembered_writes_git_tag_and_pins_commit() {
     let registry_bytes = br#"{"schema_version":1,"language":"compose","components":[{"id":"button","symbol":"Button"}]}"#;
     fs::write(work.join(".wax/registries/compose.json"), registry_bytes)
         .expect("write compose registry");
+    if nested {
+        fs::create_dir_all(work.join("systems/acme/1/.wax/registries")).unwrap();
+        fs::copy(
+            work.join(".wax/registries/compose.json"),
+            work.join("systems/acme/1/.wax/registries/compose.json"),
+        )
+        .unwrap();
+        fs::write(work.join("systems/acme/1/.wax/wax.config.json"), r#"{"schema_version":2,"design_systems":{"acme":{"name":"Acme","registries":{"compose":{"source":".wax/registries/compose.json"}}}}}"#).unwrap();
+    }
     git(&["add", "."], &work);
     git(&["commit", "-q", "-m", "first"], &work);
     let first_commit = String::from_utf8(git(&["rev-parse", "HEAD"], &work).stdout)
@@ -680,10 +698,20 @@ fn init_non_interactive_git_remembered_writes_git_tag_and_pins_commit() {
         &state_path,
         "acme",
         "Acme Design System",
-        &RegistrySourceSpec::Git {
-            url: remote_url.clone(),
-            tag: None,
-            language: lang("compose"),
+        &if nested {
+            RegistrySourceSpec::GitSystem {
+                url: remote_url.clone(),
+                tag: "v1".into(),
+                subdir: "systems/acme/1".into(),
+                system_id: "acme".into(),
+            }
+        } else {
+            RegistrySourceSpec::Git {
+                subdir: None,
+                url: remote_url.clone(),
+                tag: None,
+                language: lang("compose"),
+            }
         },
     )
     .expect("remember git registry following default branch");
@@ -735,11 +763,16 @@ fn init_non_interactive_git_remembered_writes_git_tag_and_pins_commit() {
     );
     assert_eq!(
         config["languages"]["compose"]["registry"]["tag"],
-        first_commit
+        if nested { "v1" } else { &first_commit }
     );
     let lock = load_lockfile(repo.join(".wax/wax.lock.json")).unwrap();
     let locked = &lock.registries[&lang("compose")];
     assert_eq!(locked.sha256, sha256_hex(registry_bytes));
     assert_eq!(locked.commit.as_deref(), Some(first_commit.as_str()));
     assert_eq!(locked.git.as_deref(), Some(remote_url.as_str()));
+    if nested {
+        assert_eq!(locked.subdir.as_deref(), Some("systems/acme/1"));
+        assert_eq!(locked.definition.as_ref().unwrap().system_id, "acme");
+        wax_core::validate::validate_repo(&repo).unwrap();
+    }
 }

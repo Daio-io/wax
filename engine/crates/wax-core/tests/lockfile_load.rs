@@ -104,7 +104,7 @@ fn lockfile_rejects_unsupported_schema_version() {
             path: _,
             found: 999,
             min_supported: 1,
-            max_supported: 2
+            max_supported: 3
         }
     ));
     assert!(
@@ -113,7 +113,7 @@ fn lockfile_rejects_unsupported_schema_version() {
     );
     assert!(
         err.to_string()
-            .contains("unsupported-schema.wax.lock.json; this engine supports 1 through 2")
+            .contains("unsupported-schema.wax.lock.json; this engine supports 1 through 3")
     );
 }
 
@@ -130,7 +130,7 @@ fn lockfile_rejects_unsupported_schema_version_before_v1_shape() {
             path: _,
             found: 999,
             min_supported: 1,
-            max_supported: 2
+            max_supported: 3
         }
     ));
 }
@@ -149,7 +149,7 @@ fn lockfile_rejects_schema_version_below_supported_range() {
             path: _,
             found: 0,
             min_supported: 1,
-            max_supported: 2
+            max_supported: 3
         }
     ));
 }
@@ -316,4 +316,67 @@ fn lockfile_doctor_reports_stale_entries_for_absent_languages() {
             stale_locked_languages: [LanguageId::try_from("compose").unwrap()].into(),
         }
     );
+}
+
+#[test]
+fn schema_three_roundtrips_nested_bundle_pins_and_rejects_partial_metadata() {
+    let input: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../fixtures/config/nested-git.wax.lock.json"
+    ))
+    .unwrap();
+    let file = TestFile::new("bundle-v3", &input.to_string());
+    let lock = load_lockfile(file.path()).unwrap();
+    assert_eq!(serde_json::to_value(lock).unwrap(), input);
+    for field in ["subdir", "commit"] {
+        let mut partial = input.clone();
+        partial["registries"]["react"]
+            .as_object_mut()
+            .unwrap()
+            .remove(field);
+        let file = TestFile::new("partial-bundle", &partial.to_string());
+        assert!(
+            load_lockfile(file.path()).is_err(),
+            "accepted missing {field}"
+        );
+    }
+}
+
+#[test]
+fn nested_lock_rejects_identity_that_disagrees_with_its_typed_pins() {
+    let input = serde_json::json!({
+        "schema_version": 3, "engine_api_version": 1, "wax_version": "0.1.0",
+        "languages": {}, "registries": {"react": {
+            "source": "git-system:4e6b915907fa2167ed3201ef4020c74e033fde42996fb0cf2243f4304f104c2c",
+            "sha256": "a".repeat(64), "git": "https://example.com/ds.git", "tag": "v2",
+            "commit": "b".repeat(40), "subdir": "systems/acme/1",
+            "definition": {"system_id": "acme", "path": "systems/acme/1/.wax/wax.config.json", "sha256": "c".repeat(64)}
+        }}
+    });
+    let file = TestFile::new("mismatched-bundle-identity", &input.to_string());
+    assert!(load_lockfile(file.path()).is_err());
+}
+
+#[test]
+fn nested_source_identity_requires_bundle_metadata() {
+    let file = TestFile::new(
+        "missing-bundle-metadata",
+        &serde_json::json!({
+            "schema_version": 3, "engine_api_version": 1, "wax_version": "0.1.0",
+            "languages": {}, "registries": {"react": {
+                "source": "git-system:incomplete", "sha256": "a".repeat(64)
+            }}
+        })
+        .to_string(),
+    );
+    assert!(load_lockfile(file.path()).is_err());
+}
+
+#[test]
+fn nested_languages_cannot_pin_different_definitions_via_different_tags() {
+    let mut registries = serde_json::Map::new();
+    for (language, tag, commit) in [("compose", "v1", "a"), ("react", "other", "b")] {
+        registries.insert(language.into(), serde_json::json!({"source":wax_core::registry_git::git_source_identity("https://example.com/ds.git",tag,Some("systems/acme/1"),Some("acme")),"git":"https://example.com/ds.git","tag":tag,"commit":commit.repeat(40),"sha256":"c".repeat(64),"subdir":"systems/acme/1","definition":{"system_id":"acme","path":"systems/acme/1/.wax/wax.config.json","sha256":"d".repeat(64)}}));
+    }
+    let file = TestFile::new("mixed-bundle", &serde_json::json!({"schema_version":3,"engine_api_version":1,"wax_version":"0.1.0","languages":{},"registries":registries}).to_string());
+    assert!(load_lockfile(file.path()).is_err());
 }

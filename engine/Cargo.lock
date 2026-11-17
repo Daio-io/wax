@@ -2715,6 +2715,7 @@ name = "wax-contract"
 version = "0.0.0-snapshot"
 dependencies = [
  "jsonschema",
+ "semver",
  "serde",
  "serde_json",
  "thiserror",

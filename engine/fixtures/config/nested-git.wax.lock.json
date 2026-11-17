@@ -1,0 +1,22 @@
+{
+  "schema_version": 3,
+  "engine_api_version": 1,
+  "wax_version": "0.1.0",
+  "locked_at": null,
+  "languages": {},
+  "registries": {
+    "react": {
+      "source": "git-system:4e6b915907fa2167ed3201ef4020c74e033fde42996fb0cf2243f4304f104c2c",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "git": "https://example.com/ds.git",
+      "tag": "v1",
+      "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "subdir": "systems/acme/1",
+      "definition": {
+        "system_id": "acme",
+        "path": "systems/acme/1/.wax/wax.config.json",
+        "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    }
+  }
+}

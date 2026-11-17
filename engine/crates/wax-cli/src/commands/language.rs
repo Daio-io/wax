@@ -813,6 +813,8 @@ fn refresh_registry_locks_in_lockfile(
         lockfile.registries.insert(
             entry.id.clone(),
             LockedRegistry {
+                subdir: resolved.subdir,
+                definition: resolved.definition,
                 source: resolved.source,
                 sha256: resolved.sha256,
                 git: entry.registry_source.as_ref().and_then(|s| match s {
