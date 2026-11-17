@@ -33,12 +33,15 @@ Unknown top-level fields are rejected.
   attribution, and symbol-summary limits.
 - `languages` is keyed by language id. Each entry can use a roots array or
   named root groups, plus a local/HTTP source, an upstream remembered source,
-  or a Git source with a tag.
+  or a Git source with a tag. Git sources accept optional `subdir` and
+  `system` fields for [publisher bundles](../guides/registries.md#git-bundles-in-subdirectories).
 - `design_systems` is keyed publication configuration with per-language
   registry sources and optional published sources.
 - `outputs` accepts `json-summary`, `graph-data`, `markdown`, or `html` with a
   repository-relative path.
 
 `.wax/wax.lock.json` pins pack artifacts and registry snapshots separately from
-this configuration. Both are repository-local. Installed packs and registry
+this configuration. Writers use lock schema 3 with optional `subdir` and
+`definition` pins; readers still accept lock schema 1 and 2. Config remains
+schema 2. Both files are repository-local. Installed packs and registry
 caches under `~/.wax/` are global and must not be committed.

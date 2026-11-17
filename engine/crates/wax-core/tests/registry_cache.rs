@@ -251,6 +251,7 @@ fn default_branch_is_retained_until_refresh() {
     let fixture = GitFixture::new();
     let cache = RegistryCache::open(fixture._root.0.join("cache"));
     let source = RegistrySourceSpec::Git {
+        subdir: None,
         url: fixture.remote.display().to_string(),
         tag: None,
         language: language("react"),
@@ -719,6 +720,7 @@ fn tagged_git_source_is_retained_until_refresh() {
     let fixture = GitFixture::new();
     let cache = RegistryCache::open(fixture._root.0.join("cache"));
     let source = RegistrySourceSpec::Git {
+        subdir: None,
         url: fixture.remote.display().to_string(),
         tag: Some("v1".to_owned()),
         language: language("react"),
@@ -745,6 +747,7 @@ fn commit_git_source_stays_pinned() {
     let fixture = GitFixture::new();
     let cache = RegistryCache::open(fixture._root.0.join("cache"));
     let source = RegistrySourceSpec::Git {
+        subdir: None,
         url: fixture.remote.display().to_string(),
         tag: Some(fixture.first_commit.clone()),
         language: language("react"),
@@ -772,6 +775,7 @@ fn missing_conventional_git_registry_is_explicit() {
     let fixture = GitFixture::new();
     let cache = RegistryCache::open(fixture._root.0.join("cache"));
     let source = RegistrySourceSpec::Git {
+        subdir: None,
         url: fixture.remote.display().to_string(),
         tag: Some("v1".to_owned()),
         language: language("compose"),

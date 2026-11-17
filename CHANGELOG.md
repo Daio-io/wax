@@ -26,6 +26,14 @@
 
 ### Features
 
+- Pin Git design-system bundles published from a repository subfolder.
+  `languages.*.registry` gains optional `subdir` and `system` fields: `system`
+  selects one `design_systems[system]` entry from
+  `<subdir>/.wax/wax.config.json`, and every language registry it declares
+  resolves together at the one commit `tag` pins. `wax.lock.json` moves to
+  schema version 3, adding optional `subdir`/`definition` registry lock
+  fields while continuing to read schema 1 and 2 unchanged. Root Git sources
+  (no `subdir`) keep their existing fixed-path behavior.
 - Support one-shot configless `wax scan` runs with one `--language`, repeatable
   repo-relative `--root` values, and `--design-system` selecting a remembered
   id or local, HTTP, or Git registry. `--tag` refines Git selectors and

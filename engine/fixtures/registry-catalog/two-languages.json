@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "entries": [{
+    "id": "acme", "name": "Acme", "revision": 1,
+    "subdir": "systems/acme/1", "minimum_wax_version": "0.1.0",
+    "definition": {"path": ".wax/wax.config.json", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+    "registries": {
+      "compose": {"path": ".wax/registries/compose.json", "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+      "react": {"path": ".wax/registries/react.json", "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}
+    },
+    "provenance": {"path": "provenance.json", "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
+    "upstream": [], "coverage": ["components"], "gaps": ["tokens"]
+  }]
+}

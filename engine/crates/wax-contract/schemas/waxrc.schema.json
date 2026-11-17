@@ -149,7 +149,10 @@
                   "type": "object",
                   "additionalProperties": false,
                   "required": ["git", "tag"],
-                  "description": "Git registry source. The registry is read from the fixed remote path .wax/registries/<language-id>.json.",
+                  "dependentRequired": {
+                    "system": ["subdir"]
+                  },
+                  "description": "Git registry source. Without subdir, the registry is read from the fixed remote path .wax/registries/<language-id>.json. With subdir and system, the registry bundle is read from a repository-relative publisher definition.",
                   "properties": {
                     "git": {
                       "type": "string",
@@ -160,6 +163,16 @@
                       "type": "string",
                       "minLength": 1,
                       "pattern": "\\S"
+                    },
+                    "subdir": {
+                      "type": "string",
+                      "description": "Repository-relative directory containing the design-system bundle.",
+                      "pattern": "^(?:(?!\\.\\.?(?:/|$))(?!-)[^/\\\\:\\x00-\\x1f]+)(?:/(?!\\.\\.?(?:/|$))(?!-)[^/\\\\:\\x00-\\x1f]+)*$"
+                    },
+                    "system": {
+                      "type": "string",
+                      "description": "Design-system id selected from the bundle's publisher definition.",
+                      "pattern": "^[a-z][a-z0-9-]*$"
                     }
                   }
                 }

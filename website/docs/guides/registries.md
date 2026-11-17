@@ -54,8 +54,33 @@ wax validate
 wax scan
 ```
 
-Git tags remain pinned to the locked commit by default. Use `wax sync --upgrade`
-only when you intend to advance a tag and review the resulting lock change.
+Root Git sources remain pinned to the locked commit by default. Use
+`wax sync --upgrade` to advance their tag and review the resulting lock change.
+
+### Git bundles in subdirectories
+
+An app can select a bundle published from a repository subdirectory:
+
+```json
+{
+  "git": "https://github.com/acme/registries.git",
+  "tag": "v1",
+  "subdir": "systems/acme/1",
+  "system": "acme"
+}
+```
+
+Use this object as `languages.react.registry` in `.wax/wax.config.json`.
+Wax reads `design_systems.acme` from
+`systems/acme/1/.wax/wax.config.json` and verifies every declared language
+registry at one immutable commit. Each registry must use its conventional
+relative path, `.wax/registries/<language>.json`; published URL overrides are
+ignored for bundles. `system` requires `subdir`. Omitting `system` reads only
+the single conventional registry under that subdirectory.
+
+Nested pins remain immutable during `sync --upgrade`; select a different
+configured revision directory or ref to change bundles. `wax validate` checks
+committed config/lock metadata offline, without global state or Git cache.
 
 Registry fields are defined by the
 [registry schema](https://github.com/Daio-io/wax/blob/main/engine/crates/wax-contract/schemas/registry.schema.json),

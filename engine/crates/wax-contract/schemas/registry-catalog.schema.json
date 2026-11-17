@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Wax registry catalogue",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "entries"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "entries": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "revision",
+          "subdir",
+          "minimum_wax_version",
+          "definition",
+          "registries",
+          "provenance",
+          "upstream",
+          "coverage",
+          "gaps"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "maxLength": 128
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "subdir": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "pattern": "^(?!.*[\\\\\\u0000-\\u001f\\u007f-\\u009f:])(?!(?:.*\\/)?(?:\\.{1,2}|-[^/]*)(?:\\/|$))[^/]+(?:/[^/]+)*$"
+          },
+          "minimum_wax_version": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+          },
+          "definition": {
+            "$ref": "#/$defs/artifact"
+          },
+          "registries": {
+            "type": "object",
+            "minProperties": 1,
+            "propertyNames": {
+              "pattern": "^[a-z][a-z0-9-]*$"
+            },
+            "additionalProperties": {
+              "$ref": "#/$defs/artifact"
+            },
+            "maxProperties": 64
+          },
+          "provenance": {
+            "$ref": "#/$defs/artifact"
+          },
+          "upstream": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "source",
+                "version"
+              ],
+              "properties": {
+                "source": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "version": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                }
+              }
+            }
+          },
+          "coverage": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "type": "string",
+              "maxLength": 2048
+            }
+          },
+          "gaps": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "type": "string",
+              "maxLength": 2048
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^(?!.*[\\\\\\u0000-\\u001f\\u007f-\\u009f:])(?!(?:.*\\/)?(?:\\.{1,2}|-[^/]*)(?:\\/|$))[^/]+(?:/[^/]+)*$"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}

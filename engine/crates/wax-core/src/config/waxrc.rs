@@ -327,6 +327,10 @@ pub enum LanguageRegistrySource {
         git: String,
         /// Git tag name or full commit SHA.
         tag: String,
+        /// Optional repository-relative bundle directory.
+        subdir: Option<String>,
+        /// Optional publisher system selected from the bundle definition.
+        system: Option<String>,
     },
 }
 
@@ -348,7 +352,7 @@ impl LanguageRegistrySource {
     pub fn git_parts(&self) -> Option<(&str, &str)> {
         match self {
             Self::PathOrUrl { .. } => None,
-            Self::Git { git, tag } => Some((git, tag)),
+            Self::Git { git, tag, .. } => Some((git, tag)),
         }
     }
 }
@@ -518,6 +522,10 @@ enum RegistryRaw {
     Git {
         git: String,
         tag: String,
+        /// Optional repository-relative bundle directory.
+        subdir: Option<String>,
+        /// Optional publisher system selected from the bundle definition.
+        system: Option<String>,
     },
 }
 
@@ -536,14 +544,17 @@ impl<'de> Deserialize<'de> for RegistryRaw {
                 let has_upstream = map.contains_key("upstream");
 
                 for key in map.keys() {
-                    if !matches!(key.as_str(), "source" | "upstream" | "git" | "tag") {
+                    if !matches!(
+                        key.as_str(),
+                        "source" | "upstream" | "git" | "tag" | "subdir" | "system"
+                    ) {
                         return Err(D::Error::custom(format!(
                             "unknown field `{key}`, expected `source`, `upstream`, `git`, or `tag`"
                         )));
                     }
                 }
 
-                if has_git || has_tag {
+                if has_git || has_tag || map.contains_key("subdir") || map.contains_key("system") {
                     if has_source {
                         return Err(D::Error::custom(
                             "languages.*.registry cannot mix `git` with `source`",
@@ -556,7 +567,30 @@ impl<'de> Deserialize<'de> for RegistryRaw {
                     }
                     let git = required_registry_string(&map, "git", D::Error::custom)?;
                     let tag = required_registry_string(&map, "tag", D::Error::custom)?;
-                    return Ok(Self::Git { git, tag });
+                    let subdir = map
+                        .get("subdir")
+                        .map(|value| registry_string(value, "subdir", D::Error::custom))
+                        .transpose()?;
+                    let system = map
+                        .get("system")
+                        .map(|value| registry_string(value, "system", D::Error::custom))
+                        .transpose()?;
+                    if let Some(subdir) = &subdir {
+                        wax_contract::validate_artifact_path(subdir).map_err(D::Error::custom)?;
+                    }
+                    if let Some(system) = &system
+                        && (subdir.is_none() || LanguageId::try_from(system.as_str()).is_err())
+                    {
+                        return Err(D::Error::custom(
+                            "registry.system requires subdir and a valid slug",
+                        ));
+                    }
+                    return Ok(Self::Git {
+                        git,
+                        tag,
+                        subdir,
+                        system,
+                    });
                 }
 
                 let source = required_registry_string(&map, "source", D::Error::custom)?;
@@ -692,8 +726,17 @@ pub fn load_waxrc(path: impl AsRef<Path>) -> Result<WaxRc, WaxRcError> {
         source,
     })?;
 
+    parse_waxrc_bytes(contents.as_bytes(), path)
+}
+
+/// Parses a publisher or repository config from exact bytes through the shared config validator.
+///
+/// # Errors
+/// Returns the same shape, schema, and field errors as [`load_waxrc`].
+pub fn parse_waxrc_bytes(contents: &[u8], path: &Path) -> Result<WaxRc, WaxRcError> {
+    let path_display = path.display().to_string();
     let value: serde_json::Value =
-        serde_json::from_str(&contents).map_err(|source| WaxRcError::MalformedJson {
+        serde_json::from_slice(contents).map_err(|source| WaxRcError::MalformedJson {
             path: path_display.clone(),
             source,
         })?;
@@ -816,7 +859,17 @@ impl LanguageEntryRaw {
             RegistryRaw::Object { source, upstream } => {
                 LanguageRegistrySource::PathOrUrl { source, upstream }
             }
-            RegistryRaw::Git { git, tag } => LanguageRegistrySource::Git { git, tag },
+            RegistryRaw::Git {
+                git,
+                tag,
+                subdir,
+                system,
+            } => LanguageRegistrySource::Git {
+                git,
+                tag,
+                subdir,
+                system,
+            },
         });
 
         Ok(LanguageEntry {

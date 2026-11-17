@@ -1083,6 +1083,8 @@ fn patch_lockfile_registry(
     lockfile.registries.insert(
         language_id,
         LockedRegistry {
+            subdir: None,
+            definition: None,
             source,
             sha256,
             git: None,

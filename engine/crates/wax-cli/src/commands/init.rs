@@ -293,6 +293,8 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
                 )?
             } else if let Some(scaffold) = scaffold_by_language.get(&resolved.manifest.id) {
                 LockedRegistry {
+                    subdir: None,
+                    definition: None,
                     source: default_registry_path_for_language(&resolved.manifest.id),
                     sha256: scaffold.sha256.clone(),
                     git: None,
@@ -307,6 +309,8 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
                     source: Some(&repo_relative),
                 })?;
                 LockedRegistry {
+                    subdir: None,
+                    definition: None,
                     source: registry_source.source,
                     sha256: registry_source.sha256,
                     git: None,
@@ -524,7 +528,17 @@ fn locked_registry_for_remembered(
         remembered_registry.digest.as_ref(),
     ) {
         return Ok(LockedRegistry {
-            source: format!("git:{git}#{tag}"),
+            subdir: remembered_registry.subdir.clone(),
+            definition: remembered_registry.definition.clone(),
+            source: wax_core::registry_git::git_source_identity(
+                git,
+                tag,
+                remembered_registry.subdir.as_deref(),
+                remembered_registry
+                    .definition
+                    .as_ref()
+                    .map(|pin| pin.system_id.as_str()),
+            ),
             sha256: digest.clone(),
             git: Some(git.clone()),
             tag: Some(tag.clone()),
@@ -533,6 +547,8 @@ fn locked_registry_for_remembered(
     }
     if let Some(digest) = remembered_registry.digest.as_ref() {
         return Ok(LockedRegistry {
+            subdir: None,
+            definition: None,
             source: remembered_registry.config_source.clone(),
             sha256: digest.clone(),
             git: None,
@@ -546,6 +562,8 @@ fn locked_registry_for_remembered(
         source: Some(&remembered_registry.config_source),
     })?;
     Ok(LockedRegistry {
+        subdir: None,
+        definition: None,
         source: registry_source.source,
         sha256: registry_source.sha256,
         git: None,

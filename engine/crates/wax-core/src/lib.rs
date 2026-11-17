@@ -377,7 +377,7 @@ impl Engine {
                 lockfile.registries.get(&entry.id),
                 false,
             )?;
-            if let (Some(config::waxrc::LanguageRegistrySource::Git { git, tag }), false) = (
+            if let (Some(config::waxrc::LanguageRegistrySource::Git { git, tag, .. }), false) = (
                 entry.registry_source.as_ref(),
                 lockfile.registries.contains_key(&entry.id),
             ) {
@@ -385,6 +385,8 @@ impl Engine {
                 lockfile.registries.insert(
                     entry.id.clone(),
                     config::lockfile::LockedRegistry {
+                        subdir: resolved_registry.subdir.clone(),
+                        definition: resolved_registry.definition.clone(),
                         source: resolved_registry.source.clone(),
                         sha256: resolved_registry.sha256.clone(),
                         git: Some(git),
@@ -417,6 +419,14 @@ impl Engine {
         if registry_lock_changed && !is_ephemeral {
             lockfile.schema_version = WAX_LOCK_SCHEMA_VERSION;
             let path = config::repo_files::discover_repo_files(repo_root).lockfile_path;
+            config::lockfile::validate_bundle_registry_locks(&lockfile.registries).map_err(
+                |source| {
+                    EngineError::Lockfile(LockfileError::InvalidConfig {
+                        path: path.display().to_string(),
+                        source: <serde_json::Error as serde::de::Error>::custom(source),
+                    })
+                },
+            )?;
             let contents = serde_json::to_string_pretty(&lockfile).map_err(|source| {
                 EngineError::Lockfile(LockfileError::InvalidConfig {
                     path: path.display().to_string(),

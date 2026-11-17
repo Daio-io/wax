@@ -94,8 +94,11 @@ Rules:
 - `languages.<language>.registry.upstream` is optional and means `<design-system-id>/<language-id>`.
 - A language may instead use `registry: { "git": "...", "tag": "..." }`.
   Both values are required non-empty strings, and the remote registry path is
-  fixed at `.wax/registries/<language-id>.json`; configurable paths are not
-  supported.
+  fixed at `.wax/registries/<language-id>.json` when `subdir` is omitted.
+  Optional `subdir` selects a repository-relative directory; adding `system`
+  pins its publisher definition and every declared language at one commit.
+  See the [Git bundle contract](public-registry-options.md) for subdirectory
+  and lock-schema-3 compatibility.
 - `registry.upstream` is used by `wax sync`; it is not needed for scan.
 - `enabled` is removed. A language key exists only when the language is enabled.
 

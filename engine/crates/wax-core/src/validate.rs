@@ -198,7 +198,13 @@ pub fn validate_repo_with_progress(
             language_id: entry.id.clone(),
         });
         let registry_field = format!("languages.{}.registry", entry.id.as_str());
-        if let Some(LanguageRegistrySource::Git { git, tag }) = entry.registry_source.as_ref() {
+        if let Some(LanguageRegistrySource::Git {
+            git,
+            tag,
+            subdir,
+            system,
+        }) = entry.registry_source.as_ref()
+        {
             let Some(lockfile) = &lockfile else {
                 return Err(ValidateError::MissingRegistryLock {
                     language_id: entry.id.clone(),
@@ -209,7 +215,14 @@ pub fn validate_repo_with_progress(
                     language_id: entry.id.clone(),
                 });
             };
-            validate_git_registry_lock(&registry_field, git, tag, locked)?;
+            validate_git_registry_lock(
+                &registry_field,
+                git,
+                tag,
+                subdir.as_deref(),
+                system.as_deref(),
+                locked,
+            )?;
             continue;
         }
 
@@ -300,6 +313,8 @@ fn validate_git_registry_lock(
     field: &str,
     git: &str,
     tag: &str,
+    subdir: Option<&str>,
+    system: Option<&str>,
     locked: &LockedRegistry,
 ) -> Result<(), ValidateError> {
     validate_git_lock_string(
@@ -320,10 +335,19 @@ fn validate_git_registry_lock(
         field,
         "source",
         Some(&locked.source),
-        &format!("git:{}#{}", git.trim(), tag.trim()),
+        &crate::registry_git::git_source_identity(git, tag, subdir, system),
         "must be the canonical Git source",
     )?;
 
+    if locked.subdir.as_deref() != subdir
+        || locked.definition.as_ref().map(|pin| pin.system_id.as_str()) != system
+    {
+        return Err(invalid_git_lock(
+            field,
+            "definition",
+            "bundle metadata must match config",
+        ));
+    }
     let Some(commit) = locked.commit.as_deref() else {
         return Err(invalid_git_lock(field, "commit", "is required"));
     };

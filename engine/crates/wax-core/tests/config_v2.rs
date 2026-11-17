@@ -163,6 +163,8 @@ fn config_v2_parses_git_registry() {
     assert_eq!(
         load_waxrc(file.path()).unwrap().languages[0].registry_source,
         Some(LanguageRegistrySource::Git {
+            subdir: None,
+            system: None,
             git: "git@github.com:acme/design-system.git".to_owned(),
             tag: "v2.4.1".to_owned(),
         })
@@ -594,4 +596,16 @@ fn token_inference_rejects_invalid_numeric_tolerance_and_unknown_keys() {
             "{name}: {err}"
         );
     }
+}
+
+#[test]
+fn git_bundle_config_accepts_safe_subdirectories_and_system_selection() {
+    let file = TestFile::new(
+        "bundle",
+        r#"{"schema_version":2,"languages":{"react":{"registry":{"git":"https://example.com/ds.git","tag":"v1","subdir":"systems/acme/1","system":"acme"}}}}"#,
+    );
+    let parsed = load_waxrc(file.path()).unwrap();
+    assert!(matches!(&parsed.languages[0].registry_source,
+        Some(LanguageRegistrySource::Git { subdir: Some(subdir), system: Some(system), .. })
+        if subdir == "systems/acme/1" && system == "acme"));
 }

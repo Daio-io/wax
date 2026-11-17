@@ -436,6 +436,40 @@ remote path `.wax/registries/<language-id>.json` and pin a tag or commit:
 `.wax/registries/<language-id>.json` for that language. The string shorthand
 and the `source`/`upstream` object form remain supported.
 
+When a design system's registries live in a subfolder of an ordinary
+repository, add `subdir` and `system` to select a publisher bundle:
+
+```json
+{
+  "schema_version": 2,
+  "languages": {
+    "react": {
+      "roots": ["src"],
+      "registry": {
+        "git": "https://github.com/acme/design-system.git",
+        "tag": "v2.4.1",
+        "subdir": "packages/acme-ds",
+        "system": "acme"
+      }
+    }
+  }
+}
+```
+
+Wax resolves the publisher definition and every language registry it
+declares together at the one commit `tag` points to; `system` requires
+`subdir`. With `subdir` alone, Wax reads only the conventional registry for
+that language under the subdirectory. Root Git sources (no `subdir`) keep
+the fixed-path behavior above unchanged.
+
+Lock writers use schema 3 with optional `subdir` and `definition` pins;
+readers still accept schema 1 and 2. Ordinary scans and sync reuse nested
+commit pins, including `sync --upgrade`: changing the configured revision
+directory/ref explicitly selects a different bundle. Root `sync --upgrade`
+continues to refresh tags. `wax validate` checks committed metadata offline
+without global state or cached Git objects. See the
+[bundle distribution contract](docs/specs/public-registry-options.md).
+
 ### Search and lookup
 
 Use these commands to discover and inspect registry entries without scanning:

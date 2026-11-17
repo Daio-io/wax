@@ -588,3 +588,62 @@ fn bytes_sha256(bytes: &[u8]) -> String {
             hex
         })
 }
+
+#[test]
+fn validate_preserves_existing_root_git_identity_with_url_userinfo() {
+    let root = TestDir::new("legacy-git-userinfo");
+    let git = "https://example-user@example.invalid/design.git";
+    write_repo_with_git_registry(&root.path, git, "v1");
+    fs::write(
+        root.path.join(".wax/wax.lock.json"),
+        git_lockfile_json(
+            &format!("git:{git}#v1"),
+            git,
+            "v1",
+            &"b".repeat(40),
+            &"a".repeat(64),
+        ),
+    )
+    .unwrap();
+    validate_repo(&root.path).unwrap();
+}
+
+#[test]
+fn validate_nested_bundle_pins_without_global_state_or_git_objects() {
+    let root = TestDir::new("validate-bundle");
+    let git = "https://unreachable.invalid/design.git";
+    write_repo_with_git_registry(&root.path, git, "v1");
+    let config_path = root.path.join(".wax/wax.config.json");
+    let mut config: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+    config["languages"]["compose"]["registry"]["subdir"] = "systems/acme/1".into();
+    config["languages"]["compose"]["registry"]["system"] = "acme".into();
+    fs::write(&config_path, config.to_string()).unwrap();
+    let identity = wax_core::registry_git::git_source_identity(
+        git,
+        "v1",
+        Some("systems/acme/1"),
+        Some("acme"),
+    );
+    let mut lock: serde_json::Value = serde_json::from_str(&git_lockfile_json(
+        &identity,
+        git,
+        "v1",
+        &"b".repeat(40),
+        &"a".repeat(64),
+    ))
+    .unwrap();
+    lock["schema_version"] = 3.into();
+    lock["registries"]["compose"]["subdir"] = "systems/acme/1".into();
+    lock["registries"]["compose"]["definition"] = serde_json::json!({"system_id":"acme","path":"systems/acme/1/.wax/wax.config.json","sha256":"c".repeat(64)});
+    let lock_path = root.path.join(".wax/wax.lock.json");
+    fs::write(&lock_path, lock.to_string()).unwrap();
+    validate_repo(&root.path).unwrap();
+    assert!(!root.path.join(".wax/cache").exists());
+    lock["registries"]["compose"]
+        .as_object_mut()
+        .unwrap()
+        .remove("definition");
+    fs::write(&lock_path, lock.to_string()).unwrap();
+    assert!(validate_repo(&root.path).is_err());
+}

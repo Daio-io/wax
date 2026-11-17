@@ -20,6 +20,12 @@ is [archived](./archive/2026-10-22-registry-search-plan.md) with its
 [ADR](../adr/2026-10-22-registry-search.md). Phase 2B remains the sequential
 active plan.
 
+**Authorized THE-889 extraction:** Phase 1 of pinning Git design-system
+bundles from repository subfolders (THE-890) is an explicit extraction from
+THE-889, documented in
+[the public registry catalogue plan](./2026-11-16-public-registry-catalogue-plan.md).
+It lands while Phase 2B remains the sequential active plan.
+
 ---
 
 ## Roadmap
@@ -44,6 +50,7 @@ active plan.
 | 16 | Git registry sources | [archive/2026-08-01-git-registry-sources-plan.md](./archive/2026-08-01-git-registry-sources-plan.md) | `merged` | `complete` | [ADR](../adr/2026-08-01-git-registry-sources.md) |
 | 17 | Phase 2B — explicit resolution evidence and callee origin | [2026-08-22-phase-2b-resolution-evidence-plan.md](./2026-08-22-phase-2b-resolution-evidence-plan.md) | `merged` | `in-progress` | — |
 | 18 | Registry search and agent workflow | [archive/2026-10-22-registry-search-plan.md](./archive/2026-10-22-registry-search-plan.md) | `merged` | `complete` | [ADR](../adr/2026-10-22-registry-search.md) |
+| 19 | Public registry catalogue — Git design-system bundles (THE-889) | [2026-11-16-public-registry-catalogue-plan.md](./2026-11-16-public-registry-catalogue-plan.md) | `pending` | `in-progress` | — |
 
 **Doc status:** `pending` -> plan PR open; `merged` -> plan doc on `main`; `planned` -> not yet drafted.
 
@@ -101,3 +108,4 @@ Orders 1-16 and 18 are **complete**. Adoption Metrics v2 shipped in PRs #165, #1
 - [Token inference and reporting design](../specs/2026-07-19-token-inference-reporting-design.md) — context-aware exact, near, unmatched, and unassessed token findings (order 14, complete; [ADR](../adr/2026-07-19-token-inference-reporting.md))
 - [Compose parse recovery and UI scope design](../specs/2026-07-22-compose-parse-recovery-design.md) — fault-tolerant Kotlin parsing and Compose-aware usage scoping (order 15, complete; [ADR](../adr/2026-07-22-compose-parse-recovery.md))
 - [Git registry sources](../adr/2026-08-01-git-registry-sources.md) — config-v2 Git/tag registry contract, locked commits, and offline validate (order 16, complete; [archive](./archive/2026-08-01-git-registry-sources-plan.md))
+- [Public registry distribution options](../specs/public-registry-options.md) — rejected main-repo/npm-package proposals and the selected Git-subfolder bundle contract (order 19, in progress)
