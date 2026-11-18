@@ -64,6 +64,26 @@ Check the CLI is available:
 wax --help
 ```
 
+### Explore the Public Catalogue
+
+```bash
+wax registry find astryx --language react
+wax search Button --design-system public:astryx@1 --language react --format json
+wax component <id> --design-system public:astryx@1 --language react --snapshot <digest>
+wax registry install astryx --version 1
+wax registry show public-astryx-r1
+```
+
+Public search works before installation and preserves exact snapshot digests
+across catalogue refreshes. Installation requires a positive revision and
+remembers the entire language bundle without editing app files. Use `--offline`
+with cached catalogue metadata and bundle objects. `registry find --format json`
+reports partial public failures in `public_status` while returning local rows;
+a cold offline cache is explicitly incomplete. Ordinary search/scan only access
+the public catalogue with an explicit `public:<id>@<revision>` selector.
+See the [registry reference](website/docs/reference/registry.md) for status,
+collision, and upgrade behavior.
+
 ### Register Your Design System
 
 Discover and remember a design-system registry:

@@ -1121,3 +1121,6 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 }
+
+/// Built-in public catalogue discovery and exact bundle installation.
+pub mod registry_catalog;

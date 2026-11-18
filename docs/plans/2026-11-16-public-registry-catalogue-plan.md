@@ -1,6 +1,6 @@
 # Public registry catalogue implementation plan
 
-**Status:** Phase 1 implemented and verified; awaiting outer workflow review. Authorized as a THE-889 extraction
+**Status:** Phase 1 complete; Phase 3a (THE-892) implemented, with verification recorded below. Authorized as a THE-889 extraction
 that runs alongside the active Phase 2B plan without displacing it.
 
 **Goal:** Let ordinary Git design-system bundles live in repository
@@ -76,11 +76,44 @@ unchanged.
   selectors and pinned snapshot contracts.
 - [x] Prepare `.loopy/commit-msg`; the outer workflow owns commits and PRs.
 
-Phase 2 (publisher-side bundle authoring/publishing workflow) and Phase 3
-(catalogue index distribution) are out of scope for this phase and tracked
-separately under THE-889.
+Phase 2's independent catalogue repository is complete (THE-891), as recorded
+by the THE-892 kickoff gate. Phase 3a is authorized by THE-892's Todo state;
+Phase 4 adoption/scan integration remains separate.
 
-## Verification record
+## Phase 3a: [x] Discover and install the built-in public catalogue (THE-892)
+
+- [x] Add public `find_design_systems` / `install_design_system` interfaces with
+  injectable Git source, state, and cache roots. Refresh the built-in `main`
+  index on each online find; validate schema, minimum advertised engine version,
+  and artifact paths, and cache immutable index data separately from selections.
+- [x] Add the versioned find response, schema, and fixtures. Union public,
+  configured publisher/app, and remembered rows without dropping origin
+  collisions; keep deterministic matching, language filtering, and sorting.
+- [x] Report structured partial public failures and warm/cold offline status;
+  keep invalid local config/state fatal and ordinary commands free of public
+  discovery traffic.
+- [x] Require a positive exact revision and install every bundle language,
+  definition, and provenance at one selected commit. Verify all hashes before
+  state save; lock state read/modify/write; retain original commits on exact
+  repeats and reject source/artifact/local slug collisions without overwrite.
+- [x] Resolve explicit `public:<id>@<revision>` through shared lookup for search,
+  component/token detail, and explicit configless scan selection, caching history
+  without remembering the system. Preserve exact detail after refresh and reject
+  wrong system/language/digests. Phase 4 owns full scan integration verification.
+- [x] Display public bundle revision/commit/languages in list/show and make
+  refresh refill/verify the original bundle without selecting newer revisions.
+- [x] Cover public interfaces with local Git fixtures and isolated CLI runs:
+  union, malformed metadata, compatibility, moved branches, all-language installs,
+  independent revisions, concurrency/collisions, digest/missing Git/ref/blob
+  failures, failed state writes, app/pack preservation, offline discovery/install,
+  and snapshot-pinned search/detail. No live upstream requests in these tests.
+- [x] Update CLI help, README quickstart, registry/search guides, and CLI reference.
+  Installation-only npm docs need no change; existing agent workflows already
+  accept explicit selectors and snapshot-pinned detail.
+- [x] Run workspace formatting, tests, Clippy, and website installation/build/tests.
+- [x] Prepare `.loopy/commit-msg`; the outer workflow owns commits and PRs.
+
+## Phase 1 verification record
 
 - `cargo fmt --all` and `cargo fmt --all --check`: passed.
 - `cargo test --workspace`: passed (1,376 tests passed, 3 ignored).
@@ -94,3 +127,20 @@ Public seams cover catalogue/schema roundtrips, `fetch_git_files`,
 lookup, `load_waxrc`, `load_lockfile`, and offline `validate_repo`. Regression
 slices additionally reject missing bundle metadata, inconsistent lock/snapshot
 identities, and incomplete catalogue replay while retaining legacy root locks.
+
+
+## Phase 3a verification record
+
+- `cargo fmt --all` and `cargo fmt --all --check`: passed.
+- `cargo test --workspace`: passed (1,403 passed, 3 ignored).
+- `cargo clippy --workspace --all-targets -- -D warnings`: passed.
+- `WAX_BUILD_VERSION=1.2.3 cargo test -p wax-core --test registry_catalog minimum_version_accepts`:
+  passed, verifying the advertised release-version compatibility check.
+- `npm --prefix website ci` and `npm --prefix website test`: passed
+  (production build and all 5 website tests).
+- CLI find/install help, Markdown relative links, and `git diff --check`: passed.
+
+Public seams: catalogue find/install and snapshot lookup with injected local
+Git repositories; shared lookup through the CLI search/detail commands; real
+binary argument, JSON-schema, stdout/stderr, and exit contracts with isolated
+`WAX_HOME`. Existing app/remembered/root lookup regressions passed unchanged.

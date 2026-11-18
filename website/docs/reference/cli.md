@@ -86,13 +86,40 @@ wax registry list
 
 Print all remembered design systems.
 
+### `wax registry find`
+
+```text
+wax registry find [query] [--language ID] [--offline] [--format text|json]
+  [--repo-root PATH]
+```
+
+Discover the built-in public catalogue alongside configured and remembered
+systems. Empty query lists all compatible systems. Every online find refreshes
+the index; offline uses selected cached metadata. Public failures return local
+rows and incomplete `public_status` with exit 0. Invalid local config/state is
+fatal. Cold offline discovery explicitly reports `offline_cache_miss`.
+
+### `wax registry install`
+
+```text
+wax registry install <public-id> --version <positive-revision> [--offline]
+```
+
+Install the whole bundle (all languages) at one catalogue commit. `--version`
+is required; there is no implicit latest or partial-language install. The
+remembered slug is `public-<id>-r<revision>`. Exact repeats preserve the original
+commit; conflicting sources/artifacts fail without overwrite. Only global
+state/cache changes. Offline installation requires cached index and Git objects.
+See the [registry reference](registry.md) for details.
+
 ### `wax registry show`
 
 ```text
 wax registry show <design-system-id>
 ```
 
-Print one remembered system and its source details.
+Print one remembered system and its source details, including bundle commit,
+revision, and languages for public installs.
 
 ### `wax registry update`
 
@@ -128,7 +155,9 @@ wax search <query> [--design-system ID_OR_SOURCE] [--language ID]
 The output `--format` is `text` (default) or `json`. `--kind` accepts exactly
 `component` or `token`; the result limit has default: 20. `--repo-root`
 defaults to `.`. `--design-system` selects a remembered id, publisher id, or
-explicit path/URL. Add `--tag` for explicit Git selectors and `--offline` to
+explicit path/URL. `public:<id>@<revision>` resolves an uninstalled public
+bundle without remembering it; exact snapshot detail survives catalogue
+refresh. Bare selectors preserve app/remembered precedence. Add `--tag` for explicit Git selectors and `--offline` to
 forbid fetching. JSON failures use the typed lookup-error envelope. See the
 [search guide](../guides/search.md).
 

@@ -49,6 +49,16 @@ pub struct RegistryLookupOptions {
 pub fn resolve_lookup_snapshots(
     options: &RegistryLookupOptions,
 ) -> Result<Vec<RegistrySnapshot>, RegistryLookupError> {
+    if options
+        .selector
+        .as_deref()
+        .is_some_and(|s| s.starts_with("public:"))
+    {
+        return resolve_public_lookup_snapshots(
+            options,
+            options.snapshot.as_ref().map(|s| s.digest.as_str()),
+        );
+    }
     let repo_files = discover_repo_files(&options.repo_root);
     let waxrc = if repo_files.config_path.is_file() {
         Some(load_waxrc(&repo_files.config_path).map_err(invalid_registry)?)
@@ -463,4 +473,90 @@ fn map_cache_error(error: RegistryCacheError) -> RegistryLookupError {
         _ => RegistryLookupErrorCode::InvalidRegistry,
     };
     RegistryLookupError::new(code, error.to_string())
+}
+
+/// Resolves an explicit public selector, optionally from exact digest history.
+/// Shared by search, component/token detail, and explicit configless scans.
+///
+/// # Errors
+/// Returns typed lookup errors for malformed selectors, unavailable bundles, or wrong snapshots.
+pub fn resolve_public_lookup_snapshots(
+    options: &RegistryLookupOptions,
+    digest: Option<&str>,
+) -> Result<Vec<RegistrySnapshot>, RegistryLookupError> {
+    let selector = options
+        .selector
+        .as_deref()
+        .and_then(|s| s.strip_prefix("public:"))
+        .ok_or_else(|| {
+            RegistryLookupError::new(
+                RegistryLookupErrorCode::InvalidArgument,
+                "expected public:<id>@<positive-revision>",
+            )
+        })?;
+    let (id, revision) = selector.rsplit_once('@').ok_or_else(|| {
+        RegistryLookupError::new(
+            RegistryLookupErrorCode::InvalidArgument,
+            "public selector requires an exact revision: public:<id>@<positive-revision>",
+        )
+    })?;
+    let revision = revision
+        .parse::<u64>()
+        .ok()
+        .filter(|r| *r > 0)
+        .filter(|_| LanguageId::try_from(id).is_ok())
+        .ok_or_else(|| {
+            RegistryLookupError::new(
+                RegistryLookupErrorCode::InvalidArgument,
+                "invalid public id or revision",
+            )
+        })?;
+    if options.tag.is_some() {
+        return Err(RegistryLookupError::new(
+            RegistryLookupErrorCode::InvalidArgument,
+            "public selectors use bundle revisions, not --tag",
+        ));
+    }
+    let state_path = match &options.state_path {
+        Some(path) => path.clone(),
+        None => state_file().map_err(invalid_registry)?,
+    };
+    let mut catalog =
+        crate::registry_catalog::CatalogOptions::new(options.repo_root.clone(), state_path);
+    catalog.offline = options.offline;
+    let snapshots = crate::registry_catalog::resolve_catalog_snapshots_with_reference(
+        &catalog,
+        id,
+        revision,
+        options.language.as_ref(),
+        digest,
+        options.snapshot.as_ref(),
+    )
+    .map_err(|error| {
+        use crate::registry_catalog::CatalogError;
+        match error {
+            CatalogError::Cache(error) => map_cache_error(error),
+            CatalogError::SnapshotMismatch => RegistryLookupError::new(
+                RegistryLookupErrorCode::SnapshotMismatch,
+                error.to_string(),
+            ),
+            CatalogError::OfflineCacheMiss => RegistryLookupError::new(
+                RegistryLookupErrorCode::OfflineCacheMiss,
+                error.to_string(),
+            ),
+            CatalogError::RevisionNotFound { .. } => {
+                RegistryLookupError::new(RegistryLookupErrorCode::SourceNotFound, error.to_string())
+            }
+            other => invalid_registry(other),
+        }
+    })?;
+    if let Some(expected) = &options.snapshot
+        && !snapshots.iter().any(|s| s.reference == *expected)
+    {
+        return Err(RegistryLookupError::new(
+            RegistryLookupErrorCode::SnapshotMismatch,
+            "public snapshot metadata does not match immutable history",
+        ));
+    }
+    Ok(snapshots)
 }

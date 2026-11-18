@@ -307,3 +307,62 @@ impl RegistryBundlePin {
         Ok(())
     }
 }
+
+/// Deterministic discovery response combining public and local systems.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CatalogFindResponse {
+    /// Discovery envelope version.
+    pub schema_version: u32,
+    /// Matches ordered by `(origin, id, revision)`.
+    pub results: Vec<CatalogFindResult>,
+    /// Completeness and cache state of public discovery.
+    pub public_status: CatalogPublicStatus,
+}
+/// One discoverable system, with bundle revision independent of language.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CatalogFindResult {
+    /// System identifier (remembered slug for remembered rows).
+    pub id: String,
+    /// Human-readable name.
+    pub name: String,
+    /// `public`, `configured`, or `remembered`.
+    pub origin: String,
+    /// Bundle revision, absent for unversioned local systems.
+    pub revision: Option<u64>,
+    /// Compatible language ids, sorted and unique.
+    pub languages: Vec<LanguageId>,
+    /// Original source versions.
+    pub upstream: Vec<UpstreamPin>,
+    /// Descriptive coverage labels.
+    pub coverage: Vec<String>,
+    /// Descriptive known gaps.
+    pub gaps: Vec<String>,
+    /// Whether the public revision is installed, or the local row is configured/remembered.
+    pub installed: bool,
+    /// Immutable catalogue commit for public rows.
+    pub catalogue_commit: Option<String>,
+}
+/// Public discovery status, separate from deterministic result identities.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CatalogPublicStatus {
+    /// Whether the public catalogue was fully available.
+    pub complete: bool,
+    /// Whether selected cached metadata was used.
+    pub cached: bool,
+    /// Selected immutable commit, when available.
+    pub commit: Option<String>,
+    /// Structured reason for incomplete public discovery.
+    pub diagnostic: Option<CatalogDiagnostic>,
+}
+/// Recoverable public discovery failure.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CatalogDiagnostic {
+    /// Stable machine-readable failure category.
+    pub code: String,
+    /// Human-readable failure summary.
+    pub message: String,
+}

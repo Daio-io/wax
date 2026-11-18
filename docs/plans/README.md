@@ -21,10 +21,11 @@ is [archived](./archive/2026-10-22-registry-search-plan.md) with its
 active plan.
 
 **Authorized THE-889 extraction:** Phase 1 of pinning Git design-system
-bundles from repository subfolders (THE-890) is an explicit extraction from
-THE-889, documented in
+bundles from repository subfolders (THE-890) and Phase 3a public catalogue
+discovery/exact installation (THE-892, following completed THE-891) are explicit
+extractions from THE-889, documented in
 [the public registry catalogue plan](./2026-11-16-public-registry-catalogue-plan.md).
-It lands while Phase 2B remains the sequential active plan.
+They land while Phase 2B remains the sequential active plan.
 
 ---
 

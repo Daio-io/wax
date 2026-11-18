@@ -396,6 +396,24 @@ pub fn refresh_remembered_registry(
             design_system_id: design_system_id.to_owned(),
         })?;
     let source = source.clone();
+    if let Some(pin) = &entry.bundle_pin
+        && pin.provenance.is_some()
+        && matches!(&source, RegistrySourceSpec::GitSystem { tag, .. } if tag == &pin.commit)
+    {
+        // Exact catalogue installs only refill/verify their original artifacts.
+        let cache = registry_cache_for_state(state_path);
+        let mut snapshots = Vec::new();
+        for expected in &entry.snapshots {
+            snapshots.extend(cache.resolve(
+                &source,
+                &crate::registry_cache::RegistryReadPolicy {
+                    offline: false,
+                    expected_snapshot: Some(expected.clone()),
+                },
+            )?);
+        }
+        return Ok(snapshots);
+    }
     let snapshots = registry_cache_for_state(state_path).refresh_with(&source, |snapshots| {
         entry.bundle_pin = bundle_pin(&source, snapshots)?;
         entry.snapshots = snapshots

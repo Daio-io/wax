@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wax.dev/schemas/registry-catalog-find.schema.json",
+  "title": "Registry catalogue find response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "results",
+    "public_status"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/result"
+      }
+    },
+    "public_status": {
+      "$ref": "#/$defs/status"
+    }
+  },
+  "$defs": {
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "origin",
+        "revision",
+        "languages",
+        "upstream",
+        "coverage",
+        "gaps",
+        "installed",
+        "catalogue_commit"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "origin": {
+          "enum": [
+            "public",
+            "configured",
+            "remembered"
+          ]
+        },
+        "revision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "languages": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          }
+        },
+        "upstream": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "source",
+              "version"
+            ],
+            "properties": {
+              "source": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "coverage": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "gaps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "installed": {
+          "type": "boolean"
+        },
+        "catalogue_commit": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^([a-f0-9]{40}|[a-f0-9]{64})$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "complete",
+        "cached",
+        "commit",
+        "diagnostic"
+      ],
+      "properties": {
+        "complete": {
+          "type": "boolean"
+        },
+        "cached": {
+          "type": "boolean"
+        },
+        "commit": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^([a-f0-9]{40}|[a-f0-9]{64})$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "diagnostic": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "code",
+                "message"
+              ],
+              "properties": {
+                "code": {
+                  "enum": [
+                    "offline_cache_miss",
+                    "public_unavailable"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1303,3 +1303,87 @@ fn detail_snapshot_digest_pins_matching_language_after_multi_lang_refresh() {
     assert_eq!(detail_value["snapshot"]["source"], source);
     assert_eq!(detail_value["entry"]["symbol"], "Button");
 }
+
+#[test]
+fn public_search_before_install_keeps_exact_detail_after_catalogue_refresh() {
+    let root = TestDir::new("public-search");
+    common::catalog::seed_catalogue(&root.path);
+    let search = common::catalog::run(
+        &root.path,
+        &[
+            "search",
+            "Button",
+            "--design-system",
+            "public:acme@1",
+            "--language",
+            "react",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(
+        search.status.success(),
+        "{} {}",
+        String::from_utf8_lossy(&search.stdout),
+        String::from_utf8_lossy(&search.stderr)
+    );
+    let result: Value = serde_json::from_slice(&search.stdout).unwrap();
+    assert!(search_validator().is_valid(&result));
+    let digest = result["results"][0]["snapshot"]["digest"].as_str().unwrap();
+    common::catalog::change_registry(&root.path);
+    assert!(
+        common::catalog::run(&root.path, &["registry", "find", "--format", "json"])
+            .status
+            .success()
+    );
+    let detail = common::catalog::run(
+        &root.path,
+        &[
+            "component",
+            "button",
+            "--design-system",
+            "public:acme@1",
+            "--language",
+            "react",
+            "--snapshot",
+            digest,
+            "--offline",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(
+        detail.status.success(),
+        "{} {}",
+        String::from_utf8_lossy(&detail.stdout),
+        String::from_utf8_lossy(&detail.stderr)
+    );
+    let detail: Value = serde_json::from_slice(&detail.stdout).unwrap();
+    assert!(detail_validator().is_valid(&detail));
+    assert_eq!(detail["entry"]["symbol"], "Button");
+    let wrong = common::catalog::run(
+        &root.path,
+        &[
+            "component",
+            "button",
+            "--design-system",
+            "public:acme@1",
+            "--language",
+            "compose",
+            "--snapshot",
+            digest,
+            "--offline",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(!wrong.status.success());
+    let error: Value = serde_json::from_slice(&wrong.stdout).unwrap();
+    assert_eq!(error["code"], "snapshot_mismatch");
+    assert!(
+        wax_core::global_state::load_global_state(root.path.join("home/state.json"))
+            .unwrap()
+            .design_systems
+            .is_empty()
+    );
+}

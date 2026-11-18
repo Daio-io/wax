@@ -63,3 +63,24 @@ fn config_schema_accepts_nested_git_and_rejects_partial_or_unsafe_bundle_fields(
         .remove("subdir");
     assert!(!validator.is_valid(&partial));
 }
+
+#[test]
+fn find_response_roundtrips_and_schema_rejects_invalid_origins_and_revisions() {
+    let fixture: serde_json::Value =
+        serde_json::from_str(include_str!("../../../fixtures/registry-catalog/find.json")).unwrap();
+    let response: wax_contract::CatalogFindResponse =
+        serde_json::from_value(fixture.clone()).unwrap();
+    assert_eq!(serde_json::to_value(response).unwrap(), fixture);
+    let schema =
+        serde_json::from_str(include_str!("../schemas/registry-catalog-find.schema.json")).unwrap();
+    let validator = jsonschema::validator_for(&schema).unwrap();
+    assert!(validator.is_valid(&fixture));
+    for (key, value) in [
+        ("origin", serde_json::json!("unknown")),
+        ("revision", serde_json::json!(0)),
+    ] {
+        let mut invalid = fixture.clone();
+        invalid["results"][0][key] = value;
+        assert!(!validator.is_valid(&invalid));
+    }
+}

@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+pub mod catalog;
+
 use sha2::{Digest, Sha256};
 use std::ffi::OsString;
 use std::fs;
