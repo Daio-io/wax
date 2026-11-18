@@ -81,6 +81,31 @@ fn cold_offline_find_retains_origin_collisions_and_filters_deterministically() {
     );
 }
 
+#[test]
+fn configured_http_registry_credentials_are_redacted_from_discovery_rows() {
+    let f = Fixture::new("redacted-http-url");
+    fs::create_dir_all(f.0.join(".wax")).unwrap();
+    fs::write(
+        f.0.join(".wax/wax.config.json"),
+        r#"{"schema_version":2,"languages":{"react":{"registry":{"source":"https://user:secret@example.com/registry.json"}}}}"#,
+    )
+    .unwrap();
+
+    let result = find_design_systems(&f.options()).unwrap();
+    let configured = result
+        .results
+        .iter()
+        .find(|row| row.origin == "configured")
+        .unwrap();
+    assert_eq!(configured.id, "https://example.com/registry.json");
+    assert_eq!(configured.name, "https://example.com/registry.json");
+    assert!(
+        !serde_json::to_string(configured)
+            .unwrap()
+            .contains("secret")
+    );
+}
+
 fn git(repo: &std::path::Path, args: &[&str]) -> String {
     let output = std::process::Command::new("git")
         .args([

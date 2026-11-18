@@ -150,7 +150,7 @@ pub fn find_design_systems(options: &CatalogOptions) -> Result<CatalogFindRespon
                 crate::config::waxrc::LanguageRegistrySource::PathOrUrl { source, upstream } => {
                     upstream
                         .and_then(|u| u.split_once('/').map(|(id, _)| id.to_owned()))
-                        .unwrap_or(source)
+                        .unwrap_or_else(|| redact_registry_url(&source))
                 }
                 crate::config::waxrc::LanguageRegistrySource::Git { git, system, .. } => {
                     system.unwrap_or_else(|| crate::registry_git::redact_git_remote(&git))
@@ -264,6 +264,25 @@ pub fn find_design_systems(options: &CatalogOptions) -> Result<CatalogFindRespon
         public_status,
     })
 }
+
+fn redact_registry_url(value: &str) -> String {
+    let Some(scheme_end) = value.find("://") else {
+        return value.to_owned();
+    };
+    let authority_start = scheme_end + 3;
+    let authority_end = value[authority_start..]
+        .find('/')
+        .map_or(value.len(), |offset| authority_start + offset);
+    let Some(at) = value[authority_start..authority_end].rfind('@') else {
+        return value.to_owned();
+    };
+    format!(
+        "{}{}",
+        &value[..authority_start],
+        &value[authority_start + at + 1..]
+    )
+}
+
 fn local_row(
     id: String,
     name: String,
