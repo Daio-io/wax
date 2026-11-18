@@ -164,6 +164,17 @@ fn resolve_snapshots(
         state_path: Some(state_path),
     };
 
+    if options
+        .design_system
+        .as_deref()
+        .is_some_and(|s| s.starts_with("public:"))
+    {
+        return Ok(wax_core::registry_lookup::resolve_public_lookup_snapshots(
+            &base,
+            snapshot_digest,
+        )?);
+    }
+
     let Some(digest) = snapshot_digest else {
         return Ok(resolve_lookup_snapshots(&base)?);
     };

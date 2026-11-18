@@ -336,7 +336,26 @@ impl RegistryCache {
             (self.load_references(&references)?, false)
         } else {
             if policy.offline {
-                return Err(RegistryCacheError::OfflineCacheMiss { identity });
+                // A full cached commit proves the following bundle reads cannot fetch.
+                // Branch refs are rejected by fetch_git_files in offline mode.
+                let paths: Vec<_> = std::iter::once(&entry.definition)
+                    .chain(std::iter::once(&entry.provenance))
+                    .chain(entry.registries.values())
+                    .map(|artifact| format!("{}/{}", entry.subdir, artifact.path))
+                    .collect();
+                let refs: Vec<_> = paths.iter().map(String::as_str).collect();
+                let fetched = fetch_git_files(url, reference, &refs, &self.root.join("git"), true)?;
+                let provenance_path = format!("{}/{}", entry.subdir, entry.provenance.path);
+                let bytes = &fetched.files[&provenance_path];
+                let actual = crate::digest::sha256_hex(bytes);
+                if actual != entry.provenance.sha256 {
+                    return Err(RegistryCacheError::DigestMismatch {
+                        path: provenance_path.into(),
+                        expected: entry.provenance.sha256.clone(),
+                        actual,
+                    });
+                }
+                self.write_blob(&actual, bytes)?;
             }
             (self.fetch_snapshots(&source)?, true)
         };

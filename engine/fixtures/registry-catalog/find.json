@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "results": [
+    {
+      "id": "acme",
+      "name": "Acme",
+      "origin": "public",
+      "revision": 1,
+      "languages": [
+        "compose",
+        "react"
+      ],
+      "upstream": [
+        {
+          "source": "https://example.test/acme",
+          "version": "v1"
+        }
+      ],
+      "coverage": [
+        "buttons"
+      ],
+      "gaps": [
+        "icons"
+      ],
+      "installed": false,
+      "catalogue_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "public_status": {
+    "complete": true,
+    "cached": false,
+    "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "diagnostic": null
+  }
+}

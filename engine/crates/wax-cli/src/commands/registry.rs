@@ -274,18 +274,37 @@ pub fn run_registry_list(
     let state_path = resolve_state_path(options.state_path.as_deref())?;
     let entries = list_remembered_design_systems(&state_path)?;
 
-    writeln!(writer, "id\tname\trepo_root\tsource").map_err(write_memory_error)?;
+    writeln!(
+        writer,
+        "id\tname\trepo_root\tsource\tcommit\trevision\tlanguages"
+    )
+    .map_err(write_memory_error)?;
     for entry in entries {
         writeln!(
             writer,
-            "{}\t{}\t{}\t{}",
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}",
             entry.id,
             entry.name,
             entry.repo_root.display(),
             entry
                 .source
                 .as_ref()
-                .map_or_else(String::new, RegistrySourceSpec::identity)
+                .map_or_else(String::new, RegistrySourceSpec::identity),
+            entry
+                .bundle_pin
+                .as_ref()
+                .map_or("", |pin| pin.commit.as_str()),
+            entry
+                .id
+                .strip_prefix("public-")
+                .and_then(|id| id.rsplit_once("-r"))
+                .map_or("", |(_, revision)| revision),
+            entry
+                .snapshots
+                .iter()
+                .map(|s| s.language.as_str())
+                .collect::<Vec<_>>()
+                .join(",")
         )
         .map_err(write_memory_error)?;
     }
@@ -311,6 +330,27 @@ pub fn run_registry_show(
 
     writeln!(writer, "id: {}", entry.id).map_err(write_memory_error)?;
     writeln!(writer, "name: {}", entry.name).map_err(write_memory_error)?;
+    if let Some(pin) = &entry.bundle_pin {
+        writeln!(writer, "commit: {}", pin.commit).map_err(write_memory_error)?;
+        if let Some((_, revision)) = entry
+            .id
+            .rsplit_once("-r")
+            .filter(|_| entry.id.starts_with("public-"))
+        {
+            writeln!(writer, "revision: {revision}").map_err(write_memory_error)?;
+        }
+        writeln!(
+            writer,
+            "languages: {}",
+            pin.registries
+                .keys()
+                .map(LanguageId::as_str)
+                .collect::<Vec<_>>()
+                .join(",")
+        )
+        .map_err(write_memory_error)?;
+    }
+
     if let Some(source) = &entry.source {
         writeln!(writer, "source: {}", source.identity()).map_err(write_memory_error)?;
         writeln!(writer, "snapshots: {}", entry.snapshots.len()).map_err(write_memory_error)?;
@@ -499,4 +539,103 @@ mod tests {
 
         assert_eq!(roots, vec![absolute]);
     }
+}
+
+/// Failure from public catalogue commands.
+#[derive(Debug, Error)]
+pub enum RegistryCatalogCommandError {
+    /// Catalogue operation failed.
+    #[error(transparent)]
+    Catalog(#[from] wax_core::registry_catalog::CatalogError),
+    /// Global paths are unavailable.
+    #[error(transparent)]
+    Paths(#[from] PathsError),
+    /// Output could not be written.
+    #[error(transparent)]
+    Io(#[from] io::Error),
+    /// JSON output encoding failed.
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+}
+/// Runs public/local catalogue discovery, keeping partial failure observable in stdout.
+///
+/// # Errors
+/// Returns a typed error for invalid local state/config or output failure.
+pub fn run_registry_find(
+    args: crate::cli::RegistryFindArgs,
+    repo_root: PathBuf,
+    writer: &mut impl Write,
+) -> Result<(), RegistryCatalogCommandError> {
+    let mut options =
+        wax_core::registry_catalog::CatalogOptions::new(repo_root, resolve_state_path(None)?);
+    options.query = args.query;
+    options.language = args.language;
+    options.offline = args.offline;
+    let response = wax_core::registry_catalog::find_design_systems(&options)?;
+    match args.format {
+        crate::cli::LookupStdoutFormat::Json => {
+            serde_json::to_writer(&mut *writer, &response)?;
+            writeln!(writer)?;
+        }
+        crate::cli::LookupStdoutFormat::Text => {
+            writeln!(writer, "origin\tid\trevision\tname\tlanguages\tinstalled")?;
+            for row in response.results {
+                writeln!(
+                    writer,
+                    "{}\t{}\t{}\t{}\t{}\t{}",
+                    row.origin,
+                    row.id,
+                    row.revision.map_or_else(String::new, |r| r.to_string()),
+                    row.name,
+                    row.languages
+                        .iter()
+                        .map(LanguageId::as_str)
+                        .collect::<Vec<_>>()
+                        .join(","),
+                    row.installed
+                )?;
+            }
+            writeln!(
+                writer,
+                "public: complete={} cached={} commit={}",
+                response.public_status.complete,
+                response.public_status.cached,
+                response.public_status.commit.as_deref().unwrap_or("none")
+            )?;
+            if let Some(diagnostic) = response.public_status.diagnostic {
+                writeln!(writer, "{}: {}", diagnostic.code, diagnostic.message)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Installs a public revision without modifying application files.
+///
+/// # Errors
+/// Returns typed catalogue, storage, or output errors.
+pub fn run_registry_install(
+    args: crate::cli::RegistryInstallArgs,
+    writer: &mut impl Write,
+) -> Result<(), RegistryCatalogCommandError> {
+    let mut options = wax_core::registry_catalog::CatalogOptions::new(
+        PathBuf::from("."),
+        resolve_state_path(None)?,
+    );
+    options.offline = args.offline;
+    let pin =
+        wax_core::registry_catalog::install_design_system(&options, &args.public_id, args.version)?;
+    writeln!(
+        writer,
+        "Installed public-{}-r{} at {} (languages: {}).",
+        args.public_id,
+        args.version,
+        pin.commit,
+        pin.registries
+            .keys()
+            .map(LanguageId::as_str)
+            .collect::<Vec<_>>()
+            .join(",")
+    )?;
+    Ok(())
 }

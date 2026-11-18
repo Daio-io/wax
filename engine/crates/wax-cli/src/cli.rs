@@ -154,6 +154,10 @@ pub struct RegistryCli {
 /// Registry subcommands.
 #[derive(Debug, Subcommand)]
 pub enum RegistrySubcommand {
+    /// Install all languages of an exact public bundle revision.
+    Install(RegistryInstallArgs),
+    /// Find public, configured, and remembered design systems.
+    Find(RegistryFindArgs),
     /// Discover design-system registry components from source roots.
     Discover(DiscoverArgs),
     /// Remember and cache a registry source.
@@ -437,4 +441,37 @@ pub struct GlobalUninstallArgs {
     /// Remove global state (`~/.wax`) and best-effort binary install paths.
     #[arg(long)]
     pub full: bool,
+}
+
+/// Arguments for public and local catalogue discovery.
+#[derive(Debug, Args)]
+pub struct RegistryFindArgs {
+    /// Repository supplying configured systems.
+    #[arg(long, default_value = ".")]
+    pub repo_root: PathBuf,
+    /// Case-insensitive id/name substring (empty lists all).
+    #[arg(default_value = "")]
+    pub query: String,
+    /// Only systems supporting this language.
+    #[arg(long)]
+    pub language: Option<LanguageId>,
+    /// Use the selected cached public index without network access.
+    #[arg(long)]
+    pub offline: bool,
+    /// Output format; JSON includes structured public completeness.
+    #[arg(long, value_enum, default_value = "text")]
+    pub format: LookupStdoutFormat,
+}
+
+/// Exact public bundle installation arguments.
+#[derive(Debug, Args)]
+pub struct RegistryInstallArgs {
+    /// Public catalogue id (without public: prefix).
+    pub public_id: String,
+    /// Required positive bundle revision; never implicitly selects latest.
+    #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
+    pub version: u64,
+    /// Use only cached catalogue and bundle objects.
+    #[arg(long)]
+    pub offline: bool,
 }

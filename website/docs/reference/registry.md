@@ -46,3 +46,57 @@ Search and exact detail have separate
 [`registry-search.schema.json`](https://github.com/Daio-io/wax/blob/main/engine/crates/wax-contract/schemas/registry-search.schema.json),
 [`registry-detail.schema.json`](https://github.com/Daio-io/wax/blob/main/engine/crates/wax-contract/schemas/registry-detail.schema.json),
 and typed lookup-error schemas.
+
+## Public catalogue discovery and installation
+
+The built-in catalogue is the `main` branch of
+[`wax-registries`](https://github.com/Daio-io/wax-registries), indexed by
+`catalog/index.json`. No setup is needed:
+
+```bash
+wax registry find
+wax registry find astryx --language react --format json
+wax registry find --offline --format json
+wax registry install astryx --version 1
+wax registry install astryx --version 1 --offline
+```
+
+`find [query]` matches ids and names by case-insensitive substring. An empty
+query lists all compatible systems. Results include public, configured
+publisher/app, and remembered systems; same-name rows retain their origin.
+JSON uses `schema_version: 1`, stable `(origin, id, revision)` ordering, and a
+separate `public_status` object (`complete`, `cached`, `commit`, `diagnostic`).
+The [find response schema](https://github.com/Daio-io/wax/blob/main/engine/crates/wax-contract/schemas/registry-catalog-find.schema.json)
+defines this envelope. Local unversioned rows have a null revision and catalogue
+commit. Cache freshness timestamps do not appear in result identity.
+
+Every online find refreshes the index. Public Git, index, or compatibility
+failure returns local results with `complete: false` and a structured
+`public_unavailable` diagnostic, exiting successfully. Invalid local config or
+global state is fatal. Warm offline find reads the selected cached index and
+reports `cached: true`; cold offline find returns local rows with
+`offline_cache_miss` and `complete: false`. Text output displays the same status.
+Ordinary search and scan commands perform no public discovery traffic.
+
+Installation requires an explicit positive bundle revision (`--version`),
+installs **all** declared languages, and accepts no `--language` flag. The
+selected index, definition, provenance, and registries are verified at one
+immutable catalogue commit. If the selected index cannot supply the requested
+revision, online installation refreshes it before selecting the commit.
+Offline installation requires a cached index and Git bundle objects. Installs
+write only global state/cache under `~/.wax/` (or `WAX_HOME`); they do not edit
+app config, registries, packs, or lockfiles.
+
+The remembered slug is `public-astryx-r1`. Repeating identical historical data
+retains the original commit. A different source/artifact or an occupied local
+slug fails without overwriting it. Installing revision 2 creates a separate
+`public-astryx-r2` entry; app adoption remains explicit.
+
+```bash
+wax registry list
+wax registry show public-astryx-r1
+wax registry refresh public-astryx-r1
+```
+
+List/show expose bundle commit, revision, and languages. Refresh verifies or
+refills the original revision and never selects a newer revision.

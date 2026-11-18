@@ -21,8 +21,9 @@
 mod registry;
 mod registry_catalog;
 pub use registry_catalog::{
-    ArtifactDigest, Catalog, CatalogEntry, CatalogError, RegistryBundlePin, RegistryDefinitionPin,
-    UpstreamPin, valid_git_commit, valid_sha256, validate_artifact_path,
+    ArtifactDigest, Catalog, CatalogDiagnostic, CatalogEntry, CatalogError, CatalogFindResponse,
+    CatalogFindResult, CatalogPublicStatus, RegistryBundlePin, RegistryDefinitionPin, UpstreamPin,
+    valid_git_commit, valid_sha256, validate_artifact_path,
 };
 mod registry_lookup;
 

@@ -10,7 +10,8 @@ use wax_cli::commands::language::{
 use wax_cli::commands::registry::{
     RegistryAddCommandOptions, RegistryDiscoverCommandOptions, RegistryMemoryCommandOptions,
     RegistryUpdateCommandOptions, run_registry_add, run_registry_delete, run_registry_discover,
-    run_registry_list, run_registry_refresh, run_registry_show, run_registry_update,
+    run_registry_find, run_registry_install, run_registry_list, run_registry_refresh,
+    run_registry_show, run_registry_update,
 };
 use wax_cli::commands::scan::parse_output_flag;
 use wax_cli::commands::scan::{EphemeralScanSelections, ScanCommandOptions, run_scan_cli};
@@ -107,6 +108,15 @@ fn main() {
             &mut stdout,
         )
         .map_err(Into::into),
+        Commands::Registry(wax_cli::cli::RegistryCli {
+            command: RegistrySubcommand::Find(args),
+        }) => {
+            let repo_root = args.repo_root.clone();
+            run_registry_find(args, repo_root, &mut stdout).map_err(Into::into)
+        }
+        Commands::Registry(wax_cli::cli::RegistryCli {
+            command: RegistrySubcommand::Install(args),
+        }) => run_registry_install(args, &mut stdout).map_err(Into::into),
         Commands::Discover(args)
         | Commands::Registry(wax_cli::cli::RegistryCli {
             command: RegistrySubcommand::Discover(args),
