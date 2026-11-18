@@ -1,14 +1,14 @@
 //! Source-backed React registry enrichment.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use serde_json::Map;
 use swc_common::{Span, Spanned, comments::CommentKind};
 use swc_ecma_ast::{
-    Decl, DefaultDecl, Expr, ImportSpecifier, ModuleDecl, ModuleItem, ObjectPat, ObjectPatProp,
-    Pat, Stmt, TsInterfaceDecl, TsKeywordTypeKind, TsLit, TsType, TsTypeAliasDecl, TsTypeElement,
-    TsUnionOrIntersectionType,
+    Decl, DefaultDecl, ExportSpecifier, Expr, ImportSpecifier, ModuleDecl, ModuleExportName,
+    ModuleItem, ObjectPat, ObjectPatProp, Pat, Stmt, TsInterfaceDecl, TsKeywordTypeKind, TsLit,
+    TsType, TsTypeAliasDecl, TsTypeElement, TsUnionOrIntersectionType,
 };
 use wax_contract::{
     RegistryAttachment, RegistryBestPractice, RegistryDeprecation, RegistryDetails,
@@ -108,43 +108,64 @@ fn component_declarations(
     let props = collect_props_definitions(parsed, &imports);
     let wrapper_callees = react_wrapper_callees(&parsed.module.body);
     let locals = local_component_impls(parsed);
+    let named_exports = local_named_value_exports(&parsed.module.body);
     let mut declarations = Vec::new();
 
     for item in &parsed.module.body {
-        match item {
-            ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(export)) => match &export.decl {
-                Decl::Fn(function) => {
+        let declaration = match item {
+            ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(export)) => {
+                Some((&export.decl, export.span, true))
+            }
+            ModuleItem::Stmt(Stmt::Decl(decl)) => Some((decl, decl.span(), false)),
+            _ => None,
+        };
+        if let Some((decl, span, directly_exported)) = declaration {
+            let is_exported = |symbol: &str| directly_exported || named_exports.contains(symbol);
+            match decl {
+                Decl::Fn(function)
+                    if is_exported(function.ident.sym.as_ref())
+                        && (directly_exported
+                            || (!function.declare && function.function.body.is_some())) =>
+                {
                     let parameter = function.function.params.first().map(|param| &param.pat);
                     declarations.push(ComponentDeclaration {
                         symbol: function.ident.sym.to_string(),
                         package: package.clone(),
                         details: component_details(
                             parsed,
-                            export.span,
-                            signature_span_for_function(export.span, &function.function),
+                            span,
+                            signature_span_for_function(span, &function.function),
                             parameter,
                             &props,
                             &imports,
                         ),
                     });
                 }
-                Decl::Var(variable) => {
+                Decl::Var(variable) if directly_exported || !variable.declare => {
                     for declarator in &variable.decls {
                         let Some((symbol, _)) = simple_binding_ident(declarator) else {
                             continue;
                         };
+                        if !is_exported(&symbol) {
+                            continue;
+                        }
                         let Some(init) = declarator.init.as_deref() else {
                             continue;
                         };
+                        let span = if !directly_exported && variable.decls.len() > 1 {
+                            declarator.span
+                        } else {
+                            span
+                        };
                         if let Some(implementation) =
-                            component_impl_from_expr(init, export.span, &locals, &wrapper_callees)
+                            component_impl_from_expr(init, span, &locals, &wrapper_callees)
                         {
                             declarations.push(ComponentDeclaration {
                                 symbol,
                                 package: package.clone(),
                                 details: component_details(
                                     parsed,
-                                    export.span,
+                                    span,
                                     implementation.signature_span,
                                     implementation.parameter,
                                     &props,
@@ -155,7 +176,11 @@ fn component_declarations(
                     }
                 }
                 _ => {}
-            },
+            }
+            continue;
+        }
+
+        match item {
             ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultDecl(default_decl)) => {
                 if let DefaultDecl::Fn(function) = &default_decl.decl
                     && let Some(ident) = &function.ident
@@ -220,6 +245,30 @@ fn component_declarations(
         }
     }
     declarations
+}
+
+fn local_named_value_exports(items: &[ModuleItem]) -> BTreeSet<&str> {
+    items
+        .iter()
+        .filter_map(|item| match item {
+            ModuleItem::ModuleDecl(ModuleDecl::ExportNamed(export))
+                if export.src.is_none() && !export.type_only =>
+            {
+                Some(&export.specifiers)
+            }
+            _ => None,
+        })
+        .flatten()
+        .filter_map(|specifier| match specifier {
+            ExportSpecifier::Named(named) if !named.is_type_only && named.exported.is_none() => {
+                match &named.orig {
+                    ModuleExportName::Ident(ident) => Some(ident.sym.as_ref()),
+                    ModuleExportName::Str(_) => None,
+                }
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 fn local_component_impls(parsed: &ParsedReactModule) -> BTreeMap<String, ComponentImpl<'_>> {
@@ -945,7 +994,7 @@ fn enrich_components(
 
         component.details = Some(unavailable(
             "source_evidence",
-            "no matching directly exported React declaration was observed",
+            "no matching exported React component declaration was observed",
         ));
     }
 }
