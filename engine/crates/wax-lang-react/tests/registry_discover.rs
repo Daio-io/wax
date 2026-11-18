@@ -101,6 +101,189 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
 }
 
 #[test]
+fn discover_registry_details_uses_same_file_named_export_declarations() -> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let src = tempdir.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(
+        tempdir.path().join("package.json"),
+        r#"{"name": "@acme/design-system"}"#,
+    )?;
+    fs::write(
+        src.join("button.tsx"),
+        r#"/** A button for important actions. */
+function Button({ label }: { label: string }) {
+    return <button>{label}</button>;
+}
+
+export { Button };
+"#,
+    )?;
+    fs::write(
+        src.join("controls.tsx"),
+        r#"import { memo } from "react";
+
+export { ArrowButton, MemoButton };
+
+/** An arrow button. */
+const ArrowButton = ({ label }: { label: string }) =>
+    <button>{label}</button>;
+
+/** A value shared by the controls. */
+const defaultLabel = "OK",
+    GroupedButton = ({ label }: { label: string }) =>
+        <button>{label || defaultLabel}</button>;
+
+/** A memoized button. */
+const MemoButton = memo(ArrowButton);
+
+export { GroupedButton };
+"#,
+    )?;
+    fs::write(
+        src.join("excluded.tsx"),
+        r#"import { ImportedButton } from "../external";
+
+function TypeButton() { return <button />; }
+function InlineTypeButton() { return <button />; }
+function RemoteButton() { return <button />; }
+function AliasedButton() { return <button />; }
+declare function AmbientButton(): React.JSX.Element;
+
+export type { TypeButton };
+export { type InlineTypeButton, ImportedButton, AmbientButton };
+export { RemoteButton } from "../external";
+export { AliasedButton as PublicButton };
+"#,
+    )?;
+    fs::write(
+        tempdir.path().join("external.tsx"),
+        r#"export function ImportedButton() { return <button />; }
+export function RemoteButton() { return <button />; }
+"#,
+    )?;
+
+    let symbols = [
+        "Button",
+        "ArrowButton",
+        "GroupedButton",
+        "MemoButton",
+        "TypeButton",
+        "InlineTypeButton",
+        "ImportedButton",
+        "AmbientButton",
+        "RemoteButton",
+        "AliasedButton",
+        "PublicButton",
+    ];
+    let components: Vec<_> = symbols
+        .iter()
+        .map(|symbol| {
+            serde_json::json!({
+                "id": format!("react.{}", symbol.to_ascii_lowercase()),
+                "symbol": symbol,
+                "package": "@acme/design-system"
+            })
+        })
+        .collect();
+
+    let request = DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "react".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry: serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "components": components
+        }))
+        .unwrap(),
+    };
+
+    let result = discover_registry_details(&request).expect("rich discover should succeed");
+    assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
+    let expected_declarations = [
+        (
+            "src/button.tsx",
+            2,
+            4,
+            Some("A button for important actions."),
+            "function Button({ label }: { label: string })",
+        ),
+        (
+            "src/controls.tsx",
+            6,
+            7,
+            Some("An arrow button."),
+            "const ArrowButton = ({ label }: { label: string }) =>",
+        ),
+        (
+            "src/controls.tsx",
+            11,
+            12,
+            None,
+            "GroupedButton = ({ label }: { label: string }) =>",
+        ),
+        (
+            "src/controls.tsx",
+            15,
+            15,
+            Some("A memoized button."),
+            "({ label }: { label: string }) =>",
+        ),
+    ];
+    let (local, excluded) = result
+        .document
+        .components
+        .split_at(expected_declarations.len());
+    for (component, (path, start_line, end_line, documentation, signature)) in
+        local.iter().zip(expected_declarations)
+    {
+        let details = component.details.as_ref().unwrap();
+        let mut expected = serde_json::json!({
+            "status": "complete",
+            "source_evidence": {
+                "path": path,
+                "start_line": start_line,
+                "end_line": end_line
+            },
+            "signature": {
+                "type_text": signature,
+                "parameters": [{
+                    "name": "label",
+                    "type_text": "string",
+                    "type_kind": "string",
+                    "required": true
+                }]
+            }
+        });
+        if let Some(documentation) = documentation {
+            expected["documentation"] = serde_json::json!(documentation);
+        }
+        assert_eq!(
+            serde_json::to_value(details).unwrap(),
+            expected,
+            "{}",
+            component.symbol
+        );
+    }
+
+    for component in excluded {
+        let details = component.details.as_ref().unwrap();
+        assert_eq!(
+            details.status,
+            wax_contract::RegistryExtractionStatus::Unavailable,
+            "{}",
+            component.symbol
+        );
+        assert!(details.source_evidence.is_none(), "{}", component.symbol);
+        assert!(details.signature.is_none(), "{}", component.symbol);
+        assert_eq!(details.field_gaps[0].field, "source_evidence");
+    }
+
+    Ok(())
+}
+
+#[test]
 fn discover_registry_details_records_imported_props_package_without_a_gap() -> io::Result<()> {
     let tempdir = tempfile::tempdir()?;
     let src = tempdir.path().join("src");
