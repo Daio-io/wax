@@ -28,7 +28,7 @@ jobs:
             language_id: compose
             fixture_path: engine/fixtures/smoke/compose/repo
             require_non_scaffold_counts: "true"
-          - os: macos-14
+          - os: macos-15
             target: aarch64-apple-darwin
             language_id: compose
             fixture_path: engine/fixtures/smoke/compose/repo
