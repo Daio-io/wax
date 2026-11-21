@@ -535,6 +535,7 @@ fn sync_writes_bundle_pins_that_lookup_reproduces_after_tag_moves() {
     let lock_path = app.join(".wax/wax.lock.json");
     fs::write(&lock_path, r#"{"schema_version":2,"engine_api_version":1,"wax_version":"0.1.0","registries":{},"languages":{}}"#).unwrap();
     sync_app_registries(&SyncOptions {
+        design_system: None,
         repo_root: app.clone(),
         state_path: None,
         upgrade: false,
@@ -559,6 +560,7 @@ fn sync_writes_bundle_pins_that_lookup_reproduces_after_tag_moves() {
     git(&repo, &["commit", "-am", "change", "-q"]);
     git(&repo, &["tag", "-f", "v1"]);
     sync_app_registries(&SyncOptions {
+        design_system: None,
         repo_root: app.clone(),
         state_path: None,
         upgrade: true,

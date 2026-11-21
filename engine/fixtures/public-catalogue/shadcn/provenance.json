@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "upstream": {
+    "repository": "https://github.com/shadcn-ui/ui",
+    "tag": "shadcn@4.23.0",
+    "commit": "96da9cc7f1aa10580a3741664e2a77c721206c00",
+    "source_root": "apps/v4/registry/bases/radix/ui"
+  },
+  "generation": {
+    "command": "wax registry discover --design-system shadcn --name 'shadcn/ui' --language react --root ui --force --dry-run",
+    "wax_version": "0.10.2-alpha.1",
+    "react_pack_version": "0.10.2-alpha.1",
+    "import_pattern": "@/components/ui/<file>"
+  },
+  "component_count": 353
+}

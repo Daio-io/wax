@@ -46,3 +46,30 @@ Local/test environment variables:
 - `WAX_CLI_VERSION`: override the package version used to select release assets.
 - `WAX_CLI_REPO`: override the GitHub repository used for release downloads.
 - `WAX_CLI_SKIP_DOWNLOAD=1`: skip the postinstall binary download and the automatic language-pack refresh.
+
+Public bundle setup uses the same engine flags through this wrapper:
+
+```bash
+npx @waxhq/wax@alpha registry find shadcn --format json
+npx @waxhq/wax@alpha registry install shadcn --version 1
+npx @waxhq/wax@alpha init --non-interactive --language react --design-system public-shadcn-r1
+npx @waxhq/wax@alpha search Button --language react --format json
+npx @waxhq/wax@alpha scan --no-auto-install
+npx @waxhq/wax@alpha validate
+# After reviewing and installing a newer revision:
+npx @waxhq/wax@alpha sync --design-system <remembered-id>
+```
+
+Check `find` for availability and supported languages. Registry installation
+only remembers artifacts; init installs language packs separately unless
+`--no-install` is supplied. Commit the Git-pinned app config/lock, exclude
+`.wax/cache/`. Validation needs no global state/network; warm app scans use
+local cache, while clean checkouts may fetch the exact locked commit. CI must
+preinstall pinned packs for `--no-auto-install`.
+
+Ordinary sync/scan, catalogue refresh and nested `sync --upgrade` retain app
+pins. Explicit adoption requires the same system/repository and covers every
+bound language together. Consult [coverage, provenance and retention](../../website/docs/guides/registries.md#public-coverage-and-provenance)
+before interpreting registry matches. Propose corrections in
+[the catalogue repository](https://github.com/Daio-io/wax-registries) and engine
+changes through [Wax contributing](../../CONTRIBUTING.md).

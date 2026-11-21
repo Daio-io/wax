@@ -66,3 +66,35 @@ Use `"${WAX[@]}"` in place of `wax` (for example `"${WAX[@]}" search "button" --
 - Never run `wax sync --upgrade`, change a Git tag, refresh a remembered source, or update a package unless the user explicitly asks. Lookup must not silently upgrade an app lock or dependency.
 
 See [the tested search-and-use examples](examples/search-and-use.md) for configured apps, remembered sources, direct URLs, Git, offline lookup, refresh pinning, component selection, token selection, and failure handling.
+
+## Exact public bundles and app adoption
+
+Use `wax registry find --format json` to inspect available systems and coverage,
+then select a positive exact revision. For a published shadcn revision:
+
+```bash
+wax registry install shadcn --version 1
+wax init --non-interactive --language react --design-system public-shadcn-r1
+wax search Button --language react --format json
+wax component <id> --language react --snapshot <digest> --offline
+```
+
+Registry installation only remembers verified bytes. Init installs language
+packs separately unless `--no-install` is supplied. Plain app lookup honors
+committed app locks even after a global r2 installation or catalogue refresh.
+Init/sync warm the app-local cache; offline app search/detail need no global
+remembered registry. A clean checkout may fetch the exact commit online.
+
+Use `wax sync --design-system <remembered-id>` only for a requested, reviewed
+same-system revision change. It requires the same repository and every bound
+language, verifies all pins before writing, and updates config/lock together.
+Ordinary sync/scan, registry refresh and nested `sync --upgrade` keep app pins.
+Explicit historical selectors with `--snapshot` retain old detail after adoption.
+
+Check [coverage and provenance](../../website/docs/guides/registries.md#public-coverage-and-provenance):
+metadata is not upstream endorsement or proof of a package release. Exact
+package imports matter; missing tokens remain absent and unknown provenance
+stays candidate. Unsupported namespace/alias conventions are gaps, never facts
+to invent. Corrections belong in new retained revisions in
+[the catalogue repository](https://github.com/Daio-io/wax-registries); engine
+changes follow [Wax contribution guidance](../../CONTRIBUTING.md).

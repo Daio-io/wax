@@ -186,6 +186,7 @@ fn init_remembered_design_system_writes_upstream_registry_config() {
 
     run_init(
         InitOptions {
+            design_system: None,
             non_interactive: false,
             languages: Vec::new(),
             no_install: true,
@@ -268,6 +269,7 @@ fn init_source_backed_remembered_writes_explicit_url_config() {
 
     run_init(
         InitOptions {
+            design_system: None,
             non_interactive: false,
             languages: Vec::new(),
             no_install: true,

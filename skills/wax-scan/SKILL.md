@@ -831,3 +831,28 @@ Always answer:
 Prefer actionable recommendations over raw statistics.
 
 Focus on helping teams increase adoption, reduce design system debt, improve consistency, eliminate duplication, identify missing capabilities, and maximize the long-term value of the design system.
+
+## Pinned public bundle setup
+
+For a published exact revision, `wax registry install <id> --version <n>`
+remembers artifacts without configuring an app or installing language packs.
+Use `wax init --non-interactive --language <language> --design-system <remembered-id>`
+to create Git-pinned config/lock and install packs; `--no-install` skips pack
+downloads. Init/sync warm `.wax/cache/registries/` for scans without registry
+memory. Clean checkouts validate from committed metadata without network and
+may fetch only the exact locked commit for their first scan. CI must preinstall
+pinned packs before `wax scan --no-auto-install`.
+
+Explicit configless scans accept both installed ids and `public:<id>@<revision>`
+with `--language` and `--root`, and create no app config/lock. Existing `--offline`
+requires a warm exact-source cache. Never discover or select a latest revision
+implicitly. Global installs, catalogue refresh and ordinary sync/scan keep app
+pins. Adopt a reviewed same-system/repository revision with
+`wax sync --design-system <remembered-id>`; all bound languages update together.
+
+Package-aware parser matching is unchanged. Unrelated same-name imports are
+not adopted use, unknown provenance stays candidate, unsupported namespace/
+alias conventions remain gaps and missing tokens stay absent. Read
+[public coverage/provenance](../../website/docs/guides/registries.md#public-coverage-and-provenance)
+before claiming pilot coverage. Corrections publish new revisions retaining
+historical pins in [wax-registries](https://github.com/Daio-io/wax-registries).

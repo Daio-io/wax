@@ -69,3 +69,24 @@ ordinary searches do not discover remote systems automatically. Explicit
 configless scans use the same selector resolution. Installation is optional
 for search; `wax registry install astryx --version 1` remembers all languages
 as `public-astryx-r1` for later selection.
+
+## From public lookup to pinned application setup
+
+After reviewing an exact public revision, install it and select its remembered
+id during init, for example:
+
+```bash
+wax registry install shadcn --version 1
+wax init --non-interactive --language react --design-system public-shadcn-r1
+wax search Button --language react --format json
+wax component <id> --language react --snapshot <digest> --offline
+```
+
+Plain app search/detail honor app locks even when another revision is installed
+globally. Init/sync warm the app-local cache; offline app lookup needs neither
+remembered state nor catalogue discovery. A clean cache can fetch the exact
+locked Git commit online. Use `wax sync --design-system <remembered-id>` to
+adopt a reviewed same-system revision across all bound languages together.
+Explicit old remembered/public selectors keep historical detail available.
+See [public coverage and provenance](registries.md#public-coverage-and-provenance)
+for import boundaries, absent token coverage and correction/retention policy.

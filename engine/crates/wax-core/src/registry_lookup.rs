@@ -293,15 +293,27 @@ fn resolve_app_entries(
         let source = app_source_spec(&options.repo_root, entry, locked)?;
         let expected = app_snapshot_ref(entry, locked, &source);
         reject_conflicting_request(options, &expected, entry)?;
-        let mut resolved = cache
-            .resolve(
-                &source,
-                &RegistryReadPolicy {
-                    offline: options.offline,
-                    expected_snapshot: Some(expected),
-                },
+        let app_cache = matches!(&source, RegistrySourceSpec::GitSystem { .. }).then(|| {
+            RegistryCache::open(
+                options
+                    .repo_root
+                    .join(crate::config::repo_files::REGISTRY_CACHE_RELATIVE_DIR),
             )
-            .map_err(map_cache_error)?;
+        });
+        let policy = RegistryReadPolicy {
+            offline: options.offline,
+            expected_snapshot: Some(expected),
+        };
+        let mut resolved = match app_cache {
+            Some(app_cache) => match app_cache.resolve(&source, &policy) {
+                Ok(snapshots) => snapshots,
+                Err(RegistryCacheError::SnapshotUnavailable { .. }) => {
+                    cache.resolve(&source, &policy).map_err(map_cache_error)?
+                }
+                Err(error) => return Err(map_cache_error(error)),
+            },
+            None => cache.resolve(&source, &policy).map_err(map_cache_error)?,
+        };
         snapshots.append(&mut resolved);
     }
     Ok(snapshots)

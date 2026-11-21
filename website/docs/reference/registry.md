@@ -100,3 +100,26 @@ wax registry refresh public-astryx-r1
 
 List/show expose bundle commit, revision, and languages. Refresh verifies or
 refills the original revision and never selects a newer revision.
+
+## App setup and explicit revision selection
+
+`wax init --non-interactive --language <id> --design-system <remembered-id>`
+uses the same remembered-system setup as the interactive menu. Requested
+languages must be present before app files are written. Registry installation
+never scaffolds an app or installs packs; init installs packs independently
+unless `--no-install` is set.
+
+`wax sync --design-system <remembered-id>` replaces only bindings to that
+bundle's system in the same repository, requiring coverage for every bound
+language. It verifies all selected digests and pins before writing, updates
+config/lock together, restores original config bytes on lock-write failure,
+and shows old/new revision directories and commits. It conflicts with
+`--upgrade`. Other app systems keep their bindings.
+
+Generated bundle config records Git repository, full commit `tag`, relative
+`subdir` and `system`. Lock schema 3 adds definition and registry digest pins.
+No global paths or remembered ids are required to replay the committed pins.
+Init/sync warm the app-local cache; validation reads committed metadata only.
+Ordinary sync/scan, refresh and global installation never select a newer
+public revision. See the [offline/CI recipe](../guides/registries.md#offline-and-ci)
+and [coverage/provenance policy](../guides/registries.md#public-coverage-and-provenance).

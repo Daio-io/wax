@@ -27,8 +27,10 @@ pub struct SyncOptions {
     ///
     /// When absent, global state is resolved only if an upstream registry needs it.
     pub state_path: Option<PathBuf>,
-    /// Refresh Git-backed registry tags instead of using their locked commits.
+    /// Refresh root Git tags; nested bundle revision pins remain unchanged.
     pub upgrade: bool,
+    /// Explicit remembered bundle revision to adopt for the same bound system.
+    pub design_system: Option<String>,
 }
 
 /// One language registry refreshed during sync.
@@ -48,6 +50,10 @@ pub struct SyncUpdate {
     pub old_commit: Option<String>,
     /// Commit pinned by this sync, when this is a Git registry.
     pub new_commit: Option<String>,
+    /// Bundle revision directory selected before this sync.
+    pub old_subdir: Option<String>,
+    /// Bundle revision directory selected after this sync.
+    pub new_subdir: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -86,7 +92,7 @@ struct PersistSyncInput<'a> {
     config_path_display: &'a str,
     config_json: &'a Value,
     config_changed: bool,
-    original_config_json: &'a Value,
+    original_config_contents: &'a [u8],
     lockfile: &'a mut WaxLock,
     prepared_updates: &'a [PreparedSync],
 }
@@ -96,6 +102,14 @@ type BestEffortSyncResult = Result<(Vec<SyncUpdate>, Vec<(String, SyncError)>), 
 /// Errors returned while syncing app registries.
 #[derive(Debug, Error)]
 pub enum SyncError {
+    /// An explicit revision is not a complete replacement of the same bound system.
+    #[error("cannot adopt design system `{id}`: {reason}")]
+    InvalidDesignSystemSelection {
+        /// Requested remembered id.
+        id: String,
+        /// Reason the replacement is incompatible.
+        reason: &'static str,
+    },
     /// Bundle languages disagree on immutable publisher metadata.
     #[error(transparent)]
     Bundle(#[from] wax_contract::CatalogError),
@@ -193,10 +207,15 @@ pub enum SyncError {
 
 /// Refreshes app registry inputs for configured upstream and Git references.
 ///
+/// An explicit `design_system` adopts a remembered bundle of the same system
+/// and repository across every bound language, verifying all inputs before
+/// persisting config and lockfile together. Other systems remain unchanged.
+///
 /// # Errors
 ///
 /// Returns [`SyncError::MissingConfig`] or [`SyncError::MissingLockfile`] for
-/// missing inputs; [`SyncError::Config`], [`SyncError::Lockfile`],
+/// missing inputs; [`SyncError::InvalidDesignSystemSelection`] for incompatible
+/// explicit adoption; [`SyncError::Config`], [`SyncError::Lockfile`],
 /// [`SyncError::RegistryMemory`], [`SyncError::RegistrySource`], or
 /// [`SyncError::InvalidUpstream`] while preparing updates; and
 /// [`SyncError::ConfigUpdate`], [`SyncError::ConfigAtomicWrite`],
@@ -210,34 +229,41 @@ pub fn sync_app_registries(options: &SyncOptions) -> Result<Vec<SyncUpdate>, Syn
     let waxrc = load_waxrc(&repo_files.config_path)?;
     let mut lockfile = load_lockfile(&repo_files.lockfile_path)?;
     let config_path_display = repo_files.config_path.display().to_string();
-    let original_config_json = read_config_json(&repo_files.config_path, &config_path_display)?;
+    let (original_config_json, original_config_contents) =
+        read_config_json(&repo_files.config_path, &config_path_display)?;
     let mut config_json = original_config_json.clone();
     let mut config_changed = false;
     let mut prepared_updates = Vec::new();
     let mut resolved_state_path = options.state_path.clone();
 
-    for entry in &waxrc.languages {
-        if let Some(upstream) = entry
-            .registry_source
-            .as_ref()
-            .and_then(|registry| registry.upstream())
-            .filter(|upstream| !upstream.trim().is_empty())
-        {
-            let state_path = resolve_upstream_state_path(&mut resolved_state_path)?;
-            prepared_updates.push(prepare_language_upstream_sync(
-                state_path,
-                entry,
-                upstream,
-                &mut config_json,
-                &mut config_changed,
-            )?);
-        } else if entry.registry_source.as_ref().is_some_and(|registry| {
-            matches!(
-                registry,
-                crate::config::waxrc::LanguageRegistrySource::Git { .. }
-            )
-        }) {
-            prepared_updates.push(prepare_language_git_sync(options, entry, &lockfile)?);
+    if let Some(id) = &options.design_system {
+        prepared_updates =
+            prepare_design_system_selection(options, id, &waxrc, &lockfile, &mut config_json)?;
+        config_changed = config_json != original_config_json;
+    } else {
+        for entry in &waxrc.languages {
+            if let Some(upstream) = entry
+                .registry_source
+                .as_ref()
+                .and_then(|registry| registry.upstream())
+                .filter(|upstream| !upstream.trim().is_empty())
+            {
+                let state_path = resolve_upstream_state_path(&mut resolved_state_path)?;
+                prepared_updates.push(prepare_language_upstream_sync(
+                    state_path,
+                    entry,
+                    upstream,
+                    &mut config_json,
+                    &mut config_changed,
+                )?);
+            } else if entry.registry_source.as_ref().is_some_and(|registry| {
+                matches!(
+                    registry,
+                    crate::config::waxrc::LanguageRegistrySource::Git { .. }
+                )
+            }) {
+                prepared_updates.push(prepare_language_git_sync(options, entry, &lockfile)?);
+            }
         }
     }
 
@@ -252,7 +278,7 @@ pub fn sync_app_registries(options: &SyncOptions) -> Result<Vec<SyncUpdate>, Syn
         config_path_display: &config_path_display,
         config_json: &config_json,
         config_changed,
-        original_config_json: &original_config_json,
+        original_config_contents: &original_config_contents,
         lockfile: &mut lockfile,
         prepared_updates: &prepared_updates,
     })?;
@@ -277,8 +303,9 @@ pub fn best_effort_sync_app_registries(options: &SyncOptions) -> BestEffortSyncR
     let waxrc = load_waxrc(&repo_files.config_path)?;
     let mut lockfile = load_lockfile(&repo_files.lockfile_path)?;
     let config_path_display = repo_files.config_path.display().to_string();
-    let original_config_json = read_config_json(&repo_files.config_path, &config_path_display)?;
-    let mut config_json = original_config_json.clone();
+    let (original_config_json, original_config_contents) =
+        read_config_json(&repo_files.config_path, &config_path_display)?;
+    let mut config_json = original_config_json;
     let mut config_changed = false;
     let mut failures = Vec::new();
     let mut prepared_updates = Vec::new();
@@ -328,7 +355,7 @@ pub fn best_effort_sync_app_registries(options: &SyncOptions) -> BestEffortSyncR
         config_path_display: &config_path_display,
         config_json: &config_json,
         config_changed,
-        original_config_json: &original_config_json,
+        original_config_contents: &original_config_contents,
         lockfile: &mut lockfile,
         prepared_updates: &prepared_updates,
     }) {
@@ -402,7 +429,7 @@ fn persist_sync_updates(input: &mut PersistSyncInput<'_>) -> Result<(), SyncErro
             restore_sync_rollback(
                 &input.repo_files.config_path,
                 input.config_path_display,
-                input.original_config_json,
+                input.original_config_contents,
                 input.config_changed,
                 &registry_backups,
             )?;
@@ -416,7 +443,7 @@ fn persist_sync_updates(input: &mut PersistSyncInput<'_>) -> Result<(), SyncErro
         restore_sync_rollback(
             &input.repo_files.config_path,
             input.config_path_display,
-            input.original_config_json,
+            input.original_config_contents,
             input.config_changed,
             &registry_backups,
         )?;
@@ -464,12 +491,12 @@ fn restore_registry_backup(backup: &RegistryFileBackup) -> Result<(), SyncError>
 fn restore_sync_rollback(
     config_path: &Path,
     config_path_display: &str,
-    original_config_json: &Value,
+    original_config_contents: &[u8],
     config_changed: bool,
     registry_backups: &[RegistryFileBackup],
 ) -> Result<(), SyncError> {
     if config_changed {
-        restore_config_json(config_path, config_path_display, original_config_json)?;
+        restore_config_bytes(config_path, config_path_display, original_config_contents)?;
     }
     for backup in registry_backups {
         restore_registry_backup(backup)?;
@@ -477,12 +504,17 @@ fn restore_sync_rollback(
     Ok(())
 }
 
-fn restore_config_json(
+fn restore_config_bytes(
     config_path: &Path,
     config_path_display: &str,
-    config_json: &Value,
+    contents: &[u8],
 ) -> Result<(), SyncError> {
-    write_config_json(config_path, config_path_display, config_json)
+    write_atomically(config_path, contents, AtomicWriteOptions::default()).map_err(|source| {
+        SyncError::ConfigAtomicWrite {
+            path: config_path_display.to_owned(),
+            source,
+        }
+    })
 }
 
 fn ensure_repo_files_exist(
@@ -555,10 +587,117 @@ fn prepare_language_upstream_sync(
             tag: resolved.tag.clone(),
             old_commit: None,
             new_commit: resolved.git_commit.clone(),
+            old_subdir: None,
+            new_subdir: resolved.subdir.clone(),
         },
         registry_copy,
         prepared_lock,
     })
+}
+
+fn prepare_design_system_selection(
+    options: &SyncOptions,
+    id: &str,
+    waxrc: &WaxRc,
+    lockfile: &WaxLock,
+    config_json: &mut Value,
+) -> Result<Vec<PreparedSync>, SyncError> {
+    use crate::config::waxrc::LanguageRegistrySource;
+    let invalid = |reason| SyncError::InvalidDesignSystemSelection {
+        id: id.to_owned(),
+        reason,
+    };
+    if options.upgrade {
+        return Err(invalid("--upgrade cannot be combined with --design-system"));
+    }
+    let mut state_path = options.state_path.clone();
+    let remembered =
+        show_remembered_design_system(resolve_upstream_state_path(&mut state_path)?, id)?;
+    let bundle = remembered
+        .bundle_pin
+        .as_ref()
+        .ok_or_else(|| invalid("selection must be a pinned Git design-system bundle"))?;
+    let bound: Vec<_> = waxrc.languages.iter().filter(|entry| matches!(
+        &entry.registry_source,
+        Some(LanguageRegistrySource::Git { system: Some(system), .. }) if system == &bundle.system_id
+    )).collect();
+    if bound.is_empty() {
+        return Err(invalid("the app has no bindings to this system"));
+    }
+    // Prepare every bound language before the existing persistence transaction writes files.
+    let mut prepared = Vec::new();
+    for entry in bound {
+        let Some(LanguageRegistrySource::Git { git, .. }) = &entry.registry_source else {
+            return Err(invalid("existing binding must be a Git bundle"));
+        };
+        if git != &bundle.repo {
+            return Err(invalid(
+                "the selected bundle comes from an unrelated source",
+            ));
+        }
+        let resolved = resolve_remembered_registry(&remembered, &entry.id)?;
+        let desired = LanguageRegistrySource::Git {
+            git: bundle.repo.clone(),
+            tag: bundle.commit.clone(),
+            subdir: Some(bundle.subdir.clone()),
+            system: Some(bundle.system_id.clone()),
+        };
+        let desired_lock = LockedRegistry {
+            source: crate::registry_git::git_source_identity(
+                &bundle.repo,
+                &bundle.commit,
+                Some(&bundle.subdir),
+                Some(&bundle.system_id),
+            ),
+            sha256: resolved
+                .digest
+                .clone()
+                .ok_or_else(|| invalid("selection has no registry digest"))?,
+            git: Some(bundle.repo.clone()),
+            tag: Some(bundle.commit.clone()),
+            commit: Some(bundle.commit.clone()),
+            subdir: Some(bundle.subdir.clone()),
+            definition: Some(bundle.definition.clone()),
+        };
+        let verified = resolve_language_registry_source(
+            &options.repo_root,
+            entry.id.as_str(),
+            Some(&desired),
+            Some(&desired_lock),
+            false,
+        )?;
+        let mut resolved = resolved;
+        resolved.tag = Some(bundle.commit.clone());
+        update_config_registry(config_json, &entry.id, &resolved);
+        prepared.push(PreparedSync {
+            update: SyncUpdate {
+                language_id: entry.id.clone(),
+                upstream: resolved.upstream,
+                source: verified.source.clone(),
+                git: Some(bundle.repo.clone()),
+                tag: Some(bundle.commit.clone()),
+                old_commit: lockfile
+                    .registries
+                    .get(&entry.id)
+                    .and_then(|lock| lock.commit.clone()),
+                new_commit: verified.git_commit.clone(),
+                old_subdir: lockfile
+                    .registries
+                    .get(&entry.id)
+                    .and_then(|lock| lock.subdir.clone()),
+                new_subdir: verified.subdir.clone(),
+            },
+            registry_copy: None,
+            prepared_lock: Some(PreparedLockFields {
+                source: verified.source,
+                sha256: verified.sha256,
+                git_commit: verified.git_commit,
+                subdir: verified.subdir,
+                definition: verified.definition,
+            }),
+        });
+    }
+    Ok(prepared)
 }
 
 fn resolve_upstream_state_path(
@@ -603,6 +742,11 @@ fn prepare_language_git_sync(
                 .get(&entry.id)
                 .and_then(|lock| lock.commit.clone()),
             new_commit: resolved.git_commit.clone(),
+            old_subdir: lockfile
+                .registries
+                .get(&entry.id)
+                .and_then(|lock| lock.subdir.clone()),
+            new_subdir: resolved.subdir.clone(),
         },
         registry_copy: None,
         prepared_lock: Some(PreparedLockFields {
@@ -647,15 +791,16 @@ fn parse_upstream_design_system_id<'a>(
     Ok(design_system_id)
 }
 
-fn read_config_json(path: &Path, path_display: &str) -> Result<Value, SyncError> {
-    let contents = fs::read_to_string(path).map_err(|source| SyncError::ConfigUpdate {
+fn read_config_json(path: &Path, path_display: &str) -> Result<(Value, Vec<u8>), SyncError> {
+    let contents = fs::read(path).map_err(|source| SyncError::ConfigUpdate {
         path: path_display.to_owned(),
         source: Box::new(source),
     })?;
-    serde_json::from_str(&contents).map_err(|source| SyncError::ConfigUpdate {
+    let json = serde_json::from_slice(&contents).map_err(|source| SyncError::ConfigUpdate {
         path: path_display.to_owned(),
         source: Box::new(source),
-    })
+    })?;
+    Ok((json, contents))
 }
 
 fn write_config_json(path: &Path, path_display: &str, config: &Value) -> Result<(), SyncError> {
@@ -1037,6 +1182,7 @@ mod sync_tests {
         .expect("update ds registry");
 
         let updates = sync_app_registries(&SyncOptions {
+            design_system: None,
             repo_root: app_repo.clone(),
             state_path: Some(state_path),
             upgrade: false,
@@ -1087,6 +1233,7 @@ mod sync_tests {
         .expect("write ds config with published source");
 
         let updates = sync_app_registries(&SyncOptions {
+            design_system: None,
             repo_root: app_repo.clone(),
             state_path: Some(state_path),
             upgrade: false,
@@ -1129,6 +1276,7 @@ mod sync_tests {
             fs::read_to_string(app_repo.join(".wax/wax.config.json")).expect("read config");
 
         let result = best_effort_sync_app_registries(&SyncOptions {
+            design_system: None,
             repo_root: app_repo.clone(),
             state_path: Some(state_path),
             upgrade: false,
@@ -1198,6 +1346,7 @@ mod sync_tests {
         .expect("write malformed ds registry");
 
         let result = best_effort_sync_app_registries(&SyncOptions {
+            design_system: None,
             repo_root: app_repo.clone(),
             state_path: Some(state_path),
             upgrade: false,
@@ -1227,6 +1376,7 @@ mod sync_tests {
         .expect("write empty state");
 
         let error = sync_app_registries(&SyncOptions {
+            design_system: None,
             repo_root: app_repo,
             state_path: Some(state_path),
             upgrade: false,
@@ -1248,6 +1398,7 @@ mod sync_tests {
         write_git_app_repo(&app_repo, &git_registry);
 
         let updates = sync_app_registries(&SyncOptions {
+            design_system: None,
             repo_root: app_repo.clone(),
             state_path: Some(root.path.join("missing-global-state.json")),
             upgrade: false,
@@ -1272,6 +1423,7 @@ mod sync_tests {
         assert!(registry.commit.is_some());
 
         sync_app_registries(&SyncOptions {
+            design_system: None,
             repo_root: app_repo,
             state_path: Some(root.path.join("missing-global-state.json")),
             upgrade: false,
@@ -1360,6 +1512,8 @@ mod sync_tests {
                 tag: Some("v1".to_owned()),
                 old_commit: None,
                 new_commit: Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned()),
+                old_subdir: None,
+                new_subdir: None,
             },
             registry_copy: None,
             prepared_lock: Some(PreparedLockFields {

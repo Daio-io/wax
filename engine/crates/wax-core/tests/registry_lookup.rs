@@ -725,6 +725,87 @@ fn git_app_lock_matches_remembered_id_selector() {
 }
 
 #[test]
+fn app_git_system_lookup_falls_back_to_existing_global_snapshot_offline() {
+    let root = TestDir::new("app-git-system-global-cache");
+    let repo = root.0.join("app");
+    let state_path = root.0.join("wax-home/state.json");
+    let remote_dir = root.0.join("remote.git");
+    fs::create_dir_all(&remote_dir).unwrap();
+    let git = |args: &[&str]| {
+        let output = std::process::Command::new("git")
+            .args([
+                "-c",
+                "user.name=Wax Test",
+                "-c",
+                "user.email=test@example.com",
+            ])
+            .args(args)
+            .current_dir(&remote_dir)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    };
+    git(&["init", "-qb", "main"]);
+    fs::create_dir_all(remote_dir.join("systems/acme/1/.wax/registries")).unwrap();
+    fs::write(remote_dir.join("systems/acme/1/.wax/registries/compose.json"), br#"{"schema_version":1,"language":"compose","components":[{"id":"button","symbol":"Button"}]}"#).unwrap();
+    fs::write(remote_dir.join("systems/acme/1/.wax/wax.config.json"), br#"{"schema_version":2,"design_systems":{"acme":{"name":"Acme","registries":{"compose":{"source":".wax/registries/compose.json"}}}}}"#).unwrap();
+    fs::write(remote_dir.join("systems/acme/1/provenance.json"), b"{}").unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-qm", "bundle"]);
+    let commit = git(&["rev-parse", "HEAD"]);
+    git(&["tag", "v1.0.0"]);
+    let remote = remote_dir.display().to_string();
+    let bytes = br#"{"schema_version":1,"language":"compose","components":[{"id":"button","symbol":"Button"}]}"#;
+    let digest = sha256_hex(bytes);
+    fs::create_dir_all(repo.join(".wax")).unwrap();
+    fs::write(
+        repo.join(".wax/wax.config.json"),
+        format!(r#"{{"schema_version":2,"languages":{{"compose":{{"roots":["src"],"registry":{{"git":"{remote}","tag":"v1.0.0","subdir":"systems/acme/1","system":"acme"}}}}}}}}"#),
+    )
+    .unwrap();
+    let definition_digest =
+        sha256_hex(&fs::read(remote_dir.join("systems/acme/1/.wax/wax.config.json")).unwrap());
+    fs::write(
+        repo.join(".wax/wax.lock.json"),
+        format!(r#"{{"schema_version":3,"engine_api_version":1,"wax_version":"0.1.0","registries":{{"compose":{{"source":"{}","sha256":"{digest}","git":"{remote}","tag":"v1.0.0","commit":"{commit}","subdir":"systems/acme/1","definition":{{"system_id":"acme","path":"systems/acme/1/.wax/wax.config.json","sha256":"{definition_digest}"}}}}}},"languages":{{}}}}"#, wax_core::registry_git::git_source_identity(&remote, "v1.0.0", Some("systems/acme/1"), Some("acme"))),
+    )
+    .unwrap();
+
+    let global_cache = RegistryCache::open(root.0.join("wax-home/cache/registries"));
+    let snapshots = global_cache
+        .resolve(
+            &RegistrySourceSpec::GitSystem {
+                url: remote,
+                tag: "v1.0.0".to_owned(),
+                subdir: "systems/acme/1".to_owned(),
+                system_id: "acme".to_owned(),
+            },
+            &Default::default(),
+        )
+        .expect("seed global cache snapshot");
+    assert_eq!(snapshots[0].reference.digest, digest);
+
+    let snapshots = resolve_lookup_snapshots(&RegistryLookupOptions {
+        repo_root: repo,
+        selector: None,
+        language: Some(language("compose")),
+        tag: None,
+        snapshot: None,
+        offline: true,
+        state_path: Some(state_path),
+    })
+    .expect("fall back to exact global Git system snapshot");
+
+    assert_eq!(snapshots.len(), 1);
+    assert_eq!(snapshots[0].reference.digest, digest);
+}
+
+#[test]
 fn remembered_selector_pins_stored_snapshots_not_newer_cache_selection() {
     let root = TestDir::new("remembered-pin");
     let state_path = root.0.join("wax-home/state.json");

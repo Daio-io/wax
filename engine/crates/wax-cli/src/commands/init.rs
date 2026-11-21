@@ -80,6 +80,8 @@ pub enum RegistrySetup {
 pub struct InitOptions {
     /// Run scriptable onboarding without prompts.
     pub non_interactive: bool,
+    /// Explicit remembered design-system id for scriptable setup.
+    pub design_system: Option<String>,
     /// Language pack ids to enable in the new repository configuration.
     pub languages: Vec<LanguageId>,
     /// Write config and lockfile without downloading language packs.
@@ -101,6 +103,12 @@ pub struct InitOptions {
 /// Errors returned by `wax init`.
 #[derive(Debug, Error)]
 pub enum InitCommandError {
+    /// Explicit selection cannot be combined with interactive answers.
+    #[error(
+        "--design-system requires --non-interactive and cannot be combined with interactive selections"
+    )]
+    AmbiguousDesignSystem,
+
     /// Interactive init requires a terminal unless scriptable flags are used.
     #[error(
         "wax init needs an interactive terminal. For CI or scripts, run: wax init --non-interactive --language <language-id>"
@@ -173,7 +181,8 @@ pub enum InitCommandError {
 ///
 /// # Errors
 ///
-/// Returns [`InitCommandError::RequiresInteractiveTerminal`] when
+/// Returns [`InitCommandError::AmbiguousDesignSystem`] for conflicting explicit
+/// and interactive selection, [`InitCommandError::RequiresInteractiveTerminal`] when
 /// `non_interactive` is false and `interactive` supplies no selections,
 /// [`InitCommandError::MissingLanguageSelection`] when no language is selected,
 /// or [`InitCommandError::WaxConfigAlreadyExists`] when the repository is already
@@ -187,7 +196,20 @@ pub enum InitCommandError {
 /// [`InitCommandError::RegistryMemory`], or [`InitCommandError::Paths`].
 /// Filesystem and output failures use [`InitCommandError::Io`].
 pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), InitCommandError> {
-    let selections = options.interactive.clone();
+    if options.design_system.is_some()
+        && (!options.non_interactive || options.interactive.is_some())
+    {
+        return Err(InitCommandError::AmbiguousDesignSystem);
+    }
+    let selections = options.interactive.clone().or_else(|| {
+        options.design_system.as_ref().map(|id| InitSelections {
+            languages: options.languages.clone(),
+            scan_roots: BTreeMap::new(),
+            registry_setup: RegistrySetup::RememberedDesignSystem {
+                design_system_id: id.clone(),
+            },
+        })
+    });
     if !options.non_interactive && selections.is_none() {
         return Err(InitCommandError::RequiresInteractiveTerminal);
     }
@@ -527,7 +549,7 @@ fn locked_registry_for_remembered(
         remembered_registry.tag.as_ref(),
         remembered_registry.digest.as_ref(),
     ) {
-        return Ok(LockedRegistry {
+        let locked = LockedRegistry {
             subdir: remembered_registry.subdir.clone(),
             definition: remembered_registry.definition.clone(),
             source: wax_core::registry_git::git_source_identity(
@@ -543,7 +565,26 @@ fn locked_registry_for_remembered(
             git: Some(git.clone()),
             tag: Some(tag.clone()),
             commit: remembered_registry.git_commit.clone(),
-        });
+        };
+        if remembered_registry.definition.is_some() {
+            let registry = wax_core::config::waxrc::LanguageRegistrySource::Git {
+                git: git.clone(),
+                tag: tag.clone(),
+                subdir: remembered_registry.subdir.clone(),
+                system: remembered_registry
+                    .definition
+                    .as_ref()
+                    .map(|pin| pin.system_id.clone()),
+            };
+            wax_core::registry_source::resolve_language_registry_source(
+                repo_root,
+                language_id,
+                Some(&registry),
+                Some(&locked),
+                false,
+            )?;
+        }
+        return Ok(locked);
     }
     if let Some(digest) = remembered_registry.digest.as_ref() {
         return Ok(LockedRegistry {
@@ -1013,6 +1054,7 @@ mod tests {
         let temp = TestDir::new("requires-non-interactive");
         let err = run_init(
             InitOptions {
+                design_system: None,
                 non_interactive: false,
                 languages: vec![lang("compose")],
                 no_install: true,
@@ -1055,6 +1097,7 @@ mod tests {
 
         run_init(
             InitOptions {
+                design_system: None,
                 non_interactive: false,
                 languages: Vec::new(),
                 no_install: true,
@@ -1136,6 +1179,7 @@ mod tests {
 
         run_init(
             InitOptions {
+                design_system: None,
                 non_interactive: false,
                 languages: Vec::new(),
                 no_install: true,
@@ -1201,6 +1245,7 @@ mod tests {
 
         run_init(
             InitOptions {
+                design_system: None,
                 non_interactive: false,
                 languages: Vec::new(),
                 no_install: true,
@@ -1390,6 +1435,7 @@ mod tests {
         let mut output = Vec::new();
         run_init(
             InitOptions {
+                design_system: None,
                 non_interactive: true,
                 languages: vec![lang("compose")],
                 no_install: false,
@@ -1464,6 +1510,7 @@ mod tests {
 
         run_init(
             InitOptions {
+                design_system: None,
                 non_interactive: true,
                 languages: vec![lang("compose")],
                 no_install: true,
@@ -1516,6 +1563,7 @@ mod tests {
 
         run_init(
             InitOptions {
+                design_system: None,
                 non_interactive: true,
                 languages: vec![lang("compose")],
                 no_install: false,
@@ -1533,6 +1581,7 @@ mod tests {
         let mut output = Vec::new();
         run_init(
             InitOptions {
+                design_system: None,
                 non_interactive: true,
                 languages: vec![lang("compose")],
                 no_install: false,
@@ -1575,6 +1624,7 @@ mod tests {
 
         let err = run_init(
             InitOptions {
+                design_system: None,
                 non_interactive: true,
                 languages: vec![lang("compose")],
                 no_install: true,
@@ -1610,6 +1660,7 @@ mod tests {
 
         let err = run_init(
             InitOptions {
+                design_system: None,
                 non_interactive: true,
                 languages: vec![lang("compose")],
                 no_install: true,
@@ -1658,6 +1709,7 @@ mod tests {
 
         let err = run_init(
             InitOptions {
+                design_system: None,
                 non_interactive: true,
                 languages: vec![lang("compose")],
                 no_install: true,
@@ -1714,6 +1766,7 @@ mod tests {
 
         run_init(
             InitOptions {
+                design_system: None,
                 non_interactive: true,
                 languages: vec![lang("compose")],
                 no_install: true,
@@ -1761,6 +1814,7 @@ mod tests {
 
         run_init(
             InitOptions {
+                design_system: None,
                 non_interactive: true,
                 languages: vec![lang("compose")],
                 no_install: true,
@@ -1811,6 +1865,7 @@ mod tests {
 
         run_init(
             InitOptions {
+                design_system: None,
                 non_interactive: true,
                 languages: vec![lang("compose")],
                 no_install: true,
@@ -1853,6 +1908,7 @@ mod tests {
 
         run_init(
             InitOptions {
+                design_system: None,
                 non_interactive: true,
                 languages: vec![lang("compose"), lang("compose")],
                 no_install: true,

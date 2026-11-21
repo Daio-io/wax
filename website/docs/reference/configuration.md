@@ -45,3 +45,28 @@ this configuration. Writers use lock schema 3 with optional `subdir` and
 `definition` pins; readers still accept lock schema 1 and 2. Config remains
 schema 2. Both files are repository-local. Installed packs and registry
 caches under `~/.wax/` are global and must not be committed.
+
+## Public bundle handoff
+
+`wax init --non-interactive --language react --design-system public-shadcn-r1`
+writes a Git registry object shaped as follows (replace the placeholder with
+the installed full commit):
+
+```json
+{
+  "git": "https://github.com/Daio-io/wax-registries.git",
+  "tag": "<full installed commit>",
+  "subdir": "systems/shadcn/releases/4.23.0",
+  "system": "shadcn"
+}
+```
+
+Each enabled language's lock records the same bundle commit/definition and its
+own registry SHA-256. There are no global absolute registry paths. Init and
+sync materialize verified inputs under ignored `.wax/cache/registries/`;
+committed metadata alone is enough for offline `wax validate`. A clean
+checkout fetches only the exact commit when registry bytes are needed.
+
+`wax sync --design-system <remembered-id>` deliberately adopts another bundle
+of the same system/repository across all bound languages. Ordinary operations
+and nested `sync --upgrade` retain the current selection.

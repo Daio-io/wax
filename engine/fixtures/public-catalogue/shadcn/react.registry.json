@@ -1,0 +1,4947 @@
+{
+  "components": [
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.accordion",
+      "package": "@/components/ui/accordion",
+      "symbol": "Accordion"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.accordion-content",
+      "package": "@/components/ui/accordion",
+      "symbol": "AccordionContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.accordion-item",
+      "package": "@/components/ui/accordion",
+      "symbol": "AccordionItem"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.accordion-trigger",
+      "package": "@/components/ui/accordion",
+      "symbol": "AccordionTrigger"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.alert",
+      "package": "@/components/ui/alert",
+      "symbol": "Alert"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.alert-action",
+      "package": "@/components/ui/alert",
+      "symbol": "AlertAction"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.alert-description",
+      "package": "@/components/ui/alert",
+      "symbol": "AlertDescription"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.alert-dialog",
+      "package": "@/components/ui/alert-dialog",
+      "symbol": "AlertDialog"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.alert-dialog-action",
+      "package": "@/components/ui/alert-dialog",
+      "symbol": "AlertDialogAction"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.alert-dialog-cancel",
+      "package": "@/components/ui/alert-dialog",
+      "symbol": "AlertDialogCancel"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.alert-dialog-content",
+      "package": "@/components/ui/alert-dialog",
+      "symbol": "AlertDialogContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.alert-dialog-description",
+      "package": "@/components/ui/alert-dialog",
+      "symbol": "AlertDialogDescription"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.alert-dialog-footer",
+      "package": "@/components/ui/alert-dialog",
+      "symbol": "AlertDialogFooter"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.alert-dialog-header",
+      "package": "@/components/ui/alert-dialog",
+      "symbol": "AlertDialogHeader"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.alert-dialog-media",
+      "package": "@/components/ui/alert-dialog",
+      "symbol": "AlertDialogMedia"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.alert-dialog-overlay",
+      "package": "@/components/ui/alert-dialog",
+      "symbol": "AlertDialogOverlay"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.alert-dialog-portal",
+      "package": "@/components/ui/alert-dialog",
+      "symbol": "AlertDialogPortal"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.alert-dialog-title",
+      "package": "@/components/ui/alert-dialog",
+      "symbol": "AlertDialogTitle"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.alert-dialog-trigger",
+      "package": "@/components/ui/alert-dialog",
+      "symbol": "AlertDialogTrigger"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.alert-title",
+      "package": "@/components/ui/alert",
+      "symbol": "AlertTitle"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.aspect-ratio",
+      "package": "@/components/ui/aspect-ratio",
+      "symbol": "AspectRatio"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.attachment",
+      "package": "@/components/ui/attachment",
+      "symbol": "Attachment"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.attachment-action",
+      "package": "@/components/ui/attachment",
+      "symbol": "AttachmentAction"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.attachment-actions",
+      "package": "@/components/ui/attachment",
+      "symbol": "AttachmentActions"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.attachment-content",
+      "package": "@/components/ui/attachment",
+      "symbol": "AttachmentContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.attachment-description",
+      "package": "@/components/ui/attachment",
+      "symbol": "AttachmentDescription"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.attachment-group",
+      "package": "@/components/ui/attachment",
+      "symbol": "AttachmentGroup"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.attachment-media",
+      "package": "@/components/ui/attachment",
+      "symbol": "AttachmentMedia"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.attachment-title",
+      "package": "@/components/ui/attachment",
+      "symbol": "AttachmentTitle"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.attachment-trigger",
+      "package": "@/components/ui/attachment",
+      "symbol": "AttachmentTrigger"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.avatar",
+      "package": "@/components/ui/avatar",
+      "symbol": "Avatar"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.avatar-badge",
+      "package": "@/components/ui/avatar",
+      "symbol": "AvatarBadge"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.avatar-fallback",
+      "package": "@/components/ui/avatar",
+      "symbol": "AvatarFallback"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.avatar-group",
+      "package": "@/components/ui/avatar",
+      "symbol": "AvatarGroup"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.avatar-group-count",
+      "package": "@/components/ui/avatar",
+      "symbol": "AvatarGroupCount"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.avatar-image",
+      "package": "@/components/ui/avatar",
+      "symbol": "AvatarImage"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.badge",
+      "package": "@/components/ui/badge",
+      "symbol": "Badge"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.breadcrumb",
+      "package": "@/components/ui/breadcrumb",
+      "symbol": "Breadcrumb"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.breadcrumb-ellipsis",
+      "package": "@/components/ui/breadcrumb",
+      "symbol": "BreadcrumbEllipsis"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.breadcrumb-item",
+      "package": "@/components/ui/breadcrumb",
+      "symbol": "BreadcrumbItem"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.breadcrumb-link",
+      "package": "@/components/ui/breadcrumb",
+      "symbol": "BreadcrumbLink"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.breadcrumb-list",
+      "package": "@/components/ui/breadcrumb",
+      "symbol": "BreadcrumbList"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.breadcrumb-page",
+      "package": "@/components/ui/breadcrumb",
+      "symbol": "BreadcrumbPage"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.breadcrumb-separator",
+      "package": "@/components/ui/breadcrumb",
+      "symbol": "BreadcrumbSeparator"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.bubble",
+      "package": "@/components/ui/bubble",
+      "symbol": "Bubble"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.bubble-content",
+      "package": "@/components/ui/bubble",
+      "symbol": "BubbleContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.bubble-group",
+      "package": "@/components/ui/bubble",
+      "symbol": "BubbleGroup"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.bubble-reactions",
+      "package": "@/components/ui/bubble",
+      "symbol": "BubbleReactions"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.button",
+      "package": "@/components/ui/button",
+      "symbol": "Button"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.button-group",
+      "package": "@/components/ui/button-group",
+      "symbol": "ButtonGroup"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.button-group-separator",
+      "package": "@/components/ui/button-group",
+      "symbol": "ButtonGroupSeparator"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.button-group-text",
+      "package": "@/components/ui/button-group",
+      "symbol": "ButtonGroupText"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.calendar",
+      "package": "@/components/ui/calendar",
+      "symbol": "Calendar"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.calendar-day-button",
+      "package": "@/components/ui/calendar",
+      "symbol": "CalendarDayButton"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.card",
+      "package": "@/components/ui/card",
+      "symbol": "Card"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.card-action",
+      "package": "@/components/ui/card",
+      "symbol": "CardAction"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.card-content",
+      "package": "@/components/ui/card",
+      "symbol": "CardContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.card-description",
+      "package": "@/components/ui/card",
+      "symbol": "CardDescription"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.card-footer",
+      "package": "@/components/ui/card",
+      "symbol": "CardFooter"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.card-header",
+      "package": "@/components/ui/card",
+      "symbol": "CardHeader"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.card-title",
+      "package": "@/components/ui/card",
+      "symbol": "CardTitle"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.carousel",
+      "package": "@/components/ui/carousel",
+      "symbol": "Carousel"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.carousel-content",
+      "package": "@/components/ui/carousel",
+      "symbol": "CarouselContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.carousel-item",
+      "package": "@/components/ui/carousel",
+      "symbol": "CarouselItem"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.carousel-next",
+      "package": "@/components/ui/carousel",
+      "symbol": "CarouselNext"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.carousel-previous",
+      "package": "@/components/ui/carousel",
+      "symbol": "CarouselPrevious"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.chart-container",
+      "package": "@/components/ui/chart",
+      "symbol": "ChartContainer"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.chart-legend-content",
+      "package": "@/components/ui/chart",
+      "symbol": "ChartLegendContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.chart-style",
+      "package": "@/components/ui/chart",
+      "symbol": "ChartStyle"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.chart-tooltip-content",
+      "package": "@/components/ui/chart",
+      "symbol": "ChartTooltipContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.checkbox",
+      "package": "@/components/ui/checkbox",
+      "symbol": "Checkbox"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.code-block",
+      "package": "@/components/ui/code-block",
+      "symbol": "CodeBlock"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.code-block-actions",
+      "package": "@/components/ui/code-block",
+      "symbol": "CodeBlockActions"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.code-block-content",
+      "package": "@/components/ui/code-block",
+      "symbol": "CodeBlockContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.code-block-copy-button",
+      "package": "@/components/ui/code-block",
+      "symbol": "CodeBlockCopyButton"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.code-block-footer",
+      "package": "@/components/ui/code-block",
+      "symbol": "CodeBlockFooter"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.code-block-header",
+      "package": "@/components/ui/code-block",
+      "symbol": "CodeBlockHeader"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.code-block-line",
+      "package": "@/components/ui/code-block",
+      "symbol": "CodeBlockLine"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.code-block-title",
+      "package": "@/components/ui/code-block",
+      "symbol": "CodeBlockTitle"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.collapsible",
+      "package": "@/components/ui/collapsible",
+      "symbol": "Collapsible"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.collapsible-content",
+      "package": "@/components/ui/collapsible",
+      "symbol": "CollapsibleContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.collapsible-trigger",
+      "package": "@/components/ui/collapsible",
+      "symbol": "CollapsibleTrigger"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.combobox-chip",
+      "package": "@/components/ui/combobox",
+      "symbol": "ComboboxChip"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.combobox-chips",
+      "package": "@/components/ui/combobox",
+      "symbol": "ComboboxChips"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.combobox-chips-input",
+      "package": "@/components/ui/combobox",
+      "symbol": "ComboboxChipsInput"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.combobox-collection",
+      "package": "@/components/ui/combobox",
+      "symbol": "ComboboxCollection"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.combobox-content",
+      "package": "@/components/ui/combobox",
+      "symbol": "ComboboxContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.combobox-empty",
+      "package": "@/components/ui/combobox",
+      "symbol": "ComboboxEmpty"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.combobox-group",
+      "package": "@/components/ui/combobox",
+      "symbol": "ComboboxGroup"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.combobox-input",
+      "package": "@/components/ui/combobox",
+      "symbol": "ComboboxInput"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.combobox-item",
+      "package": "@/components/ui/combobox",
+      "symbol": "ComboboxItem"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.combobox-label",
+      "package": "@/components/ui/combobox",
+      "symbol": "ComboboxLabel"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.combobox-list",
+      "package": "@/components/ui/combobox",
+      "symbol": "ComboboxList"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.combobox-separator",
+      "package": "@/components/ui/combobox",
+      "symbol": "ComboboxSeparator"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.combobox-trigger",
+      "package": "@/components/ui/combobox",
+      "symbol": "ComboboxTrigger"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.combobox-value",
+      "package": "@/components/ui/combobox",
+      "symbol": "ComboboxValue"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.command",
+      "package": "@/components/ui/command",
+      "symbol": "Command"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.command-dialog",
+      "package": "@/components/ui/command",
+      "symbol": "CommandDialog"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.command-empty",
+      "package": "@/components/ui/command",
+      "symbol": "CommandEmpty"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.command-group",
+      "package": "@/components/ui/command",
+      "symbol": "CommandGroup"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.command-input",
+      "package": "@/components/ui/command",
+      "symbol": "CommandInput"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.command-item",
+      "package": "@/components/ui/command",
+      "symbol": "CommandItem"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.command-list",
+      "package": "@/components/ui/command",
+      "symbol": "CommandList"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.command-separator",
+      "package": "@/components/ui/command",
+      "symbol": "CommandSeparator"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.command-shortcut",
+      "package": "@/components/ui/command",
+      "symbol": "CommandShortcut"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.context-menu",
+      "package": "@/components/ui/context-menu",
+      "symbol": "ContextMenu"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.context-menu-checkbox-item",
+      "package": "@/components/ui/context-menu",
+      "symbol": "ContextMenuCheckboxItem"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.context-menu-content",
+      "package": "@/components/ui/context-menu",
+      "symbol": "ContextMenuContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.context-menu-group",
+      "package": "@/components/ui/context-menu",
+      "symbol": "ContextMenuGroup"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.context-menu-item",
+      "package": "@/components/ui/context-menu",
+      "symbol": "ContextMenuItem"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.context-menu-label",
+      "package": "@/components/ui/context-menu",
+      "symbol": "ContextMenuLabel"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.context-menu-portal",
+      "package": "@/components/ui/context-menu",
+      "symbol": "ContextMenuPortal"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.context-menu-radio-group",
+      "package": "@/components/ui/context-menu",
+      "symbol": "ContextMenuRadioGroup"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.context-menu-radio-item",
+      "package": "@/components/ui/context-menu",
+      "symbol": "ContextMenuRadioItem"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.context-menu-separator",
+      "package": "@/components/ui/context-menu",
+      "symbol": "ContextMenuSeparator"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.context-menu-shortcut",
+      "package": "@/components/ui/context-menu",
+      "symbol": "ContextMenuShortcut"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.context-menu-sub",
+      "package": "@/components/ui/context-menu",
+      "symbol": "ContextMenuSub"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.context-menu-sub-content",
+      "package": "@/components/ui/context-menu",
+      "symbol": "ContextMenuSubContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.context-menu-sub-trigger",
+      "package": "@/components/ui/context-menu",
+      "symbol": "ContextMenuSubTrigger"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.context-menu-trigger",
+      "package": "@/components/ui/context-menu",
+      "symbol": "ContextMenuTrigger"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.dialog",
+      "package": "@/components/ui/dialog",
+      "symbol": "Dialog"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.dialog-close",
+      "package": "@/components/ui/dialog",
+      "symbol": "DialogClose"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.dialog-content",
+      "package": "@/components/ui/dialog",
+      "symbol": "DialogContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.dialog-description",
+      "package": "@/components/ui/dialog",
+      "symbol": "DialogDescription"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.dialog-footer",
+      "package": "@/components/ui/dialog",
+      "symbol": "DialogFooter"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.dialog-header",
+      "package": "@/components/ui/dialog",
+      "symbol": "DialogHeader"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.dialog-overlay",
+      "package": "@/components/ui/dialog",
+      "symbol": "DialogOverlay"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.dialog-portal",
+      "package": "@/components/ui/dialog",
+      "symbol": "DialogPortal"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.dialog-title",
+      "package": "@/components/ui/dialog",
+      "symbol": "DialogTitle"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.dialog-trigger",
+      "package": "@/components/ui/dialog",
+      "symbol": "DialogTrigger"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.direction-provider",
+      "package": "@/components/ui/direction",
+      "symbol": "DirectionProvider"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.drawer",
+      "package": "@/components/ui/drawer",
+      "symbol": "Drawer"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.drawer-close",
+      "package": "@/components/ui/drawer",
+      "symbol": "DrawerClose"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.drawer-content",
+      "package": "@/components/ui/drawer",
+      "symbol": "DrawerContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.drawer-description",
+      "package": "@/components/ui/drawer",
+      "symbol": "DrawerDescription"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.drawer-footer",
+      "package": "@/components/ui/drawer",
+      "symbol": "DrawerFooter"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.drawer-header",
+      "package": "@/components/ui/drawer",
+      "symbol": "DrawerHeader"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.drawer-overlay",
+      "package": "@/components/ui/drawer",
+      "symbol": "DrawerOverlay"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.drawer-portal",
+      "package": "@/components/ui/drawer",
+      "symbol": "DrawerPortal"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.drawer-title",
+      "package": "@/components/ui/drawer",
+      "symbol": "DrawerTitle"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.drawer-trigger",
+      "package": "@/components/ui/drawer",
+      "symbol": "DrawerTrigger"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.dropdown-menu",
+      "package": "@/components/ui/dropdown-menu",
+      "symbol": "DropdownMenu"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.dropdown-menu-checkbox-item",
+      "package": "@/components/ui/dropdown-menu",
+      "symbol": "DropdownMenuCheckboxItem"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.dropdown-menu-content",
+      "package": "@/components/ui/dropdown-menu",
+      "symbol": "DropdownMenuContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.dropdown-menu-group",
+      "package": "@/components/ui/dropdown-menu",
+      "symbol": "DropdownMenuGroup"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.dropdown-menu-item",
+      "package": "@/components/ui/dropdown-menu",
+      "symbol": "DropdownMenuItem"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.dropdown-menu-label",
+      "package": "@/components/ui/dropdown-menu",
+      "symbol": "DropdownMenuLabel"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.dropdown-menu-portal",
+      "package": "@/components/ui/dropdown-menu",
+      "symbol": "DropdownMenuPortal"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.dropdown-menu-radio-group",
+      "package": "@/components/ui/dropdown-menu",
+      "symbol": "DropdownMenuRadioGroup"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.dropdown-menu-radio-item",
+      "package": "@/components/ui/dropdown-menu",
+      "symbol": "DropdownMenuRadioItem"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.dropdown-menu-separator",
+      "package": "@/components/ui/dropdown-menu",
+      "symbol": "DropdownMenuSeparator"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.dropdown-menu-shortcut",
+      "package": "@/components/ui/dropdown-menu",
+      "symbol": "DropdownMenuShortcut"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.dropdown-menu-sub",
+      "package": "@/components/ui/dropdown-menu",
+      "symbol": "DropdownMenuSub"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.dropdown-menu-sub-content",
+      "package": "@/components/ui/dropdown-menu",
+      "symbol": "DropdownMenuSubContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.dropdown-menu-sub-trigger",
+      "package": "@/components/ui/dropdown-menu",
+      "symbol": "DropdownMenuSubTrigger"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.dropdown-menu-trigger",
+      "package": "@/components/ui/dropdown-menu",
+      "symbol": "DropdownMenuTrigger"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.empty",
+      "package": "@/components/ui/empty",
+      "symbol": "Empty"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.empty-content",
+      "package": "@/components/ui/empty",
+      "symbol": "EmptyContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.empty-description",
+      "package": "@/components/ui/empty",
+      "symbol": "EmptyDescription"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.empty-header",
+      "package": "@/components/ui/empty",
+      "symbol": "EmptyHeader"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.empty-media",
+      "package": "@/components/ui/empty",
+      "symbol": "EmptyMedia"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.empty-title",
+      "package": "@/components/ui/empty",
+      "symbol": "EmptyTitle"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.field",
+      "package": "@/components/ui/field",
+      "symbol": "Field"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.field-content",
+      "package": "@/components/ui/field",
+      "symbol": "FieldContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.field-description",
+      "package": "@/components/ui/field",
+      "symbol": "FieldDescription"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.field-error",
+      "package": "@/components/ui/field",
+      "symbol": "FieldError"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.field-group",
+      "package": "@/components/ui/field",
+      "symbol": "FieldGroup"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.field-label",
+      "package": "@/components/ui/field",
+      "symbol": "FieldLabel"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.field-legend",
+      "package": "@/components/ui/field",
+      "symbol": "FieldLegend"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.field-separator",
+      "package": "@/components/ui/field",
+      "symbol": "FieldSeparator"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.field-set",
+      "package": "@/components/ui/field",
+      "symbol": "FieldSet"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.field-title",
+      "package": "@/components/ui/field",
+      "symbol": "FieldTitle"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.hover-card",
+      "package": "@/components/ui/hover-card",
+      "symbol": "HoverCard"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.hover-card-content",
+      "package": "@/components/ui/hover-card",
+      "symbol": "HoverCardContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.hover-card-trigger",
+      "package": "@/components/ui/hover-card",
+      "symbol": "HoverCardTrigger"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.input",
+      "package": "@/components/ui/input",
+      "symbol": "Input"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.input-group",
+      "package": "@/components/ui/input-group",
+      "symbol": "InputGroup"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.input-group-addon",
+      "package": "@/components/ui/input-group",
+      "symbol": "InputGroupAddon"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.input-group-button",
+      "package": "@/components/ui/input-group",
+      "symbol": "InputGroupButton"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.input-group-input",
+      "package": "@/components/ui/input-group",
+      "symbol": "InputGroupInput"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.input-group-text",
+      "package": "@/components/ui/input-group",
+      "symbol": "InputGroupText"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.input-group-textarea",
+      "package": "@/components/ui/input-group",
+      "symbol": "InputGroupTextarea"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.input-otp",
+      "package": "@/components/ui/input-otp",
+      "symbol": "InputOTP"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.input-otp-group",
+      "package": "@/components/ui/input-otp",
+      "symbol": "InputOTPGroup"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.input-otp-separator",
+      "package": "@/components/ui/input-otp",
+      "symbol": "InputOTPSeparator"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.input-otp-slot",
+      "package": "@/components/ui/input-otp",
+      "symbol": "InputOTPSlot"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.item",
+      "package": "@/components/ui/item",
+      "symbol": "Item"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.item-actions",
+      "package": "@/components/ui/item",
+      "symbol": "ItemActions"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.item-content",
+      "package": "@/components/ui/item",
+      "symbol": "ItemContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.item-description",
+      "package": "@/components/ui/item",
+      "symbol": "ItemDescription"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.item-footer",
+      "package": "@/components/ui/item",
+      "symbol": "ItemFooter"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.item-group",
+      "package": "@/components/ui/item",
+      "symbol": "ItemGroup"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.item-header",
+      "package": "@/components/ui/item",
+      "symbol": "ItemHeader"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.item-media",
+      "package": "@/components/ui/item",
+      "symbol": "ItemMedia"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.item-separator",
+      "package": "@/components/ui/item",
+      "symbol": "ItemSeparator"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.item-title",
+      "package": "@/components/ui/item",
+      "symbol": "ItemTitle"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.kbd",
+      "package": "@/components/ui/kbd",
+      "symbol": "Kbd"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.kbd-group",
+      "package": "@/components/ui/kbd",
+      "symbol": "KbdGroup"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.label",
+      "package": "@/components/ui/label",
+      "symbol": "Label"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.marker",
+      "package": "@/components/ui/marker",
+      "symbol": "Marker"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.marker-content",
+      "package": "@/components/ui/marker",
+      "symbol": "MarkerContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.marker-icon",
+      "package": "@/components/ui/marker",
+      "symbol": "MarkerIcon"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.menubar",
+      "package": "@/components/ui/menubar",
+      "symbol": "Menubar"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.menubar-checkbox-item",
+      "package": "@/components/ui/menubar",
+      "symbol": "MenubarCheckboxItem"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.menubar-content",
+      "package": "@/components/ui/menubar",
+      "symbol": "MenubarContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.menubar-group",
+      "package": "@/components/ui/menubar",
+      "symbol": "MenubarGroup"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.menubar-item",
+      "package": "@/components/ui/menubar",
+      "symbol": "MenubarItem"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.menubar-label",
+      "package": "@/components/ui/menubar",
+      "symbol": "MenubarLabel"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.menubar-menu",
+      "package": "@/components/ui/menubar",
+      "symbol": "MenubarMenu"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.menubar-portal",
+      "package": "@/components/ui/menubar",
+      "symbol": "MenubarPortal"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.menubar-radio-group",
+      "package": "@/components/ui/menubar",
+      "symbol": "MenubarRadioGroup"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.menubar-radio-item",
+      "package": "@/components/ui/menubar",
+      "symbol": "MenubarRadioItem"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.menubar-separator",
+      "package": "@/components/ui/menubar",
+      "symbol": "MenubarSeparator"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.menubar-shortcut",
+      "package": "@/components/ui/menubar",
+      "symbol": "MenubarShortcut"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.menubar-sub",
+      "package": "@/components/ui/menubar",
+      "symbol": "MenubarSub"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.menubar-sub-content",
+      "package": "@/components/ui/menubar",
+      "symbol": "MenubarSubContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.menubar-sub-trigger",
+      "package": "@/components/ui/menubar",
+      "symbol": "MenubarSubTrigger"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.menubar-trigger",
+      "package": "@/components/ui/menubar",
+      "symbol": "MenubarTrigger"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.message",
+      "package": "@/components/ui/message",
+      "symbol": "Message"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.message-avatar",
+      "package": "@/components/ui/message",
+      "symbol": "MessageAvatar"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.message-content",
+      "package": "@/components/ui/message",
+      "symbol": "MessageContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.message-footer",
+      "package": "@/components/ui/message",
+      "symbol": "MessageFooter"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.message-group",
+      "package": "@/components/ui/message",
+      "symbol": "MessageGroup"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.message-header",
+      "package": "@/components/ui/message",
+      "symbol": "MessageHeader"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.message-scroller",
+      "package": "@/components/ui/message-scroller",
+      "symbol": "MessageScroller"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.message-scroller-button",
+      "package": "@/components/ui/message-scroller",
+      "symbol": "MessageScrollerButton"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.message-scroller-content",
+      "package": "@/components/ui/message-scroller",
+      "symbol": "MessageScrollerContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.message-scroller-item",
+      "package": "@/components/ui/message-scroller",
+      "symbol": "MessageScrollerItem"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.message-scroller-provider",
+      "package": "@/components/ui/message-scroller",
+      "symbol": "MessageScrollerProvider"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.message-scroller-viewport",
+      "package": "@/components/ui/message-scroller",
+      "symbol": "MessageScrollerViewport"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.native-select",
+      "package": "@/components/ui/native-select",
+      "symbol": "NativeSelect"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.native-select-opt-group",
+      "package": "@/components/ui/native-select",
+      "symbol": "NativeSelectOptGroup"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.native-select-option",
+      "package": "@/components/ui/native-select",
+      "symbol": "NativeSelectOption"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.navigation-menu",
+      "package": "@/components/ui/navigation-menu",
+      "symbol": "NavigationMenu"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.navigation-menu-content",
+      "package": "@/components/ui/navigation-menu",
+      "symbol": "NavigationMenuContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.navigation-menu-indicator",
+      "package": "@/components/ui/navigation-menu",
+      "symbol": "NavigationMenuIndicator"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.navigation-menu-item",
+      "package": "@/components/ui/navigation-menu",
+      "symbol": "NavigationMenuItem"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.navigation-menu-link",
+      "package": "@/components/ui/navigation-menu",
+      "symbol": "NavigationMenuLink"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.navigation-menu-list",
+      "package": "@/components/ui/navigation-menu",
+      "symbol": "NavigationMenuList"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.navigation-menu-trigger",
+      "package": "@/components/ui/navigation-menu",
+      "symbol": "NavigationMenuTrigger"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.navigation-menu-viewport",
+      "package": "@/components/ui/navigation-menu",
+      "symbol": "NavigationMenuViewport"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.pagination",
+      "package": "@/components/ui/pagination",
+      "symbol": "Pagination"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.pagination-content",
+      "package": "@/components/ui/pagination",
+      "symbol": "PaginationContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.pagination-ellipsis",
+      "package": "@/components/ui/pagination",
+      "symbol": "PaginationEllipsis"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.pagination-item",
+      "package": "@/components/ui/pagination",
+      "symbol": "PaginationItem"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.pagination-link",
+      "package": "@/components/ui/pagination",
+      "symbol": "PaginationLink"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.pagination-next",
+      "package": "@/components/ui/pagination",
+      "symbol": "PaginationNext"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.pagination-previous",
+      "package": "@/components/ui/pagination",
+      "symbol": "PaginationPrevious"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.popover",
+      "package": "@/components/ui/popover",
+      "symbol": "Popover"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.popover-anchor",
+      "package": "@/components/ui/popover",
+      "symbol": "PopoverAnchor"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.popover-content",
+      "package": "@/components/ui/popover",
+      "symbol": "PopoverContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.popover-description",
+      "package": "@/components/ui/popover",
+      "symbol": "PopoverDescription"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.popover-header",
+      "package": "@/components/ui/popover",
+      "symbol": "PopoverHeader"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.popover-title",
+      "package": "@/components/ui/popover",
+      "symbol": "PopoverTitle"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.popover-trigger",
+      "package": "@/components/ui/popover",
+      "symbol": "PopoverTrigger"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.progress",
+      "package": "@/components/ui/progress",
+      "symbol": "Progress"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.questionnaire",
+      "package": "@/components/ui/questionnaire",
+      "symbol": "Questionnaire"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.questionnaire-actions",
+      "package": "@/components/ui/questionnaire",
+      "symbol": "QuestionnaireActions"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.questionnaire-choice",
+      "package": "@/components/ui/questionnaire",
+      "symbol": "QuestionnaireChoice"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.questionnaire-choice-description",
+      "package": "@/components/ui/questionnaire",
+      "symbol": "QuestionnaireChoiceDescription"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.questionnaire-choices",
+      "package": "@/components/ui/questionnaire",
+      "symbol": "QuestionnaireChoices"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.questionnaire-description",
+      "package": "@/components/ui/questionnaire",
+      "symbol": "QuestionnaireDescription"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.questionnaire-error",
+      "package": "@/components/ui/questionnaire",
+      "symbol": "QuestionnaireError"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.questionnaire-input",
+      "package": "@/components/ui/questionnaire",
+      "symbol": "QuestionnaireInput"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.questionnaire-item",
+      "package": "@/components/ui/questionnaire",
+      "symbol": "QuestionnaireItem"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.questionnaire-next",
+      "package": "@/components/ui/questionnaire",
+      "symbol": "QuestionnaireNext"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.questionnaire-previous",
+      "package": "@/components/ui/questionnaire",
+      "symbol": "QuestionnairePrevious"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.questionnaire-progress",
+      "package": "@/components/ui/questionnaire",
+      "symbol": "QuestionnaireProgress"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.questionnaire-skip",
+      "package": "@/components/ui/questionnaire",
+      "symbol": "QuestionnaireSkip"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.questionnaire-submit",
+      "package": "@/components/ui/questionnaire",
+      "symbol": "QuestionnaireSubmit"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.questionnaire-title",
+      "package": "@/components/ui/questionnaire",
+      "symbol": "QuestionnaireTitle"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.radio-group",
+      "package": "@/components/ui/radio-group",
+      "symbol": "RadioGroup"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.radio-group-item",
+      "package": "@/components/ui/radio-group",
+      "symbol": "RadioGroupItem"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.resizable-handle",
+      "package": "@/components/ui/resizable",
+      "symbol": "ResizableHandle"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.resizable-panel",
+      "package": "@/components/ui/resizable",
+      "symbol": "ResizablePanel"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.resizable-panel-group",
+      "package": "@/components/ui/resizable",
+      "symbol": "ResizablePanelGroup"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.scroll-area",
+      "package": "@/components/ui/scroll-area",
+      "symbol": "ScrollArea"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.scroll-bar",
+      "package": "@/components/ui/scroll-area",
+      "symbol": "ScrollBar"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.select",
+      "package": "@/components/ui/select",
+      "symbol": "Select"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.select-content",
+      "package": "@/components/ui/select",
+      "symbol": "SelectContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.select-group",
+      "package": "@/components/ui/select",
+      "symbol": "SelectGroup"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.select-item",
+      "package": "@/components/ui/select",
+      "symbol": "SelectItem"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.select-label",
+      "package": "@/components/ui/select",
+      "symbol": "SelectLabel"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.select-scroll-down-button",
+      "package": "@/components/ui/select",
+      "symbol": "SelectScrollDownButton"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.select-scroll-up-button",
+      "package": "@/components/ui/select",
+      "symbol": "SelectScrollUpButton"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.select-separator",
+      "package": "@/components/ui/select",
+      "symbol": "SelectSeparator"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.select-trigger",
+      "package": "@/components/ui/select",
+      "symbol": "SelectTrigger"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.select-value",
+      "package": "@/components/ui/select",
+      "symbol": "SelectValue"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.separator",
+      "package": "@/components/ui/separator",
+      "symbol": "Separator"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sheet",
+      "package": "@/components/ui/sheet",
+      "symbol": "Sheet"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sheet-close",
+      "package": "@/components/ui/sheet",
+      "symbol": "SheetClose"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sheet-content",
+      "package": "@/components/ui/sheet",
+      "symbol": "SheetContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sheet-description",
+      "package": "@/components/ui/sheet",
+      "symbol": "SheetDescription"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sheet-footer",
+      "package": "@/components/ui/sheet",
+      "symbol": "SheetFooter"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sheet-header",
+      "package": "@/components/ui/sheet",
+      "symbol": "SheetHeader"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sheet-title",
+      "package": "@/components/ui/sheet",
+      "symbol": "SheetTitle"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sheet-trigger",
+      "package": "@/components/ui/sheet",
+      "symbol": "SheetTrigger"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sidebar",
+      "package": "@/components/ui/sidebar",
+      "symbol": "Sidebar"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sidebar-content",
+      "package": "@/components/ui/sidebar",
+      "symbol": "SidebarContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sidebar-footer",
+      "package": "@/components/ui/sidebar",
+      "symbol": "SidebarFooter"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sidebar-group",
+      "package": "@/components/ui/sidebar",
+      "symbol": "SidebarGroup"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sidebar-group-action",
+      "package": "@/components/ui/sidebar",
+      "symbol": "SidebarGroupAction"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sidebar-group-content",
+      "package": "@/components/ui/sidebar",
+      "symbol": "SidebarGroupContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sidebar-group-label",
+      "package": "@/components/ui/sidebar",
+      "symbol": "SidebarGroupLabel"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sidebar-header",
+      "package": "@/components/ui/sidebar",
+      "symbol": "SidebarHeader"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sidebar-input",
+      "package": "@/components/ui/sidebar",
+      "symbol": "SidebarInput"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sidebar-inset",
+      "package": "@/components/ui/sidebar",
+      "symbol": "SidebarInset"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sidebar-menu",
+      "package": "@/components/ui/sidebar",
+      "symbol": "SidebarMenu"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sidebar-menu-action",
+      "package": "@/components/ui/sidebar",
+      "symbol": "SidebarMenuAction"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sidebar-menu-badge",
+      "package": "@/components/ui/sidebar",
+      "symbol": "SidebarMenuBadge"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sidebar-menu-button",
+      "package": "@/components/ui/sidebar",
+      "symbol": "SidebarMenuButton"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sidebar-menu-item",
+      "package": "@/components/ui/sidebar",
+      "symbol": "SidebarMenuItem"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sidebar-menu-skeleton",
+      "package": "@/components/ui/sidebar",
+      "symbol": "SidebarMenuSkeleton"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sidebar-menu-sub",
+      "package": "@/components/ui/sidebar",
+      "symbol": "SidebarMenuSub"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sidebar-menu-sub-button",
+      "package": "@/components/ui/sidebar",
+      "symbol": "SidebarMenuSubButton"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sidebar-menu-sub-item",
+      "package": "@/components/ui/sidebar",
+      "symbol": "SidebarMenuSubItem"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sidebar-provider",
+      "package": "@/components/ui/sidebar",
+      "symbol": "SidebarProvider"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sidebar-rail",
+      "package": "@/components/ui/sidebar",
+      "symbol": "SidebarRail"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sidebar-separator",
+      "package": "@/components/ui/sidebar",
+      "symbol": "SidebarSeparator"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.sidebar-trigger",
+      "package": "@/components/ui/sidebar",
+      "symbol": "SidebarTrigger"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.skeleton",
+      "package": "@/components/ui/skeleton",
+      "symbol": "Skeleton"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.slider",
+      "package": "@/components/ui/slider",
+      "symbol": "Slider"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.spinner",
+      "package": "@/components/ui/spinner",
+      "symbol": "Spinner"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.switch",
+      "package": "@/components/ui/switch",
+      "symbol": "Switch"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.table",
+      "package": "@/components/ui/table",
+      "symbol": "Table"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.table-body",
+      "package": "@/components/ui/table",
+      "symbol": "TableBody"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.table-caption",
+      "package": "@/components/ui/table",
+      "symbol": "TableCaption"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.table-cell",
+      "package": "@/components/ui/table",
+      "symbol": "TableCell"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.table-footer",
+      "package": "@/components/ui/table",
+      "symbol": "TableFooter"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.table-head",
+      "package": "@/components/ui/table",
+      "symbol": "TableHead"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.table-header",
+      "package": "@/components/ui/table",
+      "symbol": "TableHeader"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.table-row",
+      "package": "@/components/ui/table",
+      "symbol": "TableRow"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.tabs",
+      "package": "@/components/ui/tabs",
+      "symbol": "Tabs"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.tabs-content",
+      "package": "@/components/ui/tabs",
+      "symbol": "TabsContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.tabs-list",
+      "package": "@/components/ui/tabs",
+      "symbol": "TabsList"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.tabs-trigger",
+      "package": "@/components/ui/tabs",
+      "symbol": "TabsTrigger"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.textarea",
+      "package": "@/components/ui/textarea",
+      "symbol": "Textarea"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.toaster",
+      "package": "@/components/ui/sonner",
+      "symbol": "Toaster"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.toggle",
+      "package": "@/components/ui/toggle",
+      "symbol": "Toggle"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.toggle-group",
+      "package": "@/components/ui/toggle-group",
+      "symbol": "ToggleGroup"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.toggle-group-item",
+      "package": "@/components/ui/toggle-group",
+      "symbol": "ToggleGroupItem"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.tooltip",
+      "package": "@/components/ui/tooltip",
+      "symbol": "Tooltip"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.tooltip-content",
+      "package": "@/components/ui/tooltip",
+      "symbol": "TooltipContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.tooltip-provider",
+      "package": "@/components/ui/tooltip",
+      "symbol": "TooltipProvider"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.tooltip-trigger",
+      "package": "@/components/ui/tooltip",
+      "symbol": "TooltipTrigger"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.trace",
+      "package": "@/components/ui/trace",
+      "symbol": "Trace"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.trace-collapsible",
+      "package": "@/components/ui/trace",
+      "symbol": "TraceCollapsible"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.trace-collapsible-content",
+      "package": "@/components/ui/trace",
+      "symbol": "TraceCollapsibleContent"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.trace-collapsible-trigger",
+      "package": "@/components/ui/trace",
+      "symbol": "TraceCollapsibleTrigger"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.trace-description",
+      "package": "@/components/ui/trace",
+      "symbol": "TraceDescription"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.trace-icon",
+      "package": "@/components/ui/trace",
+      "symbol": "TraceIcon"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.trace-line",
+      "package": "@/components/ui/trace",
+      "symbol": "TraceLine"
+    },
+    {
+      "details": {
+        "field_gaps": [
+          {
+            "field": "source_evidence",
+            "reason": "no matching directly exported React declaration was observed"
+          }
+        ],
+        "status": "unavailable"
+      },
+      "id": "ds.trace-title",
+      "package": "@/components/ui/trace",
+      "symbol": "TraceTitle"
+    }
+  ],
+  "schema_version": 1
+}
