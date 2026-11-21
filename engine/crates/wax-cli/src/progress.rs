@@ -1,14 +1,14 @@
 //! Terminal progress spinners for long-running CLI commands.
 
+use crate::presentation::{Presentation, TerminalContext};
 use indicatif::{ProgressBar, ProgressStyle};
-use std::io::IsTerminal;
 use std::sync::Arc;
 use std::time::Duration;
 use wax_core::progress::{
     ScanProgress, ScanProgressEvent, ValidateProgress, ValidateProgressEvent,
 };
 
-/// Spinner shown on stderr when stderr is attached to a terminal (TTY).
+/// Spinner shown on stderr for eligible human terminal commands.
 pub struct CliProgress {
     bar: Option<ProgressBar>,
 }
@@ -20,9 +20,19 @@ impl Default for CliProgress {
 }
 
 impl CliProgress {
-    /// Starts a spinner when stderr is a TTY.
+    /// Starts a spinner when all streams and the environment allow human output.
     pub fn new() -> Self {
-        if !std::io::stderr().is_terminal() {
+        let presentation = if TerminalContext::detect().is_human() {
+            Presentation::Human
+        } else {
+            Presentation::Plain
+        };
+        Self::for_presentation(presentation)
+    }
+
+    /// Starts a spinner only for explicitly selected human presentation.
+    pub fn for_presentation(presentation: Presentation) -> Self {
+        if presentation == Presentation::Plain {
             return Self { bar: None };
         }
 
@@ -34,7 +44,7 @@ impl CliProgress {
         Self { bar: Some(bar) }
     }
 
-    /// Whether a spinner is active (stderr is a TTY).
+    /// Whether human progress was enabled.
     pub fn is_enabled(&self) -> bool {
         self.bar.is_some()
     }
@@ -51,6 +61,12 @@ impl CliProgress {
         if let Some(bar) = &self.bar {
             bar.finish_and_clear();
         }
+    }
+}
+
+impl Drop for CliProgress {
+    fn drop(&mut self) {
+        self.finish();
     }
 }
 
@@ -110,7 +126,7 @@ pub fn validate_progress_message(event: ValidateProgressEvent) -> String {
 #[cfg(test)]
 mod tests {
     use super::{scan_progress_message, validate_progress_message};
-    use std::io::IsTerminal;
+    use crate::presentation::TerminalContext;
     use std::str::FromStr;
     use wax_contract::LanguageId;
     use wax_core::progress::{ScanProgressEvent, ValidateProgressEvent};
@@ -173,7 +189,7 @@ mod tests {
     fn cli_progress_disabled_when_stderr_is_not_a_tty() {
         // Integration tests run with piped stderr; unit tests inherit the test harness.
         let progress = super::CliProgress::new();
-        if std::io::stderr().is_terminal() {
+        if TerminalContext::detect().is_human() {
             assert!(progress.is_enabled());
         } else {
             assert!(!progress.is_enabled());

@@ -13,6 +13,22 @@ Agents and maintainers use this file as the **source of truth** for which plan t
 
 **Authorized Post-alpha UX extractions:** Phase 1 scan `--format` / `json-summary` outputs (THE-635), Phase 2a `graph-data` artifact + schema (THE-636), Phase 2b static HTML scan report (THE-639), and Phase 3 Markdown scan summary / `--baseline` deltas / CI recipe (THE-637) are explicit extractions from the Post-alpha UX plan. They may land while Phase 2B remains the sequential active plan.
 
+**Authorized THE-833 presentation extraction:** Human terminal launch branding,
+scan section hierarchy and progress eligibility are a bounded wax-cli extraction.
+Phase 2B remains the sequential active plan; THE-889 registry exploration stays
+independently owned. No new phase or ADR is introduced.
+
+- [x] Centralize terminal eligibility and ASCII launch rendering.
+- [x] Share scan fact rows between plain and human summaries.
+- [x] Suppress nonhuman progress and clear active spinners on early errors.
+- [x] Cover public presentation/command seams and document the human/agent contract.
+- [x] Pass focused CLI fmt/test/Clippy checks, isolated 40/80-column PTY checks,
+  rendered README preview and roadmap link verification.
+
+CLI help, website, npm README and agent skills were reviewed for this extraction.
+No flags, schemas, installation steps or command workflows change, so those entry
+points need no edits; the root README documents terminal eligibility and examples.
+
 **Registry search extraction complete:** Registry contracts, rich discovery,
 safe publisher associations, fuzzy search, snapshot-pinned detail, CLI
 integration, and the agent workflow have shipped. The completed order-18 plan
