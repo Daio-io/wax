@@ -35,6 +35,7 @@ pub mod commands {
     pub mod validate;
 }
 
+pub mod presentation;
 pub mod progress;
 
 #[cfg(test)]

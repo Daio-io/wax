@@ -24,6 +24,8 @@ use wax_cli::commands::uninstall::{UninstallCliOptions, run_uninstall_cli};
 use wax_cli::commands::validate::{ValidateCommandOptions, run_validate};
 use wax_contract::{RegistryEntryKind, RegistryLookupError, RegistryLookupErrorCode};
 
+use wax_cli::presentation::{Presentation, TerminalContext, select_presentation, write_launch};
+
 fn main() {
     let argv = std::env::args_os().collect::<Vec<_>>();
     let wants_json = args_request_json_format(&argv);
@@ -44,6 +46,11 @@ fn main() {
             error.exit();
         }
     };
+
+    let presentation = select_presentation(&cli, &TerminalContext::detect());
+    if presentation == Presentation::Human {
+        let _ = write_launch(&mut std::io::stderr().lock());
+    }
 
     let mut stdout = std::io::stdout().lock();
     let result: Result<(), Box<dyn std::error::Error>> = match cli.command {
@@ -229,6 +236,7 @@ fn main() {
                 .collect::<Result<Vec<_>, _>>()?;
             run_scan_cli(
                 ScanCommandOptions {
+                    presentation,
                     repo_root: args.repo_root,
                     strict: args.strict,
                     allow_auto_install: !args.no_auto_install,

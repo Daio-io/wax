@@ -319,3 +319,261 @@ fn json_summary_sync_warning_goes_to_stderr() {
         "expected sync warning on stderr, got: {stderr}"
     );
 }
+
+#[test]
+fn human_summary_groups_existing_facts_without_losing_status_or_metrics() {
+    use wax_cli::commands::scan::{ScanCommandOptions, run_scan as render_scan};
+    use wax_cli::presentation::Presentation;
+    let _guard = env_lock();
+    let (_root, repo, _wax_home) = setup_scan_repo(
+        "human-summary",
+        &[
+            ("compose", "complete", "0.5", "", ""),
+            ("react", "partial", "null", "", ""),
+        ],
+    );
+    let mut bytes = Vec::new();
+    render_scan(
+        ScanCommandOptions {
+            presentation: Presentation::Human,
+            repo_root: repo.clone(),
+            strict: false,
+            allow_auto_install: false,
+            scan_concurrency: Some(1),
+            root_group: None,
+            format: wax_cli::cli::ScanStdoutFormat::Summary,
+            compact: false,
+            cli_outputs: Vec::new(),
+            allow_absolute_output: false,
+            baseline: None,
+            state_path: None,
+            pack_index_url: None,
+            target_triple: None,
+            ephemeral: None,
+        },
+        &mut bytes,
+        false,
+    )
+    .unwrap();
+    let human = String::from_utf8(bytes).unwrap();
+    assert!(human.starts_with("Scan results\n============\nscan output: "));
+    let mut previous = 0;
+    for section in [
+        "\n\nLanguage status\n---------------\n",
+        "\n\nAdoption metrics\n----------------\n",
+        "\n\nToken metrics\n-------------\n",
+        "\n\nFailure diagnostics\n-------------------\n",
+    ] {
+        let index = human
+            .find(section)
+            .unwrap_or_else(|| panic!("missing {section:?}: {human}"));
+        assert!(index > previous);
+        previous = index;
+    }
+    assert!(human.contains("compose: complete"));
+    assert!(human.contains("react: partial"));
+    // Every plain fact row remains present, in its original order.
+    let plain = String::from_utf8(run_scan(&repo, &[]).stdout).unwrap();
+    let mut remaining = human.as_str();
+    for row in plain.lines().filter(|line| line.starts_with("  ")) {
+        let index = remaining
+            .find(row)
+            .unwrap_or_else(|| panic!("lost {row:?}: {human}"));
+        remaining = &remaining[index + row.len()..];
+    }
+    assert!(human.contains("  none\n"));
+    assert!(!human.contains("Artifacts"));
+}
+
+fn human_options(repo: &std::path::Path) -> wax_cli::commands::scan::ScanCommandOptions {
+    wax_cli::commands::scan::ScanCommandOptions {
+        presentation: wax_cli::presentation::Presentation::Human,
+        repo_root: repo.to_path_buf(),
+        strict: false,
+        allow_auto_install: false,
+        scan_concurrency: Some(1),
+        root_group: None,
+        format: wax_cli::cli::ScanStdoutFormat::Summary,
+        compact: false,
+        cli_outputs: Vec::new(),
+        allow_absolute_output: false,
+        baseline: None,
+        state_path: None,
+        pack_index_url: None,
+        target_triple: None,
+        ephemeral: None,
+    }
+}
+
+#[test]
+fn human_strict_summary_keeps_unavailable_metrics_bounded_diagnostics_and_artifacts() {
+    use wax_cli::commands::scan::{ScanCommandError, ScanOutputRequest, run_scan as render_scan};
+    let _guard = env_lock();
+    let (root, repo, _wax_home) = setup_scan_repo(
+        "human-strict",
+        &[
+            ("compose", "partial", "null", "", ""),
+            ("swift", "failed", "null", "", ""),
+        ],
+    );
+    let long_path =
+        "src/a/very/long/source/path/that/must/remain/fully/readable/at/forty/columns.kt";
+    let script = root.path.join("wax-home/langs/swift/0.1.0/pack.sh");
+    let text = fs::read_to_string(&script).unwrap();
+    let mut wire: serde_json::Value =
+        serde_json::from_str(text.lines().find(|line| line.starts_with('{')).unwrap()).unwrap();
+    wire["facts"]["diagnostics"] = serde_json::json!((1..=7).map(|line| serde_json::json!({
+        "severity": "error", "code": "PARSE_ERROR", "message": format!("broken syntax {line}"),
+        "location": {"file": long_path, "line": line}
+    })).collect::<Vec<_>>());
+    fs::write(
+        script,
+        format!("#!/bin/sh\ncat >/dev/null\ncat <<'JSON'\n{wire}\nJSON\n"),
+    )
+    .unwrap();
+    let mut opts = human_options(&repo);
+    opts.strict = true;
+    opts.cli_outputs.push(ScanOutputRequest {
+        format: "markdown".into(),
+        path: ".wax/out/a-long-artifact-name-for-human-output.md".into(),
+    });
+    let mut bytes = Vec::new();
+    let result = render_scan(opts, &mut bytes, true);
+    assert!(matches!(
+        result,
+        Err(ScanCommandError::IncompleteScan { .. })
+    ));
+    let human = String::from_utf8(bytes).unwrap();
+    for fact in [
+        "compose: partial",
+        "swift: failed",
+        "UI invocation adoption: n/a",
+        "Registry resolution: n/a",
+        "Raw DS invocations: 0 resolved, 0 candidate",
+        "Assessed observations: 0 of 0",
+        "7 total; showing 5",
+        "broken syntax 5",
+        "2 more diagnostics omitted",
+        long_path,
+        "\n\nArtifacts\n---------\n",
+        ".wax/out/a-long-artifact-name-for-human-output.md",
+        "To save this setup for CI or teammates, run `wax init`.",
+    ] {
+        assert!(human.contains(fact), "missing {fact:?}: {human}");
+    }
+    assert!(!human.contains("broken syntax 6"));
+    assert!(human.find("Failure diagnostics").unwrap() < human.find("Artifacts").unwrap());
+    assert!(repo.join(".wax/out/scan-merged.json").exists());
+}
+
+#[test]
+fn human_root_groups_keep_full_labels_and_section_order() {
+    use wax_cli::commands::scan::run_scan as render_scan;
+    let _guard = env_lock();
+    let (root, repo, _wax_home) = setup_scan_repo(
+        "human-groups",
+        &[
+            ("compose", "complete", "0.5", "", ""),
+            ("react", "complete", "0.5", "", ""),
+        ],
+    );
+    write_grouped_repo_files(&repo, &root.path.join("registry.json"));
+    let config = repo.join(".wax/wax.config.json");
+    let label = "mobile-with-a-label-that-is-longer-than-forty-terminal-columns";
+    fs::write(
+        &config,
+        fs::read_to_string(&config)
+            .unwrap()
+            .replace("\"mobile\"", &format!("\"{label}\"")),
+    )
+    .unwrap();
+    for (language, prefix) in [("compose", "mobile"), ("react", "web")] {
+        let script = root
+            .path
+            .join(format!("wax-home/langs/{language}/0.1.0/pack.sh"));
+        fs::write(
+            &script,
+            fs::read_to_string(&script)
+                .unwrap()
+                .replace("src/", &format!("{prefix}/src/")),
+        )
+        .unwrap();
+    }
+    let mut bytes = Vec::new();
+    render_scan(human_options(&repo), &mut bytes, false).unwrap();
+    let human = String::from_utf8(bytes).unwrap();
+    assert!(human.contains("\n\nRoot groups\n-----------\n"));
+    assert!(
+        human.contains(&format!("{label}/compose: UI invocation adoption:")),
+        "{human}"
+    );
+    assert!(human.find("Adoption metrics").unwrap() < human.find("Root groups").unwrap());
+    assert!(human.find("Root groups").unwrap() < human.find("Token metrics").unwrap());
+}
+
+#[test]
+fn human_token_inference_retains_confidence_evidence_and_comparison_caveats() {
+    use wax_cli::commands::scan::run_scan as render_scan;
+    let _guard = env_lock();
+    let (root, repo, _wax_home) =
+        setup_scan_repo("human-tokens", &[("compose", "complete", "0.5", "", "")]);
+    let registry = serde_json::json!({
+        "schema_version": 1, "components": [{"id":"ds.button", "symbol":"Button"}],
+        "tokens": [
+            {"id":"spacing.small", "key":"Space.small", "category":"spacing", "value":"4.dp"},
+            {"id":"color.primary", "key":"Color.primary", "category":"color"}
+        ]
+    });
+    let registry_path = repo.join(".wax/compose.registry.json");
+    fs::write(&registry_path, registry.to_string()).unwrap();
+    let lock_path = repo.join(".wax/wax.lock.json");
+    let mut lock: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&lock_path).unwrap()).unwrap();
+    lock["registries"]["compose"]["sha256"] = wax_core::registry_source::resolve_registry_source(
+        wax_core::registry_source::RegistrySourceInput {
+            repo_root: &repo,
+            language_id: "compose",
+            source: Some(".wax/compose.registry.json"),
+        },
+    )
+    .unwrap()
+    .sha256
+    .into();
+    fs::write(lock_path, lock.to_string()).unwrap();
+
+    let script = root.path.join("wax-home/langs/compose/0.1.0/pack.sh");
+    let text = fs::read_to_string(&script).unwrap();
+    let mut wire: serde_json::Value =
+        serde_json::from_str(text.lines().find(|line| line.starts_with('{')).unwrap()).unwrap();
+    let mut facts: wax_contract::ScanFacts = serde_json::from_value(wire["facts"].clone()).unwrap();
+    facts.design_system_tokens = serde_json::from_value(registry["tokens"].clone()).unwrap();
+    facts.hardcoded_style_sites = serde_json::from_value(serde_json::json!([
+        {"id":"exact", "location":{"file":"src/Card.kt", "line":12}, "value":"4.dp", "category":"spacing", "context":"padding"},
+        {"id":"unassessed", "location":{"file":"src/Card.kt", "line":13}, "value":"#123456", "category":"color", "context":"color"}
+    ])).unwrap();
+    facts.recompute_counts().unwrap();
+    wire["facts"] = serde_json::to_value(facts).unwrap();
+    fs::write(
+        script,
+        format!("#!/bin/sh\ncat >/dev/null\ncat <<'JSON'\n{wire}\nJSON\n"),
+    )
+    .unwrap();
+    let mut bytes = Vec::new();
+    render_scan(human_options(&repo), &mut bytes, false).unwrap();
+    let human = String::from_utf8(bytes).unwrap();
+    for fact in [
+        "Assessed observations: 1 of 2",
+        "Confirmed migration candidates: 1",
+        "Unassessed observations: 1 (comparison unavailable)",
+        "src/Card.kt:12 padding 4.dp -> Space.small=4.dp",
+        "exact, very high",
+        "evidence: exact value",
+        "Run wax-registry-discover to review missing canonical token values.",
+    ] {
+        assert!(human.contains(fact), "missing {fact:?}: {human}");
+    }
+    let plain = String::from_utf8(run_scan(&repo, &[]).stdout).unwrap();
+    for row in plain.lines().filter(|line| line.starts_with("  ")) {
+        assert!(human.contains(row), "lost {row:?}");
+    }
+}

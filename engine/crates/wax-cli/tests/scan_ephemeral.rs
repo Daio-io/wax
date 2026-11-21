@@ -718,6 +718,7 @@ fn ephemeral_scan_does_not_write_repo_config_or_registries() {
 
     run_scan_cli(
         ScanCommandOptions {
+            presentation: wax_cli::presentation::Presentation::Plain,
             repo_root: repo.clone(),
             strict: true,
             allow_auto_install: false,
@@ -792,6 +793,7 @@ fn ephemeral_json_summary_stdout_omits_init_hint() {
 
     run_scan_cli(
         ScanCommandOptions {
+            presentation: wax_cli::presentation::Presentation::Plain,
             repo_root: repo.clone(),
             strict: true,
             allow_auto_install: false,
@@ -862,6 +864,7 @@ fn ephemeral_output_writes_json_summary_under_repo_root() {
 
     run_scan_cli(
         ScanCommandOptions {
+            presentation: wax_cli::presentation::Presentation::Plain,
             repo_root: repo.clone(),
             strict: true,
             allow_auto_install: false,
@@ -930,6 +933,7 @@ fn ephemeral_strict_scan_writes_output_before_failing_on_partial_result() {
     let mut output = Vec::new();
     let error = run_scan_cli(
         ScanCommandOptions {
+            presentation: wax_cli::presentation::Presentation::Plain,
             repo_root: repo.clone(),
             strict: true,
             allow_auto_install: false,
@@ -1009,6 +1013,7 @@ fn ephemeral_scan_uses_source_backed_remembered_registry_without_publisher_check
 
     run_scan_cli(
         ScanCommandOptions {
+            presentation: wax_cli::presentation::Presentation::Plain,
             repo_root: repo.clone(),
             strict: true,
             allow_auto_install: false,

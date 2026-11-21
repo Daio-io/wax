@@ -1,3 +1,5 @@
+mod common;
+
 use std::process::Command;
 
 #[test]
@@ -124,4 +126,33 @@ fn sync_help_documents_upgrade() {
         stdout.contains("--upgrade"),
         "expected wax sync help to document --upgrade, got: {stdout}"
     );
+}
+
+#[test]
+fn piped_help_version_argument_failures_and_structured_lookup_errors_have_no_launch() {
+    let root = common::TestDir::new("binary-no-launch");
+    for args in [
+        vec!["--help"],
+        vec!["--version"],
+        vec!["invalid-command"],
+        vec!["search", "--format", "json"],
+        vec!["component", "missing", "--format", "json", "--offline"],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+            .args(&args)
+            .current_dir(&root.path)
+            .env("WAX_HOME", root.path.join("home"))
+            .output()
+            .unwrap();
+        for stream in [&output.stdout, &output.stderr] {
+            let text = String::from_utf8_lossy(stream);
+            assert!(!text.contains("__      __"), "{args:?}: {text}");
+            assert!(!text.contains('\x1b'), "{args:?}: {text}");
+        }
+        if args.contains(&"json") {
+            let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert!(value.is_object());
+            assert!(!output.status.success());
+        }
+    }
 }

@@ -283,6 +283,43 @@ wax scan
 wax scan --compact
 ```
 
+In an interactive terminal, human commands start with an ASCII WAX logo on
+stderr. The default scan summary separates the existing facts into sections:
+
+```text
+__      __  _   __  __
+\ \ /\ / / /_\  \ \/ /
+ \ V  V / / _ \  >  <
+  \_/\_/ /_/ \_\/_/\_\
+Design-system analysis
+
+Scan results
+============
+scan output: /your/repo/.wax/out/scan-merged.json
+
+Language status
+---------------
+  compose: complete (UI invocation adoption: 50.0%)
+
+Adoption metrics
+----------------
+  UI invocation adoption: 50.0%
+  Registry resolution: 75.0%
+  Raw DS invocations: 3 resolved, 1 candidate
+```
+
+The sample shows the start of the summary; root groups, token metrics, failure
+diagnostics and requested artifact paths follow when applicable. Partial and
+failed language results remain visible.
+
+Decoration requires stdin, stdout and stderr to all be terminals, no `CI`
+environment variable (even an empty value disables it), and `TERM` other than
+`dumb`. Redirecting any stream preserves lean output. Agent callers with a
+PTY should use `--compact`, structured formats (`scan --format json-summary`
+or lookup `--format json`), or set `CI=1`. Compact, structured, quiet, Markdown,
+discovery `--dry-run` and `init --non-interactive` calls omit the logo;
+nonhuman scans also omit progress animation. No agent-name detection is used.
+
 For a one-shot scan in a repository without `.wax/wax.config.json`, select one
 language, repeat `--root` for each repository-relative source root, and provide
 a remembered design-system id or an explicit local, HTTP, or `git+` registry

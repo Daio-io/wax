@@ -15,6 +15,7 @@ use super::scan_summary::{
 use super::scan_summary_md::render_markdown_summary;
 use super::state_path::resolve_state_path;
 use crate::cli::{ConfiglessScanArgs, ScanStdoutFormat};
+use crate::presentation::{Presentation, write_scan_heading};
 use crate::progress::{CliProgress, optional_scan_progress_sink};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -124,6 +125,8 @@ pub struct ScanOutputRequest {
 /// Options for `wax scan`.
 #[derive(Debug, Clone)]
 pub struct ScanCommandOptions {
+    /// Explicit output decoration, selected by the caller.
+    pub presentation: Presentation,
     /// Repository root containing `.wax/wax.config.json` and `.wax/wax.lock.json`.
     pub repo_root: PathBuf,
     /// Whether incomplete language results should fail the command.
@@ -488,7 +491,13 @@ pub fn run_scan(
         load_config_outputs_and_attempt_registry_sync(&options, writer)?
     };
 
-    let progress = Arc::new(CliProgress::new());
+    let progress = Arc::new(CliProgress::for_presentation(
+        if options.compact || options.format != ScanStdoutFormat::Summary {
+            Presentation::Plain
+        } else {
+            options.presentation
+        },
+    ));
     let merged = Engine::scan_repo_with_options(
         &options.repo_root,
         ScanOptions {
@@ -580,7 +589,13 @@ fn run_ephemeral_scan(
     validate_ephemeral_scan_roots(&selections)?;
     let state_path = resolve_state_path(options.state_path.as_deref())?;
     let ephemeral = build_ephemeral_scan_config(&options, &selections, &state_path)?;
-    let progress = Arc::new(CliProgress::new());
+    let progress = Arc::new(CliProgress::for_presentation(
+        if options.compact || options.format != ScanStdoutFormat::Summary {
+            Presentation::Plain
+        } else {
+            options.presentation
+        },
+    ));
     let merged = Engine::scan_repo_with_options(
         &options.repo_root,
         ScanOptions {
@@ -1185,6 +1200,16 @@ fn emit_stdout_format(
         return write_compact_scan_summary(writer, merged, output_path, written, ephemeral);
     }
     match options.format {
+        ScanStdoutFormat::Summary if options.presentation == Presentation::Human => {
+            write_scan_summary_rows(
+                writer,
+                merged,
+                output_path,
+                written,
+                ephemeral,
+                Presentation::Human,
+            )
+        }
         ScanStdoutFormat::Summary => {
             write_scan_summary(writer, merged, output_path, written, ephemeral)
         }
@@ -1297,8 +1322,43 @@ fn write_scan_summary(
     written: &[WrittenArtifact],
     ephemeral: bool,
 ) -> Result<(), ScanCommandError> {
+    write_scan_summary_rows(
+        writer,
+        merged,
+        output_path,
+        written,
+        ephemeral,
+        Presentation::Plain,
+    )
+}
+
+fn write_summary_section(
+    writer: &mut impl Write,
+    presentation: Presentation,
+    plain: &str,
+    title: &str,
+) -> Result<(), ScanCommandError> {
+    if presentation == Presentation::Human {
+        writeln!(writer).map_err(write_error)?;
+        write_scan_heading(writer, title).map_err(write_error)
+    } else {
+        writeln!(writer, "{plain}").map_err(write_error)
+    }
+}
+
+fn write_scan_summary_rows(
+    writer: &mut impl Write,
+    merged: &MergedScan,
+    output_path: &Path,
+    written: &[WrittenArtifact],
+    ephemeral: bool,
+    presentation: Presentation,
+) -> Result<(), ScanCommandError> {
+    if presentation == Presentation::Human {
+        write_scan_heading(writer, "Scan results").map_err(write_error)?;
+    }
     writeln!(writer, "scan output: {}", output_path.display()).map_err(write_error)?;
-    writeln!(writer, "language status:").map_err(write_error)?;
+    write_summary_section(writer, presentation, "language status:", "Language status")?;
     for (language_id, facts) in &merged.languages {
         write!(writer, "  {language_id}: {}", status_label(facts.status)).map_err(write_error)?;
         if let Some(ratio) = facts.metrics.invocation_adoption_ratio {
@@ -1308,7 +1368,12 @@ fn write_scan_summary(
         writeln!(writer).map_err(write_error)?;
     }
 
-    writeln!(writer, "adoption metrics:").map_err(write_error)?;
+    write_summary_section(
+        writer,
+        presentation,
+        "adoption metrics:",
+        "Adoption metrics",
+    )?;
     let repo = &merged.repo_summary;
     if let Some(ratio) = repo.metrics.invocation_adoption_ratio {
         writeln!(writer, "  UI invocation adoption: {:.1}%", ratio * 100.0).map_err(write_error)?;
@@ -1345,9 +1410,9 @@ fn write_scan_summary(
     )
     .map_err(write_error)?;
 
-    write_root_group_summary(writer, merged)?;
+    write_root_group_summary(writer, merged, presentation)?;
 
-    writeln!(writer, "token metrics:").map_err(write_error)?;
+    write_summary_section(writer, presentation, "token metrics:", "Token metrics")?;
     writeln!(
         writer,
         "  Token references: {}",
@@ -1357,10 +1422,10 @@ fn write_scan_summary(
     write_token_inference_summary(writer, merged)?;
 
     let diagnostics = failure_diagnostics(merged);
-    write_failure_diagnostics(writer, &diagnostics, output_path)?;
+    write_failure_diagnostics(writer, &diagnostics, output_path, presentation)?;
 
     if !written.is_empty() {
-        writeln!(writer, "artifacts:").map_err(write_error)?;
+        write_summary_section(writer, presentation, "artifacts:", "Artifacts")?;
         for artifact in written {
             match artifact.bytes {
                 Some(bytes) => writeln!(
@@ -1389,12 +1454,13 @@ fn write_scan_summary(
 fn write_root_group_summary(
     writer: &mut impl Write,
     merged: &MergedScan,
+    presentation: Presentation,
 ) -> Result<(), ScanCommandError> {
     if merged.root_groups.is_empty() {
         return Ok(());
     }
 
-    writeln!(writer, "root groups:").map_err(write_error)?;
+    write_summary_section(writer, presentation, "root groups:", "Root groups")?;
     for summary in &merged.root_group_summary {
         let ratio = summary.invocation_adoption_ratio;
         match ratio {
@@ -1693,19 +1759,32 @@ fn write_failure_diagnostics(
     writer: &mut impl Write,
     diagnostics: &[&Diagnostic],
     output_path: &Path,
+    presentation: Presentation,
 ) -> Result<(), ScanCommandError> {
+    if presentation == Presentation::Human {
+        write_summary_section(writer, presentation, "", "Failure diagnostics")?;
+    }
     if diagnostics.is_empty() {
-        writeln!(writer, "failure diagnostics: none").map_err(write_error)?;
+        let none = if presentation == Presentation::Human {
+            "  none"
+        } else {
+            "failure diagnostics: none"
+        };
+        writeln!(writer, "{none}").map_err(write_error)?;
         return Ok(());
     }
 
     let total = diagnostics.len();
     let showing = total.min(MAX_FAILURE_DIAGNOSTICS);
-    writeln!(
-        writer,
-        "failure diagnostics ({total} total; showing {showing}):"
-    )
-    .map_err(write_error)?;
+    if presentation == Presentation::Human {
+        writeln!(writer, "  {total} total; showing {showing}").map_err(write_error)?;
+    } else {
+        writeln!(
+            writer,
+            "failure diagnostics ({total} total; showing {showing}):"
+        )
+        .map_err(write_error)?;
+    }
     for diagnostic in diagnostics.iter().take(MAX_FAILURE_DIAGNOSTICS) {
         writeln!(writer, "  {}", format_diagnostic_line(diagnostic)).map_err(write_error)?;
     }
@@ -2088,7 +2167,13 @@ mod tests {
         let render = |count: usize| {
             let refs: Vec<&Diagnostic> = owned[..count].iter().collect();
             let mut out = Vec::new();
-            write_failure_diagnostics(&mut out, &refs, output_path).unwrap();
+            write_failure_diagnostics(
+                &mut out,
+                &refs,
+                output_path,
+                crate::presentation::Presentation::Plain,
+            )
+            .unwrap();
             String::from_utf8(out).unwrap()
         };
 
@@ -2480,6 +2565,7 @@ mod tests {
         let mut output = Vec::new();
         let config_outputs = load_config_outputs_and_attempt_registry_sync(
             &ScanCommandOptions {
+                presentation: crate::presentation::Presentation::Plain,
                 repo_root: app_repo,
                 strict: false,
                 allow_auto_install: false,
@@ -2519,6 +2605,7 @@ mod tests {
 
         let err = run_scan_cli(
             ScanCommandOptions {
+                presentation: crate::presentation::Presentation::Plain,
                 repo_root: root.path.clone(),
                 strict: false,
                 allow_auto_install: false,
@@ -2568,6 +2655,7 @@ mod tests {
         let mut output = Vec::new();
         let err = run_scan_cli(
             ScanCommandOptions {
+                presentation: crate::presentation::Presentation::Plain,
                 repo_root: app_repo,
                 strict: false,
                 allow_auto_install: false,

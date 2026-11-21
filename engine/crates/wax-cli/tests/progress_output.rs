@@ -137,6 +137,8 @@ fn write_repo(repo: &Path, registry_path: &str, components: &str) {
 }
 
 fn stderr_has_no_progress_spinner(stderr: &str) {
+    assert!(!stderr.contains("__      __"), "{stderr}");
+    assert!(!stderr.contains('\x1b'), "{stderr}");
     assert!(
         !stderr.contains("Loading wax configuration"),
         "piped stderr should not include validate progress text: {stderr}"
@@ -206,4 +208,38 @@ fn scan_command_stderr_piped_suppresses_progress_spinner() {
 
     let stderr = String::from_utf8(output.stderr).expect("stderr utf-8");
     stderr_has_no_progress_spinner(&stderr);
+}
+
+#[test]
+fn explicit_plain_progress_is_disabled_and_cleanup_is_repeatable() {
+    let progress = wax_cli::progress::CliProgress::for_presentation(
+        wax_cli::presentation::Presentation::Plain,
+    );
+    assert!(!progress.is_enabled());
+    progress.set_message("must stay invisible");
+    progress.finish();
+    progress.finish();
+}
+
+#[test]
+fn all_piped_scan_formats_preserve_errors_without_decoration() {
+    let root = TestDir::new("progress-formats");
+    for args in [
+        vec!["--compact"],
+        vec!["--format", "json-summary"],
+        vec!["--format", "quiet"],
+        vec!["--format", "markdown"],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+            .args(["scan", "--no-auto-install", "--repo-root"])
+            .arg(&root.path)
+            .args(args)
+            .env("WAX_HOME", root.path.join("home"))
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(stderr.contains("error:"), "{stderr}");
+        stderr_has_no_progress_spinner(&stderr);
+    }
 }
