@@ -300,17 +300,20 @@ fn resolve_app_entries(
                     .join(crate::config::repo_files::REGISTRY_CACHE_RELATIVE_DIR),
             )
         });
-        let mut resolved = app_cache
-            .as_ref()
-            .unwrap_or(&cache)
-            .resolve(
-                &source,
-                &RegistryReadPolicy {
-                    offline: options.offline,
-                    expected_snapshot: Some(expected),
-                },
-            )
-            .map_err(map_cache_error)?;
+        let policy = RegistryReadPolicy {
+            offline: options.offline,
+            expected_snapshot: Some(expected),
+        };
+        let mut resolved = match app_cache {
+            Some(app_cache) => match app_cache.resolve(&source, &policy) {
+                Ok(snapshots) => snapshots,
+                Err(RegistryCacheError::SnapshotUnavailable { .. }) => {
+                    cache.resolve(&source, &policy).map_err(map_cache_error)?
+                }
+                Err(error) => return Err(map_cache_error(error)),
+            },
+            None => cache.resolve(&source, &policy).map_err(map_cache_error)?,
+        };
         snapshots.append(&mut resolved);
     }
     Ok(snapshots)
