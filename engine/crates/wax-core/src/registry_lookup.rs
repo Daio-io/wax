@@ -293,7 +293,16 @@ fn resolve_app_entries(
         let source = app_source_spec(&options.repo_root, entry, locked)?;
         let expected = app_snapshot_ref(entry, locked, &source);
         reject_conflicting_request(options, &expected, entry)?;
-        let mut resolved = cache
+        let app_cache = matches!(&source, RegistrySourceSpec::GitSystem { .. }).then(|| {
+            RegistryCache::open(
+                options
+                    .repo_root
+                    .join(crate::config::repo_files::REGISTRY_CACHE_RELATIVE_DIR),
+            )
+        });
+        let mut resolved = app_cache
+            .as_ref()
+            .unwrap_or(&cache)
             .resolve(
                 &source,
                 &RegistryReadPolicy {

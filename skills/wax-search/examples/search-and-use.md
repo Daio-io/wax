@@ -185,3 +185,31 @@ wax component ds.button --design-system acme --snapshot "$snapshot_digest" --for
 ```
 
 State which fact is unavailable and consult trusted project source or the user. Do not infer imports, component props, token aliases, compatibility, or canonical values from naming alone.
+
+## Exact public revision into an app
+
+```bash
+wax registry find shadcn --format json
+wax registry install shadcn --version 1
+wax init --non-interactive --language react --design-system public-shadcn-r1
+wax search Button --language react --format json
+wax component <id> --language react --snapshot "$snapshot_digest" --offline
+wax scan --no-auto-install
+wax validate
+# Once a new revision is published, installed, and reviewed:
+wax sync --design-system <remembered-id>
+```
+
+`find` determines availability and declared gaps. Init installs packs unless
+`--no-install` is set; registry install alone creates no app files. CI must
+preinstall the pinned packs. Commit config/lock and exclude `.wax/cache/`.
+Offline validate reads metadata only; offline search and warm scans reuse the
+app-local exact bundle cache without global remembered state. Cold online
+checkouts can fetch the locked commit without catalogue `main`.
+
+Installing r2 globally or refreshing the catalogue does not change app lookup
+or scans. Explicit adoption updates every language bound to the same system
+and repository together, preserving other systems and rolling back on failure.
+Retain the original selector/digest for historical detail. Missing tokens and
+unsupported imports remain coverage gaps; report corrections as new revisions
+through [wax-registries](https://github.com/Daio-io/wax-registries).

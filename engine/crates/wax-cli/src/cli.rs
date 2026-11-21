@@ -126,6 +126,9 @@ pub struct InitArgs {
     /// Language pack id to enable. Repeat for multiple languages.
     #[arg(long = "language", value_name = "ID")]
     pub languages: Vec<LanguageId>,
+    /// Remembered design-system id to bind during scriptable setup.
+    #[arg(long, value_name = "ID", requires = "non_interactive")]
+    pub design_system: Option<String>,
     /// Write config and lockfile without downloading language packs.
     #[arg(long)]
     pub no_install: bool,
@@ -419,10 +422,13 @@ pub struct ScanArgs {
 /// Arguments for `wax sync`.
 #[derive(Debug, Args)]
 pub struct SyncArgs {
+    /// Explicitly adopt a remembered revision of an already bound design system.
+    #[arg(long, value_name = "ID", conflicts_with = "upgrade")]
+    pub design_system: Option<String>,
     /// Repository root containing wax config and lock files.
     #[arg(long, default_value = ".")]
     pub repo_root: PathBuf,
-    /// Advance Git registry tags to their current commits instead of using locked commits.
+    /// Advance root Git tags; nested bundle revisions remain pinned.
     #[arg(long)]
     pub upgrade: bool,
 }

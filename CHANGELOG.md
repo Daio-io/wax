@@ -26,6 +26,19 @@
 
 ### Features
 
+- Add scriptable `wax init --non-interactive --design-system <remembered-id>`
+  while retaining the interactive remembered-system menu. Bundle languages are
+  checked before app files are written; language-pack installation remains
+  independent and `--no-install` keeps its existing behavior.
+- Add `wax sync --design-system <remembered-id>` for explicit same-system,
+  same-publisher bundle adoption. Every bound language is verified and updated
+  together; failed lock writes restore exact original config bytes. Revision
+  directories and commits appear before/after in sync output. Ordinary sync,
+  nested `sync --upgrade`, scans, refresh and global installation keep app pins.
+- Warm app-local bundle caches during init and sync. Offline app lookup and
+  warmed scans no longer require global remembered registry state. Configless
+  public scans retain exact digest checks and `--no-auto-install` behavior.
+
 - Pin Git design-system bundles published from a repository subfolder.
   `languages.*.registry` gains optional `subdir` and `system` fields: `system`
   selects one `design_systems[system]` entry from

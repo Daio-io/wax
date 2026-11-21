@@ -15,7 +15,7 @@ nonzero exit status.
 ```text
 wax
 ├── init
-├── registry {discover,add,refresh,list,show,update,delete}
+├── registry {find,install,discover,add,refresh,list,show,update,delete}
 ├── discover
 ├── search
 ├── component
@@ -35,11 +35,13 @@ generated-output ignore rules.
 ```text
 wax init [--non-interactive] [--language ID]... [--no-install]
          [--pack-index URL] [--repo-root PATH] [--target TRIPLE]
-         [--no-scaffold-registries]
+         [--no-scaffold-registries] [--design-system REMEMBERED_ID]
 ```
 
 `--repo-root` defaults to `.`. Interactive mode requires a TTY. Non-interactive
-mode requires at least one repeatable `--language`. `--no-install` writes config
+mode requires at least one repeatable `--language`. `--design-system` requires
+`--non-interactive` and selects a remembered registry bundle; every requested
+language must be present. `--no-install` writes config
 and lock data without downloading packs. Pack-index precedence is
 `--pack-index`, then `WAX_PACK_INDEX`, then the built-in index. Initialization
 does not discover registries or scan. See the [setup guide](../getting-started/initialize.md).
@@ -231,11 +233,17 @@ accepts a prior JSON summary or merged scan. See the [scan guide](../guides/scan
 ## `wax sync`
 
 ```text
-wax sync [--repo-root PATH] [--upgrade]
+wax sync [--repo-root PATH] [--upgrade | --design-system REMEMBERED_ID]
 ```
 
 Refresh app registry inputs from remembered systems. `--repo-root` defaults to
-`.`. Git sources reuse locked commits unless `--upgrade` advances selected tags.
+`.`. Root Git sources reuse locked commits unless `--upgrade` advances selected tags.
+Nested bundle revisions remain pinned.
+
+For public bundles, `wax sync --design-system REMEMBERED_ID` explicitly adopts
+a same-system revision from the same repository across all bound languages.
+The update verifies inputs before persistence and rolls back config on lock
+failure. Other systems stay unchanged. See [registry adoption](../guides/registries.md#explicit-public-revision-adoption).
 
 ## `wax validate`
 

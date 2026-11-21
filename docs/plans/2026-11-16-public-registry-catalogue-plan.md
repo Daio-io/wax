@@ -1,6 +1,6 @@
 # Public registry catalogue implementation plan
 
-**Status:** Phase 1 complete; Phase 3a (THE-892) implemented, with verification recorded below. Authorized as a THE-889 extraction
+**Status:** Phase 1 and Phase 3a complete. Phase 4 consumption implemented; remaining pilot and Phase 3b evidence gates are open, as recorded below. Authorized as a THE-889 extraction
 that runs alongside the active Phase 2B plan without displacing it.
 
 **Goal:** Let ordinary Git design-system bundles live in repository
@@ -144,3 +144,102 @@ Public seams: catalogue find/install and snapshot lookup with injected local
 Git repositories; shared lookup through the CLI search/detail commands; real
 binary argument, JSON-schema, stdout/stderr, and exit contracts with isolated
 `WAX_HOME`. Existing app/remembered/root lookup regressions passed unchanged.
+
+
+## Phase 4: App consumption (THE-894)
+
+- [x] Add scriptable `init --design-system` through the existing remembered
+  selection, reject simultaneous interactive/explicit selection, validate
+  requested languages before app files, and retain independent pack install /
+  `--no-install` behavior.
+- [x] Warm the app-local exact bundle cache during init and sync; keep committed
+  registry config/lock free of global paths. Verify clean-checkout replay from
+  locked Git commits and metadata-only validation with empty global state.
+- [x] Add `sync --design-system` to explicitly adopt a same-system/repository
+  bundle across all bound languages, using existing prepare/persist rollback.
+  Verify missing-language, wrong-system/source, corrupt definition/registry,
+  unavailable exact commit, and config/lock write failures preserve app files.
+  Preserve exact original config bytes on rollback.
+- [x] Show before/after revision directories and commits; keep ordinary sync,
+  best-effort scan sync, nested `sync --upgrade`, global installs and refresh
+  from changing app selection. Preserve historical snapshot detail.
+- [x] Verify installed-id and exact `public:<id>@<revision>` configless scans,
+  warmed network-denied runs, missing preinstalled packs, and no app config/lock
+  writes through isolated binary flows with a local two-revision Git catalogue.
+- [x] Verify the existing interactive public `run_init` handoff with bundle
+  selections and keep existing local/remembered/root Git regressions.
+- [x] Copy the available shadcn registry, definition, provenance and source
+  SHA/digests to `engine/fixtures/public-catalogue/`, retain its upstream MIT
+  license, and verify the actual React scanner's exact alias, wrong-package,
+  candidate and absent-token behavior. No parser matching changes.
+- [ ] Copy the other six pinned pilot registries and licensed consumers from
+  the Phase 3b merge; verify Radix primitives/Themes, Astryx React/Swift, and
+  independent Material M2/M3 via actual parser public seams.
+- [x] Update README, changelog, CLI/website/npm/search+scan skill guidance,
+  delivered-contract spec and cross-repository contribution links. Document
+  trust, coverage gaps, offline/CI and correction/retention policy.
+- [ ] Confirm the secondary repository's matching documentation, six-system
+  public smoke, and Phase 3b production workflow/staging/PR-check evidence.
+- [ ] Record accepted extraction ADR and archive only once implementation
+  merges and all external gates above are satisfied. Phase 2B remains active.
+- [x] Run workspace formatting, tests and Clippy; website install/build/tests;
+  search-skill contract checks; CLI help, rendered HTML and relative-link checks.
+- [x] Prepare `.loopy/commit-msg`; the outer workflow owns commits and PRs.
+
+### External evidence gap
+
+Read-only inspection and a clean public clone on 2026-11-21 found
+`Daio-io/wax-registries` at `761243349f9a74a9a70dc20a8877b430241bcae7`
+(the shadcn publication merge). Its index has **one system / one registry**,
+not the planned six systems / seven registries. There is no Phase 3b merge,
+weekly/manual maintenance workflow, six source manifests, maintenance runbook
+or trusted-staging evidence at that commit. The only workflow is
+`.github/workflows/validate.yml`. The local THE-894 snapshot marks THE-893
+Done, but the required recorded Phase 3b merge SHA is absent.
+
+Do not fabricate pilot artifacts, claim the missing smoke/evidence passed,
+mark Phase 3b complete, or archive this extraction on that basis. Complete the
+open checks against the actual Phase 3b merge when it becomes available.
+
+### Manual public smoke
+
+- Catalogue source: clean clone of `https://github.com/Daio-io/wax-registries.git`
+  at `761243349f9a74a9a70dc20a8877b430241bcae7`.
+- Engine base SHA: `a643f3cb1b48fec081b6cdf35b6fb3295408d4b4` plus the uncommitted
+  THE-894 worktree changes. Built with `WAX_BUILD_VERSION=0.10.2-alpha.1`
+  for the catalogue's advertised compatibility floor; this is a test build,
+  not a released engine. Binary SHA-256:
+  `6c464932cb00bff56c84ad12e8d04a2b823e75d30c9956ac7840e746f64b29a4`.
+- Local test-built React pack archive SHA-256:
+  `64183f0114d597e6c035c3c31346ac68e9a5b8b003f8f0837a528eeb6de72500`.
+  Init used its local pack index and installed the pack normally.
+- Passed find → exact shadcn r1 install → scriptable init → app search →
+  snapshot-pinned offline detail → strict scan → validate. Actual parser scan:
+  complete, one resolved `Button`, zero candidates, zero token references.
+- Removed remembered registry state and global registry cache, denied remote
+  Git access, then passed strict warmed scan and offline app search. Metadata
+  validation also passed with a fresh empty `WAX_HOME`.
+- Ten smoke commands passed. No other system is published at this commit;
+  the requested six-system smoke and scheduled maintenance evidence remain
+  open. The test build uses the engine changes before the outer workflow's
+  commit; the final merge SHA must be added by closeout.
+
+### Phase 4 verification record
+
+- `cargo fmt --all` and `cargo fmt --all --check`: passed.
+- `cargo test --workspace`: passed (1,418 passed, 3 ignored).
+- `cargo clippy --workspace --all-targets -- -D warnings`: passed.
+- `npm --prefix website ci` and `npm --prefix website test`: passed
+  (production build and all 5 website tests).
+- `scripts/test-wax-search-skill-contract.sh`: passed.
+- CLI init/sync help and rendered guide/reference HTML checked, including
+  adoption/offline/coverage anchors and the pending pilot matrix. Markdown
+  relative file links, pinned fixture SHA-256 digests and `git diff --check`:
+  passed.
+
+Public seams: the real binary with isolated state/local Git catalogue/test
+packs; public `run_init` with interactive selections; actual
+`ReactLanguage::scan` against the pinned shadcn registry. Existing parser-pack
+package/candidate/legacy parity and root Git/local/remembered regressions pass
+in the workspace suite. Missing catalogue pilots and external production
+maintenance evidence are open acceptance gates, not verified outcomes.

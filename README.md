@@ -72,6 +72,13 @@ wax search Button --design-system public:astryx@1 --language react --format json
 wax component <id> --design-system public:astryx@1 --language react --snapshot <digest>
 wax registry install astryx --version 1
 wax registry show public-astryx-r1
+wax init --non-interactive --language react --design-system public-astryx-r1
+wax search Button --language react --format json
+wax scan --no-auto-install
+wax validate
+# Deliberately adopt another installed revision:
+wax registry install astryx --version 2
+wax sync --design-system public-astryx-r2
 ```
 
 Public search works before installation and preserves exact snapshot digests
@@ -82,7 +89,26 @@ reports partial public failures in `public_status` while returning local rows;
 a cold offline cache is explicitly incomplete. Ordinary search/scan only access
 the public catalogue with an explicit `public:<id>@<revision>` selector.
 See the [registry reference](website/docs/reference/registry.md) for status,
-collision, and upgrade behavior.
+collision, and upgrade behavior. Use `find` to check which systems and exact
+revisions are published before running these examples. Registry installation
+and language-pack installation are independent; init installs packs unless
+`--no-install` is supplied. The interactive `wax init` menu remains available.
+
+App setup pins the full Git commit, revision directory, publisher definition,
+and each selected registry digest together. It warms `.wax/cache/registries/`
+for scans and offline lookup without remembered registry state. Commit config
+and lockfiles, never caches. A clean checkout can validate without network or
+`WAX_HOME`; its first scan/sync may fetch the exact locked commit. CI should
+preinstall the pinned language packs and run `wax scan --no-auto-install`.
+Ordinary sync, catalogue refresh, and `sync --upgrade` retain public revision
+pins. Explicit `sync --design-system` requires the same publisher/system and
+covers every bound language atomically; other systems stay unchanged.
+
+Public registry metadata is a reviewed coverage claim, not an upstream
+endorsement or proof of a package release. Missing tokens remain absent;
+unknown imports retain candidate status. See [pilot coverage and provenance](website/docs/guides/registries.md#public-coverage-and-provenance).
+Propose engine changes in [Wax](CONTRIBUTING.md) and registry corrections in
+[the catalogue repository](https://github.com/Daio-io/wax-registries).
 
 ### Register Your Design System
 
@@ -485,7 +511,8 @@ the fixed-path behavior above unchanged.
 Lock writers use schema 3 with optional `subdir` and `definition` pins;
 readers still accept schema 1 and 2. Ordinary scans and sync reuse nested
 commit pins, including `sync --upgrade`: changing the configured revision
-directory/ref explicitly selects a different bundle. Root `sync --upgrade`
+directory/ref or using `wax sync --design-system <remembered-id>` explicitly
+selects a different bundle. Root `sync --upgrade`
 continues to refresh tags. `wax validate` checks committed metadata offline
 without global state or cached Git objects. See the
 [bundle distribution contract](docs/specs/public-registry-options.md).

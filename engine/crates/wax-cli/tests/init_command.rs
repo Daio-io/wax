@@ -571,6 +571,7 @@ fn init_non_interactive_source_backed_remembered_writes_explicit_url() {
 
     run_init(
         InitOptions {
+            design_system: None,
             non_interactive: true,
             languages: Vec::new(),
             no_install: true,
@@ -733,6 +734,7 @@ fn init_git_remembered(nested: bool) {
     fs::create_dir_all(repo.join("src")).expect("create repo");
     run_init(
         InitOptions {
+            design_system: None,
             non_interactive: true,
             languages: Vec::new(),
             no_install: true,
@@ -775,4 +777,24 @@ fn init_git_remembered(nested: bool) {
         assert_eq!(locked.definition.as_ref().unwrap().system_id, "acme");
         wax_core::validate::validate_repo(&repo).unwrap();
     }
+}
+
+#[test]
+fn explicit_design_system_requires_scriptable_init_without_prompting_or_writing() {
+    let root = TestDir::new("init-design-system-needs-scriptable");
+    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .current_dir(&root.path)
+        .env("WAX_HOME", root.path.join("home"))
+        .args([
+            "init",
+            "--design-system",
+            "public-acme-r1",
+            "--language",
+            "react",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--non-interactive"));
+    assert!(!root.path.join(".wax").exists());
 }

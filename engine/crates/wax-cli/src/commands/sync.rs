@@ -15,6 +15,8 @@ pub struct SyncCommandOptions {
     pub state_path: Option<PathBuf>,
     /// Refresh Git-backed registry tags instead of using their locked commits.
     pub upgrade: bool,
+    /// Explicit remembered bundle revision to adopt for the same bound system.
+    pub design_system: Option<String>,
 }
 
 /// Errors returned by `wax sync`.
@@ -43,6 +45,7 @@ pub fn run_sync_cli(
     writer: &mut impl Write,
 ) -> Result<(), SyncCommandError> {
     let updates = sync_app_registries(&SyncOptions {
+        design_system: options.design_system,
         repo_root: options.repo_root,
         state_path: options.state_path,
         upgrade: options.upgrade,
@@ -55,6 +58,10 @@ pub fn run_sync_cli(
     }
 
     for update in updates {
+        if let (Some(old), Some(new)) = (&update.old_subdir, &update.new_subdir) {
+            writeln!(writer, "{} revision {} -> {}", update.language_id, old, new)
+                .map_err(|source| SyncCommandError::Io { source })?;
+        }
         if let (Some(_git), Some(tag), Some(new_commit)) =
             (update.git, update.tag, update.new_commit)
         {

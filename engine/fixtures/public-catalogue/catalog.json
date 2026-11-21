@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "id": "shadcn",
+      "name": "shadcn/ui",
+      "revision": 1,
+      "subdir": "systems/shadcn/releases/4.23.0",
+      "minimum_wax_version": "0.10.2-alpha.1",
+      "definition": {
+        "path": ".wax/wax.config.json",
+        "sha256": "5c1a3fd2243bb4863221442ba2738ae11568d2d6278e257cb4d76ae34455461e"
+      },
+      "registries": {
+        "react": {
+          "path": ".wax/registries/react.json",
+          "sha256": "b252cde68a98c44adb35fa911c16d3cfafe88874175ab51bdca9f42d1afb1bd2"
+        }
+      },
+      "provenance": {
+        "path": "provenance.json",
+        "sha256": "a638021d6308611a11798a2e40dfddb916ff803ee4be06ee0cb4b9b19dbda67b"
+      },
+      "upstream": [
+        {
+          "source": "https://github.com/shadcn-ui/ui",
+          "version": "shadcn@4.23.0"
+        }
+      ],
+      "coverage": [
+        "React components from the Radix base with @/components/ui/<file> imports"
+      ],
+      "gaps": [
+        "Base UI, alternative import aliases, and theme tokens"
+      ]
+    }
+  ]
+}

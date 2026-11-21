@@ -1,6 +1,6 @@
 # Public registry distribution options
 
-**Status:** Decided (Phase 1). See the
+**Status:** Bundle consumption and explicit revision adoption implemented; full pilot/maintenance closeout pending. See the
 [public registry catalogue plan](../plans/2026-11-16-public-registry-catalogue-plan.md).
 
 A public design system needs a way to publish its registries so other
@@ -49,7 +49,7 @@ in its bundle directory and tagging a commit.
 - `subdir` with `system` selects exactly one `design_systems[system]` entry
   from `<subdir>/.wax/wax.config.json` and resolves every language registry
   it declares, together, at the same commit.
-- A future **registry catalogue** (`wax-contract::Catalog`) can describe many
+- The **registry catalogue** (`wax-contract::Catalog`) can describe many
   versioned bundle revisions — one positive revision per system bundle, not
   per language — independent of any one Git commit, config schema, or
   lockfile schema. Catalogue entries carry their own schema version
@@ -75,10 +75,53 @@ in its bundle directory and tagging a commit.
   sources retain their existing upgrade behavior. Offline validation uses
   only committed config/lock metadata, without global state or network/cache.
 
-## Non-goals (future phases)
+## Delivered consumption contracts
 
-- Publisher-side authoring or publishing workflow for catalogue entries
-  (Phase 2, THE-889).
-- Hosting or distributing a catalogue index itself (Phase 3, THE-889).
-- Any change to language-pack distribution, which remains a separate,
-  unrelated artifact channel.
+- `wax registry find` reports available exact positive revisions and explicit
+  coverage/gaps. `wax registry install <id> --version <n>` remembers the entire
+  verified bundle without scaffolding an app or installing language packs.
+- `wax init --non-interactive --language <id> --design-system <remembered-id>`
+  uses the interactive remembered-system setup path. Every requested language
+  must exist before app config/lock writes. Pack installation remains separate,
+  with existing `--no-install` behavior.
+- Public app config records Git repository, **full commit** as `tag`, revision
+  `subdir`, and `system`. Each language lock records its registry digest and the
+  shared definition/commit. There are no absolute global registry paths.
+- `wax sync --design-system <remembered-id>` explicitly adopts a same-system,
+  same-repository bundle across all currently bound languages. Missing language,
+  unrelated source/system, corrupt bytes, unavailable exact commit and failed
+  persistence preserve prior app files. Rollback preserves exact config bytes.
+  Other systems stay unchanged. Sync shows old/new revision directories/commits.
+- Ordinary sync, best-effort scan sync, nested `sync --upgrade`, refresh and
+  global installation cannot select a newer public revision. Root Git tag
+  upgrade keeps its existing behavior. `--design-system` conflicts with
+  `--upgrade`.
+- App-local caches are populated at init/sync. Offline app search/detail and
+  warmed scans need no remembered registry state. A clean checkout may fetch
+  the exact locked commit directly; metadata-only validate needs no cache,
+  global state or network. CI preinstalls locked packs and uses
+  `scan --no-auto-install`.
+- Configless scan accepts installed ids and explicit `public:<id>@<revision>`
+  through shared digest-checked lookup, without app config/lock writes. Existing
+  `--offline` uses exact warmed sources; cold lookup never selects latest.
+
+## Coverage, trust and remaining gates
+
+Matching retains parser package/candidate/legacy contracts; bundle setup makes
+no parser changes. See [pilot coverage and provenance](../../website/docs/guides/registries.md#public-coverage-and-provenance)
+for the seven-pilot matrix, unsupported conventions, absent tokens, and
+correction/retention policy. Corrected provenance/curation requires a new
+revision; retain old index rows, paths and commits. Public metadata proves only
+the recorded coverage and source pins, not upstream endorsement or package
+release mapping.
+
+The available catalogue at `761243349f9a74a9a70dc20a8877b430241bcae7` contains
+shadcn only, rather than the expected six systems/seven registries. The Phase
+3b merge SHA, maintenance/staging evidence, remaining pilot artifacts and
+cross-repository documentation are not present there. Full seven-pilot smoke,
+accepted extraction ADR and archive closeout remain gated on that evidence.
+Phase 2B remains the sequential active plan. Language-pack distribution is
+unchanged and independent of registry distribution.
+
+Engine contributions follow [Wax contributing](../../CONTRIBUTING.md);
+registry contributions belong in [wax-registries](https://github.com/Daio-io/wax-registries).

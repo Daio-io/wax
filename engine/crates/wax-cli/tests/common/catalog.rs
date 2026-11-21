@@ -36,9 +36,9 @@ pub fn seed_catalogue(root: &std::path::Path) {
     git(&repo, &["commit", "-qm", "catalogue"]);
 }
 
-pub fn run(root: &std::path::Path, args: &[&str]) -> std::process::Output {
-    std::process::Command::new(env!("CARGO_BIN_EXE_wax"))
-        .args(args)
+pub fn command(root: &std::path::Path) -> std::process::Command {
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_wax"));
+    command
         .current_dir(root)
         .env("WAX_HOME", root.join("home"))
         .env("GIT_CONFIG_COUNT", "1")
@@ -49,10 +49,14 @@ pub fn run(root: &std::path::Path, args: &[&str]) -> std::process::Output {
         .env(
             "GIT_CONFIG_VALUE_0",
             wax_core::registry_catalog::PUBLIC_REGISTRY_REPOSITORY,
-        )
-        .output()
-        .unwrap()
+        );
+    command
 }
+
+pub fn run(root: &std::path::Path, args: &[&str]) -> std::process::Output {
+    command(root).args(args).output().unwrap()
+}
+
 pub fn change_registry(root: &std::path::Path) {
     let repo = root.join("remote");
     let path = repo.join("systems/acme/1/.wax/registries/react.json");

@@ -532,6 +532,7 @@ fn load_config_outputs_and_attempt_registry_sync(
     }
 
     match best_effort_sync_app_registries(&SyncOptions {
+        design_system: None,
         repo_root: options.repo_root.clone(),
         state_path: options.state_path.clone(),
         upgrade: false,

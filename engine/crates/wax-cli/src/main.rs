@@ -96,6 +96,7 @@ fn main() {
         Commands::Init(args) => run_init_cli(
             InitOptions {
                 non_interactive: args.non_interactive,
+                design_system: args.design_system,
                 languages: args.languages,
                 no_install: args.no_install,
                 registry_url: args.pack_index,
@@ -250,6 +251,7 @@ fn main() {
         .map_err(Into::into),
         Commands::Sync(args) => run_sync_cli(
             SyncCommandOptions {
+                design_system: args.design_system,
                 repo_root: args.repo_root,
                 state_path: None,
                 upgrade: args.upgrade,

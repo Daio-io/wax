@@ -1,0 +1,31 @@
+{
+  "repository": "https://github.com/Daio-io/wax-registries.git",
+  "commit": "761243349f9a74a9a70dc20a8877b430241bcae7",
+  "artifacts": [
+    {
+      "fixture": "catalog.json",
+      "source_path": "catalog/index.json",
+      "sha256": "95aa5aaf728167de650d339bfed7addeac4aa985d9b71ec878e92d0ab390542c"
+    },
+    {
+      "fixture": "shadcn/react.registry.json",
+      "source_path": "systems/shadcn/releases/4.23.0/.wax/registries/react.json",
+      "sha256": "b252cde68a98c44adb35fa911c16d3cfafe88874175ab51bdca9f42d1afb1bd2"
+    },
+    {
+      "fixture": "shadcn/definition.json",
+      "source_path": "systems/shadcn/releases/4.23.0/.wax/wax.config.json",
+      "sha256": "5c1a3fd2243bb4863221442ba2738ae11568d2d6278e257cb4d76ae34455461e"
+    },
+    {
+      "fixture": "shadcn/provenance.json",
+      "source_path": "systems/shadcn/releases/4.23.0/provenance.json",
+      "sha256": "a638021d6308611a11798a2e40dfddb916ff803ee4be06ee0cb4b9b19dbda67b"
+    }
+  ],
+  "upstream_license": {
+    "source": "https://raw.githubusercontent.com/shadcn-ui/ui/96da9cc7f1aa10580a3741664e2a77c721206c00/LICENSE.md",
+    "fixture": "shadcn/LICENSE",
+    "sha256": "1564074e13439397221ffd522e2e504d56561994a23d371aa5e3ad43e4f5423f"
+  }
+}

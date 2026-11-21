@@ -27,6 +27,13 @@ extractions from THE-889, documented in
 [the public registry catalogue plan](./2026-11-16-public-registry-catalogue-plan.md).
 They land while Phase 2B remains the sequential active plan.
 
+THE-894 authorizes Phase 4 app consumption in this same extraction. Scriptable
+init and explicit same-system revision adoption are implemented in the current
+worktree; the extraction stays **in progress** until the missing catalogue
+pilots and Phase 3b maintenance/staging evidence are available. See the
+[Phase 4 implementation and evidence record](./2026-11-16-public-registry-catalogue-plan.md#phase-4-app-consumption-the-894).
+
+
 ---
 
 ## Roadmap
