@@ -63,7 +63,16 @@ wax registry install astryx --version 1 --offline
 
 `find [query]` matches ids and names by case-insensitive substring. An empty
 query lists all compatible systems. Results include public, configured
-publisher/app, and remembered systems; same-name rows retain their origin.
+publisher/app, and remembered systems. Same-name rows retain their origin.
+In an interactive terminal, text results show each name above its origin, ID,
+revision when present, and languages. An available public revision includes a
+copyable `wax registry install <id> --version <revision>` command. The
+`--language` filter limits discovery. Each install includes the whole revision.
+Offline find adds `--offline` to the suggested commands, which require cached
+bundle objects as well as cached catalogue metadata.
+
+Redirected streams, CI, and dumb terminals use tab-separated rows followed by
+public status and any diagnostic. Use `--format json` for structured output.
 JSON uses `schema_version: 1`, stable `(origin, id, revision)` ordering, and a
 separate `public_status` object (`complete`, `cached`, `commit`, `diagnostic`).
 The [find response schema](https://github.com/Daio-io/wax/blob/main/engine/crates/wax-contract/schemas/registry-catalog-find.schema.json)
@@ -75,7 +84,9 @@ failure returns local results with `complete: false` and a structured
 `public_unavailable` diagnostic, exiting successfully. Invalid local config or
 global state is fatal. Warm offline find reads the selected cached index and
 reports `cached: true`; cold offline find returns local rows with
-`offline_cache_miss` and `complete: false`. Text output displays the same status.
+`offline_cache_miss` and `complete: false`. Interactive text reports
+`complete`, `complete (cached)`, or `incomplete`, with the full catalogue commit
+and diagnostic when available.
 Ordinary search and scan commands perform no public discovery traffic.
 
 Installation requires an explicit positive bundle revision (`--version`),

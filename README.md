@@ -81,13 +81,19 @@ wax registry install astryx --version 2
 wax sync --design-system public-astryx-r2
 ```
 
-Public search works before installation and preserves exact snapshot digests
-across catalogue refreshes. Installation requires a positive revision and
-remembers the entire language bundle without editing app files. Use `--offline`
-with cached catalogue metadata and bundle objects. `registry find --format json`
-reports partial public failures in `public_status` while returning local rows;
-a cold offline cache is explicitly incomplete. Ordinary search/scan only access
-the public catalogue with an explicit `public:<id>@<revision>` selector.
+In an interactive terminal, `wax registry find` groups matches by result and
+shows a copyable, exact-revision install command for each available public
+revision. Offline find adds `--offline` to those commands. Running one offline
+requires both cached catalogue metadata and cached bundle objects. Each install
+remembers the entire language bundle without editing app files, even when find
+uses a language filter.
+
+Piped find text uses tab-separated rows and a public status line.
+`wax registry find --format json` reports partial public failures in
+`public_status` while returning local rows. A cold offline cache is explicitly
+incomplete. Public search works before installation and preserves exact snapshot
+digests across catalogue refreshes. Ordinary search and scan only access the
+public catalogue with an explicit `public:<id>@<revision>` selector.
 See the [registry reference](website/docs/reference/registry.md) for status,
 collision, and upgrade behavior. Use `find` to check which systems and exact
 revisions are published before running these examples. Registry installation

@@ -1,5 +1,6 @@
 mod common;
 
+use common::catalog::{add_revision, git};
 use serde_json::Value;
 use std::{fs, path::Path, process::Output};
 
@@ -77,71 +78,6 @@ fn initialized_app_search_works_offline_after_global_state_and_upstream_are_remo
     ));
     let result: Value = serde_json::from_str(&output).unwrap();
     assert_eq!(result["results"].as_array().unwrap().len(), 2);
-}
-
-fn git(root: &Path, args: &[&str]) {
-    let output = std::process::Command::new("git")
-        .current_dir(root)
-        .args([
-            "-c",
-            "user.name=Wax Test",
-            "-c",
-            "user.email=test@example.com",
-        ])
-        .args(args)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-fn add_revision(root: &Path, system: &str, languages: &[&str]) {
-    let remote = root.join("remote");
-    let subdir = format!("systems/{system}/2");
-    let bundle = remote.join(&subdir);
-    fs::create_dir_all(bundle.join(".wax/registries")).unwrap();
-    let registries: serde_json::Map<String, Value> = languages
-        .iter()
-        .map(|lang| {
-            (
-                (*lang).into(),
-                serde_json::json!({"source": format!(".wax/registries/{lang}.json")}),
-            )
-        })
-        .collect();
-    fs::write(bundle.join(".wax/wax.config.json"), serde_json::json!({"schema_version":2,"design_systems":{system:{"name":"Acme","registries":registries}}}).to_string()).unwrap();
-    fs::write(bundle.join("provenance.json"), "{}").unwrap();
-    for lang in languages {
-        fs::write(bundle.join(format!(".wax/registries/{lang}.json")), format!(r#"{{"schema_version":1,"language":"{lang}","components":[{{"id":"button","symbol":"NewButton"}}]}}"#)).unwrap();
-    }
-    let artifact = |path: &str| serde_json::json!({"path":path,"sha256":wax_core::digest::sha256_hex(&fs::read(bundle.join(path)).unwrap())});
-    let artifacts: serde_json::Map<String, Value> = languages
-        .iter()
-        .map(|lang| {
-            (
-                (*lang).into(),
-                artifact(&format!(".wax/registries/{lang}.json")),
-            )
-        })
-        .collect();
-    let index_path = remote.join("catalog/index.json");
-    let mut index: Value = serde_json::from_slice(&fs::read(&index_path).unwrap()).unwrap();
-    index["entries"].as_array_mut().unwrap().push(serde_json::json!({"id":system,"name":"Acme","revision":2,"subdir":subdir,"minimum_wax_version":"0.0.0","definition":artifact(".wax/wax.config.json"),"provenance":artifact("provenance.json"),"registries":artifacts,"upstream":[],"coverage":["buttons"],"gaps":[]}));
-    index["entries"]
-        .as_array_mut()
-        .unwrap()
-        .sort_by_key(|entry| {
-            (
-                entry["id"].as_str().unwrap().to_owned(),
-                entry["revision"].as_u64().unwrap(),
-            )
-        });
-    fs::write(index_path, index.to_string()).unwrap();
-    git(&remote, &["add", "."]);
-    git(&remote, &["commit", "-qm", "revision two"]);
 }
 
 fn app_files(root: &Path) -> (Vec<u8>, Vec<u8>) {
