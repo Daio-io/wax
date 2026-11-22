@@ -523,21 +523,30 @@ fn add_token_category_counts(total: &mut TokenCategoryCounts, counts: &TokenCate
 }
 
 #[derive(Clone, Eq, PartialEq, Hash)]
-struct SymbolGroupKey {
+struct SymbolGroupKey<'a> {
     match_status: MatchStatus,
-    registry_symbol: Option<String>,
-    local_definition_id: Option<String>,
-    qualified_symbol: Option<String>,
-    symbol: String,
+    registry_symbol: Option<&'a str>,
+    local_definition_id: Option<&'a str>,
+    qualified_symbol: Option<&'a str>,
+    symbol: &'a str,
 }
 
-fn symbol_group_key(site: &wax_contract::UsageSite) -> SymbolGroupKey {
+fn symbol_group_key(site: &wax_contract::UsageSite) -> SymbolGroupKey<'_> {
+    if let Some(registry_symbol) = site.registry_symbol.as_deref() {
+        return SymbolGroupKey {
+            match_status: site.match_status,
+            registry_symbol: Some(registry_symbol),
+            local_definition_id: None,
+            qualified_symbol: None,
+            symbol: registry_symbol,
+        };
+    }
     SymbolGroupKey {
         match_status: site.match_status,
-        registry_symbol: site.registry_symbol.clone(),
-        local_definition_id: site.local_definition_id.clone(),
-        qualified_symbol: site.qualified_symbol.clone(),
-        symbol: site.symbol.clone(),
+        registry_symbol: None,
+        local_definition_id: site.local_definition_id.as_deref(),
+        qualified_symbol: site.qualified_symbol.as_deref(),
+        symbol: &site.symbol,
     }
 }
 
@@ -550,21 +559,21 @@ fn symbol_kind_for_status(status: MatchStatus) -> SymbolKind {
     }
 }
 
-fn build_symbol_id(language_id: &LanguageId, key: &SymbolGroupKey) -> String {
-    if let Some(registry_symbol) = &key.registry_symbol {
+fn build_symbol_id(language_id: &LanguageId, key: &SymbolGroupKey<'_>) -> String {
+    if let Some(registry_symbol) = key.registry_symbol {
         let kind = match key.match_status {
             MatchStatus::Candidate => "candidate",
             _ => "registry",
         };
         return format!("{}:{kind}:{}", language_id.as_str(), registry_symbol);
     }
-    if let Some(local_definition_id) = &key.local_definition_id {
+    if let Some(local_definition_id) = key.local_definition_id {
         let local_identity = normalized_local_identity(language_id, local_definition_id)
-            .or(key.qualified_symbol.as_deref())
+            .or(key.qualified_symbol)
             .unwrap_or(local_definition_id);
         return format!("{}:local:{}", language_id.as_str(), local_identity);
     }
-    if let Some(qualified_symbol) = &key.qualified_symbol {
+    if let Some(qualified_symbol) = key.qualified_symbol {
         return format!("{}:symbol:{}", language_id.as_str(), qualified_symbol);
     }
     format!("{}:symbol:{}", language_id.as_str(), key.symbol)
@@ -590,7 +599,7 @@ fn normalized_local_identity<'a>(
         })
 }
 
-fn identity_basis_for_key(key: &SymbolGroupKey) -> (&str, IdentityStability) {
+fn identity_basis_for_key(key: &SymbolGroupKey<'_>) -> (&'static str, IdentityStability) {
     if key.registry_symbol.is_some() {
         ("registry_id", IdentityStability::Semantic)
     } else if key.local_definition_id.is_some() {
@@ -607,7 +616,7 @@ pub(crate) fn build_symbol_usage_summaries(
     language_id: &LanguageId,
     parent_scope_limit: Option<u32>,
 ) -> Result<Vec<SymbolUsageSummary>, ScanFactsError> {
-    let mut grouped: HashMap<SymbolGroupKey, Vec<&wax_contract::UsageSite>> = HashMap::new();
+    let mut grouped: HashMap<SymbolGroupKey<'_>, Vec<&wax_contract::UsageSite>> = HashMap::new();
     for site in &facts.usage_sites {
         grouped
             .entry(symbol_group_key(site))
@@ -615,9 +624,25 @@ pub(crate) fn build_symbol_usage_summaries(
             .push(site);
     }
 
+    let registry_symbols: HashMap<_, _> = facts
+        .design_system_components
+        .iter()
+        .map(|component| {
+            (
+                component.registry_symbol.as_str(),
+                component.symbol.as_str(),
+            )
+        })
+        .collect();
     let mut summaries = grouped
         .into_iter()
-        .map(|(key, sites)| build_symbol_summary(language_id, &key, &sites, parent_scope_limit))
+        .map(|(key, sites)| {
+            let symbol = key
+                .registry_symbol
+                .and_then(|registry_symbol| registry_symbols.get(registry_symbol).copied())
+                .unwrap_or(key.symbol);
+            build_symbol_summary(language_id, &key, symbol, &sites, parent_scope_limit)
+        })
         .collect::<Result<Vec<_>, _>>()?;
 
     summaries.sort_by(|left, right| {
@@ -632,7 +657,8 @@ pub(crate) fn build_symbol_usage_summaries(
 
 fn build_symbol_summary(
     language_id: &LanguageId,
-    key: &SymbolGroupKey,
+    key: &SymbolGroupKey<'_>,
+    symbol: &str,
     sites: &[&wax_contract::UsageSite],
     parent_scope_limit: Option<u32>,
 ) -> Result<SymbolUsageSummary, ScanFactsError> {
@@ -712,14 +738,22 @@ fn build_symbol_summary(
         }
     };
 
+    let qualified_symbol = sites
+        .first()
+        .and_then(|site| site.qualified_symbol.as_deref())
+        .filter(|qualified| {
+            sites
+                .iter()
+                .all(|site| site.qualified_symbol.as_deref() == Some(*qualified))
+        });
     Ok(SymbolUsageSummary {
         symbol_id: build_symbol_id(language_id, key),
-        symbol: key.symbol.clone(),
-        qualified_symbol: key.qualified_symbol.clone(),
+        symbol: symbol.to_owned(),
+        qualified_symbol: qualified_symbol.map(str::to_owned),
         symbol_kind: symbol_kind_for_status(key.match_status),
         match_status: key.match_status,
-        registry_symbol: key.registry_symbol.clone(),
-        local_definition_id: key.local_definition_id.clone(),
+        registry_symbol: key.registry_symbol.map(str::to_owned),
+        local_definition_id: key.local_definition_id.map(str::to_owned),
         identity_basis: identity_basis.to_owned(),
         identity_stability,
         raw_invocation_count: u32::try_from(sites.len()).map_err(|_| {

@@ -848,3 +848,97 @@ fn parity_rejects_generated_component_identity_collisions() {
         );
     }
 }
+
+#[test]
+fn react_member_paths_use_runtime_imports_in_scope() {
+    let facts = scan_registry_fixture(
+        "react",
+        &[(
+            "src/App.tsx",
+            r#"import { Dialog as D, type Dialog as InlineType } from "widgets";
+import * as NS from "widgets";
+import type * as DeclType from "widgets";
+export function App() {
+    const shadow = (NS: typeof D) => <NS.Dialog.Panel.Root />;
+    return <><D.Panel.Root /><NS.Dialog.Panel.Root /><InlineType.Panel.Root /><DeclType.Dialog.Panel.Root /></>;
+}"#,
+        )],
+        &[serde_json::json!({
+            "id":"dialog.root", "symbol":"PanelRoot", "package":"widgets",
+            "aliases":["Dialog.Panel.Root"]
+        })],
+        |request| ReactLanguage::new().scan(&request).expect("react scan"),
+    );
+
+    for written in ["D.Panel.Root", "NS.Dialog.Panel.Root"] {
+        let site = usage_for(&facts, written);
+        assert_eq!(site.match_status, MatchStatus::Resolved, "{written}");
+        assert_eq!(
+            site.registry_symbol.as_deref(),
+            Some("PanelRoot"),
+            "{written}"
+        );
+        assert_eq!(
+            site.qualified_symbol.as_deref(),
+            Some("widgets#Dialog.Panel.Root"),
+            "{written}"
+        );
+        assert_eq!(site.location.line, 6, "{written}");
+    }
+    for written in ["InlineType.Panel.Root", "DeclType.Dialog.Panel.Root"] {
+        let site = usage_for(&facts, written);
+        assert_eq!(site.match_status, MatchStatus::Unresolved, "{written}");
+        assert_eq!(site.qualified_symbol, None, "{written}");
+    }
+    assert_eq!(facts.counts.raw_invocations.resolved, 2);
+}
+
+#[test]
+fn react_external_default_imports_use_declared_aliases_and_legacy_names() {
+    let facts = scan_registry_fixture(
+        "react",
+        &[(
+            "src/App.tsx",
+            r#"import Card from "widgets";
+import NamedCard from "named-widgets";
+import LegacyCard from "old-widgets";
+export const App = () => <><Card.Panel /><NamedCard /><LegacyCard /></>;"#,
+        )],
+        &[
+            serde_json::json!({"id":"default.card", "symbol":"DefaultCard", "package":"widgets", "aliases":["default.Panel"]}),
+            serde_json::json!({"id":"named.card", "symbol":"NamedCard", "package":"named-widgets"}),
+            serde_json::json!({"id":"legacy.card", "symbol":"LegacyCard"}),
+        ],
+        |request| ReactLanguage::new().scan(&request).expect("react scan"),
+    );
+
+    for (written, target, qualified, evidence) in [
+        (
+            "Card.Panel",
+            Some("DefaultCard"),
+            "widgets#default.Panel",
+            ResolutionEvidenceKind::RegistryPackageMatch,
+        ),
+        (
+            "NamedCard",
+            None,
+            "named-widgets#default",
+            ResolutionEvidenceKind::NoMatchingDefinition,
+        ),
+        (
+            "LegacyCard",
+            Some("LegacyCard"),
+            "old-widgets#default",
+            ResolutionEvidenceKind::RegistryNameOnlyLegacy,
+        ),
+    ] {
+        let site = usage_for(&facts, written);
+        assert_eq!(site.registry_symbol.as_deref(), target, "{written}");
+        assert_eq!(
+            site.qualified_symbol.as_deref(),
+            Some(qualified),
+            "{written}"
+        );
+        assert_eq!(site.resolution_evidence.kind, evidence, "{written}");
+    }
+}

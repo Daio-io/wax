@@ -560,3 +560,94 @@ fn stdio_cli_returns_registry_not_found_for_missing_registry() {
     }
     assert_eq!(lines.next(), None, "expected exactly one stdout line");
 }
+
+#[test]
+fn stdio_scan_attributes_radix_jsx_to_the_exported_binding() {
+    use wax_contract::{MatchStatus, ResolutionEvidenceKind};
+
+    let repo = tempfile::tempdir().unwrap();
+    fs::create_dir(repo.path().join("src")).unwrap();
+    fs::write(
+        repo.path().join("src/App.tsx"),
+        r#"import { CheckIcon, Cross1Icon as Cross, WrongIcon as Cross1Icon } from "@radix-ui/react-icons";
+import { Dialog, Dialog as D } from "@radix-ui/themes";
+import { Dialog as Foreign } from "other-widgets";
+export function App() {
+    return <><CheckIcon /><Cross /><Dialog.Root /><D.Root /><Cross1Icon /><Foreign.Root /></>;
+}"#,
+    )
+    .unwrap();
+    fs::write(
+        repo.path().join("react.json"),
+        json!({
+            "schema_version": 1,
+            "components": [
+                {"id":"ds.check-icon","symbol":"CheckIcon","package":"@radix-ui/react-icons"},
+                {"id":"ds.cross-1-icon","symbol":"Cross1Icon","package":"@radix-ui/react-icons"},
+                {"id":"ds.dialog-root","symbol":"Dialog.Root","package":"@radix-ui/themes"}
+            ]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let output = run_stdio_request(&json!({
+        "type": "scan",
+        "api_version": 1,
+        "language_id": "react",
+        "repo_root": repo.path(),
+        "snapshot_id": "snap-radix-aliases",
+        "config": {"registry": "react.json", "roots": ["src"]}
+    }));
+    let WirePackResponse::ScanFacts { facts, .. } = serde_json::from_str(output.trim()).unwrap()
+    else {
+        panic!("expected scan facts, got {output}");
+    };
+
+    for (written, symbol, qualified) in [
+        ("CheckIcon", "CheckIcon", "@radix-ui/react-icons#CheckIcon"),
+        ("Cross", "Cross1Icon", "@radix-ui/react-icons#Cross1Icon"),
+        ("Dialog.Root", "Dialog.Root", "@radix-ui/themes#Dialog.Root"),
+        ("D.Root", "Dialog.Root", "@radix-ui/themes#Dialog.Root"),
+    ] {
+        let site = facts
+            .usage_sites
+            .iter()
+            .find(|site| site.symbol == written)
+            .unwrap();
+        assert_eq!(site.match_status, MatchStatus::Resolved, "{written}");
+        assert_eq!(site.registry_symbol.as_deref(), Some(symbol), "{written}");
+        assert_eq!(
+            site.qualified_symbol.as_deref(),
+            Some(qualified),
+            "{written}"
+        );
+    }
+
+    for (written, qualified, evidence) in [
+        (
+            "Cross1Icon",
+            "@radix-ui/react-icons#WrongIcon",
+            ResolutionEvidenceKind::NoMatchingDefinition,
+        ),
+        (
+            "Foreign.Root",
+            "other-widgets#Dialog.Root",
+            ResolutionEvidenceKind::PackageMismatch,
+        ),
+    ] {
+        let site = facts
+            .usage_sites
+            .iter()
+            .find(|site| site.symbol == written)
+            .unwrap();
+        assert_eq!(site.match_status, MatchStatus::Unresolved, "{written}");
+        assert_eq!(site.registry_symbol, None, "{written}");
+        assert_eq!(
+            site.qualified_symbol.as_deref(),
+            Some(qualified),
+            "{written}"
+        );
+        assert_eq!(site.resolution_evidence.kind, evidence, "{written}");
+    }
+}

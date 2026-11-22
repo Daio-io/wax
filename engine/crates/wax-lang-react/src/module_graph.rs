@@ -326,6 +326,9 @@ pub fn build_react_module_graph(
             };
             match decl {
                 ModuleDecl::Import(import_decl) => {
+                    if import_decl.type_only {
+                        continue;
+                    }
                     let source = import_decl.src.value.to_string_lossy().to_string();
                     for specifier in &import_decl.specifiers {
                         let (local_name, imported_symbol, span) = match specifier {
@@ -340,6 +343,9 @@ pub fn build_react_module_graph(
                                 namespace_specifier.span,
                             ),
                             ImportSpecifier::Named(named_specifier) => {
+                                if named_specifier.is_type_only {
+                                    continue;
+                                }
                                 let imported = named_specifier.imported.as_ref().map_or_else(
                                     || named_specifier.local.sym.to_string(),
                                     module_export_name,
