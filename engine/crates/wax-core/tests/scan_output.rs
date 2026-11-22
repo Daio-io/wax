@@ -297,7 +297,7 @@ fn overwrite_pack_script(wax_home: &Path, language: &str, script: &str) {
 }
 
 #[test]
-fn scan_output_keeps_package_qualified_components_distinct_in_merged_facts() {
+fn scan_output_groups_registry_aliases_by_canonical_key_and_status() {
     let _guard = env_lock();
     let fixture = fixture("scan-output-package-identities", &["react"]);
     let _wax_home = EnvVarGuard::set("WAX_HOME", &fixture.wax_home);
@@ -326,6 +326,26 @@ fn scan_output_keeps_package_qualified_components_distinct_in_merged_facts() {
             "registry_symbol":"@radix-ui/react-popover#Root", "match_status":"resolved",
             "callee_origin":"registry",
             "resolution_evidence":{"kind":"registry_package_match", "package":"@radix-ui/react-popover"}
+        },
+        {
+            "id":"dialog-alias", "location":{"file":"src/App.tsx", "line":3},
+            "symbol":"D.Root", "qualified_symbol":"@radix-ui/react-dialog#Root",
+            "registry_symbol":"@radix-ui/react-dialog#Root", "match_status":"resolved",
+            "callee_origin":"registry",
+            "resolution_evidence":{"kind":"registry_package_match", "package":"@radix-ui/react-dialog"}
+        },
+        {
+            "id":"popover-export-alias", "location":{"file":"src/App.tsx", "line":4},
+            "symbol":"Popover.AnchorRoot", "qualified_symbol":"@radix-ui/react-popover#AnchorRoot",
+            "registry_symbol":"@radix-ui/react-popover#Root", "match_status":"resolved",
+            "callee_origin":"registry",
+            "resolution_evidence":{"kind":"registry_package_match", "package":"@radix-ui/react-popover"}
+        },
+        {
+            "id":"dialog-candidate", "location":{"file":"src/App.tsx", "line":5},
+            "symbol":"Root", "registry_symbol":"@radix-ui/react-dialog#Root",
+            "match_status":"candidate", "callee_origin":"registry",
+            "resolution_evidence":{"kind":"registry_import_missing"}
         }
     ]);
     let component_facts = serde_json::json!([
@@ -372,6 +392,35 @@ fn scan_output_keeps_package_qualified_components_distinct_in_merged_facts() {
         [
             "react:registry:@radix-ui/react-dialog#Root",
             "react:registry:@radix-ui/react-popover#Root",
+            "react:candidate:@radix-ui/react-dialog#Root",
+        ]
+    );
+    for (summary, count, qualified) in [
+        (
+            &merged.symbol_usage_summary[0],
+            2,
+            Some("@radix-ui/react-dialog#Root"),
+        ),
+        (&merged.symbol_usage_summary[1], 2, None),
+        (&merged.symbol_usage_summary[2], 1, None),
+    ] {
+        assert_eq!(summary.symbol, "Root");
+        assert_eq!(summary.raw_invocation_count, count);
+        assert_eq!(summary.qualified_symbol.as_deref(), qualified);
+    }
+    let facts = merged.languages.values().next().unwrap();
+    assert_eq!(
+        facts
+            .usage_sites
+            .iter()
+            .map(|site| site.symbol.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "Dialog.Root",
+            "Popover.Root",
+            "D.Root",
+            "Popover.AnchorRoot",
+            "Root"
         ]
     );
 }

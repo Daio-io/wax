@@ -1,5 +1,6 @@
 //! React component extraction from parsed SWC modules.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 use swc_common::{Span, Spanned};
@@ -151,21 +152,6 @@ fn module_identity_for_file(file: &str) -> String {
 
 fn qualified_component_symbol(module_identity: &str, symbol: &str) -> String {
     format!("{module_identity}#{symbol}")
-}
-
-fn imported_qualified_symbol(
-    module_graph: &ReactModuleGraph,
-    parsed: &ParsedReactModule,
-    candidate: &JsxUsageCandidate,
-) -> Option<String> {
-    let import = module_graph.import_binding(&parsed.file, &candidate.binding_name)?;
-    let package = npm_import_package_root(&import.source_specifier);
-    let symbol = match &import.imported_symbol {
-        ImportedSymbol::Named(symbol) => symbol,
-        ImportedSymbol::Default => &candidate.binding_name,
-        ImportedSymbol::Namespace => return None,
-    };
-    Some(format!("{package}#{symbol}"))
 }
 
 fn import_package(
@@ -325,22 +311,6 @@ pub fn collect_usage_sites(
                     resolution_evidence: classified.resolution_evidence,
                     match_status: classified.match_status,
                     registry_symbol: classified.registry_symbol,
-                    local_definition_id: None,
-                    parent,
-                });
-            } else if candidate.parent_component.is_some() {
-                extraction.usage_sites.push(UsageSite {
-                    id: usage_site_id(&location, &candidate.symbol),
-                    location,
-                    symbol: candidate.symbol.clone(),
-                    qualified_symbol: imported_qualified_symbol(module_graph, parsed, candidate),
-                    callee_origin: unresolved_origin(module_graph, parsed, &candidate.binding_name),
-                    resolution_evidence: ResolutionEvidence {
-                        kind: ResolutionEvidenceKind::NoMatchingDefinition,
-                        package: import_package(module_graph, parsed, &candidate.binding_name),
-                    },
-                    match_status: MatchStatus::Unresolved,
-                    registry_symbol: None,
                     local_definition_id: None,
                     parent,
                 });
@@ -1208,11 +1178,42 @@ fn classify_jsx_usage(
     registry: &ReactRegistryIndex,
     candidate: &JsxUsageCandidate,
 ) -> Option<ClassifiedJsxUsage> {
-    let name = registry_lookup_name(parsed, module_graph, config, registry, candidate)?;
-    let import_package = import_package(module_graph, parsed, &candidate.binding_name);
-    let registry_match = registry
-        .components
-        .resolve(&name, import_package.as_deref());
+    let import = module_graph.import_binding(&parsed.file, &candidate.binding_name);
+    let import_package = import.map(|binding| npm_import_package_root(&binding.source_specifier));
+    let is_external = import.is_some_and(|binding| {
+        binding.source_module.is_none() && !is_path_like_import(&binding.source_specifier)
+    });
+    let observed_path = import
+        .filter(|binding| is_external || binding.imported_symbol != ImportedSymbol::Default)
+        .and_then(|binding| imported_jsx_path(candidate, &binding.imported_symbol));
+    let written_names = [candidate.symbol.as_str(), candidate.binding_name.as_str()];
+    let name = if is_external {
+        observed_path
+            .as_deref()
+            .filter(|path| registry.components.contains_name(path))
+            .or_else(|| {
+                written_names.into_iter().find(|name| {
+                    matches!(
+                        registry.components.resolve(name, None),
+                        Some((RegistryImportMatch::LegacyNameOnly, _))
+                    )
+                })
+            })
+            .map(Cow::Borrowed)
+    } else {
+        registry_lookup_name(parsed, module_graph, config, registry, candidate).map(Cow::Owned)
+    };
+    if name.is_none()
+        && candidate.parent_component.is_none()
+        && !written_names
+            .into_iter()
+            .any(|name| registry.components.contains_name(name))
+    {
+        return None;
+    }
+    let registry_match = name
+        .as_deref()
+        .and_then(|name| registry.components.resolve(name, import_package.as_deref()));
     let target = registry_match.and_then(|(_, target)| target);
     let (match_status, callee_origin, evidence_kind) =
         match registry_match.map(|(classification, _)| classification) {
@@ -1242,14 +1243,17 @@ fn classify_jsx_usage(
                 ResolutionEvidenceKind::NoMatchingDefinition,
             ),
         };
-    let qualified_symbol = import_package.as_deref().map(|package| {
-        let import = module_graph.import_binding(&parsed.file, &candidate.binding_name);
-        let observed = match import.map(|binding| &binding.imported_symbol) {
-            Some(ImportedSymbol::Named(symbol)) => symbol,
-            Some(ImportedSymbol::Namespace) => namespace_member_symbol(candidate).unwrap_or(&name),
-            _ => target.map_or(name.as_str(), |component| component.symbol.as_str()),
-        };
-        format!("{package}#{observed}")
+    let qualified_symbol = import_package.as_deref().and_then(|package| {
+        let observed = observed_path
+            .as_deref()
+            .or_else(|| target.map(|component| component.symbol.as_str()))
+            .or(name.as_deref())
+            .or_else(|| {
+                import
+                    .filter(|binding| binding.imported_symbol == ImportedSymbol::Default)
+                    .map(|_| candidate.binding_name.as_str())
+            })?;
+        Some(format!("{package}#{observed}"))
     });
     Some(ClassifiedJsxUsage {
         registry_symbol: target.map(|component| component.registry_symbol.clone()),
@@ -1272,7 +1276,7 @@ fn registry_lookup_name(
 ) -> Option<String> {
     let contains_name = |name: &str| registry.components.contains_name(name);
     let resolved = module_graph.resolve_import(&parsed.file, &candidate.binding_name);
-    if let Some(member) = namespace_member_symbol(candidate) {
+    if let Some(member) = jsx_member_path(candidate) {
         let import = module_graph.import_binding(&parsed.file, &candidate.binding_name);
         let configured_namespace = resolved.as_ref().filter(|resolved| {
             resolved.symbol == "*"
@@ -1310,7 +1314,23 @@ fn registry_lookup_name(
         .cloned()
 }
 
-fn namespace_member_symbol(candidate: &JsxUsageCandidate) -> Option<&str> {
+fn imported_jsx_path<'a>(
+    candidate: &'a JsxUsageCandidate,
+    imported_symbol: &'a ImportedSymbol,
+) -> Option<Cow<'a, str>> {
+    let member = jsx_member_path(candidate);
+    let root = match imported_symbol {
+        ImportedSymbol::Named(name) => name,
+        ImportedSymbol::Namespace => return member.map(Cow::Borrowed),
+        ImportedSymbol::Default => "default",
+    };
+    Some(match member {
+        Some(member) => Cow::Owned(format!("{root}.{member}")),
+        None => Cow::Borrowed(root),
+    })
+}
+
+fn jsx_member_path(candidate: &JsxUsageCandidate) -> Option<&str> {
     candidate
         .symbol
         .strip_prefix(&candidate.binding_name)?

@@ -396,9 +396,9 @@ pub struct SymbolParentScopeSummary {
 pub struct SymbolUsageSummary {
     /// Normalized callee grouping key for this summary row.
     pub symbol_id: String,
-    /// Source-level callee symbol name.
+    /// Registry component name for matched rows, otherwise the source-level callee name.
     pub symbol: String,
-    /// Best-effort semantic callee identity when available.
+    /// Semantic callee identity when available and shared by all invocations in the row.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub qualified_symbol: Option<String>,
     /// What this summary row represents after grouping usage sites.
