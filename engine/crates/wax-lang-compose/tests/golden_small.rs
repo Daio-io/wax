@@ -551,3 +551,33 @@ fn scoped_kotlin_token_requires_a_reference_to_the_imported_binding() {
         [("brand", 3)]
     );
 }
+
+#[test]
+fn scoped_kotlin_token_matches_aliased_object_member_import() {
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path();
+    std::fs::create_dir(root.join("design-system")).unwrap();
+    std::fs::create_dir(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("design-system/registry.json"),
+        r#"{"schema_version":1,"components":[],"tokens":[
+            {"id":"blue","key":"Colors.blue","category":"color","package":"design.palette"},
+            {"id":"other-blue","key":"Colors.blue","category":"color","package":"other.palette"}
+        ]}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src/Screen.kt"),
+        "import design.palette.Colors.blue as brand\nimport other.palette.Colors.blue\nimport unrelated.palette.Colors.blue as stray\nval first = brand\nval second = blue\nval third = stray\n",
+    )
+    .unwrap();
+
+    let facts = scan_fixture(root, "src", "scoped-member-import");
+    let mut sites: Vec<_> = facts
+        .token_sites
+        .iter()
+        .map(|site| (site.location.line, site.token_id.as_str()))
+        .collect();
+    sites.sort_unstable();
+    assert_eq!(sites, [(4, "blue"), (5, "other-blue")]);
+}

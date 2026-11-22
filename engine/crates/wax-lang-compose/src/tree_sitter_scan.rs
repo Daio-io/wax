@@ -915,17 +915,22 @@ fn match_token_reference<'a>(
         return index.match_reference(text, None, None);
     };
     let (root, suffix) = path.split_once('.').unwrap_or((&path, ""));
-    let exported_path;
+    let qualified_path;
     let origin = if imports.ambiguous_symbols.contains(root) {
         None
     } else if let Some(package) = imports.symbol_packages.get(root) {
         let exported = imports.symbol_names.get(root)?;
-        exported_path = if suffix.is_empty() {
-            std::borrow::Cow::Borrowed(exported.as_str())
+        // Member imports (`import design.palette.Colors.blue`) bind below the
+        // registered package, so split the fully qualified reference at the
+        // longest registered package prefix rather than the import's last dot.
+        qualified_path = if suffix.is_empty() {
+            format!("{package}.{exported}")
         } else {
-            std::borrow::Cow::Owned(format!("{exported}.{suffix}"))
+            format!("{package}.{exported}.{suffix}")
         };
-        Some((package.as_str(), exported_path.as_ref()))
+        index
+            .package_qualified_path(&qualified_path)
+            .or_else(|| Some((package.as_str(), &qualified_path[package.len() + 1..])))
     } else {
         index.package_qualified_path(&path).or_else(|| {
             let [package] = imports.wildcard_packages.as_slice() else {
