@@ -1,12 +1,12 @@
 //! Source-backed React registry enrichment.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 
 use serde_json::Map;
 use swc_common::{Span, Spanned, comments::CommentKind};
 use swc_ecma_ast::{
-    Decl, DefaultDecl, ExportSpecifier, Expr, ImportSpecifier, ModuleDecl, ModuleExportName,
+    Decl, DefaultDecl, ExportSpecifier, Expr, Id, ImportSpecifier, ModuleDecl, ModuleExportName,
     ModuleItem, ObjectPat, ObjectPatProp, Pat, Stmt, TsInterfaceDecl, TsKeywordTypeKind, TsLit,
     TsType, TsTypeAliasDecl, TsTypeElement, TsUnionOrIntersectionType,
 };
@@ -17,7 +17,7 @@ use wax_contract::{
 };
 use wax_lang_api::{DiscoverRegistryRequest, DiscoverRegistryResult};
 
-use crate::component_detect::simple_binding_ident;
+use crate::component_detect::{LocalValue, simple_binding_ident};
 use crate::discover::{
     DamagedReactSources, ReactDiscoverError, ReactWrapperCallees, callee_matches,
     collect_and_parse_react_sources, react_wrapper_callees,
@@ -136,7 +136,7 @@ pub fn discover_registry_details(
 
 #[derive(Debug, Clone, Copy)]
 struct ComponentImpl<'a> {
-    signature_span: Span,
+    signature_span: Option<Span>,
     parameter: Option<&'a Pat>,
 }
 
@@ -155,14 +155,7 @@ fn component_declarations(
             name,
             ComponentDeclaration {
                 fallback_symbol,
-                details: component_details(
-                    parsed,
-                    span,
-                    implementation.signature_span,
-                    implementation.parameter,
-                    &props,
-                    &imports,
-                ),
+                details: component_details(parsed, span, implementation, &props, &imports),
             },
         );
     };
@@ -191,7 +184,10 @@ fn component_declarations(
                         is_direct(name).then(|| name.to_owned()),
                         span,
                         ComponentImpl {
-                            signature_span: signature_span_for_function(span, &function.function),
+                            signature_span: Some(signature_span_for_function(
+                                span,
+                                &function.function,
+                            )),
                             parameter: function.function.params.first().map(|param| &param.pat),
                         },
                     );
@@ -246,10 +242,10 @@ fn component_declarations(
                                 fallback,
                                 default_decl.span,
                                 ComponentImpl {
-                                    signature_span: signature_span_for_function(
+                                    signature_span: Some(signature_span_for_function(
                                         default_decl.span,
                                         &function.function,
-                                    ),
+                                    )),
                                     parameter: function
                                         .function
                                         .params
@@ -339,10 +335,10 @@ fn local_component_impls(parsed: &ParsedReactModule) -> BTreeMap<String, Compone
                 locals.insert(
                     function.ident.sym.to_string(),
                     ComponentImpl {
-                        signature_span: signature_span_for_function(
+                        signature_span: Some(signature_span_for_function(
                             function.function.span,
                             &function.function,
-                        ),
+                        )),
                         parameter,
                     },
                 );
@@ -370,16 +366,30 @@ fn component_impl_from_expr<'a>(
     expr: &'a Expr,
     export_span: Span,
     locals: &BTreeMap<String, ComponentImpl<'a>>,
-    wrapper_callees: &ReactWrapperCallees,
+    wrapper_callees: &ReactWrapperCallees<'a>,
 ) -> Option<ComponentImpl<'a>> {
     if let Some(implementation) = direct_function_impl(expr) {
         return Some(ComponentImpl {
-            signature_span: Span::new(export_span.lo, implementation.signature_span.hi),
+            signature_span: implementation
+                .signature_span
+                .map(|span| Span::new(export_span.lo, span.hi)),
             parameter: implementation.parameter,
         });
     }
-    react_wrapper_component(expr, export_span, locals, wrapper_callees)
-        .map(|(_, implementation)| implementation)
+    if let Some((_, implementation)) =
+        react_wrapper_component(expr, export_span, locals, wrapper_callees)
+    {
+        return Some(implementation);
+    }
+    let parameter = match wrapper_callees.factory_component(expr)? {
+        LocalValue::Function(function) => function.params.first().map(|param| &param.pat),
+        LocalValue::Constant(callback) => direct_function_impl(callback)?.parameter,
+        LocalValue::Class(_) => None,
+    };
+    Some(ComponentImpl {
+        signature_span: None,
+        parameter,
+    })
 }
 
 /// Unwraps `memo` / `forwardRef` (including nested wrappers) to the inner component.
@@ -390,48 +400,18 @@ fn react_wrapper_component<'a>(
     expr: &'a Expr,
     export_span: Span,
     locals: &BTreeMap<String, ComponentImpl<'a>>,
-    wrapper_callees: &ReactWrapperCallees,
+    wrapper_callees: &ReactWrapperCallees<'a>,
 ) -> Option<(Option<String>, ComponentImpl<'a>)> {
-    let Expr::Call(call) = expr else {
-        return None;
-    };
-    if call.args.len() != 1 {
-        return None;
+    match wrapper_callees.wrapper_target(expr)? {
+        Expr::Ident(ident) => locals
+            .get(ident.sym.as_ref())
+            .copied()
+            .map(|implementation| (Some(ident.sym.to_string()), implementation)),
+        callback => named_inline_function_component(callback, export_span).or_else(|| {
+            inline_function_component(callback, export_span)
+                .map(|implementation| (None, implementation))
+        }),
     }
-    let arg = &*call.args[0].expr;
-
-    if callee_matches(&call.callee, "memo", wrapper_callees) {
-        return match arg {
-            Expr::Ident(ident) => locals
-                .get(ident.sym.as_ref())
-                .copied()
-                .map(|implementation| {
-                    (
-                        Some(ident.sym.to_string()),
-                        ComponentImpl {
-                            signature_span: implementation.signature_span,
-                            parameter: implementation.parameter,
-                        },
-                    )
-                }),
-            Expr::Call(_) => react_wrapper_component(arg, export_span, locals, wrapper_callees),
-            other => match named_inline_function_component(other, export_span) {
-                named @ Some(_) => named,
-                None => inline_function_component(other, export_span)
-                    .map(|implementation| (None, implementation)),
-            },
-        };
-    }
-
-    if callee_matches(&call.callee, "forwardRef", wrapper_callees) {
-        return match named_inline_function_component(arg, export_span) {
-            named @ Some(_) => named,
-            None => inline_function_component(arg, export_span)
-                .map(|implementation| (None, implementation)),
-        };
-    }
-
-    None
 }
 
 fn named_inline_function_component<'a>(
@@ -446,7 +426,7 @@ fn named_inline_function_component<'a>(
     Some((
         Some(symbol),
         ComponentImpl {
-            signature_span: signature_span_for_function(export_span, &function.function),
+            signature_span: Some(signature_span_for_function(export_span, &function.function)),
             parameter,
         },
     ))
@@ -457,12 +437,12 @@ fn inline_function_component<'a>(expr: &'a Expr, export_span: Span) -> Option<Co
         Expr::Fn(function) => {
             let parameter = function.function.params.first().map(|param| &param.pat);
             Some(ComponentImpl {
-                signature_span: signature_span_for_function(export_span, &function.function),
+                signature_span: Some(signature_span_for_function(export_span, &function.function)),
                 parameter,
             })
         }
         Expr::Arrow(arrow) => Some(ComponentImpl {
-            signature_span: Span::new(export_span.lo, arrow.body.span().lo),
+            signature_span: Some(Span::new(export_span.lo, arrow.body.span().lo)),
             parameter: arrow.params.first(),
         }),
         _ => None,
@@ -472,16 +452,16 @@ fn inline_function_component<'a>(expr: &'a Expr, export_span: Span) -> Option<Co
 fn direct_function_impl(expr: &Expr) -> Option<ComponentImpl<'_>> {
     match expr {
         Expr::Arrow(arrow) => Some(ComponentImpl {
-            signature_span: Span::new(arrow.span().lo, arrow.body.span().lo),
+            signature_span: Some(Span::new(arrow.span().lo, arrow.body.span().lo)),
             parameter: arrow.params.first(),
         }),
         Expr::Fn(function) => {
             let parameter = function.function.params.first().map(|param| &param.pat);
             Some(ComponentImpl {
-                signature_span: signature_span_for_function(
+                signature_span: Some(signature_span_for_function(
                     function.function.span,
                     &function.function,
-                ),
+                )),
                 parameter,
             })
         }
@@ -498,19 +478,19 @@ fn signature_span_for_function(span: Span, function: &swc_ecma_ast::Function) ->
 
 fn class_implementation(span: Span, class: &swc_ecma_ast::Class) -> ComponentImpl<'_> {
     ComponentImpl {
-        signature_span: Span::new(
+        signature_span: Some(Span::new(
             span.lo,
             class
                 .body
                 .first()
                 .map_or(span.hi, |member| member.span().lo),
-        ),
+        )),
         parameter: None,
     }
 }
 
-fn collect_import_packages(parsed: &ParsedReactModule) -> BTreeMap<String, String> {
-    let mut imports = BTreeMap::new();
+fn collect_import_packages(parsed: &ParsedReactModule) -> HashMap<Id, String> {
+    let mut imports = HashMap::new();
     for item in &parsed.module.body {
         let ModuleItem::ModuleDecl(ModuleDecl::Import(import)) = item else {
             continue;
@@ -522,7 +502,7 @@ fn collect_import_packages(parsed: &ParsedReactModule) -> BTreeMap<String, Strin
                 ImportSpecifier::Namespace(specifier) => &specifier.local,
                 ImportSpecifier::Named(specifier) => &specifier.local,
             };
-            imports.insert(local.sym.to_string(), package.clone());
+            imports.insert(local.to_id(), package.clone());
         }
     }
     imports
@@ -530,9 +510,9 @@ fn collect_import_packages(parsed: &ParsedReactModule) -> BTreeMap<String, Strin
 
 fn collect_props_definitions(
     parsed: &ParsedReactModule,
-    imports: &BTreeMap<String, String>,
-) -> BTreeMap<String, PropsDefinition> {
-    let mut definitions = BTreeMap::new();
+    imports: &HashMap<Id, String>,
+) -> HashMap<Id, PropsDefinition> {
+    let mut definitions = HashMap::new();
     for item in &parsed.module.body {
         let decl = match item {
             ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(export)) => Some(&export.decl),
@@ -542,13 +522,13 @@ fn collect_props_definitions(
         match decl {
             Some(Decl::TsInterface(interface)) => {
                 definitions.insert(
-                    interface.id.sym.to_string(),
+                    interface.id.to_id(),
                     props_from_interface(parsed, interface, imports),
                 );
             }
             Some(Decl::TsTypeAlias(alias)) => {
                 if let Some(definition) = props_from_alias(parsed, alias, imports) {
-                    definitions.insert(alias.id.sym.to_string(), definition);
+                    definitions.insert(alias.id.to_id(), definition);
                 }
             }
             _ => {}
@@ -560,7 +540,7 @@ fn collect_props_definitions(
 fn props_from_interface(
     parsed: &ParsedReactModule,
     interface: &TsInterfaceDecl,
-    imports: &BTreeMap<String, String>,
+    imports: &HashMap<Id, String>,
 ) -> PropsDefinition {
     PropsDefinition {
         parameters: parameters_from_members(parsed, &interface.body.body, imports),
@@ -571,7 +551,7 @@ fn props_from_interface(
 fn props_from_alias(
     parsed: &ParsedReactModule,
     alias: &TsTypeAliasDecl,
-    imports: &BTreeMap<String, String>,
+    imports: &HashMap<Id, String>,
 ) -> Option<PropsDefinition> {
     let TsType::TsTypeLit(literal) = &*alias.type_ann else {
         return None;
@@ -585,7 +565,7 @@ fn props_from_alias(
 fn parameters_from_members(
     parsed: &ParsedReactModule,
     members: &[TsTypeElement],
-    imports: &BTreeMap<String, String>,
+    imports: &HashMap<Id, String>,
 ) -> Vec<RegistryParameter> {
     members
         .iter()
@@ -613,8 +593,8 @@ fn parameters_from_members(
             let package = property
                 .type_ann
                 .as_ref()
-                .and_then(|annotation| imported_type_name(&annotation.type_ann))
-                .and_then(|name| imports.get(name))
+                .and_then(|annotation| imported_type_id(&annotation.type_ann))
+                .and_then(|id| imports.get(&id))
                 .cloned();
             Some(RegistryParameter {
                 name,
@@ -687,15 +667,18 @@ fn parameter_type_facts(
 fn component_details(
     parsed: &ParsedReactModule,
     span: Span,
-    signature_span: Span,
-    parameter: Option<&Pat>,
-    props: &BTreeMap<String, PropsDefinition>,
-    imports: &BTreeMap<String, String>,
+    implementation: ComponentImpl<'_>,
+    props: &HashMap<Id, PropsDefinition>,
+    imports: &HashMap<Id, String>,
 ) -> RegistryDetails {
+    let ComponentImpl {
+        signature_span,
+        parameter,
+    } = implementation;
     let (props_type_text, mut parameters, mut field_gaps) =
         signature_facts(parsed, parameter, props, imports);
-    let type_text = parsed
-        .source_slice_from_span(signature_span)
+    let type_text = signature_span
+        .and_then(|span| parsed.source_slice_from_span(span))
         .map(|text| text.trim().to_owned());
     apply_destructured_defaults(parsed, parameter, &mut parameters);
     let jsdoc = jsdoc_for_span(parsed, span);
@@ -715,6 +698,14 @@ fn component_details(
             }]
         })
         .unwrap_or_default();
+    if signature_span.is_none() {
+        field_gaps.push(RegistryFieldGap {
+            field: "signature.type_text".to_owned(),
+            reason: "the public signature of the factory result requires type resolution"
+                .to_owned(),
+            extra: Map::new(),
+        });
+    }
     if props_type_text.is_none() {
         field_gaps.push(RegistryFieldGap {
             field: "signature.parameters".to_owned(),
@@ -756,8 +747,8 @@ fn component_details(
 fn signature_facts(
     parsed: &ParsedReactModule,
     parameter: Option<&Pat>,
-    props: &BTreeMap<String, PropsDefinition>,
-    imports: &BTreeMap<String, String>,
+    props: &HashMap<Id, PropsDefinition>,
+    imports: &HashMap<Id, String>,
 ) -> (
     Option<String>,
     Vec<RegistryParameter>,
@@ -773,7 +764,7 @@ fn signature_facts(
     let Some(annotation) = type_annotation else {
         return (type_text, Vec::new(), Vec::new());
     };
-    let type_name = match &*annotation.type_ann {
+    let ident = match &*annotation.type_ann {
         TsType::TsTypeLit(literal) => {
             return (
                 type_text,
@@ -782,17 +773,15 @@ fn signature_facts(
             );
         }
         TsType::TsTypeRef(reference) => match &reference.type_name {
-            swc_ecma_ast::TsEntityName::Ident(ident) => ident.sym.as_ref(),
+            swc_ecma_ast::TsEntityName::Ident(ident) => ident,
             swc_ecma_ast::TsEntityName::TsQualifiedName(qualified) => {
                 let package = match &qualified.left {
-                    swc_ecma_ast::TsEntityName::Ident(ident) => ident.sym.to_string(),
-                    swc_ecma_ast::TsEntityName::TsQualifiedName(_) => String::new(),
+                    swc_ecma_ast::TsEntityName::Ident(ident) => {
+                        imports.get(&ident.to_id()).cloned()
+                    }
+                    swc_ecma_ast::TsEntityName::TsQualifiedName(_) => None,
                 };
-                return imported_props_parameters(
-                    parameter,
-                    type_text,
-                    imports.get(&package).cloned(),
-                );
+                return imported_props_parameters(parameter, type_text, package);
             }
         },
         _ => {
@@ -808,8 +797,10 @@ fn signature_facts(
             );
         }
     };
-    let Some(definition) = props.get(type_name) else {
-        if let Some(package) = imports.get(type_name) {
+    let type_name = &ident.sym;
+    let id = ident.to_id();
+    let Some(definition) = props.get(&id) else {
+        if let Some(package) = imports.get(&id) {
             return imported_props_parameters(parameter, type_text, Some(package.clone()));
         }
         return (
@@ -880,12 +871,12 @@ fn imported_props_parameters(
     (type_text, parameters, Vec::new())
 }
 
-fn imported_type_name(ty: &TsType) -> Option<&str> {
+fn imported_type_id(ty: &TsType) -> Option<Id> {
     let TsType::TsTypeRef(reference) = ty else {
         return None;
     };
     match &reference.type_name {
-        swc_ecma_ast::TsEntityName::Ident(ident) => Some(ident.sym.as_ref()),
+        swc_ecma_ast::TsEntityName::Ident(ident) => Some(ident.to_id()),
         swc_ecma_ast::TsEntityName::TsQualifiedName(_) => None,
     }
 }
