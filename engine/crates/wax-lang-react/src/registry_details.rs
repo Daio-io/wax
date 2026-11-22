@@ -19,8 +19,8 @@ use wax_lang_api::{DiscoverRegistryRequest, DiscoverRegistryResult};
 
 use crate::component_detect::{LocalValue, simple_binding_ident};
 use crate::discover::{
-    DamagedReactSources, ReactDiscoverError, ReactWrapperCallees, callee_matches,
-    collect_and_parse_react_sources, react_wrapper_callees,
+    DamagedReactSources, ReactDiscoverError, ReactWrapperCallees, collect_and_parse_react_sources,
+    react_wrapper_callees,
 };
 use crate::palette_discovery::{apply_token_evidence, discover_palette_tokens};
 use crate::public_exports::{PublicBinding, public_bindings};
