@@ -69,8 +69,8 @@ fn stdio_cli_emits_discover_symbols_for_fixture_roots() {
     match response {
         WirePackResponse::DiscoverSymbols { symbols, .. } => {
             assert!(symbols.contains(&"Button".to_owned()));
-            assert!(symbols.contains(&"InlineMemo".to_owned()));
-            assert!(symbols.contains(&"InlineRef".to_owned()));
+            assert!(!symbols.contains(&"InlineMemo".to_owned()));
+            assert!(!symbols.contains(&"InlineRef".to_owned()));
             assert!(symbols.contains(&"MemoButton".to_owned()));
             assert!(!symbols.contains(&"PrivateBadge".to_owned()));
             assert!(!symbols.contains(&"lowerBadge".to_owned()));

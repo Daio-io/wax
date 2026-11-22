@@ -3,19 +3,20 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
-use swc_common::Span;
 use swc_ecma_ast::{
-    Callee, Decl, DefaultDecl, ExportSpecifier, Expr, ImportSpecifier, MemberProp, ModuleDecl,
-    ModuleItem, Stmt, VarDeclarator,
+    Callee, Decl, DefaultDecl, Expr, ImportSpecifier, MemberProp, ModuleDecl, ModuleItem, Stmt,
+    VarDeclarator,
 };
 use wax_contract::{Diagnostic, DiagnosticSeverity};
-use wax_lang_api::{DiscoveredRegistrySymbol, npm_package_name_for_path};
+use wax_lang_api::DiscoveredRegistrySymbol;
 
 use crate::component_detect::{
-    class_returns_jsx, expression_returns_jsx, function_returns_jsx, is_pascal_case,
-    module_export_name, simple_binding_ident,
+    class_returns_jsx, expression_returns_jsx, function_returns_jsx, module_export_name,
+    simple_binding_ident,
 };
+use crate::public_exports::{PackageManifest, package_for_file, public_bindings};
 use crate::swc_parse::{ParsedReactModule, ReactParseOutcome, parse_react_source_file};
 
 /// Result of discovering React registry symbols from source roots.
@@ -80,8 +81,8 @@ impl std::error::Error for ReactDiscoverError {
 /// Successfully parsed React source file with package metadata.
 #[derive(Debug)]
 pub(crate) struct ParsedReactSourceFile {
-    /// npm package inferred for the source file, when available.
-    pub package: Option<String>,
+    /// Nearest named npm package, when available.
+    pub package: Option<Rc<PackageManifest>>,
     /// Parsed module AST and source metadata (`parsed.file` is repo-relative).
     pub parsed: ParsedReactModule,
 }
@@ -100,20 +101,23 @@ pub fn discover_registry_symbols(
     roots: &[PathBuf],
 ) -> Result<DiscoverSymbolsResult, ReactDiscoverError> {
     let mut diagnostics = Vec::new();
-    let (parsed_files, _) = collect_and_parse_react_sources(parse_root, roots, &mut diagnostics)?;
+    let (parsed_files, damaged_paths) =
+        collect_and_parse_react_sources(parse_root, roots, &mut diagnostics)?;
 
     let mut components = BTreeMap::<String, Option<String>>::new();
-    for file in parsed_files {
-        let mut file_symbols = BTreeSet::new();
-        collect_exported_component_symbols(&file.parsed.module.body, &mut file_symbols);
-        for symbol in file_symbols {
-            insert_discovered_symbol(
-                &mut components,
-                &mut diagnostics,
-                symbol,
-                file.package.clone(),
-            );
-        }
+    for binding in public_bindings(
+        parse_root,
+        roots,
+        &parsed_files,
+        &damaged_paths,
+        &mut diagnostics,
+    ) {
+        insert_discovered_symbol(
+            &mut components,
+            &mut diagnostics,
+            binding.symbol,
+            binding.package.map(str::to_owned),
+        );
     }
 
     Ok(DiscoverSymbolsResult {
@@ -148,12 +152,14 @@ pub(crate) fn collect_and_parse_react_sources(
         })?;
     }
     source_files.sort();
+    source_files.dedup();
 
     let mut parsed_files = Vec::new();
     let mut damaged_paths = Vec::new();
+    let mut manifests = BTreeMap::new();
     for file_path in source_files {
         let relative_path = repo_relative_path(parse_root, &file_path);
-        let package = npm_package_name_for_path(parse_root, &file_path);
+        let package = package_for_file(parse_root, Path::new(&relative_path), &mut manifests);
         match parse_react_source_file(parse_root, Path::new(&relative_path)).map_err(|err| {
             let crate::ReactParseError::Io { source, .. } = err;
             ReactDiscoverError::Io {
@@ -267,113 +273,6 @@ fn is_supported_react_source(path: &Path) -> bool {
         || name.ends_with(".ts")
 }
 
-fn collect_exported_component_symbols(items: &[ModuleItem], symbols: &mut BTreeSet<String>) {
-    let wrapper_callees = react_wrapper_callees(items);
-    let local_components = local_component_bindings(items, &wrapper_callees);
-
-    for item in items {
-        match item {
-            ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(export_decl)) => {
-                collect_export_decl_symbols(&export_decl.decl, &local_components, symbols);
-            }
-            ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultDecl(default_decl)) => {
-                collect_default_decl_symbol(default_decl, symbols);
-            }
-            ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultExpr(default_expr)) => {
-                match &*default_expr.expr {
-                    Expr::Ident(ident)
-                        if is_pascal_case(ident.sym.as_ref())
-                            && local_components.contains(ident.sym.as_ref()) =>
-                    {
-                        symbols.insert(ident.sym.to_string());
-                    }
-                    expr => {
-                        if let Some((name, _)) =
-                            default_wrapper_component(expr, &local_components, &wrapper_callees)
-                            && is_pascal_case(&name)
-                        {
-                            symbols.insert(name);
-                        }
-                    }
-                }
-            }
-            ModuleItem::ModuleDecl(ModuleDecl::ExportNamed(named_export))
-                if named_export.src.is_none() =>
-            {
-                for specifier in &named_export.specifiers {
-                    if let ExportSpecifier::Named(named) = specifier {
-                        let local_name = module_export_name(&named.orig);
-                        if is_pascal_case(&local_name)
-                            && local_components.contains(&local_name)
-                            && named.exported.is_none()
-                        {
-                            symbols.insert(local_name);
-                            // Aliased local exports are intentionally left for a follow-up pass:
-                            // registry discover v1 favors unambiguous public symbol names.
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
-fn collect_export_decl_symbols(
-    decl: &Decl,
-    local_components: &BTreeSet<String>,
-    symbols: &mut BTreeSet<String>,
-) {
-    match decl {
-        Decl::Fn(fn_decl)
-            if is_pascal_case(fn_decl.ident.sym.as_ref())
-                && function_returns_jsx(&fn_decl.function) =>
-        {
-            symbols.insert(fn_decl.ident.sym.to_string());
-        }
-        Decl::Class(class_decl)
-            if is_pascal_case(class_decl.ident.sym.as_ref())
-                && class_returns_jsx(&class_decl.class) =>
-        {
-            symbols.insert(class_decl.ident.sym.to_string());
-        }
-        Decl::Var(var_decl) => {
-            for declarator in &var_decl.decls {
-                if let Some((name, _)) = simple_binding_ident(declarator)
-                    && is_pascal_case(&name)
-                    && local_components.contains(&name)
-                {
-                    symbols.insert(name);
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-fn collect_default_decl_symbol(
-    default_decl: &swc_ecma_ast::ExportDefaultDecl,
-    symbols: &mut BTreeSet<String>,
-) {
-    match &default_decl.decl {
-        DefaultDecl::Fn(fn_expr)
-            if let Some(ident) = &fn_expr.ident
-                && is_pascal_case(ident.sym.as_ref())
-                && function_returns_jsx(&fn_expr.function) =>
-        {
-            symbols.insert(ident.sym.to_string());
-        }
-        DefaultDecl::Class(class_expr)
-            if let Some(ident) = &class_expr.ident
-                && is_pascal_case(ident.sym.as_ref())
-                && class_returns_jsx(&class_expr.class) =>
-        {
-            symbols.insert(ident.sym.to_string());
-        }
-        _ => {}
-    }
-}
-
 #[derive(Debug, Default)]
 pub(crate) struct ReactWrapperCallees {
     direct_memo: BTreeSet<String>,
@@ -429,7 +328,7 @@ pub(crate) fn react_wrapper_callees(items: &[ModuleItem]) -> ReactWrapperCallees
     callees
 }
 
-fn local_component_bindings(
+pub(crate) fn local_component_bindings(
     items: &[ModuleItem],
     wrapper_callees: &ReactWrapperCallees,
 ) -> BTreeSet<String> {
@@ -462,14 +361,12 @@ fn collect_jsx_returning_declaration(item: &ModuleItem, detected: &mut BTreeSet<
             match &default_decl.decl {
                 DefaultDecl::Fn(fn_expr)
                     if let Some(ident) = &fn_expr.ident
-                        && is_pascal_case(ident.sym.as_ref())
                         && function_returns_jsx(&fn_expr.function) =>
                 {
                     detected.insert(ident.sym.to_string());
                 }
                 DefaultDecl::Class(class_expr)
                     if let Some(ident) = &class_expr.ident
-                        && is_pascal_case(ident.sym.as_ref())
                         && class_returns_jsx(&class_expr.class) =>
                 {
                     detected.insert(ident.sym.to_string());
@@ -483,22 +380,15 @@ fn collect_jsx_returning_declaration(item: &ModuleItem, detected: &mut BTreeSet<
 
 fn collect_decl_component(decl: &Decl, detected: &mut BTreeSet<String>) {
     match decl {
-        Decl::Fn(fn_decl)
-            if is_pascal_case(fn_decl.ident.sym.as_ref())
-                && function_returns_jsx(&fn_decl.function) =>
-        {
+        Decl::Fn(fn_decl) if function_returns_jsx(&fn_decl.function) => {
             detected.insert(fn_decl.ident.sym.to_string());
         }
-        Decl::Class(class_decl)
-            if is_pascal_case(class_decl.ident.sym.as_ref())
-                && class_returns_jsx(&class_decl.class) =>
-        {
+        Decl::Class(class_decl) if class_returns_jsx(&class_decl.class) => {
             detected.insert(class_decl.ident.sym.to_string());
         }
         Decl::Var(var_decl) => {
             for declarator in &var_decl.decls {
                 if let Some((name, _)) = simple_binding_ident(declarator)
-                    && is_pascal_case(&name)
                     && declarator
                         .init
                         .as_deref()
@@ -537,7 +427,7 @@ fn collect_wrapper_var_declarator(
     let Some((binding_name, _)) = simple_binding_ident(declarator) else {
         return false;
     };
-    if !is_pascal_case(&binding_name) || detected.contains(&binding_name) {
+    if detected.contains(&binding_name) {
         return false;
     }
 
@@ -596,65 +486,34 @@ fn is_forward_ref_call_of_inline_component(
     expression_returns_jsx(&call.args[0].expr)
 }
 
-fn default_wrapper_component(
+pub(crate) fn default_expression_component(
     expr: &Expr,
     detected: &BTreeSet<String>,
     wrapper_callees: &ReactWrapperCallees,
-) -> Option<(String, Span)> {
-    let Expr::Call(call) = expr else {
-        return None;
-    };
-    if call.args.len() != 1 {
-        return None;
+) -> Option<String> {
+    if expression_returns_jsx(expr) {
+        return Some(expression_component_name(expr));
     }
-
-    if callee_matches(&call.callee, "memo", wrapper_callees) {
-        match &*call.args[0].expr {
-            Expr::Ident(component) if detected.contains(component.sym.as_ref()) => {
-                return Some((component.sym.to_string(), component.span));
-            }
-            Expr::Fn(fn_expr) => {
-                let ident = fn_expr.ident.as_ref()?;
-                if function_returns_jsx(&fn_expr.function) {
-                    return Some((ident.sym.to_string(), ident.span));
-                }
-            }
-            Expr::Call(_) => {
-                if let Some(component) =
-                    forward_ref_function_component(&call.args[0].expr, wrapper_callees)
-                {
-                    return Some(component);
-                }
-            }
-            _ => {}
+    if is_memo_call_of_detected_component(expr, detected, wrapper_callees)
+        || is_memo_call_of_inline_component(expr, wrapper_callees)
+        || is_forward_ref_call_of_inline_component(expr, wrapper_callees)
+    {
+        let mut inner = expr;
+        while let Expr::Call(call) = inner {
+            inner = &call.args.first()?.expr;
         }
+        return Some(expression_component_name(inner));
     }
-
-    if let Some(component) = forward_ref_function_component(expr, wrapper_callees) {
-        return Some(component);
-    }
-
     None
 }
 
-fn forward_ref_function_component(
-    expr: &Expr,
-    wrapper_callees: &ReactWrapperCallees,
-) -> Option<(String, Span)> {
-    let Expr::Call(call) = expr else {
-        return None;
+fn expression_component_name(expr: &Expr) -> String {
+    let ident = match expr {
+        Expr::Fn(function) => function.ident.as_ref(),
+        Expr::Ident(ident) => Some(ident),
+        _ => None,
     };
-    if !callee_matches(&call.callee, "forwardRef", wrapper_callees) || call.args.len() != 1 {
-        return None;
-    }
-    let Expr::Fn(fn_expr) = &*call.args[0].expr else {
-        return None;
-    };
-    let ident = fn_expr.ident.as_ref()?;
-    if !function_returns_jsx(&fn_expr.function) {
-        return None;
-    }
-    Some((ident.sym.to_string(), ident.span))
+    ident.map_or_else(|| "default".to_owned(), |ident| ident.sym.to_string())
 }
 
 pub(crate) fn callee_matches(
@@ -754,56 +613,6 @@ mod tests {
         assert!(callees.direct_memo.contains("memo"));
         assert!(callees.direct_forward_ref.contains("fr"));
         assert!(callees.react_namespaces.contains("React"));
-    }
-
-    #[test]
-    fn exported_symbols_ignore_memo_without_react_import() {
-        let parsed = parse_module(
-            "src/untracked-memo.tsx",
-            r#"
-            function memo(_component) {
-                return _component;
-            }
-            function Base() {
-                return <button />;
-            }
-            export const FakeMemo = memo(Base);
-            "#,
-        );
-
-        let mut symbols = BTreeSet::new();
-        collect_exported_component_symbols(&parsed.module.body, &mut symbols);
-
-        assert!(symbols.is_empty());
-    }
-
-    #[test]
-    fn exported_symbols_include_memo_with_named_react_import() {
-        let parsed = parse_module(
-            "src/memo-button.tsx",
-            r#"
-            import { memo } from "react";
-            function ButtonBase() {
-                return <button />;
-            }
-            export const MemoButton = memo(ButtonBase);
-            "#,
-        );
-
-        let mut symbols = BTreeSet::new();
-        collect_exported_component_symbols(&parsed.module.body, &mut symbols);
-
-        assert_eq!(symbols.into_iter().collect::<Vec<_>>(), vec!["MemoButton"]);
-    }
-
-    #[test]
-    fn exported_symbols_skip_barrel_reexports_without_local_implementation() {
-        let parsed = parse_module("src/index.ts", r#"export { Button } from "./components";"#);
-
-        let mut symbols = BTreeSet::new();
-        collect_exported_component_symbols(&parsed.module.body, &mut symbols);
-
-        assert!(symbols.is_empty());
     }
 
     fn parse_module(file: &str, source: &str) -> crate::ParsedReactModule {

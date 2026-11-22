@@ -491,7 +491,7 @@ fn record_default_export_expr(default_expr: &ExportDefaultExpr, record: &mut Rea
         .insert("default".to_owned(), ExportBinding::Local(local_name));
 }
 
-fn declared_names(decl: &Decl) -> Vec<String> {
+pub(crate) fn declared_names(decl: &Decl) -> Vec<String> {
     match decl {
         Decl::Class(class_decl) => vec![class_decl.ident.sym.to_string()],
         Decl::Fn(fn_decl) => vec![fn_decl.ident.sym.to_string()],
@@ -760,7 +760,7 @@ fn resolve_repo_relative_target(target: &str, known_files: &BTreeSet<PathBuf>) -
     resolve_path_with_extensions_and_index(&normalized, known_files)
 }
 
-fn resolve_path_with_extensions_and_index(
+pub(crate) fn resolve_path_with_extensions_and_index(
     normalized: &Path,
     known_files: &BTreeSet<PathBuf>,
 ) -> Option<PathBuf> {
@@ -789,7 +789,7 @@ fn resolve_path_with_extensions_and_index(
     None
 }
 
-fn normalize_relative_path(path: &Path) -> Option<PathBuf> {
+pub(crate) fn normalize_relative_path(path: &Path) -> Option<PathBuf> {
     let mut normalized = PathBuf::new();
     for component in path.components() {
         match component {

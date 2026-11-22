@@ -200,7 +200,14 @@ export function RemoteButton() { return <button />; }
     };
 
     let result = discover_registry_details(&request).expect("rich discover should succeed");
-    assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
+    assert_eq!(
+        result
+            .diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.code.as_str())
+            .collect::<Vec<_>>(),
+        ["discover_export_unresolved", "discover_export_unresolved"]
+    );
     let expected_declarations = [
         (
             "src/button.tsx",
@@ -267,6 +274,13 @@ export function RemoteButton() { return <button />; }
         );
     }
 
+    let (public_alias, excluded) = excluded.split_last().unwrap();
+    let alias_details = public_alias.details.as_ref().unwrap();
+    assert_eq!(public_alias.symbol, "PublicButton");
+    assert_eq!(
+        alias_details.source_evidence.as_ref().unwrap().path,
+        "src/excluded.tsx"
+    );
     for component in excluded {
         let details = component.details.as_ref().unwrap();
         assert_eq!(
@@ -1033,14 +1047,8 @@ fn discover_registry_symbols_emits_exported_public_components() {
         vec![
             "Button".to_owned(),
             "Card".to_owned(),
-            "DefaultMemo".to_owned(),
-            "DefaultPanel".to_owned(),
-            "DefaultReactMemo".to_owned(),
             "Dialog".to_owned(),
-            "InlineMemo".to_owned(),
-            "InlineRef".to_owned(),
             "MemoButton".to_owned(),
-            "RichButton".to_owned(),
             "TextInput".to_owned(),
         ]
     );
@@ -1192,7 +1200,7 @@ fn discover_detects_default_forward_ref_exports() -> io::Result<()> {
 }
 
 #[test]
-fn discover_defers_aliased_named_exports() -> io::Result<()> {
+fn discover_uses_the_alias_for_a_named_export_without_a_barrel() -> io::Result<()> {
     let tempdir = tempfile::tempdir()?;
     fs::write(
         tempdir.path().join("Button.tsx"),
@@ -1208,7 +1216,7 @@ fn discover_defers_aliased_named_exports() -> io::Result<()> {
     let result = discover_registry_symbols(tempdir.path(), &[tempdir.path().to_path_buf()])
         .expect("discover should succeed");
 
-    assert!(result.symbols().is_empty());
+    assert_eq!(result.symbols(), ["Alias"]);
     Ok(())
 }
 
@@ -1332,6 +1340,33 @@ fn discover_skips_excluded_source_files() -> io::Result<()> {
 }
 
 #[test]
+fn discover_only_recognizes_memo_imported_from_react() -> io::Result<()> {
+    let result = discover_files(
+        &["src"],
+        &[
+            (
+                "src/memo.tsx",
+                r#"
+                import { memo } from "react";
+                function Base() { return <button />; }
+                export const MemoButton = memo(Base);
+            "#,
+            ),
+            (
+                "src/fake-memo.tsx",
+                r#"
+                function memo(component) { return component; }
+                function Base() { return <button />; }
+                export const FakeMemo = memo(Base);
+            "#,
+            ),
+        ],
+    )?;
+    assert_eq!(result.symbols(), ["MemoButton"]);
+    Ok(())
+}
+
+#[test]
 fn discover_skips_barrel_only_roots_without_implementation_files() -> io::Result<()> {
     let tempdir = tempfile::tempdir()?;
     let root = tempdir.path().join("src");
@@ -1350,4 +1385,493 @@ fn discover_skips_barrel_only_roots_without_implementation_files() -> io::Result
 
 fn fixture_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/discover")
+}
+
+#[test]
+fn discover_prefers_the_root_index_and_keeps_loose_roots_independent() -> io::Result<()> {
+    let result = discover_files(
+        &["src", "src", "src/nested", "loose"],
+        &[
+            (
+                "src/index.tsx",
+                "export function Public() { return <p />; }",
+            ),
+            (
+                "src/index.jsx",
+                "export function LowerPriority() { return <p />; }",
+            ),
+            (
+                "src/internal.tsx",
+                "export function Internal() { return <p />; }",
+            ),
+            (
+                "src/nested/index.tsx",
+                "export function Nested() { return <p />; }",
+            ),
+            (
+                "loose/button.tsx",
+                "export function Loose() { return <p />; }",
+            ),
+        ],
+    )?;
+
+    assert_eq!(result.symbols(), ["Loose", "Nested", "Public"]);
+    Ok(())
+}
+
+#[test]
+fn discover_uses_the_in_scope_package_entry_across_roots() -> io::Result<()> {
+    let result = discover_files(
+        &["a/src", "a/other", "b/src", "b/other"],
+        &[
+            (
+                "a/package.json",
+                r#"{"name":"ui","exports":{".":{"import":"./dist/index.js","source":"./src/public.tsx"},"./other":"./other/internal.tsx"},"source":"./src/index.tsx"}"#,
+            ),
+            (
+                "a/src/public.tsx",
+                "export function Public() { return <p />; }",
+            ),
+            (
+                "a/src/index.tsx",
+                "export function InternalIndex() { return <p />; }",
+            ),
+            (
+                "a/other/internal.tsx",
+                "export function Internal() { return <p />; }",
+            ),
+            (
+                "a/dist/index.js",
+                "export function Built() { return <p />; }",
+            ),
+            (
+                "b/package.json",
+                r#"{"name":"ui","main":"./dist/index.js"}"#,
+            ),
+            (
+                "b/src/index.tsx",
+                "export function SeparateIndex() { return <p />; }",
+            ),
+            (
+                "b/src/internal.tsx",
+                "export function SeparateInternal() { return <p />; }",
+            ),
+            (
+                "b/other/loose.tsx",
+                "export function Loose() { return <p />; }",
+            ),
+        ],
+    )?;
+
+    assert_eq!(result.symbols(), ["Loose", "Public", "SeparateIndex"]);
+    assert!(
+        result
+            .components
+            .iter()
+            .all(|entry| entry.package.as_deref() == Some("ui"))
+    );
+    Ok(())
+}
+
+#[test]
+fn discover_follows_public_aliases_to_value_declarations() -> io::Result<()> {
+    let result = discover_files(
+        &["src"],
+        &[
+            (
+                "src/index.ts",
+                r#"
+                export { LocalButton as Button, default as Icon } from "./controls";
+                export { Fallback as default } from "./fallback";
+                import { LocalButton as Imported } from "./controls";
+                export { Imported as Action };
+            "#,
+            ),
+            (
+                "src/controls.tsx",
+                r#"
+                function implementation() { return <button />; }
+                export { implementation as LocalButton };
+                export default function InternalIcon() { return <svg />; }
+            "#,
+            ),
+            (
+                "src/fallback.tsx",
+                r#"
+                import { memo } from "react";
+                export function Fallback() { return <button />; }
+                export default memo(function UnrelatedDefault() { return <p />; });
+                "#,
+            ),
+        ],
+    )?;
+
+    assert_eq!(result.symbols(), ["Action", "Button", "Fallback", "Icon"]);
+    Ok(())
+}
+
+#[test]
+fn discover_follows_nested_stars_and_namespaces_through_js_specifiers() -> io::Result<()> {
+    let result = discover_files(
+        &["src"],
+        &[
+            (
+                "src/index.ts",
+                r#"
+                export * as Dialog from "./dialog.js";
+                import * as Controls from "./controls.jsx";
+                export { Controls };
+            "#,
+            ),
+            ("src/dialog.ts", r#"export * from "./middle";"#),
+            ("src/middle.ts", r#"export * from "./panel";"#),
+            (
+                "src/panel.tsx",
+                r#"
+                function DialogRoot() { return <dialog />; }
+                export { DialogRoot as Root };
+                export default function StarDefault() { return <p />; }
+            "#,
+            ),
+            (
+                "src/controls.tsx",
+                "export function Button() { return <p />; }",
+            ),
+            (
+                "src/internal.tsx",
+                "export function BaseButton() { return <p />; }",
+            ),
+        ],
+    )?;
+
+    assert_eq!(result.symbols(), ["Controls.Button", "Dialog.Root"]);
+    assert!(result.diagnostics.is_empty());
+    Ok(())
+}
+
+#[test]
+fn discover_omits_ambiguous_star_exports_and_resolves_cycles_by_origin() -> io::Result<()> {
+    let result = discover_files(
+        &["src"],
+        &[
+            (
+                "src/index.ts",
+                r#"
+                export * from "./a";
+                export * from "./b";
+                export { Winner } from "./a";
+                export { Cycle } from "./a";
+                export { Conflict as NestedConflict } from "./nested";
+            "#,
+            ),
+            (
+                "src/a.tsx",
+                r#"
+                export * from "./index";
+                export { Cycle } from "./index";
+                export { Shared } from "./shared";
+                export function Conflict() { return <a />; }
+                export function Winner() { return <a />; }
+            "#,
+            ),
+            (
+                "src/b.tsx",
+                r#"
+                export { Shared } from "./shared";
+                export function Conflict() { return <b />; }
+                export function Winner() { return <b />; }
+            "#,
+            ),
+            (
+                "src/nested.ts",
+                r#"export * from "./a"; export * from "./b";"#,
+            ),
+            (
+                "src/shared.tsx",
+                "export function Shared() { return <p />; }",
+            ),
+        ],
+    )?;
+
+    assert_eq!(result.symbols(), ["Shared", "Winner"]);
+    assert!(result.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == "discover_export_ambiguous" && diagnostic.message.contains("Conflict")
+    }));
+    Ok(())
+}
+
+#[test]
+fn discover_reports_broken_local_edges_and_skips_external_and_type_exports() -> io::Result<()> {
+    let result = discover_files(
+        &["src"],
+        &[
+            (
+                "src/index.ts",
+                r#"
+                export { Broken } from "./broken.js";
+                export { Missing } from "./values";
+                export * from "./absent";
+                export { Outside } from "../outside";
+                export { External } from "external";
+                export type { TypeOnly } from "./type-only";
+                export { type InlineTypeOnly, Visible } from "./values";
+            "#,
+            ),
+            ("src/broken.tsx", "export const Broken = ("),
+            (
+                "src/values.tsx",
+                r#"
+                export function InlineTypeOnly() { return <p />; }
+                export function Visible() { return <p />; }
+            "#,
+            ),
+            ("outside.tsx", "export function Outside() { return <p />; }"),
+        ],
+    )?;
+
+    assert_eq!(result.symbols(), ["Visible"]);
+    let diagnostics: Vec<_> = result
+        .diagnostics
+        .iter()
+        .map(|diagnostic| {
+            (
+                diagnostic.code.as_str(),
+                diagnostic.location.as_ref().unwrap().file.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        diagnostics,
+        [
+            ("parse_failed", "src/broken.tsx"),
+            ("discover_export_unresolved", "src/index.ts"),
+            ("discover_export_unresolved", "src/index.ts"),
+            ("discover_export_unresolved", "src/index.ts"),
+            ("discover_export_unresolved", "src/index.ts"),
+        ]
+    );
+    assert!(result.diagnostics[1].message.contains("src/broken.tsx"));
+    assert!(result.diagnostics[2].message.contains("Missing"));
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_uses_the_public_publisher_and_implementation_evidence()
+-> io::Result<()> {
+    let result = details_for_files(
+        &["publisher/src", "implementation/src"],
+        &[
+            ("publisher/package.json", r#"{"name":"publisher"}"#),
+            (
+                "publisher/src/index.ts",
+                r#"export * as Dialog from "../../implementation/src/dialog.js";"#,
+            ),
+            (
+                "implementation/package.json",
+                r#"{"name":"implementation"}"#,
+            ),
+            (
+                "implementation/src/dialog.tsx",
+                r#"/** Controls the dialog. */
+function DialogRoot({ modal = true }: { modal?: boolean }) {
+    return <dialog open={modal} />;
+}
+export { DialogRoot as Root };
+"#,
+            ),
+        ],
+        serde_json::json!([{"id":"dialog-root","symbol":"Dialog.Root","package":"publisher"}]),
+    )?;
+
+    let details = result.document.components[0].details.as_ref().unwrap();
+    assert_eq!(
+        serde_json::to_value(details).unwrap(),
+        serde_json::json!({
+            "status": "complete",
+            "source_evidence": {
+                "path": "implementation/src/dialog.tsx",
+                "start_line": 2,
+                "end_line": 4
+            },
+            "documentation": "Controls the dialog.",
+            "signature": {
+                "type_text": "function DialogRoot({ modal = true }: { modal?: boolean })",
+                "parameters": [{
+                    "name": "modal", "type_text": "boolean", "type_kind": "boolean",
+                    "default": "true", "required": false
+                }]
+            }
+        })
+    );
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_falls_back_to_unique_direct_exports() -> io::Result<()> {
+    let result = details_for_files(
+        &["src"],
+        &[
+            ("src/index.ts", "export {};"),
+            (
+                "src/one.tsx",
+                r#"
+                export function Curated() { return <p />; }
+                export function Duplicate() { return <p />; }
+            "#,
+            ),
+            (
+                "src/two.tsx",
+                "export function Duplicate() { return <aside />; }",
+            ),
+        ],
+        serde_json::json!([
+            {"id":"curated","symbol":"Curated"},
+            {"id":"duplicate","symbol":"Duplicate"}
+        ]),
+    )?;
+
+    let evidence: Vec<_> = result
+        .document
+        .components
+        .iter()
+        .map(|component| {
+            component
+                .details
+                .as_ref()
+                .unwrap()
+                .source_evidence
+                .as_ref()
+                .map(|source| source.path.as_str())
+        })
+        .collect();
+    assert_eq!(evidence, [Some("src/one.tsx"), None]);
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_attaches_evidence_for_a_renamed_default_class() -> io::Result<()> {
+    let result = details_for_files(
+        &["src"],
+        &[
+            (
+                "src/index.ts",
+                r#"export { default as Card } from "./card";"#,
+            ),
+            (
+                "src/card.tsx",
+                "/** Shows card content. */\nexport default class { render() { return <article />; } }",
+            ),
+        ],
+        serde_json::json!([{"id": "card", "symbol": "Card"}]),
+    )?;
+
+    let details = result.document.components[0].details.as_ref().unwrap();
+    assert_eq!(
+        details.documentation.as_deref(),
+        Some("Shows card content.")
+    );
+    let evidence = details.source_evidence.as_ref().unwrap();
+    assert_eq!(
+        (evidence.path.as_str(), evidence.start_line),
+        ("src/card.tsx", Some(2))
+    );
+    Ok(())
+}
+
+fn details_for_files(
+    roots: &[&str],
+    files: &[(&str, &str)],
+    components: serde_json::Value,
+) -> io::Result<wax_lang_api::DiscoverRegistryResult> {
+    let repo = tempfile::tempdir()?;
+    write_sources(repo.path(), files)?;
+    Ok(discover_registry_details(&DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "react".try_into().unwrap(),
+        repo_root: repo.path().to_string_lossy().into_owned(),
+        roots: roots.iter().map(|root| (*root).to_owned()).collect(),
+        registry: serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "components": components
+        }))
+        .unwrap(),
+    })
+    .expect("rich discover should succeed"))
+}
+
+fn discover_files(
+    roots: &[&str],
+    files: &[(&str, &str)],
+) -> io::Result<wax_lang_react::DiscoverSymbolsResult> {
+    let repo = tempfile::tempdir()?;
+    write_sources(repo.path(), files)?;
+    Ok(ReactLanguage::new()
+        .discover(&DiscoverRequest {
+            request_type: DiscoverRequestType::Discover,
+            api_version: WIRE_API_VERSION,
+            language_id: "react".try_into().unwrap(),
+            repo_root: repo.path().to_string_lossy().into_owned(),
+            roots: roots.iter().map(|root| (*root).to_owned()).collect(),
+        })
+        .expect("discover should succeed"))
+}
+
+fn write_sources(root: &std::path::Path, files: &[(&str, &str)]) -> io::Result<()> {
+    for (path, source) in files {
+        let path = root.join(path);
+        fs::create_dir_all(path.parent().unwrap())?;
+        fs::write(path, source)?;
+    }
+    Ok(())
+}
+
+#[test]
+fn discover_registry_symbols_bounds_shared_star_export_traversal() -> io::Result<()> {
+    let repo = tempfile::tempdir()?;
+    let src = repo.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(
+        src.join("button.tsx"),
+        "export function Button() { return <button />; }\n",
+    )?;
+
+    let mut previous_a = "./button".to_owned();
+    let mut previous_b = "./button".to_owned();
+    for layer in 0..20 {
+        let a = format!("layer-{layer}-a");
+        let b = format!("layer-{layer}-b");
+        fs::write(
+            src.join(format!("{a}.ts")),
+            format!("export * from '{previous_a}';\nexport * from '{previous_b}';\n"),
+        )?;
+        fs::write(
+            src.join(format!("{b}.ts")),
+            format!("export * from '{previous_a}';\nexport * from '{previous_b}';\n"),
+        )?;
+        previous_a = format!("./{a}");
+        previous_b = format!("./{b}");
+    }
+    fs::write(
+        src.join("index.ts"),
+        format!("export * from '{previous_a}';\nexport * from '{previous_b}';\n"),
+    )?;
+
+    let started = std::time::Instant::now();
+    let result = ReactLanguage::new()
+        .discover(&DiscoverRequest {
+            request_type: DiscoverRequestType::Discover,
+            api_version: WIRE_API_VERSION,
+            language_id: "react".try_into().unwrap(),
+            repo_root: repo.path().to_string_lossy().into_owned(),
+            roots: vec!["src".to_owned()],
+        })
+        .expect("discovery should complete");
+
+    assert_eq!(result.symbols(), vec!["Button"]);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(2),
+        "shared star-export graph took {:?}",
+        started.elapsed()
+    );
+    Ok(())
 }

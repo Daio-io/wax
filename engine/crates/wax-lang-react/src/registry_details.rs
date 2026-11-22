@@ -22,6 +22,7 @@ use crate::discover::{
     ReactDiscoverError, ReactWrapperCallees, callee_matches, collect_and_parse_react_sources,
     react_wrapper_callees,
 };
+use crate::public_exports::{PublicBinding, public_bindings};
 use crate::swc_parse::ParsedReactModule;
 
 #[derive(Debug)]
@@ -32,9 +33,13 @@ struct PropsDefinition {
 
 #[derive(Debug)]
 struct ComponentDeclaration {
-    symbol: String,
-    package: Option<String>,
+    fallback_symbol: Option<String>,
     details: RegistryDetails,
+}
+
+struct SourceDeclarations<'a> {
+    package: Option<&'a str>,
+    by_name: BTreeMap<String, ComponentDeclaration>,
 }
 
 #[derive(Debug, Default)]
@@ -76,13 +81,36 @@ pub fn discover_registry_details(
     let (parsed_files, damaged_paths) =
         collect_and_parse_react_sources(repo_root, &absolute_roots, &mut diagnostics)?;
 
-    let mut declarations = Vec::new();
-    for file in parsed_files {
-        declarations.extend(component_declarations(&file.parsed, file.package));
+    let bindings = public_bindings(
+        repo_root,
+        &absolute_roots,
+        &parsed_files,
+        &damaged_paths,
+        &mut diagnostics,
+    );
+    let mut wanted = BTreeMap::<_, BTreeSet<_>>::new();
+    for binding in &bindings {
+        wanted
+            .entry(binding.declaration_path)
+            .or_default()
+            .insert(binding.declaration_name.as_str());
     }
+    let declarations = parsed_files
+        .iter()
+        .map(|file| {
+            let path = file.parsed.file.as_path();
+            (
+                path,
+                SourceDeclarations {
+                    package: file.package.as_ref().map(|package| package.name.as_str()),
+                    by_name: component_declarations(&file.parsed, wanted.get(path)),
+                },
+            )
+        })
+        .collect();
 
     let mut document = request.registry.clone();
-    enrich_components(&mut document, &declarations, &damaged_paths);
+    enrich_components(&mut document, &bindings, &declarations, &damaged_paths);
     enrich_explicit_tokens(&mut document, repo_root, &damaged_paths);
     document
         .validate()
@@ -102,14 +130,31 @@ struct ComponentImpl<'a> {
 
 fn component_declarations(
     parsed: &ParsedReactModule,
-    package: Option<String>,
-) -> Vec<ComponentDeclaration> {
+    public_names: Option<&BTreeSet<&str>>,
+) -> BTreeMap<String, ComponentDeclaration> {
     let imports = collect_import_packages(parsed);
     let props = collect_props_definitions(parsed, &imports);
     let wrapper_callees = react_wrapper_callees(&parsed.module.body);
     let locals = local_component_impls(parsed);
     let named_exports = local_named_value_exports(&parsed.module.body);
-    let mut declarations = Vec::new();
+    let mut declarations = BTreeMap::new();
+    let mut record = |name: String, fallback_symbol, span, implementation: ComponentImpl<'_>| {
+        declarations.insert(
+            name,
+            ComponentDeclaration {
+                fallback_symbol,
+                details: component_details(
+                    parsed,
+                    span,
+                    implementation.signature_span,
+                    implementation.parameter,
+                    &props,
+                    &imports,
+                ),
+            },
+        );
+    };
+    let is_public = |name: &str| public_names.is_some_and(|names| names.contains(name));
 
     for item in &parsed.module.body {
         let declaration = match item {
@@ -120,33 +165,39 @@ fn component_declarations(
             _ => None,
         };
         if let Some((decl, span, directly_exported)) = declaration {
-            let is_exported = |symbol: &str| directly_exported || named_exports.contains(symbol);
+            let is_direct = |symbol: &str| directly_exported || named_exports.contains(symbol);
             match decl {
                 Decl::Fn(function)
-                    if is_exported(function.ident.sym.as_ref())
-                        && (directly_exported
-                            || (!function.declare && function.function.body.is_some())) =>
+                    if (directly_exported
+                        || (!function.declare && function.function.body.is_some()))
+                        && (is_direct(function.ident.sym.as_ref())
+                            || is_public(function.ident.sym.as_ref())) =>
                 {
-                    let parameter = function.function.params.first().map(|param| &param.pat);
-                    declarations.push(ComponentDeclaration {
-                        symbol: function.ident.sym.to_string(),
-                        package: package.clone(),
-                        details: component_details(
-                            parsed,
-                            span,
-                            signature_span_for_function(span, &function.function),
-                            parameter,
-                            &props,
-                            &imports,
-                        ),
-                    });
+                    let name = function.ident.sym.as_ref();
+                    record(
+                        name.to_owned(),
+                        is_direct(name).then(|| name.to_owned()),
+                        span,
+                        ComponentImpl {
+                            signature_span: signature_span_for_function(span, &function.function),
+                            parameter: function.function.params.first().map(|param| &param.pat),
+                        },
+                    );
+                }
+                Decl::Class(class) if is_public(class.ident.sym.as_ref()) => {
+                    record(
+                        class.ident.sym.to_string(),
+                        is_direct(class.ident.sym.as_ref()).then(|| class.ident.sym.to_string()),
+                        span,
+                        class_implementation(span, &class.class),
+                    );
                 }
                 Decl::Var(variable) if directly_exported || !variable.declare => {
                     for declarator in &variable.decls {
-                        let Some((symbol, _)) = simple_binding_ident(declarator) else {
+                        let Some((name, _)) = simple_binding_ident(declarator) else {
                             continue;
                         };
-                        if !is_exported(&symbol) {
+                        if !is_direct(&name) && !is_public(&name) {
                             continue;
                         }
                         let Some(init) = declarator.init.as_deref() else {
@@ -160,18 +211,8 @@ fn component_declarations(
                         if let Some(implementation) =
                             component_impl_from_expr(init, span, &locals, &wrapper_callees)
                         {
-                            declarations.push(ComponentDeclaration {
-                                symbol,
-                                package: package.clone(),
-                                details: component_details(
-                                    parsed,
-                                    span,
-                                    implementation.signature_span,
-                                    implementation.parameter,
-                                    &props,
-                                    &imports,
-                                ),
-                            });
+                            let fallback = is_direct(&name).then(|| name.clone());
+                            record(name, fallback, span, implementation);
                         }
                     }
                 }
@@ -182,63 +223,60 @@ fn component_declarations(
 
         match item {
             ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultDecl(default_decl)) => {
-                if let DefaultDecl::Fn(function) = &default_decl.decl
-                    && let Some(ident) = &function.ident
-                {
-                    let parameter = function.function.params.first().map(|param| &param.pat);
-                    declarations.push(ComponentDeclaration {
-                        symbol: ident.sym.to_string(),
-                        package: package.clone(),
-                        details: component_details(
-                            parsed,
-                            default_decl.span,
-                            signature_span_for_function(default_decl.span, &function.function),
-                            parameter,
-                            &props,
-                            &imports,
-                        ),
-                    });
+                let span = default_decl.span;
+                match &default_decl.decl {
+                    DefaultDecl::Fn(function) => {
+                        let fallback = function.ident.as_ref().map(|ident| ident.sym.to_string());
+                        let name = fallback.as_deref().unwrap_or("default");
+                        if fallback.is_some() || is_public(name) {
+                            record(
+                                name.to_owned(),
+                                fallback,
+                                default_decl.span,
+                                ComponentImpl {
+                                    signature_span: signature_span_for_function(
+                                        default_decl.span,
+                                        &function.function,
+                                    ),
+                                    parameter: function
+                                        .function
+                                        .params
+                                        .first()
+                                        .map(|param| &param.pat),
+                                },
+                            );
+                        }
+                    }
+                    DefaultDecl::Class(class) => {
+                        let fallback = class.ident.as_ref().map(|ident| ident.sym.to_string());
+                        let name = fallback.as_deref().unwrap_or("default");
+                        if is_public(name) {
+                            record(
+                                name.to_owned(),
+                                fallback,
+                                span,
+                                class_implementation(span, &class.class),
+                            );
+                        }
+                    }
+                    DefaultDecl::TsInterfaceDecl(_) => {}
                 }
             }
-            ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultExpr(default_expr)) => {
-                match &*default_expr.expr {
-                    Expr::Ident(ident) => {
-                        if let Some(implementation) = locals.get(ident.sym.as_ref()) {
-                            declarations.push(ComponentDeclaration {
-                                symbol: ident.sym.to_string(),
-                                package: package.clone(),
-                                details: component_details(
-                                    parsed,
-                                    default_expr.span,
-                                    implementation.signature_span,
-                                    implementation.parameter,
-                                    &props,
-                                    &imports,
-                                ),
-                            });
-                        }
+            ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultExpr(default_expr))
+                if !matches!(&*default_expr.expr, Expr::Ident(_)) =>
+            {
+                let span = default_expr.span;
+                if let Some((fallback, implementation)) =
+                    react_wrapper_component(&default_expr.expr, span, &locals, &wrapper_callees)
+                {
+                    if fallback.is_some() || is_public("default") {
+                        record("default".to_owned(), fallback, span, implementation);
                     }
-                    expr => {
-                        if let Some((Some(symbol), implementation)) = react_wrapper_component(
-                            expr,
-                            default_expr.span,
-                            &locals,
-                            &wrapper_callees,
-                        ) {
-                            declarations.push(ComponentDeclaration {
-                                symbol,
-                                package: package.clone(),
-                                details: component_details(
-                                    parsed,
-                                    default_expr.span,
-                                    implementation.signature_span,
-                                    implementation.parameter,
-                                    &props,
-                                    &imports,
-                                ),
-                            });
-                        }
-                    }
+                } else if is_public("default")
+                    && let Some(implementation) =
+                        inline_function_component(&default_expr.expr, span)
+                {
+                    record("default".to_owned(), None, span, implementation);
                 }
             }
             _ => {}
@@ -248,27 +286,31 @@ fn component_declarations(
 }
 
 fn local_named_value_exports(items: &[ModuleItem]) -> BTreeSet<&str> {
-    items
-        .iter()
-        .filter_map(|item| match item {
+    let mut names = BTreeSet::new();
+    for item in items {
+        match item {
             ModuleItem::ModuleDecl(ModuleDecl::ExportNamed(export))
                 if export.src.is_none() && !export.type_only =>
             {
-                Some(&export.specifiers)
-            }
-            _ => None,
-        })
-        .flatten()
-        .filter_map(|specifier| match specifier {
-            ExportSpecifier::Named(named) if !named.is_type_only && named.exported.is_none() => {
-                match &named.orig {
-                    ModuleExportName::Ident(ident) => Some(ident.sym.as_ref()),
-                    ModuleExportName::Str(_) => None,
+                for specifier in &export.specifiers {
+                    if let ExportSpecifier::Named(named) = specifier
+                        && !named.is_type_only
+                        && named.exported.is_none()
+                        && let ModuleExportName::Ident(ident) = &named.orig
+                    {
+                        names.insert(ident.sym.as_ref());
+                    }
                 }
             }
-            _ => None,
-        })
-        .collect()
+            ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultExpr(export)) => {
+                if let Expr::Ident(ident) = &*export.expr {
+                    names.insert(ident.sym.as_ref());
+                }
+            }
+            _ => {}
+        }
+    }
+    names
 }
 
 fn local_component_impls(parsed: &ParsedReactModule) -> BTreeMap<String, ComponentImpl<'_>> {
@@ -440,6 +482,19 @@ fn signature_span_for_function(span: Span, function: &swc_ecma_ast::Function) ->
         span.lo,
         function.body.as_ref().map_or(span.hi, |body| body.span.lo),
     )
+}
+
+fn class_implementation(span: Span, class: &swc_ecma_ast::Class) -> ComponentImpl<'_> {
+    ComponentImpl {
+        signature_span: Span::new(
+            span.lo,
+            class
+                .body
+                .first()
+                .map_or(span.hi, |member| member.span().lo),
+        ),
+        parameter: None,
+    }
 }
 
 fn collect_import_packages(parsed: &ParsedReactModule) -> BTreeMap<String, String> {
@@ -957,17 +1012,42 @@ fn non_empty(value: &str) -> Option<String> {
 
 fn enrich_components(
     document: &mut RegistryDocument,
-    declarations: &[ComponentDeclaration],
+    bindings: &[PublicBinding<'_>],
+    declarations: &BTreeMap<&Path, SourceDeclarations<'_>>,
     damaged_paths: &[String],
 ) {
     for component in &mut document.components {
-        let declaration = declarations.iter().find(|declaration| {
-            (declaration.symbol == component.symbol
-                || component.aliases.contains(&declaration.symbol))
-                && component
-                    .package
-                    .as_ref()
-                    .is_none_or(|package| declaration.package.as_ref() == Some(package))
+        let matches_symbol = |symbol: &str| {
+            component.symbol == symbol || component.aliases.iter().any(|alias| alias == symbol)
+        };
+        let matches_package = |package: Option<&str>| {
+            component
+                .package
+                .as_deref()
+                .is_none_or(|expected| package == Some(expected))
+        };
+        let public = bindings
+            .iter()
+            .filter(|binding| matches_symbol(&binding.symbol) && matches_package(binding.package))
+            .find_map(|binding| {
+                declarations
+                    .get(binding.declaration_path)?
+                    .by_name
+                    .get(&binding.declaration_name)
+            });
+        let declaration = public.or_else(|| {
+            let mut candidates = declarations
+                .values()
+                .filter(|file| matches_package(file.package))
+                .flat_map(|file| file.by_name.values())
+                .filter(|declaration| {
+                    declaration
+                        .fallback_symbol
+                        .as_deref()
+                        .is_some_and(matches_symbol)
+                });
+            let candidate = candidates.next()?;
+            candidates.next().is_none().then_some(candidate)
         });
         if let Some(declaration) = declaration {
             component.details = Some(declaration.details.clone());

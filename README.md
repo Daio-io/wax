@@ -167,6 +167,10 @@ wax registry discover --language react --root ../design-system/src --dry-run
 wax registry discover --language react --root ../design-system/src
 ```
 
+React discovery follows in-scope package entry points and root indexes to
+report public names such as `Dialog.Root`. Source evidence points to the
+implementation. Roots without an entry point still discover file-local exports.
+
 `--dry-run` prints the merged registry JSON on stdout and structured
 added/updated entry changes on stderr. It never rewrites the existing registry
 file; rediscovery preserves authored ids, metadata, and tokens.
