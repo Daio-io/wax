@@ -24,6 +24,7 @@ require_text() {
 
 require_text "$SKILL" 'wax registry discover'
 require_text "$SKILL" '--dry-run'
+require_text "$SKILL" '${TMPDIR:-/tmp}'
 require_text "$SKILL" 'docs-coverage.sh'
 require_text "$SKILL" 'command -v wax'
 require_text "$SKILL" 'npx --yes @waxhq/wax@alpha'

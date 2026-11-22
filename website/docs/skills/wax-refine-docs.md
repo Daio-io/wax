@@ -25,8 +25,9 @@ Safety boundary: Edit only source documentation grounded in the code, with struc
 Measure what Wax extracts today:
 
 ```bash
-wax registry discover --language react --root src --dry-run >"$TMPDIR/before.json"
-skills/wax-refine-docs/scripts/docs-coverage.sh "$TMPDIR/before.json"
+WAX_DOCS_DIR="$(mktemp -d "${TMPDIR:-/tmp}/wax-docs.XXXXXX")"
+wax registry discover --language react --root src --dry-run >"$WAX_DOCS_DIR/before.json"
+skills/wax-refine-docs/scripts/docs-coverage.sh "$WAX_DOCS_DIR/before.json"
 ```
 
 The coverage report lists components with the worst coverage first, with issues

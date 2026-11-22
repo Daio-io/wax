@@ -93,10 +93,14 @@ Use `"${WAX[@]}"` in place of `wax`. The coverage script needs `jq`.
    coverage. Dry runs never write registries or remember design systems.
 
    ```bash
+   WAX_DOCS_DIR="$(mktemp -d "${TMPDIR:-/tmp}/wax-docs.XXXXXX")"
    "${WAX[@]}" registry discover --language <id> --root <path> --dry-run \
-     >"$TMPDIR/wax-docs-before.json"
-   skills/wax-refine-docs/scripts/docs-coverage.sh "$TMPDIR/wax-docs-before.json"
+     >"$WAX_DOCS_DIR/before.json"
+   skills/wax-refine-docs/scripts/docs-coverage.sh "$WAX_DOCS_DIR/before.json"
    ```
+
+   Reuse the same `WAX_DOCS_DIR` for the after snapshot in step 6. Shell
+   variables may not persist between commands, so note the printed path.
 
    If this skill is installed outside the repository, run the script from the
    skill's own `scripts/` directory. The output lists components with the worst
@@ -135,8 +139,8 @@ Use `"${WAX[@]}"` in place of `wax`. The coverage script needs `jq`.
 
      ```bash
      "${WAX[@]}" registry discover --language <id> --root <path> --dry-run \
-       >"$TMPDIR/wax-docs-after.json"
-     skills/wax-refine-docs/scripts/docs-coverage.sh "$TMPDIR/wax-docs-after.json"
+       >"$WAX_DOCS_DIR/after.json"
+     skills/wax-refine-docs/scripts/docs-coverage.sh "$WAX_DOCS_DIR/after.json"
      ```
 
    - Report before and after totals, remaining issues with their reasons, and
