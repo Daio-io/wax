@@ -1,24 +1,21 @@
 //! React registry symbol loading and resolver index.
 
-use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::Path;
 
-use wax_contract::{DesignSystemComponent, DesignSystemToken};
-use wax_lang_api::{RegistryTokenIndex, parse_registry_tokens, token_index};
+use wax_contract::DesignSystemToken;
+use wax_lang_api::{
+    RegistryComponentIndex, RegistryTokenIndex, parse_registry_tokens, token_index,
+};
 
 const REGISTRY_SCHEMA_VERSION: u64 = 1;
 
 /// React registry resolver index.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReactRegistryIndex {
-    /// Design-system components available to React.
-    pub design_system_components: Vec<DesignSystemComponent>,
-    /// Map from any observed name (symbol or alias) to canonical registry symbol.
-    pub resolve_targets: BTreeMap<String, String>,
-    /// Optional import package per canonical registry symbol.
-    pub component_packages: BTreeMap<String, Option<String>>,
+    /// Package-aware design-system component lookup.
+    pub components: RegistryComponentIndex,
     /// Design-system tokens loaded from the registry.
     pub design_system_tokens: Vec<DesignSystemToken>,
     /// Exact key/alias lookup index for token references.
@@ -93,74 +90,14 @@ pub fn load_react_registry(path: &Path) -> Result<ReactRegistryIndex, RegistryEr
         ))
     })?;
     validate_schema_version(&value, path)?;
-    let components = value
-        .get("components")
-        .and_then(serde_json::Value::as_array)
-        .ok_or_else(|| {
-            RegistryError::invalid(format!(
-                "registry JSON at {} must contain a components array",
-                path.display()
-            ))
-        })?;
-
-    let mut design_system_components = Vec::new();
-    let mut resolve_targets = BTreeMap::new();
-    let mut component_packages = BTreeMap::new();
-    for (index, component) in components.iter().enumerate() {
-        let symbol = component
-            .get("symbol")
-            .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| {
-                RegistryError::invalid(format!("components[{index}] is missing symbol"))
-            })?;
-        let package = component
-            .get("package")
-            .map(|value| {
-                value.as_str().ok_or_else(|| {
-                    RegistryError::invalid(format!("components[{index}].package must be a string"))
-                })
-            })
-            .transpose()?
-            .map(str::to_owned);
-        if let Some(package) = &package
-            && package.is_empty()
-        {
-            return Err(RegistryError::invalid(format!(
-                "components[{index}].package must not be empty"
-            )));
-        }
-
-        design_system_components.push(DesignSystemComponent {
-            id: format!("ds.{symbol}"),
-            symbol: symbol.to_owned(),
-            registry_symbol: symbol.to_owned(),
-        });
-        resolve_targets.insert(symbol.to_owned(), symbol.to_owned());
-        component_packages.insert(symbol.to_owned(), package);
-        if let Some(aliases) = component
-            .get("aliases")
-            .and_then(serde_json::Value::as_array)
-        {
-            for (alias_index, alias) in aliases.iter().enumerate() {
-                let alias_symbol = alias.as_str().ok_or_else(|| {
-                    RegistryError::invalid(format!(
-                        "components[{index}].aliases[{alias_index}] must be a string"
-                    ))
-                })?;
-                resolve_targets.insert(alias_symbol.to_owned(), symbol.to_owned());
-            }
-        }
-    }
-
-    design_system_components.sort_by(|left, right| left.symbol.cmp(&right.symbol));
+    let components = RegistryComponentIndex::from_json(&value)
+        .map_err(|err| RegistryError::invalid(err.to_string()))?;
     let design_system_tokens =
         parse_registry_tokens(&value).map_err(|err| RegistryError::invalid(err.to_string()))?;
     let token_index = token_index(&design_system_tokens)
         .map_err(|err| RegistryError::invalid(err.to_string()))?;
     Ok(ReactRegistryIndex {
-        design_system_components,
-        resolve_targets,
-        component_packages,
+        components,
         design_system_tokens,
         token_index,
     })
@@ -231,11 +168,15 @@ mod tests {
         );
 
         let index = load_react_registry(fixture.path()).expect("registry should load");
-        assert_eq!(index.design_system_components.len(), 1);
-        assert_eq!(index.design_system_components[0].symbol, "Button");
+        assert_eq!(index.components.components().len(), 1);
+        assert_eq!(index.components.components()[0].symbol, "Button");
         assert_eq!(
-            index.resolve_targets.get("Button"),
-            Some(&"Button".to_owned())
+            index
+                .components
+                .resolve("Button", None)
+                .and_then(|(_, target)| target)
+                .map(|target| target.registry_symbol.as_str()),
+            Some("Button")
         );
     }
 
@@ -246,8 +187,8 @@ mod tests {
         );
 
         let index = load_react_registry(fixture.path()).expect("registry should load");
-        assert_eq!(index.design_system_components.len(), 1);
-        assert_eq!(index.design_system_components[0].symbol, "Button");
+        assert_eq!(index.components.components().len(), 1);
+        assert_eq!(index.components.components()[0].symbol, "Button");
     }
 
     #[test]
@@ -257,8 +198,8 @@ mod tests {
         );
 
         let index = load_react_registry(fixture.path()).expect("registry should load");
-        assert_eq!(index.design_system_components.len(), 1);
-        assert_eq!(index.design_system_components[0].symbol, "Button");
+        assert_eq!(index.components.components().len(), 1);
+        assert_eq!(index.components.components()[0].symbol, "Button");
     }
 
     #[test]
@@ -268,8 +209,8 @@ mod tests {
         );
 
         let index = load_react_registry(fixture.path()).expect("registry should load");
-        assert_eq!(index.design_system_components.len(), 1);
-        assert_eq!(index.design_system_components[0].symbol, "Button");
+        assert_eq!(index.components.components().len(), 1);
+        assert_eq!(index.components.components()[0].symbol, "Button");
     }
 
     #[test]
@@ -280,8 +221,12 @@ mod tests {
 
         let index = load_react_registry(fixture.path()).expect("registry should load");
         assert_eq!(
-            index.resolve_targets.get("PrimaryButton"),
-            Some(&"Button".to_owned())
+            index
+                .components
+                .resolve("PrimaryButton", None)
+                .and_then(|(_, target)| target)
+                .map(|target| target.registry_symbol.as_str()),
+            Some("Button")
         );
     }
 

@@ -17,6 +17,13 @@ defines language metadata, snapshot id, `complete|partial|failed` status,
 design-system and local components, `usage_sites`, diagnostics, raw counts,
 adoption metrics, token references, and hard-coded style observations.
 
+In parser-backed packs, a design-system component's `symbol` is its declared
+source name. When registry entries share that name, package-tagged entries use
+`package#symbol` as their canonical `registry_symbol`. Unique names and the
+unscoped entry keep the source name as their canonical key. Resolved and candidate
+usage sites link to the component through this key, which also determines its
+component fact ID and registry symbol summary ID.
+
 ## JSON summary
 
 `--format json-summary` writes one versioned object to stdout. The

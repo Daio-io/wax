@@ -20,9 +20,9 @@ use crate::swift_ast::{
     unparseable_file_diagnostic,
 };
 use wax_lang_api::{
-    RegistryImportMatch, RegistryTokenIndex, RootResolutionError, ScanConfig,
-    normalize_repo_relative_path, parse_registry_tokens, path_matches_any,
-    resolve_import_aware_match, resolve_source_roots, root_not_found_code, root_not_found_message,
+    RegistryComponentIndex, RegistryImportMatch, RegistryTokenIndex, RootResolutionError,
+    ScanConfig, normalize_repo_relative_path, parse_registry_tokens, path_matches_any,
+    resolve_source_roots, root_not_found_code, root_not_found_message,
     swift_module_from_source_path, token_index,
 };
 
@@ -249,9 +249,7 @@ pub struct TreeSitterScanResult {
 }
 
 struct RegistryIndex {
-    canonical_symbols: Vec<String>,
-    resolve_targets: BTreeMap<String, String>,
-    component_packages: BTreeMap<String, Option<String>>,
+    components: RegistryComponentIndex,
     tokens: Vec<DesignSystemToken>,
     token_index: RegistryTokenIndex,
 }
@@ -275,70 +273,12 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, TreeSitterScanError> {
             path: path.to_path_buf(),
             reason: format!("registry JSON is invalid: {err}"),
         })?;
-    let components = value
-        .get("components")
-        .and_then(serde_json::Value::as_array)
-        .ok_or_else(|| TreeSitterScanError::RegistryInvalid {
+    let components = RegistryComponentIndex::from_json(&value).map_err(|err| {
+        TreeSitterScanError::RegistryInvalid {
             path: path.to_path_buf(),
-            reason: "registry JSON must contain a components array".to_owned(),
-        })?;
-
-    let mut canonical_symbols = Vec::new();
-    let mut resolve_targets = BTreeMap::new();
-    let mut component_packages = BTreeMap::new();
-    for (index, component) in components.iter().enumerate() {
-        let symbol = component
-            .get("symbol")
-            .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| TreeSitterScanError::RegistryInvalid {
-                path: path.to_path_buf(),
-                reason: format!("components[{index}] is missing symbol"),
-            })?;
-        let package = component
-            .get("package")
-            .map(|value| {
-                value
-                    .as_str()
-                    .ok_or_else(|| TreeSitterScanError::RegistryInvalid {
-                        path: path.to_path_buf(),
-                        reason: format!("components[{index}].package must be a string"),
-                    })
-            })
-            .transpose()?
-            .map(str::to_owned);
-        if let Some(package) = &package
-            && package.is_empty()
-        {
-            return Err(TreeSitterScanError::RegistryInvalid {
-                path: path.to_path_buf(),
-                reason: format!("components[{index}].package must not be empty"),
-            });
+            reason: err.to_string(),
         }
-
-        canonical_symbols.push(symbol.to_owned());
-        resolve_targets.insert(symbol.to_owned(), symbol.to_owned());
-        component_packages.insert(symbol.to_owned(), package);
-
-        if let Some(aliases) = component
-            .get("aliases")
-            .and_then(serde_json::Value::as_array)
-        {
-            for (alias_index, alias) in aliases.iter().enumerate() {
-                let alias_symbol =
-                    alias
-                        .as_str()
-                        .ok_or_else(|| TreeSitterScanError::RegistryInvalid {
-                            path: path.to_path_buf(),
-                            reason: format!(
-                                "components[{index}].aliases[{alias_index}] must be a string"
-                            ),
-                        })?;
-                resolve_targets.insert(alias_symbol.to_owned(), symbol.to_owned());
-            }
-        }
-    }
-
-    canonical_symbols.sort();
+    })?;
 
     let tokens =
         parse_registry_tokens(&value).map_err(|err| TreeSitterScanError::RegistryInvalid {
@@ -351,30 +291,10 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, TreeSitterScanError> {
     })?;
 
     Ok(RegistryIndex {
-        canonical_symbols,
-        resolve_targets,
-        component_packages,
+        components,
         tokens,
         token_index,
     })
-}
-
-fn resolve_registry_match(
-    call_symbol: &str,
-    call_qualifier: Option<&str>,
-    registry_symbol: &str,
-    registry: &RegistryIndex,
-    imports: &ImportBindings,
-) -> RegistryImportMatch {
-    resolve_import_aware_match(
-        registry
-            .component_packages
-            .get(registry_symbol)
-            .and_then(|package| package.as_deref()),
-        imports
-            .package_for_call(call_symbol, call_qualifier)
-            .as_deref(),
-    )
 }
 
 fn module_identity_for_file(file: &str) -> (String, bool) {
@@ -637,7 +557,6 @@ fn extract_usage_from_source(
 
             let import_package =
                 imports.package_for_call(&call_site.symbol, call_site.qualifier.as_deref());
-            let unresolved_package = import_package.clone();
             if let Some(local) = call_site
                 .qualifier
                 .is_none()
@@ -675,63 +594,43 @@ fn extract_usage_from_source(
                     local_definition_id: Some(local.id.clone()),
                     parent,
                 });
-            } else if let Some(registry_symbol) = registry.resolve_targets.get(&call_site.symbol) {
-                let registry_match = resolve_registry_match(
-                    &call_site.symbol,
-                    call_site.qualifier.as_deref(),
-                    registry_symbol,
-                    registry,
-                    &imports,
-                );
-                let (match_status, registry_symbol, callee_origin, resolution_evidence) =
-                    match registry_match {
-                        RegistryImportMatch::Resolved => (
+            } else if parent.is_some() || registry.components.contains_name(&call_site.symbol) {
+                let symbol = &call_site.symbol;
+                let package = import_package.as_deref();
+                let registry_match = registry.components.resolve(symbol, package);
+                let (match_status, callee_origin, kind) =
+                    match registry_match.map(|(classification, _)| classification) {
+                        Some(RegistryImportMatch::Resolved) => (
                             MatchStatus::Resolved,
-                            Some(registry_symbol.clone()),
                             CalleeOrigin::Registry,
-                            ResolutionEvidence {
-                                kind: ResolutionEvidenceKind::RegistryPackageMatch,
-                                package: import_package.clone(),
-                            },
+                            ResolutionEvidenceKind::RegistryPackageMatch,
                         ),
-                        RegistryImportMatch::LegacyNameOnly => (
+                        Some(RegistryImportMatch::LegacyNameOnly) => (
                             MatchStatus::Resolved,
-                            Some(registry_symbol.clone()),
                             CalleeOrigin::Registry,
-                            ResolutionEvidence {
-                                kind: ResolutionEvidenceKind::RegistryNameOnlyLegacy,
-                                package: import_package.clone(),
-                            },
+                            ResolutionEvidenceKind::RegistryNameOnlyLegacy,
                         ),
-                        RegistryImportMatch::Candidate => (
+                        Some(RegistryImportMatch::Candidate) => (
                             MatchStatus::Candidate,
-                            Some(registry_symbol.clone()),
                             CalleeOrigin::Registry,
-                            ResolutionEvidence {
-                                kind: if imports.module_imports.len() > 1
-                                    && call_site.qualifier.is_none()
-                                    && !imports.symbol_packages.contains_key(&call_site.symbol)
-                                {
-                                    ResolutionEvidenceKind::RegistryImportAmbiguous
-                                } else {
-                                    ResolutionEvidenceKind::RegistryImportMissing
-                                },
-                                package: import_package.clone(),
+                            if import_identity_is_ambiguous(&call_site, &imports) {
+                                ResolutionEvidenceKind::RegistryImportAmbiguous
+                            } else {
+                                ResolutionEvidenceKind::RegistryImportMissing
                             },
                         ),
-                        RegistryImportMatch::Mismatch => (
+                        mismatch => (
                             MatchStatus::Unresolved,
-                            None,
                             unresolved_origin(
-                                unresolved_package.as_deref(),
-                                &call_site.symbol,
+                                package,
+                                symbol,
                                 has_explicit_swiftui_framework_evidence(
-                                    import_package.as_deref(),
-                                    &call_site.symbol,
+                                    package,
+                                    symbol,
                                     call_site.qualifier.as_deref(),
-                                    imports.symbol_packages.get(&call_site.symbol).is_some_and(
-                                        |package| is_framework_swiftui_module(package),
-                                    ),
+                                    imports.symbol_packages.get(symbol).is_some_and(|package| {
+                                        is_framework_swiftui_module(package)
+                                    }),
                                 ),
                                 imports
                                     .module_imports
@@ -741,64 +640,27 @@ fn extract_usage_from_source(
                                 &local_index.scanned_modules,
                                 import_identity_is_ambiguous(&call_site, &imports),
                             ),
-                            ResolutionEvidence {
-                                kind: ResolutionEvidenceKind::PackageMismatch,
-                                package: import_package.clone(),
+                            if mismatch.is_some() {
+                                ResolutionEvidenceKind::PackageMismatch
+                            } else {
+                                ResolutionEvidenceKind::NoMatchingDefinition
                             },
                         ),
                     };
                 usage_sites.push(UsageSite {
-                    id: format!("usage.swift:{file}:{line}:{column}:{}", call_site.symbol),
-                    location,
-                    symbol: call_site.symbol.clone(),
-                    qualified_symbol: import_package.as_deref().map(|package| {
-                        qualified_view_symbol(
-                            package,
-                            registry_symbol.as_deref().unwrap_or(&call_site.symbol),
-                        )
-                    }),
-                    callee_origin,
-                    resolution_evidence,
-                    match_status,
-                    registry_symbol,
-                    local_definition_id: None,
-                    parent,
-                });
-            } else if parent.is_some() {
-                let symbol = call_site.symbol.clone();
-                usage_sites.push(UsageSite {
-                    id: format!("usage.swift:{file}:{line}:{column}:{}", call_site.symbol),
+                    id: format!("usage.swift:{file}:{line}:{column}:{symbol}"),
                     location,
                     symbol: symbol.clone(),
-                    qualified_symbol: import_package
-                        .as_deref()
-                        .map(|package| qualified_view_symbol(package, &symbol)),
-                    callee_origin: unresolved_origin(
-                        unresolved_package.as_deref(),
-                        &symbol,
-                        has_explicit_swiftui_framework_evidence(
-                            import_package.as_deref(),
-                            &symbol,
-                            call_site.qualifier.as_deref(),
-                            imports
-                                .symbol_packages
-                                .get(&symbol)
-                                .is_some_and(|package| is_framework_swiftui_module(package)),
-                        ),
-                        imports
-                            .module_imports
-                            .iter()
-                            .any(|module| is_framework_swiftui_module(module)),
-                        semantic_module,
-                        &local_index.scanned_modules,
-                        import_identity_is_ambiguous(&call_site, &imports),
-                    ),
+                    qualified_symbol: package.map(|package| qualified_view_symbol(package, symbol)),
+                    callee_origin,
                     resolution_evidence: ResolutionEvidence {
-                        kind: ResolutionEvidenceKind::NoMatchingDefinition,
-                        package: import_package.clone(),
+                        kind,
+                        package: import_package,
                     },
-                    match_status: MatchStatus::Unresolved,
-                    registry_symbol: None,
+                    match_status,
+                    registry_symbol: registry_match
+                        .and_then(|(_, target)| target)
+                        .map(|target| target.registry_symbol.clone()),
                     local_definition_id: None,
                     parent,
                 });
@@ -1652,16 +1514,6 @@ pub fn scan_repository(
         reason: error.to_string(),
     })?;
 
-    let mut design_system_components = registry
-        .canonical_symbols
-        .iter()
-        .map(|symbol| DesignSystemComponent {
-            id: format!("ds.{symbol}"),
-            symbol: symbol.clone(),
-            registry_symbol: symbol.clone(),
-        })
-        .collect::<Vec<_>>();
-
     let mut local_components = Vec::new();
     let mut usage_sites = Vec::new();
     let mut token_sites = Vec::new();
@@ -1747,7 +1599,6 @@ pub fn scan_repository(
         );
     }
 
-    design_system_components.sort_by(|left, right| left.symbol.cmp(&right.symbol));
     local_components.sort_by(|left, right| left.symbol.cmp(&right.symbol));
     usage_sites.sort_by(|left, right| {
         left.location
@@ -1778,7 +1629,7 @@ pub fn scan_repository(
         });
 
     Ok(TreeSitterScanResult {
-        design_system_components,
+        design_system_components: registry.components.into_components(),
         local_components,
         usage_sites,
         design_system_tokens: registry.tokens,
@@ -1816,41 +1667,48 @@ mod tests {
     }
 
     fn registry_index(
-        resolve_targets: BTreeMap<String, String>,
-        component_packages: BTreeMap<String, Option<String>>,
+        names: BTreeMap<String, String>,
+        packages: BTreeMap<String, Option<String>>,
     ) -> RegistryIndex {
-        let canonical_symbols = resolve_targets
-            .values()
-            .cloned()
-            .collect::<std::collections::BTreeSet<_>>()
+        let components: Vec<_> = packages
             .into_iter()
+            .map(|(symbol, package)| {
+                let aliases: Vec<_> = names
+                    .iter()
+                    .filter(|(name, canonical)| *canonical == &symbol && *name != &symbol)
+                    .map(|(name, _)| name)
+                    .collect();
+                let mut entry = serde_json::json!({"symbol": symbol, "aliases": aliases});
+                if let Some(package) = package {
+                    entry["package"] = serde_json::json!(package);
+                }
+                entry
+            })
             .collect();
         RegistryIndex {
-            canonical_symbols,
-            resolve_targets,
-            component_packages,
+            components: RegistryComponentIndex::from_json(&serde_json::json!({
+                "components": components,
+            }))
+            .expect("valid component fixture"),
             tokens: Vec::new(),
             token_index: RegistryTokenIndex::default(),
         }
     }
 
     fn registry_without_packages(pairs: &[(&str, &str)]) -> RegistryIndex {
-        let resolve_targets = resolve_map(pairs);
-        let component_packages = resolve_targets
+        let names = resolve_map(pairs);
+        let packages = names
             .values()
             .map(|symbol| (symbol.clone(), None))
             .collect();
-        registry_index(resolve_targets, component_packages)
+        registry_index(names, packages)
     }
 
     fn registry_with_package(symbol: &str, package: &str) -> RegistryIndex {
-        RegistryIndex {
-            canonical_symbols: vec![symbol.to_owned()],
-            resolve_targets: BTreeMap::from([(symbol.to_owned(), symbol.to_owned())]),
-            component_packages: BTreeMap::from([(symbol.to_owned(), Some(package.to_owned()))]),
-            tokens: Vec::new(),
-            token_index: RegistryTokenIndex::default(),
-        }
+        registry_index(
+            resolve_map(&[(symbol, symbol)]),
+            BTreeMap::from([(symbol.to_owned(), Some(package.to_owned()))]),
+        )
     }
 
     #[test]

@@ -117,7 +117,7 @@ pub fn configured_scan_facts(
         snapshot_id: request.snapshot_id.clone(),
         scanned_at: OffsetDateTime::now_utc(),
         status,
-        design_system_components: registry.design_system_components,
+        design_system_components: registry.components.into_components(),
         local_components,
         usage_sites: usage_extraction.usage_sites,
         diagnostics,

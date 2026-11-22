@@ -608,6 +608,10 @@ pub struct DesignSystemComponent {
     /// Source symbol used by the language ecosystem.
     pub symbol: String,
     /// Canonical registry symbol for the design-system component.
+    ///
+    /// Parser-backed packs qualify package-tagged components as `package#symbol`
+    /// when multiple registry entries share the same source symbol. Unique names
+    /// and unscoped entries use the source symbol as the key.
     pub registry_symbol: String,
 }
 
@@ -651,7 +655,7 @@ pub struct UsageSite {
     pub resolution_evidence: ResolutionEvidence,
     /// Resolution status against registry and local definitions.
     pub match_status: MatchStatus,
-    /// Registry symbol for resolved and candidate usage.
+    /// Canonical registry symbol linking resolved and candidate usage to its component.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub registry_symbol: Option<String>,
     /// Local definition id for local usage.
