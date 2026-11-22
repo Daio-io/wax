@@ -379,6 +379,7 @@ pub(crate) fn public_bindings<'a>(
         diagnostics: BTreeMap::new(),
         bindings: Vec::new(),
         active_namespaces: BTreeSet::new(),
+        resolved: BTreeMap::new(),
     };
     for entry in entry_modules(repo_root, roots, files) {
         traversal.expand_namespace(
@@ -396,6 +397,7 @@ struct ExportTraversal<'graph, 'files> {
     diagnostics: BTreeMap<(&'files Path, u32, String), Diagnostic>,
     bindings: Vec<PublicBinding<'files>>,
     active_namespaces: BTreeSet<&'files Path>,
+    resolved: BTreeMap<(&'files Path, &'graph str), Origin<'files, 'graph>>,
 }
 
 #[derive(Debug)]
@@ -491,6 +493,9 @@ impl<'graph, 'files> ExportTraversal<'graph, 'files> {
         name: &'graph str,
         active: &mut BTreeSet<(&'files Path, &'graph str)>,
     ) -> Result<Option<Origin<'files, 'graph>>, AmbiguousExport<'graph>> {
+        if let Some(origin) = self.resolved.get(&(module, name)) {
+            return Ok(Some(*origin));
+        }
         if !active.insert((module, name)) {
             return Ok(None);
         }
@@ -515,6 +520,9 @@ impl<'graph, 'files> ExportTraversal<'graph, 'files> {
             Ok(None)
         };
         active.remove(&(module, name));
+        if let Ok(Some(origin)) = &result {
+            self.resolved.insert((module, name), *origin);
+        }
         result
     }
 

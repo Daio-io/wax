@@ -1824,3 +1824,54 @@ fn write_sources(root: &std::path::Path, files: &[(&str, &str)]) -> io::Result<(
     }
     Ok(())
 }
+
+#[test]
+fn discover_registry_symbols_bounds_shared_star_export_traversal() -> io::Result<()> {
+    let repo = tempfile::tempdir()?;
+    let src = repo.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(
+        src.join("button.tsx"),
+        "export function Button() { return <button />; }\n",
+    )?;
+
+    let mut previous_a = "./button".to_owned();
+    let mut previous_b = "./button".to_owned();
+    for layer in 0..20 {
+        let a = format!("layer-{layer}-a");
+        let b = format!("layer-{layer}-b");
+        fs::write(
+            src.join(format!("{a}.ts")),
+            format!("export * from '{previous_a}';\nexport * from '{previous_b}';\n"),
+        )?;
+        fs::write(
+            src.join(format!("{b}.ts")),
+            format!("export * from '{previous_a}';\nexport * from '{previous_b}';\n"),
+        )?;
+        previous_a = format!("./{a}");
+        previous_b = format!("./{b}");
+    }
+    fs::write(
+        src.join("index.ts"),
+        format!("export * from '{previous_a}';\nexport * from '{previous_b}';\n"),
+    )?;
+
+    let started = std::time::Instant::now();
+    let result = ReactLanguage::new()
+        .discover(&DiscoverRequest {
+            request_type: DiscoverRequestType::Discover,
+            api_version: WIRE_API_VERSION,
+            language_id: "react".try_into().unwrap(),
+            repo_root: repo.path().to_string_lossy().into_owned(),
+            roots: vec!["src".to_owned()],
+        })
+        .expect("discovery should complete");
+
+    assert_eq!(result.symbols(), vec!["Button"]);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(2),
+        "shared star-export graph took {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
