@@ -66,6 +66,18 @@ same key or alias under distinct IDs. Leave `package` out to match an exact
 source expression. When a name is registered with a package, matching that name
 requires compatible origin evidence.
 
+### React palette tokens
+`wax registry discover` for React also reads public palette declarations: a module-level `const`
+whose initializer is an object literal of `#rgb`, `#rgba`, `#rrggbb`,
+`#rrggbbaa`, or `color(display-p3 r g b)` (optionally `/ alpha`) string values,
+exported through the package's public entry points. Each property becomes a
+package-scoped `color` token such as `token:@radix-ui/colors#blue.blue9`, with
+source evidence. Objects with spreads, computed keys, methods, shorthand, or
+duplicate keys, and values outside those literal forms, are skipped. Rediscovery
+refreshes a value only while it still equals the generated literal recorded in
+`details.discovered_literal_value`; authored or cleared values are preserved.
+A registry with only `tokens` (no `components`) is a valid scan input.
+
 Publisher files normally live at `.wax/registries/<language-id>.json` and are
 reviewed source. Consuming apps receive registry snapshots through `wax init`
 and `wax sync`; global remembered sources and caches live under `~/.wax/`.

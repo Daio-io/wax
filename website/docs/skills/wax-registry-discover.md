@@ -65,7 +65,10 @@ Discovery writes schema-version-1 publisher registries, publication config, and
 remembered global source metadata. Component aliases/tags aid search only;
 token aliases are exact source identifiers and require evidence. Approved
 canonical values become deterministic scan inputs only after sync and a fresh
-scan.
+scan. For React, public palette objects with literal color values (hex and
+`color(display-p3 ...)`) are discovered as package-scoped tokens, so a
+token-only registry can be scanned directly; rediscovery refreshes values only
+while they still match the generated literal.
 
 ## Failures and guardrails
 

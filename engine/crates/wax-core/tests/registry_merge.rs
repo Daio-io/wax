@@ -963,3 +963,103 @@ fn token_merge_matches_keys_within_their_package() {
         Some("Refreshed")
     );
 }
+
+#[test]
+fn complete_palette_observations_refresh_only_discovery_owned_values() {
+    let existing = registry(
+        r##"{
+      "schema_version":1,
+      "tokens":[
+        {"id":"generated","key":"blue.generated","package":"ui","category":"color","value":"#abc",
+         "aliases":["brand.blue"],"metadata":{"tags":["brand"]},"custom":"entry",
+         "details":{"status":"complete","documentation":"Keep me","custom":"detail",
+                    "discovered_literal_value":"#abc","source_evidence":{"path":"old.ts","custom":"evidence"}}},
+        {"id":"edited","key":"blue.edited","package":"ui","category":"color","value":"#fff",
+         "details":{"status":"complete","discovered_literal_value":"#abc"}},
+        {"id":"cleared","key":"blue.cleared","package":"ui","category":"color",
+         "details":{"status":"complete","discovered_literal_value":"#abc"}},
+        {"id":"legacy","key":"blue.legacy","category":"color","value":"#abc"},
+        {"id":"bad-marker","key":"blue.invalid","category":"color","value":"#abc",
+         "details":{"status":"complete","discovered_literal_value":true}},
+        {"id":"stale","key":"blue.stale","package":"ui","category":"color","value":"#abc",
+         "details":{"status":"complete","discovered_literal_value":"#abc"}}
+      ]
+    }"##,
+    );
+    let mut observed = existing.clone();
+    for token in &mut observed.tokens {
+        let status = if token.id == "stale" {
+            "stale"
+        } else {
+            "complete"
+        };
+        token.value = Some("#def".to_owned());
+        token.details = Some(
+            serde_json::from_value(serde_json::json!({
+                "status":status,
+                "discovered_literal_value":"#def",
+                "source_evidence":{"path":"palette.ts","start_line":4,"end_line":4}
+            }))
+            .unwrap(),
+        );
+    }
+    let merged = merge_registry(Some(&existing), &observed, true).unwrap();
+    let expected = [
+        Some("#def"),
+        Some("#fff"),
+        None,
+        Some("#abc"),
+        Some("#abc"),
+        Some("#abc"),
+    ];
+    assert_eq!(
+        merged
+            .document
+            .tokens
+            .iter()
+            .map(|token| token.value.as_deref())
+            .collect::<Vec<_>>(),
+        expected
+    );
+    let first = &merged.document.tokens[0];
+    assert_eq!(first.aliases, ["brand.blue"]);
+    assert_eq!(first.metadata, existing.tokens[0].metadata);
+    assert_eq!(first.extra["custom"], "entry");
+    let details = first.details.as_ref().unwrap();
+    assert_eq!(details.documentation.as_deref(), Some("Keep me"));
+    assert_eq!(details.extra["custom"], "detail");
+    let evidence = details.source_evidence.as_ref().unwrap();
+    assert_eq!(
+        (evidence.path.as_str(), evidence.start_line),
+        ("palette.ts", Some(4))
+    );
+    assert_eq!(evidence.extra["custom"], "evidence");
+    for (token, marker) in
+        merged
+            .document
+            .tokens
+            .iter()
+            .zip([Some("#def"), None, None, None, None, Some("#abc")])
+    {
+        assert_eq!(
+            token
+                .details
+                .as_ref()
+                .unwrap()
+                .extra
+                .get("discovered_literal_value")
+                .and_then(serde_json::Value::as_str),
+            marker
+        );
+    }
+    assert_eq!(merged.changes.len(), 6);
+    assert!(
+        merged
+            .changes
+            .iter()
+            .all(|change| change.kind == RegistryMergeChangeKind::Updated)
+    );
+    let rerun = merge_registry(Some(&merged.document), &observed, true).unwrap();
+    assert!(rerun.changes.is_empty());
+    assert_eq!(rerun.document, merged.document);
+}

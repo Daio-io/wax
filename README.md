@@ -221,6 +221,17 @@ a missing or unsupported sibling does not block matching. An observation is
 format cannot be normalized. Inspect typed `evidence` before proposing a
 registry change. See the reviewed [registry-maintenance workflow](skills/wax-registry-discover/SKILL.md).
 
+React discovery also reads public palette declarations: a module-level `const`
+whose initializer is an object literal of `#rgb`, `#rgba`, `#rrggbb`,
+`#rrggbbaa`, or `color(display-p3 r g b)` (optionally `/ alpha`) string values,
+exported through the package's public entry points. Each property becomes a
+package-scoped `color` token such as `token:@radix-ui/colors#blue.blue9`, with
+source evidence. Objects with spreads, computed keys, methods, shorthand, or
+duplicate keys, and values outside those literal forms, are skipped. Rediscovery
+refreshes a value only while it still equals the generated literal recorded in
+`details.discovered_literal_value`; authored or cleared values are preserved.
+A registry with only `tokens` (no `components`) is a valid scan input.
+
 ### Search Components and Tokens
 
 Fuzzy-search registry entries, then fetch lossless details at the same snapshot

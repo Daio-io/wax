@@ -7,6 +7,8 @@ use wax_contract::{
     RegistryToken,
 };
 
+use wax_lang_api::{discovered_token_marker, refresh_discovered_token_value};
+
 /// Result of merging discovered facts into an optional authored registry.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RegistryMerge {
@@ -227,6 +229,15 @@ trait MergeEntry: Clone + PartialEq {
     fn id(&self) -> &str;
     fn details(&self) -> Option<&RegistryDetails>;
     fn set_details(&mut self, details: Option<RegistryDetails>);
+
+    fn merge_observation(&mut self, observed: &Self) -> bool {
+        let details = merge_details(self.details(), observed.details(), false);
+        if self.details() == details.as_ref() {
+            return false;
+        }
+        self.set_details(details);
+        true
+    }
 }
 
 fn append_removed_changes<T: MergeEntry>(
@@ -297,6 +308,29 @@ impl MergeEntry for RegistryToken {
     fn set_details(&mut self, details: Option<RegistryDetails>) {
         self.details = details;
     }
+
+    fn merge_observation(&mut self, observed: &Self) -> bool {
+        let prior_marker = discovered_token_marker(self.details.as_ref());
+        let fresh_literal = discovered_token_marker(observed.details.as_ref()).filter(|marker| {
+            observed.value.as_deref() == Some(*marker)
+                && observed
+                    .details
+                    .as_ref()
+                    .is_some_and(|details| details.status == RegistryExtractionStatus::Complete)
+        });
+        let mut details = merge_details(self.details.as_ref(), observed.details.as_ref(), true);
+        let value_changed = refresh_discovered_token_value(
+            &mut self.value,
+            prior_marker,
+            details.as_mut(),
+            fresh_literal,
+        );
+        if value_changed || self.details != details {
+            self.details = details;
+            return true;
+        }
+        false
+    }
 }
 
 fn merge_entries<T: MergeEntry>(
@@ -316,11 +350,8 @@ fn merge_entries<T: MergeEntry>(
             IdentityResolution::Match(index) => {
                 retain_details[index] = true;
                 let entry = &mut entries[index];
-                let details = merge_details(entry.details(), discovered.details());
-                if entry.details() != details.as_ref() {
-                    let id = entry.id().to_owned();
-                    entry.set_details(details);
-                    changes.push(updated_change(entry_kind, &id));
+                if entry.merge_observation(discovered) {
+                    changes.push(updated_change(entry_kind, entry.id()));
                 }
             }
             IdentityResolution::NoMatch => {
@@ -379,6 +410,7 @@ fn merge_entries<T: MergeEntry>(
 fn merge_details(
     existing: Option<&RegistryDetails>,
     discovered: Option<&RegistryDetails>,
+    preserve_token_details: bool,
 ) -> Option<RegistryDetails> {
     let Some(discovered) = discovered else {
         return existing.cloned().map(|mut details| {
@@ -394,17 +426,22 @@ fn merge_details(
     }
     let mut merged = existing.clone();
     merged.status = match discovered.status {
-        RegistryExtractionStatus::Complete => return Some(discovered.clone()),
+        RegistryExtractionStatus::Complete if !preserve_token_details => {
+            return Some(discovered.clone());
+        }
+        RegistryExtractionStatus::Complete => RegistryExtractionStatus::Complete,
         RegistryExtractionStatus::Partial => RegistryExtractionStatus::Partial,
         RegistryExtractionStatus::Unavailable | RegistryExtractionStatus::Stale => {
             RegistryExtractionStatus::Stale
         }
         RegistryExtractionStatus::NotObserved => RegistryExtractionStatus::NotObserved,
     };
-    if discovered.source_evidence.is_some() {
-        merged
-            .source_evidence
-            .clone_from(&discovered.source_evidence);
+    if let Some(evidence) = &discovered.source_evidence {
+        let mut evidence = evidence.clone();
+        if preserve_token_details && let Some(previous) = &merged.source_evidence {
+            evidence.extra.extend(previous.extra.clone());
+        }
+        merged.source_evidence = Some(evidence);
     }
     if discovered.documentation.is_some() {
         merged.documentation.clone_from(&discovered.documentation);
@@ -424,7 +461,11 @@ fn merge_details(
     if !discovered.best_practices.is_empty() {
         merged.best_practices.clone_from(&discovered.best_practices);
     }
-    merged.extra.extend(discovered.extra.clone());
+    for (key, value) in &discovered.extra {
+        if !preserve_token_details || !merged.extra.contains_key(key) {
+            merged.extra.insert(key.clone(), value.clone());
+        }
+    }
     Some(merged)
 }
 

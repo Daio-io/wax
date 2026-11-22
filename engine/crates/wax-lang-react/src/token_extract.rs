@@ -80,6 +80,7 @@ fn scoped_imports(module: &Module, module_graph: &ReactModuleGraph) -> HashMap<I
                             .map_or_else(|| named.local.sym.to_string(), module_export_name),
                     ),
                 ),
+                ImportSpecifier::Default(default) => (&default.local, Some("default".to_owned())),
                 ImportSpecifier::Namespace(namespace) => (&namespace.local, None),
                 _ => continue,
             };

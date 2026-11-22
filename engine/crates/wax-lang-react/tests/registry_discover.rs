@@ -1875,3 +1875,299 @@ fn discover_registry_symbols_bounds_shared_star_export_traversal() -> io::Result
     );
     Ok(())
 }
+
+#[test]
+fn discovers_literal_palettes_through_public_exports_in_package_order() -> io::Result<()> {
+    let fixture = tempfile::tempdir()?;
+    let root = fixture.path();
+    for (path, source) in [
+        (
+            "a/package.json",
+            r#"{"name":"@example/colors","exports":"./src/index.ts"}"#,
+        ),
+        (
+            "a/src/index.ts",
+            r#"
+export * from './palette.js';
+export { blue as renamed } from './palette.js';
+export * as theme from './palette.js';
+export * from './left';
+export * from './right';
+"#,
+        ),
+        (
+            "a/src/palette.ts",
+            r#"const privatePalette = { hidden: '#aaa' };
+export const blue = ({
+  blue9: '#0090ff',
+  'alpha': '#0090ff80',
+  wide: 'color(display-p3 0 .5 1)',
+  wideAlpha: 'color(display-p3 0.1 0.5 1 / .25)',
+  invalidHex: '#abcde',
+  invalidChannel: 'color(display-p3 0 1.01 1)',
+  invalidAlpha: 'color(display-p3 0 1 1 / NaN)',
+  dynamic: privatePalette.hidden
+} as const) satisfies Record<string, string>;
+export let mutable = { color: '#aaa' };
+export const spread = { ...blue, color: '#aaa' };
+export const computed = { ['color']: '#aaa' };
+export const duplicate = { color: '#aaa', 'color': '#bbb' };
+export const method = { color: '#aaa', value() {} };
+const color = '#aaa';
+export const shorthand = { color, other: '#bbb' };
+export const cast = <Record<string, string>>{ color: '#abcd' };
+"#,
+        ),
+        ("a/src/loose.ts", "export const hidden = { color: '#abc' };"),
+        (
+            "a/src/left.ts",
+            "export const ambiguous = { color: '#abc' };",
+        ),
+        (
+            "a/src/right.ts",
+            "export const ambiguous = { color: '#def' };",
+        ),
+        ("b/package.json", r#"{"name":"other-colors"}"#),
+        ("b/src/index.ts", "export const blue = { blue9: '#123' };"),
+    ] {
+        let file = root.join(path);
+        fs::create_dir_all(file.parent().unwrap())?;
+        fs::write(file, source)?;
+    }
+    let mut request = palette_request(root, &["a/src", "b/src"]);
+    let result = discover_registry_details(&request).unwrap();
+    let mut expected = Vec::new();
+    for prefix in ["blue", "renamed", "theme.blue"] {
+        for (key, value, line) in [
+            ("alpha", "#0090ff80", 4),
+            ("blue9", "#0090ff", 3),
+            ("wide", "color(display-p3 0 .5 1)", 5),
+            ("wideAlpha", "color(display-p3 0.1 0.5 1 / .25)", 6),
+        ] {
+            expected.push((
+                format!("token:@example/colors#{prefix}.{key}"),
+                value,
+                "a/src/palette.ts",
+                line,
+            ));
+        }
+    }
+    for key in ["cast.color", "theme.cast.color"] {
+        expected.push((
+            format!("token:@example/colors#{key}"),
+            "#abcd",
+            "a/src/palette.ts",
+            19,
+        ));
+    }
+    expected.push((
+        "token:other-colors#blue.blue9".to_owned(),
+        "#123",
+        "b/src/index.ts",
+        1,
+    ));
+    expected.sort_unstable();
+    let observed = result
+        .document
+        .tokens
+        .iter()
+        .map(|token| {
+            let details = token.details.as_ref().unwrap();
+            let evidence = details.source_evidence.as_ref().unwrap();
+            assert_eq!(
+                details.extra["discovered_literal_value"],
+                token.value.as_deref().unwrap()
+            );
+            assert_eq!(evidence.start_line, evidence.end_line);
+            (
+                token.id.clone(),
+                token.value.as_deref().unwrap(),
+                evidence.path.as_str(),
+                evidence.start_line.unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(observed, expected);
+    assert!(result.document.components.is_empty());
+    request.roots.reverse();
+    assert_eq!(
+        discover_registry_details(&request).unwrap().document,
+        result.document
+    );
+    Ok(())
+}
+
+#[test]
+fn duplicate_palette_observations_from_root_entries_are_deduplicated() -> io::Result<()> {
+    let fixture = tempfile::tempdir()?;
+    let root = fixture.path();
+    fs::create_dir(root.join("src"))?;
+    fs::write(
+        root.join("src/palette.ts"),
+        "export const blue = { blue9: '#0090ff' };",
+    )?;
+    fs::write(
+        root.join("src/barrel.ts"),
+        "export { blue } from './palette';",
+    )?;
+    let request = palette_request(root, &["src"]);
+
+    let result = discover_registry_details(&request).expect("duplicate exports are valid");
+
+    assert_eq!(result.document.tokens.len(), 1);
+    assert_eq!(result.document.tokens[0].id, "token:blue.blue9");
+    Ok(())
+}
+
+fn palette_request(root: &std::path::Path, roots: &[&str]) -> DiscoverRegistryRequest {
+    DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "react".try_into().unwrap(),
+        repo_root: root.display().to_string(),
+        roots: roots.iter().map(|root| (*root).to_owned()).collect(),
+        registry: serde_json::from_value(serde_json::json!({"schema_version":1})).unwrap(),
+    }
+}
+
+#[test]
+fn rediscovery_prefers_scoped_seeds_and_preserves_creator_values() -> io::Result<()> {
+    let fixture = tempfile::tempdir()?;
+    let root = fixture.path();
+    for (dir, palette) in [
+        (
+            "a",
+            "export const blue = { shared: '#def', edited: '#def', cleared: '#def', legacy: '#def', conflict: '#def' };",
+        ),
+        (
+            "b",
+            "export const blue = { shared: '#456', multi: '#456' };",
+        ),
+        ("c", "export const blue = { multi: '#789' };"),
+    ] {
+        fs::create_dir(root.join(dir))?;
+        fs::write(
+            root.join(dir).join("package.json"),
+            format!(r#"{{"name":"{dir}"}}"#),
+        )?;
+        fs::write(root.join(dir).join("index.ts"), palette)?;
+    }
+    let mut request = palette_request(root, &["a", "b", "c"]);
+    request.registry = serde_json::from_str(r##"{
+      "schema_version":1,
+      "tokens":[
+        {"id":"scoped","key":"blue.shared","package":"a","category":"color","value":"#abc","aliases":["brand.blue"],
+         "metadata":{"description":"Owner","sources":[{"kind":"declaration","path":"a/index.ts"}]},"custom":"entry",
+         "details":{"status":"complete","documentation":"Keep me","custom":"detail","discovered_literal_value":"#abc"}},
+        {"id":"unscoped","key":"blue.shared","category":"color","value":"#fff"},
+        {"id":"edited","key":"blue.edited","package":"a","category":"color","value":"#fff",
+         "details":{"status":"complete","discovered_literal_value":"#abc"}},
+        {"id":"cleared","key":"blue.cleared","package":"a","category":"color",
+         "details":{"status":"complete","discovered_literal_value":"#abc"}},
+        {"id":"legacy","key":"blue.legacy","category":"unknown","value":"#123"},
+        {"id":"legacy-conflict","key":"blue.conflict","category":"color","value":"#fff"},
+        {"id":"scoped-conflict","key":"blue.conflict","package":"c","category":"color","value":"#fff"},
+        {"id":"legacy-multi","key":"blue.multi","category":"color","value":"#fff"}
+      ]
+    }"##).unwrap();
+    let observed = discover_registry_details(&request).unwrap().document;
+    let token = &observed.tokens[0];
+    assert_eq!(
+        (token.id.as_str(), token.value.as_deref()),
+        ("scoped", Some("#def"))
+    );
+    assert_eq!(token.package.as_deref(), Some("a"));
+    assert_eq!(token.aliases, ["brand.blue"]);
+    assert_eq!(token.metadata, request.registry.tokens[0].metadata);
+    assert_eq!(token.extra["custom"], "entry");
+    let details = token.details.as_ref().unwrap();
+    assert_eq!(details.documentation.as_deref(), Some("Keep me"));
+    assert_eq!(details.extra["custom"], "detail");
+    assert_eq!(details.extra["discovered_literal_value"], "#def");
+    assert_eq!(observed.tokens[1], request.registry.tokens[1]);
+    for (index, value) in [(2, Some("#fff")), (3, None), (4, Some("#123"))] {
+        let token = &observed.tokens[index];
+        assert_eq!(token.value.as_deref(), value);
+        assert!(
+            !token
+                .details
+                .as_ref()
+                .unwrap()
+                .extra
+                .contains_key("discovered_literal_value")
+        );
+    }
+    assert_eq!(observed.tokens[4].package, None);
+    assert_eq!(
+        observed.tokens[4].category,
+        wax_contract::TokenCategory::Unknown
+    );
+    assert_eq!(&observed.tokens[5..8], &request.registry.tokens[5..]);
+    assert_eq!(
+        observed.tokens[8..]
+            .iter()
+            .map(|token| token.id.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "token:a#blue.conflict",
+            "token:b#blue.multi",
+            "token:b#blue.shared",
+            "token:c#blue.multi"
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn palette_rediscovery_preserves_evidence_on_damage_and_reports_clean_absence() -> io::Result<()> {
+    use wax_contract::RegistryExtractionStatus::{Complete, NotObserved, Stale};
+
+    let fixture = tempfile::tempdir()?;
+    let root = fixture.path();
+    fs::write(
+        root.join("package.json"),
+        r#"{"name":"colors","exports":"./index.ts"}"#,
+    )?;
+    let index = root.join("index.ts");
+    let barrel = root.join("barrel.ts");
+    let palette = root.join("palette.ts");
+    let unrelated = root.join("unrelated.ts");
+    fs::write(&index, "export { blue } from './barrel';")?;
+    fs::write(&barrel, "export * from './palette';")?;
+    fs::write(&palette, "export const blue = { blue9: '#abc' };")?;
+    fs::write(&unrelated, "export const loose = { red: '#abc' };")?;
+    let mut request = palette_request(root, &["."]);
+    request.registry = discover_registry_details(&request).unwrap().document;
+    let previous = request.registry.tokens[0].details.as_ref().unwrap();
+    for (path, valid_source) in [
+        (&palette, "export const blue = { blue9: '#abc' };"),
+        (&barrel, "export * from './palette';"),
+        (&index, "export { blue } from './barrel';"),
+    ] {
+        fs::write(path, "export const broken = @;")?;
+        let result = discover_registry_details(&request).unwrap();
+        assert_eq!(result.document.tokens.len(), 1);
+        let token = &result.document.tokens[0];
+        let details = token.details.as_ref().unwrap();
+        assert_eq!(details.status, Stale, "{}", path.display());
+        assert_eq!(details.source_evidence, previous.source_evidence);
+        assert_eq!(details.extra["discovered_literal_value"], "#abc");
+        assert_eq!(token.value.as_deref(), Some("#abc"));
+        assert!(!result.diagnostics.is_empty());
+        fs::write(path, valid_source)?;
+    }
+    fs::write(&index, "export {};")?;
+    fs::write(&unrelated, "export const broken = @;")?;
+    let uncertain = discover_registry_details(&request).unwrap().document;
+    assert_eq!(
+        uncertain.tokens[0].details.as_ref().unwrap().status,
+        Complete
+    );
+    assert_eq!(uncertain.tokens, request.registry.tokens);
+
+    fs::write(&unrelated, "export {};")?;
+    let absent = discover_registry_details(&request).unwrap().document;
+    let mut expected = request.registry.tokens.clone();
+    expected[0].details.as_mut().unwrap().status = NotObserved;
+    assert_eq!(absent.tokens, expected);
+    Ok(())
+}

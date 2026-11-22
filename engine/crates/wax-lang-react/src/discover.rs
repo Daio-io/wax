@@ -78,6 +78,8 @@ impl std::error::Error for ReactDiscoverError {
     }
 }
 
+pub(crate) type DamagedReactSources = BTreeMap<String, Option<Rc<PackageManifest>>>;
+
 /// Successfully parsed React source file with package metadata.
 #[derive(Debug)]
 pub(crate) struct ParsedReactSourceFile {
@@ -111,13 +113,17 @@ pub fn discover_registry_symbols(
         &parsed_files,
         &damaged_paths,
         &mut diagnostics,
-    ) {
-        insert_discovered_symbol(
-            &mut components,
-            &mut diagnostics,
-            binding.symbol,
-            binding.package.map(str::to_owned),
-        );
+    )
+    .bindings
+    {
+        if let Some(symbol) = binding.component_symbol {
+            insert_discovered_symbol(
+                &mut components,
+                &mut diagnostics,
+                symbol,
+                binding.package.map(str::to_owned),
+            );
+        }
     }
 
     Ok(DiscoverSymbolsResult {
@@ -140,7 +146,7 @@ pub(crate) fn collect_and_parse_react_sources(
     parse_root: &Path,
     roots: &[PathBuf],
     diagnostics: &mut Vec<Diagnostic>,
-) -> Result<(Vec<ParsedReactSourceFile>, Vec<String>), ReactDiscoverError> {
+) -> Result<(Vec<ParsedReactSourceFile>, DamagedReactSources), ReactDiscoverError> {
     let mut source_files = Vec::new();
     for root in roots {
         if !root.exists() {
@@ -155,7 +161,7 @@ pub(crate) fn collect_and_parse_react_sources(
     source_files.dedup();
 
     let mut parsed_files = Vec::new();
-    let mut damaged_paths = Vec::new();
+    let mut damaged_paths = BTreeMap::new();
     let mut manifests = BTreeMap::new();
     for file_path in source_files {
         let relative_path = repo_relative_path(parse_root, &file_path);
@@ -171,7 +177,7 @@ pub(crate) fn collect_and_parse_react_sources(
                 parsed_files.push(ParsedReactSourceFile { package, parsed });
             }
             ReactParseOutcome::Failed(diagnostic) => {
-                damaged_paths.push(relative_path);
+                damaged_paths.insert(relative_path, package);
                 diagnostics.push(diagnostic);
             }
         }

@@ -185,7 +185,7 @@ fn basic_scan_requires_origin_for_scoped_tokens() {
     let fixture = tempfile::tempdir().unwrap();
     let root = fixture.path();
     std::fs::write(root.join("registry.json"), r#"{
-      "schema_version": 1, "components": [], "tokens": [
+      "schema_version": 1, "tokens": [
         {"id":"scoped","key":"Colors.blue","aliases":["Palette.blue"],"category":"color","package":"palette"},
         {"id":"overlap","key":"Colors.blue","category":"color"},
         {"id":"legacy","key":"Colors.red","category":"color"}
@@ -207,6 +207,7 @@ fn basic_scan_requires_origin_for_scoped_tokens() {
     };
 
     let facts = BasicLanguage::new().scan(&request).unwrap();
+    assert!(facts.design_system_components.is_empty());
     assert_eq!(facts.design_system_tokens.len(), 3);
     assert_eq!(
         facts

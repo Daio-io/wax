@@ -355,3 +355,29 @@ fn cache_file_symlink_is_not_followed_on_write() {
         "do not overwrite"
     );
 }
+
+#[test]
+fn scan_resolves_serialized_token_only_registry() {
+    let repo = TestRepo::new();
+    let document: wax_contract::RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "tokens": [{"id": "token:colors#blue.blue9", "package": "colors", "key": "blue.blue9", "category": "color"}]
+    }))
+    .unwrap();
+    let bytes = serde_json::to_vec(&document).unwrap();
+    assert!(
+        serde_json::from_slice::<serde_json::Value>(&bytes)
+            .unwrap()
+            .get("components")
+            .is_none()
+    );
+    fs::write(repo.path().join("colors.json"), bytes).unwrap();
+
+    let resolved = resolve_registry_source(RegistrySourceInput {
+        repo_root: repo.path(),
+        language_id: "react",
+        source: Some("colors.json"),
+    })
+    .unwrap();
+    assert_eq!(resolved.repo_relative_path, "colors.json");
+}

@@ -34,6 +34,7 @@ mod extract;
 mod facts;
 mod files;
 mod module_graph;
+mod palette_discovery;
 mod public_exports;
 mod registry;
 mod registry_details;

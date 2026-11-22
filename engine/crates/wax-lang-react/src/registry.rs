@@ -5,7 +5,9 @@ use std::io;
 use std::path::Path;
 
 use wax_contract::DesignSystemToken;
-use wax_lang_api::{RegistryComponentIndex, RegistryTokenIndex, registry_token_index};
+use wax_lang_api::{
+    RegistryComponentIndex, RegistryTokenIndex, registry_token_index, scan_registry_components,
+};
 
 const REGISTRY_SCHEMA_VERSION: u64 = 1;
 
@@ -88,10 +90,12 @@ pub fn load_react_registry(path: &Path) -> Result<ReactRegistryIndex, RegistryEr
         ))
     })?;
     validate_schema_version(&value, path)?;
-    let components = RegistryComponentIndex::from_json(&value)
-        .map_err(|err| RegistryError::invalid(err.to_string()))?;
     let token_index =
         registry_token_index(&value).map_err(|err| RegistryError::invalid(err.to_string()))?;
+    let components = scan_registry_components(&value, !token_index.tokens.is_empty())
+        .map_err(|err| RegistryError::invalid(err.to_string()))?;
+    let components = RegistryComponentIndex::from_components(components)
+        .map_err(|err| RegistryError::invalid(err.to_string()))?;
     Ok(ReactRegistryIndex {
         components,
         design_system_tokens: token_index.tokens.clone(),

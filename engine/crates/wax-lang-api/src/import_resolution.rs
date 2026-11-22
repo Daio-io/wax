@@ -57,6 +57,15 @@ impl RegistryComponentIndex {
             .get("components")
             .and_then(Value::as_array)
             .ok_or(RegistryComponentError::MissingComponents)?;
+        Self::from_components(components)
+    }
+
+    /// Indexes an already shape-checked array of component entries.
+    ///
+    /// # Errors
+    ///
+    /// Returns a registry component error for malformed or ambiguous definitions.
+    pub fn from_components(components: &[Value]) -> Result<Self, RegistryComponentError> {
         let mut entries = Vec::with_capacity(components.len());
         let mut symbol_counts = BTreeMap::new();
         for (index, component) in components.iter().enumerate() {

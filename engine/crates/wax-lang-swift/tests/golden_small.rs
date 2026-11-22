@@ -330,7 +330,7 @@ fn scoped_tokens_follow_swift_module_and_selective_imports() {
     std::fs::write(
         root.join("design-system/registry.json"),
         r#"{
-      "schema_version": 1, "components": [], "tokens": [
+      "schema_version": 1, "tokens": [
         {"id":"blue","key":"Colors.blue","category":"color","package":"Design"},
         {"id":"other-blue","key":"Colors.blue","category":"color","package":"Other"},
         {"id":"gray","key":"Colors.gray","category":"color","package":"Design"},
@@ -378,6 +378,7 @@ func loop() {
         std::fs::write(root.join("Sources").join(file), source).unwrap();
     }
     let facts = scan_fixture(root, "Sources", "scoped-tokens");
+    assert!(facts.design_system_components.is_empty());
     let sites: Vec<_> = facts
         .token_sites
         .iter()

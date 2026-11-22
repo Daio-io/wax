@@ -17,8 +17,8 @@ use crate::component_detect::{
 };
 
 use crate::discover::{
-    ParsedReactSourceFile, default_expression_component, local_component_bindings,
-    react_wrapper_callees,
+    DamagedReactSources, ParsedReactSourceFile, default_expression_component,
+    local_component_bindings, react_wrapper_callees,
 };
 use crate::module_graph::{
     declared_names, normalize_relative_path, resolve_path_with_extensions_and_index,
@@ -61,32 +61,39 @@ fn entry_modules<'a>(
     repo_root: &Path,
     roots: &[PathBuf],
     files: &'a [ParsedReactSourceFile],
-) -> Vec<&'a ParsedReactSourceFile> {
+    damaged: &'a DamagedReactSources,
+) -> BTreeMap<&'a Path, (Option<&'a str>, bool)> {
     let roots: BTreeSet<_> = roots
         .iter()
         .filter_map(|root| normalize_relative_path(root.strip_prefix(repo_root).ok()?))
         .collect();
     let mut partitions = BTreeMap::<_, Vec<_>>::new();
-    for file in files {
+    let sources = files
+        .iter()
+        .map(|file| (file.parsed.file.as_path(), file.package.as_deref()))
+        .chain(
+            damaged
+                .iter()
+                .map(|(path, package)| (Path::new(path), package.as_deref())),
+        );
+    for (path, package) in sources {
         partitions
-            .entry(file.package.as_ref().map(|package| &package.directory))
+            .entry(package.map(|package| &package.directory))
             .or_default()
-            .push(file);
+            .push((path, package));
     }
     let mut entries = BTreeMap::new();
     for partition in partitions.values() {
         let known_files = partition
             .iter()
-            .map(|file| file.parsed.file.clone())
+            .map(|(path, _)| path.to_path_buf())
             .collect();
-        let package = partition.first().and_then(|file| file.package.as_deref());
+        let package = partition.first().and_then(|(_, package)| *package);
+        let publisher = package.map(|package| package.name.as_str());
         if let Some(entry) = package.and_then(|package| package_entry(package, &known_files)) {
-            entries.extend(
-                partition
-                    .iter()
-                    .filter(|file| file.parsed.file == entry)
-                    .map(|file| (&file.parsed.file, *file)),
-            );
+            if let Some((path, _)) = partition.iter().find(|(path, _)| *path == entry) {
+                entries.insert(*path, (publisher, true));
+            }
             continue;
         }
         for root in &roots {
@@ -97,15 +104,15 @@ fn entry_modules<'a>(
                 let index = root.join("index").with_extension(extension);
                 known_files.get(&index)
             });
-            for file in partition {
-                let path = &file.parsed.file;
+            for &(path, _) in partition {
                 if index.map_or_else(|| path.starts_with(root), |index| path == index) {
-                    entries.insert(path, *file);
+                    let entry = entries.entry(path).or_insert((publisher, false));
+                    entry.1 |= index.is_some();
                 }
             }
         }
     }
-    entries.into_values().collect()
+    entries
 }
 
 fn package_entry(package: &PackageManifest, files: &BTreeSet<PathBuf>) -> Option<PathBuf> {
@@ -150,6 +157,7 @@ fn entry_target(target: &Value, directory: &Path, files: &BTreeSet<PathBuf>) -> 
 
 pub(crate) struct PublicBinding<'a> {
     pub symbol: String,
+    pub component_symbol: Option<String>,
     pub package: Option<&'a str>,
     pub declaration_path: &'a Path,
     pub declaration_name: String,
@@ -353,17 +361,30 @@ impl<'a> ModuleExports<'a> {
     }
 }
 
+pub(crate) struct PublicExports<'a> {
+    pub bindings: Vec<PublicBinding<'a>>,
+    damaged_prefixes: BTreeSet<(Option<&'a str>, String)>,
+}
+
+impl PublicExports<'_> {
+    pub fn is_damaged(&self, package: Option<&str>, key: &str) -> bool {
+        self.damaged_prefixes.iter().any(|(publisher, prefix)| {
+            (package.is_none() || package == *publisher) && key.starts_with(prefix)
+        })
+    }
+}
+
 pub(crate) fn public_bindings<'a>(
     repo_root: &Path,
     roots: &[PathBuf],
     files: &'a [ParsedReactSourceFile],
-    damaged_paths: &[String],
+    damaged_paths: &'a DamagedReactSources,
     diagnostics: &mut Vec<Diagnostic>,
-) -> Vec<PublicBinding<'a>> {
+) -> PublicExports<'a> {
     let known_files = files
         .iter()
         .map(|file| file.parsed.file.clone())
-        .chain(damaged_paths.iter().map(PathBuf::from))
+        .chain(damaged_paths.keys().map(PathBuf::from))
         .collect();
     let modules = files
         .iter()
@@ -380,16 +401,21 @@ pub(crate) fn public_bindings<'a>(
         bindings: Vec::new(),
         active_namespaces: BTreeSet::new(),
         resolved: BTreeMap::new(),
+        blocked: false,
+        damaged_prefixes: BTreeSet::new(),
     };
-    for entry in entry_modules(repo_root, roots, files) {
-        traversal.expand_namespace(
-            &entry.parsed.file,
-            "",
-            entry.package.as_ref().map(|package| package.name.as_str()),
-        );
+    for (path, (package, authoritative)) in entry_modules(repo_root, roots, files, damaged_paths) {
+        if modules.contains_key(path) {
+            traversal.expand_namespace(path, "", package);
+        } else if authoritative {
+            traversal.damaged_prefixes.insert((package, String::new()));
+        }
     }
     diagnostics.extend(traversal.diagnostics.into_values());
-    traversal.bindings
+    PublicExports {
+        bindings: traversal.bindings,
+        damaged_prefixes: traversal.damaged_prefixes,
+    }
 }
 
 struct ExportTraversal<'graph, 'files> {
@@ -398,6 +424,8 @@ struct ExportTraversal<'graph, 'files> {
     bindings: Vec<PublicBinding<'files>>,
     active_namespaces: BTreeSet<&'files Path>,
     resolved: BTreeMap<(&'files Path, &'graph str), Origin<'files, 'graph>>,
+    blocked: bool,
+    damaged_prefixes: BTreeSet<(Option<&'files str>, String)>,
 }
 
 #[derive(Debug)]
@@ -417,9 +445,19 @@ impl<'graph, 'files> ExportTraversal<'graph, 'files> {
             return;
         }
         let mut names = BTreeSet::new();
+        self.blocked = false;
         self.export_names(module, true, &mut names, &mut BTreeSet::new());
+        if self.blocked {
+            self.damaged_prefixes.insert((package, prefix.to_owned()));
+        }
         for name in names {
-            match self.resolve_export(module, name, &mut BTreeSet::new()) {
+            self.blocked = false;
+            let origin = self.resolve_export(module, name, &mut BTreeSet::new());
+            if self.blocked && !matches!(origin, Ok(Some(_))) {
+                self.damaged_prefixes
+                    .insert((package, format!("{prefix}{name}.")));
+            }
+            match origin {
                 Ok(Some(Origin::Namespace(target))) => {
                     self.expand_namespace(target, &format!("{prefix}{name}."), package);
                 }
@@ -436,16 +474,17 @@ impl<'graph, 'files> ExportTraversal<'graph, 'files> {
                         ("default", true, _) => local,
                         _ => name,
                     };
-                    if (is_pascal_case(symbol) || (name == "default" && !prefix.is_empty()))
-                        && origin_module.components.contains(local)
-                    {
-                        self.bindings.push(PublicBinding {
-                            symbol: format!("{prefix}{symbol}"),
-                            package,
-                            declaration_path: module,
-                            declaration_name: local.to_owned(),
-                        });
-                    }
+                    let component_symbol = ((is_pascal_case(symbol)
+                        || (name == "default" && !prefix.is_empty()))
+                        && origin_module.components.contains(local))
+                    .then(|| format!("{prefix}{symbol}"));
+                    self.bindings.push(PublicBinding {
+                        symbol: format!("{prefix}{name}"),
+                        component_symbol,
+                        package,
+                        declaration_path: module,
+                        declaration_name: local.to_owned(),
+                    });
                 }
                 Err(ambiguity) => {
                     let parsed = self.modules[ambiguity.module].parsed;
@@ -591,6 +630,7 @@ impl<'graph, 'files> ExportTraversal<'graph, 'files> {
             }
             None => return None,
         };
+        self.blocked = true;
         self.warn(
             record.parsed,
             edge.span,
