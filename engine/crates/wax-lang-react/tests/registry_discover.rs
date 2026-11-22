@@ -2177,7 +2177,7 @@ fn discovers_portal_returns_through_a_barrel() -> io::Result<()> {
         ("src/index.ts", "export * from './portal';"),
         (
             "src/portal.tsx",
-            r#"import { forwardRef as wrap, memo } from 'react';
+            r#"import { forwardRef as wrap, memo, cloneElement as clone } from 'react';
 import * as DOM from 'react-dom';
 import { createPortal as mount } from 'react-dom';
 import { createPortal as foreign } from 'other';
@@ -2189,6 +2189,14 @@ export const Aliased = wrap(() => {
     const content = <span />;
     if (ready) return mount(content, node);
     return null;
+});
+export const PortalLocal = wrap(() => {
+    const result = DOM.createPortal(<div />, node);
+    return result;
+});
+export const CloneLocal = wrap(() => {
+    const result = clone(child, {});
+    return result;
 });
 export const Wrapped = memo(wrap(() => <input />));
 export const Shadowed = wrap((DOM) => DOM.createPortal(<div />, node));
@@ -2208,7 +2216,7 @@ export const Nested = wrap(() => {
     ];
     assert_eq!(
         discover_files(&["src"], &files)?.symbols(),
-        ["Aliased", "Portal", "Wrapped"]
+        ["Aliased", "CloneLocal", "Portal", "PortalLocal", "Wrapped"]
     );
     Ok(())
 }

@@ -85,7 +85,7 @@ fn stmt_returns_element(
                     && declarator
                         .init
                         .as_deref()
-                        .is_some_and(|expr| is_jsx_expression(expr, jsx_bindings))
+                        .is_some_and(|expr| is_element_expression(expr, jsx_bindings, render_call))
                 {
                     jsx_bindings.insert(binding.id.to_id());
                 }
