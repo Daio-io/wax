@@ -586,13 +586,18 @@ pub(crate) fn retain_css_variant_groups(
         }
         *token = retained;
     }
-    discovered.extend(
-        seed.iter()
-            .filter(|token| {
-                retained_ids.contains(token.id.as_str()) && !matched.contains(token.id.as_str())
-            })
-            .cloned(),
-    );
+    discovered.extend(seed.iter().filter_map(|token| {
+        if !retained_ids.contains(token.id.as_str()) || matched.contains(token.id.as_str()) {
+            return None;
+        }
+        let mut retained = token.clone();
+        retained.details = token.details.as_ref().map(|details| {
+            let mut details = details.clone();
+            details.status = RegistryExtractionStatus::NotObserved;
+            details
+        });
+        Some(retained)
+    }));
     Ok(())
 }
 
