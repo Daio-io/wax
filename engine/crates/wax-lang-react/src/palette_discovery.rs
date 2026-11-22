@@ -66,6 +66,7 @@ pub(crate) fn discover_palette_tokens(
         }
     }
     tokens.sort_by(|left, right| (&left.package, &left.key).cmp(&(&right.package, &right.key)));
+    tokens.dedup_by(|right, left| right.package == left.package && right.key == left.key);
     let matches = match_seeds(seeds, &tokens)?;
     let matched_seeds: BTreeSet<_> = matches.iter().flatten().copied().collect();
     for (index, (token, seed)) in document.tokens.iter_mut().zip(seeds).enumerate() {

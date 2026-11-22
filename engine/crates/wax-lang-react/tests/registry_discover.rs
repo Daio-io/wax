@@ -1997,6 +1997,28 @@ export const cast = <Record<string, string>>{ color: '#abcd' };
     Ok(())
 }
 
+#[test]
+fn duplicate_palette_observations_from_root_entries_are_deduplicated() -> io::Result<()> {
+    let fixture = tempfile::tempdir()?;
+    let root = fixture.path();
+    fs::create_dir(root.join("src"))?;
+    fs::write(
+        root.join("src/palette.ts"),
+        "export const blue = { blue9: '#0090ff' };",
+    )?;
+    fs::write(
+        root.join("src/barrel.ts"),
+        "export { blue } from './palette';",
+    )?;
+    let request = palette_request(root, &["src"]);
+
+    let result = discover_registry_details(&request).expect("duplicate exports are valid");
+
+    assert_eq!(result.document.tokens.len(), 1);
+    assert_eq!(result.document.tokens[0].id, "token:blue.blue9");
+    Ok(())
+}
+
 fn palette_request(root: &std::path::Path, roots: &[&str]) -> DiscoverRegistryRequest {
     DiscoverRegistryRequest {
         api_version: WIRE_API_VERSION,

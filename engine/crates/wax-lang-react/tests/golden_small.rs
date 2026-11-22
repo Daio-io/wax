@@ -229,6 +229,37 @@ fn wrapper_fixture_reports_local_invocations_and_parent_attribution() {
     }));
 }
 
+#[test]
+fn default_palette_import_resolves_discovered_package_scoped_token() {
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("design-system.json"),
+        r##"{"schema_version":1,"tokens":[{"id":"default-blue9","key":"default.blue9","category":"color","package":"colors"}]}"##,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src/Screen.tsx"),
+        "import blue from 'colors'; export function Screen() { return <div style={{ color: blue.blue9 }} />; }",
+    )
+    .unwrap();
+    let mut request = scan_request(root, "snap-default-palette-import");
+    request.config.insert(
+        "registry".to_owned(),
+        serde_json::Value::String("design-system.json".to_owned()),
+    );
+    request
+        .config
+        .insert("packages".to_owned(), serde_json::json!({}));
+
+    let facts = ReactLanguage::new().scan(&request).unwrap();
+
+    assert_eq!(facts.token_sites.len(), 1);
+    assert_eq!(facts.token_sites[0].token_id, "default-blue9");
+    assert_eq!(facts.token_sites[0].key, "default.blue9");
+}
+
 fn scan_request(fixture_root: &Path, snapshot_id: &str) -> ScanRequest {
     let mut config = serde_json::Map::new();
     config.insert(
