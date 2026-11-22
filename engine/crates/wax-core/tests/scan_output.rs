@@ -297,6 +297,86 @@ fn overwrite_pack_script(wax_home: &Path, language: &str, script: &str) {
 }
 
 #[test]
+fn scan_output_keeps_package_qualified_components_distinct_in_merged_facts() {
+    let _guard = env_lock();
+    let fixture = fixture("scan-output-package-identities", &["react"]);
+    let _wax_home = EnvVarGuard::set("WAX_HOME", &fixture.wax_home);
+    let components = serde_json::json!([
+        {"id":"ds.dialog.root", "symbol":"Root", "package":"@radix-ui/react-dialog"},
+        {"id":"ds.popover.root", "symbol":"Root", "package":"@radix-ui/react-popover"}
+    ]);
+    fs::write(
+        fixture.repo.join(language_registry_relative_path("react")),
+        serde_json::json!({"schema_version": 1, "components": components}).to_string(),
+    )
+    .unwrap();
+    write_lockfile(&fixture.repo, &["react"]);
+
+    let usages = serde_json::json!([
+        {
+            "id":"dialog-usage", "location":{"file":"src/App.tsx", "line":1},
+            "symbol":"Dialog.Root", "qualified_symbol":"@radix-ui/react-dialog#Root",
+            "registry_symbol":"@radix-ui/react-dialog#Root", "match_status":"resolved",
+            "callee_origin":"registry",
+            "resolution_evidence":{"kind":"registry_package_match", "package":"@radix-ui/react-dialog"}
+        },
+        {
+            "id":"popover-usage", "location":{"file":"src/App.tsx", "line":2},
+            "symbol":"Popover.Root", "qualified_symbol":"@radix-ui/react-popover#Root",
+            "registry_symbol":"@radix-ui/react-popover#Root", "match_status":"resolved",
+            "callee_origin":"registry",
+            "resolution_evidence":{"kind":"registry_package_match", "package":"@radix-ui/react-popover"}
+        }
+    ]);
+    let component_facts = serde_json::json!([
+        {"id":"ds.@radix-ui/react-dialog#Root", "symbol":"Root", "registry_symbol":"@radix-ui/react-dialog#Root"},
+        {"id":"ds.@radix-ui/react-popover#Root", "symbol":"Root", "registry_symbol":"@radix-ui/react-popover#Root"}
+    ]);
+    let mut facts: ScanFacts = serde_json::from_value(serde_json::json!({
+        "schema_version": 4,
+        "language": {
+            "id": "react", "version": "0.1.0", "ecosystem": "test",
+            "parser_name": "fixture", "parser_version": "1.0.0"
+        },
+        "snapshot_id": "snap-react",
+        "scanned_at": "1970-01-01T00:00:00Z",
+        "status": "complete",
+        "design_system_components": component_facts,
+        "local_components": [],
+        "usage_sites": usages,
+        "diagnostics": [],
+        "metrics": {"parse_extract_ms": 3, "files_scanned": 1},
+        "counts": wax_contract::CountSummary::default()
+    }))
+    .unwrap();
+    facts.recompute_counts().unwrap();
+    let response = serde_json::json!({
+        "type": "scan_facts", "api_version": 1, "language_id": "react", "facts": facts
+    });
+    let script = format!("#!/bin/sh\ncat >/dev/null\ncat <<'JSON'\n{response}\nJSON\n");
+    overwrite_pack_script(&fixture.wax_home, "react", &script);
+
+    Engine::scan_repo(&fixture.repo).expect("scan should pass");
+    let output = fs::read(fixture.repo.join(".wax/out/scan-merged.json")).unwrap();
+    let merged: MergedScan = serde_json::from_slice(&output).unwrap();
+    merged.validate().expect("merged facts should validate");
+    assert_eq!(merged.repo_summary.counts.registry.component_count, 2);
+    assert_eq!(merged.repo_summary.counts.registry.used_component_count, 2);
+    let symbol_ids = merged
+        .symbol_usage_summary
+        .iter()
+        .map(|summary| summary.symbol_id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        symbol_ids,
+        [
+            "react:registry:@radix-ui/react-dialog#Root",
+            "react:registry:@radix-ui/react-popover#Root",
+        ]
+    );
+}
+
+#[test]
 fn scan_output_merges_token_counts_summaries_and_ratio() {
     let _guard = env_lock();
     let fixture = fixture("scan-output-tokens", &["compose"]);

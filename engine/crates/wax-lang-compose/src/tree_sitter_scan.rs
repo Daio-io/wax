@@ -27,10 +27,9 @@ use wax_contract::{
     TokenCategory, TokenSite, UsageSite,
 };
 use wax_lang_api::{
-    RegistryImportMatch, RegistryTokenIndex, RootResolutionError, ScanConfig,
-    normalize_repo_relative_path, parse_registry_tokens, path_matches_any,
-    resolve_import_aware_match, resolve_source_roots, root_not_found_code, root_not_found_message,
-    token_index,
+    RegistryComponentIndex, RegistryImportMatch, RegistryTokenIndex, RootResolutionError,
+    ScanConfig, normalize_repo_relative_path, parse_registry_tokens, path_matches_any,
+    resolve_source_roots, root_not_found_code, root_not_found_message, token_index,
 };
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -257,9 +256,7 @@ pub struct TreeSitterScanResult {
 // ── Registry ──────────────────────────────────────────────────────────────────
 
 struct RegistryIndex {
-    canonical_symbols: Vec<String>,
-    resolve_targets: BTreeMap<String, String>,
-    component_packages: BTreeMap<String, Option<String>>,
+    components: RegistryComponentIndex,
     tokens: Vec<DesignSystemToken>,
     token_index: RegistryTokenIndex,
 }
@@ -274,69 +271,12 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, TreeSitterScanError> {
             path: path.to_path_buf(),
             reason: format!("registry JSON is invalid: {err}"),
         })?;
-    let components = value
-        .get("components")
-        .and_then(serde_json::Value::as_array)
-        .ok_or_else(|| TreeSitterScanError::RegistryInvalid {
+    let components = RegistryComponentIndex::from_json(&value).map_err(|err| {
+        TreeSitterScanError::RegistryInvalid {
             path: path.to_path_buf(),
-            reason: "registry JSON must contain a components array".to_owned(),
-        })?;
-
-    let mut canonical_symbols = Vec::new();
-    let mut resolve_targets = BTreeMap::new();
-    let mut component_packages = BTreeMap::new();
-    for (index, component) in components.iter().enumerate() {
-        let symbol = component
-            .get("symbol")
-            .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| TreeSitterScanError::RegistryInvalid {
-                path: path.to_path_buf(),
-                reason: format!("components[{index}] is missing symbol"),
-            })?;
-        let package = component
-            .get("package")
-            .map(|value| {
-                value
-                    .as_str()
-                    .ok_or_else(|| TreeSitterScanError::RegistryInvalid {
-                        path: path.to_path_buf(),
-                        reason: format!("components[{index}].package must be a string"),
-                    })
-            })
-            .transpose()?
-            .map(str::to_owned);
-        if let Some(package) = &package
-            && package.is_empty()
-        {
-            return Err(TreeSitterScanError::RegistryInvalid {
-                path: path.to_path_buf(),
-                reason: format!("components[{index}].package must not be empty"),
-            });
+            reason: err.to_string(),
         }
-
-        canonical_symbols.push(symbol.to_owned());
-        resolve_targets.insert(symbol.to_owned(), symbol.to_owned());
-        component_packages.insert(symbol.to_owned(), package);
-        if let Some(aliases) = component
-            .get("aliases")
-            .and_then(serde_json::Value::as_array)
-        {
-            for (alias_index, alias) in aliases.iter().enumerate() {
-                let alias_symbol =
-                    alias
-                        .as_str()
-                        .ok_or_else(|| TreeSitterScanError::RegistryInvalid {
-                            path: path.to_path_buf(),
-                            reason: format!(
-                                "components[{index}].aliases[{alias_index}] must be a string"
-                            ),
-                        })?;
-                resolve_targets.insert(alias_symbol.to_owned(), symbol.to_owned());
-            }
-        }
-    }
-
-    canonical_symbols.sort();
+    })?;
 
     let tokens =
         parse_registry_tokens(&value).map_err(|err| TreeSitterScanError::RegistryInvalid {
@@ -349,30 +289,13 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, TreeSitterScanError> {
     })?;
 
     Ok(RegistryIndex {
-        canonical_symbols,
-        resolve_targets,
-        component_packages,
+        components,
         tokens,
         token_index,
     })
 }
 
 // ── Extraction ────────────────────────────────────────────────────────────────
-
-fn resolve_registry_match(
-    call_symbol: &str,
-    registry_symbol: &str,
-    registry: &RegistryIndex,
-    imports: &ImportBindings,
-) -> RegistryImportMatch {
-    resolve_import_aware_match(
-        registry
-            .component_packages
-            .get(registry_symbol)
-            .and_then(|package| package.as_deref()),
-        imports.package_for_symbol(call_symbol),
-    )
-}
 
 fn qualified_composable_symbol(package: Option<&str>, symbol: &str) -> String {
     package
@@ -679,92 +602,66 @@ fn visit_component_usage(
                 parent,
             });
         } else {
-            let registry_target = ctx.registry.resolve_targets.get(&call_symbol);
-            let registry_match = registry_target.map(|registry_symbol| {
-                resolve_registry_match(&call_symbol, registry_symbol, ctx.registry, ctx.imports)
+            let import_is_ambiguous = ctx.imports.wildcard_packages.len() > 1
+                && !ctx.imports.symbol_packages.contains_key(&call_symbol);
+            let registry_match = ctx
+                .registry
+                .components
+                .resolve(&call_symbol, import_package);
+            let (match_status, callee_origin, kind) =
+                match registry_match.map(|(classification, _)| classification) {
+                    Some(RegistryImportMatch::Resolved) => (
+                        MatchStatus::Resolved,
+                        CalleeOrigin::Registry,
+                        ResolutionEvidenceKind::RegistryPackageMatch,
+                    ),
+                    Some(RegistryImportMatch::Candidate) => (
+                        MatchStatus::Candidate,
+                        CalleeOrigin::Registry,
+                        if import_is_ambiguous {
+                            ResolutionEvidenceKind::RegistryImportAmbiguous
+                        } else {
+                            ResolutionEvidenceKind::RegistryImportMissing
+                        },
+                    ),
+                    Some(RegistryImportMatch::LegacyNameOnly) => (
+                        MatchStatus::Resolved,
+                        CalleeOrigin::Registry,
+                        ResolutionEvidenceKind::RegistryNameOnlyLegacy,
+                    ),
+                    mismatch => (
+                        MatchStatus::Unresolved,
+                        unresolved_origin(
+                            import_package,
+                            ctx.package,
+                            &ctx.local_index.scanned_packages,
+                            import_is_ambiguous,
+                        ),
+                        if mismatch.is_some() {
+                            ResolutionEvidenceKind::PackageMismatch
+                        } else {
+                            ResolutionEvidenceKind::NoMatchingDefinition
+                        },
+                    ),
+                };
+            ctx.usage_sites.push(UsageSite {
+                id: format!("usage.compose:{}:{line}:{column}:{call_symbol}", ctx.file),
+                location,
+                qualified_symbol: import_package
+                    .map(|package| qualified_composable_symbol(Some(package), imported_symbol)),
+                symbol: call_symbol,
+                callee_origin,
+                resolution_evidence: ResolutionEvidence {
+                    kind,
+                    package: import_package.map(str::to_owned),
+                },
+                match_status,
+                registry_symbol: registry_match
+                    .and_then(|(_, target)| target)
+                    .map(|target| target.registry_symbol.clone()),
+                local_definition_id: None,
+                parent,
             });
-            {
-                let (match_status, registry_symbol, callee_origin, resolution_evidence) =
-                    match registry_match {
-                        Some(RegistryImportMatch::Resolved) => (
-                            MatchStatus::Resolved,
-                            registry_target.cloned(),
-                            CalleeOrigin::Registry,
-                            ResolutionEvidence {
-                                kind: ResolutionEvidenceKind::RegistryPackageMatch,
-                                package: import_package.map(str::to_owned),
-                            },
-                        ),
-                        Some(RegistryImportMatch::Candidate) => (
-                            MatchStatus::Candidate,
-                            registry_target.cloned(),
-                            CalleeOrigin::Registry,
-                            ResolutionEvidence {
-                                kind: if ctx.imports.wildcard_packages.len() > 1
-                                    && !ctx.imports.symbol_packages.contains_key(&call_symbol)
-                                {
-                                    ResolutionEvidenceKind::RegistryImportAmbiguous
-                                } else {
-                                    ResolutionEvidenceKind::RegistryImportMissing
-                                },
-                                package: import_package.map(str::to_owned),
-                            },
-                        ),
-                        Some(RegistryImportMatch::Mismatch) => (
-                            MatchStatus::Unresolved,
-                            None,
-                            unresolved_origin(
-                                import_package,
-                                ctx.package,
-                                &ctx.local_index.scanned_packages,
-                                ctx.imports.wildcard_packages.len() > 1
-                                    && !ctx.imports.symbol_packages.contains_key(&call_symbol),
-                            ),
-                            ResolutionEvidence {
-                                kind: ResolutionEvidenceKind::PackageMismatch,
-                                package: import_package.map(str::to_owned),
-                            },
-                        ),
-                        Some(RegistryImportMatch::LegacyNameOnly) => (
-                            MatchStatus::Resolved,
-                            registry_target.cloned(),
-                            CalleeOrigin::Registry,
-                            ResolutionEvidence {
-                                kind: ResolutionEvidenceKind::RegistryNameOnlyLegacy,
-                                package: import_package.map(str::to_owned),
-                            },
-                        ),
-                        None => (
-                            MatchStatus::Unresolved,
-                            None,
-                            unresolved_origin(
-                                import_package,
-                                ctx.package,
-                                &ctx.local_index.scanned_packages,
-                                ctx.imports.wildcard_packages.len() > 1
-                                    && !ctx.imports.symbol_packages.contains_key(&call_symbol),
-                            ),
-                            ResolutionEvidence {
-                                kind: ResolutionEvidenceKind::NoMatchingDefinition,
-                                package: import_package.map(str::to_owned),
-                            },
-                        ),
-                    };
-                let qualified_symbol = import_package
-                    .map(|package| qualified_composable_symbol(Some(package), imported_symbol));
-                ctx.usage_sites.push(UsageSite {
-                    id: format!("usage.compose:{}:{line}:{column}:{call_symbol}", ctx.file),
-                    location,
-                    symbol: call_symbol,
-                    qualified_symbol,
-                    callee_origin,
-                    resolution_evidence,
-                    match_status,
-                    registry_symbol,
-                    local_definition_id: None,
-                    parent,
-                });
-            }
         }
     }
 
@@ -1164,16 +1061,6 @@ fn scan_repository_with_parser(
         !path_matches_any(&relative_text, &config.excludes)
     });
 
-    let mut design_system_components = registry
-        .canonical_symbols
-        .iter()
-        .map(|symbol| DesignSystemComponent {
-            id: format!("ds.{symbol}"),
-            symbol: symbol.clone(),
-            registry_symbol: symbol.clone(),
-        })
-        .collect::<Vec<_>>();
-
     let design_system_tokens = registry.tokens.clone();
     let mut files_scanned = 0_u32;
     let mut parse_failures = 0_u32;
@@ -1282,7 +1169,6 @@ fn scan_repository_with_parser(
     let mut hardcoded_style_sites =
         retain_first_by_priority_id(style_with_priority, |fact| &fact.id);
 
-    design_system_components.sort_by(|l, r| l.symbol.cmp(&r.symbol));
     local_components.sort_by(|l, r| l.symbol.cmp(&r.symbol));
     usage_sites.sort_by(|l, r| {
         l.location
@@ -1320,7 +1206,7 @@ fn scan_repository_with_parser(
     };
 
     Ok(TreeSitterScanResult {
-        design_system_components,
+        design_system_components: registry.components.into_components(),
         local_components,
         usage_sites,
         design_system_tokens,
@@ -1387,41 +1273,48 @@ mod tests {
     }
 
     fn registry_index(
-        resolve_targets: BTreeMap<String, String>,
-        component_packages: BTreeMap<String, Option<String>>,
+        names: BTreeMap<String, String>,
+        packages: BTreeMap<String, Option<String>>,
     ) -> RegistryIndex {
-        let canonical_symbols = resolve_targets
-            .values()
-            .cloned()
-            .collect::<std::collections::BTreeSet<_>>()
+        let components: Vec<_> = packages
             .into_iter()
+            .map(|(symbol, package)| {
+                let aliases: Vec<_> = names
+                    .iter()
+                    .filter(|(name, canonical)| *canonical == &symbol && *name != &symbol)
+                    .map(|(name, _)| name)
+                    .collect();
+                let mut entry = serde_json::json!({"symbol": symbol, "aliases": aliases});
+                if let Some(package) = package {
+                    entry["package"] = serde_json::json!(package);
+                }
+                entry
+            })
             .collect();
         RegistryIndex {
-            canonical_symbols,
-            resolve_targets,
-            component_packages,
+            components: RegistryComponentIndex::from_json(&serde_json::json!({
+                "components": components,
+            }))
+            .expect("valid component fixture"),
             tokens: Vec::new(),
             token_index: RegistryTokenIndex::default(),
         }
     }
 
     fn registry_without_packages(pairs: &[(&str, &str)]) -> RegistryIndex {
-        let resolve_targets = resolve_map(pairs);
-        let component_packages = resolve_targets
+        let names = resolve_map(pairs);
+        let packages = names
             .values()
             .map(|symbol| (symbol.clone(), None))
             .collect();
-        registry_index(resolve_targets, component_packages)
+        registry_index(names, packages)
     }
 
     fn registry_with_package(symbol: &str, package: &str) -> RegistryIndex {
-        RegistryIndex {
-            canonical_symbols: vec![symbol.to_owned()],
-            resolve_targets: BTreeMap::from([(symbol.to_owned(), symbol.to_owned())]),
-            component_packages: BTreeMap::from([(symbol.to_owned(), Some(package.to_owned()))]),
-            tokens: Vec::new(),
-            token_index: RegistryTokenIndex::default(),
-        }
+        registry_index(
+            resolve_map(&[(symbol, symbol)]),
+            BTreeMap::from([(symbol.to_owned(), Some(package.to_owned()))]),
+        )
     }
 
     #[test]
@@ -1702,10 +1595,13 @@ class Holder {
 
     #[test]
     fn package_mismatch_keeps_the_imported_symbol_for_an_alias() {
-        let mut registry = registry_with_package("Button", "com.acme.designsystem");
-        registry
-            .resolve_targets
-            .insert("DsButton".to_owned(), "Button".to_owned());
+        let registry = registry_index(
+            resolve_map(&[("DsButton", "Button")]),
+            BTreeMap::from([(
+                "Button".to_owned(),
+                Some("com.acme.designsystem".to_owned()),
+            )]),
+        );
         let (_, usages) = parse_and_extract(
             "import com.other.widgets.RealButton as DsButton\n@Composable\nfun Screen() { DsButton() }",
             &registry,
@@ -1725,19 +1621,13 @@ class Holder {
 
     #[test]
     fn matching_named_alias_and_wildcard_imports_resolve_with_qualified_symbols() {
-        let registry = RegistryIndex {
-            canonical_symbols: vec!["Button".to_owned()],
-            resolve_targets: BTreeMap::from([
-                ("Button".to_owned(), "Button".to_owned()),
-                ("DsButton".to_owned(), "Button".to_owned()),
-            ]),
-            component_packages: BTreeMap::from([(
+        let registry = registry_index(
+            resolve_map(&[("DsButton", "Button")]),
+            BTreeMap::from([(
                 "Button".to_owned(),
                 Some("com.acme.designsystem".to_owned()),
             )]),
-            tokens: Vec::new(),
-            token_index: RegistryTokenIndex::default(),
-        };
+        );
         let (_, usages) = parse_and_extract(
             "import com.acme.designsystem.Button as DsButton\nimport com.acme.designsystem.*\n@Composable\nfun Screen() { DsButton(); Button() }",
             &registry,

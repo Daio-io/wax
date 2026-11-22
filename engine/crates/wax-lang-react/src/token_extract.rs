@@ -91,7 +91,6 @@ mod tests {
     use crate::component_scope::collect_component_definitions;
     use crate::registry::ReactRegistryIndex;
     use crate::swc_parse::{ParsedReactModule, ReactParseOutcome, parse_react_source_file};
-    use std::collections::BTreeMap;
     use std::path::Path;
     use wax_contract::{DesignSystemToken, TokenCategory};
     use wax_lang_api::token_index;
@@ -127,9 +126,7 @@ mod tests {
         }];
         let index = token_index(&tokens).unwrap();
         ReactRegistryIndex {
-            design_system_components: Vec::new(),
-            resolve_targets: BTreeMap::new(),
-            component_packages: BTreeMap::new(),
+            components: Default::default(),
             design_system_tokens: tokens,
             token_index: index,
         }

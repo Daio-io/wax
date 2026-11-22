@@ -14,7 +14,7 @@ use wax_contract::{
     CalleeOrigin, Diagnostic, HardcodedStyleSite, IdentityStability, LocalComponent, MatchStatus,
     ParentScope, ResolutionEvidence, ResolutionEvidenceKind, SourceLocation, TokenSite, UsageSite,
 };
-use wax_lang_api::{RegistryImportMatch, npm_import_package_root, resolve_import_aware_match};
+use wax_lang_api::{RegistryImportMatch, npm_import_package_root};
 
 use crate::component_detect::{
     class_returns_jsx, expression_returns_jsx, function_returns_jsx, is_pascal_case,
@@ -1207,106 +1207,53 @@ fn classify_jsx_usage(
     registry: &ReactRegistryIndex,
     candidate: &JsxUsageCandidate,
 ) -> Option<ClassifiedJsxUsage> {
-    if candidate.shadowed {
-        return None;
-    }
-
+    let name = registry_lookup_name(parsed, module_graph, config, registry, candidate)?;
     let import_package = import_package(module_graph, parsed, &candidate.binding_name);
-
-    if let Some(registry_symbol) =
-        registry_symbol_for_candidate(parsed, module_graph, config, registry, candidate)
-    {
-        let registry_package = registry
-            .component_packages
-            .get(&registry_symbol)
-            .and_then(|package| package.as_deref());
-        let registry_match =
-            resolve_import_aware_match(registry_package, import_package.as_deref());
-        let (match_status, callee_origin, evidence_kind) = match registry_match {
-            RegistryImportMatch::Resolved => (
+    let registry_match = registry
+        .components
+        .resolve(&name, import_package.as_deref());
+    let target = registry_match.and_then(|(_, target)| target);
+    let (match_status, callee_origin, evidence_kind) =
+        match registry_match.map(|(classification, _)| classification) {
+            Some(RegistryImportMatch::Resolved) => (
                 MatchStatus::Resolved,
                 CalleeOrigin::Registry,
                 ResolutionEvidenceKind::RegistryPackageMatch,
             ),
-            RegistryImportMatch::Candidate => (
+            Some(RegistryImportMatch::Candidate) => (
                 MatchStatus::Candidate,
                 CalleeOrigin::Registry,
                 ResolutionEvidenceKind::RegistryImportMissing,
             ),
-            RegistryImportMatch::Mismatch => (
+            Some(RegistryImportMatch::Mismatch) => (
                 MatchStatus::Unresolved,
                 unresolved_origin(module_graph, parsed, &candidate.binding_name),
                 ResolutionEvidenceKind::PackageMismatch,
             ),
-            RegistryImportMatch::LegacyNameOnly => (
+            Some(RegistryImportMatch::LegacyNameOnly) => (
                 MatchStatus::Resolved,
                 CalleeOrigin::Registry,
                 ResolutionEvidenceKind::RegistryNameOnlyLegacy,
             ),
+            None => (
+                MatchStatus::Unresolved,
+                unresolved_origin(module_graph, parsed, &candidate.binding_name),
+                ResolutionEvidenceKind::NoMatchingDefinition,
+            ),
         };
-        return Some(ClassifiedJsxUsage {
-            registry_symbol: (match_status != MatchStatus::Unresolved)
-                .then_some(registry_symbol.clone()),
-            match_status,
-            qualified_symbol: import_package.as_deref().map(|package| {
-                format!(
-                    "{package}#{}",
-                    imported_symbol_for_candidate(
-                        parsed,
-                        module_graph,
-                        candidate,
-                        &registry_symbol
-                    )
-                )
-            }),
-            callee_origin,
-            resolution_evidence: ResolutionEvidence {
-                kind: evidence_kind,
-                package: import_package,
-            },
-        });
-    }
-
-    let registry_symbol =
-        lookup_registry_symbol_by_name(parsed, module_graph, registry, candidate)?;
-    let registry_package = registry
-        .component_packages
-        .get(&registry_symbol)
-        .and_then(|package| package.as_deref());
-
-    let registry_match = resolve_import_aware_match(registry_package, import_package.as_deref());
-    let (match_status, callee_origin, evidence_kind) = match registry_match {
-        RegistryImportMatch::Resolved => (
-            MatchStatus::Resolved,
-            CalleeOrigin::Registry,
-            ResolutionEvidenceKind::RegistryPackageMatch,
-        ),
-        RegistryImportMatch::LegacyNameOnly => (
-            MatchStatus::Resolved,
-            CalleeOrigin::Registry,
-            ResolutionEvidenceKind::RegistryNameOnlyLegacy,
-        ),
-        RegistryImportMatch::Candidate => (
-            MatchStatus::Candidate,
-            CalleeOrigin::Registry,
-            ResolutionEvidenceKind::RegistryImportMissing,
-        ),
-        RegistryImportMatch::Mismatch => (
-            MatchStatus::Unresolved,
-            unresolved_origin(module_graph, parsed, &candidate.binding_name),
-            ResolutionEvidenceKind::PackageMismatch,
-        ),
-    };
+    let qualified_symbol = import_package.as_deref().map(|package| {
+        let import = module_graph.import_binding(&parsed.file, &candidate.binding_name);
+        let observed = match import.map(|binding| &binding.imported_symbol) {
+            Some(ImportedSymbol::Named(symbol)) => symbol,
+            Some(ImportedSymbol::Namespace) => namespace_member_symbol(candidate).unwrap_or(&name),
+            _ => target.map_or(name.as_str(), |component| component.symbol.as_str()),
+        };
+        format!("{package}#{observed}")
+    });
     Some(ClassifiedJsxUsage {
-        registry_symbol: (match_status != MatchStatus::Unresolved)
-            .then_some(registry_symbol.clone()),
+        registry_symbol: target.map(|component| component.registry_symbol.clone()),
         match_status,
-        qualified_symbol: import_package.as_deref().map(|package| {
-            format!(
-                "{package}#{}",
-                imported_symbol_for_candidate(parsed, module_graph, candidate, &registry_symbol)
-            )
-        }),
+        qualified_symbol,
         callee_origin,
         resolution_evidence: ResolutionEvidence {
             kind: evidence_kind,
@@ -1315,120 +1262,58 @@ fn classify_jsx_usage(
     })
 }
 
-fn imported_symbol_for_candidate(
-    parsed: &ParsedReactModule,
-    module_graph: &ReactModuleGraph,
-    candidate: &JsxUsageCandidate,
-    fallback: &str,
-) -> String {
-    module_graph
-        .import_binding(&parsed.file, &candidate.binding_name)
-        .and_then(|binding| match &binding.imported_symbol {
-            ImportedSymbol::Named(symbol) => Some(symbol.clone()),
-            _ => None,
-        })
-        .unwrap_or_else(|| fallback.to_owned())
-}
-
-fn registry_symbol_for_candidate(
+fn registry_lookup_name(
     parsed: &ParsedReactModule,
     module_graph: &ReactModuleGraph,
     config: &ReactScanConfig,
     registry: &ReactRegistryIndex,
     candidate: &JsxUsageCandidate,
 ) -> Option<String> {
-    resolve_usage_registry_symbol(parsed, module_graph, config, registry, candidate)
-        .or_else(|| lookup_namespace_registry_symbol(parsed, module_graph, registry, candidate))
-}
-
-fn lookup_namespace_registry_symbol(
-    parsed: &ParsedReactModule,
-    module_graph: &ReactModuleGraph,
-    registry: &ReactRegistryIndex,
-    candidate: &JsxUsageCandidate,
-) -> Option<String> {
-    let import = module_graph.import_binding(&parsed.file, &candidate.binding_name)?;
-    if !matches!(import.imported_symbol, ImportedSymbol::Namespace) {
-        return None;
-    }
-
-    let member_symbol = namespace_member_symbol(candidate)?;
-    if let Some(source_module) = import.source_module.as_ref()
-        && let Some(member_resolved) = module_graph.resolve_export(source_module, &member_symbol)
-        && let Some(registry_symbol) = registry.resolve_targets.get(&member_resolved.symbol)
-    {
-        return Some(registry_symbol.clone());
-    }
-
-    registry.resolve_targets.get(&member_symbol).cloned()
-}
-
-fn lookup_registry_symbol_by_name(
-    parsed: &ParsedReactModule,
-    module_graph: &ReactModuleGraph,
-    registry: &ReactRegistryIndex,
-    candidate: &JsxUsageCandidate,
-) -> Option<String> {
-    if let Some(resolved) = module_graph.resolve_import(&parsed.file, &candidate.binding_name)
-        && let Some(registry_symbol) = registry.resolve_targets.get(&resolved.symbol)
-    {
-        return Some(registry_symbol.clone());
-    }
-
-    registry
-        .resolve_targets
-        .get(&candidate.symbol)
-        .or_else(|| registry.resolve_targets.get(&candidate.binding_name))
-        .cloned()
-}
-
-fn resolve_usage_registry_symbol(
-    parsed: &ParsedReactModule,
-    module_graph: &ReactModuleGraph,
-    config: &ReactScanConfig,
-    registry: &ReactRegistryIndex,
-    candidate: &JsxUsageCandidate,
-) -> Option<String> {
-    if candidate.shadowed {
-        return None;
-    }
-
-    if !module_graph.import_resolves_through_configured_package(
-        &parsed.file,
-        &candidate.binding_name,
-        config,
-    ) {
-        return None;
-    }
-
-    let resolved = module_graph.resolve_import(&parsed.file, &candidate.binding_name)?;
-
-    if resolved.symbol == "*" {
-        if let Some(member_symbol) = namespace_member_symbol(candidate) {
-            if let Some(member_resolved) =
-                module_graph.resolve_export(&resolved.module, &member_symbol)
-                && let Some(registry_symbol) = registry.resolve_targets.get(&member_resolved.symbol)
+    let contains_name = |name: &str| registry.components.contains_name(name);
+    let resolved = module_graph.resolve_import(&parsed.file, &candidate.binding_name);
+    if let Some(member) = namespace_member_symbol(candidate) {
+        let import = module_graph.import_binding(&parsed.file, &candidate.binding_name);
+        let configured_namespace = resolved.as_ref().filter(|resolved| {
+            resolved.symbol == "*"
+                && module_graph.import_resolves_through_configured_package(
+                    &parsed.file,
+                    &candidate.binding_name,
+                    config,
+                )
+        });
+        let namespace_import =
+            import.filter(|import| matches!(import.imported_symbol, ImportedSymbol::Namespace));
+        if configured_namespace.is_some() || namespace_import.is_some() {
+            let source_module = configured_namespace
+                .map(|resolved| &resolved.module)
+                .or_else(|| namespace_import.and_then(|import| import.source_module.as_ref()));
+            if let Some(source_module) = source_module
+                && let Some(resolved) = module_graph.resolve_export(source_module, member)
+                && contains_name(&resolved.symbol)
             {
-                return Some(registry_symbol.clone());
+                return Some(resolved.symbol);
             }
-            if let Some(registry_symbol) = registry.resolve_targets.get(&member_symbol) {
-                return Some(registry_symbol.clone());
+            if contains_name(member) {
+                return Some(member.to_owned());
             }
         }
-        return None;
     }
-
-    registry
-        .resolve_targets
-        .get(&resolved.symbol)
-        .or_else(|| registry.resolve_targets.get(&candidate.symbol))
-        .or_else(|| registry.resolve_targets.get(&candidate.binding_name))
+    if let Some(resolved) = resolved
+        && contains_name(&resolved.symbol)
+    {
+        return Some(resolved.symbol);
+    }
+    [&candidate.symbol, &candidate.binding_name]
+        .into_iter()
+        .find(|name| contains_name(name))
         .cloned()
 }
 
-fn namespace_member_symbol(candidate: &JsxUsageCandidate) -> Option<String> {
-    let prefix = format!("{}.", candidate.binding_name);
-    candidate.symbol.strip_prefix(&prefix).map(str::to_owned)
+fn namespace_member_symbol(candidate: &JsxUsageCandidate) -> Option<&str> {
+    candidate
+        .symbol
+        .strip_prefix(&candidate.binding_name)?
+        .strip_prefix('.')
 }
 
 fn binding_is_shadowed(binding_name: &str, scopes: &[BTreeSet<String>]) -> bool {
@@ -2593,29 +2478,23 @@ mod tests {
     }
 
     fn registry_with_aliases(symbols: &[(&str, &[&str])]) -> ReactRegistryIndex {
-        let mut resolve_targets = BTreeMap::new();
-        let mut component_packages = BTreeMap::new();
-        for (symbol, aliases) in symbols {
-            resolve_targets.insert((*symbol).to_owned(), (*symbol).to_owned());
-            component_packages.insert((*symbol).to_owned(), None);
-            for alias in *aliases {
-                resolve_targets.insert((*alias).to_owned(), (*symbol).to_owned());
-            }
-        }
-        ReactRegistryIndex {
-            design_system_components: Vec::new(),
-            resolve_targets,
-            component_packages,
-            design_system_tokens: Vec::new(),
-            token_index: Default::default(),
-        }
+        let components: Vec<_> = symbols
+            .iter()
+            .map(|(symbol, aliases)| serde_json::json!({"symbol": symbol, "aliases": aliases}))
+            .collect();
+        registry_with_components(&components)
     }
 
     fn registry_with_package(symbol: &str, package: &str) -> ReactRegistryIndex {
+        registry_with_components(&[serde_json::json!({"symbol": symbol, "package": package})])
+    }
+
+    fn registry_with_components(components: &[serde_json::Value]) -> ReactRegistryIndex {
         ReactRegistryIndex {
-            design_system_components: Vec::new(),
-            resolve_targets: BTreeMap::from([(symbol.to_owned(), symbol.to_owned())]),
-            component_packages: BTreeMap::from([(symbol.to_owned(), Some(package.to_owned()))]),
+            components: wax_lang_api::RegistryComponentIndex::from_json(
+                &serde_json::json!({"components": components}),
+            )
+            .expect("valid component fixture"),
             design_system_tokens: Vec::new(),
             token_index: Default::default(),
         }
@@ -2631,9 +2510,7 @@ mod tests {
         }];
         let token_index = wax_lang_api::token_index(&tokens).expect("token index");
         ReactRegistryIndex {
-            design_system_components: Vec::new(),
-            resolve_targets: BTreeMap::new(),
-            component_packages: BTreeMap::new(),
+            components: Default::default(),
             design_system_tokens: tokens,
             token_index,
         }

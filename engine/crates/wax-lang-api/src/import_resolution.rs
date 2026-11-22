@@ -1,5 +1,207 @@
 //! Shared import-aware registry resolution helpers for parser-backed language packs.
 
+use std::collections::{BTreeMap, BTreeSet};
+
+use serde_json::Value;
+use thiserror::Error;
+use wax_contract::DesignSystemComponent;
+
+/// Errors returned while indexing registry component definitions.
+#[derive(Debug, Error)]
+pub enum RegistryComponentError {
+    /// The registry does not contain a components array.
+    #[error("registry JSON must contain a components array")]
+    MissingComponents,
+    /// A component field is missing or malformed.
+    #[error("components[{index}]{reason}")]
+    InvalidField {
+        /// Component array index.
+        index: usize,
+        /// Detail about the invalid field.
+        reason: String,
+    },
+    /// Multiple components would produce the same canonical identity.
+    #[error("duplicate component registry identity {0:?}")]
+    IdentityCollision(String),
+    /// More than one component claims the same alias in one package.
+    #[error("ambiguous component alias {alias:?} for package {package:?}")]
+    AmbiguousAlias {
+        /// Alias claimed by multiple components.
+        alias: String,
+        /// Package shared by the components, if declared.
+        package: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ComponentTarget {
+    package: Option<String>,
+    component: usize,
+}
+
+/// Component facts and a package-aware index of their declared names and aliases.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RegistryComponentIndex {
+    components: Vec<DesignSystemComponent>,
+    names: BTreeMap<String, Vec<ComponentTarget>>,
+}
+
+impl RegistryComponentIndex {
+    /// Indexes the component symbols, packages, and aliases from a registry JSON document.
+    ///
+    /// # Errors
+    ///
+    /// Returns a registry component error for missing, malformed, or ambiguous definitions.
+    pub fn from_json(value: &Value) -> Result<Self, RegistryComponentError> {
+        let components = value
+            .get("components")
+            .and_then(Value::as_array)
+            .ok_or(RegistryComponentError::MissingComponents)?;
+        let mut entries = Vec::with_capacity(components.len());
+        let mut symbol_counts = BTreeMap::new();
+        for (index, component) in components.iter().enumerate() {
+            let invalid_field = |reason| RegistryComponentError::InvalidField { index, reason };
+            let symbol = component
+                .get("symbol")
+                .and_then(Value::as_str)
+                .ok_or_else(|| invalid_field(" is missing symbol".to_owned()))?;
+            let package = component
+                .get("package")
+                .map(|value| {
+                    let package = value
+                        .as_str()
+                        .ok_or_else(|| invalid_field(".package must be a string".to_owned()))?;
+                    if package.is_empty() {
+                        return Err(invalid_field(".package must not be empty".to_owned()));
+                    }
+                    Ok(package)
+                })
+                .transpose()?;
+            let mut aliases = Vec::new();
+            if let Some(values) = component.get("aliases").and_then(Value::as_array) {
+                for (alias_index, alias) in values.iter().enumerate() {
+                    aliases.push(alias.as_str().ok_or_else(|| {
+                        invalid_field(format!(".aliases[{alias_index}] must be a string"))
+                    })?);
+                }
+            }
+            *symbol_counts.entry(symbol).or_insert(0) += 1;
+            entries.push((symbol, package, aliases));
+        }
+
+        entries.sort_by_key(|&(symbol, package, _)| (symbol, package));
+        let mut index = Self::default();
+        for (symbol, package, _) in &entries {
+            let registry_symbol = match package {
+                Some(package) if symbol_counts[symbol] > 1 => format!("{package}#{symbol}"),
+                _ => (*symbol).to_owned(),
+            };
+            let target = ComponentTarget {
+                package: package.map(str::to_owned),
+                component: index.components.len(),
+            };
+            index.components.push(DesignSystemComponent {
+                id: format!("ds.{registry_symbol}"),
+                symbol: (*symbol).to_owned(),
+                registry_symbol,
+            });
+            index
+                .names
+                .entry((*symbol).to_owned())
+                .or_default()
+                .push(target);
+        }
+        let mut identities = BTreeSet::new();
+        for component in &index.components {
+            if !identities.insert(&component.registry_symbol) {
+                return Err(RegistryComponentError::IdentityCollision(
+                    component.registry_symbol.clone(),
+                ));
+            }
+        }
+
+        // All declared symbols are indexed before aliases so they win within a package.
+        for (component, (_, package, aliases)) in entries.into_iter().enumerate() {
+            for alias in aliases {
+                let targets = index.names.entry(alias.to_owned()).or_default();
+                if let Some(existing) = targets
+                    .iter()
+                    .find(|target| target.package.as_deref() == package)
+                {
+                    if existing.component == component
+                        || index.components[existing.component].symbol == alias
+                    {
+                        continue;
+                    }
+                    return Err(RegistryComponentError::AmbiguousAlias {
+                        alias: alias.to_owned(),
+                        package: package.map(str::to_owned),
+                    });
+                }
+                targets.push(ComponentTarget {
+                    package: package.map(str::to_owned),
+                    component,
+                });
+            }
+        }
+        Ok(index)
+    }
+
+    /// Returns all registered component facts in deterministic order.
+    #[must_use]
+    pub fn components(&self) -> &[DesignSystemComponent] {
+        &self.components
+    }
+
+    /// Returns the owned component facts in deterministic order.
+    #[must_use]
+    pub fn into_components(self) -> Vec<DesignSystemComponent> {
+        self.components
+    }
+
+    /// Returns whether the name appears as a symbol or alias, regardless of package evidence.
+    #[must_use]
+    pub fn contains_name(&self, name: &str) -> bool {
+        self.names.contains_key(name)
+    }
+
+    /// Resolves a name using the observed package. A mismatch has no target.
+    /// Returns no match when the name is absent or the package evidence cannot distinguish targets.
+    #[must_use]
+    pub fn resolve(
+        &self,
+        name: &str,
+        package: Option<&str>,
+    ) -> Option<(RegistryImportMatch, Option<&DesignSystemComponent>)> {
+        let targets = self.names.get(name)?;
+        let mut tagged = targets.iter().filter(|target| target.package.is_some());
+        let Some(first) = tagged.next() else {
+            return Some((
+                RegistryImportMatch::LegacyNameOnly,
+                Some(&self.components[targets[0].component]),
+            ));
+        };
+        let target = match package {
+            Some(package) => std::iter::once(first)
+                .chain(tagged)
+                .find(|target| target.package.as_deref() == Some(package)),
+            None => {
+                if tagged.next().is_some() {
+                    return None;
+                }
+                Some(first)
+            }
+        };
+        let Some(target) = target else {
+            return Some((RegistryImportMatch::Mismatch, None));
+        };
+        Some((
+            resolve_import_aware_match(target.package.as_deref(), package),
+            Some(&self.components[target.component]),
+        ))
+    }
+}
+
 /// Classifies a registry-backed usage site against the package implied by its import.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RegistryImportMatch {

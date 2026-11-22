@@ -146,13 +146,13 @@ fn scan_swift(source: &str, registry_package: Option<&str>) -> ScanFacts {
     )
 }
 
-fn scan_request(
+fn scan_request<T>(
     repo_root: &Path,
     language_id: &str,
     config: serde_json::Value,
     snapshot_id: &str,
-    scan: impl FnOnce(ScanRequest) -> ScanFacts,
-) -> ScanFacts {
+    scan: impl FnOnce(ScanRequest) -> T,
+) -> T {
     let request = ScanRequest {
         request_type: ScanRequestType::Scan,
         api_version: WIRE_API_VERSION,
@@ -513,4 +513,338 @@ struct Screen: View {
         Some("AcmeDesignSystem"),
     );
     assert_parity(first_usage(&swift), expected, "swift", "same_file_local");
+}
+
+fn scan_registry_fixture<T>(
+    language: &str,
+    files: &[(&str, &str)],
+    components: &[serde_json::Value],
+    scan: impl FnOnce(ScanRequest) -> T,
+) -> T {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    fs::write(
+        tmp.path().join("registry.json"),
+        serde_json::json!({"schema_version": 1, "components": components}).to_string(),
+    )
+    .unwrap();
+    for (file, source) in files {
+        let path = tmp.path().join(file);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, source).unwrap();
+    }
+    scan_request(
+        tmp.path(),
+        language,
+        serde_json::json!({"registry": "registry.json", "roots": ["src"]}),
+        "snap-package-parity",
+        scan,
+    )
+}
+
+#[test]
+fn parity_shared_symbols_resolve_by_package_in_either_registry_order() {
+    let mut components = [
+        serde_json::json!({"id":"dialog.root", "symbol":"Root", "package":"@radix-ui/react-dialog"}),
+        serde_json::json!({"id":"popover.root", "symbol":"Root", "package":"@radix-ui/react-popover"}),
+    ];
+    for _ in 0..2 {
+        let react = scan_registry_fixture(
+            "react",
+            &[(
+                "src/Screen.tsx",
+                r#"import * as Dialog from "@radix-ui/react-dialog";
+import * as Popover from "@radix-ui/react-popover";
+export const Screen = () => <><Dialog.Root /><Popover.Root /></>;"#,
+            )],
+            &components,
+            |request| ReactLanguage::new().scan(&request).expect("react scan"),
+        );
+        for (observed, key) in [
+            ("Dialog.Root", "@radix-ui/react-dialog#Root"),
+            ("Popover.Root", "@radix-ui/react-popover#Root"),
+        ] {
+            let site = usage_for(&react, observed);
+            assert_eq!(site.match_status, MatchStatus::Resolved, "{observed}");
+            assert_eq!(site.registry_symbol.as_deref(), Some(key));
+            assert_eq!(site.qualified_symbol.as_deref(), Some(key));
+            assert!(react.design_system_components.iter().any(|component| {
+                component.symbol == "Root"
+                    && component.registry_symbol == key
+                    && component.id == format!("ds.{key}")
+            }));
+        }
+        assert_eq!(react.counts.registry.used_component_count, 2);
+        components.reverse();
+    }
+}
+
+#[test]
+fn parity_native_shared_symbols_resolve_by_package_in_either_registry_order() {
+    let compose_files = [
+        (
+            "src/A.kt",
+            "package app\nimport widgets.dialog.Root\n@Composable\nfun A() { Root() }",
+        ),
+        (
+            "src/B.kt",
+            "package app\nimport widgets.popover.Root\n@Composable\nfun B() { Root() }",
+        ),
+    ];
+    let swift_files = [
+        (
+            "src/A.swift",
+            "import Dialog\nstruct A: View { var body: some View { Dialog.Root() } }",
+        ),
+        (
+            "src/B.swift",
+            "import Popover\nstruct B: View { var body: some View { Popover.Root() } }",
+        ),
+    ];
+    for (language, files, packages) in [
+        (
+            "compose",
+            &compose_files,
+            ["widgets.dialog", "widgets.popover"],
+        ),
+        ("swift", &swift_files, ["Dialog", "Popover"]),
+    ] {
+        let mut components = [
+            serde_json::json!({"id":"dialog.root", "symbol":"Root", "package":packages[0]}),
+            serde_json::json!({"id":"popover.root", "symbol":"Root", "package":packages[1]}),
+        ];
+        for _ in 0..2 {
+            let facts =
+                scan_registry_fixture(language, files, &components, |request| match language {
+                    "compose" => ComposeLanguage::new().scan(&request).expect("compose scan"),
+                    "swift" => SwiftLanguage::new().scan(&request).expect("swift scan"),
+                    _ => unreachable!(),
+                });
+            for ((file, _), package) in files.iter().zip(packages) {
+                let site = facts
+                    .usage_sites
+                    .iter()
+                    .find(|site| site.location.file == *file && site.symbol == "Root")
+                    .unwrap_or_else(|| panic!("missing {language} Root usage in {file}"));
+                let key = format!("{package}#Root");
+                assert_parity(
+                    site,
+                    ExpectedOutcome {
+                        match_status: MatchStatus::Resolved,
+                        callee_origin: CalleeOrigin::Registry,
+                        evidence_kind: ResolutionEvidenceKind::RegistryPackageMatch,
+                    },
+                    language,
+                    file,
+                );
+                assert_eq!(site.registry_symbol.as_deref(), Some(key.as_str()));
+                assert_eq!(
+                    site.qualified_symbol.as_deref(),
+                    Some(format!("{package}.Root").as_str())
+                );
+                assert!(facts.design_system_components.iter().any(|component| {
+                    component.symbol == "Root"
+                        && component.registry_symbol == key
+                        && component.id == format!("ds.{key}")
+                }));
+            }
+            assert_eq!(facts.counts.registry.used_component_count, 2);
+            components.reverse();
+        }
+    }
+}
+
+struct PackageScenario {
+    language: &'static str,
+    tagged: [&'static str; 2],
+    unknown_source: (&'static str, &'static str),
+    foreign_source: (&'static str, &'static str),
+}
+
+const PACKAGE_SCENARIOS: [PackageScenario; 3] = [
+    PackageScenario {
+        language: "react",
+        tagged: ["@radix-ui/react-dialog", "@radix-ui/react-popover"],
+        unknown_source: (
+            "src/Screen.tsx",
+            "export function Screen() { return <Root />; }",
+        ),
+        foreign_source: (
+            "src/Screen.tsx",
+            "import { Root } from 'foreign';\nexport function Screen() { return <Root />; }",
+        ),
+    },
+    PackageScenario {
+        language: "compose",
+        tagged: ["widgets.dialog", "widgets.popover"],
+        unknown_source: ("src/Screen.kt", "@Composable\nfun Screen() { Root() }"),
+        foreign_source: (
+            "src/Screen.kt",
+            "import foreign.Root\n@Composable\nfun Screen() { Root() }",
+        ),
+    },
+    PackageScenario {
+        language: "swift",
+        tagged: ["Dialog", "Popover"],
+        unknown_source: (
+            "src/Screen.swift",
+            "struct Screen: View { var body: some View { Root() } }",
+        ),
+        foreign_source: (
+            "src/Screen.swift",
+            "import Foreign\nstruct Screen: View { var body: some View { Root() } }",
+        ),
+    },
+];
+
+fn scan_for_language(language: &str, request: &ScanRequest) -> Result<ScanFacts, String> {
+    match language {
+        "react" => ReactLanguage::new()
+            .scan(request)
+            .map_err(|err| err.to_string()),
+        "compose" => ComposeLanguage::new()
+            .scan(request)
+            .map_err(|err| err.to_string()),
+        "swift" => SwiftLanguage::new()
+            .scan(request)
+            .map_err(|err| err.to_string()),
+        _ => panic!("unexpected test language {language}"),
+    }
+}
+
+impl PackageScenario {
+    fn scan(
+        &self,
+        source: (&str, &str),
+        components: &[serde_json::Value],
+    ) -> Result<ScanFacts, String> {
+        scan_registry_fixture(self.language, &[source], components, |request| {
+            scan_for_language(self.language, &request)
+        })
+    }
+}
+
+#[test]
+fn parity_missing_package_evidence_does_not_choose_between_tagged_targets() {
+    for scenario in &PACKAGE_SCENARIOS {
+        let [first, second] = scenario.tagged;
+        let first_key = format!("{first}#Root");
+        let second_key = format!("{second}#Root");
+        let mut components = vec![
+            serde_json::json!({"id":"legacy", "symbol":"Root"}),
+            serde_json::json!({"id":"first", "symbol":"Root", "package":first}),
+        ];
+
+        let unique = scenario.scan(scenario.unknown_source, &components).unwrap();
+        let site = usage_for(&unique, "Root");
+        assert_eq!(
+            site.match_status,
+            MatchStatus::Candidate,
+            "{}",
+            scenario.language
+        );
+        assert_eq!(site.registry_symbol.as_deref(), Some(first_key.as_str()));
+        assert!(
+            unique.design_system_components.iter().any(|component| {
+                component.id == "ds.Root" && component.registry_symbol == "Root"
+            })
+        );
+
+        components.push(serde_json::json!({"id":"second", "symbol":"Root", "package":second}));
+        for _ in 0..2 {
+            for (source, evidence) in [
+                (
+                    scenario.unknown_source,
+                    ResolutionEvidenceKind::NoMatchingDefinition,
+                ),
+                (
+                    scenario.foreign_source,
+                    ResolutionEvidenceKind::PackageMismatch,
+                ),
+            ] {
+                let facts = scenario.scan(source, &components).unwrap();
+                let site = usage_for(&facts, "Root");
+                assert_eq!(
+                    site.match_status,
+                    MatchStatus::Unresolved,
+                    "{}",
+                    scenario.language
+                );
+                assert_eq!(site.resolution_evidence.kind, evidence);
+                assert_eq!(site.registry_symbol, None);
+                assert!(
+                    facts
+                        .design_system_components
+                        .iter()
+                        .any(|component| { component.registry_symbol == second_key })
+                );
+                assert_eq!(facts.counts.registry.used_component_count, 0);
+            }
+            components.reverse();
+        }
+    }
+}
+
+#[test]
+fn parity_declared_name_wins_over_aliases_and_equal_precedence_is_invalid() {
+    for scenario in &PACKAGE_SCENARIOS {
+        let package = scenario.tagged[0];
+        let mut components = vec![
+            serde_json::json!({"id":"first", "symbol":"Alpha", "package":package, "aliases":["Root", "Root"]}),
+            serde_json::json!({"id":"second", "symbol":"Beta", "package":package, "aliases":["Root"]}),
+            serde_json::json!({"id":"exact", "symbol":"Root", "package":package}),
+        ];
+        for _ in 0..2 {
+            let facts = scenario.scan(scenario.unknown_source, &components).unwrap();
+            let site = usage_for(&facts, "Root");
+            assert_eq!(site.match_status, MatchStatus::Candidate);
+            assert_eq!(
+                site.registry_symbol.as_deref(),
+                Some("Root"),
+                "{}",
+                scenario.language
+            );
+            components.reverse();
+        }
+
+        components.pop();
+        let error = scenario
+            .scan(scenario.unknown_source, &components)
+            .expect_err("two equivalent aliases within one package must be rejected");
+        assert!(
+            error.contains("registry") && error.contains("Root"),
+            "{error}"
+        );
+    }
+}
+
+#[test]
+fn parity_rejects_generated_component_identity_collisions() {
+    for scenario in &PACKAGE_SCENARIOS {
+        let [first, second] = scenario.tagged;
+        let key = format!("{first}#Root");
+        let components = [
+            serde_json::json!({"id":"first", "symbol":"Root", "package":first}),
+            serde_json::json!({"id":"second", "symbol":"Root", "package":second}),
+            serde_json::json!({"id":"literal", "symbol":key}),
+        ];
+        let error = scenario
+            .scan(scenario.unknown_source, &components)
+            .expect_err("a generated identity must not collide with a literal symbol");
+        assert!(
+            error.contains("registry") && error.contains(&key),
+            "{error}"
+        );
+
+        let same_package = [
+            serde_json::json!({"id":"first", "symbol":"Root", "package":first}),
+            serde_json::json!({"id":"second", "symbol":"Root", "package":first}),
+        ];
+        let error = scenario
+            .scan(scenario.unknown_source, &same_package)
+            .expect_err("duplicate declared symbols within one package must be rejected");
+        assert!(
+            error.contains("registry") && error.contains(&key),
+            "{error}"
+        );
+    }
 }

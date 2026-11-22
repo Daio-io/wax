@@ -549,8 +549,8 @@ fn import_is_design_system_relevant(
         return false;
     }
     match imported_symbol {
-        ImportedSymbol::Named(name) => registry.resolve_targets.contains_key(name),
-        ImportedSymbol::Default => registry.resolve_targets.contains_key(local_name),
+        ImportedSymbol::Named(name) => registry.components.contains_name(name),
+        ImportedSymbol::Default => registry.components.contains_name(local_name),
         ImportedSymbol::Namespace => false,
     }
 }
@@ -568,8 +568,8 @@ fn export_is_design_system_relevant(
     if is_unconfigured_bare_package_specifier(source, config) {
         return false;
     }
-    registry.resolve_targets.contains_key(exported_name)
-        || registry.resolve_targets.contains_key(source_name)
+    registry.components.contains_name(exported_name)
+        || registry.components.contains_name(source_name)
 }
 
 fn is_unconfigured_bare_package_specifier(source: &str, config: &ReactScanConfig) -> bool {
@@ -1323,16 +1323,15 @@ mod tests {
     }
 
     fn registry_with_symbols(symbols: &[&str]) -> ReactRegistryIndex {
-        let mut resolve_targets = BTreeMap::new();
-        let mut component_packages = BTreeMap::new();
-        for symbol in symbols {
-            resolve_targets.insert((*symbol).to_owned(), (*symbol).to_owned());
-            component_packages.insert((*symbol).to_owned(), None);
-        }
+        let components: Vec<_> = symbols
+            .iter()
+            .map(|symbol| serde_json::json!({"symbol": symbol}))
+            .collect();
         ReactRegistryIndex {
-            design_system_components: Vec::new(),
-            resolve_targets,
-            component_packages,
+            components: wax_lang_api::RegistryComponentIndex::from_json(
+                &serde_json::json!({"components": components}),
+            )
+            .expect("valid component fixture"),
             design_system_tokens: Vec::new(),
             token_index: Default::default(),
         }
