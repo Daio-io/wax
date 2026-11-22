@@ -13,7 +13,7 @@ thiserror = "2"
 time = { version = "0.3", features = ["formatting", "macros", "parsing", "serde", "serde-well-known"] }
 
 [dev-dependencies]
-jsonschema = { version = "0.62.0", default-features = false }
+jsonschema = { version = "0.63.0", default-features = false }
 
 [lints]
 workspace = true
