@@ -1,6 +1,6 @@
 //! Shared Kotlin tree-sitter helpers for Compose extraction.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -495,6 +495,69 @@ pub(crate) fn function_name_from_decl(
     None
 }
 
+/// Checks bindings visible along the enclosing lexical scopes of a token path.
+pub(crate) fn token_root_is_shadowed(
+    mut node: tree_sitter::Node<'_>,
+    source: &[u8],
+    name: &str,
+) -> bool {
+    while let Some(scope) = node.parent() {
+        let visible = scope.named_children(&mut scope.walk()).any(|child| {
+            match (scope.kind(), child.kind()) {
+                (_, "function_value_parameters" | "lambda_parameters" | "primary_constructor") => {
+                    child
+                        .named_children(&mut child.walk())
+                        .any(|parameter| kotlin_binding_matches(parameter, source, name))
+                }
+                ("for_statement", "variable_declaration" | "multi_variable_declaration")
+                    if node.next_named_sibling().is_none() =>
+                {
+                    kotlin_binding_matches(child, source, name)
+                }
+                ("source_file" | "class_body" | "block" | "lambda_literal", _) if child != node => {
+                    (scope.kind() != "block" || child.end_byte() <= node.start_byte())
+                        && kotlin_binding_matches(child, source, name)
+                }
+                _ => false,
+            }
+        });
+        if visible {
+            return true;
+        }
+        node = scope;
+    }
+    false
+}
+
+fn kotlin_binding_matches(node: tree_sitter::Node<'_>, source: &[u8], name: &str) -> bool {
+    match node.kind() {
+        "property_declaration" => node
+            .named_children(&mut node.walk())
+            .find(|child| {
+                matches!(
+                    child.kind(),
+                    "variable_declaration" | "multi_variable_declaration"
+                )
+            })
+            .is_some_and(|child| kotlin_binding_matches(child, source, name)),
+        "multi_variable_declaration" | "class_parameters" => node
+            .named_children(&mut node.walk())
+            .any(|child| kotlin_binding_matches(child, source, name)),
+        "variable_declaration" | "parameter" | "class_parameter" => {
+            node.named_children(&mut node.walk())
+                .find(|child| child.kind() == "identifier")
+                .and_then(|child| child.utf8_text(source).ok())
+                == Some(name)
+        }
+        "function_declaration" | "class_declaration" | "object_declaration" | "type_alias" => {
+            node.child_by_field_name("name")
+                .and_then(|child| child.utf8_text(source).ok())
+                == Some(name)
+        }
+        _ => false,
+    }
+}
+
 /// Import bindings collected from Kotlin `import` declarations in one source file.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ImportBindings {
@@ -504,6 +567,7 @@ pub(crate) struct ImportBindings {
     pub symbol_names: BTreeMap<String, String>,
     /// Package prefixes imported with a wildcard (`import com.example.*`).
     pub wildcard_packages: Vec<String>,
+    pub ambiguous_symbols: BTreeSet<String>,
 }
 
 impl ImportBindings {
@@ -538,6 +602,17 @@ pub(crate) fn collect_import_bindings(
                         package,
                         symbol,
                     } => {
+                        if bindings
+                            .symbol_packages
+                            .get(&local_name)
+                            .is_some_and(|seen| seen != &package)
+                            || bindings
+                                .symbol_names
+                                .get(&local_name)
+                                .is_some_and(|seen| seen != &symbol)
+                        {
+                            bindings.ambiguous_symbols.insert(local_name.clone());
+                        }
                         bindings.symbol_packages.insert(local_name.clone(), package);
                         bindings.symbol_names.insert(local_name, symbol);
                     }

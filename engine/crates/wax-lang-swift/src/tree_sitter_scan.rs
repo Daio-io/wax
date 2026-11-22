@@ -16,14 +16,14 @@ use crate::component_detect::{
 };
 use crate::swift_ast::{
     ImportBindings, ParseSwiftFileError, collect_import_bindings, collect_swift_files, new_parser,
-    parse_swift_file_permissive, partial_tree_parse_diagnostic, tree_has_syntax_errors,
-    unparseable_file_diagnostic,
+    parse_swift_file_permissive, partial_tree_parse_diagnostic, token_root_is_shadowed,
+    tree_has_syntax_errors, unparseable_file_diagnostic,
 };
 use wax_lang_api::{
     RegistryComponentIndex, RegistryImportMatch, RegistryTokenIndex, RootResolutionError,
-    ScanConfig, normalize_repo_relative_path, parse_registry_tokens, path_matches_any,
-    resolve_source_roots, root_not_found_code, root_not_found_message,
-    swift_module_from_source_path, token_index,
+    ScanConfig, TokenMatch, normalize_repo_relative_path, path_matches_any, registry_token_index,
+    resolve_source_roots, root_not_found_code, root_not_found_message, static_dotted_token_path,
+    swift_module_from_source_path,
 };
 
 /// Parsed Swift scan configuration from the engine request payload.
@@ -280,19 +280,15 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, TreeSitterScanError> {
         }
     })?;
 
-    let tokens =
-        parse_registry_tokens(&value).map_err(|err| TreeSitterScanError::RegistryInvalid {
+    let token_index =
+        registry_token_index(&value).map_err(|err| TreeSitterScanError::RegistryInvalid {
             path: path.to_path_buf(),
             reason: err.to_string(),
         })?;
-    let token_index = token_index(&tokens).map_err(|err| TreeSitterScanError::RegistryInvalid {
-        path: path.to_path_buf(),
-        reason: err.to_string(),
-    })?;
 
     Ok(RegistryIndex {
         components,
-        tokens,
+        tokens: token_index.tokens.clone(),
         token_index,
     })
 }
@@ -1260,6 +1256,43 @@ fn dedupe_hardcoded_literals_by_longest_range(candidates: &mut Vec<HardcodedLite
     *candidates = kept;
 }
 
+fn match_token_reference<'a>(
+    index: &'a RegistryTokenIndex,
+    imports: Option<&ImportBindings>,
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    text: &str,
+) -> Option<&'a TokenMatch> {
+    let Some(imports) = imports else {
+        return index.matches.get(text);
+    };
+    if node.kind() == "call_expression"
+        || node.parent().is_some_and(|parent| {
+            matches!(
+                parent.kind(),
+                "navigation_suffix" | "identifier" | "import_declaration"
+            ) || parent
+                .children_by_field_name("bound_identifier", &mut parent.walk())
+                .any(|binding| binding == node)
+        })
+    {
+        return index.match_reference(text, None, None);
+    }
+    let Some(path) = static_dotted_token_path(text) else {
+        return index.match_reference(text, None, None);
+    };
+    let origin = imports.token_origin(&path);
+    if let Some((_, key)) = origin
+        && index.has_scoped_name(key)
+    {
+        let root = path.split('.').next()?;
+        if token_root_is_shadowed(node, source, root) {
+            return index.match_reference(text, Some(key), None);
+        }
+    }
+    index.match_reference(text, Some(&path), origin)
+}
+
 fn extract_token_sites_from_source(
     root: tree_sitter::Node<'_>,
     source: &[u8],
@@ -1275,13 +1308,17 @@ fn extract_token_sites_from_source(
         site: TokenSite,
     }
 
+    let imports = token_index
+        .has_scoped_tokens()
+        .then(|| collect_import_bindings(root, source));
     let mut candidates = Vec::new();
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
         if !is_inside_preview_macro(node, source)
             && is_token_reference_node(node)
             && let Ok(text) = node.utf8_text(source)
-            && let Some(token_match) = token_index.matches.get(text)
+            && let Some(token_match) =
+                match_token_reference(token_index, imports.as_ref(), node, source, text)
         {
             let pos = node.start_position();
             let line = pos.row as u32 + 1;
@@ -1304,7 +1341,7 @@ fn extract_token_sites_from_source(
                         root_group: None,
                     },
                     token_id: token_match.token_id.clone(),
-                    key: text.to_owned(),
+                    key: token_match.key.clone(),
                     category: token_match.category,
                     parent,
                 },
@@ -2349,8 +2386,7 @@ struct Screen: View {
 
     fn token_index_from_json(tokens_json: &str) -> RegistryTokenIndex {
         let value = serde_json::json!({ "tokens": serde_json::from_str::<serde_json::Value>(tokens_json).unwrap() });
-        let tokens = parse_registry_tokens(&value).expect("tokens");
-        token_index(&tokens).expect("index")
+        registry_token_index(&value).expect("index")
     }
 
     fn extract_tokens(source: &str, index: &RegistryTokenIndex) -> Vec<TokenSite> {

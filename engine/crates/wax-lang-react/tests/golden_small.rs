@@ -299,3 +299,76 @@ fn facts_golden_projection(facts: &ScanFacts) -> serde_json::Value {
     object.remove("symbol_usage_summary");
     value
 }
+
+#[test]
+fn scoped_token_sites_follow_imported_palette_bindings() {
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path();
+    std::fs::create_dir(root.join("src")).unwrap();
+    std::fs::create_dir(root.join("design-system")).unwrap();
+    std::fs::write(
+        root.join("design-system/registry.json"),
+        r#"{
+      "schema_version": 1, "components": [], "tokens": [
+        {"id":"blue","key":"blue.blue9","category":"color","package":"@radix-ui/colors"},
+        {"id":"dark","key":"blueDark.blue9","category":"color","package":"@radix-ui/colors"},
+        {"id":"gray","key":"gray.gray1","category":"color","package":"@radix-ui/colors"},
+        {"id":"other-blue","key":"blue.blue9","category":"color","package":"other-palette"},
+        {"id":"legacy","key":"theme[color]","category":"color"}
+      ]
+    }"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src/Screen.tsx"),
+        r#"import { blue as b, blue as light } from '@radix-ui/colors';
+import * as palette from '@radix-ui/colors/subpath';
+import { gray } from 'other-palette';
+import type { blue as typeBlue } from '@radix-ui/colors';
+import { type blue as inlineType } from '@radix-ui/colors';
+import { blue as localBlue } from './local';
+import { blue as aliasedBlue } from '@radix-ui/colors/local';
+import { blue as other } from 'other-palette';
+
+export function Screen() {
+  const shadow = (b: any) => b.blue9;
+  return <div style={{color: b.blue9, borderColor: light?.['blue9'],
+    backgroundColor: palette.blueDark.blue9, fill: gray.gray1,
+    outlineColor: theme[color]}}>
+    {other.blue9}{blue.blue9}{typeBlue.blue9}{inlineType.blue9}
+    {localBlue.blue9}{aliasedBlue.blue9}{b[color]}
+  </div>;
+}
+"#,
+    )
+    .unwrap();
+    let mut request = scan_request(root, "scoped-tokens");
+    request.config.insert(
+        "aliases".to_owned(),
+        serde_json::json!({"@radix-ui/colors/local": ["src/local.ts"]}),
+    );
+    let facts = ReactLanguage::new().scan(&request).unwrap();
+    let sites: Vec<_> = facts
+        .token_sites
+        .iter()
+        .map(|site| {
+            assert_eq!(site.parent.as_ref().unwrap().symbol, "Screen");
+            (
+                site.token_id.as_str(),
+                site.key.as_str(),
+                site.location.line,
+                site.location.column,
+            )
+        })
+        .collect();
+    assert_eq!(
+        sites,
+        [
+            ("blue", "blue.blue9", 12, Some(30)),
+            ("blue", "blue.blue9", 12, Some(52)),
+            ("dark", "blueDark.blue9", 13, Some(22)),
+            ("legacy", "theme[color]", 14, Some(19)),
+            ("other-blue", "blue.blue9", 15, Some(6)),
+        ]
+    );
+}

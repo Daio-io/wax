@@ -177,10 +177,13 @@ file; rediscovery preserves authored ids, metadata, and tokens.
 
 Review discovered entries before committing them.
 
-Add design tokens to the same per-language registry files. Wax matches each token's
-`key` and optional `aliases` exactly in source. Add an optional `value` with the
-canonical source-facing representation to let Wax infer exact and near matches
-against hard-coded styling:
+Add design tokens to the same per-language registry files. Unscoped tokens
+match their `key` or `aliases` exactly in source. Set `package` to require
+matching import evidence in parser-backed scans. See the
+[token package reference](website/docs/reference/registry.md#token-package-identity).
+
+An optional `value` gives Wax the canonical representation for inferring
+exact and near matches against hard-coded styling.
 
 ```json
 {

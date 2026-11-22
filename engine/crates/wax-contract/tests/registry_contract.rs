@@ -619,3 +619,30 @@ fn existing_language_pack_registry_fixture_still_loads() {
     assert!(!document.components.is_empty());
     assert!(!document.tokens.is_empty());
 }
+
+#[test]
+fn token_package_is_optional_and_nonempty_in_registry_v1() {
+    let mut input = serde_json::json!({
+        "schema_version": 1,
+        "tokens": [
+            {"id": "scoped", "key": "blue.blue9", "category": "color", "package": "@radix-ui/colors"},
+            {"id": "legacy", "key": "Colors.blue", "category": "color"}
+        ]
+    });
+    let registry = registry_from_json(&input.to_string()).unwrap();
+    assert_eq!(
+        registry.tokens[0].package.as_deref(),
+        Some("@radix-ui/colors")
+    );
+    assert_eq!(registry.tokens[1].package, None);
+    let output: serde_json::Value =
+        serde_json::from_str(&registry_to_json(&registry).unwrap()).unwrap();
+    assert_eq!(output, input);
+    assert_schema_valid(&registry_schema(), &output);
+
+    for invalid in [serde_json::json!(""), serde_json::Value::Null] {
+        input["tokens"][0]["package"] = invalid;
+        assert_schema_invalid(&registry_schema(), &input);
+        assert!(registry_from_json(&input.to_string()).is_err());
+    }
+}

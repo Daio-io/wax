@@ -965,7 +965,7 @@ fn retain_creator_metadata(
             .tokens
             .iter()
             .find(|seed_token| seed_token.id == token.id)
-            .or_else(|| unique_token_identity_match(&seed.tokens, &token.key))
+            .or_else(|| unique_token_identity_match(&seed.tokens, token))
             .and_then(|seed_token| seed_token.metadata.clone());
     }
 }
@@ -993,9 +993,11 @@ fn unique_component_identity_match<'a>(
 
 fn unique_token_identity_match<'a>(
     tokens: &'a [wax_contract::RegistryToken],
-    key: &str,
+    discovered: &wax_contract::RegistryToken,
 ) -> Option<&'a wax_contract::RegistryToken> {
-    let mut matches = tokens.iter().filter(|token| token.key == key);
+    let mut matches = tokens
+        .iter()
+        .filter(|token| token.key == discovered.key && token.package == discovered.package);
     let candidate = matches.next()?;
     matches.next().is_none().then_some(candidate)
 }

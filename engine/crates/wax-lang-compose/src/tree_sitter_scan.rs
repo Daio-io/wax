@@ -10,7 +10,8 @@ use crate::kotlin_ast::{
     has_preview_annotation, is_non_ui_scaffolding_composable_symbol,
     is_pascal_case_composable_symbol, is_within_preview_composable, nearest_enclosing_composable,
     new_parser, node_has_error_ancestor_within, package_name_from_source,
-    parse_kotlin_file_permissive, partial_tree_parse_diagnostic, unparseable_file_diagnostic,
+    parse_kotlin_file_permissive, partial_tree_parse_diagnostic, token_root_is_shadowed,
+    unparseable_file_diagnostic,
 };
 use crate::kotlin_recovery::{
     ByteRange, ComponentScopePolicy, SyntaxRegion, node_in_type_annotation_range,
@@ -28,8 +29,8 @@ use wax_contract::{
 };
 use wax_lang_api::{
     RegistryComponentIndex, RegistryImportMatch, RegistryTokenIndex, RootResolutionError,
-    ScanConfig, normalize_repo_relative_path, parse_registry_tokens, path_matches_any,
-    resolve_source_roots, root_not_found_code, root_not_found_message, token_index,
+    ScanConfig, TokenMatch, normalize_repo_relative_path, path_matches_any, registry_token_index,
+    resolve_source_roots, root_not_found_code, root_not_found_message, static_dotted_token_path,
 };
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -278,19 +279,15 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, TreeSitterScanError> {
         }
     })?;
 
-    let tokens =
-        parse_registry_tokens(&value).map_err(|err| TreeSitterScanError::RegistryInvalid {
+    let token_index =
+        registry_token_index(&value).map_err(|err| TreeSitterScanError::RegistryInvalid {
             path: path.to_path_buf(),
             reason: err.to_string(),
         })?;
-    let token_index = token_index(&tokens).map_err(|err| TreeSitterScanError::RegistryInvalid {
-        path: path.to_path_buf(),
-        reason: err.to_string(),
-    })?;
 
     Ok(RegistryIndex {
         components,
-        tokens,
+        tokens: token_index.tokens.clone(),
         token_index,
     })
 }
@@ -896,6 +893,61 @@ fn extract_hardcoded_style_from_source(
     }
 }
 
+fn match_token_reference<'a>(
+    index: &'a RegistryTokenIndex,
+    imports: Option<&ImportBindings>,
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    text: &str,
+) -> Option<&'a TokenMatch> {
+    let Some(imports) = imports else {
+        return index.matches.get(text);
+    };
+    if node.kind() == "call_expression"
+        || node.parent().is_some_and(|parent| {
+            matches!(parent.kind(), "import" | "qualified_identifier")
+                || (parent.kind() == "navigation_expression" && node.prev_named_sibling().is_some())
+        })
+    {
+        return index.match_reference(text, None, None);
+    }
+    let Some(path) = static_dotted_token_path(text) else {
+        return index.match_reference(text, None, None);
+    };
+    let (root, suffix) = path.split_once('.').unwrap_or((&path, ""));
+    let qualified_path;
+    let origin = if imports.ambiguous_symbols.contains(root) {
+        None
+    } else if let Some(package) = imports.symbol_packages.get(root) {
+        let exported = imports.symbol_names.get(root)?;
+        // Member imports (`import design.palette.Colors.blue`) bind below the
+        // registered package, so split the fully qualified reference at the
+        // longest registered package prefix rather than the import's last dot.
+        qualified_path = if suffix.is_empty() {
+            format!("{package}.{exported}")
+        } else {
+            format!("{package}.{exported}.{suffix}")
+        };
+        index
+            .package_qualified_path(&qualified_path)
+            .or_else(|| Some((package.as_str(), &qualified_path[package.len() + 1..])))
+    } else {
+        index.package_qualified_path(&path).or_else(|| {
+            let [package] = imports.wildcard_packages.as_slice() else {
+                return None;
+            };
+            Some((package.as_str(), path.as_ref()))
+        })
+    };
+    if let Some((_, key)) = origin
+        && index.has_scoped_name(key)
+        && token_root_is_shadowed(node, source, root)
+    {
+        return index.match_reference(text, Some(key), None);
+    }
+    index.match_reference(text, Some(&path), origin)
+}
+
 fn extract_token_sites_from_source(
     root: tree_sitter::Node<'_>,
     source: &[u8],
@@ -906,6 +958,9 @@ fn extract_token_sites_from_source(
     out: &mut Vec<TokenSite>,
 ) {
     let package = package_name_from_source(root, source);
+    let imports = token_index
+        .has_scoped_tokens()
+        .then(|| collect_import_bindings(root, source));
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
         if node_in_type_annotation_range(node, syntax_regions) {
@@ -915,7 +970,8 @@ fn extract_token_sites_from_source(
             && node_is_extractable(node, clean)
             && !is_within_preview_composable(node, source)
             && let Ok(text) = node.utf8_text(source)
-            && let Some(token_match) = token_index.matches.get(text)
+            && let Some(token_match) =
+                match_token_reference(token_index, imports.as_ref(), node, source, text)
         {
             let pos = node.start_position();
             let line = pos.row as u32 + 1;
@@ -935,7 +991,7 @@ fn extract_token_sites_from_source(
                     root_group: None,
                 },
                 token_id: token_match.token_id.clone(),
-                key: text.to_owned(),
+                key: token_match.key.clone(),
                 category: token_match.category,
                 parent,
             });
@@ -2753,7 +2809,7 @@ fun BrokenScreen(
                 value: None,
             });
         }
-        token_index(&tokens).expect("token index should build")
+        wax_lang_api::token_index(&tokens).expect("token index should build")
     }
 
     fn extract_token_sites(source: &str, index: &RegistryTokenIndex) -> Vec<TokenSite> {

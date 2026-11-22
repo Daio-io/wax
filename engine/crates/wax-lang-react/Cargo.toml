@@ -17,6 +17,7 @@ swc_common = { workspace = true }
 swc_ecma_ast = { workspace = true }
 swc_ecma_parser = { workspace = true }
 swc_ecma_visit = { workspace = true }
+swc_ecma_transforms_base = { workspace = true }
 time = { version = "0.3", features = ["serde", "serde-well-known"] }
 wax-contract = { path = "../wax-contract" }
 wax-lang-api = { path = "../wax-lang-api" }

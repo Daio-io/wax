@@ -385,6 +385,7 @@ fn replacement_registry() -> RegistryDocument {
         tokens: vec![RegistryToken {
             id: "color.brand.primary".to_owned(),
             key: "BrandPrimary".to_owned(),
+            package: None,
             category: TokenCategory::Color,
             aliases: Vec::new(),
             value: None,

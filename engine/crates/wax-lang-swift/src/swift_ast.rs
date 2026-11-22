@@ -1,6 +1,6 @@
 //! Swift tree-sitter parsing helpers.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -235,6 +235,81 @@ fn first_error_node(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>
     None
 }
 
+/// Checks local declarations and parameters visible around a token reference.
+pub(crate) fn token_root_is_shadowed(
+    mut node: tree_sitter::Node<'_>,
+    source: &[u8],
+    name: &str,
+) -> bool {
+    while let Some(scope) = node.parent() {
+        let visible = scope.named_children(&mut scope.walk()).any(|child| {
+            match (scope.kind(), child.kind()) {
+                (
+                    "function_declaration" | "init_declaration" | "subscript_declaration",
+                    "parameter",
+                ) => swift_binding_matches(child, source, name),
+                ("lambda_literal", "lambda_function_type") => child
+                    .named_children(&mut child.walk())
+                    .filter(|child| child.kind() == "lambda_function_type_parameters")
+                    .any(|parameters| {
+                        parameters
+                            .named_children(&mut parameters.walk())
+                            .any(|parameter| swift_binding_matches(parameter, source, name))
+                    }),
+                ("for_statement", "pattern") if node.kind() == "statements" => {
+                    swift_binding_matches(child, source, name)
+                }
+                ("if_statement" | "while_statement", "simple_identifier")
+                    if node.kind() == "statements" =>
+                {
+                    let mut cursor = scope.walk();
+                    scope
+                        .named_children(&mut cursor)
+                        .find(|child| child.kind() == "statements")
+                        == Some(node)
+                        && scope
+                            .children_by_field_name("bound_identifier", &mut scope.walk())
+                            .any(|binding| {
+                                binding == child && binding.utf8_text(source).ok() == Some(name)
+                            })
+                }
+                ("source_file" | "class_body" | "statements", _) if child != node => {
+                    (scope.kind() != "statements" || child.end_byte() <= node.start_byte())
+                        && swift_binding_matches(child, source, name)
+                }
+                _ => false,
+            }
+        });
+        if visible {
+            return true;
+        }
+        node = scope;
+    }
+    false
+}
+
+fn swift_binding_matches(node: tree_sitter::Node<'_>, source: &[u8], name: &str) -> bool {
+    let binding = match node.kind() {
+        "property_declaration" => {
+            return node
+                .child_by_field_name("name")
+                .is_some_and(|pattern| swift_binding_matches(pattern, source, name));
+        }
+        "pattern" | "guard_statement" => {
+            return node
+                .children_by_field_name("bound_identifier", &mut node.walk())
+                .any(|binding| binding.utf8_text(source).ok() == Some(name));
+        }
+        "class_declaration"
+        | "function_declaration"
+        | "typealias_declaration"
+        | "parameter"
+        | "lambda_parameter" => node.child_by_field_name("name"),
+        _ => None,
+    };
+    binding.and_then(|binding| binding.utf8_text(source).ok()) == Some(name)
+}
+
 /// Import bindings collected from Swift `import` declarations in one source file.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ImportBindings {
@@ -242,9 +317,37 @@ pub(crate) struct ImportBindings {
     pub symbol_packages: BTreeMap<String, String>,
     /// Module imports that expose all public symbols from a module.
     pub module_imports: Vec<String>,
+    selective_imports: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl ImportBindings {
+    /// Identifies the package and exported path for a static token reference.
+    pub(crate) fn token_origin<'a>(&'a self, path: &'a str) -> Option<(&'a str, &'a str)> {
+        let (root, suffix) = path.split_once('.').unwrap_or((path, ""));
+        if !suffix.is_empty() {
+            let selected = suffix.split('.').next()?;
+            if self.module_imports.iter().any(|module| module == root)
+                || self
+                    .selective_imports
+                    .get(selected)
+                    .is_some_and(|modules| modules.contains(root))
+            {
+                return Some((root, suffix));
+            }
+        }
+
+        if let Some(modules) = self.selective_imports.get(root) {
+            return match modules.len() {
+                1 => Some((modules.first()?.as_str(), path)),
+                _ => None,
+            };
+        }
+        let [module] = self.module_imports.as_slice() else {
+            return None;
+        };
+        Some((module, path))
+    }
+
     /// Returns the module prefix for a symbol used at a call site, when known.
     pub(crate) fn package_for_symbol(&self, symbol: &str) -> Option<String> {
         if let Some(package) = self.symbol_packages.get(symbol) {
@@ -282,6 +385,11 @@ pub(crate) fn collect_import_bindings(
         {
             if let Some((package, symbol)) = module_name.rsplit_once('.') {
                 if !package.is_empty() {
+                    bindings
+                        .selective_imports
+                        .entry(symbol.to_owned())
+                        .or_default()
+                        .insert(package.to_owned());
                     bindings
                         .symbol_packages
                         .insert(symbol.to_owned(), package.to_owned());

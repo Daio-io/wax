@@ -408,6 +408,9 @@ case "$request" in
   *'"type":"capabilities"'*)
     printf '%s\n' '{"type":"capabilities","api_version":1,"language_id":"compose","registry_details_v1":true}'
     ;;
+  *'"type":"discover_registry"'*'"publisher":"scoped-tokens"'*)
+    printf '%s\n' '{"type":"registry_details","api_version":1,"language_id":"compose","document":{"schema_version":1,"tokens":[{"id":"fresh-blue","key":"Colors.blue","category":"color","package":"design"},{"id":"foreign-blue","key":"Colors.blue","category":"color","package":"foreign"}]},"diagnostics":[]}'
+    ;;
   *'"type":"discover_registry"'*'"id":"button"'*)
     printf '%s\n' '{"type":"registry_details","api_version":1,"language_id":"compose","document":{"schema_version":1,"components":[{"id":"button","symbol":"Button","metadata":{"sources":[{"kind":"documentation","path":"pack-injected.md"}]},"details":{"status":"partial","documentation":"Generated docs"}},{"id":"card","symbol":"Card","metadata":{"sources":[{"kind":"example","path":"secret.txt"}]},"details":{"status":"complete"}}]},"diagnostics":[]}'
     ;;
@@ -1608,4 +1611,56 @@ fn dry_run_registry() -> serde_json::Value {
     })
     .expect("dry run should succeed")
     .registry
+}
+
+#[test]
+fn replacement_discovery_preserves_token_metadata_by_package_and_key() {
+    let _guard = env_lock();
+    let repo = TestRepo::new("registry-discovery-scoped-tokens");
+    link_compose_fixture_into_repo(repo.path());
+    write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
+    write_compose_lockfile(repo.path());
+    let (_wax_home, _wax_home_guard) = install_rich_discover_fixture_pack();
+    fs::write(
+        repo.path().join(".wax/compose.registry.json"),
+        r#"{
+        "schema_version": 1, "publisher": "scoped-tokens",
+        "tokens": [
+            {"id":"design-blue","key":"Colors.blue","category":"color","package":"design",
+             "metadata":{"description":"Design palette"}},
+            {"id":"other-blue","key":"Colors.blue","category":"color","package":"other",
+             "metadata":{"description":"Other palette"}}
+        ]
+    }"#,
+    )
+    .unwrap();
+
+    let result = discover_registry(RegistryDiscoverOptions {
+        repo_root: repo.path(),
+        language_id: "compose",
+        roots: vec![repo.path().join("design-system/src/main/kotlin")],
+        dry_run: true,
+        force: true,
+        design_system_id: None,
+        design_system_name: None,
+    })
+    .unwrap();
+    assert_eq!(
+        result
+            .document
+            .tokens
+            .iter()
+            .map(|token| (
+                token.id.as_str(),
+                token
+                    .metadata
+                    .as_ref()
+                    .and_then(|meta| meta.description.as_deref())
+            ))
+            .collect::<Vec<_>>(),
+        [
+            ("fresh-blue", Some("Design palette")),
+            ("foreign-blue", None)
+        ]
+    );
 }

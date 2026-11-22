@@ -440,3 +440,144 @@ fn load_golden(path: &Path) -> GoldenCounts {
             as u32,
     }
 }
+
+#[test]
+fn scoped_tokens_follow_kotlin_imports_and_qualified_paths() {
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path();
+    std::fs::create_dir(root.join("design-system")).unwrap();
+    std::fs::create_dir(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("design-system/registry.json"),
+        r#"{
+      "schema_version": 1, "components": [], "tokens": [
+        {"id":"blue","key":"Colors.blue","category":"color","package":"design.palette"},
+        {"id":"other-blue","key":"Colors.blue","category":"color","package":"other.palette"},
+        {"id":"gray","key":"Colors.gray","category":"color","package":"design.palette"},
+        {"id":"legacy","key":"computed()","category":"color"}
+      ]
+    }"#,
+    )
+    .unwrap();
+    for (file, source) in [
+        (
+            "Screen.kt",
+            r#"import design.palette.Colors as Palette
+import unrelated.palette.Colors
+import other.palette.Colors as Other
+import androidx.compose.runtime.Composable
+
+@Composable
+fun Screen() {
+    val first = Palette.blue
+    val second = design.palette.Colors.blue
+    val third = Other.blue
+    val ignored = Colors.gray
+    val legacy = computed()
+}
+fun Shadow(Palette: LocalColors) = Palette.blue
+"#,
+        ),
+        (
+            "Wildcard.kt",
+            "import design.palette.*\nval blue = Colors.blue\n",
+        ),
+        (
+            "Ambiguous.kt",
+            "import design.palette.*\nimport unrelated.palette.*\nval blue = Colors.blue\n",
+        ),
+        ("NoOrigin.kt", "val blue = Colors.blue\n"),
+    ] {
+        std::fs::write(root.join("src").join(file), source).unwrap();
+    }
+    let facts = scan_fixture(root, "src", "scoped-tokens");
+    let mut sites: Vec<_> = facts
+        .token_sites
+        .iter()
+        .map(|site| {
+            (
+                site.location.file.as_str(),
+                site.location.line,
+                site.token_id.as_str(),
+                site.key.as_str(),
+                site.parent.as_ref().map(|parent| parent.symbol.as_str()),
+            )
+        })
+        .collect();
+    sites.sort_unstable();
+    assert_eq!(
+        sites,
+        [
+            ("src/Screen.kt", 8, "blue", "Colors.blue", Some("Screen")),
+            ("src/Screen.kt", 9, "blue", "Colors.blue", Some("Screen")),
+            (
+                "src/Screen.kt",
+                10,
+                "other-blue",
+                "Colors.blue",
+                Some("Screen")
+            ),
+            ("src/Screen.kt", 12, "legacy", "computed()", Some("Screen")),
+            ("src/Wildcard.kt", 2, "blue", "Colors.blue", None),
+        ]
+    );
+}
+
+#[test]
+fn scoped_kotlin_token_requires_a_reference_to_the_imported_binding() {
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path();
+    std::fs::create_dir(root.join("design-system")).unwrap();
+    std::fs::create_dir(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("design-system/registry.json"),
+        r#"{"schema_version":1,"components":[],"tokens":[
+            {"id":"brand","key":"brand","category":"color","package":"design.palette"}
+        ]}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src/Screen.kt"),
+        "import design.palette.brand as color\nfun show() {\n    val example = color\n    for (color in colors) { val ignored = color }\n}\n",
+    ).unwrap();
+
+    let facts = scan_fixture(root, "src", "scoped-bare-token");
+    assert_eq!(
+        facts
+            .token_sites
+            .iter()
+            .map(|site| (site.key.as_str(), site.location.line))
+            .collect::<Vec<_>>(),
+        [("brand", 3)]
+    );
+}
+
+#[test]
+fn scoped_kotlin_token_matches_aliased_object_member_import() {
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path();
+    std::fs::create_dir(root.join("design-system")).unwrap();
+    std::fs::create_dir(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("design-system/registry.json"),
+        r#"{"schema_version":1,"components":[],"tokens":[
+            {"id":"blue","key":"Colors.blue","category":"color","package":"design.palette"},
+            {"id":"other-blue","key":"Colors.blue","category":"color","package":"other.palette"}
+        ]}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src/Screen.kt"),
+        "import design.palette.Colors.blue as brand\nimport other.palette.Colors.blue\nimport unrelated.palette.Colors.blue as stray\nval first = brand\nval second = blue\nval third = stray\n",
+    )
+    .unwrap();
+
+    let facts = scan_fixture(root, "src", "scoped-member-import");
+    let mut sites: Vec<_> = facts
+        .token_sites
+        .iter()
+        .map(|site| (site.location.line, site.token_id.as_str()))
+        .collect();
+    sites.sort_unstable();
+    assert_eq!(sites, [(4, "blue"), (5, "other-blue")]);
+}

@@ -480,7 +480,7 @@ fn resolve_token_identity(
     let candidates = existing
         .iter()
         .enumerate()
-        .filter(|(_, token)| token.key == discovered.key)
+        .filter(|(_, token)| token.key == discovered.key && token.package == discovered.package)
         .map(|(index, _)| index)
         .collect::<Vec<_>>();
 

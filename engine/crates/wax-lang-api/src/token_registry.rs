@@ -1,5 +1,6 @@
 //! Shared token registry parsing and exact token reference matching.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 use wax_contract::{DesignSystemToken, SourceLocation, TokenCategory, TokenSite};
@@ -51,13 +52,97 @@ pub struct TokenMatch {
     pub category: TokenCategory,
 }
 
-/// Lookup table for exact token key and alias matching.
+/// Lookup table for package-scoped and legacy exact token references.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RegistryTokenIndex {
     /// Tokens in deterministic registry order.
     pub tokens: Vec<DesignSystemToken>,
-    /// Key or alias to token match.
+    /// Legacy key or alias to token match.
     pub matches: BTreeMap<String, TokenMatch>,
+    scoped: BTreeMap<String, BTreeMap<String, TokenMatch>>,
+    packages: BTreeSet<String>,
+}
+
+impl RegistryTokenIndex {
+    /// Returns whether any tokens require import evidence.
+    pub fn has_scoped_tokens(&self) -> bool {
+        !self.scoped.is_empty()
+    }
+
+    /// Returns whether a name is registered in any package.
+    pub fn has_scoped_name(&self, key: &str) -> bool {
+        self.scoped.contains_key(key)
+    }
+
+    /// Splits a static path at its longest registered package prefix.
+    pub fn package_qualified_path<'a>(&self, path: &'a str) -> Option<(&'a str, &'a str)> {
+        path.rmatch_indices('.').find_map(|(index, _)| {
+            let package = &path[..index];
+            self.packages
+                .contains(package)
+                .then_some((package, &path[index + 1..]))
+        })
+    }
+
+    /// Matches a registered name using its observed package and exported path.
+    ///
+    /// The source is the original expression. The path is its static spelling,
+    /// if available. A scoped name suppresses legacy matching when its origin
+    /// cannot be verified. Legacy entries always match the original expression.
+    pub fn match_reference(
+        &self,
+        source: &str,
+        path: Option<&str>,
+        origin: Option<(&str, &str)>,
+    ) -> Option<&TokenMatch> {
+        if let Some((package, key)) = origin
+            && let Some(packages) = self.scoped.get(key)
+        {
+            return packages.get(package);
+        }
+        if self.scoped.contains_key(source)
+            || path.is_some_and(|path| self.scoped.contains_key(path))
+        {
+            return None;
+        }
+        self.matches.get(source)
+    }
+}
+
+/// Normalizes whitespace around dots in a static identifier path.
+pub fn static_dotted_token_path(text: &str) -> Option<Cow<'_, str>> {
+    let segments = text.split('.').map(str::trim);
+    if !segments.clone().all(|segment| {
+        let mut chars = segment.chars();
+        chars
+            .next()
+            .is_some_and(|ch| ch == '_' || ch.is_alphabetic())
+            && chars.all(|ch| ch == '_' || ch.is_alphanumeric())
+    }) {
+        return None;
+    }
+    if text.chars().any(char::is_whitespace) {
+        Some(Cow::Owned(segments.collect::<Vec<_>>().join(".")))
+    } else {
+        Some(Cow::Borrowed(text))
+    }
+}
+
+/// Parses and indexes registry tokens, preserving package scopes and all scan facts.
+///
+/// # Errors
+///
+/// Returns a token registry error for invalid fields, duplicate ids, or
+/// conflicting keys or aliases within a package or the legacy partition.
+pub fn registry_token_index(
+    value: &serde_json::Value,
+) -> Result<RegistryTokenIndex, TokenRegistryError> {
+    let entries = parse_token_entries(value)?;
+    build_index(
+        entries
+            .iter()
+            .map(|(token, package)| (token, package.as_deref())),
+    )
 }
 
 /// Parses optional `tokens` from a registry JSON value.
@@ -70,6 +155,15 @@ pub struct RegistryTokenIndex {
 pub fn parse_registry_tokens(
     value: &serde_json::Value,
 ) -> Result<Vec<DesignSystemToken>, TokenRegistryError> {
+    Ok(parse_token_entries(value)?
+        .into_iter()
+        .map(|(token, _)| token)
+        .collect())
+}
+
+fn parse_token_entries(
+    value: &serde_json::Value,
+) -> Result<Vec<(DesignSystemToken, Option<String>)>, TokenRegistryError> {
     let Some(tokens_value) = value.get("tokens") else {
         return Ok(Vec::new());
     };
@@ -87,15 +181,19 @@ pub fn parse_registry_tokens(
         let category = parse_category(index, required_non_empty_string(token, index, "category")?)?;
         let aliases = parse_aliases(token, index)?;
         let value = optional_non_empty_string(token, index, "value")?;
-        tokens.push(DesignSystemToken {
-            id: id.to_owned(),
-            key: key.to_owned(),
-            category,
-            aliases,
-            value,
-        });
+        let package = optional_non_empty_string(token, index, "package")?;
+        tokens.push((
+            DesignSystemToken {
+                id: id.to_owned(),
+                key: key.to_owned(),
+                category,
+                aliases,
+                value,
+            },
+            package,
+        ));
     }
-    tokens.sort_by(|left, right| left.id.cmp(&right.id));
+    tokens.sort_by(|(left, _), (right, _)| left.id.cmp(&right.id));
     Ok(tokens)
 }
 
@@ -108,9 +206,15 @@ pub fn parse_registry_tokens(
 /// [`TokenRegistryError::DuplicateMatchKey`] when one key or alias maps to
 /// different token ids.
 pub fn token_index(tokens: &[DesignSystemToken]) -> Result<RegistryTokenIndex, TokenRegistryError> {
+    build_index(tokens.iter().map(|token| (token, None)))
+}
+
+fn build_index<'a>(
+    entries: impl IntoIterator<Item = (&'a DesignSystemToken, Option<&'a str>)>,
+) -> Result<RegistryTokenIndex, TokenRegistryError> {
     let mut seen_ids = BTreeSet::new();
-    let mut matches = BTreeMap::new();
-    for token in tokens {
+    let mut index = RegistryTokenIndex::default();
+    for (token, package) in entries {
         if token.id.is_empty() {
             return Err(TokenRegistryError::EmptyTokenField { field: "id" });
         }
@@ -127,15 +231,24 @@ pub fn token_index(tokens: &[DesignSystemToken]) -> Result<RegistryTokenIndex, T
                 return Err(TokenRegistryError::EmptyTokenField { field: "aliases" });
             }
         }
-        insert_match(&mut matches, token, &token.key)?;
-        for alias in &token.aliases {
-            insert_match(&mut matches, token, alias)?;
+        if let Some(package) = package {
+            index.packages.insert(package.to_owned());
         }
+        for key in std::iter::once(&token.key).chain(&token.aliases) {
+            if let Some(package) = package {
+                insert_match(
+                    index.scoped.entry(key.clone()).or_default(),
+                    token,
+                    package,
+                    key,
+                )?;
+            } else {
+                insert_match(&mut index.matches, token, key, key)?;
+            }
+        }
+        index.tokens.push(token.clone());
     }
-    Ok(RegistryTokenIndex {
-        tokens: tokens.to_vec(),
-        matches,
-    })
+    Ok(index)
 }
 
 /// Finds exact token key and alias references in source text.
@@ -148,7 +261,11 @@ pub fn find_token_matches(
     index: &RegistryTokenIndex,
     id_prefix: &str,
 ) -> Vec<TokenSite> {
-    let mut keys: Vec<&String> = index.matches.keys().collect();
+    let mut keys: Vec<&String> = index
+        .matches
+        .keys()
+        .filter(|key| !index.scoped.contains_key(key.as_str()))
+        .collect();
     keys.sort_by(|left, right| right.len().cmp(&left.len()).then_with(|| left.cmp(right)));
 
     let mut sites = Vec::new();
@@ -317,18 +434,22 @@ fn parse_category(index: usize, value: &str) -> Result<TokenCategory, TokenRegis
 fn insert_match(
     matches: &mut BTreeMap<String, TokenMatch>,
     token: &DesignSystemToken,
+    lookup: &str,
     key: &str,
 ) -> Result<(), TokenRegistryError> {
     if key.is_empty() {
         return Err(TokenRegistryError::EmptyTokenField { field: "key" });
     }
-    if matches.contains_key(key) {
+    if matches
+        .get(lookup)
+        .is_some_and(|matched| matched.token_id != token.id)
+    {
         return Err(TokenRegistryError::DuplicateMatchKey {
             key: key.to_owned(),
         });
     }
     matches.insert(
-        key.to_owned(),
+        lookup.to_owned(),
         TokenMatch {
             token_id: token.id.clone(),
             key: key.to_owned(),

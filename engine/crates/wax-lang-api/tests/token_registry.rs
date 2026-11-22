@@ -308,3 +308,68 @@ fn parse_registry_rejects_empty_token_value() {
         wax_lang_api::TokenRegistryError::InvalidTokenField { field: "value", .. }
     ));
 }
+
+#[test]
+fn registry_index_matches_scoped_names_only_with_compatible_origin() {
+    let mut value = serde_json::json!({"tokens": [
+        {"id": "radix", "key": "blue.blue9", "aliases": ["blue.nine"], "category": "color", "package": "@radix-ui/colors"},
+        {"id": "other", "key": "blue.blue9", "category": "color", "package": "other-palette"},
+        {"id": "legacy", "key": "blue.blue9", "category": "color"},
+        {"id": "computed", "key": "theme[key]", "category": "color"}
+    ]});
+    let index = wax_lang_api::registry_token_index(&value).unwrap();
+    assert_eq!(index.tokens.len(), 4);
+    let matched = index
+        .match_reference(
+            "b?.['nine']",
+            Some("b.nine"),
+            Some(("@radix-ui/colors", "blue.nine")),
+        )
+        .unwrap();
+    assert_eq!(
+        (matched.token_id.as_str(), matched.key.as_str()),
+        ("radix", "blue.nine")
+    );
+    assert_eq!(
+        index
+            .match_reference(
+                "blue.blue9",
+                Some("blue.blue9"),
+                Some(("other-palette", "blue.blue9"))
+            )
+            .unwrap()
+            .token_id,
+        "other"
+    );
+    assert!(index.match_reference("blue.blue9", None, None).is_none());
+    assert!(
+        index
+            .match_reference("b.nine", None, Some(("unknown", "blue.nine")))
+            .is_none()
+    );
+    assert_eq!(
+        index
+            .match_reference("theme[key]", None, None)
+            .unwrap()
+            .token_id,
+        "computed"
+    );
+
+    value["tokens"][1]["package"] = serde_json::json!("@radix-ui/colors");
+    assert!(matches!(
+        wax_lang_api::registry_token_index(&value),
+        Err(wax_lang_api::TokenRegistryError::DuplicateMatchKey { .. })
+    ));
+    value["tokens"][1]["key"] = serde_json::json!("other");
+    value["tokens"][1]["aliases"] = serde_json::json!(["blue.nine"]);
+    assert!(matches!(
+        wax_lang_api::registry_token_index(&value),
+        Err(wax_lang_api::TokenRegistryError::DuplicateMatchKey { .. })
+    ));
+    value["tokens"][1]["package"] = serde_json::json!("other-palette");
+    value["tokens"][1]["id"] = serde_json::json!("radix");
+    assert!(matches!(
+        wax_lang_api::registry_token_index(&value),
+        Err(wax_lang_api::TokenRegistryError::DuplicateTokenId { .. })
+    ));
+}
