@@ -232,6 +232,12 @@ refreshes a value only while it still equals the generated literal recorded in
 `details.discovered_literal_value`; authored or cleared values are preserved.
 A registry with only `tokens` (no `components`) is a valid scan input.
 
+React scans also count literal `var(--name)` references in `.css` files under
+the scan roots when the registry has an unscoped token keyed `var(--name)`.
+Authored `css_variants` link that logical token to its concrete light, dark and
+Display P3 entries; see the
+[CSS custom property reference](website/docs/reference/registry.md#css-custom-properties).
+
 ### Search Components and Tokens
 
 Fuzzy-search registry entries, then fetch lossless details at the same snapshot

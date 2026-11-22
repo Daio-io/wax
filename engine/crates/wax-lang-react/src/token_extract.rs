@@ -254,6 +254,7 @@ mod tests {
         }];
         let index = token_index(&tokens).unwrap();
         ReactRegistryIndex {
+            css_tokens: Default::default(),
             components: Default::default(),
             design_system_tokens: tokens,
             token_index: index,

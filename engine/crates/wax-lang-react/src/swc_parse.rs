@@ -78,9 +78,13 @@ impl std::fmt::Debug for ParsedReactModule {
     }
 }
 
-/// Fatal errors returned while preparing source input for SWC parsing.
+/// Fatal errors returned while preparing or parsing React sources.
 #[derive(Debug)]
 pub enum ReactParseError {
+    /// The CSS grammar could not be loaded.
+    CssLanguage(tree_sitter::LanguageError),
+    /// The CSS parser did not produce a syntax tree.
+    CssNoTree,
     /// Reading a source file from disk failed.
     Io {
         /// Human-readable context for the failed operation.
@@ -96,6 +100,7 @@ impl ReactParseError {
     pub fn reason(&self) -> &str {
         match self {
             Self::Io { .. } => "io_error",
+            Self::CssLanguage(_) | Self::CssNoTree => "parse_failed",
         }
     }
 }
@@ -104,6 +109,8 @@ impl std::fmt::Display for ReactParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Io { context, source } => write!(f, "{context}: {source}"),
+            Self::CssLanguage(source) => write!(f, "load CSS grammar: {source}"),
+            Self::CssNoTree => f.write_str("CSS parser returned no syntax tree"),
         }
     }
 }
@@ -112,6 +119,8 @@ impl std::error::Error for ReactParseError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io { source, .. } => Some(source),
+            Self::CssLanguage(source) => Some(source),
+            Self::CssNoTree => None,
         }
     }
 }

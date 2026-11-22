@@ -408,6 +408,18 @@ case "$request" in
   *'"type":"capabilities"'*)
     printf '%s\n' '{"type":"capabilities","api_version":1,"language_id":"compose","registry_details_v1":true}'
     ;;
+  *'"type":"discover_registry"'*'"publisher":"css-conflict"'*)
+    printf '%s\n' '{"type":"registry_details","api_version":1,"language_id":"compose","document":{"schema_version":1,"tokens":[{"id":"light","key":"blueDark.blue9","category":"color","package":"design"}]},"diagnostics":[]}'
+    ;;
+  *'"type":"discover_registry"'*'"publisher":"css-reused-id"'*)
+    printf '%s\n' '{"type":"registry_details","api_version":1,"language_id":"compose","document":{"schema_version":1,"tokens":[{"id":"light","key":"blue.blue9","category":"color","package":"foreign"}]},"diagnostics":[]}'
+    ;;
+  *'"type":"discover_registry"'*'"publisher":"css-duplicate-match"'*)
+    printf '%s\n' '{"type":"registry_details","api_version":1,"language_id":"compose","document":{"schema_version":1,"tokens":[{"id":"first","key":"blue.blue9","category":"color","package":"design"},{"id":"second","key":"blue.blue9","category":"color","package":"design"}]},"diagnostics":[]}'
+    ;;
+  *'"type":"discover_registry"'*'"publisher":"css-variants"'*)
+    printf '%s\n' '{"type":"registry_details","api_version":1,"language_id":"compose","document":{"schema_version":1,"tokens":[{"id":"generated-blue","key":"blue.blue9","category":"color","package":"design","value":"\u0023ffffff","details":{"status":"complete","documentation":"Fresh details"}}]},"diagnostics":[]}'
+    ;;
   *'"type":"discover_registry"'*'"publisher":"scoped-tokens"'*)
     printf '%s\n' '{"type":"registry_details","api_version":1,"language_id":"compose","document":{"schema_version":1,"tokens":[{"id":"fresh-blue","key":"Colors.blue","category":"color","package":"design"},{"id":"foreign-blue","key":"Colors.blue","category":"color","package":"foreign"}]},"diagnostics":[]}'
     ;;
@@ -1708,4 +1720,103 @@ fn replacement_discovery_preserves_token_metadata_by_package_and_key() {
             ("foreign-blue", None)
         ]
     );
+}
+
+#[test]
+fn discovery_keeps_authored_css_groups_and_shared_variants_in_both_write_modes() {
+    let _guard = env_lock();
+    let repo = TestRepo::new("registry-discovery-css-variants");
+    link_compose_fixture_into_repo(repo.path());
+    write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
+    write_compose_lockfile(repo.path());
+    let (_wax_home, _wax_home_guard) = install_rich_discover_fixture_pack();
+    let path = repo.path().join(".wax/compose.registry.json");
+    let seed = json!({
+        "schema_version": 1, "publisher": "css-variants",
+        "tokens": [
+            {"id":"css.blue","key":"var(--blue-9)","category":"color","css_variants":["light","dark"]},
+            {"id":"css.brand","key":"var(--brand)","category":"color","css_variants":["light"]},
+            {"id":"light","key":"blue.blue9","category":"color","package":"design","value":"#0090ff"},
+            {"id":"dark","key":"blueDark.blue9","category":"color","package":"design","value":"#0090ff"},
+            {"id":"unrelated","key":"Colors.red","category":"color"}
+        ]
+    });
+    for force in [false, true] {
+        fs::write(&path, seed.to_string()).unwrap();
+        discover_registry(RegistryDiscoverOptions {
+            repo_root: repo.path(),
+            language_id: "compose",
+            roots: vec![],
+            dry_run: false,
+            force,
+            design_system_id: None,
+            design_system_name: None,
+        })
+        .unwrap();
+        let registry =
+            wax_contract::registry_from_json(&fs::read_to_string(&path).unwrap()).unwrap();
+        let tokens = registry
+            .tokens
+            .iter()
+            .map(|token| (token.id.as_str(), token))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(registry.tokens.len(), if force { 4 } else { 5 });
+        assert_eq!(tokens["css.blue"].css_variants, ["light", "dark"]);
+        assert_eq!(tokens["css.brand"].css_variants, ["light"]);
+        assert_eq!(tokens["dark"].value.as_deref(), Some("#0090ff"));
+        let light = tokens["light"];
+        assert_eq!(light.value.as_deref(), Some("#0090ff"));
+        assert_eq!(
+            light.details.as_ref().unwrap().documentation.as_deref(),
+            Some("Fresh details")
+        );
+        assert_eq!(tokens.contains_key("unrelated"), !force);
+    }
+}
+
+#[test]
+fn discovery_rejects_conflicting_css_variant_identities_without_writing() {
+    use wax_core::registry_merge::RegistryMergeError;
+    let _guard = env_lock();
+    let repo = TestRepo::new("registry-discovery-css-conflict");
+    link_compose_fixture_into_repo(repo.path());
+    write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
+    write_compose_lockfile(repo.path());
+    let (_wax_home, _wax_home_guard) = install_rich_discover_fixture_pack();
+    let path = repo.path().join(".wax/compose.registry.json");
+
+    for publisher in ["css-conflict", "css-reused-id", "css-duplicate-match"] {
+        let seed = json!({
+            "schema_version": 1, "publisher": publisher,
+            "tokens": [
+                {"id":"css.blue","key":"var(--blue-9)","category":"color","css_variants":["light","dark"]},
+                {"id":"light","key":"blue.blue9","category":"color","package":"design","value":"#0090ff"},
+                {"id":"dark","key":"blueDark.blue9","category":"color","package":"design","value":"#0090ff"}
+            ]
+        }).to_string();
+        for force in [false, true] {
+            fs::write(&path, &seed).unwrap();
+            let result = discover_registry(RegistryDiscoverOptions {
+                repo_root: repo.path(),
+                language_id: "compose",
+                roots: vec![],
+                dry_run: false,
+                force,
+                design_system_id: None,
+                design_system_name: None,
+            });
+            assert!(
+                matches!(
+                    result,
+                    Err(RegistryDiscoverError::Merge(
+                        RegistryMergeError::InvalidDiscovered(
+                            wax_contract::RegistryError::ContractViolation { .. }
+                        )
+                    ))
+                ),
+                "{publisher}: {result:?}"
+            );
+            assert_eq!(fs::read_to_string(&path).unwrap(), seed);
+        }
+    }
 }

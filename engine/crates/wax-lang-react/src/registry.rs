@@ -1,12 +1,14 @@
 //! React registry symbol loading and resolver index.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::Path;
 
-use wax_contract::DesignSystemToken;
+use wax_contract::{DesignSystemToken, css_custom_property_from_key};
 use wax_lang_api::{
-    RegistryComponentIndex, RegistryTokenIndex, registry_token_index, scan_registry_components,
+    RegistryComponentIndex, RegistryTokenIndex, TokenMatch, registry_token_index,
+    scan_registry_components,
 };
 
 const REGISTRY_SCHEMA_VERSION: u64 = 1;
@@ -20,6 +22,7 @@ pub struct ReactRegistryIndex {
     pub design_system_tokens: Vec<DesignSystemToken>,
     /// Exact key/alias lookup index for token references.
     pub token_index: RegistryTokenIndex,
+    pub(crate) css_tokens: BTreeMap<String, TokenMatch>,
 }
 
 /// Kind of registry load failure.
@@ -96,7 +99,17 @@ pub fn load_react_registry(path: &Path) -> Result<ReactRegistryIndex, RegistryEr
         .map_err(|err| RegistryError::invalid(err.to_string()))?;
     let components = RegistryComponentIndex::from_components(components)
         .map_err(|err| RegistryError::invalid(err.to_string()))?;
+    let css_tokens = token_index
+        .tokens
+        .iter()
+        .filter_map(|token| {
+            let name = css_custom_property_from_key(&token.key)?;
+            let matched = token_index.matches.get(&token.key)?;
+            (matched.token_id == token.id).then(|| (name.to_owned(), matched.clone()))
+        })
+        .collect();
     Ok(ReactRegistryIndex {
+        css_tokens,
         components,
         design_system_tokens: token_index.tokens.clone(),
         token_index,

@@ -28,6 +28,7 @@
 mod component_detect;
 mod component_scope;
 mod config;
+mod css_token_extract;
 mod diagnostics;
 mod discover;
 mod extract;
@@ -174,8 +175,12 @@ impl ReactLanguage {
                 let registry_path = repo_root.join(&config.design_system_registry);
                 let registry =
                     load_react_registry(&registry_path).map_err(ReactScanError::Registry)?;
-                let collection =
-                    collect_react_source_files(repo_root, &config.roots, &config.ignore)?;
+                let collection = files::collect_react_scan_files(
+                    repo_root,
+                    &config.roots,
+                    &config.ignore,
+                    !registry.css_tokens.is_empty(),
+                )?;
                 let mut facts = configured_scan_facts(
                     request,
                     &react_language_id,

@@ -1,5 +1,7 @@
 //! Merging and replacing discovered registry facts in authored registries.
 
+use std::collections::BTreeSet;
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use wax_contract::{
@@ -511,6 +513,87 @@ fn resolve_component_identity(
         .collect::<Vec<_>>();
 
     resolve_identity(id_match, &candidates)
+}
+
+pub(crate) fn retain_css_variant_groups(
+    seed: &[RegistryToken],
+    discovered: &mut Vec<RegistryToken>,
+) -> Result<(), RegistryMergeError> {
+    let mut retained_ids = BTreeSet::new();
+    for token in seed.iter().filter(|token| !token.css_variants.is_empty()) {
+        retained_ids.insert(token.id.as_str());
+        retained_ids.extend(token.css_variants.iter().map(String::as_str));
+    }
+    if retained_ids.is_empty() {
+        return Ok(());
+    }
+
+    let retained_identities: BTreeSet<_> = seed
+        .iter()
+        .filter(|token| retained_ids.contains(token.id.as_str()))
+        .map(|token| (token.key.as_str(), token.package.as_deref()))
+        .collect();
+    let invalid = |index, message| {
+        RegistryMergeError::InvalidDiscovered(RegistryError::ContractViolation {
+            field: format!("tokens[{index}]"),
+            message,
+        })
+    };
+
+    // Validate IDs before replacing any generated ID with an authored one.
+    let mut discovered_ids = BTreeSet::new();
+    for (index, token) in discovered.iter().enumerate() {
+        if !discovered_ids.insert(token.id.as_str()) {
+            return Err(invalid(index, format!("duplicate token ID `{}`", token.id)));
+        }
+    }
+
+    let mut matched = BTreeSet::new();
+    for (index, token) in discovered.iter_mut().enumerate() {
+        if !retained_ids.contains(token.id.as_str())
+            && !retained_identities.contains(&(token.key.as_str(), token.package.as_deref()))
+        {
+            continue;
+        }
+        let IdentityResolution::Match(seed_index) = resolve_token_identity(seed, token) else {
+            return Err(invalid(
+                index,
+                format!("conflicting CSS variant identity for `{}`", token.id),
+            ));
+        };
+        let authored = &seed[seed_index];
+        if !retained_ids.contains(authored.id.as_str())
+            || authored.key != token.key
+            || authored.package != token.package
+        {
+            return Err(invalid(
+                index,
+                format!("conflicting CSS variant identity for `{}`", token.id),
+            ));
+        }
+        if !matched.insert(authored.id.as_str()) {
+            return Err(invalid(
+                index,
+                format!(
+                    "multiple discoveries match retained CSS token `{}`",
+                    authored.id
+                ),
+            ));
+        }
+        let mut retained = authored.clone();
+        if let Some(details) = &token.details {
+            retained.details = merge_details(retained.details.as_ref(), Some(details));
+        }
+        *token = retained;
+    }
+    discovered.extend(
+        seed.iter()
+            .filter(|token| {
+                retained_ids.contains(token.id.as_str()) && !matched.contains(token.id.as_str())
+            })
+            .cloned(),
+    );
+    Ok(())
 }
 
 fn resolve_token_identity(

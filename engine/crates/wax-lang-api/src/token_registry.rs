@@ -3,7 +3,10 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
-use wax_contract::{DesignSystemToken, RegistryDetails, SourceLocation, TokenCategory, TokenSite};
+use wax_contract::{
+    DesignSystemToken, RegistryDetails, RegistryToken, SourceLocation, TokenCategory, TokenSite,
+    validate_css_variant_links,
+};
 
 /// Errors returned while parsing registry token definitions.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -19,6 +22,12 @@ pub enum TokenRegistryError {
         /// Invalid field name.
         field: &'static str,
         /// Human-readable reason.
+        reason: String,
+    },
+    /// CSS variant links violate the rich registry contract.
+    #[error("invalid CSS variant links: {reason}")]
+    InvalidCssVariants {
+        /// Human-readable contract violation.
         reason: String,
     },
     /// Two token entries declare the same id.
@@ -205,11 +214,26 @@ pub fn static_dotted_token_path(text: &str) -> Option<Cow<'_, str>> {
 /// # Errors
 ///
 /// Returns a token registry error for invalid fields, duplicate ids, or
-/// conflicting keys or aliases within a package or the legacy partition.
+/// conflicting keys or aliases within a package or the legacy partition, or
+/// invalid CSS variant links.
 pub fn registry_token_index(
     value: &serde_json::Value,
 ) -> Result<RegistryTokenIndex, TokenRegistryError> {
     let entries = parse_token_entries(value)?;
+    if let Some(tokens) = value.get("tokens")
+        && tokens.as_array().is_some_and(|tokens| {
+            tokens.iter().any(|token| {
+                token
+                    .get("css_variants")
+                    .is_some_and(|links| !links.as_array().is_some_and(Vec::is_empty))
+            })
+        })
+    {
+        let invalid = |reason| TokenRegistryError::InvalidCssVariants { reason };
+        let rich_tokens: Vec<RegistryToken> =
+            serde_json::from_value(tokens.clone()).map_err(|error| invalid(error.to_string()))?;
+        validate_css_variant_links(&rich_tokens).map_err(|error| invalid(error.to_string()))?;
+    }
     build_index(
         entries
             .iter()

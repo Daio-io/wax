@@ -1387,3 +1387,76 @@ fn public_search_before_install_keeps_exact_detail_after_catalogue_refresh() {
             .is_empty()
     );
 }
+
+#[test]
+fn token_detail_retains_ordered_css_variant_links_retrievable_by_id() {
+    let _guard = env_lock();
+    let root = TestDir::new("detail-css-variants");
+    let wax_home = root.path.join("wax-home");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(&wax_home).unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    let registry = root.path.join("registry.json");
+    write_registry(
+        &registry,
+        r##"{
+  "schema_version": 1,
+  "language": "react",
+  "components": [],
+  "tokens": [
+    {"id":"css.blue-9","key":"var(--blue-9)","category":"color","css_variants":["blue.blue9","blueDark.blue9","blueP3.blue9","blueDarkP3.blue9"]},
+    {"id":"blue.blue9","key":"blue.blue9","category":"color","package":"@radix-ui/colors","value":"#0090ff"},
+    {"id":"blueDark.blue9","key":"blueDark.blue9","category":"color","package":"@radix-ui/colors","value":"#0090ff"},
+    {"id":"blueP3.blue9","key":"blueP3.blue9","category":"color","package":"@radix-ui/colors","value":"color(display-p3 0.247 0.556 0.969)"},
+    {"id":"blueDarkP3.blue9","key":"blueDarkP3.blue9","category":"color","package":"@radix-ui/colors","value":"color(display-p3 0.247 0.556 0.969)"}
+  ]
+}"##,
+    );
+    let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
+    remember_local_registry(&wax_home, "acme", &registry);
+
+    let detail = |id: &str| -> Value {
+        let output = run_wax(
+            &wax_home,
+            &repo,
+            &["token", id, "--design-system", "acme", "--format", "json"],
+        );
+        assert!(output.status.success(), "{id}: {output:?}");
+        let value: Value =
+            serde_json::from_str(String::from_utf8(output.stdout).unwrap().trim()).unwrap();
+        assert!(detail_validator().is_valid(&value));
+        value
+    };
+
+    let logical = detail("css.blue-9");
+    let links = logical["entry"]["css_variants"].clone();
+    assert_eq!(
+        links,
+        serde_json::json!([
+            "blue.blue9",
+            "blueDark.blue9",
+            "blueP3.blue9",
+            "blueDarkP3.blue9"
+        ])
+    );
+    let digest = logical["snapshot"]["digest"].clone();
+    let values: Vec<_> = links
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|id| {
+            let linked = detail(id.as_str().unwrap());
+            assert_eq!(linked["snapshot"]["digest"], digest);
+            linked["entry"]["value"].as_str().unwrap().to_owned()
+        })
+        .collect();
+    assert_eq!(
+        values,
+        [
+            "#0090ff",
+            "#0090ff",
+            "color(display-p3 0.247 0.556 0.969)",
+            "color(display-p3 0.247 0.556 0.969)"
+        ]
+    );
+}

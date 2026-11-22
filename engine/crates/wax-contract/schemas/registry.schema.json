@@ -356,6 +356,14 @@
             "minLength": 1
           }
         },
+        "css_variants": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
         "value": {
           "type": "string",
           "minLength": 1

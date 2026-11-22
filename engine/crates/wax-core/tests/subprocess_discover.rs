@@ -389,6 +389,7 @@ fn replacement_registry() -> RegistryDocument {
             category: TokenCategory::Color,
             aliases: Vec::new(),
             value: None,
+            css_variants: Vec::new(),
             metadata: None,
             details: None,
             extra: Map::new(),
