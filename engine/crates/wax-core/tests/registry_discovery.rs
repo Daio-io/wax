@@ -1736,7 +1736,8 @@ fn discovery_keeps_authored_css_groups_and_shared_variants_in_both_write_modes()
         "tokens": [
             {"id":"css.blue","key":"var(--blue-9)","category":"color","css_variants":["light","dark"]},
             {"id":"css.brand","key":"var(--brand)","category":"color","css_variants":["light"]},
-            {"id":"light","key":"blue.blue9","category":"color","package":"design","value":"#0090ff"},
+            {"id":"light","key":"blue.blue9","category":"color","package":"design","value":"#0090ff",
+             "details":{"status":"complete","source_evidence":{"path":"src/Colors.kt","authored":"light-token"}}},
             {"id":"dark","key":"blueDark.blue9","category":"color","package":"design","value":"#0090ff"},
             {"id":"unrelated","key":"Colors.red","category":"color"}
         ]
@@ -1763,6 +1764,17 @@ fn discovery_keeps_authored_css_groups_and_shared_variants_in_both_write_modes()
         assert_eq!(registry.tokens.len(), if force { 4 } else { 5 });
         assert_eq!(tokens["css.blue"].css_variants, ["light", "dark"]);
         assert_eq!(tokens["css.brand"].css_variants, ["light"]);
+        assert_eq!(
+            tokens["light"]
+                .details
+                .as_ref()
+                .unwrap()
+                .source_evidence
+                .as_ref()
+                .unwrap()
+                .extra["authored"],
+            "light-token"
+        );
         assert_eq!(tokens["dark"].value.as_deref(), Some("#0090ff"));
         let light = tokens["light"];
         assert_eq!(light.value.as_deref(), Some("#0090ff"));

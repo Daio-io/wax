@@ -582,7 +582,7 @@ pub(crate) fn retain_css_variant_groups(
         }
         let mut retained = authored.clone();
         if let Some(details) = &token.details {
-            retained.details = merge_details(retained.details.as_ref(), Some(details));
+            retained.details = merge_details(retained.details.as_ref(), Some(details), true);
         }
         *token = retained;
     }
