@@ -2160,9 +2160,9 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_transforms_base"
-version = "44.0.2"
+version = "44.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6943187aa25fa8639cee16ff2746c4ec6b768c4d3db0be7f6989c042f9d25593"
+checksum = "bc20652dd5e4ca9d0b2964eaacfa8e319c51442a4e866fa37c6c367376f0b85b"
 dependencies = [
  "better_scoped_tls",
  "indexmap",
