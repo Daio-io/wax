@@ -4,7 +4,6 @@ use wax_cli::presentation::{Presentation, TerminalContext, select_presentation};
 
 #[test]
 fn decoration_requires_interactive_streams_and_a_capable_non_ci_terminal() {
-    let cli = Cli::try_parse_from(["wax", "scan"]).unwrap();
     let terminal = TerminalContext {
         stdin_tty: true,
         stdout_tty: true,
@@ -12,8 +11,7 @@ fn decoration_requires_interactive_streams_and_a_capable_non_ci_terminal() {
         ci_present: false,
         term_dumb: false,
     };
-    assert_eq!(select_presentation(&cli, &terminal), Presentation::Human);
-    for plain in [
+    let plain_terminals = [
         TerminalContext {
             stdin_tty: false,
             ..terminal
@@ -34,8 +32,13 @@ fn decoration_requires_interactive_streams_and_a_capable_non_ci_terminal() {
             term_dumb: true,
             ..terminal
         },
-    ] {
-        assert_eq!(select_presentation(&cli, &plain), Presentation::Plain);
+    ];
+    for args in [&["wax", "scan"][..], &["wax", "registry", "find", "acme"]] {
+        let cli = Cli::try_parse_from(args).unwrap();
+        assert_eq!(select_presentation(&cli, &terminal), Presentation::Human);
+        for plain in &plain_terminals {
+            assert_eq!(select_presentation(&cli, plain), Presentation::Plain);
+        }
     }
 }
 

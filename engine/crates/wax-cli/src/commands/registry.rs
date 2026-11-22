@@ -2,11 +2,11 @@
 
 use super::diagnostic_output::format_diagnostic_line;
 use super::state_path::resolve_state_path;
+use crate::presentation::Presentation;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
-use wax_contract::Diagnostic;
-use wax_contract::LanguageId;
+use wax_contract::{CatalogFindResponse, Diagnostic, LanguageId};
 use wax_core::paths::PathsError;
 use wax_core::registry_cache::RegistrySourceSpec;
 use wax_core::registry_discovery::{
@@ -524,6 +524,153 @@ mod tests {
     use super::*;
 
     #[test]
+    fn human_find_preserves_order_and_only_suggests_available_public_revisions() {
+        let mut configured = find_row("configured", "acme", None, true);
+        configured.name = "Acme Local".into();
+        configured.languages.clear();
+        let mut response = find_response(vec![
+            configured,
+            find_row("public", "acme", Some(2), true),
+            find_row("public", "acme", Some(1), false),
+            find_row("remembered", "public-acme-r2", Some(2), true),
+        ]);
+        response.public_status.commit = Some("0123456789abcdef0123456789abcdef01234567".into());
+
+        assert_eq!(
+            human_find(&response, false),
+            concat!(
+                "Registry results (4)\n",
+                "--------------------\n\n",
+                "Acme Local\n  configured | acme\n  Languages: none listed\n\n",
+                "Acme\n  public | acme @ 2 | Installed\n  Languages: compose, react\n\n",
+                "Acme\n  public | acme @ 1 | Available\n  Languages: compose, react\n",
+                "  Install:\n    wax registry install acme --version 1\n\n",
+                "Acme\n  remembered | public-acme-r2 @ 2\n  Languages: compose, react\n\n",
+                "Public catalogue: complete\n",
+                "  Commit: 0123456789abcdef0123456789abcdef01234567\n",
+            )
+        );
+    }
+
+    #[test]
+    fn human_find_offline_explains_bundle_cache_once_when_hints_are_present() {
+        let mut response = find_response(vec![
+            find_row("public", "acme", Some(1), false),
+            find_row("public", "acme", Some(2), false),
+        ]);
+        response.public_status.cached = true;
+        let output = human_find(&response, true);
+        assert!(output.contains("Public catalogue: complete (cached)\n"));
+        assert!(output.contains("    wax registry install acme --version 1 --offline\n"));
+        assert!(output.contains("    wax registry install acme --version 2 --offline\n"));
+        let cache_note = "Offline installs require cached bundle objects.";
+        assert_eq!(output.matches(cache_note).count(), 1);
+
+        for row in &mut response.results {
+            row.installed = true;
+        }
+        let output = human_find(&response, true);
+        assert!(!output.contains("wax registry install"));
+        assert!(!output.contains(cache_note));
+    }
+
+    #[test]
+    fn human_find_distinguishes_empty_complete_and_cold_offline_results() {
+        let mut response = find_response(vec![]);
+        assert_eq!(
+            human_find(&response, false),
+            "No matching design systems.\n\nPublic catalogue: complete\n"
+        );
+        response.public_status.complete = false;
+        response.public_status.diagnostic = Some(wax_contract::CatalogDiagnostic {
+            code: "offline_cache_miss".into(),
+            message: "public catalogue is not available in the offline cache".into(),
+        });
+        assert_eq!(
+            human_find(&response, true),
+            concat!(
+                "No matching design systems in available sources.\n\n",
+                "Public catalogue: incomplete\n",
+                "  offline_cache_miss: public catalogue is not available in the offline cache\n"
+            )
+        );
+    }
+
+    #[test]
+    fn human_find_returns_writer_errors() {
+        struct Broken;
+        impl Write for Broken {
+            fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+                Err(io::ErrorKind::BrokenPipe.into())
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let error =
+            write_registry_find_human(&find_response(vec![]), false, &mut Broken).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
+    }
+
+    #[test]
+    fn human_find_escapes_terminal_controls_and_preserves_printable_unicode() {
+        let mut row = find_row("configured", "a\tcme", None, true);
+        row.name = "Élan\n\x1b[31m".into();
+        let mut response = find_response(vec![row]);
+        response.public_status.complete = false;
+        response.public_status.diagnostic = Some(wax_contract::CatalogDiagnostic {
+            code: "git\rerror".into(),
+            message: "Échec\x1b[0m\nretry".into(),
+        });
+
+        let output = human_find(&response, false);
+        assert!(output.contains("Élan\\n\\u{1b}[31m\n  configured | a\\tcme\n"));
+        assert!(output.contains("  git\\rerror: Échec\\u{1b}[0m\\nretry\n"));
+        assert!(!output.contains(['\x1b', '\r', '\t']));
+    }
+
+    fn find_row(
+        origin: &str,
+        id: &str,
+        revision: Option<u64>,
+        installed: bool,
+    ) -> wax_contract::CatalogFindResult {
+        wax_contract::CatalogFindResult {
+            origin: origin.into(),
+            id: id.into(),
+            name: "Acme".into(),
+            revision,
+            languages: vec!["compose".parse().unwrap(), "react".parse().unwrap()],
+            upstream: vec![],
+            coverage: vec![],
+            gaps: vec![],
+            installed,
+            catalogue_commit: None,
+        }
+    }
+
+    fn find_response(results: Vec<wax_contract::CatalogFindResult>) -> CatalogFindResponse {
+        CatalogFindResponse {
+            schema_version: 1,
+            results,
+            public_status: wax_contract::CatalogPublicStatus {
+                complete: true,
+                cached: false,
+                commit: None,
+                diagnostic: None,
+            },
+        }
+    }
+
+    fn human_find(response: &CatalogFindResponse, offline: bool) -> String {
+        let mut bytes = Vec::new();
+        write_registry_find_human(response, offline, &mut bytes).unwrap();
+        String::from_utf8(bytes).unwrap()
+    }
+
+    #[test]
     fn relative_roots_are_resolved_against_repo_root() {
         let repo_root = PathBuf::from("/tmp/repo");
         let roots = resolve_cli_roots(&repo_root, vec![PathBuf::from("src/main/kotlin")]);
@@ -566,6 +713,21 @@ pub fn run_registry_find(
     repo_root: PathBuf,
     writer: &mut impl Write,
 ) -> Result<(), RegistryCatalogCommandError> {
+    run_registry_find_with_presentation(args, repo_root, Presentation::Plain, writer)
+}
+
+/// Runs catalogue discovery using the requested presentation for text output.
+///
+/// JSON always uses the catalogue response envelope.
+///
+/// # Errors
+/// Returns a typed error for invalid local state/config or output failure.
+pub fn run_registry_find_with_presentation(
+    args: crate::cli::RegistryFindArgs,
+    repo_root: PathBuf,
+    presentation: Presentation,
+    writer: &mut impl Write,
+) -> Result<(), RegistryCatalogCommandError> {
     let mut options =
         wax_core::registry_catalog::CatalogOptions::new(repo_root, resolve_state_path(None)?);
     options.query = args.query;
@@ -576,6 +738,9 @@ pub fn run_registry_find(
         crate::cli::LookupStdoutFormat::Json => {
             serde_json::to_writer(&mut *writer, &response)?;
             writeln!(writer)?;
+        }
+        crate::cli::LookupStdoutFormat::Text if presentation == Presentation::Human => {
+            write_registry_find_human(&response, args.offline, writer)?;
         }
         crate::cli::LookupStdoutFormat::Text => {
             writeln!(writer, "origin\tid\trevision\tname\tlanguages\tinstalled")?;
@@ -608,6 +773,105 @@ pub fn run_registry_find(
         }
     }
     Ok(())
+}
+
+fn write_registry_find_human(
+    response: &CatalogFindResponse,
+    offline: bool,
+    writer: &mut impl Write,
+) -> io::Result<()> {
+    let status = &response.public_status;
+    let mut has_offline_hint = false;
+    if response.results.is_empty() {
+        let message = if status.complete {
+            "No matching design systems."
+        } else {
+            "No matching design systems in available sources."
+        };
+        writeln!(writer, "{message}\n")?;
+    } else {
+        let heading = format!("Registry results ({})", response.results.len());
+        writeln!(writer, "{heading}\n{}\n", "-".repeat(heading.len()))?;
+        for row in &response.results {
+            writeln!(writer, "{}", escape_terminal_controls(&row.name))?;
+            write!(
+                writer,
+                "  {} | {}",
+                row.origin,
+                escape_terminal_controls(&row.id)
+            )?;
+            if let Some(revision) = row.revision {
+                write!(writer, " @ {revision}")?;
+            }
+            if row.origin == "public" {
+                let installed = if row.installed {
+                    "Installed"
+                } else {
+                    "Available"
+                };
+                write!(writer, " | {installed}")?;
+            }
+            writeln!(writer)?;
+            let languages = row
+                .languages
+                .iter()
+                .map(LanguageId::as_str)
+                .collect::<Vec<_>>()
+                .join(", ");
+            let languages = if languages.is_empty() {
+                "none listed"
+            } else {
+                &languages
+            };
+            writeln!(writer, "  Languages: {languages}")?;
+            if row.origin == "public"
+                && !row.installed
+                && let Some(revision) = row.revision.filter(|revision| *revision > 0)
+            {
+                let offline_flag = if offline { " --offline" } else { "" };
+                writeln!(
+                    writer,
+                    "  Install:\n    wax registry install {} --version {revision}{offline_flag}",
+                    row.id
+                )?;
+                has_offline_hint = offline;
+            }
+            writeln!(writer)?;
+        }
+    }
+    let completeness = match (status.complete, status.cached) {
+        (true, false) => "complete",
+        (true, true) => "complete (cached)",
+        (false, _) => "incomplete",
+    };
+    writeln!(writer, "Public catalogue: {completeness}")?;
+    if let Some(commit) = &status.commit {
+        writeln!(writer, "  Commit: {commit}")?;
+    }
+    if let Some(diagnostic) = &status.diagnostic {
+        writeln!(
+            writer,
+            "  {}: {}",
+            escape_terminal_controls(&diagnostic.code),
+            escape_terminal_controls(&diagnostic.message)
+        )?;
+    }
+    if has_offline_hint {
+        writeln!(writer, "  Offline installs require cached bundle objects.")?;
+    }
+    Ok(())
+}
+
+fn escape_terminal_controls(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        if character.is_control() {
+            escaped.extend(character.escape_default());
+        } else {
+            escaped.push(character);
+        }
+    }
+    escaped
 }
 
 /// Installs a public revision without modifying application files.
