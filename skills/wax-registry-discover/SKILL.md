@@ -173,6 +173,8 @@ Use configless discovery: **always pass `--root`** and do not assume configured 
 
 8. Write the registry only after review. Existing registries are refreshed by a lossless merge by default; with `--force`, replace the discovered component set while preserving explicit tokens, root extensions, and matched authored fields. Merge only approved alias/tag additions into existing arrays. Preserve all authored aliases and tags on rediscover, and never remove either without separate approval.
 
+   React discovery adds package-scoped `color` tokens from public palette objects with literal hex or `color(display-p3 ...)` values. A token-only registry (no `components`) is valid for scan. Rediscovery refreshes a token value only while it equals the recorded `details.discovered_literal_value`; authored or cleared values are preserved. Treat refreshed values as discovery output, not creator edits.
+
    Treat repeat runs without `--force` as lossless rediscovery: preserve
    authored component and token ids, explicit source associations, package
    identities, aliases, tags, metadata, canonical values, unknown extension

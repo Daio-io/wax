@@ -64,6 +64,8 @@ pub use server::{
 };
 pub use timing::parse_extract_millis;
 pub use token_registry::{
-    RegistryTokenIndex, TokenMatch, TokenRegistryError, find_token_matches, parse_registry_tokens,
-    registry_token_index, static_dotted_token_path, token_index,
+    DISCOVERED_LITERAL_VALUE, RegistryTokenIndex, ScanRegistryShapeError, TokenMatch,
+    TokenRegistryError, discovered_token_marker, find_token_matches, parse_registry_tokens,
+    refresh_discovered_token_value, registry_token_index, scan_registry_components,
+    static_dotted_token_path, token_index,
 };

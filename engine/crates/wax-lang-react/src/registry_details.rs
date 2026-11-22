@@ -19,9 +19,10 @@ use wax_lang_api::{DiscoverRegistryRequest, DiscoverRegistryResult};
 
 use crate::component_detect::simple_binding_ident;
 use crate::discover::{
-    ReactDiscoverError, ReactWrapperCallees, callee_matches, collect_and_parse_react_sources,
-    react_wrapper_callees,
+    DamagedReactSources, ReactDiscoverError, ReactWrapperCallees, callee_matches,
+    collect_and_parse_react_sources, react_wrapper_callees,
 };
+use crate::palette_discovery::{apply_token_evidence, discover_palette_tokens};
 use crate::public_exports::{PublicBinding, public_bindings};
 use crate::swc_parse::ParsedReactModule;
 
@@ -81,15 +82,19 @@ pub fn discover_registry_details(
     let (parsed_files, damaged_paths) =
         collect_and_parse_react_sources(repo_root, &absolute_roots, &mut diagnostics)?;
 
-    let bindings = public_bindings(
+    let exports = public_bindings(
         repo_root,
         &absolute_roots,
         &parsed_files,
         &damaged_paths,
         &mut diagnostics,
     );
+    let bindings = &exports.bindings;
     let mut wanted = BTreeMap::<_, BTreeSet<_>>::new();
-    for binding in &bindings {
+    for binding in bindings
+        .iter()
+        .filter(|binding| binding.component_symbol.is_some())
+    {
         wanted
             .entry(binding.declaration_path)
             .or_default()
@@ -110,8 +115,15 @@ pub fn discover_registry_details(
         .collect();
 
     let mut document = request.registry.clone();
-    enrich_components(&mut document, &bindings, &declarations, &damaged_paths);
+    enrich_components(&mut document, bindings, &declarations, &damaged_paths);
     enrich_explicit_tokens(&mut document, repo_root, &damaged_paths);
+    discover_palette_tokens(
+        &mut document,
+        &request.registry.tokens,
+        &exports,
+        &parsed_files,
+        &damaged_paths,
+    )?;
     document
         .validate()
         .map_err(ReactDiscoverError::InvalidRegistry)?;
@@ -1014,7 +1026,7 @@ fn enrich_components(
     document: &mut RegistryDocument,
     bindings: &[PublicBinding<'_>],
     declarations: &BTreeMap<&Path, SourceDeclarations<'_>>,
-    damaged_paths: &[String],
+    damaged_paths: &DamagedReactSources,
 ) {
     for component in &mut document.components {
         let matches_symbol = |symbol: &str| {
@@ -1028,7 +1040,13 @@ fn enrich_components(
         };
         let public = bindings
             .iter()
-            .filter(|binding| matches_symbol(&binding.symbol) && matches_package(binding.package))
+            .filter(|binding| {
+                binding
+                    .component_symbol
+                    .as_deref()
+                    .is_some_and(matches_symbol)
+                    && matches_package(binding.package)
+            })
             .find_map(|binding| {
                 declarations
                     .get(binding.declaration_path)?
@@ -1058,7 +1076,7 @@ fn enrich_components(
             .details
             .as_ref()
             .and_then(|details| details.source_evidence.as_ref())
-            .is_some_and(|evidence| damaged_paths.contains(&evidence.path));
+            .is_some_and(|evidence| damaged_paths.contains_key(&evidence.path));
         if evidence_damaged {
             if let Some(details) = &mut component.details {
                 details.status = RegistryExtractionStatus::Stale;
@@ -1082,7 +1100,7 @@ fn enrich_components(
 fn enrich_explicit_tokens(
     document: &mut RegistryDocument,
     repo_root: &Path,
-    damaged_paths: &[String],
+    damaged_paths: &DamagedReactSources,
 ) {
     for token in &mut document.tokens {
         let declaration = token.metadata.as_ref().and_then(|metadata| {
@@ -1097,7 +1115,7 @@ fn enrich_explicit_tokens(
         let Some(source) = declaration else {
             continue;
         };
-        if damaged_paths.contains(&source.path) {
+        if damaged_paths.contains_key(&source.path) {
             if let Some(details) = &mut token.details {
                 details.status = RegistryExtractionStatus::Stale;
             }
@@ -1106,22 +1124,13 @@ fn enrich_explicit_tokens(
         if !repo_root.join(&source.path).is_file() {
             continue;
         }
-        token.details = Some(RegistryDetails {
-            status: RegistryExtractionStatus::Complete,
-            source_evidence: Some(RegistrySourceEvidence {
-                path: source.path.clone(),
-                start_line: source.start_line,
-                end_line: source.end_line,
-                extra: Map::new(),
-            }),
-            documentation: None,
-            signature: None,
-            deprecation: None,
-            attachments: Vec::new(),
-            field_gaps: Vec::new(),
-            best_practices: Vec::new(),
+        let evidence = RegistrySourceEvidence {
+            path: source.path.clone(),
+            start_line: source.start_line,
+            end_line: source.end_line,
             extra: Map::new(),
-        });
+        };
+        apply_token_evidence(token, evidence);
     }
 }
 

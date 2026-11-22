@@ -22,8 +22,8 @@ use crate::swift_ast::{
 use wax_lang_api::{
     RegistryComponentIndex, RegistryImportMatch, RegistryTokenIndex, RootResolutionError,
     ScanConfig, TokenMatch, normalize_repo_relative_path, path_matches_any, registry_token_index,
-    resolve_source_roots, root_not_found_code, root_not_found_message, static_dotted_token_path,
-    swift_module_from_source_path,
+    resolve_source_roots, root_not_found_code, root_not_found_message, scan_registry_components,
+    static_dotted_token_path, swift_module_from_source_path,
 };
 
 /// Parsed Swift scan configuration from the engine request payload.
@@ -273,18 +273,24 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, TreeSitterScanError> {
             path: path.to_path_buf(),
             reason: format!("registry JSON is invalid: {err}"),
         })?;
-    let components = RegistryComponentIndex::from_json(&value).map_err(|err| {
-        TreeSitterScanError::RegistryInvalid {
-            path: path.to_path_buf(),
-            reason: err.to_string(),
-        }
-    })?;
-
     let token_index =
         registry_token_index(&value).map_err(|err| TreeSitterScanError::RegistryInvalid {
             path: path.to_path_buf(),
             reason: err.to_string(),
         })?;
+    let components =
+        scan_registry_components(&value, !token_index.tokens.is_empty()).map_err(|err| {
+            TreeSitterScanError::RegistryInvalid {
+                path: path.to_path_buf(),
+                reason: err.to_string(),
+            }
+        })?;
+    let components = RegistryComponentIndex::from_components(components).map_err(|err| {
+        TreeSitterScanError::RegistryInvalid {
+            path: path.to_path_buf(),
+            reason: err.to_string(),
+        }
+    })?;
 
     Ok(RegistryIndex {
         components,

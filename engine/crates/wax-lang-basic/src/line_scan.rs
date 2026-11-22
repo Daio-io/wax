@@ -13,7 +13,7 @@ use wax_contract::{
 use wax_lang_api::{
     RegistryTokenIndex, RootResolutionError, ScanConfig, find_token_matches,
     normalize_repo_relative_path, path_matches_any, registry_token_index, resolve_source_roots,
-    root_not_found_code, root_not_found_message,
+    root_not_found_code, root_not_found_message, scan_registry_components,
 };
 
 const BASIC_TEXT_SCAN_DIAGNOSTIC: &str = "Basic text line scanner produced heuristic usage facts; parser-backed extraction is recommended for production. Heuristics strip // comments before matching (code after // inside strings or URLs may be missed).";
@@ -382,12 +382,17 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, LineScanError> {
             path: path.to_path_buf(),
             reason: format!("registry JSON is invalid: {err}"),
         })?;
-    let components = value
-        .get("components")
-        .and_then(serde_json::Value::as_array)
-        .ok_or_else(|| LineScanError::RegistryInvalid {
+    let token_index =
+        registry_token_index(&value).map_err(|err| LineScanError::RegistryInvalid {
             path: path.to_path_buf(),
-            reason: "registry JSON must contain a components array".to_owned(),
+            reason: err.to_string(),
+        })?;
+    let components =
+        scan_registry_components(&value, !token_index.tokens.is_empty()).map_err(|err| {
+            LineScanError::RegistryInvalid {
+                path: path.to_path_buf(),
+                reason: err.to_string(),
+            }
         })?;
 
     let mut canonical_symbols = Vec::new();
@@ -430,12 +435,6 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, LineScanError> {
     }
 
     canonical_symbols.sort();
-
-    let token_index =
-        registry_token_index(&value).map_err(|err| LineScanError::RegistryInvalid {
-            path: path.to_path_buf(),
-            reason: err.to_string(),
-        })?;
 
     Ok(RegistryIndex {
         canonical_symbols,

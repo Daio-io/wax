@@ -3,7 +3,7 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
-use wax_contract::{DesignSystemToken, SourceLocation, TokenCategory, TokenSite};
+use wax_contract::{DesignSystemToken, RegistryDetails, SourceLocation, TokenCategory, TokenSite};
 
 /// Errors returned while parsing registry token definitions.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -39,6 +39,78 @@ pub enum TokenRegistryError {
         /// Invalid field name.
         field: &'static str,
     },
+}
+
+/// Invalid component shape in scan registry input.
+#[derive(Debug, Error)]
+pub enum ScanRegistryShapeError {
+    /// A present `components` field must be an array.
+    #[error("components must be an array")]
+    ComponentsNotArray,
+    /// A registry without components must contain validated tokens.
+    #[error("missing components array or valid nonempty tokens")]
+    MissingEntries,
+}
+
+/// Returns the component entries of a scan registry.
+///
+/// Pass whether the package-aware token index validated a nonempty token list.
+/// Token-only registries can omit `components`.
+///
+/// # Errors
+///
+/// Returns a shape error for a present non-array `components` field or an
+/// omitted field without valid tokens.
+pub fn scan_registry_components(
+    value: &serde_json::Value,
+    has_tokens: bool,
+) -> Result<&[serde_json::Value], ScanRegistryShapeError> {
+    match value.get("components") {
+        Some(serde_json::Value::Array(components)) => Ok(components),
+        Some(_) => Err(ScanRegistryShapeError::ComponentsNotArray),
+        None if has_tokens => Ok(&[]),
+        None => Err(ScanRegistryShapeError::MissingEntries),
+    }
+}
+
+/// Reserved token detail field recording the last generated literal value.
+pub const DISCOVERED_LITERAL_VALUE: &str = "discovered_literal_value";
+
+/// Returns the generated marker when it contains a string.
+pub fn discovered_token_marker(details: Option<&RegistryDetails>) -> Option<&str> {
+    details?.extra.get(DISCOVERED_LITERAL_VALUE)?.as_str()
+}
+
+/// Updates a matched token's value and marker from a fresh literal observation.
+///
+/// The prior marker must come from the original details before any merge.
+/// Returns whether the value changed. A value still matching its marker is
+/// eligible for refresh. Authored or cleared values drop the reserved marker.
+pub fn refresh_discovered_token_value(
+    value: &mut Option<String>,
+    prior_marker: Option<&str>,
+    details: Option<&mut RegistryDetails>,
+    fresh_literal: Option<&str>,
+) -> bool {
+    let marker = prior_marker
+        .filter(|previous| value.as_deref() == Some(*previous))
+        .map(|previous| fresh_literal.unwrap_or(previous));
+    if let Some(details) = details {
+        if let Some(marker) = marker {
+            details
+                .extra
+                .insert(DISCOVERED_LITERAL_VALUE.to_owned(), marker.into());
+        } else {
+            details.extra.remove(DISCOVERED_LITERAL_VALUE);
+        }
+    }
+    if let Some(marker) = marker
+        && value.as_deref() != Some(marker)
+    {
+        *value = Some(marker.to_owned());
+        return true;
+    }
+    false
 }
 
 /// Exact token reference match found in source text.

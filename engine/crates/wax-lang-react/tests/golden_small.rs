@@ -309,7 +309,7 @@ fn scoped_token_sites_follow_imported_palette_bindings() {
     std::fs::write(
         root.join("design-system/registry.json"),
         r#"{
-      "schema_version": 1, "components": [], "tokens": [
+      "schema_version": 1, "tokens": [
         {"id":"blue","key":"blue.blue9","category":"color","package":"@radix-ui/colors"},
         {"id":"dark","key":"blueDark.blue9","category":"color","package":"@radix-ui/colors"},
         {"id":"gray","key":"gray.gray1","category":"color","package":"@radix-ui/colors"},
@@ -348,6 +348,7 @@ export function Screen() {
         serde_json::json!({"@radix-ui/colors/local": ["src/local.ts"]}),
     );
     let facts = ReactLanguage::new().scan(&request).unwrap();
+    assert!(facts.design_system_components.is_empty());
     let sites: Vec<_> = facts
         .token_sites
         .iter()

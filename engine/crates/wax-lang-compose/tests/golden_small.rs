@@ -450,7 +450,7 @@ fn scoped_tokens_follow_kotlin_imports_and_qualified_paths() {
     std::fs::write(
         root.join("design-system/registry.json"),
         r#"{
-      "schema_version": 1, "components": [], "tokens": [
+      "schema_version": 1, "tokens": [
         {"id":"blue","key":"Colors.blue","category":"color","package":"design.palette"},
         {"id":"other-blue","key":"Colors.blue","category":"color","package":"other.palette"},
         {"id":"gray","key":"Colors.gray","category":"color","package":"design.palette"},
@@ -491,6 +491,7 @@ fun Shadow(Palette: LocalColors) = Palette.blue
         std::fs::write(root.join("src").join(file), source).unwrap();
     }
     let facts = scan_fixture(root, "src", "scoped-tokens");
+    assert!(facts.design_system_components.is_empty());
     let mut sites: Vec<_> = facts
         .token_sites
         .iter()

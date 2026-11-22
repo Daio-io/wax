@@ -402,7 +402,7 @@ fn install_rich_discover_fixture_pack() -> (PathBuf, EnvVarGuard) {
     let script_path = install_dir.join("wax-lang-compose");
     fs::write(
         &script_path,
-        r#"#!/bin/sh
+        r##"#!/bin/sh
 request=$(cat)
 case "$request" in
   *'"type":"capabilities"'*)
@@ -410,6 +410,9 @@ case "$request" in
     ;;
   *'"type":"discover_registry"'*'"publisher":"scoped-tokens"'*)
     printf '%s\n' '{"type":"registry_details","api_version":1,"language_id":"compose","document":{"schema_version":1,"tokens":[{"id":"fresh-blue","key":"Colors.blue","category":"color","package":"design"},{"id":"foreign-blue","key":"Colors.blue","category":"color","package":"foreign"}]},"diagnostics":[]}'
+    ;;
+  *'"type":"discover_registry"'*'"publisher":"palette-refresh"'*)
+    printf '%s\n' '{"type":"registry_details","api_version":1,"language_id":"compose","document":{"schema_version":1,"tokens":[{"id":"token:design#blue.blue9","key":"blue.blue9","category":"color","package":"design","value":"#0090ff","details":{"status":"complete","discovered_literal_value":"#0090ff"}},{"id":"token:design#blue.blue10","key":"blue.blue10","category":"color","package":"design","value":"#0588f0","details":{"status":"complete","discovered_literal_value":"#0588f0"}}]},"diagnostics":[]}'
     ;;
   *'"type":"discover_registry"'*'"id":"button"'*)
     printf '%s\n' '{"type":"registry_details","api_version":1,"language_id":"compose","document":{"schema_version":1,"components":[{"id":"button","symbol":"Button","metadata":{"sources":[{"kind":"documentation","path":"pack-injected.md"}]},"details":{"status":"partial","documentation":"Generated docs"}},{"id":"card","symbol":"Card","metadata":{"sources":[{"kind":"example","path":"secret.txt"}]},"details":{"status":"complete"}}]},"diagnostics":[]}'
@@ -428,7 +431,7 @@ case "$request" in
     printf '%s\n' '{"type":"discover_symbols","api_version":1,"language_id":"compose","symbols":["Button"],"diagnostics":[{"severity":"info","code":"symbols-discovered","message":"Discovered Button"}]}'
     ;;
 esac
-"#,
+"##,
     )
     .expect("write rich fixture language pack script");
     #[cfg(unix)]
@@ -547,6 +550,48 @@ fn first_rich_write_populates_token_only_registry_and_preserves_authored_fields(
     assert_eq!(written["components"][0]["symbol"], "Button");
     assert_eq!(written["tokens"], original["tokens"]);
     assert_eq!(written["publisher"], original["publisher"]);
+}
+
+#[test]
+fn rich_rediscovery_refreshes_generated_values_and_keeps_authored_ones() {
+    let _guard = env_lock();
+    let repo = TestRepo::new("registry-discovery-palette-refresh");
+    let (_wax_home, _wax_home_guard) = install_rich_discover_fixture_pack();
+    link_compose_fixture_into_repo(repo.path());
+    write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
+    let path = repo.path().join(".wax/compose.registry.json");
+    let seed = |id: &str, key: &str, value: &str, marker: Option<&str>| {
+        let mut token = json!({
+            "id": id, "key": key, "category": "color", "package": "design", "value": value,
+            "aliases": ["kept"]
+        });
+        if let Some(marker) = marker {
+            token["details"] = json!({"status": "complete", "discovered_literal_value": marker});
+        }
+        token
+    };
+    let original = json!({
+        "schema_version": 1,
+        "tokens": [
+            seed("token:design#blue.blue9", "blue.blue9", "#000000", Some("#000000")),
+            seed("token:design#blue.blue10", "blue.blue10", "#authored", Some("#000001")),
+        ],
+        "publisher": "palette-refresh"
+    });
+    fs::write(&path, original.to_string()).expect("write seeded registry");
+
+    discover_with_config_roots_write(repo.path()).expect("refresh palette tokens");
+
+    let written: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    let tokens = written["tokens"].as_array().unwrap();
+    assert_eq!(tokens.len(), 2);
+    let blue9 = tokens.iter().find(|t| t["key"] == "blue.blue9").unwrap();
+    assert_eq!(blue9["value"], "#0090ff");
+    assert_eq!(blue9["details"]["discovered_literal_value"], "#0090ff");
+    assert_eq!(blue9["aliases"], json!(["kept"]));
+    let blue10 = tokens.iter().find(|t| t["key"] == "blue.blue10").unwrap();
+    assert_eq!(blue10["value"], "#authored");
+    assert!(blue10["details"].get("discovered_literal_value").is_none());
 }
 
 #[test]

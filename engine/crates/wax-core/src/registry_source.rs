@@ -627,18 +627,31 @@ fn validate_registry_json(
         });
     }
 
-    match object.get("components") {
-        Some(Value::Array(_)) => Ok(()),
-        Some(_) => Err(RegistrySourceError::InvalidShape {
-            input: source.to_owned(),
-            reason: "components must be an array",
-        }),
-        None if allow_missing_components => Ok(()),
-        None => Err(RegistrySourceError::InvalidShape {
-            input: source.to_owned(),
-            reason: "missing components array",
-        }),
+    let missing_components = !object.contains_key("components");
+    if missing_components && allow_missing_components {
+        return Ok(());
     }
+    let has_tokens = missing_components
+        && !wax_lang_api::registry_token_index(&value)
+            .map_err(|_| RegistrySourceError::InvalidShape {
+                input: source.to_owned(),
+                reason: "invalid tokens in registry without components",
+            })?
+            .tokens
+            .is_empty();
+    wax_lang_api::scan_registry_components(&value, has_tokens)
+        .map(|_| ())
+        .map_err(|error| RegistrySourceError::InvalidShape {
+            input: source.to_owned(),
+            reason: match error {
+                wax_lang_api::ScanRegistryShapeError::ComponentsNotArray => {
+                    "components must be an array"
+                }
+                wax_lang_api::ScanRegistryShapeError::MissingEntries => {
+                    "missing components array or valid nonempty tokens"
+                }
+            },
+        })
 }
 
 fn materialize_external_registry(
