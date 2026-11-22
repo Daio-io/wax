@@ -847,3 +847,135 @@ fn remembered_selector_pins_stored_snapshots_not_newer_cache_selection() {
 
     assert_eq!(snapshots[0].reference.digest, sha256_hex(original));
 }
+
+#[test]
+fn explicit_relative_files_are_scoped_to_each_requesting_repo() {
+    let root = TestDir::new("relative-repos");
+    let state_path = root.0.join("home/state.json");
+    let alpha = root.0.join("alpha");
+    let beta = root.0.join("beta");
+    let alpha_bytes = br#"{"schema_version":1,"language":"react","components":[{"id":"alpha","symbol":"Alpha"}]}"#;
+    let beta_bytes =
+        br#"{"schema_version":1,"language":"react","components":[{"id":"beta","symbol":"Beta"}]}"#;
+    for (repo, bytes) in [
+        (&alpha, alpha_bytes.as_slice()),
+        (&beta, beta_bytes.as_slice()),
+    ] {
+        fs::create_dir_all(repo).unwrap();
+        fs::write(repo.join("react.json"), bytes).unwrap();
+    }
+    let lookup = |repo: &Path, selector: String| {
+        resolve_lookup_snapshots(&RegistryLookupOptions {
+            repo_root: repo.to_owned(),
+            selector: Some(selector),
+            language: Some(language("react")),
+            tag: None,
+            snapshot: None,
+            offline: false,
+            state_path: Some(state_path.clone()),
+        })
+        .expect("resolve registry")
+    };
+    let first = lookup(&alpha, "./react.json".to_owned());
+    let second = lookup(&beta, "./react.json".to_owned());
+    let absolute = lookup(&beta, beta.join("react.json").display().to_string());
+    assert_eq!(first[0].reference.digest, sha256_hex(alpha_bytes));
+    assert_eq!(second[0].reference.digest, sha256_hex(beta_bytes));
+    assert_eq!(second[0].reference, absolute[0].reference);
+}
+
+#[test]
+fn scoped_offline_selection_and_pins_do_not_reuse_legacy_relative_records() {
+    use wax_core::registry_cache::RegistryReadPolicy;
+    let root = TestDir::new("scoped-offline");
+    let state_path = root.0.join("home/state.json");
+    let repo = root.0.join("app");
+    fs::create_dir_all(&repo).unwrap();
+    let bytes =
+        br#"{"schema_version":1,"language":"react","components":[{"id":"app","symbol":"App"}]}"#;
+    fs::write(repo.join("react.json"), bytes).unwrap();
+    // Seed an old unscoped record through the original public parser/cache API.
+    let legacy_path = PathBuf::from(format!("./wax-legacy-{}.json", std::process::id()));
+    fs::write(
+        &legacy_path,
+        br#"{"schema_version":1,"language":"react","components":[]}"#,
+    )
+    .unwrap();
+    let cache = RegistryCache::open(root.0.join("home/cache/registries"));
+    let legacy =
+        RegistrySourceSpec::parse(legacy_path.to_str().unwrap(), Some(language("react"))).unwrap();
+    cache
+        .resolve(&legacy, &RegistryReadPolicy::default())
+        .unwrap();
+    fs::remove_file(&legacy_path).unwrap();
+    let mut options = RegistryLookupOptions {
+        repo_root: repo.clone(),
+        selector: Some(legacy_path.to_string_lossy().into_owned()),
+        language: Some(language("react")),
+        tag: None,
+        snapshot: None,
+        offline: true,
+        state_path: Some(state_path),
+    };
+    let error = resolve_lookup_snapshots(&options)
+        .expect_err("legacy selection must not satisfy scoped lookup");
+    assert_eq!(error.code, RegistryLookupErrorCode::OfflineCacheMiss);
+    options.selector = Some("./react.json".into());
+    assert_eq!(
+        resolve_lookup_snapshots(&options).unwrap_err().code,
+        RegistryLookupErrorCode::OfflineCacheMiss
+    );
+    options.offline = false;
+    let selected = resolve_lookup_snapshots(&options).unwrap().remove(0);
+    fs::remove_file(repo.join("react.json")).unwrap();
+    options.offline = true;
+    assert_eq!(
+        resolve_lookup_snapshots(&options).unwrap()[0].reference,
+        selected.reference
+    );
+    options.snapshot = Some(selected.reference);
+    assert_eq!(
+        resolve_lookup_snapshots(&options).unwrap()[0]
+            .reference
+            .digest,
+        sha256_hex(bytes)
+    );
+    assert!(
+        cache
+            .resolve(
+                &legacy,
+                &RegistryReadPolicy {
+                    offline: true,
+                    expected_snapshot: None
+                }
+            )
+            .is_ok()
+    );
+}
+
+#[test]
+fn relative_publisher_directories_are_scoped_to_each_repo() {
+    let root = TestDir::new("relative-publishers");
+    let state_path = root.0.join("home/state.json");
+    for name in ["alpha", "beta"] {
+        let publisher = root.0.join(name).join("publisher");
+        fs::create_dir_all(publisher.join(".wax/registries")).unwrap();
+        fs::write(publisher.join(".wax/registries/react.json"), format!(r#"{{"schema_version":1,"language":"react","components":[{{"id":"{name}","symbol":"Button"}}]}}"#)).unwrap();
+    }
+    let lookup = |name: &str| {
+        resolve_lookup_snapshots(&RegistryLookupOptions {
+            repo_root: root.0.join(name),
+            selector: Some("./publisher".into()),
+            language: Some(language("react")),
+            tag: None,
+            snapshot: None,
+            offline: false,
+            state_path: Some(state_path.clone()),
+        })
+        .unwrap()
+    };
+    assert_ne!(
+        lookup("alpha")[0].reference.digest,
+        lookup("beta")[0].reference.digest
+    );
+}

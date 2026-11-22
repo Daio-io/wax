@@ -1055,3 +1055,66 @@ fn ephemeral_scan_uses_source_backed_remembered_registry_without_publisher_check
         ".wax/out/scan-merged.json"
     ));
 }
+
+#[test]
+fn strict_scans_use_each_repos_relative_registry_with_shared_home() {
+    let _guard = env_lock();
+    let root = TestDir::new("relative-registries");
+    let (wax_home, pack_index) = setup_binary_scan_pack(&root.path);
+    let script = wax_home.join("langs/basic/0.1.0/wax-lang-basic");
+    let original = fs::read_to_string(&script).unwrap();
+    let response = original
+        .split("cat <<'JSON'\n")
+        .nth(1)
+        .unwrap()
+        .split("\nJSON")
+        .next()
+        .unwrap();
+    fs::write(&script, format!(r##"#!/usr/bin/env python3
+import json, os, sys
+request = json.load(sys.stdin)
+path = request['config']['registry']
+with open(os.path.join(request['repo_root'], path)) as registry_file:
+    component = json.load(registry_file)['components'][0]
+response = json.loads({response:?})
+response['facts']['design_system_components'] = [{{'id': component['id'], 'symbol': component['symbol'], 'registry_symbol': component['symbol']}}]
+response['facts']['counts']['registry']['component_count'] = 1
+print(json.dumps(response))
+"##)).unwrap();
+    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
+    let _pack_index = EnvVarGuard::set("WAX_PACK_INDEX", pack_index);
+    for name in ["Alpha", "Beta"] {
+        let repo = root.path.join(name);
+        fs::create_dir_all(repo.join("src")).unwrap();
+        fs::write(repo.join("basic.json"), format!(r#"{{"schema_version":1,"language":"basic","components":[{{"id":"{name}","symbol":"{name}"}}]}}"#)).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+            .arg("scan")
+            .arg("--repo-root")
+            .arg(&repo)
+            .args([
+                "--language",
+                "basic",
+                "--root",
+                "src",
+                "--design-system",
+                "./basic.json",
+                "--no-auto-install",
+                "--strict",
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let merged: serde_json::Value =
+            serde_json::from_slice(&fs::read(repo.join(".wax/out/scan-merged.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            merged["languages"]["basic"]["design_system_components"][0]["id"],
+            name
+        );
+    }
+}

@@ -431,7 +431,8 @@ fn resolve_explicit_source(
     selector: &str,
 ) -> Result<Vec<RegistrySnapshot>, RegistryLookupError> {
     let mut source =
-        RegistrySourceSpec::parse(selector, options.language.clone()).map_err(map_cache_error)?;
+        RegistrySourceSpec::parse_for_repo(selector, options.language.clone(), &options.repo_root)
+            .map_err(map_cache_error)?;
     if let Some(tag) = &options.tag {
         source = source.with_tag(tag.clone()).map_err(map_cache_error)?;
     }
