@@ -413,7 +413,7 @@ pub fn discover_registry(
         &roots,
         pack_command,
         seed,
-        write_mode,
+        options.force,
         DEFAULT_DISCOVER_TIMEOUT,
     )?;
     // Packs may emit provisional metadata; only creator-authored associations are
@@ -880,7 +880,7 @@ fn discover_registry_document(
     roots: &[PathBuf],
     pack_command: Vec<String>,
     registry: RegistryDocument,
-    mode: DiscoveryWriteMode,
+    force: bool,
     timeout: Duration,
 ) -> Result<wax_lang_api::DiscoverRegistryResult, RegistryDiscoverError> {
     let request = DiscoverRegistryRequest {
@@ -894,9 +894,10 @@ fn discover_registry_document(
         command: pack_command,
         timeout,
     });
-    let result = match mode {
-        DiscoveryWriteMode::Merge => discoverer.discover_registry(request),
-        DiscoveryWriteMode::Replace => discoverer.discover_replacement_registry(request),
+    let result = if force {
+        discoverer.discover_replacement_registry(request)
+    } else {
+        discoverer.discover_registry(request)
     };
     match result {
         Ok(result) => Ok(result),

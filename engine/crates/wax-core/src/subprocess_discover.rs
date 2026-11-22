@@ -93,6 +93,8 @@ impl SubprocessLanguageDiscoverer {
 
     /// Probes for rich discovery and returns an enriched registry document when supported.
     ///
+    /// Rich packs enumerate symbols before enrichment when the seed has no components.
+    ///
     /// Packs that explicitly report no rich-discovery capability, or legacy packs that reject the
     /// fixed capability probe with [`WireErrorCode::ConfigInvalid`], are queried through the legacy
     /// symbol-discovery envelope. The supplied registry is then returned with extraction marked
@@ -126,15 +128,12 @@ impl SubprocessLanguageDiscoverer {
         &self,
         mut request: DiscoverRegistryRequest,
     ) -> Result<DiscoverRegistryResult, DiscoverError> {
-        let symbols = self.discover(DiscoverRequest {
-            request_type: DiscoverRequestType::Discover,
-            api_version: request.api_version,
-            language_id: request.language_id.clone(),
-            repo_root: request.repo_root.clone(),
-            roots: request.roots.clone(),
-        })?;
+        let cancellation = LanguageCancellationToken::new();
+        let symbols =
+            run_subprocess_discover(&self.manifest, symbol_request(&request), &cancellation)?;
         request.registry = replacement_seed(request.registry, symbols.components)?;
-        let mut enriched = self.discover_registry(request)?;
+        let mut enriched =
+            run_subprocess_registry_discover(&self.manifest, request, &cancellation, false)?;
         let mut diagnostics = symbols.diagnostics;
         diagnostics.append(&mut enriched.diagnostics);
         enriched.diagnostics = diagnostics;
@@ -152,7 +151,8 @@ impl SubprocessLanguageDiscoverer {
         request: DiscoverRegistryRequest,
         cancellation: &LanguageCancellationToken,
     ) -> Result<DiscoverRegistryResult, DiscoverError> {
-        run_subprocess_registry_discover(&self.manifest, request, cancellation)
+        let enumerate_first = request.registry.components.is_empty();
+        run_subprocess_registry_discover(&self.manifest, request, cancellation, enumerate_first)
     }
 }
 
@@ -294,8 +294,9 @@ fn run_subprocess_discover(
 
 fn run_subprocess_registry_discover(
     manifest: &SubprocessLanguageManifest,
-    request: DiscoverRegistryRequest,
+    mut request: DiscoverRegistryRequest,
     cancellation: &LanguageCancellationToken,
+    enumerate_first: bool,
 ) -> Result<DiscoverRegistryResult, DiscoverError> {
     let capability_response = exchange_wire_request(
         manifest,
@@ -313,6 +314,13 @@ fn run_subprocess_registry_discover(
             registry_details_v1: true,
             ..
         } => {
+            let mut diagnostics = Vec::new();
+            if enumerate_first {
+                let symbols =
+                    run_subprocess_discover(manifest, symbol_request(&request), cancellation)?;
+                request.registry = replacement_seed(request.registry, symbols.components)?;
+                diagnostics = symbols.diagnostics;
+            }
             let response = exchange_wire_request(
                 manifest,
                 WirePackRequest::from(request),
@@ -320,7 +328,10 @@ fn run_subprocess_registry_discover(
                 "registry-details-stdout",
                 true,
             )?;
-            parse_registry_details_response(response)
+            let mut enriched = parse_registry_details_response(response)?;
+            diagnostics.append(&mut enriched.diagnostics);
+            enriched.diagnostics = diagnostics;
+            Ok(enriched)
         }
         WirePackResponse::Capabilities {
             registry_details_v1: false,
@@ -331,6 +342,16 @@ fn run_subprocess_registry_discover(
             ..
         } => run_legacy_registry_fallback(manifest, request, cancellation),
         response => Err(response_error(response)),
+    }
+}
+
+fn symbol_request(request: &DiscoverRegistryRequest) -> DiscoverRequest {
+    DiscoverRequest {
+        request_type: DiscoverRequestType::Discover,
+        api_version: request.api_version,
+        language_id: request.language_id.clone(),
+        repo_root: request.repo_root.clone(),
+        roots: request.roots.clone(),
     }
 }
 

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs;
 #[cfg(unix)]
@@ -220,14 +221,8 @@ fn install_discover_fixture_pack_files(
     response_json: &str,
     sha256: &str,
 ) -> PathBuf {
-    let install_dir = wax_home.join(format!("langs/{language_id}/{version}"));
-    fs::create_dir_all(&install_dir).expect("create language install dir");
-
-    let script = install_dir.join(format!("wax-lang-{language_id}"));
-    fs::write(
-        &script,
-        format!(
-            r#"#!/bin/sh
+    let script = format!(
+        r#"#!/bin/sh
 request=$(cat)
 case "$request" in
   *'"type":"capabilities"'*)
@@ -242,16 +237,28 @@ JSON
     ;;
 esac
 "#
-        ),
-    )
-    .expect("write discover fixture script");
+    );
+    install_pack_script(wax_home, language_id, version, &script, sha256)
+}
+
+fn install_pack_script(
+    wax_home: &Path,
+    language_id: &str,
+    version: &str,
+    script: &str,
+    sha256: &str,
+) -> PathBuf {
+    let install_dir = wax_home.join(format!("langs/{language_id}/{version}"));
+    fs::create_dir_all(&install_dir).expect("create language install dir");
+    let script_path = install_dir.join(format!("wax-lang-{language_id}"));
+    fs::write(&script_path, script).expect("write discover fixture script");
     #[cfg(unix)]
     {
-        let mut perms = fs::metadata(&script)
+        let mut perms = fs::metadata(&script_path)
             .expect("read script metadata")
             .permissions();
         perms.set_mode(0o755);
-        fs::set_permissions(&script, perms).expect("set script executable");
+        fs::set_permissions(&script_path, perms).expect("set script executable");
     }
 
     fs::write(
@@ -983,31 +990,103 @@ fn registry_discover_design_system_writes_registry_config_and_remembers() {
     assert!(stdout.contains("`wax sync`"));
 }
 
-#[test]
-fn registry_discover_design_system_dry_run_does_not_remember_or_write() {
-    let _guard = env_lock();
-    let root = TestDir::new("registry-discover-design-system-dry-run");
+fn setup_react_publisher(root: &TestDir) -> (PathBuf, PathBuf, EnvVarGuard) {
     let repo = root.path.join("repo");
-    fs::create_dir_all(&repo).unwrap();
-    let _harness = setup_compose_discover_repo(&repo, false);
-
-    let output = run_discover_command(
-        &repo,
-        &["registry", "discover"],
-        "compose",
-        &compose_fixture_root(),
-        &[
-            "--dry-run",
-            "--design-system",
-            "acme",
-            "--name",
-            "Acme Design System",
-        ],
+    fs::create_dir_all(repo.join("src")).unwrap();
+    fs::write(
+        repo.join("src/icon.tsx"),
+        "export const Icon = () => <svg />;\n",
+    )
+    .unwrap();
+    let wax_home = root.path.join("wax-home");
+    let install_dir = install_pack_script(
+        &wax_home,
+        "react",
+        "0.1.0",
+        r#"#!/bin/sh
+request=$(cat)
+case "$request" in
+  *'"type":"capabilities"'*)
+    printf '%s\n' '{"type":"capabilities","api_version":1,"language_id":"react","registry_details_v1":true}'
+    ;;
+  *'"type":"discover_registry"'*)
+    registry=$(printf '%s' "$request" | sed -e 's/^.*"registry"://' -e 's/}$//' -e 's/"symbol":"Icon"/"symbol":"Icon","details":{"status":"complete"}/')
+    printf '%s\n' '{"type":"registry_details","api_version":1,"language_id":"react","document":' "$registry" ',"diagnostics":[]}'
+    ;;
+  *)
+    printf '%s\n' '{"type":"discover_symbols","api_version":1,"language_id":"react","symbols":["Icon"],"diagnostics":[]}'
+    ;;
+esac
+"#,
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     );
+    write_discover_fixture_state(&wax_home, &[("react", "0.1.0", install_dir)]);
+    let guard = EnvVarGuard::set("WAX_HOME", &wax_home);
+    (repo, wax_home, guard)
+}
 
-    assert!(output.status.success());
-    assert!(!repo.join(".wax/registries/compose.json").exists());
-    assert!(!repo.join(".wax/wax.config.json").exists());
+fn run_react_publisher_discover(repo: &Path, extra_args: &[&str]) -> std::process::Output {
+    let mut args = vec!["--design-system", "acme", "--name", "Acme Design System"];
+    args.extend_from_slice(extra_args);
+    let output = run_discover_for_language(repo, "react", &repo.join("src"), &args);
+    assert!(
+        output.status.success(),
+        "publisher discovery failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    output
+}
+
+fn snapshot_tree(root: &Path) -> BTreeMap<PathBuf, Option<Vec<u8>>> {
+    let mut snapshot = BTreeMap::new();
+    for entry in fs::read_dir(root).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        if entry.file_type().unwrap().is_dir() {
+            snapshot.extend(snapshot_tree(&path));
+            snapshot.insert(path, None);
+        } else {
+            snapshot.insert(path.clone(), Some(fs::read(path).unwrap()));
+        }
+    }
+    snapshot
+}
+
+#[test]
+fn configless_react_publisher_previews_match_and_leave_all_files_unchanged() {
+    let _guard = env_lock();
+    let root = TestDir::new("registry-discover-react-preview");
+    let (repo, wax_home, _wax_home_guard) = setup_react_publisher(&root);
+    let original_repo = snapshot_tree(&repo);
+    let original_home = snapshot_tree(&wax_home);
+
+    let mut previews = Vec::new();
+    for flags in [&["--dry-run"][..], &["--dry-run", "--force"][..]] {
+        let output = run_react_publisher_discover(&repo, flags);
+        let registry: Value = serde_json::from_slice(&output.stdout).expect("stdout is JSON");
+        assert_eq!(registry["components"][0]["symbol"], "Icon");
+        assert_eq!(registry["components"][0]["details"]["status"], "complete");
+        assert!(snapshot_tree(&repo) == original_repo, "repository changed");
+        assert!(
+            snapshot_tree(&wax_home) == original_home,
+            "Wax home changed"
+        );
+        previews.push(registry);
+    }
+    assert_eq!(previews[0], previews[1]);
+}
+
+#[test]
+fn configless_react_publisher_first_write_discovers_components_without_force() {
+    let _guard = env_lock();
+    let root = TestDir::new("registry-discover-react-first-write");
+    let (repo, _wax_home, _wax_home_guard) = setup_react_publisher(&root);
+
+    run_react_publisher_discover(&repo, &[]);
+
+    let written = fs::read(repo.join(".wax/registries/react.json")).expect("written registry");
+    let registry: Value = serde_json::from_slice(&written).expect("registry is JSON");
+    assert_eq!(registry["components"][0]["symbol"], "Icon");
 }
 
 #[test]
