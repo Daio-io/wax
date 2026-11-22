@@ -53,6 +53,7 @@ pub(crate) fn discover_palette_tokens(
                 category: TokenCategory::Color,
                 aliases: Vec::new(),
                 value: Some((*value).to_owned()),
+                css_variants: Vec::new(),
                 metadata: None,
                 details: Some(RegistryDetails {
                     extra: [(DISCOVERED_LITERAL_VALUE.to_owned(), (*value).into())]
