@@ -1095,6 +1095,28 @@ impl RegistrySourceSpec {
     /// Returns [`RegistryCacheError::MissingLanguage`] for Git without a
     /// language, or [`RegistryCacheError::InvalidSourceUrl`] for invalid file URLs.
     pub fn parse(input: &str, language: Option<LanguageId>) -> Result<Self, RegistryCacheError> {
+        Self::parse_with_root(input, language, None)
+    }
+
+    /// Parses an explicit source, resolving relative filesystem paths against `repo_root`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Self::parse`], or an I/O error if the repo root
+    /// cannot be made absolute.
+    pub fn parse_for_repo(
+        input: &str,
+        language: Option<LanguageId>,
+        repo_root: &Path,
+    ) -> Result<Self, RegistryCacheError> {
+        Self::parse_with_root(input, language, Some(repo_root))
+    }
+
+    fn parse_with_root(
+        input: &str,
+        language: Option<LanguageId>,
+        repo_root: Option<&Path>,
+    ) -> Result<Self, RegistryCacheError> {
         let input = input.trim();
         if input.is_empty() {
             return Err(RegistryCacheError::InvalidSourceSpec {
@@ -1115,7 +1137,17 @@ impl RegistrySourceSpec {
             return Ok(Self::LocalFile { path, language });
         }
 
-        let local_path = PathBuf::from(input);
+        let mut local_path = PathBuf::from(input);
+        if local_path.is_relative()
+            && let Some(root) = repo_root
+        {
+            let absolute_root =
+                std::path::absolute(root).map_err(|source| RegistryCacheError::ReadSource {
+                    path: root.to_owned(),
+                    source,
+                })?;
+            local_path = absolute_root.join(&local_path).components().collect();
+        }
         if local_path.is_dir() {
             return Ok(Self::PublisherRepository {
                 root: local_path,
