@@ -13,6 +13,8 @@ use sha2::{Digest, Sha256};
 use wax_core::registry_discovery::{
     RegistryDiscoverError, RegistryDiscoverOptions, discover_registry,
 };
+use wax_core::subprocess_discover::DiscoverError;
+use wax_lang_api::WireErrorCode;
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -406,11 +408,21 @@ case "$request" in
   *'"type":"capabilities"'*)
     printf '%s\n' '{"type":"capabilities","api_version":1,"language_id":"compose","registry_details_v1":true}'
     ;;
-  *'"type":"discover_registry"'*)
+  *'"type":"discover_registry"'*'"id":"button"'*)
     printf '%s\n' '{"type":"registry_details","api_version":1,"language_id":"compose","document":{"schema_version":1,"components":[{"id":"button","symbol":"Button","metadata":{"sources":[{"kind":"documentation","path":"pack-injected.md"}]},"details":{"status":"partial","documentation":"Generated docs"}},{"id":"card","symbol":"Card","metadata":{"sources":[{"kind":"example","path":"secret.txt"}]},"details":{"status":"complete"}}]},"diagnostics":[]}'
     ;;
+  *'"type":"discover_registry"'*)
+    case "$request" in
+      *'"id":"ds.button"'*'"publisher":"fail-enrichment"'*)
+        printf '%s\n' '{"type":"error","api_version":1,"language_id":"compose","code":"config_invalid","message":"cannot enrich seed","diagnostics":[]}'
+        exit 0
+        ;;
+    esac
+    registry=$(printf '%s' "$request" | sed -e 's/^.*"registry"://' -e 's/}$//' -e 's/"symbol":"Button"/"symbol":"Button","details":{"status":"complete"}/')
+    printf '%s\n' '{"type":"registry_details","api_version":1,"language_id":"compose","document":' "$registry" ',"diagnostics":[]}'
+    ;;
   *)
-    printf '%s\n' '{"type":"discover_symbols","api_version":1,"language_id":"compose","symbols":["Button"],"diagnostics":[]}'
+    printf '%s\n' '{"type":"discover_symbols","api_version":1,"language_id":"compose","symbols":["Button"],"diagnostics":[{"severity":"info","code":"symbols-discovered","message":"Discovered Button"}]}'
     ;;
 esac
 "#,
@@ -482,6 +494,79 @@ fn discover_with_config_roots_write(
         design_system_id: None,
         design_system_name: None,
     })
+}
+
+#[test]
+fn first_rich_discovery_enumerates_and_enriches_components_without_force() {
+    let _guard = env_lock();
+    let repo = TestRepo::new("registry-discovery-first-rich");
+    let (_wax_home, _wax_home_guard) = install_rich_discover_fixture_pack();
+    link_compose_fixture_into_repo(repo.path());
+    write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
+
+    let result = discover_with_config_roots(repo.path()).expect("first rich preview");
+
+    assert_eq!(
+        result.registry["components"],
+        json!([{
+            "id": "ds.button",
+            "symbol": "Button",
+            "details": {"status": "complete"}
+        }])
+    );
+    assert_eq!(result.diagnostics[0].code, "symbols-discovered");
+}
+
+#[test]
+fn first_rich_write_populates_token_only_registry_and_preserves_authored_fields() {
+    let _guard = env_lock();
+    let repo = TestRepo::new("registry-discovery-token-only");
+    let (_wax_home, _wax_home_guard) = install_rich_discover_fixture_pack();
+    link_compose_fixture_into_repo(repo.path());
+    write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
+    let path = repo.path().join(".wax/compose.registry.json");
+    let original = json!({
+        "schema_version": 1,
+        "tokens": [{
+            "id": "color.brand",
+            "key": "color.brand",
+            "category": "color",
+            "metadata": {"description": "Creator token"},
+            "customTokenField": true
+        }],
+        "publisher": "design-systems"
+    });
+    fs::write(&path, original.to_string()).expect("write token-only registry");
+
+    discover_with_config_roots_write(repo.path()).expect("populate token-only registry");
+
+    let written: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    assert_eq!(written["components"][0]["symbol"], "Button");
+    assert_eq!(written["tokens"], original["tokens"]);
+    assert_eq!(written["publisher"], original["publisher"]);
+}
+
+#[test]
+fn failed_rich_bootstrap_preserves_token_only_registry() {
+    let _guard = env_lock();
+    let repo = TestRepo::new("registry-discovery-bootstrap-failure");
+    let (_wax_home, _wax_home_guard) = install_rich_discover_fixture_pack();
+    link_compose_fixture_into_repo(repo.path());
+    write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
+    let path = repo.path().join(".wax/compose.registry.json");
+    let original = br#"{"schema_version":1,"tokens":[{"id":"brand","key":"Brand","category":"color"}],"publisher":"fail-enrichment"}"#;
+    fs::write(&path, original).expect("write token-only registry");
+
+    let error = discover_with_config_roots_write(repo.path()).expect_err("enrichment failed");
+
+    assert!(matches!(
+        error,
+        RegistryDiscoverError::DiscoverSubprocess(DiscoverError::Wire {
+            code: WireErrorCode::ConfigInvalid,
+            ..
+        })
+    ));
+    assert_eq!(fs::read(path).unwrap(), original);
 }
 
 #[test]
@@ -1400,6 +1485,7 @@ fn dry_run_returns_losslessly_merged_rich_document_and_structured_changes() {
     })
     .expect("rich dry run should merge");
 
+    assert!(result.diagnostics.is_empty());
     assert_eq!(
         result.document.components[0]
             .metadata
