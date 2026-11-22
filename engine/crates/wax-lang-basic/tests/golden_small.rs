@@ -179,3 +179,41 @@ fn load_golden(path: &PathBuf) -> GoldenCounts {
             as u32,
     }
 }
+
+#[test]
+fn basic_scan_requires_origin_for_scoped_tokens() {
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path();
+    std::fs::write(root.join("registry.json"), r#"{
+      "schema_version": 1, "components": [], "tokens": [
+        {"id":"scoped","key":"Colors.blue","aliases":["Palette.blue"],"category":"color","package":"palette"},
+        {"id":"overlap","key":"Colors.blue","category":"color"},
+        {"id":"legacy","key":"Colors.red","category":"color"}
+      ]
+    }"#).unwrap();
+    std::fs::write(root.join("app.src"), "Colors.blue Palette.blue Colors.red").unwrap();
+    let request = ScanRequest {
+        request_type: ScanRequestType::Scan,
+        api_version: WIRE_API_VERSION,
+        language_id: "basic".try_into().unwrap(),
+        repo_root: root.display().to_string(),
+        snapshot_id: "scoped-tokens".to_owned(),
+        config: serde_json::json!({
+            "registry": "registry.json", "roots": ["."], "file_extensions": ["src"]
+        })
+        .as_object()
+        .unwrap()
+        .clone(),
+    };
+
+    let facts = BasicLanguage::new().scan(&request).unwrap();
+    assert_eq!(facts.design_system_tokens.len(), 3);
+    assert_eq!(
+        facts
+            .token_sites
+            .iter()
+            .map(|site| site.token_id.as_str())
+            .collect::<Vec<_>>(),
+        ["legacy"]
+    );
+}

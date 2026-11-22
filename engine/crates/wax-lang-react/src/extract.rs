@@ -189,7 +189,7 @@ fn is_relative_import(specifier: &str) -> bool {
         || specifier.starts_with("../")
 }
 
-fn is_path_like_import(specifier: &str) -> bool {
+pub(crate) fn is_path_like_import(specifier: &str) -> bool {
     is_relative_import(specifier)
         || specifier.starts_with("@/")
         || specifier.starts_with("~/")
@@ -352,6 +352,7 @@ pub fn collect_usage_sites(
             parsed,
             &registry.token_index,
             &components,
+            module_graph,
         ));
         extraction
             .hardcoded_style_sites

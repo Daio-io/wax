@@ -38,6 +38,34 @@ keys plus optional aliases, category, canonical value, metadata, and details.
 Known token categories are `color`, `spacing`, `typography`, `radius`,
 `elevation`, and `unknown`.
 
+### Token package identity
+
+Set a token's optional `package` to require import evidence. For React, use
+the npm package root and write the key as the exported binding and member path.
+For example, this entry matches `b.blue9` after
+`import { blue as b } from '@radix-ui/colors'`. It also matches
+`palette.blue.blue9` after a namespace import from the same package.
+
+```json
+{
+  "id": "radix.blue.9",
+  "package": "@radix-ui/colors",
+  "key": "blue.blue9",
+  "category": "color"
+}
+```
+
+For Compose, use the Kotlin package. The scanner recognizes named imports,
+import aliases, package-qualified paths, and a single wildcard import.
+For Swift, use the Swift module. The scanner recognizes visible module
+qualifiers, selective imports, and a single module import. Basic scans can
+only match unscoped tokens.
+
+Token IDs are unique across the registry. Different packages can register the
+same key or alias under distinct IDs. Leave `package` out to match an exact
+source expression. When a name is registered with a package, matching that name
+requires compatible origin evidence.
+
 Publisher files normally live at `.wax/registries/<language-id>.json` and are
 reviewed source. Consuming apps receive registry snapshots through `wax init`
 and `wax sync`; global remembered sources and caches live under `~/.wax/`.

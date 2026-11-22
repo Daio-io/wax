@@ -84,9 +84,14 @@ pub struct ReactModuleRecord {
 pub struct ReactModuleGraph {
     /// Per-module import/export records.
     pub modules: BTreeMap<PathBuf, ReactModuleRecord>,
+    path_aliases: BTreeSet<String>,
 }
 
 impl ReactModuleGraph {
+    pub(crate) fn is_path_alias(&self, specifier: &str) -> bool {
+        self.path_aliases.contains(specifier)
+    }
+
     /// Returns one local import binding for a module.
     #[must_use]
     pub fn import_binding(&self, module: &Path, local_name: &str) -> Option<&ImportBinding> {
@@ -327,6 +332,15 @@ pub fn build_react_module_graph(
             match decl {
                 ModuleDecl::Import(import_decl) => {
                     let source = import_decl.src.value.to_string_lossy().to_string();
+                    if registry.token_index.has_scoped_tokens()
+                        && config
+                            .aliases
+                            .keys()
+                            .chain(tsconfig.iter().flat_map(|options| options.paths.keys()))
+                            .any(|pattern| match_wildcard_pattern(pattern, &source).is_some())
+                    {
+                        graph.path_aliases.insert(source.clone());
+                    }
                     for specifier in &import_decl.specifiers {
                         let (local_name, imported_symbol, span) = match specifier {
                             ImportSpecifier::Default(default_specifier) => (
@@ -806,7 +820,7 @@ pub(crate) fn normalize_relative_path(path: &Path) -> Option<PathBuf> {
     Some(normalized)
 }
 
-fn module_export_name(name: &ModuleExportName) -> String {
+pub(crate) fn module_export_name(name: &ModuleExportName) -> String {
     match name {
         ModuleExportName::Ident(ident) => ident.sym.to_string(),
         ModuleExportName::Str(value) => value.value.to_string_lossy().to_string(),

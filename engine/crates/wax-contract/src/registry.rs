@@ -80,6 +80,13 @@ pub struct RegistryToken {
     pub id: String,
     /// Exact source-facing token key.
     pub key: String,
+    /// Import package or module that owns this token.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present_package"
+    )]
+    pub package: Option<String>,
     /// Token category.
     pub category: TokenCategory,
     /// Exact source-facing aliases for the same token.
@@ -97,6 +104,12 @@ pub struct RegistryToken {
     /// Unknown entry fields preserved across round trips.
     #[serde(flatten)]
     pub extra: Map<String, Value>,
+}
+
+fn deserialize_present_package<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error> {
+    String::deserialize(deserializer).map(Some)
 }
 
 /// Creator-owned registry entry metadata.
@@ -400,6 +413,9 @@ impl RegistryDocument {
             let field = format!("tokens[{index}]");
             require_non_empty(&format!("{field}.id"), &token.id)?;
             require_non_empty(&format!("{field}.key"), &token.key)?;
+            if let Some(package) = &token.package {
+                require_non_empty(&format!("{field}.package"), package)?;
+            }
             if let Some(value) = &token.value {
                 require_non_empty(&format!("{field}.value"), value)?;
             }

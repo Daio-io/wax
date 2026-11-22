@@ -342,6 +342,10 @@
           "type": "string",
           "minLength": 1
         },
+        "package": {
+          "type": "string",
+          "minLength": 1
+        },
         "category": {
           "$ref": "#/$defs/token_category"
         },

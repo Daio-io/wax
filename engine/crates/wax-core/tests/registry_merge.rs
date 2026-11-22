@@ -921,3 +921,45 @@ fn unchanged_rediscovery_is_idempotent() {
     assert!(first.diagnostics.is_empty());
     assert_eq!(second, first);
 }
+
+#[test]
+fn token_merge_matches_keys_within_their_package() {
+    let existing = registry(
+        r#"{"schema_version": 1, "tokens": [
+        {"id":"brand","key":"Colors.blue","category":"color","package":"design"},
+        {"id":"legacy","key":"Colors.blue","category":"color"}
+    ]}"#,
+    );
+    let discovered = registry(
+        r#"{"schema_version": 1, "tokens": [
+        {"id":"rediscovered","key":"Colors.blue","category":"color","package":"design",
+         "details":{"status":"complete","documentation":"Refreshed"}},
+        {"id":"foreign","key":"Colors.blue","category":"color","package":"other"}
+    ]}"#,
+    );
+
+    let merged = merge_registry(Some(&existing), &discovered, true).unwrap();
+    assert!(merged.diagnostics.is_empty());
+    assert_eq!(
+        merged
+            .document
+            .tokens
+            .iter()
+            .map(|token| (token.id.as_str(), token.package.as_deref()))
+            .collect::<Vec<_>>(),
+        [
+            ("brand", Some("design")),
+            ("legacy", None),
+            ("foreign", Some("other"))
+        ]
+    );
+    assert_eq!(
+        merged.document.tokens[0]
+            .details
+            .as_ref()
+            .unwrap()
+            .documentation
+            .as_deref(),
+        Some("Refreshed")
+    );
+}

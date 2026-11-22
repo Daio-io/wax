@@ -12,8 +12,8 @@ use wax_contract::{
 };
 use wax_lang_api::{
     RegistryTokenIndex, RootResolutionError, ScanConfig, find_token_matches,
-    normalize_repo_relative_path, parse_registry_tokens, path_matches_any, resolve_source_roots,
-    root_not_found_code, root_not_found_message, token_index,
+    normalize_repo_relative_path, path_matches_any, registry_token_index, resolve_source_roots,
+    root_not_found_code, root_not_found_message,
 };
 
 const BASIC_TEXT_SCAN_DIAGNOSTIC: &str = "Basic text line scanner produced heuristic usage facts; parser-backed extraction is recommended for production. Heuristics strip // comments before matching (code after // inside strings or URLs may be missed).";
@@ -431,20 +431,17 @@ fn load_registry(path: &Path) -> Result<RegistryIndex, LineScanError> {
 
     canonical_symbols.sort();
 
-    let tokens = parse_registry_tokens(&value).map_err(|err| LineScanError::RegistryInvalid {
-        path: path.to_path_buf(),
-        reason: err.to_string(),
-    })?;
-    let token_index = token_index(&tokens).map_err(|err| LineScanError::RegistryInvalid {
-        path: path.to_path_buf(),
-        reason: err.to_string(),
-    })?;
+    let token_index =
+        registry_token_index(&value).map_err(|err| LineScanError::RegistryInvalid {
+            path: path.to_path_buf(),
+            reason: err.to_string(),
+        })?;
 
     Ok(RegistryIndex {
         canonical_symbols,
         resolve_targets,
         packaged_symbols,
-        tokens,
+        tokens: token_index.tokens.clone(),
         token_index,
     })
 }

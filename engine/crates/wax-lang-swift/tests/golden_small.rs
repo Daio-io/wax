@@ -320,3 +320,109 @@ fn assert_style_context(
         facts.hardcoded_style_sites
     );
 }
+
+#[test]
+fn scoped_tokens_follow_swift_module_and_selective_imports() {
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path();
+    std::fs::create_dir(root.join("design-system")).unwrap();
+    std::fs::create_dir(root.join("Sources")).unwrap();
+    std::fs::write(
+        root.join("design-system/registry.json"),
+        r#"{
+      "schema_version": 1, "components": [], "tokens": [
+        {"id":"blue","key":"Colors.blue","category":"color","package":"Design"},
+        {"id":"other-blue","key":"Colors.blue","category":"color","package":"Other"},
+        {"id":"gray","key":"Colors.gray","category":"color","package":"Design"},
+        {"id":"legacy","key":"computed()","category":"color"}
+      ]
+    }"#,
+    )
+    .unwrap();
+    for (file, source) in [
+        (
+            "Screen.swift",
+            r#"import SwiftUI
+import struct Design.Colors
+import Other
+import Foreign
+
+struct Screen: View {
+  var body: some View {
+    Text("Sample").foregroundStyle(Colors.blue)
+      .background(Design.Colors.blue)
+      .tint(Other.Colors.blue)
+      .shadow(color: Foreign.Colors.gray, radius: 1)
+      .border(computed())
+  }
+}
+func shadow(_ Colors: LocalColors) -> Color { Colors.blue }
+func loop() {
+    for Colors in palettes { use(Colors.blue) }
+    if let Colors = local { use(Colors.blue) }
+    guard let Colors = local else { return }
+    use(Colors.blue)
+}
+"#,
+        ),
+        ("Module.swift", "import Design\nlet blue = Colors.blue\n"),
+        (
+            "Ambiguous.swift",
+            "import Design\nimport Other\nlet blue = Colors.blue\n",
+        ),
+        (
+            "NoOrigin.swift",
+            "let blue = Colors.blue\nlet fake = Design.Colors.blue\n",
+        ),
+    ] {
+        std::fs::write(root.join("Sources").join(file), source).unwrap();
+    }
+    let facts = scan_fixture(root, "Sources", "scoped-tokens");
+    let sites: Vec<_> = facts
+        .token_sites
+        .iter()
+        .map(|site| {
+            (
+                site.location.file.as_str(),
+                site.location.line,
+                site.token_id.as_str(),
+                site.key.as_str(),
+                site.parent.as_ref().map(|parent| parent.symbol.as_str()),
+            )
+        })
+        .collect();
+    assert_eq!(
+        sites,
+        [
+            ("Sources/Module.swift", 2, "blue", "Colors.blue", None),
+            (
+                "Sources/Screen.swift",
+                8,
+                "blue",
+                "Colors.blue",
+                Some("Screen")
+            ),
+            (
+                "Sources/Screen.swift",
+                9,
+                "blue",
+                "Colors.blue",
+                Some("Screen")
+            ),
+            (
+                "Sources/Screen.swift",
+                10,
+                "other-blue",
+                "Colors.blue",
+                Some("Screen")
+            ),
+            (
+                "Sources/Screen.swift",
+                12,
+                "legacy",
+                "computed()",
+                Some("Screen")
+            ),
+        ]
+    );
+}
