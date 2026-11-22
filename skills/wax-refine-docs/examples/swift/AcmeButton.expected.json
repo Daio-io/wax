@@ -1,0 +1,64 @@
+{
+  "attachments": [
+    {
+      "content": "AcmeButton(\"Save\") { save() }",
+      "kind": "example",
+      "language": "swift",
+      "path": "Sources/AcmeUI/AcmeButton.swift"
+    }
+  ],
+  "best_practices": [
+    {
+      "description": "Use at most one primary button per surface."
+    },
+    {
+      "description": "Prefer verb labels such as \"Save\" over \"OK\"."
+    }
+  ],
+  "documentation": "Triggers the main action on a screen or sheet.\nUse one primary ``AcmeButton`` per surface and pair it with a secondary\nvariant for alternative actions.",
+  "signature": {
+    "parameters": [
+      {
+        "description": "Visible label. Keep it to a short verb phrase such as \"Save\".",
+        "name": "title",
+        "required": true,
+        "type_kind": "string",
+        "type_text": "String"
+      },
+      {
+        "allowed_values": [
+          "primary",
+          "secondary"
+        ],
+        "default": ".primary",
+        "description": "Visual emphasis for the action.",
+        "name": "variant",
+        "required": false,
+        "type_kind": "enum",
+        "type_text": "AcmeButtonVariant"
+      },
+      {
+        "default": "true",
+        "description": "When false, the button ignores input and renders as disabled.",
+        "name": "isEnabled",
+        "required": false,
+        "type_kind": "boolean",
+        "type_text": "Bool"
+      },
+      {
+        "description": "Called when the user activates the button.",
+        "name": "action",
+        "required": true,
+        "type_kind": "function",
+        "type_text": "@escaping () -> Void"
+      }
+    ],
+    "type_text": "public init(\n        _ title: String,\n        variant: AcmeButtonVariant = .primary,\n        isEnabled: Bool = true,\n        action: @escaping () -> Void\n    )"
+  },
+  "source_evidence": {
+    "end_line": 50,
+    "path": "Sources/AcmeUI/AcmeButton.swift",
+    "start_line": 21
+  },
+  "status": "complete"
+}

@@ -1,0 +1,72 @@
+{
+  "attachments": [
+    {
+      "content": "AcmeButton(text = \"Save\", onClick = { save() })",
+      "kind": "example",
+      "language": "kotlin",
+      "path": "src/main/kotlin/com/acme/ui/AcmeButton.kt"
+    }
+  ],
+  "best_practices": [
+    {
+      "description": "Use at most one primary button per surface."
+    },
+    {
+      "description": "Prefer verb labels such as \"Save\" over \"OK\"."
+    }
+  ],
+  "documentation": "Triggers the main action on a screen or dialog.\nUse one primary [AcmeButton] per surface and pair it with a secondary\nvariant for alternative actions.",
+  "signature": {
+    "parameters": [
+      {
+        "description": "Visible label. Keep it to a short verb phrase such as \"Save\".",
+        "name": "text",
+        "required": true,
+        "type_kind": "string",
+        "type_text": "String"
+      },
+      {
+        "description": "Called when the user activates the button.",
+        "name": "onClick",
+        "required": true,
+        "type_kind": "function",
+        "type_text": "() -> Unit"
+      },
+      {
+        "default": "Modifier",
+        "description": "Modifier applied to the button container.",
+        "name": "modifier",
+        "package": "androidx.compose.ui",
+        "required": false,
+        "type_text": "Modifier"
+      },
+      {
+        "default": "true",
+        "description": "When false, the button ignores input and renders as disabled.",
+        "name": "enabled",
+        "required": false,
+        "type_kind": "boolean",
+        "type_text": "Boolean"
+      },
+      {
+        "allowed_values": [
+          "Primary",
+          "Secondary"
+        ],
+        "default": "AcmeButtonVariant.Primary",
+        "description": "Visual emphasis for the action.",
+        "name": "variant",
+        "required": false,
+        "type_kind": "enum",
+        "type_text": "AcmeButtonVariant"
+      }
+    ],
+    "type_text": "fun AcmeButton(\n    text: String,\n    onClick: () -> Unit,\n    modifier: Modifier = Modifier,\n    enabled: Boolean = true,\n    variant: AcmeButtonVariant = AcmeButtonVariant.Primary,\n)"
+  },
+  "source_evidence": {
+    "end_line": 39,
+    "path": "src/main/kotlin/com/acme/ui/AcmeButton.kt",
+    "start_line": 30
+  },
+  "status": "complete"
+}

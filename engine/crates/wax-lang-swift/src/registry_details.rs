@@ -429,6 +429,11 @@ fn parameters_from_initializer(
     let mut parameters = Vec::new();
     let mut cursor = initializer.walk();
     let children = initializer.named_children(&mut cursor).collect::<Vec<_>>();
+    // The last parameter's default must stop before the body so assignments such
+    // as `self.title = title` are never read as a default value.
+    let parameters_end = initializer
+        .child_by_field_name("body")
+        .map_or(initializer.end_byte(), |body| body.start_byte());
     for (index, child) in children.iter().enumerate() {
         if child.kind() != "parameter" {
             continue;
@@ -438,7 +443,7 @@ fn parameters_from_initializer(
             .iter()
             .skip(index + 1)
             .find(|next| next.kind() == "parameter")
-            .map_or(initializer.end_byte(), |next| next.start_byte());
+            .map_or(parameters_end, |next| next.start_byte());
         let default = source
             .get(child.end_byte()..end)
             .and_then(|text| std::str::from_utf8(text).ok())
