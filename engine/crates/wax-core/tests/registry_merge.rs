@@ -696,6 +696,60 @@ fn complete_flag_does_not_change_retention_of_unobserved_entries() {
 }
 
 #[test]
+fn retained_css_variants_keep_authored_identity_but_become_not_observed() {
+    let existing = registry(
+        r##"{
+            "schema_version": 1,
+            "tokens": [
+                {
+                    "id": "color.brand",
+                    "key": "var(--brand)",
+                    "category": "color",
+                    "css_variants": ["color.brand.dark"],
+                    "details": {"status": "complete", "documentation": "Brand token docs"}
+                },
+                {
+                    "id": "color.brand.dark",
+                    "key": "color.brand.dark",
+                    "category": "color",
+                    "value": "#112233",
+                    "details": {"status": "complete", "documentation": "Dark token docs"}
+                }
+            ]
+        }"##,
+    );
+    let discovered = registry(
+        r#"{
+            "schema_version": 1,
+            "tokens": [{
+                "id": "generated-brand",
+                "key": "var(--brand)",
+                "category": "color",
+                "details": {"status": "complete", "documentation": "Fresh brand docs"}
+            }]
+        }"#,
+    );
+
+    let merged = merge_registry(Some(&existing), &discovered, true).expect("registry merges");
+
+    let base = &merged.document.tokens[0];
+    assert_eq!(base.id, "color.brand");
+    assert_eq!(base.css_variants, ["color.brand.dark"]);
+    assert_eq!(base.value, None);
+    assert_eq!(
+        base.details.as_ref().map(|details| details.status),
+        Some(RegistryExtractionStatus::Complete)
+    );
+
+    let variant = &merged.document.tokens[1];
+    assert_eq!(variant.id, "color.brand.dark");
+    assert_eq!(variant.value.as_deref(), Some("#112233"));
+    let details = variant.details.as_ref().expect("retained variant details");
+    assert_eq!(details.status, RegistryExtractionStatus::NotObserved);
+    assert_eq!(details.documentation.as_deref(), Some("Dark token docs"));
+}
+
+#[test]
 fn distinct_discoveries_do_not_match_entries_added_during_merge() {
     let existing = registry(r#"{"schema_version": 1}"#);
     let discovered = registry(

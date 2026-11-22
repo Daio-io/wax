@@ -759,3 +759,47 @@ fn scan_output_keeps_old_language_files_when_merged_output_write_fails() {
     );
     serde_json::from_str::<MergedScan>(&original_merged).unwrap();
 }
+
+fn css_token_fixture_script() -> &'static str {
+    r#"#!/bin/sh
+set -eu
+language="$1"
+cat >/dev/null
+cat <<JSON
+{"type":"scan_facts","api_version":1,"language_id":"$language","facts":{"schema_version":4,"language":{"id":"$language","version":"0.1.0","ecosystem":"test","parser_name":"fixture","parser_version":"1.0.0"},"snapshot_id":"snap-$language","scanned_at":"1970-01-01T00:00:00Z","status":"complete","design_system_components":[],"local_components":[],"usage_sites":[],"diagnostics":[],"metrics":{"invocation_adoption_ratio":null,"registry_resolution_ratio":null,"parse_extract_ms":1,"files_scanned":2},"counts":{"registry":{"component_count":0,"used_component_count":0,"resolved_raw_invocation_count":0,"candidate_raw_invocation_count":0},"definitions":{"local_definition_count":0,"invoked_local_definition_count":0,"unused_local_definition_count":0},"raw_invocations":{"total":0,"resolved":0,"local":0,"candidate":0,"unresolved":0},"adoption":{"eligible_invocation_count":0,"adopted_invocation_count":0,"non_adopted_invocation_count":0},"parent_scopes":{"total":0,"with_resolved_invocations":0,"with_local_invocations":0,"with_unresolved_invocations":0},"invocation_origins":{"registry":0,"local":0,"framework":0,"external":0,"application":0,"unknown":0},"tokens":{"configured_token_count":2,"used_token_count":2,"token_reference_site_count":2,"hardcoded_style_candidate_count":0,"token_references_by_category":{"color":2,"spacing":0,"typography":0,"radius":0,"elevation":0,"unknown":0},"hardcoded_by_category":{"color":0,"spacing":0,"typography":0,"radius":0,"elevation":0,"unknown":0},"parent_scopes_with_token_references":0,"parent_scopes_with_hardcoded_candidates":0}},"design_system_tokens":[{"id":"css.blue-9","key":"var(--blue-9)","category":"color"},{"id":"blue.blue9","key":"blue.blue9","category":"color"}],"token_sites":[{"id":"token.react:src/app.css:1:18:css.blue-9","location":{"file":"src/app.css","line":1,"column":18},"token_id":"css.blue-9","key":"var(--blue-9)","category":"color"},{"id":"token.react:src/ts.ts:1:1:blue.blue9","location":{"file":"src/ts.ts","line":1,"column":1},"token_id":"blue.blue9","key":"blue.blue9","category":"color"}],"hardcoded_style_sites":[]}}
+JSON
+"#
+}
+
+#[test]
+fn scan_output_attributes_css_token_site_without_implicit_variant_usage() {
+    let _guard = env_lock();
+    let fixture = fixture("scan-output-css-tokens", &["react"]);
+    fs::write(
+        fixture.repo.join(".wax/wax.config.json"),
+        r#"{"schema_version":2,"languages":{"react":{"roots":{"web":["src"]}}}}"#,
+    )
+    .unwrap();
+    overwrite_pack_script(&fixture.wax_home, "react", css_token_fixture_script());
+    let _wax_home = EnvVarGuard::set("WAX_HOME", &fixture.wax_home);
+
+    let merged = Engine::scan_repo(&fixture.repo).expect("scan should pass");
+
+    let facts = &merged.languages[&LanguageId::try_from("react").unwrap()];
+    let css = facts
+        .token_sites
+        .iter()
+        .find(|site| site.token_id == "css.blue-9")
+        .expect("css site");
+    assert_eq!(css.location.root_group.as_deref(), Some("web"));
+    let tokens = &merged.repo_summary.counts.tokens;
+    assert_eq!(tokens.token_reference_site_count, 2);
+    assert_eq!(tokens.used_token_count, 2);
+    let used: Vec<_> = merged
+        .token_usage_summary
+        .iter()
+        .map(|summary| (summary.token_id.as_str(), summary.reference_count))
+        .collect();
+    assert!(used.contains(&("css.blue-9", 1)), "{used:?}");
+    assert!(used.contains(&("blue.blue9", 1)), "{used:?}");
+}

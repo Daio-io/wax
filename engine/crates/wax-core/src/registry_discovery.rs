@@ -29,7 +29,7 @@ use crate::registry_memory::{
 };
 use crate::registry_merge::{
     RegistryMerge, RegistryMergeChange, RegistryMergeDiagnostic, RegistryMergeError,
-    merge_registry, replace_registry,
+    merge_registry, replace_registry, retain_css_variant_groups,
 };
 use crate::registry_source::is_external_registry_source;
 use crate::subprocess_discover::{DiscoverError, SubprocessLanguageDiscoverer};
@@ -419,6 +419,7 @@ pub fn discover_registry(
     // Packs may emit provisional metadata; only creator-authored associations are
     // eligible for attachment materialization and publication.
     retain_creator_metadata(&creator_seed, &mut discovered.document, write_mode);
+    retain_css_variant_groups(&creator_seed.tokens, &mut discovered.document.tokens)?;
     let mut diagnostics = discovered.diagnostics;
     let mut merged = write_mode.apply(existing.as_ref(), &discovered.document)?;
     diagnostics.extend(materialize_registry_attachments(

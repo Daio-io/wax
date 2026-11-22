@@ -32,8 +32,8 @@ pub use registry::{
     RegistryDeprecation, RegistryDetails, RegistryDocument, RegistryError,
     RegistryExtractionStatus, RegistryFieldGap, RegistryMetadata, RegistryParameter,
     RegistryParameterTypeKind, RegistrySignature, RegistrySourceAssociation,
-    RegistrySourceEvidence, RegistrySourceKind, RegistryToken, registry_from_json,
-    registry_to_json,
+    RegistrySourceEvidence, RegistrySourceKind, RegistryToken, css_custom_property_from_key,
+    is_css_custom_property, registry_from_json, registry_to_json, validate_css_variant_links,
 };
 pub use registry_lookup::{
     REGISTRY_LOOKUP_SCHEMA_VERSION, RegistryDetailResponse, RegistryEntryKind, RegistryLookupError,

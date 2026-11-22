@@ -646,3 +646,77 @@ fn token_package_is_optional_and_nonempty_in_registry_v1() {
         assert!(registry_from_json(&input.to_string()).is_err());
     }
 }
+
+#[test]
+fn css_variant_links_roundtrip_in_authored_order_and_validate() {
+    let input = serde_json::json!({
+        "schema_version": 1,
+        "tokens": [
+            {"id": "css.blue", "key": "var(--blue-9)", "category": "color", "css_variants": ["light", "dark"]},
+            {"id": "light", "key": "blue.blue9", "category": "color", "package": "@radix-ui/colors", "value": "#0090ff"},
+            {"id": "dark", "key": "blueDark.blue9", "category": "color", "value": "#0090ff"}
+        ]
+    });
+    let roundtrip = |input: &serde_json::Value| {
+        let document = registry_from_json(&input.to_string()).unwrap();
+        serde_json::to_value(document).unwrap()
+    };
+    assert_eq!(roundtrip(&input), input);
+    assert_schema_valid(&registry_schema(), &input);
+
+    let mut empty = input.clone();
+    empty["tokens"][0]["css_variants"] = serde_json::json!([]);
+    assert!(roundtrip(&empty)["tokens"][0].get("css_variants").is_none());
+
+    for malformed in [
+        serde_json::json!("light"),
+        serde_json::json!([1]),
+        serde_json::Value::Null,
+    ] {
+        let mut invalid = input.clone();
+        invalid["tokens"][0]["css_variants"] = malformed;
+        assert_schema_invalid(&registry_schema(), &invalid);
+        assert!(matches!(
+            registry_from_json(&invalid.to_string()),
+            Err(RegistryError::InvalidJson(_))
+        ));
+    }
+
+    for (index, field, value) in [
+        (0, "css_variants", serde_json::json!(["light", "light"])),
+        (0, "css_variants", serde_json::json!([""])),
+        (0, "css_variants", serde_json::json!(["missing"])),
+        (0, "css_variants", serde_json::json!(["css.blue"])),
+        (0, "key", serde_json::json!("var( --blue-9)")),
+        (0, "key", serde_json::json!("var(--bl\\ue-9)")),
+        (0, "key", serde_json::json!("var(--)")),
+        (0, "package", serde_json::json!("@radix-ui/colors")),
+        (0, "value", serde_json::json!("#0090ff")),
+        (1, "category", serde_json::json!("spacing")),
+        (1, "value", serde_json::json!(" ")),
+    ] {
+        let mut invalid = input.clone();
+        invalid["tokens"][index][field] = value;
+        if field == "css_variants"
+            && matches!(invalid["tokens"][0][field][0].as_str(), Some("light" | ""))
+        {
+            assert_schema_invalid(&registry_schema(), &invalid);
+        }
+        assert!(
+            matches!(
+                registry_from_json(&invalid.to_string()),
+                Err(RegistryError::ContractViolation { .. })
+            ),
+            "{invalid}"
+        );
+    }
+
+    let mut invalid = input;
+    let light = invalid["tokens"][1].as_object_mut().unwrap();
+    light.remove("value");
+    assert!(registry_from_json(&invalid.to_string()).is_err());
+    invalid["tokens"][1] = serde_json::json!({
+        "id": "light", "key": "var(--other)", "category": "color", "css_variants": ["dark"]
+    });
+    assert!(registry_from_json(&invalid.to_string()).is_err());
+}

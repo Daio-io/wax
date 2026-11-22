@@ -170,7 +170,10 @@ pub(crate) fn collect_and_parse_react_sources(
         let relative_path = repo_relative_path(parse_root, &file_path);
         let package = package_for_file(parse_root, Path::new(&relative_path), &mut manifests);
         match parse_react_source_file(parse_root, Path::new(&relative_path)).map_err(|err| {
-            let crate::ReactParseError::Io { source, .. } = err;
+            let source = match err {
+                crate::ReactParseError::Io { source, .. } => source,
+                other => std::io::Error::other(other),
+            };
             ReactDiscoverError::Io {
                 context: format!("read React source {relative_path}"),
                 source,

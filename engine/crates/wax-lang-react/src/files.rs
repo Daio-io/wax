@@ -72,6 +72,15 @@ pub fn collect_react_source_files(
     roots: &[PathBuf],
     ignore: &[String],
 ) -> Result<ReactSourceFileCollection, ReactFileCollectionError> {
+    collect_react_scan_files(repo_root, roots, ignore, false)
+}
+
+pub(crate) fn collect_react_scan_files(
+    repo_root: &Path,
+    roots: &[PathBuf],
+    ignore: &[String],
+    include_css: bool,
+) -> Result<ReactSourceFileCollection, ReactFileCollectionError> {
     let ignore_patterns = combined_ignore_patterns(ignore);
     let mut collected = BTreeSet::new();
     let mut root_diagnostics = Vec::new();
@@ -89,7 +98,13 @@ pub fn collect_react_source_files(
         }
 
         for source_root in resolved.roots {
-            walk_source_root(&source_root, repo_root, &ignore_patterns, &mut collected)?;
+            walk_source_root(
+                &source_root,
+                repo_root,
+                &ignore_patterns,
+                include_css,
+                &mut collected,
+            )?;
         }
     }
 
@@ -112,6 +127,7 @@ fn walk_source_root(
     dir: &Path,
     repo_root: &Path,
     ignore_patterns: &[String],
+    include_css: bool,
     files: &mut BTreeSet<PathBuf>,
 ) -> Result<(), ReactFileCollectionError> {
     if !dir.exists() {
@@ -143,8 +159,10 @@ fn walk_source_root(
             if path_matches_any(&relative_text, ignore_patterns) {
                 continue;
             }
-            walk_source_root(&path, repo_root, ignore_patterns, files)?;
-        } else if is_supported_react_source(&path) {
+            walk_source_root(&path, repo_root, ignore_patterns, include_css, files)?;
+        } else if is_supported_react_source(&path)
+            || (include_css && file_type.is_file() && is_css_file(&path))
+        {
             let relative = path.strip_prefix(repo_root).unwrap_or(&path).to_path_buf();
             let relative_text = normalize_repo_relative_path(&relative);
             if !path_matches_any(&relative_text, ignore_patterns) {
@@ -153,6 +171,12 @@ fn walk_source_root(
         }
     }
     Ok(())
+}
+
+pub(crate) fn is_css_file(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.ends_with(".css"))
 }
 
 fn is_supported_react_source(path: &Path) -> bool {

@@ -11,9 +11,10 @@ use wax_contract::{
 use wax_lang_api::{ScanRequest, build_version, parse_extract_millis};
 
 use crate::config::ReactScanConfig;
+use crate::css_token_extract::{collect_css_token_sites, css_parser};
 use crate::diagnostics::is_gap_diagnostic;
 use crate::extract::{collect_usage_sites, discover_local_components};
-use crate::files::ReactSourceFileCollection;
+use crate::files::{ReactSourceFileCollection, is_css_file};
 use crate::module_graph::build_react_module_graph;
 use crate::registry::ReactRegistryIndex;
 use crate::swc_parse::{
@@ -59,7 +60,7 @@ pub fn scaffold_facts(request: &ScanRequest, react_language_id: &LanguageId) -> 
 ///
 /// # Errors
 ///
-/// Returns [`ReactParseError::Io`] when a collected source file cannot be read.
+/// Returns [`ReactParseError`] for source I/O or fatal CSS parser failures.
 pub fn configured_scan_facts(
     request: &ScanRequest,
     react_language_id: &LanguageId,
@@ -74,11 +75,26 @@ pub fn configured_scan_facts(
         root_diagnostics,
     } = collection;
     let mut diagnostics = root_diagnostics;
-    let mut files_scanned = 0_u32;
-    let mut parsed_modules = Vec::<ParsedReactModule>::new();
+    let files_scanned = u32::try_from(files.len()).unwrap_or(u32::MAX);
+    let (css_files, react_files): (Vec<_>, Vec<_>) =
+        files.into_iter().partition(|path| is_css_file(path));
+    let mut css_sites = Vec::new();
+    if !registry.css_tokens.is_empty() {
+        let mut parser = css_parser()?;
+        for relative_path in &css_files {
+            collect_css_token_sites(
+                &mut parser,
+                repo_root,
+                relative_path,
+                &registry.css_tokens,
+                &mut css_sites,
+                &mut diagnostics,
+            )?;
+        }
+    }
 
-    for relative_path in &files {
-        files_scanned = files_scanned.saturating_add(1);
+    let mut parsed_modules = Vec::<ParsedReactModule>::new();
+    for relative_path in &react_files {
         match parse_react_source_file(repo_root, relative_path)? {
             ReactParseOutcome::Parsed(parsed) => parsed_modules.push(parsed),
             ReactParseOutcome::Failed(diagnostic) => diagnostics.push(diagnostic),
@@ -86,7 +102,7 @@ pub fn configured_scan_facts(
     }
 
     let file_collection = ReactSourceFileCollection {
-        files,
+        files: react_files,
         root_diagnostics: Vec::new(),
     };
     let graph_build = build_react_module_graph(
@@ -99,7 +115,7 @@ pub fn configured_scan_facts(
     diagnostics.extend(graph_build.diagnostics);
 
     let local_components = discover_local_components(&parsed_modules);
-    let usage_extraction = collect_usage_sites(
+    let mut usage_extraction = collect_usage_sites(
         &parsed_modules,
         &graph_build.graph,
         config,
@@ -107,6 +123,17 @@ pub fn configured_scan_facts(
         &local_components,
     );
     diagnostics.extend(usage_extraction.diagnostics);
+    if !css_sites.is_empty() {
+        usage_extraction.token_sites.extend(css_sites);
+        usage_extraction.token_sites.sort_by(|left, right| {
+            left.location
+                .file
+                .cmp(&right.location.file)
+                .then(left.location.line.cmp(&right.location.line))
+                .then(left.location.column.cmp(&right.location.column))
+                .then(left.token_id.cmp(&right.token_id))
+        });
+    }
 
     let status = scan_status(&diagnostics);
     let parse_extract_ms = parse_extract_millis(started.elapsed(), files_scanned);

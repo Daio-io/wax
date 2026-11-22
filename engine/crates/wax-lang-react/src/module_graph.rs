@@ -1348,6 +1348,7 @@ mod tests {
             .map(|symbol| serde_json::json!({"symbol": symbol}))
             .collect();
         ReactRegistryIndex {
+            css_tokens: Default::default(),
             components: wax_lang_api::RegistryComponentIndex::from_json(
                 &serde_json::json!({"components": components}),
             )

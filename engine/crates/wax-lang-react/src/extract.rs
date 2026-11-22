@@ -2512,6 +2512,7 @@ mod tests {
 
     fn registry_with_components(components: &[serde_json::Value]) -> ReactRegistryIndex {
         ReactRegistryIndex {
+            css_tokens: Default::default(),
             components: wax_lang_api::RegistryComponentIndex::from_json(
                 &serde_json::json!({"components": components}),
             )
@@ -2531,6 +2532,7 @@ mod tests {
         }];
         let token_index = wax_lang_api::token_index(&tokens).expect("token index");
         ReactRegistryIndex {
+            css_tokens: Default::default(),
             components: Default::default(),
             design_system_tokens: tokens,
             token_index,

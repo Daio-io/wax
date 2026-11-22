@@ -2531,6 +2531,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tree-sitter-css"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5cbc5e18f29a2c6d6435891f42569525cf95435a3e01c2f1947abcde178686f"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "tree-sitter-kotlin-ng"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2869,6 +2879,8 @@ dependencies = [
  "tempfile",
  "time",
  "toml",
+ "tree-sitter",
+ "tree-sitter-css",
  "wax-contract",
  "wax-lang-api",
 ]

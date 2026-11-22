@@ -582,3 +582,46 @@ fn scoped_kotlin_token_matches_aliased_object_member_import() {
     sites.sort_unstable();
     assert_eq!(sites, [(4, "blue"), (5, "other-blue")]);
 }
+
+#[test]
+fn css_variant_registry_validation_and_legacy_registry_compatibility() {
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path();
+    std::fs::create_dir(root.join("design-system")).unwrap();
+    std::fs::create_dir(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("design-system/registry.json"),
+        r##"{"schema_version":1,"components":[],"tokens":[
+            {"id":"css.blue","key":"var(--blue-9)","category":"color","css_variants":["light"]},
+            {"id":"light","key":"blue.blue9","category":"color","value":"#0090ff"}
+        ]}"##,
+    )
+    .unwrap();
+    std::fs::write(root.join("src/Screen.kt"), "fun Screen() = blue.blue9\n").unwrap();
+
+    let facts = scan_fixture(root, "src", "snap-css-variants");
+    assert_eq!(facts.token_sites.len(), 1);
+    assert_eq!(facts.token_sites[0].token_id, "light");
+
+    std::fs::write(root.join("design-system/registry.json"), r##"{"schema_version":1,"components":[],"tokens":[{"id":"css.blue","key":"var(--blue-9)","category":"color","css_variants":["missing"]}]}"##).unwrap();
+    let mut config = serde_json::Map::new();
+    config.insert(
+        "registry".to_owned(),
+        serde_json::json!("design-system/registry.json"),
+    );
+    config.insert("roots".to_owned(), serde_json::json!(["src"]));
+    let request = ScanRequest {
+        request_type: ScanRequestType::Scan,
+        api_version: WIRE_API_VERSION,
+        language_id: LanguageId::try_from("compose").unwrap(),
+        repo_root: root.display().to_string(),
+        snapshot_id: "snap-invalid-css-variants".to_owned(),
+        config,
+    };
+    assert!(ComposeLanguage::new().scan(&request).is_err());
+
+    std::fs::write(root.join("design-system/registry.json"), r#"{"schema_version":1,"components":[],"tokens":[{"id":"legacy","key":"blue.blue9","category":"color"}]}"#).unwrap();
+    let legacy = scan_fixture(root, "src", "snap-legacy-token-registry");
+    assert_eq!(legacy.token_sites.len(), 1);
+    assert_eq!(legacy.token_sites[0].token_id, "legacy");
+}

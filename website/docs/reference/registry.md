@@ -78,6 +78,41 @@ refreshes a value only while it still equals the generated literal recorded in
 `details.discovered_literal_value`; authored or cleared values are preserved.
 A registry with only `tokens` (no `components`) is a valid scan input.
 
+### CSS custom properties
+
+React scans count literal `var(--name)` references in `.css` files under the
+scan roots (respecting `ignore`) when the registry has an unscoped token whose
+key is exactly `var(--name)`. A logical token can link ordered concrete
+variants (light, dark, Display P3) by ID with `css_variants`. The logical entry
+needs an unscoped `var(--name)` key and no `value`; each linked token must be a
+same-category entry with a nonblank value. A reference counts once for the
+logical token and never selects a mode, gamut, or value. Lookup returns the
+links, and each linked ID can be retrieved from the same snapshot.
+
+```json
+{
+  "tokens": [
+    {
+      "id": "css.blue-9",
+      "key": "var(--blue-9)",
+      "category": "color",
+      "css_variants": ["blue.blue9", "blueDark.blue9", "blueP3.blue9", "blueDarkP3.blue9"]
+    },
+    {"id": "blue.blue9", "key": "blue.blue9", "category": "color", "package": "@radix-ui/colors", "value": "#0090ff"},
+    {"id": "blueDark.blue9", "key": "blueDark.blue9", "category": "color", "package": "@radix-ui/colors", "value": "#0090ff"},
+    {"id": "blueP3.blue9", "key": "blueP3.blue9", "category": "color", "package": "@radix-ui/colors", "value": "color(display-p3 0.247 0.556 0.969)"},
+    {"id": "blueDarkP3.blue9", "key": "blueDarkP3.blue9", "category": "color", "package": "@radix-ui/colors", "value": "color(display-p3 0.247 0.556 0.969)"}
+  ]
+}
+```
+
+Only literal references in declaration values are counted. Property
+definitions, comments, strings, selectors, at-rule preludes, CSS imports, the
+cascade, CSS-in-JS and hard-coded CSS values are out of scope. A malformed
+stylesheet reports a `parse_failed` gap and keeps references from its clean
+declarations. Discovery preserves authored `css_variants` groups and their
+targets.
+
 Publisher files normally live at `.wax/registries/<language-id>.json` and are
 reviewed source. Consuming apps receive registry snapshots through `wax init`
 and `wax sync`; global remembered sources and caches live under `~/.wax/`.

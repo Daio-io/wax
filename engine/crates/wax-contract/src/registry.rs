@@ -3,7 +3,7 @@
 use crate::TokenCategory;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 
 /// Registry JSON schema version. Enrichment fields are additive under version 1.
@@ -95,6 +95,9 @@ pub struct RegistryToken {
     /// Optional canonical source-facing value.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<String>,
+    /// Stable IDs of concrete variants in the same registry.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub css_variants: Vec<String>,
     /// Creator-owned metadata for this entry.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<RegistryMetadata>,
@@ -436,8 +439,84 @@ impl RegistryDocument {
             }
         }
 
-        Ok(())
+        validate_css_variant_links(&self.tokens)
     }
+}
+
+/// Returns whether a name is a literal, unescaped CSS custom property.
+pub fn is_css_custom_property(name: &str) -> bool {
+    name.strip_prefix("--").is_some_and(|suffix| {
+        !suffix.is_empty()
+            && suffix.chars().all(|ch| {
+                ch.is_ascii_alphanumeric()
+                    || matches!(ch, '_' | '-')
+                    || (!ch.is_ascii() && !ch.is_whitespace())
+            })
+    })
+}
+
+/// Extracts the property name from a canonical CSS token key.
+pub fn css_custom_property_from_key(key: &str) -> Option<&str> {
+    let name = key.strip_prefix("var(")?.strip_suffix(')')?;
+    is_css_custom_property(name).then_some(name)
+}
+
+/// Validates logical CSS token links after token IDs have been checked for uniqueness.
+///
+/// # Errors
+///
+/// Returns a contract violation for an invalid logical token or variant reference.
+pub fn validate_css_variant_links(tokens: &[RegistryToken]) -> Result<(), RegistryError> {
+    let groups = tokens
+        .iter()
+        .enumerate()
+        .filter(|(_, token)| !token.css_variants.is_empty());
+    let mut groups = groups.peekable();
+    if groups.peek().is_none() {
+        return Ok(());
+    }
+    let by_id: BTreeMap<_, _> = tokens
+        .iter()
+        .map(|token| (token.id.as_str(), token))
+        .collect();
+    for (index, token) in groups {
+        let invalid = |message| RegistryError::ContractViolation {
+            field: format!("tokens[{index}].css_variants"),
+            message,
+        };
+        if css_custom_property_from_key(&token.key).is_none()
+            || token.package.is_some()
+            || token.value.is_some()
+        {
+            return Err(invalid(
+                "requires an unscoped canonical var(--name) key without a value".to_owned(),
+            ));
+        }
+        let mut seen = BTreeSet::new();
+        for id in &token.css_variants {
+            if !seen.insert(id) {
+                return Err(invalid(format!("duplicate CSS variant ID `{id}`")));
+            }
+            if *id == token.id {
+                return Err(invalid(format!("token `{id}` cannot link to itself")));
+            }
+            let target = by_id
+                .get(id.as_str())
+                .ok_or_else(|| invalid(format!("unknown CSS variant ID `{id}`")))?;
+            if !target.css_variants.is_empty()
+                || target.category != token.category
+                || target
+                    .value
+                    .as_deref()
+                    .is_none_or(|value| value.trim().is_empty())
+            {
+                return Err(invalid(format!(
+                    "CSS variant `{id}` must be a concrete token of the same category with a nonblank value"
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn validate_metadata(field: &str, metadata: &RegistryMetadata) -> Result<(), RegistryError> {

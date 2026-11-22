@@ -651,3 +651,219 @@ export function App() {
         assert_eq!(site.resolution_evidence.kind, evidence, "{written}");
     }
 }
+
+#[test]
+fn stdio_scan_rejects_invalid_css_variant_links() {
+    let repo = tempfile::tempdir().unwrap();
+    fs::create_dir(repo.path().join("src")).unwrap();
+    for links in [json!(["missing"]), json!("missing"), json!(null)] {
+        fs::write(
+            repo.path().join("react.json"),
+            json!({
+                "schema_version": 1,
+                "components": [],
+                "tokens": [
+                    {"id":"css.blue","key":"var(--blue-9)","category":"color","css_variants": links}
+                ]
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let output = run_stdio_request(&json!({
+            "type": "scan",
+            "api_version": 1,
+            "language_id": "react",
+            "repo_root": repo.path(),
+            "snapshot_id": "snap-invalid-css",
+            "config": {"registry": "react.json", "roots": ["src"]}
+        }));
+        assert!(
+            matches!(
+                serde_json::from_str::<WirePackResponse>(output.trim()).unwrap(),
+                WirePackResponse::Error {
+                    code: WireErrorCode::ScanFailed,
+                    ..
+                }
+            ),
+            "{output}"
+        );
+    }
+}
+
+fn scan_css_fixture(repo: &std::path::Path, tokens: &[Value]) -> wax_contract::ScanFacts {
+    fs::write(
+        repo.join("react.json"),
+        json!({"schema_version": 1, "components": [], "tokens": tokens}).to_string(),
+    )
+    .unwrap();
+    let output = run_stdio_request(&json!({
+        "type": "scan",
+        "api_version": 1,
+        "language_id": "react",
+        "repo_root": repo,
+        "snapshot_id": "snap-css",
+        "config": {"registry": "react.json", "roots": ["src", "src/nested"], "ignore": ["**/ignored.css"]}
+    }));
+    let WirePackResponse::ScanFacts { facts, .. } = serde_json::from_str(output.trim()).unwrap()
+    else {
+        panic!("expected scan facts, got {output}");
+    };
+    *facts
+}
+
+#[test]
+fn stdio_scan_counts_one_logical_reference_for_the_radix_css_probe() {
+    let repo = tempfile::tempdir().unwrap();
+    fs::create_dir_all(repo.path().join("src/nested")).unwrap();
+    fs::write(
+        repo.path().join("src/app.css"),
+        ".sample { color: var(--blue-9); }",
+    )
+    .unwrap();
+
+    let facts = scan_css_fixture(
+        repo.path(),
+        &[
+            json!({"id":"css.blue-9","key":"var(--blue-9)","category":"color","css_variants":["blue.blue9","blueDark.blue9","blueP3.blue9","blueDarkP3.blue9"]}),
+            json!({"id":"blue.blue9","key":"blue.blue9","category":"color","package":"@radix-ui/colors","value":"#0090ff"}),
+            json!({"id":"blueDark.blue9","key":"blueDark.blue9","category":"color","package":"@radix-ui/colors","value":"#0090ff"}),
+            json!({"id":"blueP3.blue9","key":"blueP3.blue9","category":"color","package":"@radix-ui/colors","value":"color(display-p3 0.247 0.556 0.969)"}),
+            json!({"id":"blueDarkP3.blue9","key":"blueDarkP3.blue9","category":"color","package":"@radix-ui/colors","value":"color(display-p3 0.247 0.556 0.969)"}),
+        ],
+    );
+    assert_eq!(facts.status, ScanStatus::Complete);
+    assert_eq!(facts.metrics.files_scanned, 1);
+    let [site] = facts.token_sites.as_slice() else {
+        panic!("expected one CSS reference, got {:?}", facts.token_sites);
+    };
+    assert_eq!(site.id, "token.react:src/app.css:1:18:css.blue-9");
+    assert_eq!(site.token_id, "css.blue-9");
+    assert_eq!(site.key, "var(--blue-9)");
+    assert_eq!(site.location.file, "src/app.css");
+    assert_eq!((site.location.line, site.location.column), (1, Some(18)));
+    assert_eq!(site.parent, None);
+    assert_eq!(facts.counts.tokens.token_reference_site_count, 1);
+    assert_eq!(facts.counts.tokens.used_token_count, 1);
+}
+
+#[test]
+fn stdio_scan_matches_literal_css_arguments_and_independent_fallbacks() {
+    let repo = tempfile::tempdir().unwrap();
+    fs::create_dir_all(repo.path().join("src/nested")).unwrap();
+    fs::write(
+        repo.path().join("src/nested/values.css"),
+        r#".sample { color: VAR( /* note */ --blue-9 , var(--blue-a9)) }
+.unregistered { color: var(--unknown, var(--blue-a9)) }
+.multi { /* µ */ color: var(--blue-9); background: var(--blue-9) }
+.case { color: var(--Blue-9) }
+.invalid { a: var(--blue-9 extra); b: var(--blue-9; red); c: var("--blue-9"); d: var(--bl\ue-9); e: var(--blue-9 + 1) }
+.bare { --blue-9: blue; color: --blue-9; content: "var(--blue-9)" }
+/* color: var(--blue-9) */
+[data-key="var(--blue-9)"] { color: blue }
+@supports (color: var(--blue-9)) { .nested { color: blue } }"#,
+    )
+    .unwrap();
+    let facts = scan_css_fixture(
+        repo.path(),
+        &[
+            json!({"id":"css.blue-9","key":"var(--blue-9)","category":"color"}),
+            json!({"id":"css.blue-a9","key":"var(--blue-a9)","category":"color","css_variants":["blueA.blueA9","blueDarkA.blueA9","blueP3A.blueA9","blueDarkP3A.blueA9"]}),
+            json!({"id":"blueA.blueA9","key":"blueA.blueA9","category":"color","value":"#0090ff"}),
+            json!({"id":"blueDarkA.blueA9","key":"blueDarkA.blueA9","category":"color","value":"#0090ff"}),
+            json!({"id":"blueP3A.blueA9","key":"blueP3A.blueA9","category":"color","value":"color(display-p3 0 0.412 0.961 / 0.753)"}),
+            json!({"id":"blueDarkP3A.blueA9","key":"blueDarkP3A.blueA9","category":"color","value":"color(display-p3 0.251 0.573 0.996 / 0.967)"}),
+        ],
+    );
+    assert_eq!(
+        facts.status,
+        ScanStatus::Complete,
+        "{:?}",
+        facts.diagnostics
+    );
+    assert_eq!(facts.metrics.files_scanned, 1);
+    let sites = facts
+        .token_sites
+        .iter()
+        .map(|site| {
+            assert_eq!(site.location.file, "src/nested/values.css");
+            assert_eq!(site.parent, None);
+            (
+                site.location.line,
+                site.location.column,
+                site.token_id.as_str(),
+                site.key.as_str(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        sites,
+        [
+            (1, Some(18), "css.blue-9", "var(--blue-9)"),
+            (1, Some(45), "css.blue-a9", "var(--blue-a9)"),
+            (2, Some(39), "css.blue-a9", "var(--blue-a9)"),
+            (3, Some(26), "css.blue-9", "var(--blue-9)"),
+            (3, Some(53), "css.blue-9", "var(--blue-9)"),
+        ]
+    );
+}
+
+#[test]
+fn stdio_scan_reports_malformed_css_and_keeps_clean_siblings() {
+    let repo = tempfile::tempdir().unwrap();
+    fs::create_dir_all(repo.path().join("src/nested")).unwrap();
+    fs::write(
+        repo.path().join("src/bad.css"),
+        ".a { color: var(--blue-9); }\n.b { color: var(--blue-9) ;; background: url( }\n",
+    )
+    .unwrap();
+    fs::write(
+        repo.path().join("src/good.css"),
+        ".a { color: var(--blue-9); }",
+    )
+    .unwrap();
+    fs::write(
+        repo.path().join("src/ignored.css"),
+        ".a { color: var(--blue-9); }",
+    )
+    .unwrap();
+    let facts = scan_css_fixture(
+        repo.path(),
+        &[json!({"id":"css.blue-9","key":"var(--blue-9)","category":"color"})],
+    );
+    assert_eq!(facts.status, ScanStatus::Partial);
+    assert_eq!(facts.metrics.files_scanned, 2);
+    let [diagnostic] = facts.diagnostics.as_slice() else {
+        panic!("expected one diagnostic, got {:?}", facts.diagnostics);
+    };
+    assert_eq!(diagnostic.code, "parse_failed");
+    assert_eq!(diagnostic.location.as_ref().unwrap().file, "src/bad.css");
+    let files: Vec<_> = facts
+        .token_sites
+        .iter()
+        .map(|site| site.location.file.as_str())
+        .collect();
+    assert!(files.contains(&"src/good.css"), "{files:?}");
+    assert!(!files.contains(&"src/ignored.css"), "{files:?}");
+}
+
+#[test]
+fn stdio_scan_ignores_css_without_eligible_unscoped_keys() {
+    let repo = tempfile::tempdir().unwrap();
+    fs::create_dir_all(repo.path().join("src/nested")).unwrap();
+    fs::write(
+        repo.path().join("src/app.css"),
+        ".a { color: var(--blue-9); }\n.broken { color: ",
+    )
+    .unwrap();
+    fs::write(repo.path().join("src/index.ts"), "export const x = 1;\n").unwrap();
+    let facts = scan_css_fixture(
+        repo.path(),
+        &[
+            json!({"id":"scoped.blue-9","key":"var(--blue-9)","category":"color","package":"@scope/css","value":"#0090ff"}),
+        ],
+    );
+    assert_eq!(facts.status, ScanStatus::Complete);
+    assert_eq!(facts.metrics.files_scanned, 1);
+    assert!(facts.token_sites.is_empty());
+    assert!(facts.diagnostics.is_empty());
+}
