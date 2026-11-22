@@ -293,6 +293,10 @@ automatically.
 [`wax-registry-discover`](skills/wax-registry-discover/SKILL.md) remains the
 reviewed path for publishing and maintaining registries;
 [`wax-scan`](skills/wax-scan/SKILL.md) remains independent adoption analytics.
+[`wax-refine-docs`](skills/wax-refine-docs/SKILL.md) helps design-system
+maintainers write KDoc, Swift doc comments, and JSDoc in the shapes Wax
+extracts, so discovery publishes richer summaries, parameter docs, guidance,
+and examples.
 
 ### Scan Your App
 
@@ -776,6 +780,8 @@ inference classifications, confidence, and reviewed registry maintenance, see
 - [Registry search ADR](docs/adr/2026-10-22-registry-search.md)
 - [`wax-search` skill](skills/wax-search/SKILL.md) and
   [search-and-use examples](skills/wax-search/examples/search-and-use.md)
+- [`wax-refine-docs` skill](skills/wax-refine-docs/SKILL.md) for source docs
+  that Wax extracts
 - [Language packs and distribution](docs/specs/2026-05-16-language-packs-and-distribution.md)
 - [Component tracker design](docs/specs/2026-05-13-component-tracker-design.md)
 - [Token scanning](docs/specs/2026-07-03-token-scanning-design.md)

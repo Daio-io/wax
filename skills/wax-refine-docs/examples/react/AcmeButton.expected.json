@@ -1,0 +1,64 @@
+{
+  "attachments": [
+    {
+      "content": "<AcmeButton label=\"Save\" onClick={save} />",
+      "kind": "example",
+      "language": "tsx",
+      "path": "src/AcmeButton.tsx"
+    }
+  ],
+  "best_practices": [
+    {
+      "description": "Use at most one primary button per surface."
+    },
+    {
+      "description": "Prefer verb labels such as \"Save\" over \"OK\"."
+    }
+  ],
+  "documentation": "Triggers the main action on a screen or dialog.\nUse one primary `AcmeButton` per surface and pair it with a secondary\nvariant for alternative actions.",
+  "signature": {
+    "parameters": [
+      {
+        "description": "Visible label. Keep it to a short verb phrase such as \"Save\".",
+        "name": "label",
+        "required": true,
+        "type_kind": "string",
+        "type_text": "string"
+      },
+      {
+        "description": "Called when the user activates the button.",
+        "name": "onClick",
+        "required": true,
+        "type_kind": "function",
+        "type_text": "() => void"
+      },
+      {
+        "allowed_values": [
+          "'primary'",
+          "'secondary'"
+        ],
+        "default": "'primary'",
+        "description": "Visual emphasis for the action.",
+        "name": "variant",
+        "required": false,
+        "type_kind": "enum",
+        "type_text": "'primary' | 'secondary'"
+      },
+      {
+        "default": "false",
+        "description": "When true, the button ignores input and renders as disabled.",
+        "name": "disabled",
+        "required": false,
+        "type_kind": "boolean",
+        "type_text": "boolean"
+      }
+    ],
+    "type_text": "export function AcmeButton({\n  label,\n  onClick,\n  variant = 'primary',\n  disabled = false,\n}: AcmeButtonProps)"
+  },
+  "source_evidence": {
+    "end_line": 35,
+    "path": "src/AcmeButton.tsx",
+    "start_line": 24
+  },
+  "status": "complete"
+}

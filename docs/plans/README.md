@@ -36,6 +36,21 @@ is [archived](./archive/2026-10-22-registry-search-plan.md) with its
 [ADR](../adr/2026-10-22-registry-search.md). Phase 2B remains the sequential
 active plan.
 
+**Authorized wax-refine-docs skill extraction:** A bounded agent-skill
+addition that teaches design-system maintainers the KDoc, Swift doc-comment,
+and JSDoc/TSDoc shapes the Compose, Swift, and React packs extract. It also
+fixes a Swift initializer-default extraction bug that the skill's golden
+example exposed. Phase 2B remains the sequential active plan, and no new phase
+or ADR is introduced. Registry, scan, and config contracts are unchanged.
+
+- [x] Add `skills/wax-refine-docs` with per-language references and golden
+  examples whose expected details are asserted by each pack's tests.
+- [x] Add the `docs-coverage.sh` dry-run audit and its fixture test.
+- [x] Stop the Swift pack from reading an initializer body as the last
+  parameter's default.
+- [x] Document the skill on the website, README, changelog, and plugin
+  metadata, and wire its contract script into CI.
+
 **Authorized THE-889 extraction:** Phase 1 of pinning Git design-system
 bundles from repository subfolders (THE-890) and Phase 3a public catalogue
 discovery/exact installation (THE-892, following completed THE-891) are explicit

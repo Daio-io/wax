@@ -26,6 +26,12 @@
 
 ### Features
 
+- Add the `wax-refine-docs` agent skill for improving KDoc, Swift doc comments,
+  and JSDoc/TSDoc so `wax registry discover` extracts richer component
+  details. It includes per-language references, golden examples whose
+  extracted details are checked by each language pack's tests, and a
+  `docs-coverage.sh` audit of discover dry-run output.
+
 - Add scriptable `wax init --non-interactive --design-system <remembered-id>`
   while retaining the interactive remembered-system menu. Bundle languages are
   checked before app files are written; language-pack installation remains
@@ -78,6 +84,12 @@
 ### wax-lang-compose
 
 - Stop treating `when` arm bodies of the form `-> if (cond) …` as when-guards. The false-positive mask was introducing `parse_failed` diagnostics on valid Kotlin.
+
+### wax-lang-swift
+
+- Stop reading an initializer body as the last parameter's default. A trailing
+  parameter without a default, such as `action: @escaping () -> Void`, is now
+  reported as required with no `default`.
 
 ### wax-core
 

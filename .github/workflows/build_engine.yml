@@ -15,6 +15,7 @@ on:
       - "scripts/test-wax-scan-render-report.sh"
       - "scripts/test-wax-registry-skill-contract.sh"
       - "scripts/test-wax-search-skill-contract.sh"
+      - "scripts/test-wax-refine-docs-skill-contract.sh"
       - "scripts/verify-compose-kotlin-fixtures.sh"
       - "scripts/test-verify-compose-kotlin-fixtures.sh"
       - "scripts/replay-compose-corpus.sh"
@@ -24,6 +25,7 @@ on:
       - "skills/wax-scan/**"
       - "skills/wax-registry-discover/**"
       - "skills/wax-search/**"
+      - "skills/wax-refine-docs/**"
       - ".claude-plugin/**"
       - "tests/wax-scan-report-screenshot.spec.mjs"
       - "tests/goldens/**"
@@ -48,6 +50,7 @@ on:
       - "scripts/test-wax-scan-render-report.sh"
       - "scripts/test-wax-registry-skill-contract.sh"
       - "scripts/test-wax-search-skill-contract.sh"
+      - "scripts/test-wax-refine-docs-skill-contract.sh"
       - "scripts/verify-compose-kotlin-fixtures.sh"
       - "scripts/test-verify-compose-kotlin-fixtures.sh"
       - "scripts/replay-compose-corpus.sh"
@@ -57,6 +60,7 @@ on:
       - "skills/wax-scan/**"
       - "skills/wax-registry-discover/**"
       - "skills/wax-search/**"
+      - "skills/wax-refine-docs/**"
       - ".claude-plugin/**"
       - "tests/wax-scan-report-screenshot.spec.mjs"
       - "tests/goldens/**"
@@ -111,6 +115,9 @@ jobs:
 
       - name: Verify wax-search skill contract
         run: ../scripts/test-wax-search-skill-contract.sh
+
+      - name: Verify wax-refine-docs skill contract
+        run: ../scripts/test-wax-refine-docs-skill-contract.sh
 
       - name: Test pack index generator
         run: ../scripts/test-generate-pack-index.sh
