@@ -2171,3 +2171,269 @@ fn palette_rediscovery_preserves_evidence_on_damage_and_reports_clean_absence() 
     assert_eq!(absent.tokens, expected);
     Ok(())
 }
+#[test]
+fn discovers_portal_returns_through_a_barrel() -> io::Result<()> {
+    let files = [
+        ("src/index.ts", "export * from './portal';"),
+        (
+            "src/portal.tsx",
+            r#"import { forwardRef as wrap, memo, cloneElement as clone } from 'react';
+import * as DOM from 'react-dom';
+import { createPortal as mount } from 'react-dom';
+import { createPortal as foreign } from 'other';
+import type { createPortal as typeOnly } from 'react-dom';
+export const Portal = wrap(({ label }: { label: string }) =>
+    ready ? DOM.createPortal(<div>{label}</div>, node) : null
+);
+export const Aliased = wrap(() => {
+    const content = <span />;
+    if (ready) return mount(content, node);
+    return null;
+});
+export const PortalLocal = wrap(() => {
+    const result = DOM.createPortal(<div />, node);
+    return result;
+});
+export const CloneLocal = wrap(() => {
+    const result = clone(child, {});
+    return result;
+});
+export const Wrapped = memo(wrap(() => <input />));
+export const Shadowed = wrap((DOM) => DOM.createPortal(<div />, node));
+export const ShadowedAlias = wrap(() => {
+    const mount = foreign;
+    return mount(<div />, node);
+});
+export const Foreign = wrap(() => foreign(<div />, node));
+export const TypeOnly = wrap(() => typeOnly(<div />, node));
+export const NoElement = wrap(() => mount(value, node));
+export const Nested = wrap(() => {
+    work(() => mount(<div />, node));
+    return null;
+});
+"#,
+        ),
+    ];
+    assert_eq!(
+        discover_files(&["src"], &files)?.symbols(),
+        ["Aliased", "CloneLocal", "Portal", "PortalLocal", "Wrapped"]
+    );
+    Ok(())
+}
+
+#[test]
+fn discovers_clone_element_only_in_verified_render_callbacks() -> io::Result<()> {
+    let files = [(
+        "src/clone.tsx",
+        r#"import React, { cloneElement as clone, memo } from 'react';
+import { cloneElement as foreign } from 'other';
+export const Cloned = memo(() => clone(child, {}));
+export const Namespace = React.forwardRef(function (props, ref) {
+    if (!props.ready) return null;
+    return React.cloneElement(props.child, { ref });
+});
+export const Bare = () => clone(child, {});
+export const Shadowed = React.forwardRef((React) => React.cloneElement(child));
+export const Foreign = React.forwardRef(() => foreign(child));
+export const Nested = React.forwardRef(() => {
+    work(() => { return clone(child); });
+    return null;
+});
+"#,
+    )];
+    assert_eq!(
+        discover_files(&["src"], &files)?.symbols(),
+        ["Cloned", "Namespace"]
+    );
+    Ok(())
+}
+
+#[test]
+fn discovers_factory_exports_with_one_statically_known_return() -> io::Result<()> {
+    let files = [
+        ("src/index.ts", "export * from './slot';"),
+        (
+            "src/slot.tsx",
+            r#"import React, { forwardRef } from 'react';
+import { makeForeign } from 'other';
+export const Slot = createSlot('Slot');
+export function createSlot(ownerName: string) {
+    const Inner = React.forwardRef((props) => React.cloneElement(props.child));
+    Inner.displayName = ownerName;
+    return Inner;
+}
+const Inner = () => <div />;
+const makeArrow = () => { return Inner; };
+export const FromOuter = makeArrow();
+function makeDirect() { return forwardRef(() => <span />); }
+export const Direct = makeDirect();
+
+export const Foreign = makeForeign();
+export const Cycle = cycle();
+function cycle() { return other(); }
+function other() { return cycle(); }
+const alias = createSlot;
+export const Indirect = alias();
+function createDynamic(render) { return render; }
+export const Dynamic = createDynamic(Inner);
+function createConflict() { if (ready) return null; return Inner; }
+export const Conflict = createConflict();
+function createMutable() {
+    let Target = Inner;
+    Target = foreign;
+    return Target;
+}
+export const Mutable = createMutable();
+function reassigned() { return Inner; }
+reassigned = makeForeign;
+export const Reassigned = reassigned();
+function createReassignedTarget() {
+    function Target() { return <div />; }
+    ({ Target } = foreign);
+    return Target;
+}
+export const ReassignedTarget = createReassignedTarget();
+function createShadowed(React) {
+    const Inner = React.forwardRef(() => <div />);
+    return Inner;
+}
+export const Shadowed = createShadowed(React);
+function createShadowedTarget(Inner) { return Inner; }
+export const ShadowedTarget = createShadowedTarget(Inner);
+function createTooLate() {
+    return Target;
+    const Target = () => <div />;
+}
+export const TooLate = createTooLate();
+"#,
+        ),
+    ];
+    assert_eq!(
+        discover_files(&["src"], &files)?.symbols(),
+        ["Direct", "FromOuter", "Slot"]
+    );
+    Ok(())
+}
+
+#[test]
+fn rich_discovery_preserves_callback_facts_and_factory_signature_gaps() -> io::Result<()> {
+    let result = details_for_files(
+        &["src"],
+        &[
+            (
+                "src/index.ts",
+                "export { Portal, Slot, UnknownSlot } from './components';",
+            ),
+            (
+                "src/components.tsx",
+                r#"import { forwardRef, cloneElement } from 'react';
+import { createPortal } from 'react-dom';
+const Portal = forwardRef(({ label }: { label: string }) =>
+    createPortal(<div>{label}</div>, node)
+);
+const Slot = createSlot('Slot');
+const UnknownSlot = createUnknownSlot();
+function createSlot(ownerName: string) {
+    const Inner = forwardRef(({ child }: { child: React.ReactElement }) => cloneElement(child));
+    return Inner;
+}
+function createUnknownSlot() {
+    return forwardRef((props) => cloneElement(props.child));
+}
+export { Portal, Slot, UnknownSlot };
+"#,
+            ),
+        ],
+        serde_json::json!([
+            {"id": "portal", "symbol": "Portal"},
+            {"id": "slot", "symbol": "Slot"},
+            {"id": "unknown-slot", "symbol": "UnknownSlot"}
+        ]),
+    )?;
+
+    for (entry, (line, status, expected_parameters)) in result.document.components.iter().zip([
+        (
+            3,
+            wax_contract::RegistryExtractionStatus::Complete,
+            &["label"][..],
+        ),
+        (
+            6,
+            wax_contract::RegistryExtractionStatus::Partial,
+            &["child"][..],
+        ),
+        (7, wax_contract::RegistryExtractionStatus::Partial, &[][..]),
+    ]) {
+        let details = entry
+            .details
+            .as_ref()
+            .unwrap_or_else(|| panic!("missing {}", entry.symbol));
+        let evidence = details.source_evidence.as_ref().unwrap();
+        assert_eq!(
+            (evidence.path.as_str(), evidence.start_line),
+            ("src/components.tsx", Some(line))
+        );
+        assert_eq!(details.status, status);
+        let signature = details.signature.as_ref().unwrap();
+        let names: Vec<_> = signature
+            .parameters
+            .iter()
+            .map(|parameter| parameter.name.as_str())
+            .collect();
+        assert_eq!(names, expected_parameters);
+        if entry.symbol.ends_with("Slot") {
+            assert!(signature.type_text.is_none());
+            assert!(
+                details
+                    .field_gaps
+                    .iter()
+                    .any(|gap| gap.field.starts_with("signature."))
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn excludes_factories_that_yield_a_promise_or_iterator() -> io::Result<()> {
+    let files = [(
+        "src/factory.tsx",
+        r#"const Component = () => <div />;
+async function makeAsync() { return Component; }
+function* makeIterator() { return Component; }
+const makeAsyncArrow = async () => { return Component; };
+export const Async = makeAsync();
+export const Iterator = makeIterator();
+export const AsyncArrow = makeAsyncArrow();
+"#,
+    )];
+    assert!(discover_files(&["src"], &files)?.symbols().is_empty());
+    Ok(())
+}
+
+#[test]
+fn rich_factory_discovery_respects_callback_props_type_scope() -> io::Result<()> {
+    let result = details_for_files(
+        &["src"],
+        &[(
+            "src/slot.tsx",
+            r#"import { cloneElement, forwardRef } from 'react';
+type Props = { wrong: string };
+function makeSlot<Props>() {
+    return forwardRef((props: Props) => cloneElement(child));
+}
+export const Slot = makeSlot();
+"#,
+        )],
+        serde_json::json!([{"id": "slot", "symbol": "Slot"}]),
+    )?;
+    let details = result.document.components[0].details.as_ref().unwrap();
+    assert!(details.signature.as_ref().unwrap().parameters.is_empty());
+    assert!(
+        details
+            .field_gaps
+            .iter()
+            .any(|gap| gap.field == "signature.parameters")
+    );
+    Ok(())
+}

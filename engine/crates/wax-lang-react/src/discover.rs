@@ -1,20 +1,23 @@
 //! React registry symbol discovery.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use swc_common::{GLOBALS, Globals, Mark};
 use swc_ecma_ast::{
-    Callee, Decl, DefaultDecl, Expr, ImportSpecifier, MemberProp, ModuleDecl, ModuleItem, Stmt,
+    Callee, Decl, DefaultDecl, Expr, Id, ImportSpecifier, MemberProp, ModuleDecl, ModuleItem, Stmt,
     VarDeclarator,
 };
+use swc_ecma_transforms_base::resolver;
+use swc_ecma_visit::VisitMutWith;
 use wax_contract::{Diagnostic, DiagnosticSeverity};
 use wax_lang_api::DiscoveredRegistrySymbol;
 
 use crate::component_detect::{
-    class_returns_jsx, expression_returns_jsx, function_returns_jsx, module_export_name,
-    simple_binding_ident,
+    LocalValue, LocalValues, class_returns_jsx, expression_returns_element, expression_returns_jsx,
+    function_returns_jsx, is_jsx_expression, module_export_name, simple_binding_ident,
 };
 use crate::public_exports::{PackageManifest, package_for_file, public_bindings};
 use crate::swc_parse::{ParsedReactModule, ReactParseOutcome, parse_react_source_file};
@@ -173,7 +176,12 @@ pub(crate) fn collect_and_parse_react_sources(
                 source,
             }
         })? {
-            ReactParseOutcome::Parsed(parsed) => {
+            ReactParseOutcome::Parsed(mut parsed) => {
+                GLOBALS.set(&Globals::new(), || {
+                    parsed
+                        .module
+                        .visit_mut_with(&mut resolver(Mark::new(), Mark::new(), true));
+                });
                 parsed_files.push(ParsedReactSourceFile { package, parsed });
             }
             ReactParseOutcome::Failed(diagnostic) => {
@@ -280,63 +288,165 @@ fn is_supported_react_source(path: &Path) -> bool {
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct ReactWrapperCallees {
-    direct_memo: BTreeSet<String>,
-    direct_forward_ref: BTreeSet<String>,
-    react_namespaces: BTreeSet<String>,
+pub(crate) struct ReactWrapperCallees<'a> {
+    locals: LocalValues<'a>,
+    imports: HashMap<Id, (&'static str, Option<String>)>,
 }
 
-pub(crate) fn react_wrapper_callees(items: &[ModuleItem]) -> ReactWrapperCallees {
-    let mut callees = ReactWrapperCallees::default();
+pub(crate) fn react_wrapper_callees(items: &[ModuleItem]) -> ReactWrapperCallees<'_> {
+    let mut callees = ReactWrapperCallees {
+        locals: LocalValues::collect(items),
+        ..ReactWrapperCallees::default()
+    };
 
     for item in items {
-        let ModuleItem::ModuleDecl(ModuleDecl::Import(import_decl)) = item else {
+        let ModuleItem::ModuleDecl(ModuleDecl::Import(import)) = item else {
             continue;
         };
-        if import_decl.src.value.to_string_lossy() != "react" {
-            continue;
-        }
-
-        for specifier in &import_decl.specifiers {
-            match specifier {
-                ImportSpecifier::Named(named) => {
-                    let imported_name = named
-                        .imported
-                        .as_ref()
-                        .map(module_export_name)
-                        .unwrap_or_else(|| named.local.sym.to_string());
-                    match imported_name.as_str() {
-                        "memo" => {
-                            callees.direct_memo.insert(named.local.sym.to_string());
-                        }
-                        "forwardRef" => {
-                            callees
-                                .direct_forward_ref
-                                .insert(named.local.sym.to_string());
-                        }
-                        _ => {}
-                    }
-                }
-                ImportSpecifier::Default(default) => {
-                    callees
-                        .react_namespaces
-                        .insert(default.local.sym.to_string());
-                }
-                ImportSpecifier::Namespace(namespace) => {
-                    callees
-                        .react_namespaces
-                        .insert(namespace.local.sym.to_string());
-                }
-            }
+        let package = match import.src.value.to_string_lossy().as_ref() {
+            "react" if !import.type_only => "react",
+            "react-dom" if !import.type_only => "react-dom",
+            _ => continue,
+        };
+        for specifier in &import.specifiers {
+            let (local, name) = match specifier {
+                ImportSpecifier::Named(named) if !named.is_type_only => (
+                    &named.local,
+                    Some(
+                        named
+                            .imported
+                            .as_ref()
+                            .map_or_else(|| named.local.sym.to_string(), module_export_name),
+                    ),
+                ),
+                ImportSpecifier::Named(_) => continue,
+                ImportSpecifier::Default(default) => (&default.local, None),
+                ImportSpecifier::Namespace(namespace) => (&namespace.local, None),
+            };
+            callees.imports.insert(local.to_id(), (package, name));
         }
     }
 
     callees
 }
 
+impl<'a> ReactWrapperCallees<'a> {
+    pub(crate) fn callback_returns_element(&self, expr: &Expr) -> bool {
+        expression_returns_element(expr, &|call, jsx_bindings| {
+            let Some(first) = call.args.first().filter(|arg| arg.spread.is_none()) else {
+                return false;
+            };
+            self.matches(&call.callee, "react", "cloneElement")
+                || (self.matches(&call.callee, "react-dom", "createPortal")
+                    && is_jsx_expression(&first.expr, jsx_bindings))
+        })
+    }
+
+    pub(crate) fn factory_component(&self, expr: &'a Expr) -> Option<LocalValue<'a>> {
+        let Expr::Call(call) = expr.unwrap_parens() else {
+            return None;
+        };
+        let Callee::Expr(callee) = &call.callee else {
+            return None;
+        };
+        let Expr::Ident(factory) = callee.unwrap_parens() else {
+            return None;
+        };
+        let factory = self.locals.get(&factory.to_id())?;
+        let (block, returned) = factory.factory_return()?;
+        if !factory.initialized_before(block, returned, call) {
+            return None;
+        }
+        let binding = |ident: &swc_ecma_ast::Ident| {
+            let value = self.locals.factory_binding(block, &ident.to_id())?;
+            value
+                .initialized_before(block, returned, call)
+                .then_some(value)
+        };
+        let value = match returned.unwrap_parens() {
+            Expr::Ident(ident) => binding(ident)?,
+            expr @ Expr::Call(_) => LocalValue::Constant(expr),
+            _ => return None,
+        };
+        match value {
+            LocalValue::Function(function) if function_returns_jsx(function) => Some(value),
+            LocalValue::Class(class) if class_returns_jsx(class) => Some(value),
+            LocalValue::Constant(expr) => {
+                let expr = expr.unwrap_parens();
+                if expression_returns_jsx(expr) {
+                    return Some(LocalValue::Constant(expr));
+                }
+                match self.wrapper_target(expr)? {
+                    Expr::Ident(ident) => match binding(ident)? {
+                        value @ LocalValue::Function(function)
+                            if function_returns_jsx(function) =>
+                        {
+                            Some(value)
+                        }
+                        value @ LocalValue::Class(class) if class_returns_jsx(class) => Some(value),
+                        value @ LocalValue::Constant(expr) if expression_returns_jsx(expr) => {
+                            Some(value)
+                        }
+                        _ => None,
+                    },
+                    callback => Some(LocalValue::Constant(callback)),
+                }
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn wrapper_target<'expr>(&self, mut expr: &'expr Expr) -> Option<&'expr Expr> {
+        loop {
+            let Expr::Call(call) = expr.unwrap_parens() else {
+                return None;
+            };
+            let [arg] = call.args.as_slice() else {
+                return None;
+            };
+            if arg.spread.is_some() {
+                return None;
+            }
+            let memo = self.matches(&call.callee, "react", "memo");
+            if !memo && !self.matches(&call.callee, "react", "forwardRef") {
+                return None;
+            }
+            expr = arg.expr.unwrap_parens();
+            match expr {
+                Expr::Call(_) if memo => continue,
+                Expr::Ident(_) if memo => return Some(expr),
+                _ => return self.callback_returns_element(expr).then_some(expr),
+            }
+        }
+    }
+
+    fn matches(&self, callee: &Callee, package: &str, expected: &str) -> bool {
+        let Callee::Expr(expr) = callee else {
+            return false;
+        };
+        match &**expr {
+            Expr::Ident(ident) => self
+                .imports
+                .get(&ident.to_id())
+                .is_some_and(|(source, name)| {
+                    *source == package && name.as_deref() == Some(expected)
+                }),
+            Expr::Member(member)
+                if let Expr::Ident(object) = &*member.obj
+                    && matches!(&member.prop, MemberProp::Ident(prop) if prop.sym == expected) =>
+            {
+                self.imports
+                    .get(&object.to_id())
+                    .is_some_and(|(source, name)| *source == package && name.is_none())
+            }
+            _ => false,
+        }
+    }
+}
+
 pub(crate) fn local_component_bindings(
     items: &[ModuleItem],
-    wrapper_callees: &ReactWrapperCallees,
+    wrapper_callees: &ReactWrapperCallees<'_>,
 ) -> BTreeSet<String> {
     let mut detected = BTreeSet::new();
 
@@ -411,7 +521,7 @@ fn collect_decl_component(decl: &Decl, detected: &mut BTreeSet<String>) {
 fn collect_wrapper_declaration(
     item: &ModuleItem,
     detected: &mut BTreeSet<String>,
-    wrapper_callees: &ReactWrapperCallees,
+    wrapper_callees: &ReactWrapperCallees<'_>,
 ) -> bool {
     match item {
         ModuleItem::Stmt(Stmt::Decl(Decl::Var(var_decl)))
@@ -428,7 +538,7 @@ fn collect_wrapper_declaration(
 fn collect_wrapper_var_declarator(
     declarator: &VarDeclarator,
     detected: &mut BTreeSet<String>,
-    wrapper_callees: &ReactWrapperCallees,
+    wrapper_callees: &ReactWrapperCallees<'_>,
 ) -> bool {
     let Some((binding_name, _)) = simple_binding_ident(declarator) else {
         return false;
@@ -441,9 +551,8 @@ fn collect_wrapper_var_declarator(
         return false;
     };
 
-    if is_memo_call_of_detected_component(init, detected, wrapper_callees)
-        || is_memo_call_of_inline_component(init, wrapper_callees)
-        || is_forward_ref_call_of_inline_component(init, wrapper_callees)
+    if wrapper_callees.factory_component(init).is_some()
+        || detected_wrapper_target(init, detected, wrapper_callees).is_some()
     {
         return detected.insert(binding_name);
     }
@@ -451,66 +560,29 @@ fn collect_wrapper_var_declarator(
     false
 }
 
-fn is_memo_call_of_detected_component(
-    expr: &Expr,
+fn detected_wrapper_target<'a>(
+    expr: &'a Expr,
     detected: &BTreeSet<String>,
-    wrapper_callees: &ReactWrapperCallees,
-) -> bool {
-    let Expr::Call(call) = expr else {
-        return false;
-    };
-    if !callee_matches(&call.callee, "memo", wrapper_callees) || call.args.len() != 1 {
-        return false;
+    wrapper_callees: &ReactWrapperCallees<'_>,
+) -> Option<&'a Expr> {
+    let target = wrapper_callees.wrapper_target(expr)?;
+    if let Expr::Ident(ident) = target
+        && !detected.contains(ident.sym.as_ref())
+    {
+        return None;
     }
-    let Expr::Ident(component) = &*call.args[0].expr else {
-        return false;
-    };
-    detected.contains(component.sym.as_ref())
-}
-
-fn is_memo_call_of_inline_component(expr: &Expr, wrapper_callees: &ReactWrapperCallees) -> bool {
-    let Expr::Call(call) = expr else {
-        return false;
-    };
-    if !callee_matches(&call.callee, "memo", wrapper_callees) || call.args.len() != 1 {
-        return false;
-    }
-    expression_returns_jsx(&call.args[0].expr)
-        || is_forward_ref_call_of_inline_component(&call.args[0].expr, wrapper_callees)
-}
-
-fn is_forward_ref_call_of_inline_component(
-    expr: &Expr,
-    wrapper_callees: &ReactWrapperCallees,
-) -> bool {
-    let Expr::Call(call) = expr else {
-        return false;
-    };
-    if !callee_matches(&call.callee, "forwardRef", wrapper_callees) || call.args.len() != 1 {
-        return false;
-    }
-    expression_returns_jsx(&call.args[0].expr)
+    Some(target)
 }
 
 pub(crate) fn default_expression_component(
     expr: &Expr,
     detected: &BTreeSet<String>,
-    wrapper_callees: &ReactWrapperCallees,
+    wrapper_callees: &ReactWrapperCallees<'_>,
 ) -> Option<String> {
     if expression_returns_jsx(expr) {
         return Some(expression_component_name(expr));
     }
-    if is_memo_call_of_detected_component(expr, detected, wrapper_callees)
-        || is_memo_call_of_inline_component(expr, wrapper_callees)
-        || is_forward_ref_call_of_inline_component(expr, wrapper_callees)
-    {
-        let mut inner = expr;
-        while let Expr::Call(call) = inner {
-            inner = &call.args.first()?.expr;
-        }
-        return Some(expression_component_name(inner));
-    }
-    None
+    detected_wrapper_target(expr, detected, wrapper_callees).map(expression_component_name)
 }
 
 fn expression_component_name(expr: &Expr) -> String {
@@ -520,39 +592,6 @@ fn expression_component_name(expr: &Expr) -> String {
         _ => None,
     };
     ident.map_or_else(|| "default".to_owned(), |ident| ident.sym.to_string())
-}
-
-pub(crate) fn callee_matches(
-    callee: &Callee,
-    expected: &str,
-    wrapper_callees: &ReactWrapperCallees,
-) -> bool {
-    let Callee::Expr(expr) = callee else {
-        return false;
-    };
-
-    // Discover is import-aware so registry authoring does not treat arbitrary
-    // local memo/forwardRef helpers as public React component wrappers. Scan
-    // remains permissive for compatibility with existing local-component facts.
-    match &**expr {
-        Expr::Ident(ident) => match expected {
-            "memo" => wrapper_callees.direct_memo.contains(ident.sym.as_ref()),
-            "forwardRef" => wrapper_callees
-                .direct_forward_ref
-                .contains(ident.sym.as_ref()),
-            _ => false,
-        },
-        Expr::Member(member) => {
-            let Expr::Ident(object) = &*member.obj else {
-                return false;
-            };
-            wrapper_callees
-                .react_namespaces
-                .contains(object.sym.as_ref())
-                && matches!(&member.prop, MemberProp::Ident(prop) if prop.sym.as_ref() == expected)
-        }
-        _ => false,
-    }
 }
 
 #[cfg(test)]
@@ -603,39 +642,5 @@ mod tests {
         assert_eq!(files.len(), 1);
         assert!(files[0].ends_with("src/Button.tsx"));
         Ok(())
-    }
-
-    #[test]
-    fn react_wrapper_callees_tracks_import_bindings() {
-        let parsed = parse_module(
-            "src/wrappers.tsx",
-            r#"
-            import React, { memo, forwardRef as fr } from "react";
-            "#,
-        );
-
-        let callees = react_wrapper_callees(&parsed.module.body);
-
-        assert!(callees.direct_memo.contains("memo"));
-        assert!(callees.direct_forward_ref.contains("fr"));
-        assert!(callees.react_namespaces.contains("React"));
-    }
-
-    fn parse_module(file: &str, source: &str) -> crate::ParsedReactModule {
-        let tempdir = tempfile::tempdir().expect("tempdir");
-        let path = tempdir.path().join(file);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-        fs::write(&path, source).unwrap();
-
-        match parse_react_source_file(tempdir.path(), Path::new(file))
-            .expect("parse should not fail fatally")
-        {
-            ReactParseOutcome::Parsed(parsed) => parsed,
-            ReactParseOutcome::Failed(diagnostic) => {
-                panic!("expected parse success, got {}", diagnostic.message)
-            }
-        }
     }
 }
