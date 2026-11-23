@@ -1,7 +1,7 @@
 //! Source-backed React registry enrichment.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::Map;
 use swc_common::{Span, Spanned, comments::CommentKind};
@@ -17,13 +17,14 @@ use wax_contract::{
 };
 use wax_lang_api::{DiscoverRegistryRequest, DiscoverRegistryResult};
 
-use crate::component_detect::{LocalValue, simple_binding_ident};
+use crate::component_detect::{LocalValue, module_export_name, simple_binding_ident};
 use crate::discover::{
-    DamagedReactSources, ReactDiscoverError, ReactWrapperCallees, collect_and_parse_react_sources,
-    react_wrapper_callees,
+    DamagedReactSources, ParsedReactSourceFile, ReactDiscoverError, ReactWrapperCallees,
+    collect_and_parse_react_sources, is_declaration_file, react_wrapper_callees,
 };
+use crate::module_graph::{normalize_relative_path, resolve_path_candidates};
 use crate::palette_discovery::{apply_token_evidence, discover_palette_tokens};
-use crate::public_exports::{PublicBinding, public_bindings};
+use crate::public_exports::{PublicBinding, public_bindings, relative_module_path};
 use crate::swc_parse::ParsedReactModule;
 
 #[derive(Debug)]
@@ -79,8 +80,32 @@ pub fn discover_registry_details(
         .map(|root| repo_root.join(root))
         .collect();
     let mut diagnostics = Vec::new();
-    let (parsed_files, damaged_paths) =
-        collect_and_parse_react_sources(repo_root, &absolute_roots, &mut diagnostics)?;
+    let (mut parsed_files, mut damaged_paths) =
+        collect_and_parse_react_sources(repo_root, &absolute_roots, true, &mut diagnostics)?;
+    let relative_roots: Vec<_> = absolute_roots
+        .iter()
+        .filter_map(|root| normalize_relative_path(root.strip_prefix(repo_root).ok()?))
+        .collect();
+    let damaged_modules: BTreeSet<_> = damaged_paths.keys().map(PathBuf::from).collect();
+    let known_files = parsed_files
+        .iter()
+        .map(|file| file.parsed.file.clone())
+        .chain(damaged_modules.iter().cloned())
+        .filter(|path| relative_roots.iter().any(|root| path.starts_with(root)))
+        .collect();
+    let mut enums_by_file: BTreeMap<_, _> = parsed_files
+        .iter()
+        .map(|file| {
+            (
+                file.parsed.file.clone(),
+                collect_local_enum_values(&file.parsed),
+            )
+        })
+        .collect();
+    let exported_enums = collect_exported_enum_values(&parsed_files, &enums_by_file, &known_files);
+    // Declaration files supply prop types without participating in value discovery.
+    parsed_files.retain(|file| !is_declaration_file(&file.parsed.file));
+    damaged_paths.retain(|path, _| !is_declaration_file(Path::new(path)));
 
     let exports = public_bindings(
         repo_root,
@@ -104,11 +129,25 @@ pub fn discover_registry_details(
         .iter()
         .map(|file| {
             let path = file.parsed.file.as_path();
+            let mut enum_values = enums_by_file.remove(path).unwrap_or_default();
+            let imports = collect_imports(
+                &file.parsed,
+                &relative_roots,
+                &known_files,
+                &damaged_modules,
+                &exported_enums,
+                &mut enum_values,
+            );
             (
                 path,
                 SourceDeclarations {
                     package: file.package.as_ref().map(|package| package.name.as_str()),
-                    by_name: component_declarations(&file.parsed, wanted.get(path)),
+                    by_name: component_declarations(
+                        &file.parsed,
+                        wanted.get(path),
+                        &imports,
+                        &enum_values,
+                    ),
                 },
             )
         })
@@ -143,10 +182,10 @@ struct ComponentImpl<'a> {
 fn component_declarations(
     parsed: &ParsedReactModule,
     public_names: Option<&BTreeSet<&str>>,
+    imports: &ImportPackages,
+    enum_values: &EnumValues,
 ) -> BTreeMap<String, ComponentDeclaration> {
-    let imports = collect_import_packages(parsed);
-    let local_enum_values = collect_local_enum_values(parsed);
-    let props = collect_props_definitions(parsed, &imports, &local_enum_values);
+    let props = collect_props_definitions(parsed, imports, enum_values);
     let wrapper_callees = react_wrapper_callees(&parsed.module.body);
     let locals = local_component_impls(parsed);
     let named_exports = local_named_value_exports(&parsed.module.body);
@@ -161,8 +200,8 @@ fn component_declarations(
                     span,
                     implementation,
                     &props,
-                    &imports,
-                    &local_enum_values,
+                    imports,
+                    enum_values,
                 ),
             },
         );
@@ -497,18 +536,51 @@ fn class_implementation(span: Span, class: &swc_ecma_ast::Class) -> ComponentImp
     }
 }
 
-fn collect_import_packages(parsed: &ParsedReactModule) -> HashMap<Id, String> {
+type ImportPackages = HashMap<Id, Option<String>>;
+
+fn collect_imports(
+    parsed: &ParsedReactModule,
+    roots: &[PathBuf],
+    known_files: &BTreeSet<PathBuf>,
+    damaged_modules: &BTreeSet<PathBuf>,
+    exported: &ExportedEnumValues,
+    enum_values: &mut EnumValues,
+) -> ImportPackages {
     let mut imports = HashMap::new();
     for item in &parsed.module.body {
         let ModuleItem::ModuleDecl(ModuleDecl::Import(import)) = item else {
             continue;
         };
-        let package = import.src.value.to_string_lossy().into_owned();
+        let source = import.src.value.to_string_lossy();
+        let relative_path = relative_module_path(&parsed.file, &source);
+        let within_roots = relative_path
+            .as_ref()
+            .is_some_and(|path| roots.iter().any(|root| path.starts_with(root)));
+        let target = relative_path
+            .as_deref()
+            .and_then(|path| resolve_enum_module(path, known_files));
+        let damaged = target
+            .as_ref()
+            .is_some_and(|path| damaged_modules.contains(path));
+        // Preserve the existing opaque parameter when the target could not be parsed.
+        let package = (!within_roots || damaged).then(|| source.into_owned());
+        let target = target.map(|path| path.to_string_lossy().into_owned());
         for specifier in &import.specifiers {
             let local = match specifier {
                 ImportSpecifier::Default(specifier) => &specifier.local,
                 ImportSpecifier::Namespace(specifier) => &specifier.local,
-                ImportSpecifier::Named(specifier) => &specifier.local,
+                ImportSpecifier::Named(named) => {
+                    if let Some(target) = &target {
+                        let name = named
+                            .imported
+                            .as_ref()
+                            .map_or_else(|| named.local.sym.to_string(), module_export_name);
+                        if let Some(values) = exported.get(&(target.clone(), name)) {
+                            enum_values.insert(named.local.to_id(), values.clone());
+                        }
+                    }
+                    &named.local
+                }
             };
             imports.insert(local.to_id(), package.clone());
         }
@@ -524,8 +596,11 @@ fn module_declarations(parsed: &ParsedReactModule) -> impl Iterator<Item = &Decl
     })
 }
 
-fn collect_local_enum_values(parsed: &ParsedReactModule) -> BTreeMap<Id, Vec<String>> {
-    let mut enums = BTreeMap::<Id, Vec<String>>::new();
+type EnumValues = BTreeMap<Id, Vec<String>>;
+type ExportedEnumValues = BTreeMap<(String, String), Vec<String>>;
+
+fn collect_local_enum_values(parsed: &ParsedReactModule) -> EnumValues {
+    let mut enums = EnumValues::new();
     for decl in module_declarations(parsed) {
         let (id, values) = match decl {
             Decl::TsTypeAlias(alias) => {
@@ -557,10 +632,112 @@ fn collect_local_enum_values(parsed: &ParsedReactModule) -> BTreeMap<Id, Vec<Str
     enums
 }
 
+fn collect_exported_enum_values(
+    files: &[ParsedReactSourceFile],
+    enums_by_file: &BTreeMap<PathBuf, EnumValues>,
+    known_files: &BTreeSet<PathBuf>,
+) -> ExportedEnumValues {
+    let mut exported = BTreeMap::new();
+    for file in files {
+        let parsed = &file.parsed;
+        let Some(local) = enums_by_file
+            .get(&parsed.file)
+            .filter(|local| !local.is_empty())
+        else {
+            continue;
+        };
+        let path = parsed.file.to_string_lossy();
+        for item in &parsed.module.body {
+            match item {
+                ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(export)) => {
+                    let id = match &export.decl {
+                        Decl::TsTypeAlias(alias) => alias.id.to_id(),
+                        Decl::TsEnum(enumeration) => enumeration.id.to_id(),
+                        _ => continue,
+                    };
+                    if let Some(values) = local.get(&id) {
+                        exported.insert((path.to_string(), id.0.to_string()), values.clone());
+                    }
+                }
+                ModuleItem::ModuleDecl(ModuleDecl::ExportNamed(export)) if export.src.is_none() => {
+                    for specifier in &export.specifiers {
+                        let ExportSpecifier::Named(named) = specifier else {
+                            continue;
+                        };
+                        let ModuleExportName::Ident(ident) = &named.orig else {
+                            continue;
+                        };
+                        if let Some(values) = local.get(&ident.to_id()) {
+                            let name =
+                                module_export_name(named.exported.as_ref().unwrap_or(&named.orig));
+                            exported.insert((path.to_string(), name), values.clone());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut reexports = BTreeMap::new();
+    for file in files {
+        let parsed = &file.parsed;
+        for item in &parsed.module.body {
+            let ModuleItem::ModuleDecl(ModuleDecl::ExportNamed(export)) = item else {
+                continue;
+            };
+            let Some(source) = &export.src else {
+                continue;
+            };
+            let Some(target) = relative_module_path(&parsed.file, &source.value.to_string_lossy())
+                .and_then(|path| resolve_enum_module(&path, known_files))
+            else {
+                continue;
+            };
+            let target = target.to_string_lossy().into_owned();
+            for specifier in &export.specifiers {
+                let ExportSpecifier::Named(named) = specifier else {
+                    continue;
+                };
+                let original = module_export_name(&named.orig);
+                if let Some(values) = exported.get(&(target.clone(), original)) {
+                    let name = module_export_name(named.exported.as_ref().unwrap_or(&named.orig));
+                    reexports.insert(
+                        (parsed.file.to_string_lossy().into_owned(), name),
+                        values.clone(),
+                    );
+                }
+            }
+        }
+    }
+    // Read re-exports from the direct index so a second forwarding module stays opaque.
+    exported.extend(reexports);
+    exported
+}
+
+fn resolve_enum_module(path: &Path, known_files: &BTreeSet<PathBuf>) -> Option<PathBuf> {
+    if let Some(extension) = path.extension().and_then(|extension| extension.to_str()) {
+        let substituted_extensions = match extension {
+            "js" => Some(["ts", "tsx", "d.ts"].as_slice()),
+            "jsx" => Some(["tsx", "ts", "d.ts"].as_slice()),
+            _ => None,
+        };
+        if let Some(extensions) = substituted_extensions {
+            for extension in extensions {
+                let candidate = path.with_extension(extension);
+                if known_files.contains(&candidate) {
+                    return Some(candidate);
+                }
+            }
+        }
+    }
+
+    resolve_path_candidates(path, known_files, &[".d.ts", ".ts", ".tsx", ".js", ".jsx"])
+}
+
 fn collect_props_definitions(
     parsed: &ParsedReactModule,
-    imports: &HashMap<Id, String>,
-    local_enum_values: &BTreeMap<Id, Vec<String>>,
+    imports: &ImportPackages,
+    enum_values: &EnumValues,
 ) -> HashMap<Id, PropsDefinition> {
     module_declarations(parsed)
         .filter_map(|decl| {
@@ -581,12 +758,7 @@ fn collect_props_definitions(
             Some((
                 id.to_id(),
                 PropsDefinition {
-                    parameters: parameters_from_members(
-                        parsed,
-                        members,
-                        imports,
-                        local_enum_values,
-                    ),
+                    parameters: parameters_from_members(parsed, members, imports, enum_values),
                     inherited,
                 },
             ))
@@ -597,8 +769,8 @@ fn collect_props_definitions(
 fn parameters_from_members(
     parsed: &ParsedReactModule,
     members: &[TsTypeElement],
-    imports: &HashMap<Id, String>,
-    local_enum_values: &BTreeMap<Id, Vec<String>>,
+    imports: &ImportPackages,
+    enum_values: &EnumValues,
 ) -> Vec<RegistryParameter> {
     members
         .iter()
@@ -621,16 +793,15 @@ fn parameters_from_members(
             let description = parameter_description(parsed, property.span);
             let (type_kind, allowed_values) = property.type_ann.as_ref().map_or_else(
                 || (None, Vec::new()),
-                |annotation| {
-                    parameter_type_facts(parsed, &annotation.type_ann, imports, local_enum_values)
-                },
+                |annotation| parameter_type_facts(parsed, &annotation.type_ann, enum_values),
             );
             let package = property
                 .type_ann
                 .as_ref()
                 .and_then(|annotation| imported_type_id(&annotation.type_ann))
                 .and_then(|id| imports.get(&id))
-                .cloned();
+                .cloned()
+                .flatten();
             Some(RegistryParameter {
                 name,
                 type_text,
@@ -653,8 +824,7 @@ fn parameter_description(parsed: &ParsedReactModule, span: Span) -> Option<Strin
 fn parameter_type_facts(
     parsed: &ParsedReactModule,
     ty: &TsType,
-    imports: &HashMap<Id, String>,
-    local_enum_values: &BTreeMap<Id, Vec<String>>,
+    enum_values: &EnumValues,
 ) -> (Option<RegistryParameterTypeKind>, Vec<String>) {
     let kind = match ty {
         TsType::TsKeywordType(keyword) => match keyword.kind {
@@ -673,9 +843,7 @@ fn parameter_type_facts(
     };
     let allowed_values = match ty {
         TsType::TsTypeRef(reference) => match &reference.type_name {
-            TsEntityName::Ident(ident) if !imports.contains_key(&ident.to_id()) => {
-                local_enum_values.get(&ident.to_id()).cloned()
-            }
+            TsEntityName::Ident(ident) => enum_values.get(&ident.to_id()).cloned(),
             _ => None,
         },
         _ => literal_union_values(parsed, ty),
@@ -719,15 +887,15 @@ fn component_details(
     span: Span,
     implementation: ComponentImpl<'_>,
     props: &HashMap<Id, PropsDefinition>,
-    imports: &HashMap<Id, String>,
-    local_enum_values: &BTreeMap<Id, Vec<String>>,
+    imports: &ImportPackages,
+    enum_values: &EnumValues,
 ) -> RegistryDetails {
     let ComponentImpl {
         signature_span,
         parameter,
     } = implementation;
     let (props_type_text, mut parameters, mut field_gaps) =
-        signature_facts(parsed, parameter, props, imports, local_enum_values);
+        signature_facts(parsed, parameter, props, imports, enum_values);
     let type_text = signature_span
         .and_then(|span| parsed.source_slice_from_span(span))
         .map(|text| text.trim().to_owned());
@@ -799,8 +967,8 @@ fn signature_facts(
     parsed: &ParsedReactModule,
     parameter: Option<&Pat>,
     props: &HashMap<Id, PropsDefinition>,
-    imports: &HashMap<Id, String>,
-    local_enum_values: &BTreeMap<Id, Vec<String>>,
+    imports: &ImportPackages,
+    enum_values: &EnumValues,
 ) -> (
     Option<String>,
     Vec<RegistryParameter>,
@@ -820,7 +988,7 @@ fn signature_facts(
         TsType::TsTypeLit(literal) => {
             return (
                 type_text,
-                parameters_from_members(parsed, &literal.members, imports, local_enum_values),
+                parameters_from_members(parsed, &literal.members, imports, enum_values),
                 Vec::new(),
             );
         }
@@ -829,7 +997,7 @@ fn signature_facts(
             swc_ecma_ast::TsEntityName::TsQualifiedName(qualified) => {
                 let package = match &qualified.left {
                     swc_ecma_ast::TsEntityName::Ident(ident) => {
-                        imports.get(&ident.to_id()).cloned()
+                        imports.get(&ident.to_id()).cloned().flatten()
                     }
                     swc_ecma_ast::TsEntityName::TsQualifiedName(_) => None,
                 };
@@ -853,7 +1021,7 @@ fn signature_facts(
     let id = ident.to_id();
     let Some(definition) = props.get(&id) else {
         if let Some(package) = imports.get(&id) {
-            return imported_props_parameters(parameter, type_text, Some(package.clone()));
+            return imported_props_parameters(parameter, type_text, package.clone());
         }
         return (
             type_text,

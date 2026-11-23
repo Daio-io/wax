@@ -70,7 +70,7 @@ Other shapes lose structured facts:
 |-------------|--------|
 | `interface X extends Y` | Members and descriptions are kept, but `type_kind`/`allowed_values` are cleared and an inherits field gap is recorded. |
 | Intersection alias (`type X = A & B`) | No parameters, and a field gap is recorded. |
-| Imported props type | One opaque parameter with `package` and no member facts. |
+| Imported props type | One opaque parameter with no member facts. |
 | No type annotation | No parameters, and a field gap is recorded. |
 
 Per-prop facts:
@@ -83,17 +83,23 @@ Per-prop facts:
   - `function`: function types
   - `collection`: arrays and tuples
   - `object`: `object` and inline object literals
-  - `enum` with `allowed_values` is extracted from inline literal unions, from
-    top-level literal-union aliases in the same file, and from top-level
-    TypeScript enums in the same file. Aliases and enums can be exported.
+  - `enum` with `allowed_values` is extracted from inline literal unions and
+    top-level literal-union aliases and TypeScript enums in the same file.
+    A named relative import can also resolve an exported alias or enum in
+    the discovery roots, including renamed imports and one named re-export.
+    For example, `import type { ButtonVariant } from './types'` can resolve
+    `export type ButtonVariant = 'primary' | 'secondary'`.
 - String union members are decoded, so `'primary' | "secondary"` yields
   `["primary", "secondary"]`. Numeric, boolean, and bigint members keep their
   source spelling. TypeScript enums contribute member names, so
   `enum Variant { Primary = 'primary', Secondary = 'secondary' }` yields
   `["Primary", "Secondary"]`.
-- Imported types, unions with non-literal members such as `undefined`, and
-  unions containing template literal types with substitutions or empty
-  string values have no enum facts. Use `?` for optional props.
+- Imports from bare packages, outside the discovery roots, or from files
+  with parse errors keep their opaque type and `package` metadata. Other
+  relative imports within the roots omit `package`.
+- Unresolved types, unions with non-literal members such as `undefined`, and
+  unions containing template literal types with substitutions or empty string
+  values have no enum facts. Use `?` for optional props.
 
 ## Structural fixes (each needs approval)
 
