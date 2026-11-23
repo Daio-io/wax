@@ -674,33 +674,38 @@ fn is_detachable_leading_annotation_kind(kind: &str) -> bool {
 }
 
 fn parse_kdoc(text: &str) -> KDoc {
+    enum Block<'a> {
+        Body,
+        Parameter(&'a str),
+        DuplicateParameter,
+        Guidance,
+        Ignored,
+    }
+
     let lines = text
         .trim()
         .trim_start_matches("/**")
         .trim_end_matches("*/")
         .lines()
         .map(|line| {
-            let trimmed = line.trim();
-            trimmed
-                .strip_prefix('*')
-                .map(str::trim)
-                .unwrap_or(trimmed)
-                .to_owned()
-        })
-        .collect::<Vec<_>>();
+            let line = line.trim();
+            line.strip_prefix('*').unwrap_or(line).trim()
+        });
 
     let mut description = Vec::new();
     let mut deprecation = None;
     let mut fenced = Vec::new();
     let mut in_fence = false;
     let mut parameter_descriptions: BTreeMap<String, String> = BTreeMap::new();
-    let mut active_parameter = None;
-    let mut ignoring_parameter_continuation = false;
+    let mut block = Block::Body;
     let mut best_practices = Vec::new();
 
     for line in lines {
         if line.starts_with("```") {
             in_fence = !in_fence;
+            if matches!(block, Block::Guidance | Block::Ignored) {
+                block = Block::Body;
+            }
             continue;
         }
         if in_fence {
@@ -709,16 +714,19 @@ fn parse_kdoc(text: &str) -> KDoc {
             }
             continue;
         }
-        if let Some(message) = kdoc_tag_value(&line, "@deprecated") {
-            active_parameter = None;
-            ignoring_parameter_continuation = false;
+        if line.is_empty() {
+            if matches!(block, Block::Guidance | Block::Ignored) {
+                block = Block::Body;
+            }
+        } else if let Some(message) = kdoc_tag_value(line, "@deprecated") {
+            block = Block::Ignored;
             deprecation = Some(RegistryDeprecation {
                 message: non_empty(message.trim()),
                 since: None,
                 replaced_by: None,
                 extra: Map::new(),
             });
-        } else if let Some(parameter) = kdoc_tag_value(&line, "@param") {
+        } else if let Some(parameter) = kdoc_tag_value(line, "@param") {
             let parameter = parameter.trim();
             let (name, text) = parameter
                 .split_once(char::is_whitespace)
@@ -726,44 +734,55 @@ fn parse_kdoc(text: &str) -> KDoc {
             let already_documented = parameter_descriptions
                 .get(name)
                 .is_some_and(|description| !description.is_empty());
-            active_parameter = (!name.is_empty() && !already_documented).then(|| name.to_owned());
-            ignoring_parameter_continuation = already_documented;
+            block = if already_documented {
+                Block::DuplicateParameter
+            } else if name.is_empty() {
+                Block::Body
+            } else {
+                Block::Parameter(name)
+            };
             if !text.is_empty() && !already_documented {
                 parameter_descriptions.insert(name.to_owned(), text.to_owned());
             }
-        } else if let Some(guidance) = kdoc_tag_value(&line, "@guidance") {
-            active_parameter = None;
-            ignoring_parameter_continuation = false;
-            let guidance = guidance
-                .trim()
-                .strip_prefix('-')
-                .map_or_else(|| guidance.trim(), |without_dash| without_dash.trim());
-            if !guidance.is_empty() {
-                best_practices.push(RegistryBestPractice {
-                    description: guidance.to_owned(),
-                    extra: Map::new(),
-                });
-            }
+        } else if let Some(guidance) = kdoc_tag_value(line, "@guidance") {
+            block = Block::Guidance;
+            let guidance = guidance.trim();
+            best_practices.push(RegistryBestPractice {
+                description: guidance
+                    .strip_prefix('-')
+                    .unwrap_or(guidance)
+                    .trim()
+                    .to_owned(),
+                extra: Map::new(),
+            });
         } else if line.starts_with('@') {
-            active_parameter = None;
-            ignoring_parameter_continuation = false;
-            // Ignore KDoc tags for description text. `@sample` is a file reference
-            // resolved in a later phase, not embedded example body.
-        } else if !line.is_empty() {
-            if let Some(name) = &active_parameter {
-                parameter_descriptions
-                    .entry(name.clone())
-                    .and_modify(|description| {
-                        description.push(' ');
-                        description.push_str(&line);
-                    })
-                    .or_insert(line);
-            } else if !ignoring_parameter_continuation {
-                description.push(line);
+            block = Block::Ignored;
+        } else {
+            match block {
+                Block::Body => description.push(line),
+                Block::Parameter(name) => {
+                    parameter_descriptions
+                        .entry(name.to_owned())
+                        .and_modify(|description| {
+                            description.push(' ');
+                            description.push_str(line);
+                        })
+                        .or_insert_with(|| line.to_owned());
+                }
+                Block::Guidance => {
+                    if let Some(rule) = best_practices.last_mut() {
+                        if !rule.description.is_empty() {
+                            rule.description.push(' ');
+                        }
+                        rule.description.push_str(line);
+                    }
+                }
+                Block::DuplicateParameter | Block::Ignored => {}
             }
         }
     }
 
+    best_practices.retain(|rule| !rule.description.is_empty());
     KDoc {
         documentation: non_empty(description.join("\n").trim()),
         parameter_descriptions,

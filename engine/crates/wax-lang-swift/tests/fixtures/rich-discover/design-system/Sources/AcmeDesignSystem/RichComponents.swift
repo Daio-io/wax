@@ -4,9 +4,9 @@ import SwiftUI
 /// - Parameters:
 ///   - tone: Visual emphasis.
 ///   - disabled: Whether the button ignores interaction.
-/// - Guidance: Prefer touch-first controls.
+/// - Guidance: Prefer
+///   touch-first controls.
 /// - Guidance: Keep labels concise.
-///
 /// Example:
 /// ```swift
 /// RichButton(tone: .quiet, disabled: false)

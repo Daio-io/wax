@@ -730,6 +730,7 @@ fn parse_documentation(attached: &str) -> SwiftDocumentation {
             in_example = true;
         } else if in_example && line.starts_with("```") {
             in_fence = !in_fence;
+            in_example = in_fence;
         } else if in_example && (in_fence || !line.is_empty()) {
             example.push(line);
         } else if !line.is_empty() {

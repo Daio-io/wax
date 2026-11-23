@@ -818,6 +818,69 @@ fun SecondaryButton() {}
 }
 
 #[test]
+fn discover_registry_details_routes_kdoc_tag_continuations() -> io::Result<()> {
+    let repo = tempfile::tempdir()?;
+    fs::create_dir(repo.path().join("src"))?;
+    fs::write(
+        repo.path().join("src/Button.kt"),
+        r#"package com.example
+
+import androidx.compose.runtime.Composable
+
+/**
+ * Shows a button.
+ * @guidance Prefer concise labels
+ * when space is limited.
+ * @see AnotherButton
+ * See its compact variant.
+ * @return A button
+ * with the supplied label.
+ *
+ * Use in toolbars.
+ * @param label The visible
+ *
+ * button label.
+ */
+@Composable
+fun Button(label: String) {}
+"#,
+    )?;
+    let result = discover_registry_details(&DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "compose".try_into().unwrap(),
+        repo_root: repo.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry: serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "components": [{"id": "button", "symbol": "Button"}]
+        }))
+        .unwrap(),
+    })
+    .expect("discover button");
+    let details = result.document.components[0].details.as_ref().unwrap();
+
+    assert_eq!(
+        details
+            .best_practices
+            .iter()
+            .map(|rule| rule.description.as_str())
+            .collect::<Vec<_>>(),
+        ["Prefer concise labels when space is limited."]
+    );
+    assert_eq!(
+        details.documentation.as_deref(),
+        Some("Shows a button.\nUse in toolbars.")
+    );
+    assert_eq!(
+        details.signature.as_ref().unwrap().parameters[0]
+            .description
+            .as_deref(),
+        Some("The visible button label.")
+    );
+    Ok(())
+}
+
+#[test]
 fn discover_registry_details_omits_sample_tag_as_example_body() -> io::Result<()> {
     let tempdir = tempfile::tempdir()?;
     let src = tempdir.path().join("src");

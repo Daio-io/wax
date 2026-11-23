@@ -18,7 +18,7 @@ Put a `/** ... */` block directly above the function. Annotations such as
 `@Composable`, `@OptIn`, or `@Deprecated` and `//` comments may sit between the
 KDoc and `fun`.
 
-```kotlin
+````kotlin
 /**
  * Triggers the main action on a screen or dialog.
  *
@@ -31,22 +31,22 @@ KDoc and `fun`.
  *
  * @param text Visible label. Keep it to a short verb phrase such as "Save".
  * @param enabled When false, the button ignores input and renders as disabled.
- * @guidance Use at most one primary button per surface.
+ * @guidance Use at most one primary
+ *   button per surface.
  */
-```
+````
 
 | KDoc | Registry fact | Notes |
 |------|---------------|-------|
-| Body text before the tags | `documentation` | Blank lines are dropped and the remaining lines are joined with newlines. |
+| Body text | `documentation` | Blank lines are dropped and the remaining lines are joined with newlines. |
 | `@param name text` | parameter `description` | Lines after it continue the description until the next tag. The first `@param` for a name wins. |
-| `@guidance text` | `best_practices[]` | **One line each.** A leading `- ` is stripped. A continuation line becomes body text. |
+| `@guidance text` | `best_practices[]` | A leading `- ` is stripped. Consecutive lines in the block are joined with spaces. |
 | Fenced block (three backticks) | example attachment (`kotlin`) | All fenced blocks are concatenated. Blank lines inside the fence are dropped. |
 | `@deprecated text` | `deprecation.message` | Used only when there is no `@Deprecated` annotation. |
 
-Every other tag (`@return`, `@see`, `@sample`, `@throws`, ...) is ignored, but
-**lines that continue it are read as body text**. Keep those tags on one line
-and put all body text before the tags. `@sample` is not resolved, so use a
-fenced block for the example.
+Wax skips other tags (`@return`, `@see`, `@sample`, `@throws`, ...) and their
+continuation lines. A new tag, blank line, or fence ends a guidance or ignored
+tag block. Use a fenced block to embed an example.
 
 ## Signature facts
 

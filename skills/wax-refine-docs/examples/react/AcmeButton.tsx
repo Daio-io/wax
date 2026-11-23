@@ -9,17 +9,17 @@ export interface AcmeButtonProps {
   /** When true, the button ignores input and renders as disabled. */
   disabled?: boolean;
 }
-
 /**
  * Triggers the main action on a screen or dialog.
  *
  * Use one primary `AcmeButton` per surface and pair it with a secondary
  * variant for alternative actions.
- *
- * @guidance Use at most one primary button per surface.
+ * @guidance Use at most one primary
+ *   button per surface.
  * @guidance Prefer verb labels such as "Save" over "OK".
- * @example
+ * @example ```tsx
  * <AcmeButton label="Save" onClick={save} />
+ * ```
  */
 export function AcmeButton({
   label,

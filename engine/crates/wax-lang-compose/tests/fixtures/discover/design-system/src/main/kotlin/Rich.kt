@@ -11,11 +11,11 @@ enum class Style { strong, quiet }
  * @param enabled Whether the button accepts input.
  * @param onClick Invoked when the button is pressed.
  * @param style Visual emphasis.
- * @guidance Prefer touch-first controls.
+ * @guidance Prefer
+ *   touch-first controls.
  * @guidance Keep labels concise.
  * @deprecated Prefer ActionButton instead.
  * @sample com.example.ds.samples.RichButtonSample
- *
  * ```
  * RichButton(text = "Go") {}
  * ```
