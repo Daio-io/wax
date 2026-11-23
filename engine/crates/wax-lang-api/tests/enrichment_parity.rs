@@ -262,3 +262,62 @@ fn basic_pack_discovery_path_returns_discover_unsupported() {
         json!("discover_unsupported")
     );
 }
+
+#[test]
+fn compose_and_swift_share_sibling_enum_enrichment_semantics() {
+    let repo = tempfile::tempdir().unwrap();
+    let compose_root = repo.path().join("kotlin");
+    let swift_root = repo.path().join("Sources/DesignSystem");
+    std::fs::create_dir_all(&compose_root).unwrap();
+    std::fs::create_dir_all(&swift_root).unwrap();
+    std::fs::write(
+        compose_root.join("RichButton.kt"),
+        "package acme\n\n@Composable\nfun RichButton(variant: Variant) {}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        compose_root.join("Variant.kt"),
+        "package acme\n\nenum class Variant { primary, secondary }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        swift_root.join("RichButton.swift"),
+        r#"import SwiftUI
+
+public struct RichButton: View {
+    public init(variant: Variant) {}
+    public var body: some View { EmptyView() }
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        swift_root.join("Variant.swift"),
+        "public enum Variant { case primary, secondary }\n",
+    )
+    .unwrap();
+
+    let request = |language: &str, root: &str, package: &str| DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: language.try_into().unwrap(),
+        repo_root: repo.path().to_string_lossy().into_owned(),
+        roots: vec![root.to_owned()],
+        registry: serde_json::from_value(json!({
+            "schema_version": 1,
+            "components": [{"id": "button", "symbol": "RichButton", "package": package}]
+        }))
+        .unwrap(),
+    };
+    let compose = compose_details(&request("compose", "kotlin", "acme")).unwrap();
+    let swift = swift_details(&request("swift", "Sources", "DesignSystem")).unwrap();
+    for document in [compose.document, swift.document] {
+        let details = document.components[0].details.as_ref().unwrap();
+        assert_eq!(details.status, RegistryExtractionStatus::Complete);
+        let parameter = &details.signature.as_ref().unwrap().parameters[0];
+        assert_eq!(
+            parameter.type_kind,
+            Some(wax_contract::RegistryParameterTypeKind::Enum)
+        );
+        assert_eq!(parameter.allowed_values, ["primary", "secondary"]);
+    }
+}

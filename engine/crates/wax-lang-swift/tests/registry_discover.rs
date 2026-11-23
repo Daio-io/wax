@@ -263,6 +263,114 @@ public func ImportedCard(
 }
 
 #[test]
+fn discover_registry_details_ignores_private_sibling_enum_for_explicit_module_import()
+-> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let styles = tempdir.path().join("Sources/Styles");
+    let app = tempdir.path().join("Sources/App");
+    fs::create_dir_all(&styles)?;
+    fs::create_dir_all(&app)?;
+    fs::write(
+        styles.join("Variant.swift"),
+        "public enum Variant { case primary, secondary }\n",
+    )?;
+    fs::write(
+        app.join("Local.swift"),
+        "private enum Variant { case localOnly }\n",
+    )?;
+    fs::write(
+        app.join("Button.swift"),
+        r#"import enum Styles.Variant
+import SwiftUI
+
+public func Button(variant: Variant) -> some View {
+    Text("Button")
+}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "button", "symbol": "Button", "package": "App"}]
+    }))
+    .expect("registry fixture");
+
+    let result = discover_registry_details(&DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "swift".try_into().expect("swift id"),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["Sources".to_owned()],
+        registry,
+    })
+    .expect("registry discovery should succeed");
+    let parameter = &result.document.components[0]
+        .details
+        .as_ref()
+        .expect("button should be enriched")
+        .signature
+        .as_ref()
+        .expect("button should have a signature")
+        .parameters[0];
+
+    assert_eq!(parameter.package.as_deref(), Some("Styles"));
+    assert_eq!(parameter.allowed_values, ["primary", "secondary"]);
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_does_not_resolve_internal_enum_from_imported_module() -> io::Result<()>
+{
+    let tempdir = tempfile::tempdir()?;
+    let styles = tempdir.path().join("Sources/Styles");
+    let app = tempdir.path().join("Sources/App");
+    fs::create_dir_all(&styles)?;
+    fs::create_dir_all(&app)?;
+    fs::write(
+        styles.join("Variant.swift"),
+        "enum Variant { case localOnly }\n",
+    )?;
+    fs::write(
+        app.join("Button.swift"),
+        r#"import enum Styles.Variant
+import SwiftUI
+
+public func Button(variant: Variant) -> some View {
+    Text("Button")
+}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "button", "symbol": "Button", "package": "App"}]
+    }))
+    .expect("registry fixture");
+
+    let result = discover_registry_details(&DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "swift".try_into().expect("swift id"),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["Sources".to_owned()],
+        registry,
+    })
+    .expect("registry discovery should succeed");
+    let parameter = &result.document.components[0]
+        .details
+        .as_ref()
+        .expect("button should be enriched")
+        .signature
+        .as_ref()
+        .expect("button should have a signature")
+        .parameters[0];
+
+    assert_eq!(parameter.package.as_deref(), Some("Styles"));
+    assert_eq!(
+        parameter.type_kind,
+        Some(wax_contract::RegistryParameterTypeKind::Object)
+    );
+    assert!(parameter.allowed_values.is_empty());
+    Ok(())
+}
+
+#[test]
 fn discover_registry_details_classifies_direct_swift_type_shapes() -> io::Result<()> {
     let tempdir = tempfile::tempdir()?;
     let sources = tempdir.path().join("Sources");
@@ -1102,5 +1210,189 @@ fn parse_failures_do_not_block_symbols_from_other_files() -> io::Result<()> {
     assert_eq!(result.symbols(), vec!["GoodButton"]);
     assert_eq!(result.diagnostics.len(), 1);
     assert_eq!(result.diagnostics[0].code, "parse_failed");
+    Ok(())
+}
+
+fn discover_button_enums(
+    component: &str,
+    enum_files: &[(&str, &str)],
+) -> io::Result<wax_lang_api::DiscoverRegistryResult> {
+    let tempdir = tempfile::tempdir()?;
+    let button = tempdir.path().join("Sources/DesignSystem/Button.swift");
+    fs::create_dir_all(button.parent().unwrap())?;
+    fs::write(button, component)?;
+    for (path, content) in enum_files {
+        let path = tempdir.path().join(path);
+        fs::create_dir_all(path.parent().unwrap())?;
+        fs::write(path, content)?;
+    }
+    let registry = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "button", "symbol": "Button", "package": "DesignSystem"}]
+    }))
+    .unwrap();
+    Ok(discover_registry_details(&DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "swift".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["Sources".to_owned()],
+        registry,
+    })
+    .expect("rich discover should succeed"))
+}
+
+fn button_parameter(
+    result: &wax_lang_api::DiscoverRegistryResult,
+) -> &wax_contract::RegistryParameter {
+    &result.document.components[0]
+        .details
+        .as_ref()
+        .unwrap()
+        .signature
+        .as_ref()
+        .unwrap()
+        .parameters[0]
+}
+
+const BUTTON_WITH_VARIANT: &str = r#"import SwiftUI
+
+public struct Button: View {
+    public init(variant: Variant) {}
+    public var body: some View { EmptyView() }
+}
+"#;
+
+#[test]
+fn discovers_swift_enum_from_a_sibling_in_the_same_module() -> io::Result<()> {
+    let result = discover_button_enums(
+        BUTTON_WITH_VARIANT,
+        &[(
+            "Sources/DesignSystem/Variant.swift",
+            "public enum Variant { case primary, secondary }\n",
+        )],
+    )?;
+    let parameter = button_parameter(&result);
+    assert_eq!(
+        parameter.type_kind,
+        Some(wax_contract::RegistryParameterTypeKind::Enum)
+    );
+    assert_eq!(parameter.allowed_values, ["primary", "secondary"]);
+    Ok(())
+}
+
+#[test]
+fn discovers_swift_enum_from_an_imported_module_in_the_roots() -> io::Result<()> {
+    let result = discover_button_enums(
+        &format!("import Styles\n{BUTTON_WITH_VARIANT}"),
+        &[(
+            "Sources/Styles/Variant.swift",
+            "public enum Variant { case primary, secondary }\n",
+        )],
+    )?;
+    let parameter = button_parameter(&result);
+    assert_eq!(
+        parameter.type_kind,
+        Some(wax_contract::RegistryParameterTypeKind::Enum)
+    );
+    assert_eq!(parameter.allowed_values, ["primary", "secondary"]);
+    Ok(())
+}
+
+#[test]
+fn discovers_swift_enum_from_a_selective_import() -> io::Result<()> {
+    let result = discover_button_enums(
+        &format!("import enum Styles.Variant\n{BUTTON_WITH_VARIANT}"),
+        &[(
+            "Sources/Styles/Variant.swift",
+            "public enum Variant { case primary, secondary }\n",
+        )],
+    )?;
+    let parameter = button_parameter(&result);
+    assert_eq!(
+        parameter.type_kind,
+        Some(wax_contract::RegistryParameterTypeKind::Enum)
+    );
+    assert_eq!(parameter.allowed_values, ["primary", "secondary"]);
+    assert_eq!(parameter.package.as_deref(), Some("Styles"));
+    Ok(())
+}
+
+#[test]
+fn omits_swift_enum_kind_when_two_files_define_the_same_name() -> io::Result<()> {
+    let result = discover_button_enums(
+        BUTTON_WITH_VARIANT,
+        &[
+            (
+                "Sources/DesignSystem/Variant.swift",
+                "public enum Variant { case primary }\n",
+            ),
+            (
+                "Sources/DesignSystem/Other.swift",
+                "public enum Variant { case secondary }\n",
+            ),
+        ],
+    )?;
+    let parameter = button_parameter(&result);
+    assert_eq!(parameter.type_kind, None);
+    assert!(parameter.allowed_values.is_empty());
+    Ok(())
+}
+
+#[test]
+fn ignores_swift_enum_in_a_damaged_sibling_file() -> io::Result<()> {
+    let result = discover_button_enums(
+        BUTTON_WITH_VARIANT,
+        &[(
+            "Sources/DesignSystem/Variant.swift",
+            "public enum Variant { case primary }\n\nfunc broken(",
+        )],
+    )?;
+    assert!(!result.diagnostics.is_empty());
+    let parameter = button_parameter(&result);
+    assert_eq!(
+        parameter.type_kind,
+        Some(wax_contract::RegistryParameterTypeKind::Object)
+    );
+    assert!(parameter.allowed_values.is_empty());
+    Ok(())
+}
+
+#[test]
+fn keeps_swift_import_package_when_enum_is_outside_the_discovery_roots() -> io::Result<()> {
+    let result = discover_button_enums(
+        &format!("import enum Styles.Variant\n{BUTTON_WITH_VARIANT}"),
+        &[(
+            "external/Sources/Styles/Variant.swift",
+            "public enum Variant { case primary }\n",
+        )],
+    )?;
+    let parameter = button_parameter(&result);
+    assert_eq!(parameter.package.as_deref(), Some("Styles"));
+    assert_eq!(
+        parameter.type_kind,
+        Some(wax_contract::RegistryParameterTypeKind::Object)
+    );
+    assert!(parameter.allowed_values.is_empty());
+    Ok(())
+}
+
+#[test]
+fn prefers_swift_enum_in_the_same_module_over_an_import() -> io::Result<()> {
+    let result = discover_button_enums(
+        &format!("import enum Styles.Variant\n{BUTTON_WITH_VARIANT}"),
+        &[
+            (
+                "Sources/DesignSystem/Variant.swift",
+                "public enum Variant { case primary }\n",
+            ),
+            (
+                "Sources/Styles/Variant.swift",
+                "public enum Variant { case secondary }\n",
+            ),
+        ],
+    )?;
+    let parameter = button_parameter(&result);
+    assert_eq!(parameter.allowed_values, ["primary"]);
+    assert_eq!(parameter.package, None);
     Ok(())
 }

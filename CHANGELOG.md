@@ -83,6 +83,8 @@
 
 ### wax-lang-compose
 
+- Resolve registry enum values from top-level declarations across discovery
+  files. Enums imported from packages within the roots keep their package metadata.
 - Stop treating `when` arm bodies of the form `-> if (cond) …` as when-guards. The false-positive mask was introducing `parse_failed` diagnostics on valid Kotlin.
 - Join wrapped KDoc `@guidance` into one best practice and skip continuation
   lines on ignored tags during registry discovery.
@@ -97,6 +99,8 @@
 
 ### wax-lang-swift
 
+- Resolve registry enum values across discovery files in the same Swift module
+  or an imported module within the roots.
 - Stop reading an initializer body as the last parameter's default. A trailing
   parameter without a default, such as `action: @escaping () -> Void`, is now
   reported as required with no `default`.

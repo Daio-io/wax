@@ -16,9 +16,9 @@ use wax_lang_api::{
 use crate::component_detect::collect_component_declarations;
 use crate::discover::SwiftDiscoverError;
 use crate::swift_ast::{
-    ImportBindings, ParseSwiftFileError, collect_import_bindings, collect_swift_files, new_parser,
-    parse_swift_file_permissive, partial_tree_parse_diagnostic, tree_has_syntax_errors,
-    unparseable_file_diagnostic,
+    ImportBindings, ParseSwiftFileError, ParsedSwiftFile, collect_import_bindings,
+    collect_swift_files, new_parser, parse_swift_file_permissive, partial_tree_parse_diagnostic,
+    tree_has_syntax_errors, unparseable_file_diagnostic,
 };
 
 #[derive(Debug)]
@@ -26,6 +26,79 @@ struct ComponentDeclaration {
     symbol: String,
     package: Option<String>,
     details: RegistryDetails,
+}
+
+#[derive(Debug)]
+struct IndexedEnum {
+    values: Vec<String>,
+    visible_in_module: bool,
+    visible_outside_module: bool,
+}
+
+// An indexed name with no unique declaration blocks fallback to imports or object classification.
+type EnumIndex<'a> = BTreeMap<(Option<&'a str>, &'a str), Option<IndexedEnum>>;
+
+struct ParsedSource {
+    parsed: ParsedSwiftFile,
+    path: String,
+    module: Option<String>,
+    damaged: bool,
+}
+
+struct ParameterTypeFacts<'a> {
+    module: Option<&'a str>,
+    enums: &'a EnumIndex<'a>,
+    local_enums: BTreeMap<&'a str, Vec<String>>,
+    local_types: BTreeSet<String>,
+    imports: ImportBindings,
+}
+
+impl ParameterTypeFacts<'_> {
+    fn enum_values<'a>(&'a self, name: &'a str) -> Option<&'a [String]> {
+        let module_enum = self.enums.get(&(self.module, name));
+        if matches!(module_enum, Some(None)) {
+            return Some(&[]);
+        }
+        if let Some(values) = self.local_enums.get(name) {
+            return Some(values);
+        }
+        if self.local_types.contains(name) {
+            return None;
+        }
+        if let Some(Some(enum_facts)) = module_enum
+            && enum_facts.visible_in_module
+        {
+            return Some(&enum_facts.values);
+        }
+        if self.imports.symbol_packages.contains_key(name) {
+            let (module, _) = self.imports.token_origin(name)?;
+            return self.enums.get(&(Some(module), name)).and_then(|facts| {
+                facts.as_ref().and_then(|facts| {
+                    facts
+                        .visible_outside_module
+                        .then_some(facts.values.as_slice())
+                })
+            });
+        }
+        let mut matching_modules = self
+            .imports
+            .module_imports
+            .iter()
+            .map(String::as_str)
+            .filter_map(|module| {
+                self.enums.get(&(Some(module), name)).and_then(|facts| {
+                    facts.as_ref().and_then(|facts| {
+                        facts
+                            .visible_outside_module
+                            .then_some((module, facts.values.as_slice()))
+                    })
+                })
+            });
+        let (module, values) = matching_modules.next()?;
+        matching_modules
+            .all(|(other, _)| other == module)
+            .then_some(values)
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -77,7 +150,7 @@ pub fn discover_registry_details(
 
     let mut parser =
         new_parser().map_err(|error| SwiftDiscoverError::ParserInitFailed(error.to_string()))?;
-    let mut declarations = Vec::new();
+    let mut sources = Vec::new();
     let mut damaged_paths = Vec::new();
     let mut diagnostics = Vec::new();
     for file in files {
@@ -85,13 +158,6 @@ pub fn discover_registry_details(
         match parse_swift_file_permissive(&mut parser, &file) {
             Ok(parsed) => {
                 let damaged = tree_has_syntax_errors(&parsed.tree);
-                declarations.extend(component_declarations(
-                    parsed.tree.root_node(),
-                    &parsed.source,
-                    &relative_path,
-                    swift_module_from_source_path(&file),
-                    damaged,
-                ));
                 if damaged {
                     damaged_paths.push(relative_path.clone());
                     diagnostics.push(partial_tree_parse_diagnostic(
@@ -99,6 +165,12 @@ pub fn discover_registry_details(
                         &relative_path,
                     ));
                 }
+                sources.push(ParsedSource {
+                    parsed,
+                    path: relative_path,
+                    module: swift_module_from_source_path(&file),
+                    damaged,
+                });
             }
             Err(ParseSwiftFileError::ParseFailed(_)) => {
                 damaged_paths.push(relative_path.clone());
@@ -109,6 +181,31 @@ pub fn discover_registry_details(
             }
         }
     }
+
+    let mut enums = EnumIndex::new();
+    let mut indexed_paths = BTreeSet::new();
+    for source in &sources {
+        if source.damaged || !indexed_paths.insert(&source.path) {
+            continue;
+        }
+        for (name, values, visible_in_module, visible_outside_module) in local_enum_values(
+            source.parsed.tree.root_node(),
+            source.parsed.source.as_bytes(),
+        ) {
+            enums
+                .entry((source.module.as_deref(), name))
+                .and_modify(|existing| *existing = None)
+                .or_insert(Some(IndexedEnum {
+                    values,
+                    visible_in_module,
+                    visible_outside_module,
+                }));
+        }
+    }
+    let declarations: Vec<_> = sources
+        .iter()
+        .flat_map(|source| component_declarations(source, &enums))
+        .collect();
 
     let mut document = request.registry.clone();
     enrich_components(&mut document, &declarations, &damaged_paths);
@@ -123,32 +220,27 @@ pub fn discover_registry_details(
     })
 }
 
-fn component_declarations(
-    root: tree_sitter::Node<'_>,
-    source: &str,
-    path: &str,
-    package: Option<String>,
-    damaged: bool,
-) -> Vec<ComponentDeclaration> {
-    let local_enums = local_enum_values(root, source.as_bytes());
-    let local_types = local_type_names(root, source.as_bytes());
-    let imports = collect_import_bindings(root, source.as_bytes());
+fn component_declarations(file: &ParsedSource, enums: &EnumIndex<'_>) -> Vec<ComponentDeclaration> {
+    let root = file.parsed.tree.root_node();
+    let source = &file.parsed.source;
+    let type_facts = ParameterTypeFacts {
+        module: file.module.as_deref(),
+        enums,
+        local_enums: local_enum_values(root, source.as_bytes())
+            .into_iter()
+            .map(|(name, values, _, _)| (name, values))
+            .collect(),
+        local_types: local_type_names(root, source.as_bytes()),
+        imports: collect_import_bindings(root, source.as_bytes()),
+    };
     collect_component_declarations(root, source.as_bytes(), true)
         .into_iter()
         .filter_map(|component| {
             let node = find_component_node(root, component.start_byte)?;
             Some(ComponentDeclaration {
                 symbol: component.symbol,
-                package: package.clone(),
-                details: component_details(
-                    node,
-                    source,
-                    path,
-                    damaged,
-                    &local_enums,
-                    &local_types,
-                    &imports,
-                ),
+                package: file.module.clone(),
+                details: component_details(node, source, &file.path, file.damaged, &type_facts),
             })
         })
         .collect()
@@ -174,8 +266,11 @@ fn local_type_names(root: tree_sitter::Node<'_>, source: &[u8]) -> BTreeSet<Stri
     names
 }
 
-fn local_enum_values(root: tree_sitter::Node<'_>, source: &[u8]) -> BTreeMap<String, Vec<String>> {
-    let mut enums = BTreeMap::new();
+fn local_enum_values<'a>(
+    root: tree_sitter::Node<'_>,
+    source: &'a [u8],
+) -> Vec<(&'a str, Vec<String>, bool, bool)> {
+    let mut enums = Vec::new();
     let mut cursor = root.walk();
     for declaration in root.named_children(&mut cursor) {
         if declaration.kind() != "class_declaration"
@@ -227,9 +322,26 @@ fn local_enum_values(root: tree_sitter::Node<'_>, source: &[u8]) -> BTreeMap<Str
                 values
             })
             .unwrap_or_default();
-        enums.insert(name.to_owned(), values);
+        let visibility = declaration_visibility(declaration, source);
+        enums.push((
+            name,
+            values,
+            !matches!(visibility, Some("private" | "fileprivate")),
+            matches!(visibility, Some("public" | "open")),
+        ));
     }
     enums
+}
+
+fn declaration_visibility<'a>(node: tree_sitter::Node<'_>, source: &'a [u8]) -> Option<&'a str> {
+    let modifiers = (0..node.child_count())
+        .filter_map(|index| node.child(index))
+        .find(|child| child.kind() == "modifiers")?;
+    let mut cursor = modifiers.walk();
+    modifiers
+        .named_children(&mut cursor)
+        .find(|modifier| modifier.kind() == "visibility_modifier")
+        .and_then(|modifier| modifier.utf8_text(source).ok())
 }
 
 fn find_component_node<'tree>(
@@ -257,9 +369,7 @@ fn component_details(
     source: &str,
     path: &str,
     damaged: bool,
-    local_enums: &BTreeMap<String, Vec<String>>,
-    local_types: &BTreeSet<String>,
-    imports: &ImportBindings,
+    type_facts: &ParameterTypeFacts<'_>,
 ) -> RegistryDetails {
     let source_bytes = source.as_bytes();
     let signature_node = if node.kind() == "function_declaration" {
@@ -283,17 +393,14 @@ fn component_details(
     }
     let signature = signature_node.and_then(|signature_node| {
         let text = signature_text(signature_node, source_bytes)?;
-        let mut parameters = parameters_from_initializer(
-            signature_node,
-            source_bytes,
-            &parameter_descriptions,
-            local_enums,
-        );
+        let mut parameters =
+            parameters_from_initializer(signature_node, source_bytes, &parameter_descriptions);
         for parameter in &mut parameters {
-            parameter.package = parameter
-                .type_text
-                .as_deref()
-                .and_then(|type_text| package_for_parameter_type(type_text, local_types, imports));
+            let type_text = parameter.type_text.as_deref();
+            (parameter.type_kind, parameter.allowed_values) =
+                classify_parameter_type(type_text, type_facts);
+            parameter.package =
+                type_text.and_then(|type_text| package_for_parameter_type(type_text, type_facts));
         }
         Some(RegistrySignature {
             parameters,
@@ -360,20 +467,30 @@ fn component_details(
 
 fn package_for_parameter_type(
     type_text: &str,
-    local_types: &BTreeSet<String>,
-    imports: &ImportBindings,
+    type_facts: &ParameterTypeFacts<'_>,
 ) -> Option<String> {
     let direct_type = unwrap_parenthesized_type(type_text.trim_end_matches('?').trim());
     if let Some((qualifier, _)) = direct_type.split_once('.') {
-        return imports
+        return type_facts
+            .imports
             .module_imports
             .iter()
             .any(|package| package == qualifier)
             .then(|| qualifier.to_owned());
     }
-    (!local_types.contains(direct_type))
-        .then(|| imports.symbol_packages.get(direct_type).cloned())
-        .flatten()
+    if type_facts.local_types.contains(direct_type)
+        || matches!(
+            type_facts.enums.get(&(type_facts.module, direct_type)),
+            Some(None)
+                | Some(Some(IndexedEnum {
+                    visible_in_module: true,
+                    ..
+                }))
+        )
+    {
+        return None;
+    }
+    type_facts.imports.symbol_packages.get(direct_type).cloned()
 }
 
 fn find_direct_initializer<'tree>(
@@ -424,7 +541,6 @@ fn parameters_from_initializer(
     initializer: tree_sitter::Node<'_>,
     source: &[u8],
     descriptions: &BTreeMap<String, String>,
-    local_enums: &BTreeMap<String, Vec<String>>,
 ) -> Vec<RegistryParameter> {
     let mut parameters = Vec::new();
     let mut cursor = initializer.walk();
@@ -464,8 +580,6 @@ fn parameters_from_initializer(
         parameter.default = default;
         parameter.required = Some(parameter.default.is_none());
         parameter.description = descriptions.get(&parameter.name).cloned();
-        (parameter.type_kind, parameter.allowed_values) =
-            classify_parameter_type(parameter.type_text.as_deref(), local_enums);
         parameters.push(parameter);
     }
     parameters
@@ -473,7 +587,7 @@ fn parameters_from_initializer(
 
 fn classify_parameter_type(
     type_text: Option<&str>,
-    local_enums: &BTreeMap<String, Vec<String>>,
+    type_facts: &ParameterTypeFacts<'_>,
 ) -> (Option<RegistryParameterTypeKind>, Vec<String>) {
     let Some(type_text) = type_text.map(str::trim) else {
         return (None, Vec::new());
@@ -494,11 +608,11 @@ fn classify_parameter_type(
     if kind.is_some() {
         return (kind, Vec::new());
     }
-    if let Some(values) = local_enums.get(type_text) {
+    if let Some(values) = type_facts.enum_values(type_text) {
         return if values.is_empty() {
             (None, Vec::new())
         } else {
-            (Some(RegistryParameterTypeKind::Enum), values.clone())
+            (Some(RegistryParameterTypeKind::Enum), values.to_vec())
         };
     }
     if is_simple_identifier(type_text) {
