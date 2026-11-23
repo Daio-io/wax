@@ -27,7 +27,7 @@ registry changes.
 | Parameter `description` | `@param name text` | `- Parameter name:` or `- Parameters:` list | JSDoc on each props member |
 | `type_kind` / `allowed_values` | Parameter type; enum declared at top level in the same file | Parameter type; top-level `enum` in the same file | Prop type; inline string-literal union |
 | `default` / `required` | Kotlin default argument | `public init` default argument | Default in the destructured props |
-| `best_practices` | `@guidance text` (one line each) | `- Guidance: text` | `@guidance text` (one line each) |
+| `best_practices` | `@guidance text` | `- Guidance: text` | `@guidance text` |
 | Example attachment | Fenced block in the KDoc | `Example:` then a fenced block | `@example` body |
 | `deprecation` | `@Deprecated(...)` or `@deprecated` | `@available(*, deprecated, message:)` or `- Deprecated:` | `@deprecated text` |
 

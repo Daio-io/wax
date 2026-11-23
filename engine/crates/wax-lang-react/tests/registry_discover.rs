@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::{fs, io};
 
-use wax_contract::{RegistryDocument, RegistryParameterTypeKind};
+use wax_contract::{RegistryDetails, RegistryDocument, RegistryParameterTypeKind};
 use wax_lang_api::{
     DiscoverRegistryRequest, DiscoverRequest, DiscoverRequestType, WIRE_API_VERSION,
 };
@@ -98,6 +98,99 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
             ]
         })
     );
+}
+
+fn discover_documented_button(source: &str) -> io::Result<RegistryDetails> {
+    let repo = tempfile::tempdir()?;
+    fs::create_dir(repo.path().join("src"))?;
+    fs::write(repo.path().join("src/Button.tsx"), source)?;
+    let result = discover_registry_details(&DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "react".try_into().unwrap(),
+        repo_root: repo.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry: serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "components": [{"id": "button", "symbol": "Button"}]
+        }))
+        .unwrap(),
+    })
+    .expect("discover button");
+    Ok(result
+        .document
+        .components
+        .into_iter()
+        .next()
+        .unwrap()
+        .details
+        .unwrap())
+}
+
+#[test]
+fn discover_registry_details_routes_jsdoc_tag_continuations() -> io::Result<()> {
+    let details = discover_documented_button(
+        r#"/** Shows a button.
+ * @guidance Prefer concise labels
+ * when space is limited.
+ *
+ * Use in toolbars.
+ * @see AnotherButton
+ * See its compact variant.
+ * @returns A button
+ * with the supplied label.
+ * @remarks Internal notes
+ * about the implementation.
+ * @param props Button props
+ * supplied by the caller.
+ *
+ * Use in dialogs too.
+ */
+export function Button() {
+    return <button />;
+}
+"#,
+    )?;
+
+    assert_eq!(
+        details
+            .best_practices
+            .iter()
+            .map(|rule| rule.description.as_str())
+            .collect::<Vec<_>>(),
+        ["Prefer concise labels when space is limited."]
+    );
+    assert_eq!(
+        details.documentation.as_deref(),
+        Some("Shows a button.\nUse in toolbars.\nUse in dialogs too.")
+    );
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_combines_fenced_and_unfenced_jsdoc_examples() -> io::Result<()> {
+    let details = discover_documented_button(
+        r#"/**
+ * @example
+ * ```tsx
+ * <Button label="Save" />
+ *
+ * <Button label="Cancel" />
+ * ```
+ * @example <Button label="Close" />
+ *
+ * <Button label="Exit" />
+ */
+export function Button() {
+    return <button />;
+}
+"#,
+    )?;
+
+    assert_eq!(
+        details.attachments[0].content,
+        "<Button label=\"Save\" />\n\n<Button label=\"Cancel\" />\n<Button label=\"Close\" />\n<Button label=\"Exit\" />"
+    );
+    Ok(())
 }
 
 #[test]

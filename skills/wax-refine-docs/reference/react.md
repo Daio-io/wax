@@ -15,32 +15,33 @@ nearest `package.json` above the discovery root.
 
 Put a `/** ... */` block directly before the exported declaration.
 
-```tsx
+````tsx
 /**
  * Triggers the main action on a screen or dialog.
  *
  * Use one primary `AcmeButton` per surface and pair it with a secondary
  * variant for alternative actions.
  *
- * @guidance Use at most one primary button per surface.
+ * @guidance Use at most one primary
+ *   button per surface.
  * @example
+ * ```tsx
  * <AcmeButton label="Save" onClick={save} />
+ * ```
  */
 export function AcmeButton({ label, onClick, variant = 'primary' }: AcmeButtonProps) {
-```
+````
 
 | JSDoc | Registry fact | Notes |
 |-------|---------------|-------|
-| Body text before the tags | `documentation` | Blank lines are dropped. |
-| `@guidance text` | `best_practices[]` | **One line each.** A leading `- ` is stripped. |
-| `@example` and the lines after it | example attachment | Read verbatim until the next tag. Leading whitespace is trimmed. **Leave out code fences**, because fence lines would become part of the example. Several `@example` blocks are concatenated. |
+| Body text | `documentation` | Blank lines are dropped. |
+| `@guidance text` | `best_practices[]` | A leading `- ` is stripped. Consecutive lines in the block are joined with spaces. |
+| `@example` and the lines after it | example attachment | The example runs until the next tag outside a fence. Wax trims leading whitespace, strips fence lines, and concatenates multiple examples. |
 | `@deprecated text` | `deprecation.message` | |
 
-Every other tag (`@param`, `@remarks`, `@see`, `@returns`, ...) is ignored,
-including any text on the tag's own line. **Continuation lines after a tag
-other than `@example` are read as body text.** Put all body text before the
-tags, write a TSDoc `@remarks` section as plain body text, and keep the other
-tags on one line.
+Wax skips other tags (`@param`, `@remarks`, `@see`, `@returns`, ...) and their
+continuation lines. A new tag, blank line, or fence ends a guidance or ignored
+tag block. Write remarks as plain body text to include them in `documentation`.
 
 ## Prop docs live on the props type
 

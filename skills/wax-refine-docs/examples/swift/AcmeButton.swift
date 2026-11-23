@@ -11,9 +11,9 @@ public enum AcmeButtonVariant {
 /// Use one primary ``AcmeButton`` per surface and pair it with a secondary
 /// variant for alternative actions.
 ///
-/// - Guidance: Use at most one primary button per surface.
+/// - Guidance: Use at most one primary
+///   button per surface.
 /// - Guidance: Prefer verb labels such as "Save" over "OK".
-///
 /// Example:
 /// ```swift
 /// AcmeButton("Save") { save() }

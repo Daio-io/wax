@@ -11,14 +11,14 @@ export interface ButtonProps {
   /** Prevents interaction. */
   disabled: boolean;
 }
-
 /**
  * A button used for important actions.
  *
  * @deprecated Use ActionButton instead.
  * @example
  * <Button tone="quiet" />
- * @guidance Prefer touch-first controls.
+ * @guidance Prefer
+ *   touch-first controls.
  * @guidance Keep labels concise.
  */
 export function RichButton({ tone = "strong", disabled }: ButtonProps) {

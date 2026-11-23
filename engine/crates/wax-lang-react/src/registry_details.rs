@@ -958,18 +958,45 @@ fn jsdoc_for_span(parsed: &ParsedReactModule, span: Span) -> JsDoc {
 }
 
 fn parse_jsdoc(text: &str) -> JsDoc {
+    enum Block {
+        Body,
+        BodyFence,
+        Example,
+        ExampleFence,
+        Guidance,
+        Ignored,
+    }
+
     let lines = text
         .lines()
-        .map(|line| line.trim().trim_start_matches('*').trim())
-        .collect::<Vec<_>>();
+        .map(|line| line.trim().trim_start_matches('*').trim());
     let mut description = Vec::new();
     let mut deprecation = None;
     let mut example = Vec::new();
     let mut best_practices = Vec::new();
-    let mut in_example = false;
+    let mut block = Block::Body;
     for line in lines {
-        if let Some(message) = line.strip_prefix("@deprecated") {
-            in_example = false;
+        if line.starts_with("```") {
+            block = match block {
+                Block::Example => Block::ExampleFence,
+                Block::ExampleFence => Block::Example,
+                Block::BodyFence => {
+                    description.push(line);
+                    Block::Body
+                }
+                _ => {
+                    description.push(line);
+                    Block::BodyFence
+                }
+            };
+        } else if matches!(block, Block::ExampleFence) {
+            example.push(line);
+        } else if matches!(block, Block::BodyFence) {
+            if !line.is_empty() {
+                description.push(line);
+            }
+        } else if let Some(message) = line.strip_prefix("@deprecated") {
+            block = Block::Ignored;
             deprecation = Some(RegistryDeprecation {
                 message: non_empty(message.trim()),
                 since: None,
@@ -977,30 +1004,49 @@ fn parse_jsdoc(text: &str) -> JsDoc {
                 extra: Map::new(),
             });
         } else if let Some(first_line) = line.strip_prefix("@example") {
-            in_example = true;
-            if !first_line.trim().is_empty() {
-                example.push(first_line.trim());
-            }
+            let first_line = first_line.trim();
+            block = if first_line.starts_with("```") {
+                Block::ExampleFence
+            } else {
+                if !first_line.is_empty() {
+                    example.push(first_line);
+                }
+                Block::Example
+            };
         } else if let Some(guidance) = line.strip_prefix("@guidance") {
-            in_example = false;
+            block = Block::Guidance;
             let guidance = guidance.trim();
-            let guidance = guidance.strip_prefix('-').unwrap_or(guidance).trim();
-            if !guidance.is_empty() {
-                best_practices.push(RegistryBestPractice {
-                    description: guidance.to_owned(),
-                    extra: Map::new(),
-                });
-            }
+            best_practices.push(RegistryBestPractice {
+                description: guidance
+                    .strip_prefix('-')
+                    .unwrap_or(guidance)
+                    .trim()
+                    .to_owned(),
+                extra: Map::new(),
+            });
         } else if line.starts_with('@') {
-            in_example = false;
-        } else if in_example {
-            if !line.is_empty() {
-                example.push(line);
+            block = Block::Ignored;
+        } else if line.is_empty() {
+            if matches!(block, Block::Guidance | Block::Ignored) {
+                block = Block::Body;
             }
-        } else if !line.is_empty() {
-            description.push(line);
+        } else {
+            match block {
+                Block::Body => description.push(line),
+                Block::Example => example.push(line),
+                Block::Guidance => {
+                    if let Some(rule) = best_practices.last_mut() {
+                        if !rule.description.is_empty() {
+                            rule.description.push(' ');
+                        }
+                        rule.description.push_str(line);
+                    }
+                }
+                Block::Ignored | Block::BodyFence | Block::ExampleFence => {}
+            }
         }
     }
+    best_practices.retain(|rule| !rule.description.is_empty());
     JsDoc {
         documentation: non_empty(description.join("\n").trim()),
         deprecation,

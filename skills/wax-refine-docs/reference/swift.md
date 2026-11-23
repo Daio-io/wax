@@ -20,7 +20,7 @@ Use `///` lines (or `/** ... */`) **directly above** the declaration. Attribute
 lines such as `@MainActor` or `@available` may sit in between. **A blank line
 detaches the comment.**
 
-```swift
+````swift
 /// Triggers the main action on a screen or sheet.
 ///
 /// Use one primary ``AcmeButton`` per surface and pair it with a secondary
@@ -33,14 +33,14 @@ detaches the comment.**
 /// AcmeButton("Save") { save() }
 /// ```
 public struct AcmeButton: View {
-```
+````
 
 | Markup | Registry fact | Notes |
 |--------|---------------|-------|
 | Body text | `documentation` | Blank lines are dropped. Callouts that Wax does not read, such as `- Note:` or `- Returns:`, stay in the text. |
 | `- Parameter name: text` or a `- Parameters:` list of `- name: text` | parameter `description` | Use the **internal** parameter name (`title` in `_ title: String`). Indented continuation lines are joined. |
 | `- Guidance: text` | `best_practices[]` | Indented continuation lines are joined. |
-| `Example:` or `- Example:` and then a fenced block | example attachment (`swift`) | Everything after the marker is read as the example until the next Parameter or Guidance marker, so **put the example last**. |
+| `Example:` or `- Example:` and then a fenced block | example attachment (`swift`) | The closing fence ends the example so body text can follow it. An unfenced example can continue until the next Parameter or Guidance marker. |
 | `- Deprecated: text` | `deprecation.message` | `@available(*, deprecated, message: "...")` takes precedence. |
 
 ## Signature facts and the `public init` rule

@@ -183,9 +183,9 @@ fn parser_packs_share_rich_button_enrichment_semantics() {
             pack.language
         );
         assert_eq!(
-            pack.best_practices.len(),
-            2,
-            "{} should preserve both ordered guidance items",
+            pack.best_practices,
+            ["Prefer touch-first controls.", "Keep labels concise."],
+            "{} should join wrapped guidance and preserve item order",
             pack.language
         );
         assert!(
@@ -209,11 +209,6 @@ fn parser_packs_share_rich_button_enrichment_semantics() {
         assert_eq!(
             pack.enum_values, packs[0].enum_values,
             "{} should match React's enum values",
-            pack.language
-        );
-        assert_eq!(
-            pack.best_practices, packs[0].best_practices,
-            "{} should match React's ordered best practices",
             pack.language
         );
     }

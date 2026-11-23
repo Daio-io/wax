@@ -84,12 +84,20 @@
 ### wax-lang-compose
 
 - Stop treating `when` arm bodies of the form `-> if (cond) …` as when-guards. The false-positive mask was introducing `parse_failed` diagnostics on valid Kotlin.
+- Join wrapped KDoc `@guidance` into one best practice and skip continuation
+  lines on ignored tags during registry discovery.
+
+### wax-lang-react
+
+- Join wrapped JSDoc `@guidance`, skip continuation lines on ignored tags, and
+  strip code fences from `@example` attachments during registry discovery.
 
 ### wax-lang-swift
 
 - Stop reading an initializer body as the last parameter's default. A trailing
   parameter without a default, such as `action: @escaping () -> Void`, is now
   reported as required with no `default`.
+- Include body text after a closed `Example:` fence in registry documentation.
 
 ### wax-core
 

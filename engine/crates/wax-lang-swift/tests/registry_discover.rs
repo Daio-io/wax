@@ -96,6 +96,53 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
 }
 
 #[test]
+fn discover_registry_details_resumes_swift_documentation_after_example_fence() -> io::Result<()> {
+    let repo = tempfile::tempdir()?;
+    fs::create_dir(repo.path().join("Sources"))?;
+    fs::write(
+        repo.path().join("Sources/DocumentedCard.swift"),
+        r#"import SwiftUI
+
+/// Renders documented content.
+/// Example:
+/// ```swift
+/// DocumentedCard()
+/// ```
+/// Use on the home screen.
+/// - Example:
+/// DocumentedCard()
+/// - Guidance: Keep it concise.
+public func DocumentedCard() -> some View {
+    Text("Card")
+}
+"#,
+    )?;
+    let result = discover_registry_details(&DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "swift".try_into().unwrap(),
+        repo_root: repo.path().to_string_lossy().into_owned(),
+        roots: vec!["Sources".to_owned()],
+        registry: serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "components": [{"id": "documented", "symbol": "DocumentedCard"}]
+        }))
+        .unwrap(),
+    })
+    .expect("discover card");
+    let details = result.document.components[0].details.as_ref().unwrap();
+
+    assert_eq!(
+        details.documentation.as_deref(),
+        Some("Renders documented content.\nUse on the home screen.")
+    );
+    assert_eq!(
+        details.attachments[0].content,
+        "DocumentedCard()\nDocumentedCard()"
+    );
+    Ok(())
+}
+
+#[test]
 fn discover_registry_details_parses_docc_parameter_blocks_and_continuations() -> io::Result<()> {
     let tempdir = tempfile::tempdir()?;
     let sources = tempdir.path().join("Sources");

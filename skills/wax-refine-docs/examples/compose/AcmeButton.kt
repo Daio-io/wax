@@ -18,13 +18,13 @@ enum class AcmeButtonVariant {
  * ```kotlin
  * AcmeButton(text = "Save", onClick = { save() })
  * ```
- *
  * @param text Visible label. Keep it to a short verb phrase such as "Save".
  * @param onClick Called when the user activates the button.
  * @param modifier Modifier applied to the button container.
  * @param enabled When false, the button ignores input and renders as disabled.
  * @param variant Visual emphasis for the action.
- * @guidance Use at most one primary button per surface.
+ * @guidance Use at most one primary
+ *   button per surface.
  * @guidance Prefer verb labels such as "Save" over "OK".
  */
 @Composable
