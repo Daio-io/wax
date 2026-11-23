@@ -784,26 +784,40 @@ pub(crate) fn resolve_path_with_extensions_and_index(
     normalized: &Path,
     known_files: &BTreeSet<PathBuf>,
 ) -> Option<PathBuf> {
+    let candidate_text = normalized.to_string_lossy();
+    let extensions = if candidate_text.is_empty()
+        || SOURCE_EXTENSIONS
+            .iter()
+            .any(|extension| candidate_text.ends_with(extension))
+    {
+        &[]
+    } else {
+        SOURCE_EXTENSIONS
+    };
+    resolve_path_candidates(normalized, known_files, extensions)
+}
+
+pub(crate) fn resolve_path_candidates(
+    normalized: &Path,
+    known_files: &BTreeSet<PathBuf>,
+    extensions: &[&str],
+) -> Option<PathBuf> {
     if known_files.contains(normalized) {
         return Some(normalized.to_path_buf());
     }
 
-    let candidate_text = normalized.to_string_lossy();
-    let has_supported_extension = SOURCE_EXTENSIONS
-        .iter()
-        .any(|extension| candidate_text.ends_with(extension));
-    if !has_supported_extension {
-        for extension in SOURCE_EXTENSIONS {
-            let candidate = PathBuf::from(format!("{candidate_text}{extension}"));
-            if known_files.contains(&candidate) {
-                return Some(candidate);
-            }
+    for extension in extensions {
+        let mut candidate = normalized.as_os_str().to_os_string();
+        candidate.push(extension);
+        let candidate = PathBuf::from(candidate);
+        if known_files.contains(&candidate) {
+            return Some(candidate);
         }
-        for extension in SOURCE_EXTENSIONS {
-            let candidate = PathBuf::from(format!("{candidate_text}/index{extension}"));
-            if known_files.contains(&candidate) {
-                return Some(candidate);
-            }
+    }
+    for extension in extensions {
+        let candidate = normalized.join(format!("index{extension}"));
+        if known_files.contains(&candidate) {
+            return Some(candidate);
         }
     }
     None

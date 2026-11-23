@@ -101,9 +101,21 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
 }
 
 fn discover_documented_button(source: &str) -> io::Result<RegistryDetails> {
+    discover_button_with_sources(source, &[])
+}
+
+fn discover_button_with_sources(
+    source: &str,
+    siblings: &[(&str, &str)],
+) -> io::Result<RegistryDetails> {
     let repo = tempfile::tempdir()?;
     fs::create_dir(repo.path().join("src"))?;
     fs::write(repo.path().join("src/Button.tsx"), source)?;
+    for (path, contents) in siblings {
+        let path = repo.path().join(path);
+        fs::create_dir_all(path.parent().unwrap())?;
+        fs::write(path, contents)?;
+    }
     let result = discover_registry_details(&DiscoverRegistryRequest {
         api_version: WIRE_API_VERSION,
         language_id: "react".try_into().unwrap(),
@@ -559,6 +571,199 @@ export function Button<Variant>({ variant }: { variant: Variant }) {
     assert_eq!(parameter.type_text.as_deref(), Some("Variant"));
     assert_eq!(parameter.type_kind, None);
     assert!(parameter.allowed_values.is_empty());
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_resolves_relative_literal_union_alias() -> io::Result<()> {
+    let details = discover_button_with_sources(
+        r#"import type { Variant } from './types';
+export function Button({ variant }: { variant?: Variant }) {
+  return <button data-variant={variant} />;
+}"#,
+        &[(
+            "src/types.ts",
+            "export type Variant = 'primary' | 'secondary';",
+        )],
+    )?;
+    let parameter = &details.signature.unwrap().parameters[0];
+
+    assert_eq!(parameter.type_kind, Some(RegistryParameterTypeKind::Enum));
+    assert_eq!(parameter.allowed_values, ["primary", "secondary"]);
+    assert_eq!(parameter.package, None);
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_resolves_relative_directory_index_enum() -> io::Result<()> {
+    let details = discover_button_with_sources(
+        r#"import { Variant } from './variants';
+interface Props { variant: Variant }
+export function Button({ variant }: Props) {
+  return <button data-variant={variant} />;
+}"#,
+        &[(
+            "src/variants/index.ts",
+            "export enum Variant { Primary, Secondary }",
+        )],
+    )?;
+    let parameter = &details.signature.unwrap().parameters[0];
+
+    assert_eq!(parameter.type_kind, Some(RegistryParameterTypeKind::Enum));
+    assert_eq!(parameter.allowed_values, ["Primary", "Secondary"]);
+    assert_eq!(parameter.package, None);
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_follows_renamed_relative_import() -> io::Result<()> {
+    let details = discover_button_with_sources(
+        r#"import { type Variant as V } from './types.ts';
+export function Button({ variant }: { variant: V }) {
+  return <button data-variant={variant} />;
+}"#,
+        &[(
+            "src/types.ts",
+            "export type Variant = 'primary' | 'secondary';",
+        )],
+    )?;
+    let parameter = &details.signature.unwrap().parameters[0];
+
+    assert_eq!(parameter.type_kind, Some(RegistryParameterTypeKind::Enum));
+    assert_eq!(parameter.allowed_values, ["primary", "secondary"]);
+    assert_eq!(parameter.type_text.as_deref(), Some("V"));
+    assert_eq!(parameter.package, None);
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_resolves_one_named_enum_reexport() -> io::Result<()> {
+    let details = discover_button_with_sources(
+        r#"import type { Variant } from './barrels/variants';
+export function Button({ variant }: { variant: Variant }) {
+  return <button data-variant={variant} />;
+}"#,
+        &[
+            (
+                "src/barrels/variants.ts",
+                "export type { Tone as Variant } from '../types';",
+            ),
+            (
+                "src/types.ts",
+                "export type Tone = 'primary' | 'secondary';",
+            ),
+        ],
+    )?;
+    let parameter = &details.signature.unwrap().parameters[0];
+
+    assert_eq!(parameter.type_kind, Some(RegistryParameterTypeKind::Enum));
+    assert_eq!(parameter.allowed_values, ["primary", "secondary"]);
+    assert_eq!(parameter.package, None);
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_resolves_a_local_type_export_alias() -> io::Result<()> {
+    let details = discover_button_with_sources(
+        r#"import type { Variant } from './types';
+export function Button({ variant }: { variant: Variant }) {
+  return <button data-variant={variant} />;
+}"#,
+        &[(
+            "src/types.ts",
+            "type Tone = 'primary' | 'secondary'; export type { Tone as Variant };",
+        )],
+    )?;
+    let parameter = &details.signature.unwrap().parameters[0];
+
+    assert_eq!(parameter.type_kind, Some(RegistryParameterTypeKind::Enum));
+    assert_eq!(parameter.allowed_values, ["primary", "secondary"]);
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_keeps_outside_root_import_opaque() -> io::Result<()> {
+    let details = discover_button_with_sources(
+        r#"import type { Variant } from '../types';
+export function Button({ variant }: { variant?: Variant }) {
+  return <button data-variant={variant} />;
+}"#,
+        &[("types.ts", "export type Variant = 'primary' | 'secondary';")],
+    )?;
+    let parameter = &details.signature.unwrap().parameters[0];
+
+    assert_eq!(
+        serde_json::to_value(parameter).unwrap(),
+        serde_json::json!({
+            "name": "variant",
+            "type_text": "Variant",
+            "package": "../types",
+            "required": false
+        })
+    );
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_resolves_declaration_file_enums() -> io::Result<()> {
+    let details = discover_button_with_sources(
+        r#"import type { Variant } from './types';
+import type { Size } from './sizes';
+export function Button({ variant, size }: { variant: Variant; size: Size }) {
+  return <button data-variant={variant} data-size={size} />;
+}"#,
+        &[
+            (
+                "src/types.d.ts",
+                "export declare enum Variant { Primary, Secondary }",
+            ),
+            (
+                "src/sizes/index.d.ts",
+                "export type Size = 'small' | 'large';",
+            ),
+        ],
+    )?;
+    let parameters = details.signature.unwrap().parameters;
+
+    assert_eq!(
+        parameters[0].type_kind,
+        Some(RegistryParameterTypeKind::Enum)
+    );
+    assert_eq!(parameters[0].allowed_values, ["Primary", "Secondary"]);
+    assert_eq!(
+        parameters[1].type_kind,
+        Some(RegistryParameterTypeKind::Enum)
+    );
+    assert_eq!(parameters[1].allowed_values, ["small", "large"]);
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_ignores_damaged_relative_enum_targets() -> io::Result<()> {
+    let details = discover_button_with_sources(
+        r#"import type { Variant } from './types';
+export function Button({ variant }: { variant?: Variant }) {
+  return <button data-variant={variant} />;
+}"#,
+        &[
+            (
+                "src/types.ts",
+                "export type Variant = 'primary' | 'secondary'; const = ;",
+            ),
+            ("src/types/index.ts", "export enum Variant { WrongTarget }"),
+        ],
+    )?;
+    let parameter = &details.signature.unwrap().parameters[0];
+
+    assert_eq!(
+        serde_json::to_value(parameter).unwrap(),
+        serde_json::json!({
+            "name": "variant",
+            "type_text": "Variant",
+            "package": "./types",
+            "required": false
+        })
+    );
     Ok(())
 }
 

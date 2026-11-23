@@ -181,16 +181,8 @@ impl Edge {
         span: Span,
         files: &BTreeSet<PathBuf>,
     ) -> Self {
-        let path = if is_relative_specifier(&source) {
-            record
-                .parsed
-                .file
-                .parent()
-                .and_then(|directory| normalize_relative_path(&directory.join(&source)))
-                .and_then(|path| resolve_discovery_path(&path, files))
-        } else {
-            None
-        };
+        let path = relative_module_path(&record.parsed.file, &source)
+            .and_then(|path| resolve_discovery_path(&path, files));
         Self { source, span, path }
     }
 }
@@ -654,6 +646,13 @@ impl<'graph, 'files> ExportTraversal<'graph, 'files> {
 
 fn is_relative_specifier(source: &str) -> bool {
     matches!(source, "." | "..") || source.starts_with("./") || source.starts_with("../")
+}
+
+pub(crate) fn relative_module_path(importer: &Path, source: &str) -> Option<PathBuf> {
+    if !is_relative_specifier(source) {
+        return None;
+    }
+    normalize_relative_path(&importer.parent()?.join(source))
 }
 
 fn resolve_discovery_path(path: &Path, files: &BTreeSet<PathBuf>) -> Option<PathBuf> {

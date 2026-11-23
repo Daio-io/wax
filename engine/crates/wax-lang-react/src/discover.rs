@@ -107,7 +107,7 @@ pub fn discover_registry_symbols(
 ) -> Result<DiscoverSymbolsResult, ReactDiscoverError> {
     let mut diagnostics = Vec::new();
     let (parsed_files, damaged_paths) =
-        collect_and_parse_react_sources(parse_root, roots, &mut diagnostics)?;
+        collect_and_parse_react_sources(parse_root, roots, false, &mut diagnostics)?;
 
     let mut components = BTreeMap::<String, Option<String>>::new();
     for binding in public_bindings(
@@ -148,6 +148,7 @@ pub fn discover_registry_symbols(
 pub(crate) fn collect_and_parse_react_sources(
     parse_root: &Path,
     roots: &[PathBuf],
+    include_declarations: bool,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Result<(Vec<ParsedReactSourceFile>, DamagedReactSources), ReactDiscoverError> {
     let mut source_files = Vec::new();
@@ -155,9 +156,11 @@ pub(crate) fn collect_and_parse_react_sources(
         if !root.exists() {
             return Err(ReactDiscoverError::MissingRoot(root.clone()));
         }
-        collect_react_files(root, &mut source_files).map_err(|source| ReactDiscoverError::Io {
-            context: format!("read React root {}", root.display()),
-            source,
+        collect_react_files(root, &mut source_files, include_declarations).map_err(|source| {
+            ReactDiscoverError::Io {
+                context: format!("read React root {}", root.display()),
+                source,
+            }
         })?;
     }
     source_files.sort();
@@ -233,9 +236,10 @@ pub(crate) fn repo_relative_path(parse_root: &Path, file_path: &Path) -> String 
         })
 }
 
-pub(crate) fn collect_react_files(
+fn collect_react_files(
     dir: &Path,
     files: &mut Vec<PathBuf>,
+    include_declarations: bool,
 ) -> Result<(), std::io::Error> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
@@ -251,8 +255,10 @@ pub(crate) fn collect_react_files(
             {
                 continue;
             }
-            collect_react_files(&path, files)?;
-        } else if is_supported_react_source(&path) {
+            collect_react_files(&path, files, include_declarations)?;
+        } else if is_supported_react_source(&path)
+            || (include_declarations && is_declaration_file(&path))
+        {
             files.push(path);
         }
     }
@@ -262,6 +268,12 @@ pub(crate) fn collect_react_files(
 fn path_components_contain(path: &Path, name: &str) -> bool {
     path.components()
         .any(|component| component.as_os_str() == name)
+}
+
+pub(crate) fn is_declaration_file(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.ends_with(".d.ts"))
 }
 
 fn is_supported_react_source(path: &Path) -> bool {
@@ -641,7 +653,7 @@ mod tests {
         )?;
 
         let mut files = Vec::new();
-        collect_react_files(root, &mut files)?;
+        collect_react_files(root, &mut files, false)?;
         assert_eq!(files.len(), 1);
         assert!(files[0].ends_with("src/Button.tsx"));
         Ok(())

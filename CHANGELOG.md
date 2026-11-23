@@ -91,6 +91,9 @@
 
 ### wax-lang-react
 
+- Resolve registry enum values from exported literal-union aliases and
+  TypeScript enums imported from relative modules within the discovery roots.
+  Resolved relative imports omit `package` in parameter details.
 - Publish decoded strings in registry `allowed_values` for literal unions.
   Single-quoted literals now appear as `x` instead of `'x'`. React discovery
   also extracts values from same-file literal-union aliases and TypeScript enums.

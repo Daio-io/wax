@@ -264,12 +264,14 @@ fn basic_pack_discovery_path_returns_discover_unsupported() {
 }
 
 #[test]
-fn compose_and_swift_share_sibling_enum_enrichment_semantics() {
+fn parser_packs_share_sibling_enum_enrichment_semantics() {
     let repo = tempfile::tempdir().unwrap();
     let compose_root = repo.path().join("kotlin");
     let swift_root = repo.path().join("Sources/DesignSystem");
+    let react_root = repo.path().join("react");
     std::fs::create_dir_all(&compose_root).unwrap();
     std::fs::create_dir_all(&swift_root).unwrap();
+    std::fs::create_dir_all(&react_root).unwrap();
     std::fs::write(
         compose_root.join("RichButton.kt"),
         "package acme\n\n@Composable\nfun RichButton(variant: Variant) {}\n",
@@ -296,6 +298,22 @@ public struct RichButton: View {
         "public enum Variant { case primary, secondary }\n",
     )
     .unwrap();
+    std::fs::write(react_root.join("package.json"), r#"{"name":"@acme/ui"}"#).unwrap();
+    std::fs::write(
+        react_root.join("RichButton.tsx"),
+        r#"import type { Variant } from './Variant';
+
+export function RichButton({ variant }: { variant: Variant }) {
+  return <button data-variant={variant} />;
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        react_root.join("Variant.ts"),
+        "export type Variant = 'primary' | 'secondary';\n",
+    )
+    .unwrap();
 
     let request = |language: &str, root: &str, package: &str| DiscoverRegistryRequest {
         api_version: WIRE_API_VERSION,
@@ -310,7 +328,8 @@ public struct RichButton: View {
     };
     let compose = compose_details(&request("compose", "kotlin", "acme")).unwrap();
     let swift = swift_details(&request("swift", "Sources", "DesignSystem")).unwrap();
-    for document in [compose.document, swift.document] {
+    let react = react_details(&request("react", "react", "@acme/ui")).unwrap();
+    for document in [compose.document, swift.document, react.document] {
         let details = document.components[0].details.as_ref().unwrap();
         assert_eq!(details.status, RegistryExtractionStatus::Complete);
         let parameter = &details.signature.as_ref().unwrap().parameters[0];
