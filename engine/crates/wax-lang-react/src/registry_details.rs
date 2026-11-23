@@ -715,7 +715,23 @@ fn collect_exported_enum_values(
 }
 
 fn resolve_enum_module(path: &Path, known_files: &BTreeSet<PathBuf>) -> Option<PathBuf> {
-    resolve_path_candidates(path, known_files, &[".ts", ".tsx", ".js", ".jsx", ".d.ts"])
+    if let Some(extension) = path.extension().and_then(|extension| extension.to_str()) {
+        let substituted_extensions = match extension {
+            "js" => Some(["ts", "tsx", "d.ts"].as_slice()),
+            "jsx" => Some(["tsx", "ts", "d.ts"].as_slice()),
+            _ => None,
+        };
+        if let Some(extensions) = substituted_extensions {
+            for extension in extensions {
+                let candidate = path.with_extension(extension);
+                if known_files.contains(&candidate) {
+                    return Some(candidate);
+                }
+            }
+        }
+    }
+
+    resolve_path_candidates(path, known_files, &[".d.ts", ".ts", ".tsx", ".js", ".jsx"])
 }
 
 fn collect_props_definitions(

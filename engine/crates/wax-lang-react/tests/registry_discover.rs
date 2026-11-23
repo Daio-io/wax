@@ -595,6 +595,49 @@ export function Button({ variant }: { variant?: Variant }) {
 }
 
 #[test]
+fn discover_registry_details_resolves_javascript_specifier_to_typescript_source() -> io::Result<()>
+{
+    let details = discover_button_with_sources(
+        r#"import type { Variant } from './types.js';
+export function Button({ variant }: { variant?: Variant }) {
+  return <button data-variant={variant} />;
+}"#,
+        &[(
+            "src/types.ts",
+            "export type Variant = 'primary' | 'secondary';",
+        )],
+    )?;
+    let parameter = &details.signature.unwrap().parameters[0];
+
+    assert_eq!(parameter.type_kind, Some(RegistryParameterTypeKind::Enum));
+    assert_eq!(parameter.allowed_values, ["primary", "secondary"]);
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_prefers_declaration_over_javascript_implementation() -> io::Result<()>
+{
+    let details = discover_button_with_sources(
+        r#"import type { Variant } from './types';
+export function Button({ variant }: { variant?: Variant }) {
+  return <button data-variant={variant} />;
+}"#,
+        &[
+            ("src/types.js", "export const Variant = 'runtime';"),
+            (
+                "src/types.d.ts",
+                "export type Variant = 'primary' | 'secondary';",
+            ),
+        ],
+    )?;
+    let parameter = &details.signature.unwrap().parameters[0];
+
+    assert_eq!(parameter.type_kind, Some(RegistryParameterTypeKind::Enum));
+    assert_eq!(parameter.allowed_values, ["primary", "secondary"]);
+    Ok(())
+}
+
+#[test]
 fn discover_registry_details_resolves_relative_directory_index_enum() -> io::Result<()> {
     let details = discover_button_with_sources(
         r#"import { Variant } from './variants';
