@@ -28,8 +28,15 @@ struct ComponentDeclaration {
     details: RegistryDetails,
 }
 
+#[derive(Debug)]
+struct IndexedEnum {
+    values: Vec<String>,
+    visible_in_module: bool,
+    visible_outside_module: bool,
+}
+
 // An indexed name with no unique declaration blocks fallback to imports or object classification.
-type EnumIndex<'a> = BTreeMap<(Option<&'a str>, &'a str), Option<Vec<String>>>;
+type EnumIndex<'a> = BTreeMap<(Option<&'a str>, &'a str), Option<IndexedEnum>>;
 
 struct ParsedSource {
     parsed: ParsedSwiftFile,
@@ -58,15 +65,20 @@ impl ParameterTypeFacts<'_> {
         if self.local_types.contains(name) {
             return None;
         }
-        if let Some(values) = module_enum.and_then(Option::as_deref) {
-            return Some(values);
+        if let Some(Some(enum_facts)) = module_enum
+            && enum_facts.visible_in_module
+        {
+            return Some(&enum_facts.values);
         }
         if self.imports.symbol_packages.contains_key(name) {
             let (module, _) = self.imports.token_origin(name)?;
-            return self
-                .enums
-                .get(&(Some(module), name))
-                .map(|values| values.as_deref().unwrap_or_default());
+            return self.enums.get(&(Some(module), name)).and_then(|facts| {
+                facts.as_ref().and_then(|facts| {
+                    facts
+                        .visible_outside_module
+                        .then_some(facts.values.as_slice())
+                })
+            });
         }
         let mut matching_modules = self
             .imports
@@ -74,9 +86,13 @@ impl ParameterTypeFacts<'_> {
             .iter()
             .map(String::as_str)
             .filter_map(|module| {
-                self.enums
-                    .get(&(Some(module), name))
-                    .map(|values| (module, values.as_deref().unwrap_or_default()))
+                self.enums.get(&(Some(module), name)).and_then(|facts| {
+                    facts.as_ref().and_then(|facts| {
+                        facts
+                            .visible_outside_module
+                            .then_some((module, facts.values.as_slice()))
+                    })
+                })
             });
         let (module, values) = matching_modules.next()?;
         matching_modules
@@ -172,14 +188,18 @@ pub fn discover_registry_details(
         if source.damaged || !indexed_paths.insert(&source.path) {
             continue;
         }
-        for (name, values) in local_enum_values(
+        for (name, values, visible_in_module, visible_outside_module) in local_enum_values(
             source.parsed.tree.root_node(),
             source.parsed.source.as_bytes(),
         ) {
             enums
                 .entry((source.module.as_deref(), name))
-                .and_modify(|values| *values = None)
-                .or_insert(Some(values));
+                .and_modify(|existing| *existing = None)
+                .or_insert(Some(IndexedEnum {
+                    values,
+                    visible_in_module,
+                    visible_outside_module,
+                }));
         }
     }
     let declarations: Vec<_> = sources
@@ -206,7 +226,10 @@ fn component_declarations(file: &ParsedSource, enums: &EnumIndex<'_>) -> Vec<Com
     let type_facts = ParameterTypeFacts {
         module: file.module.as_deref(),
         enums,
-        local_enums: local_enum_values(root, source.as_bytes()),
+        local_enums: local_enum_values(root, source.as_bytes())
+            .into_iter()
+            .map(|(name, values, _, _)| (name, values))
+            .collect(),
         local_types: local_type_names(root, source.as_bytes()),
         imports: collect_import_bindings(root, source.as_bytes()),
     };
@@ -246,8 +269,8 @@ fn local_type_names(root: tree_sitter::Node<'_>, source: &[u8]) -> BTreeSet<Stri
 fn local_enum_values<'a>(
     root: tree_sitter::Node<'_>,
     source: &'a [u8],
-) -> BTreeMap<&'a str, Vec<String>> {
-    let mut enums = BTreeMap::new();
+) -> Vec<(&'a str, Vec<String>, bool, bool)> {
+    let mut enums = Vec::new();
     let mut cursor = root.walk();
     for declaration in root.named_children(&mut cursor) {
         if declaration.kind() != "class_declaration"
@@ -299,9 +322,26 @@ fn local_enum_values<'a>(
                 values
             })
             .unwrap_or_default();
-        enums.insert(name, values);
+        let visibility = declaration_visibility(declaration, source);
+        enums.push((
+            name,
+            values,
+            !matches!(visibility, Some("private" | "fileprivate")),
+            matches!(visibility, Some("public" | "open")),
+        ));
     }
     enums
+}
+
+fn declaration_visibility<'a>(node: tree_sitter::Node<'_>, source: &'a [u8]) -> Option<&'a str> {
+    let modifiers = (0..node.child_count())
+        .filter_map(|index| node.child(index))
+        .find(|child| child.kind() == "modifiers")?;
+    let mut cursor = modifiers.walk();
+    modifiers
+        .named_children(&mut cursor)
+        .find(|modifier| modifier.kind() == "visibility_modifier")
+        .and_then(|modifier| modifier.utf8_text(source).ok())
 }
 
 fn find_component_node<'tree>(
@@ -439,9 +479,14 @@ fn package_for_parameter_type(
             .then(|| qualifier.to_owned());
     }
     if type_facts.local_types.contains(direct_type)
-        || type_facts
-            .enums
-            .contains_key(&(type_facts.module, direct_type))
+        || matches!(
+            type_facts.enums.get(&(type_facts.module, direct_type)),
+            Some(None)
+                | Some(Some(IndexedEnum {
+                    visible_in_module: true,
+                    ..
+                }))
+        )
     {
         return None;
     }

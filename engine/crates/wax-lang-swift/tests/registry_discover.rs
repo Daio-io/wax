@@ -263,6 +263,114 @@ public func ImportedCard(
 }
 
 #[test]
+fn discover_registry_details_ignores_private_sibling_enum_for_explicit_module_import()
+-> io::Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let styles = tempdir.path().join("Sources/Styles");
+    let app = tempdir.path().join("Sources/App");
+    fs::create_dir_all(&styles)?;
+    fs::create_dir_all(&app)?;
+    fs::write(
+        styles.join("Variant.swift"),
+        "public enum Variant { case primary, secondary }\n",
+    )?;
+    fs::write(
+        app.join("Local.swift"),
+        "private enum Variant { case localOnly }\n",
+    )?;
+    fs::write(
+        app.join("Button.swift"),
+        r#"import enum Styles.Variant
+import SwiftUI
+
+public func Button(variant: Variant) -> some View {
+    Text("Button")
+}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "button", "symbol": "Button", "package": "App"}]
+    }))
+    .expect("registry fixture");
+
+    let result = discover_registry_details(&DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "swift".try_into().expect("swift id"),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["Sources".to_owned()],
+        registry,
+    })
+    .expect("registry discovery should succeed");
+    let parameter = &result.document.components[0]
+        .details
+        .as_ref()
+        .expect("button should be enriched")
+        .signature
+        .as_ref()
+        .expect("button should have a signature")
+        .parameters[0];
+
+    assert_eq!(parameter.package.as_deref(), Some("Styles"));
+    assert_eq!(parameter.allowed_values, ["primary", "secondary"]);
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_does_not_resolve_internal_enum_from_imported_module() -> io::Result<()>
+{
+    let tempdir = tempfile::tempdir()?;
+    let styles = tempdir.path().join("Sources/Styles");
+    let app = tempdir.path().join("Sources/App");
+    fs::create_dir_all(&styles)?;
+    fs::create_dir_all(&app)?;
+    fs::write(
+        styles.join("Variant.swift"),
+        "enum Variant { case localOnly }\n",
+    )?;
+    fs::write(
+        app.join("Button.swift"),
+        r#"import enum Styles.Variant
+import SwiftUI
+
+public func Button(variant: Variant) -> some View {
+    Text("Button")
+}
+"#,
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "button", "symbol": "Button", "package": "App"}]
+    }))
+    .expect("registry fixture");
+
+    let result = discover_registry_details(&DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "swift".try_into().expect("swift id"),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["Sources".to_owned()],
+        registry,
+    })
+    .expect("registry discovery should succeed");
+    let parameter = &result.document.components[0]
+        .details
+        .as_ref()
+        .expect("button should be enriched")
+        .signature
+        .as_ref()
+        .expect("button should have a signature")
+        .parameters[0];
+
+    assert_eq!(parameter.package.as_deref(), Some("Styles"));
+    assert_eq!(
+        parameter.type_kind,
+        Some(wax_contract::RegistryParameterTypeKind::Object)
+    );
+    assert!(parameter.allowed_values.is_empty());
+    Ok(())
+}
+
+#[test]
 fn discover_registry_details_classifies_direct_swift_type_shapes() -> io::Result<()> {
     let tempdir = tempfile::tempdir()?;
     let sources = tempdir.path().join("Sources");

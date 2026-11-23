@@ -312,29 +312,30 @@ fn parameters_from_function(
             index += 2;
         }
 
+        let imported_type = type_text
+            .as_deref()
+            .and_then(simple_type_name)
+            .filter(|name| {
+                !type_facts.local_types.contains(*name) && !is_builtin_kotlin_type(name)
+            });
+        let imported_enum = imported_type.and_then(|name| type_facts.imported_enum(name));
         let enum_values = type_text.as_deref().and_then(|type_text| {
             let name = type_text.trim_end_matches('?').trim();
-            let package_enum = type_facts.enums.get(&(type_facts.package, name));
-            if matches!(package_enum, Some(None)) {
-                return Some([].as_slice());
-            }
             if let Some(values) = type_facts.local_enums.get(name) {
                 return Some(values.as_slice());
             }
             if type_facts.local_types.contains(name) {
                 return None;
             }
-            package_enum.and_then(Option::as_deref)
+            if let Some((_, values)) = imported_enum {
+                return Some(values);
+            }
+            match type_facts.enums.get(&(type_facts.package, name)) {
+                Some(None) => Some([].as_slice()),
+                Some(Some(values)) => Some(values.as_slice()),
+                None => None,
+            }
         });
-        let imported_type = type_text
-            .as_deref()
-            .and_then(simple_type_name)
-            .filter(|name| {
-                enum_values.is_none()
-                    && !type_facts.local_types.contains(*name)
-                    && !is_builtin_kotlin_type(name)
-            });
-        let imported_enum = imported_type.and_then(|name| type_facts.imported_enum(name));
         let package = imported_enum
             .map(|(package, _)| package)
             .or_else(|| imported_type.and_then(|name| type_facts.imports.package_for_symbol(name)))

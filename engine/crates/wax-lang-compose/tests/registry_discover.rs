@@ -334,6 +334,59 @@ fun ImportedButton(props: ImportedProps) {}
 }
 
 #[test]
+fn discover_registry_details_prefers_explicit_enum_import_to_sibling_package_enum() -> io::Result<()>
+{
+    let tempdir = tempfile::tempdir()?;
+    let src = tempdir.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(
+        src.join("Button.kt"),
+        r#"package com.example
+
+import androidx.compose.runtime.Composable
+import com.styles.Variant
+
+@Composable
+fun Button(variant: Variant) {}
+"#,
+    )?;
+    fs::write(
+        src.join("Local.kt"),
+        "package com.example\n\nenum class Variant { localOnly }\n",
+    )?;
+    fs::write(
+        src.join("Variant.kt"),
+        "package com.styles\n\nenum class Variant { primary, secondary }\n",
+    )?;
+    let registry: RegistryDocument = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "button", "symbol": "Button", "package": "com.example"}]
+    }))
+    .unwrap();
+
+    let result = discover_registry_details(&DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "compose".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry,
+    })
+    .expect("registry discovery should succeed");
+    let parameter = &result.document.components[0]
+        .details
+        .as_ref()
+        .unwrap()
+        .signature
+        .as_ref()
+        .unwrap()
+        .parameters[0];
+
+    assert_eq!(parameter.package.as_deref(), Some("com.styles"));
+    assert_eq!(parameter.allowed_values, ["primary", "secondary"]);
+    Ok(())
+}
+
+#[test]
 fn discover_registry_details_ignores_unknown_kdoc_parameter() -> io::Result<()> {
     let tempdir = tempfile::tempdir()?;
     let src = tempdir.path().join("src");
