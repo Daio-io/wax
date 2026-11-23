@@ -25,10 +25,43 @@ struct ComponentDeclaration {
     details: RegistryDetails,
 }
 
-struct ParameterTypeFacts {
+// An indexed name with no unique declaration blocks fallback to imports or object classification.
+type EnumIndex<'a> = BTreeMap<(Option<&'a str>, &'a str), Option<Vec<String>>>;
+
+struct ParameterTypeFacts<'a> {
+    package: Option<&'a str>,
+    enums: &'a EnumIndex<'a>,
     local_types: BTreeSet<String>,
     imports: ImportBindings,
-    local_enums: BTreeMap<String, Vec<String>>,
+    local_enums: BTreeMap<&'a str, Vec<String>>,
+}
+
+impl ParameterTypeFacts<'_> {
+    fn imported_enum<'a>(&'a self, name: &'a str) -> Option<(&'a str, &'a [String])> {
+        if self.imports.ambiguous_symbols.contains(name) {
+            return None;
+        }
+        if let Some(package) = self.imports.symbol_packages.get(name) {
+            let exported_name = self.imports.symbol_names.get(name)?;
+            let values = self.enums.get(&(Some(package.as_str()), exported_name))?;
+            return Some((package, values.as_deref().unwrap_or_default()));
+        }
+
+        let mut matches = self
+            .imports
+            .wildcard_packages
+            .iter()
+            .map(String::as_str)
+            .filter_map(|package| {
+                self.enums
+                    .get(&(Some(package), name))
+                    .map(|values| (package, values.as_deref().unwrap_or_default()))
+            });
+        let first = matches.next()?;
+        matches
+            .all(|(package, _)| package == first.0)
+            .then_some(first)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -72,9 +105,25 @@ pub fn discover_registry_details(
     let (parsed_files, damaged_paths) =
         collect_and_parse_kotlin_sources(repo_root, &absolute_roots, &mut diagnostics)?;
 
+    let mut enums = EnumIndex::new();
+    let mut indexed_paths = BTreeSet::new();
+    for file in &parsed_files {
+        if file.parsed.is_partial() || !indexed_paths.insert(&file.relative_path) {
+            continue;
+        }
+        for (name, values) in local_enum_values(
+            file.parsed.primary_tree().root_node(),
+            file.parsed.source.as_bytes(),
+        ) {
+            enums
+                .entry((file.package.as_deref(), name))
+                .and_modify(|values| *values = None)
+                .or_insert(Some(values));
+        }
+    }
     let mut declarations = Vec::new();
     for file in &parsed_files {
-        declarations.extend(component_declarations(file));
+        declarations.extend(component_declarations(file, &enums));
     }
 
     let mut document = request.registry.clone();
@@ -90,11 +139,16 @@ pub fn discover_registry_details(
     })
 }
 
-fn component_declarations(file: &ParsedKotlinSourceFile) -> Vec<ComponentDeclaration> {
+fn component_declarations(
+    file: &ParsedKotlinSourceFile,
+    enums: &EnumIndex<'_>,
+) -> Vec<ComponentDeclaration> {
     let source = file.parsed.source.as_bytes();
     let primary_root = file.parsed.primary_tree().root_node();
     let imports = collect_import_bindings(primary_root, source);
     let type_facts = ParameterTypeFacts {
+        package: file.package.as_deref(),
+        enums,
         local_types: local_type_names(primary_root, source),
         imports,
         local_enums: local_enum_values(primary_root, source),
@@ -119,7 +173,7 @@ fn collect_component_declarations(
     source: &[u8],
     clean: &[ByteRange],
     file: &ParsedKotlinSourceFile,
-    type_facts: &ParameterTypeFacts,
+    type_facts: &ParameterTypeFacts<'_>,
     declarations: &mut Vec<ComponentDeclaration>,
 ) {
     let mut stack = vec![root];
@@ -146,7 +200,7 @@ fn component_details(
     node: tree_sitter::Node<'_>,
     source: &[u8],
     file: &ParsedKotlinSourceFile,
-    type_facts: &ParameterTypeFacts,
+    type_facts: &ParameterTypeFacts<'_>,
 ) -> RegistryDetails {
     let kdoc = kdoc_for_declaration(node, source);
     let parameters =
@@ -218,7 +272,7 @@ fn signature_type_text(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<Str
 fn parameters_from_function(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    type_facts: &ParameterTypeFacts,
+    type_facts: &ParameterTypeFacts<'_>,
     descriptions: &BTreeMap<String, String>,
 ) -> Vec<RegistryParameter> {
     let Some(params_node) = node
@@ -258,22 +312,38 @@ fn parameters_from_function(
             index += 2;
         }
 
+        let enum_values = type_text.as_deref().and_then(|type_text| {
+            let name = type_text.trim_end_matches('?').trim();
+            let package_enum = type_facts.enums.get(&(type_facts.package, name));
+            if matches!(package_enum, Some(None)) {
+                return Some([].as_slice());
+            }
+            if let Some(values) = type_facts.local_enums.get(name) {
+                return Some(values.as_slice());
+            }
+            if type_facts.local_types.contains(name) {
+                return None;
+            }
+            package_enum.and_then(Option::as_deref)
+        });
         let imported_type = type_text
             .as_deref()
             .and_then(simple_type_name)
-            .filter(|type_name| {
-                !type_facts.local_types.contains(*type_name)
-                    && !is_builtin_kotlin_type(type_name)
-                    && type_facts.imports.package_for_symbol(type_name).is_some()
+            .filter(|name| {
+                enum_values.is_none()
+                    && !type_facts.local_types.contains(*name)
+                    && !is_builtin_kotlin_type(name)
             });
-        let package = imported_type
-            .and_then(|type_name| type_facts.imports.package_for_symbol(type_name))
+        let imported_enum = imported_type.and_then(|name| type_facts.imported_enum(name));
+        let package = imported_enum
+            .map(|(package, _)| package)
+            .or_else(|| imported_type.and_then(|name| type_facts.imports.package_for_symbol(name)))
             .map(str::to_owned);
-
-        let (type_kind, allowed_values) = if imported_type.is_some() {
+        let enum_values = enum_values.or_else(|| imported_enum.map(|(_, values)| values));
+        let (type_kind, allowed_values) = if package.is_some() && enum_values.is_none() {
             (None, Vec::new())
         } else {
-            classify_parameter_type(type_text.as_deref(), &type_facts.local_enums)
+            classify_parameter_type(type_text.as_deref(), enum_values)
         };
 
         parameters.push(RegistryParameter {
@@ -295,7 +365,7 @@ fn parameters_from_function(
 
 fn classify_parameter_type(
     type_text: Option<&str>,
-    local_enums: &BTreeMap<String, Vec<String>>,
+    enum_values: Option<&[String]>,
 ) -> (Option<RegistryParameterTypeKind>, Vec<String>) {
     let Some(type_text) = type_text.map(str::trim).filter(|text| !text.is_empty()) else {
         return (None, Vec::new());
@@ -308,11 +378,11 @@ fn classify_parameter_type(
     if direct_type.contains('.') {
         return (None, Vec::new());
     }
-    if let Some(values) = local_enums.get(direct_type) {
+    if let Some(values) = enum_values {
         return if values.is_empty() {
             (None, Vec::new())
         } else {
-            (Some(RegistryParameterTypeKind::Enum), values.clone())
+            (Some(RegistryParameterTypeKind::Enum), values.to_vec())
         };
     }
     if direct_type == "Boolean" {
@@ -552,7 +622,10 @@ fn local_type_names(root: tree_sitter::Node<'_>, source: &[u8]) -> BTreeSet<Stri
     names
 }
 
-fn local_enum_values(root: tree_sitter::Node<'_>, source: &[u8]) -> BTreeMap<String, Vec<String>> {
+fn local_enum_values<'a>(
+    root: tree_sitter::Node<'_>,
+    source: &'a [u8],
+) -> BTreeMap<&'a str, Vec<String>> {
     let mut enums = BTreeMap::new();
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
@@ -585,7 +658,7 @@ fn local_enum_values(root: tree_sitter::Node<'_>, source: &[u8]) -> BTreeMap<Str
                         .collect()
                 })
                 .unwrap_or_default();
-            enums.insert(name.to_owned(), values);
+            enums.insert(name, values);
         }
         for index in (0..node.child_count()).rev() {
             if let Some(child) = node.child(index) {

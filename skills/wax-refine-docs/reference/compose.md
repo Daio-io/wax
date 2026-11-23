@@ -61,18 +61,20 @@ Wax reads the parameter list directly:
   - `function`: function types such as `() -> Unit` or `@Composable () -> Unit`
   - `collection`: `List`, `Set`, `Map`, and arrays
   - `object`: other simple, non-generic names
-- `enum` with `allowed_values` applies only when the type is an `enum class`
-  declared **at top level in the same file**.
-- An imported type records `package` (for example `Modifier` gets
-  `androidx.compose.ui`) and no `type_kind`. A dotted type such as
-  `Arrangement.Horizontal` gets no `type_kind`.
+- Wax extracts `allowed_values` from a top-level `enum class` in the same
+  package or an imported package within the discovery roots. A wildcard import
+  resolves when exactly one wildcard package supplies the enum. Duplicate
+  declarations in a package and enums in damaged sibling files supply no values.
+- A resolved imported enum records both `package` and `type_kind: enum`. Other
+  imported types record only `package` when the import identifies it. Dotted
+  types such as `Arrangement.Horizontal` get no `type_kind`.
 
 ## Structural fixes (each needs approval)
 
 | Symptom | Fix that keeps the API | Notes |
 |---------|-------------------------------|-------|
-| Enum parameter shows `object` or no `allowed_values` | Move the enum into the component's file at top level, in the same package | The import path stays the same when the package does not change. |
-| Enum nested in an object (`AcmeButton.Variant`) | Leave it, or add a same-file top-level enum only if the maintainer wants that API | Do not change public type names for Wax alone. |
+| Enum parameter shows `object` or no `allowed_values` | Check that the discovery roots include the top-level enum and that the package or import resolves it | Check for duplicate declarations and parse diagnostics. |
+| Enum nested in an object (`AcmeButton.Variant`) | Leave it, or add a top-level enum only if the maintainer wants that API | Do not change public type names for Wax alone. |
 | Deprecated component has no replacement | Use `@Deprecated("...", ReplaceWith("NewName(...)"))` | `ReplaceWith` becomes `deprecation.replaced_by`. |
 
 Generic or dotted parameter types are fine to keep. Describe them well in

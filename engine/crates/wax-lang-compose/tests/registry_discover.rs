@@ -1142,3 +1142,156 @@ fn parse_failures_are_skipped_with_diagnostics() -> io::Result<()> {
     assert!(result.diagnostics[0].message.contains("Broken.kt"));
     Ok(())
 }
+
+fn discover_button_enums(
+    component: &str,
+    enum_files: &[(&str, &str)],
+) -> io::Result<wax_lang_api::DiscoverRegistryResult> {
+    let tempdir = tempfile::tempdir()?;
+    let src = tempdir.path().join("src");
+    fs::create_dir_all(&src)?;
+    fs::write(src.join("Button.kt"), component)?;
+    for (path, content) in enum_files {
+        fs::write(tempdir.path().join(path), content)?;
+    }
+    let registry = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "components": [{"id": "button", "symbol": "Button", "package": "com.example"}]
+    }))
+    .unwrap();
+    Ok(discover_registry_details(&DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "compose".try_into().unwrap(),
+        repo_root: tempdir.path().to_string_lossy().into_owned(),
+        roots: vec!["src".to_owned()],
+        registry,
+    })
+    .expect("rich discover should succeed"))
+}
+
+fn button_parameter(
+    result: &wax_lang_api::DiscoverRegistryResult,
+) -> &wax_contract::RegistryParameter {
+    &result.document.components[0]
+        .details
+        .as_ref()
+        .unwrap()
+        .signature
+        .as_ref()
+        .unwrap()
+        .parameters[0]
+}
+
+const BUTTON_WITH_VARIANT: &str =
+    "package com.example\n\n@Composable\nfun Button(variant: Variant) {}\n";
+
+#[test]
+fn discovers_compose_enum_from_a_sibling_in_the_same_package() -> io::Result<()> {
+    let result = discover_button_enums(
+        BUTTON_WITH_VARIANT,
+        &[(
+            "src/Variant.kt",
+            "package com.example\n\nenum class Variant { Primary, Secondary }\n",
+        )],
+    )?;
+    let parameter = button_parameter(&result);
+    assert_eq!(
+        parameter.type_kind,
+        Some(wax_contract::RegistryParameterTypeKind::Enum)
+    );
+    assert_eq!(parameter.allowed_values, ["Primary", "Secondary"]);
+    assert_eq!(parameter.package, None);
+    Ok(())
+}
+
+#[test]
+fn discovers_compose_enum_from_an_explicit_import() -> io::Result<()> {
+    let result = discover_button_enums(
+        "package com.example\n\nimport com.styles.Variant as ButtonVariant\n\n@Composable\nfun Button(variant: ButtonVariant) {}\n",
+        &[(
+            "src/Variant.kt",
+            "package com.styles\n\nenum class Variant { Primary, Secondary }\n",
+        )],
+    )?;
+    let parameter = button_parameter(&result);
+    assert_eq!(
+        parameter.type_kind,
+        Some(wax_contract::RegistryParameterTypeKind::Enum)
+    );
+    assert_eq!(parameter.allowed_values, ["Primary", "Secondary"]);
+    assert_eq!(parameter.package.as_deref(), Some("com.styles"));
+    Ok(())
+}
+
+#[test]
+fn discovers_compose_enum_from_the_only_wildcard_package_that_defines_it() -> io::Result<()> {
+    let result = discover_button_enums(
+        "package com.example\n\nimport com.styles.*\nimport com.other.*\n\n@Composable\nfun Button(variant: Variant) {}\n",
+        &[(
+            "src/Variant.kt",
+            "package com.styles\n\nenum class Variant { Primary, Secondary }\n",
+        )],
+    )?;
+    let parameter = button_parameter(&result);
+    assert_eq!(
+        parameter.type_kind,
+        Some(wax_contract::RegistryParameterTypeKind::Enum)
+    );
+    assert_eq!(parameter.allowed_values, ["Primary", "Secondary"]);
+    assert_eq!(parameter.package.as_deref(), Some("com.styles"));
+    Ok(())
+}
+
+#[test]
+fn omits_compose_enum_kind_when_two_files_define_the_same_name() -> io::Result<()> {
+    let result = discover_button_enums(
+        BUTTON_WITH_VARIANT,
+        &[
+            (
+                "src/Variant.kt",
+                "package com.example\n\nenum class Variant { Primary }\n",
+            ),
+            (
+                "src/Other.kt",
+                "package com.example\n\nenum class Variant { Secondary }\n",
+            ),
+        ],
+    )?;
+    let parameter = button_parameter(&result);
+    assert_eq!(parameter.type_kind, None);
+    assert!(parameter.allowed_values.is_empty());
+    Ok(())
+}
+
+#[test]
+fn ignores_compose_enum_in_a_damaged_sibling_file() -> io::Result<()> {
+    let result = discover_button_enums(
+        "package com.example\n\nimport com.styles.Variant\n\n@Composable\nfun Button(variant: Variant) {}\n",
+        &[(
+            "src/Variant.kt",
+            "package com.styles\n\nenum class Variant { Primary }\n\nfun Broken(",
+        )],
+    )?;
+    assert!(!result.diagnostics.is_empty());
+    let parameter = button_parameter(&result);
+    assert_eq!(parameter.package.as_deref(), Some("com.styles"));
+    assert_eq!(parameter.type_kind, None);
+    assert!(parameter.allowed_values.is_empty());
+    Ok(())
+}
+
+#[test]
+fn keeps_compose_import_package_when_enum_is_outside_the_discovery_roots() -> io::Result<()> {
+    let result = discover_button_enums(
+        "package com.example\n\nimport com.styles.Variant\n\n@Composable\nfun Button(variant: Variant) {}\n",
+        &[(
+            "Variant.kt",
+            "package com.styles\n\nenum class Variant { Primary }\n",
+        )],
+    )?;
+    let parameter = button_parameter(&result);
+    assert_eq!(parameter.package.as_deref(), Some("com.styles"));
+    assert_eq!(parameter.type_kind, None);
+    assert!(parameter.allowed_values.is_empty());
+    Ok(())
+}

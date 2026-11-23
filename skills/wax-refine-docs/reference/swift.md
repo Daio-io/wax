@@ -62,15 +62,18 @@ the parameter list on the `init`, as in the golden example.
   - `function`: closures (including `@escaping`)
   - `collection`: arrays, dictionaries, sets, and tuples
   - `object`: other simple names
-- `enum` with `allowed_values` applies only when the type is an `enum`
-  declared **at top level in the same file**. A nested enum referenced by a
-  simple name (`Variant` declared inside the struct) is classified as `object`.
-  Dotted (`Self.Variant`) and custom generic types get no `type_kind`.
+- Wax extracts `allowed_values` from a top-level, non-generic `enum` in the
+  same file, the same module, or an imported module within the discovery roots.
+  Wax infers module names from `Sources/<Module>/` paths. Duplicate declarations
+  in a module and enums in damaged sibling files supply no values.
+- A nested enum referenced by a simple name (`Variant` declared inside the
+  struct) is classified as `object`. Dotted (`Self.Variant`) and custom generic
+  types get no `type_kind`.
 
 ## Structural fixes (each needs approval)
 
 | Symptom | Fix that keeps the API | Notes |
 |---------|-------------------------------|-------|
 | `signature.parameters` gap on a View struct | Add an explicit `public init` with the same labels, order, and defaults as the memberwise initializer callers use today | Keep stored properties and behavior unchanged. Check that existing call sites still compile. |
-| Enum parameter has no `allowed_values` | Declare the enum at top level in the component's file | Moving a nested type changes its public name. Only do it if the maintainer agrees. |
+| Enum parameter has no `allowed_values` | Check that the discovery roots include the top-level enum in the same module or a module the component imports | Moving a nested type changes its public name. Only do it if the maintainer agrees. |
 | Deprecated view has no message | Use `@available(*, deprecated, message: "Use NewView instead")` | |
