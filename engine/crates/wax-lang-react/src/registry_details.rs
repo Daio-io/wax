@@ -7,8 +7,8 @@ use serde_json::Map;
 use swc_common::{Span, Spanned, comments::CommentKind};
 use swc_ecma_ast::{
     Decl, DefaultDecl, ExportSpecifier, Expr, Id, ImportSpecifier, ModuleDecl, ModuleExportName,
-    ModuleItem, ObjectPat, ObjectPatProp, Pat, Stmt, TsInterfaceDecl, TsKeywordTypeKind, TsLit,
-    TsType, TsTypeAliasDecl, TsTypeElement, TsUnionOrIntersectionType,
+    ModuleItem, ObjectPat, ObjectPatProp, Pat, Stmt, TsEntityName, TsEnumMemberId,
+    TsKeywordTypeKind, TsLit, TsType, TsTypeElement, TsUnionOrIntersectionType,
 };
 use wax_contract::{
     RegistryAttachment, RegistryBestPractice, RegistryDeprecation, RegistryDetails,
@@ -145,7 +145,8 @@ fn component_declarations(
     public_names: Option<&BTreeSet<&str>>,
 ) -> BTreeMap<String, ComponentDeclaration> {
     let imports = collect_import_packages(parsed);
-    let props = collect_props_definitions(parsed, &imports);
+    let local_enum_values = collect_local_enum_values(parsed);
+    let props = collect_props_definitions(parsed, &imports, &local_enum_values);
     let wrapper_callees = react_wrapper_callees(&parsed.module.body);
     let locals = local_component_impls(parsed);
     let named_exports = local_named_value_exports(&parsed.module.body);
@@ -155,7 +156,14 @@ fn component_declarations(
             name,
             ComponentDeclaration {
                 fallback_symbol,
-                details: component_details(parsed, span, implementation, &props, &imports),
+                details: component_details(
+                    parsed,
+                    span,
+                    implementation,
+                    &props,
+                    &imports,
+                    &local_enum_values,
+                ),
             },
         );
     };
@@ -508,64 +516,89 @@ fn collect_import_packages(parsed: &ParsedReactModule) -> HashMap<Id, String> {
     imports
 }
 
+fn module_declarations(parsed: &ParsedReactModule) -> impl Iterator<Item = &Decl> {
+    parsed.module.body.iter().filter_map(|item| match item {
+        ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(export)) => Some(&export.decl),
+        ModuleItem::Stmt(Stmt::Decl(decl)) => Some(decl),
+        _ => None,
+    })
+}
+
+fn collect_local_enum_values(parsed: &ParsedReactModule) -> BTreeMap<Id, Vec<String>> {
+    let mut enums = BTreeMap::<Id, Vec<String>>::new();
+    for decl in module_declarations(parsed) {
+        let (id, values) = match decl {
+            Decl::TsTypeAlias(alias) => {
+                let Some(values) = literal_union_values(parsed, &alias.type_ann) else {
+                    continue;
+                };
+                (alias.id.to_id(), values)
+            }
+            Decl::TsEnum(enumeration) => {
+                let values = enumeration
+                    .members
+                    .iter()
+                    .map(|member| match &member.id {
+                        TsEnumMemberId::Ident(ident) => ident.sym.to_string(),
+                        TsEnumMemberId::Str(value) => value.value.to_string_lossy().into_owned(),
+                    })
+                    .collect();
+                (enumeration.id.to_id(), values)
+            }
+            _ => continue,
+        };
+        let collected = enums.entry(id).or_default();
+        for value in values {
+            if !collected.contains(&value) {
+                collected.push(value);
+            }
+        }
+    }
+    enums
+}
+
 fn collect_props_definitions(
     parsed: &ParsedReactModule,
     imports: &HashMap<Id, String>,
+    local_enum_values: &BTreeMap<Id, Vec<String>>,
 ) -> HashMap<Id, PropsDefinition> {
-    let mut definitions = HashMap::new();
-    for item in &parsed.module.body {
-        let decl = match item {
-            ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(export)) => Some(&export.decl),
-            ModuleItem::Stmt(Stmt::Decl(decl)) => Some(decl),
-            _ => None,
-        };
-        match decl {
-            Some(Decl::TsInterface(interface)) => {
-                definitions.insert(
-                    interface.id.to_id(),
-                    props_from_interface(parsed, interface, imports),
-                );
-            }
-            Some(Decl::TsTypeAlias(alias)) => {
-                if let Some(definition) = props_from_alias(parsed, alias, imports) {
-                    definitions.insert(alias.id.to_id(), definition);
+    module_declarations(parsed)
+        .filter_map(|decl| {
+            let (id, members, inherited) = match decl {
+                Decl::TsInterface(interface) => (
+                    &interface.id,
+                    &interface.body.body,
+                    !interface.extends.is_empty(),
+                ),
+                Decl::TsTypeAlias(alias) => {
+                    let TsType::TsTypeLit(literal) = &*alias.type_ann else {
+                        return None;
+                    };
+                    (&alias.id, &literal.members, false)
                 }
-            }
-            _ => {}
-        }
-    }
-    definitions
-}
-
-fn props_from_interface(
-    parsed: &ParsedReactModule,
-    interface: &TsInterfaceDecl,
-    imports: &HashMap<Id, String>,
-) -> PropsDefinition {
-    PropsDefinition {
-        parameters: parameters_from_members(parsed, &interface.body.body, imports),
-        inherited: !interface.extends.is_empty(),
-    }
-}
-
-fn props_from_alias(
-    parsed: &ParsedReactModule,
-    alias: &TsTypeAliasDecl,
-    imports: &HashMap<Id, String>,
-) -> Option<PropsDefinition> {
-    let TsType::TsTypeLit(literal) = &*alias.type_ann else {
-        return None;
-    };
-    Some(PropsDefinition {
-        parameters: parameters_from_members(parsed, &literal.members, imports),
-        inherited: false,
-    })
+                _ => return None,
+            };
+            Some((
+                id.to_id(),
+                PropsDefinition {
+                    parameters: parameters_from_members(
+                        parsed,
+                        members,
+                        imports,
+                        local_enum_values,
+                    ),
+                    inherited,
+                },
+            ))
+        })
+        .collect()
 }
 
 fn parameters_from_members(
     parsed: &ParsedReactModule,
     members: &[TsTypeElement],
     imports: &HashMap<Id, String>,
+    local_enum_values: &BTreeMap<Id, Vec<String>>,
 ) -> Vec<RegistryParameter> {
     members
         .iter()
@@ -588,7 +621,9 @@ fn parameters_from_members(
             let description = parameter_description(parsed, property.span);
             let (type_kind, allowed_values) = property.type_ann.as_ref().map_or_else(
                 || (None, Vec::new()),
-                |annotation| parameter_type_facts(parsed, &annotation.type_ann),
+                |annotation| {
+                    parameter_type_facts(parsed, &annotation.type_ann, imports, local_enum_values)
+                },
             );
             let package = property
                 .type_ann
@@ -618,6 +653,8 @@ fn parameter_description(parsed: &ParsedReactModule, span: Span) -> Option<Strin
 fn parameter_type_facts(
     parsed: &ParsedReactModule,
     ty: &TsType,
+    imports: &HashMap<Id, String>,
+    local_enum_values: &BTreeMap<Id, Vec<String>>,
 ) -> (Option<RegistryParameterTypeKind>, Vec<String>) {
     let kind = match ty {
         TsType::TsKeywordType(keyword) => match keyword.kind {
@@ -632,36 +669,49 @@ fn parameter_type_facts(
             Some(RegistryParameterTypeKind::Collection)
         }
         TsType::TsTypeLit(_) => Some(RegistryParameterTypeKind::Object),
-        TsType::TsUnionOrIntersectionType(TsUnionOrIntersectionType::TsUnionType(union)) => {
-            let allowed_values = union
-                .types
-                .iter()
-                .map(|member| match &**member {
-                    TsType::TsLitType(literal) => match &literal.lit {
-                        TsLit::Tpl(template) if !template.types.is_empty() => None,
-                        _ => parsed
-                            .source_slice_from_span(literal.span)
-                            .map(|value| value.trim().trim_matches('"').to_owned()),
-                    },
-                    _ => None,
-                })
-                .collect::<Option<Vec<_>>>();
-            return allowed_values.map_or_else(
-                || (None, Vec::new()),
-                |values| {
-                    let values = values.into_iter().fold(Vec::new(), |mut unique, value| {
-                        if !unique.contains(&value) {
-                            unique.push(value);
-                        }
-                        unique
-                    });
-                    (Some(RegistryParameterTypeKind::Enum), values)
-                },
-            );
-        }
         _ => None,
     };
-    (kind, Vec::new())
+    let allowed_values = match ty {
+        TsType::TsTypeRef(reference) => match &reference.type_name {
+            TsEntityName::Ident(ident) if !imports.contains_key(&ident.to_id()) => {
+                local_enum_values.get(&ident.to_id()).cloned()
+            }
+            _ => None,
+        },
+        _ => literal_union_values(parsed, ty),
+    };
+    match allowed_values {
+        // The registry requires at least one value and cannot represent empty strings.
+        Some(values) if !values.is_empty() && values.iter().all(|value| !value.is_empty()) => {
+            (Some(RegistryParameterTypeKind::Enum), values)
+        }
+        _ => (kind, Vec::new()),
+    }
+}
+
+fn literal_union_values(parsed: &ParsedReactModule, ty: &TsType) -> Option<Vec<String>> {
+    let TsType::TsUnionOrIntersectionType(TsUnionOrIntersectionType::TsUnionType(union)) = ty
+    else {
+        return None;
+    };
+    let mut values = Vec::new();
+    for member in &union.types {
+        let TsType::TsLitType(literal) = &**member else {
+            return None;
+        };
+        let value = match &literal.lit {
+            TsLit::Str(value) => value.value.to_string_lossy().into_owned(),
+            TsLit::Tpl(template) if !template.types.is_empty() => return None,
+            _ => parsed
+                .source_slice_from_span(literal.span)?
+                .trim()
+                .to_owned(),
+        };
+        if !values.contains(&value) {
+            values.push(value);
+        }
+    }
+    Some(values)
 }
 
 fn component_details(
@@ -670,13 +720,14 @@ fn component_details(
     implementation: ComponentImpl<'_>,
     props: &HashMap<Id, PropsDefinition>,
     imports: &HashMap<Id, String>,
+    local_enum_values: &BTreeMap<Id, Vec<String>>,
 ) -> RegistryDetails {
     let ComponentImpl {
         signature_span,
         parameter,
     } = implementation;
     let (props_type_text, mut parameters, mut field_gaps) =
-        signature_facts(parsed, parameter, props, imports);
+        signature_facts(parsed, parameter, props, imports, local_enum_values);
     let type_text = signature_span
         .and_then(|span| parsed.source_slice_from_span(span))
         .map(|text| text.trim().to_owned());
@@ -749,6 +800,7 @@ fn signature_facts(
     parameter: Option<&Pat>,
     props: &HashMap<Id, PropsDefinition>,
     imports: &HashMap<Id, String>,
+    local_enum_values: &BTreeMap<Id, Vec<String>>,
 ) -> (
     Option<String>,
     Vec<RegistryParameter>,
@@ -768,7 +820,7 @@ fn signature_facts(
         TsType::TsTypeLit(literal) => {
             return (
                 type_text,
-                parameters_from_members(parsed, &literal.members, imports),
+                parameters_from_members(parsed, &literal.members, imports, local_enum_values),
                 Vec::new(),
             );
         }

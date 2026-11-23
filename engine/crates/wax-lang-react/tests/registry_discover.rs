@@ -489,6 +489,196 @@ fn discover_registry_details_omits_unobserved_qualified_props_package() -> io::R
 }
 
 #[test]
+fn discover_registry_details_decodes_string_literal_union_values() -> io::Result<()> {
+    let details = discover_documented_button(
+        r#"export function Button({ variant = 'primary' }: {
+  variant?: 'primary' | 'secondary' | 'it\'s quoted' | "\u0071uiet";
+}) {
+  return <button data-variant={variant} />;
+}"#,
+    )?;
+    let signature = details.signature.unwrap();
+    let parameter = &signature.parameters[0];
+
+    assert_eq!(parameter.type_kind, Some(RegistryParameterTypeKind::Enum));
+    assert_eq!(
+        parameter.allowed_values,
+        ["primary", "secondary", "it's quoted", "quiet"]
+    );
+    assert_eq!(parameter.default.as_deref(), Some("'primary'"));
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_resolves_same_file_literal_union_alias() -> io::Result<()> {
+    let details = discover_documented_button(
+        r#"interface Props {
+  variant?: Variant;
+}
+export function Button({ variant }: Props) {
+  return <button data-variant={variant} />;
+}
+type Variant = 'primary' | 'secondary';"#,
+    )?;
+    let signature = details.signature.unwrap();
+    let parameter = &signature.parameters[0];
+
+    assert_eq!(parameter.type_text.as_deref(), Some("Variant"));
+    assert_eq!(parameter.type_kind, Some(RegistryParameterTypeKind::Enum));
+    assert_eq!(parameter.allowed_values, ["primary", "secondary"]);
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_resolves_exported_literal_union_alias() -> io::Result<()> {
+    let details = discover_documented_button(
+        r#"export type Variant = "primary" | "secondary";
+type Props = { variant: Variant };
+export function Button({ variant }: Props) {
+  return <button data-variant={variant} />;
+}"#,
+    )?;
+    let signature = details.signature.unwrap();
+    let parameter = &signature.parameters[0];
+
+    assert_eq!(parameter.type_kind, Some(RegistryParameterTypeKind::Enum));
+    assert_eq!(parameter.allowed_values, ["primary", "secondary"]);
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_does_not_resolve_a_shadowing_generic_parameter() -> io::Result<()> {
+    let details = discover_documented_button(
+        r#"type Variant = 'primary' | 'secondary';
+export function Button<Variant>({ variant }: { variant: Variant }) {
+  return <button data-variant={variant} />;
+}"#,
+    )?;
+    let parameter = &details.signature.unwrap().parameters[0];
+
+    assert_eq!(parameter.type_text.as_deref(), Some("Variant"));
+    assert_eq!(parameter.type_kind, None);
+    assert!(parameter.allowed_values.is_empty());
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_keeps_imported_alias_opaque() -> io::Result<()> {
+    let details = discover_documented_button(
+        r#"import type { Variant } from "@acme/types";
+export function Button({ variant }: { variant?: Variant }) {
+  return <button data-variant={variant} />;
+}"#,
+    )?;
+    let signature = details.signature.unwrap();
+    let parameter = &signature.parameters[0];
+
+    assert_eq!(
+        serde_json::to_value(parameter).unwrap(),
+        serde_json::json!({
+            "name": "variant",
+            "type_text": "Variant",
+            "package": "@acme/types",
+            "required": false
+        })
+    );
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_uses_enum_member_names() -> io::Result<()> {
+    let details = discover_documented_button(
+        r#"export enum Variant {
+  Primary = "primary",
+  Secondary = "secondary",
+  "high-contrast" = "contrast",
+}
+export function Button({ variant }: { variant: Variant }) {
+  return <button data-variant={variant} />;
+}"#,
+    )?;
+    let signature = details.signature.unwrap();
+    let parameter = &signature.parameters[0];
+
+    assert_eq!(parameter.type_kind, Some(RegistryParameterTypeKind::Enum));
+    assert_eq!(
+        parameter.allowed_values,
+        ["Primary", "Secondary", "high-contrast"]
+    );
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_combines_merged_enum_declarations() -> io::Result<()> {
+    let details = discover_documented_button(
+        r#"enum Variant { Primary = 'primary' }
+enum Variant { Secondary = 'secondary' }
+export function Button({ variant }: { variant: Variant }) {
+  return <button data-variant={variant} />;
+}"#,
+    )?;
+    let parameter = &details.signature.unwrap().parameters[0];
+
+    assert_eq!(parameter.type_kind, Some(RegistryParameterTypeKind::Enum));
+    assert_eq!(parameter.allowed_values, ["Primary", "Secondary"]);
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_reads_const_and_ambient_enums() -> io::Result<()> {
+    let details = discover_documented_button(
+        r#"const enum Size { Small, Large }
+declare enum Tone { Quiet, Strong }
+export function Button({ size, tone }: { size: Size; tone: Tone }) {
+  return <button data-size={size} data-tone={tone} />;
+}"#,
+    )?;
+    let signature = details.signature.unwrap();
+    for (parameter, names) in signature
+        .parameters
+        .iter()
+        .zip([["Small", "Large"], ["Quiet", "Strong"]])
+    {
+        assert_eq!(parameter.type_kind, Some(RegistryParameterTypeKind::Enum));
+        assert_eq!(parameter.allowed_values, names);
+    }
+    assert_eq!(signature.parameters.len(), 2);
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_omits_enum_facts_for_union_with_undefined() -> io::Result<()> {
+    let details = discover_documented_button(
+        r#"type Variant = 'primary' | undefined;
+export function Button({ variant }: { variant: Variant }) {
+  return <button data-variant={variant} />;
+}"#,
+    )?;
+    let signature = details.signature.unwrap();
+    let parameter = &signature.parameters[0];
+
+    assert_eq!(parameter.type_kind, None);
+    assert!(parameter.allowed_values.is_empty());
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_omits_enum_facts_for_an_empty_string_value() -> io::Result<()> {
+    let details = discover_documented_button(
+        r#"export function Button({ variant }: { variant: '' | 'primary' }) {
+  return <button data-variant={variant} />;
+}"#,
+    )?;
+    let signature = details.signature.unwrap();
+    let parameter = &signature.parameters[0];
+
+    assert_eq!(parameter.type_text.as_deref(), Some("'' | 'primary'"));
+    assert_eq!(parameter.type_kind, None);
+    assert!(parameter.allowed_values.is_empty());
+    Ok(())
+}
+
+#[test]
 fn discover_registry_details_omits_structured_kind_for_mixed_union() -> io::Result<()> {
     let tempdir = tempfile::tempdir()?;
     let src = tempdir.path().join("src");
@@ -697,14 +887,16 @@ fn discover_registry_details_marks_inherited_props_partial() -> io::Result<()> {
     fs::create_dir_all(&src)?;
     fs::write(
         src.join("ExtendedButton.tsx"),
-        r#"interface BaseProps {
+        r#"type Variant = 'primary' | 'secondary';
+interface BaseProps {
   id: string;
 }
 export interface ExtendedProps extends BaseProps {
   label: string;
+  variant?: Variant;
 }
-export function ExtendedButton({ label }: ExtendedProps) {
-  return <button>{label}</button>;
+export function ExtendedButton({ label, variant }: ExtendedProps) {
+  return <button data-variant={variant}>{label}</button>;
 }
 "#,
     )?;
@@ -730,15 +922,19 @@ export function ExtendedButton({ label }: ExtendedProps) {
             "status": "partial",
             "source_evidence": {
                 "path": "src/ExtendedButton.tsx",
-                "start_line": 7,
-                "end_line": 9
+                "start_line": 9,
+                "end_line": 11
             },
             "signature": {
-                "type_text": "export function ExtendedButton({ label }: ExtendedProps)",
+                "type_text": "export function ExtendedButton({ label, variant }: ExtendedProps)",
                 "parameters": [{
                     "name": "label",
                     "type_text": "string",
                     "required": true
+                }, {
+                    "name": "variant",
+                    "type_text": "Variant",
+                    "required": false
                 }]
             },
             "field_gaps": [{

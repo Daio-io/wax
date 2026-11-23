@@ -83,16 +83,22 @@ Per-prop facts:
   - `function`: function types
   - `collection`: arrays and tuples
   - `object`: `object` and inline object literals
-- `enum` with `allowed_values` applies only to an **inline** union of literals
-  (`'primary' | 'secondary'`). Values keep their quotes as written. A named
-  alias (`variant?: ButtonVariant`) or a union that includes non-literals such
-  as `| undefined` gets no `type_kind`. Use `?` for optional props instead.
+  - `enum` with `allowed_values` is extracted from inline literal unions, from
+    top-level literal-union aliases in the same file, and from top-level
+    TypeScript enums in the same file. Aliases and enums can be exported.
+- String union members are decoded, so `'primary' | "secondary"` yields
+  `["primary", "secondary"]`. Numeric, boolean, and bigint members keep their
+  source spelling. TypeScript enums contribute member names, so
+  `enum Variant { Primary = 'primary', Secondary = 'secondary' }` yields
+  `["Primary", "Secondary"]`.
+- Imported types, unions with non-literal members such as `undefined`, and
+  unions containing template literal types with substitutions or empty
+  string values have no enum facts. Use `?` for optional props.
 
 ## Structural fixes (each needs approval)
 
 | Symptom | Fix that keeps the API | Notes |
 |---------|-------------------------------|-------|
-| `variant` has no `allowed_values` | Inline the literal union in the prop, and keep the exported alias for consumers if one exists | The resulting type stays the same. |
 | Defaults are set inside the body or through `defaultProps` | Move them into the destructured parameter defaults | Behavior stays the same when the value is used only through the destructured name. |
 | Props `extends` native element attributes | Usually keep it and accept the gap | Descriptions on the component's own members are still extracted. Do not reshape public props types for Wax alone. |
 | Docs written as component `@param` tags | Move each description onto the matching props member | Doc-only change. |
