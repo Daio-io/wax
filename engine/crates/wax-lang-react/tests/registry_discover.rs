@@ -547,6 +547,22 @@ export function Button({ variant }: Props) {
 }
 
 #[test]
+fn discover_registry_details_does_not_resolve_a_shadowing_generic_parameter() -> io::Result<()> {
+    let details = discover_documented_button(
+        r#"type Variant = 'primary' | 'secondary';
+export function Button<Variant>({ variant }: { variant: Variant }) {
+  return <button data-variant={variant} />;
+}"#,
+    )?;
+    let parameter = &details.signature.unwrap().parameters[0];
+
+    assert_eq!(parameter.type_text.as_deref(), Some("Variant"));
+    assert_eq!(parameter.type_kind, None);
+    assert!(parameter.allowed_values.is_empty());
+    Ok(())
+}
+
+#[test]
 fn discover_registry_details_keeps_imported_alias_opaque() -> io::Result<()> {
     let details = discover_documented_button(
         r#"import type { Variant } from "@acme/types";
@@ -589,6 +605,22 @@ export function Button({ variant }: { variant: Variant }) {
         parameter.allowed_values,
         ["Primary", "Secondary", "high-contrast"]
     );
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_combines_merged_enum_declarations() -> io::Result<()> {
+    let details = discover_documented_button(
+        r#"enum Variant { Primary = 'primary' }
+enum Variant { Secondary = 'secondary' }
+export function Button({ variant }: { variant: Variant }) {
+  return <button data-variant={variant} />;
+}"#,
+    )?;
+    let parameter = &details.signature.unwrap().parameters[0];
+
+    assert_eq!(parameter.type_kind, Some(RegistryParameterTypeKind::Enum));
+    assert_eq!(parameter.allowed_values, ["Primary", "Secondary"]);
     Ok(())
 }
 

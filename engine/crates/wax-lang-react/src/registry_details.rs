@@ -524,12 +524,15 @@ fn module_declarations(parsed: &ParsedReactModule) -> impl Iterator<Item = &Decl
     })
 }
 
-fn collect_local_enum_values(parsed: &ParsedReactModule) -> BTreeMap<String, Vec<String>> {
-    module_declarations(parsed)
-        .filter_map(|decl| match decl {
+fn collect_local_enum_values(parsed: &ParsedReactModule) -> BTreeMap<Id, Vec<String>> {
+    let mut enums = BTreeMap::<Id, Vec<String>>::new();
+    for decl in module_declarations(parsed) {
+        let (id, values) = match decl {
             Decl::TsTypeAlias(alias) => {
-                let values = literal_union_values(parsed, &alias.type_ann)?;
-                Some((alias.id.sym.to_string(), values))
+                let Some(values) = literal_union_values(parsed, &alias.type_ann) else {
+                    continue;
+                };
+                (alias.id.to_id(), values)
             }
             Decl::TsEnum(enumeration) => {
                 let values = enumeration
@@ -540,17 +543,24 @@ fn collect_local_enum_values(parsed: &ParsedReactModule) -> BTreeMap<String, Vec
                         TsEnumMemberId::Str(value) => value.value.to_string_lossy().into_owned(),
                     })
                     .collect();
-                Some((enumeration.id.sym.to_string(), values))
+                (enumeration.id.to_id(), values)
             }
-            _ => None,
-        })
-        .collect()
+            _ => continue,
+        };
+        let collected = enums.entry(id).or_default();
+        for value in values {
+            if !collected.contains(&value) {
+                collected.push(value);
+            }
+        }
+    }
+    enums
 }
 
 fn collect_props_definitions(
     parsed: &ParsedReactModule,
     imports: &HashMap<Id, String>,
-    local_enum_values: &BTreeMap<String, Vec<String>>,
+    local_enum_values: &BTreeMap<Id, Vec<String>>,
 ) -> HashMap<Id, PropsDefinition> {
     module_declarations(parsed)
         .filter_map(|decl| {
@@ -588,7 +598,7 @@ fn parameters_from_members(
     parsed: &ParsedReactModule,
     members: &[TsTypeElement],
     imports: &HashMap<Id, String>,
-    local_enum_values: &BTreeMap<String, Vec<String>>,
+    local_enum_values: &BTreeMap<Id, Vec<String>>,
 ) -> Vec<RegistryParameter> {
     members
         .iter()
@@ -644,7 +654,7 @@ fn parameter_type_facts(
     parsed: &ParsedReactModule,
     ty: &TsType,
     imports: &HashMap<Id, String>,
-    local_enum_values: &BTreeMap<String, Vec<String>>,
+    local_enum_values: &BTreeMap<Id, Vec<String>>,
 ) -> (Option<RegistryParameterTypeKind>, Vec<String>) {
     let kind = match ty {
         TsType::TsKeywordType(keyword) => match keyword.kind {
@@ -664,7 +674,7 @@ fn parameter_type_facts(
     let allowed_values = match ty {
         TsType::TsTypeRef(reference) => match &reference.type_name {
             TsEntityName::Ident(ident) if !imports.contains_key(&ident.to_id()) => {
-                local_enum_values.get(ident.sym.as_ref()).cloned()
+                local_enum_values.get(&ident.to_id()).cloned()
             }
             _ => None,
         },
@@ -710,7 +720,7 @@ fn component_details(
     implementation: ComponentImpl<'_>,
     props: &HashMap<Id, PropsDefinition>,
     imports: &HashMap<Id, String>,
-    local_enum_values: &BTreeMap<String, Vec<String>>,
+    local_enum_values: &BTreeMap<Id, Vec<String>>,
 ) -> RegistryDetails {
     let ComponentImpl {
         signature_span,
@@ -790,7 +800,7 @@ fn signature_facts(
     parameter: Option<&Pat>,
     props: &HashMap<Id, PropsDefinition>,
     imports: &HashMap<Id, String>,
-    local_enum_values: &BTreeMap<String, Vec<String>>,
+    local_enum_values: &BTreeMap<Id, Vec<String>>,
 ) -> (
     Option<String>,
     Vec<RegistryParameter>,
