@@ -34,8 +34,8 @@
       },
       {
         "allowed_values": [
-          "'primary'",
-          "'secondary'"
+          "primary",
+          "secondary"
         ],
         "default": "'primary'",
         "description": "Visual emphasis for the action.",

@@ -89,6 +89,9 @@
 
 ### wax-lang-react
 
+- Publish decoded strings in registry `allowed_values` for literal unions.
+  Single-quoted literals now appear as `x` instead of `'x'`. React discovery
+  also extracts values from same-file literal-union aliases and TypeScript enums.
 - Join wrapped JSDoc `@guidance`, skip continuation lines on ignored tags, and
   strip code fences from `@example` attachments during registry discovery.
 
