@@ -20,12 +20,14 @@ use wax_lang_api::{DiscoverRegistryRequest, DiscoverRegistryResult};
 use crate::component_detect::{LocalValue, module_export_name, simple_binding_ident};
 use crate::discover::{
     DamagedReactSources, ParsedReactSourceFile, ReactDiscoverError, ReactWrapperCallees,
-    collect_and_parse_react_sources, is_declaration_file, react_wrapper_callees,
+    collect_and_parse_react_sources, collect_discovery_css_files, is_declaration_file,
+    react_wrapper_callees,
 };
 use crate::module_graph::{normalize_relative_path, resolve_path_candidates};
 use crate::palette_discovery::{apply_token_evidence, discover_palette_tokens};
 use crate::public_exports::{PublicBinding, public_bindings, relative_module_path};
 use crate::swc_parse::ParsedReactModule;
+use crate::tailwind_theme::discover_theme_tokens;
 
 #[derive(Debug)]
 struct PropsDefinition {
@@ -162,6 +164,18 @@ pub fn discover_registry_details(
         &exports,
         &parsed_files,
         &damaged_paths,
+    )?;
+    let css_files =
+        collect_discovery_css_files(&absolute_roots).map_err(|source| ReactDiscoverError::Io {
+            context: "collect React discovery CSS files".to_owned(),
+            source,
+        })?;
+    discover_theme_tokens(
+        &mut document,
+        &request.registry.tokens,
+        repo_root,
+        &css_files,
+        &mut diagnostics,
     )?;
     document
         .validate()

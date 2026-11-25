@@ -41,6 +41,7 @@ mod registry;
 mod registry_details;
 mod style_extract;
 mod swc_parse;
+mod tailwind_theme;
 mod token_extract;
 
 use std::path::Path;

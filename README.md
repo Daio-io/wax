@@ -232,11 +232,33 @@ refreshes a value only while it still equals the generated literal recorded in
 `details.discovered_literal_value`; authored or cleared values are preserved.
 A registry with only `tokens` (no `components`) is a valid scan input.
 
+### CSS custom properties
+
 React scans also count literal `var(--name)` references in `.css` files under
 the scan roots when the registry has an unscoped token keyed `var(--name)`.
 Authored `css_variants` link that logical token to its concrete light, dark and
 Display P3 entries; see the
 [CSS custom property reference](website/docs/reference/registry.md#css-custom-properties).
+
+### Tailwind v4 theme tokens
+
+React discovery reads top-level `@theme` blocks in CSS under a discovery root,
+such as `--root src/styling`. For example, `--color-main: var(--main)` becomes
+`css.color-main` with key `var(--color-main)`, category `color`, and source
+evidence at the declaration. Discovery resolves whole-value references against
+top-level `:root` properties and then the theme declarations.
+
+| Theme namespace | Registry category |
+| --- | --- |
+| `--color-` | `color` |
+| `--spacing-`, `--spacing`, `--container-` | `spacing` |
+| `--radius-` | `radius` |
+| `--shadow-`, `--inset-shadow-`, `--drop-shadow-`, `--text-shadow-` | `elevation` |
+| `--text-`, `--font-`, `--font-weight-`, `--tracking-`, `--leading-` | `typography` |
+| `--blur-`, `--perspective-`, `--aspect-`, `--ease-`, `--animate-`, `--breakpoint-` | `unknown` |
+
+Out of scope are `.dark` variants, Tailwind v3 config, and deriving the
+`--spacing` scale from the base spacing token.
 
 ### Search Components and Tokens
 

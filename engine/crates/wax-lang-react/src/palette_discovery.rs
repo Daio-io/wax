@@ -182,7 +182,7 @@ fn match_seeds(
         .collect()
 }
 
-fn invalid_token(message: String) -> ReactDiscoverError {
+pub(super) fn invalid_token(message: String) -> ReactDiscoverError {
     ReactDiscoverError::InvalidRegistry(RegistryError::ContractViolation {
         field: "tokens".to_owned(),
         message,

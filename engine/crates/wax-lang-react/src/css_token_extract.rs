@@ -35,8 +35,8 @@ pub(crate) fn collect_css_token_sites(
         .parse(&source, None)
         .ok_or(ReactParseError::CssNoTree)?;
     let file = normalize_repo_relative_path(relative_path);
-    if tree.root_node().has_error() {
-        let point = first_error(tree.root_node()).start_position();
+    if let Some(error) = first_error(tree.root_node(), |_| false) {
+        let point = error.start_position();
         diagnostics.push(Diagnostic {
             severity: DiagnosticSeverity::Error,
             code: PARSE_FAILED.to_owned(),
@@ -102,7 +102,7 @@ fn referenced_property<'a>(call: Node<'_>, source: &'a str) -> Option<&'a str> {
     name
 }
 
-fn source_location(file: &str, point: Point) -> SourceLocation {
+pub(crate) fn source_location(file: &str, point: Point) -> SourceLocation {
     SourceLocation {
         file: file.to_owned(),
         line: u32::try_from(point.row.saturating_add(1)).unwrap_or(u32::MAX),
@@ -111,20 +111,28 @@ fn source_location(file: &str, point: Point) -> SourceLocation {
     }
 }
 
-/// Finds the first ERROR or MISSING node in document order.
-fn first_error(root: Node<'_>) -> Node<'_> {
-    let mut node = root;
-    'descend: loop {
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if child.is_error() || child.is_missing() {
-                return child;
-            }
-            if child.has_error() {
-                node = child;
-                continue 'descend;
-            }
-        }
-        return node;
+/// Finds the first ERROR or MISSING node in document order, skipping known grammar gaps.
+pub(crate) fn first_error(root: Node<'_>, ignore: impl Fn(Node<'_>) -> bool) -> Option<Node<'_>> {
+    if !root.has_error() {
+        return None;
     }
+    let mut pending = vec![root];
+    while let Some(node) = pending.pop() {
+        if node.is_error() || node.is_missing() {
+            if !ignore(node) {
+                return Some(node);
+            }
+        } else if node.has_error() {
+            let start = pending.len();
+            pending.extend(
+                node.children(&mut node.walk())
+                    .filter(|child| child.has_error() || child.is_error() || child.is_missing()),
+            );
+            if pending.len() == start {
+                return Some(node);
+            }
+            pending[start..].reverse();
+        }
+    }
+    None
 }

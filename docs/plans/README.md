@@ -65,6 +65,19 @@ pilots and Phase 3b maintenance/staging evidence are available. See the
 [Phase 4 implementation and evidence record](./2026-11-16-public-registry-catalogue-plan.md#phase-4-app-consumption-the-894).
 
 
+**Authorized THE-931 Tailwind v4 discovery extraction:** Phase 1a
+([THE-932](https://linear.app/the-good-egg-studio/issue/THE-932/phase-1a-discover-tailwind-v4-theme-tokens-from-css))
+covers React registry discovery from CSS while Phase 2B remains the sequential
+active plan.
+
+- [x] Phase 1a discovers theme tokens with source evidence and preserves authored
+  registry fields on rediscovery.
+- [x] Cover extraction, resolution, diagnostics, and seed lifecycle through the
+  React discovery API. Document discovery roots and supported namespaces.
+- [x] Pass React formatting, tests, and Clippy, plus the website checks. Verify
+  discovery and lookup on the pinned Neobrutalism fixture.
+
+
 ---
 
 ## Roadmap
