@@ -75,6 +75,7 @@
 
 ### Release
 
+- Cut releases from the Release workflow's `workflow_dispatch` with a `version` input. The workflow now creates and pushes the `v<version>` tag itself after build and asset verification, then publishes the GitHub Release, pack index, and npm package. Pushing a `v*` tag no longer starts a release; `dry_run` keeps the build-and-verify-only path.
 - Promote `wax-lang-react` into alpha release artifacts and generated pack indexes alongside `compose` and `basic` (16 archives + checksums per tag). The default `gh-pages/index.json` updates when the next alpha tag publishes.
 
 ### wax-cli

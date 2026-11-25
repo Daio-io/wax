@@ -127,3 +127,29 @@ For documentation-only changes, inspect the rendered Markdown when practical and
 - The engine binary is distributed through release channels.
 - Language packs install on demand into `~/.wax/langs/`.
 - If a change affects release behavior, keep README, install docs, scripts, and relevant plans aligned in the same PR when required.
+
+### Cutting a release
+
+Releases run from the **Release** workflow's manual dispatch, not from pushing
+tags. In GitHub, open **Actions → Release → Run workflow**, pick `main`, and
+enter the version without the leading `v` (for example `0.11.0-alpha.2`). The
+same can be done from the CLI:
+
+```bash
+gh workflow run release.yml --ref main -f version=0.11.0-alpha.2
+```
+
+The workflow validates the version, refuses tags that already exist, runs the
+engine checks, builds and smoke-tests every target archive, and validates the
+generated pack index. Only after that does it create the annotated
+`v<version>` tag on the dispatched commit, publish the GitHub Release with its
+assets, update the `gh-pages` pack index, and publish the npm package.
+Versions containing `-` are marked as prereleases and published to npm under
+the `alpha` dist-tag.
+
+Set `dry_run=true` to build and verify a version from any branch without
+tagging or publishing anything:
+
+```bash
+gh workflow run release.yml --ref my-branch -f version=0.11.0-alpha.2 -f dry_run=true
+```

@@ -17,11 +17,68 @@ end
 
 require_includes!(
   workflow,
-  "tags:\n      - \"v*\"\n    branches-ignore:\n      - \"**\"",
-  "tag-only release trigger"
+  "\"on\":\n  workflow_dispatch:\n    inputs:\n      version:",
+  "workflow_dispatch release trigger with version input"
 )
 
-require_includes!(workflow, "workflow_dispatch:", "manual release dry-run trigger")
+if workflow.match?(/^\s+push:\s*$/) || workflow.match?(/^\s+tags:\s*$/)
+  warn "release workflow must only run from workflow_dispatch, not tag pushes"
+  exit 1
+end
+
+require_includes!(
+  workflow,
+  "      dry_run:\n        description: \"Build and verify release assets without tagging or publishing\"",
+  "dry_run release input"
+)
+
+require_includes!(
+  workflow,
+  "WAX_RELEASE_TAG: v${{ inputs.version }}",
+  "release tag derived from version input"
+)
+
+require_includes!(
+  workflow,
+  "concurrency:\n  group: release\n  cancel-in-progress: false",
+  "serialized release runs"
+)
+
+require_includes!(
+  workflow,
+  'if [[ ! "${version}" =~ ${semver_pattern} ]]; then',
+  "semantic version input validation"
+)
+
+require_includes!(
+  workflow,
+  'if [[ "${GITHUB_REF}" != "refs/heads/${DEFAULT_BRANCH}" ]]; then',
+  "default-branch guard for published releases"
+)
+
+require_includes!(
+  workflow,
+  'if git ls-remote --exit-code --tags origin "refs/tags/${WAX_RELEASE_TAG}" >/dev/null; then',
+  "pre-build check that the release tag is unused"
+)
+
+require_includes!(
+  workflow,
+  'git tag -a "${WAX_RELEASE_TAG}" -m "wax ${WAX_RELEASE_TAG}" "${GITHUB_SHA}"',
+  "release tag creation at the dispatched commit"
+)
+
+require_includes!(
+  workflow,
+  'git push origin "refs/tags/${WAX_RELEASE_TAG}"',
+  "release tag push"
+)
+
+require_includes!(
+  workflow,
+  "tag_name: ${{ env.WAX_RELEASE_TAG }}\n          target_commitish: ${{ github.sha }}",
+  "GitHub Release bound to the created tag"
+)
 
 require_includes!(
   workflow,
@@ -65,7 +122,7 @@ require_includes!(
   workflow,
   'publish:
     name: Publish GitHub Release',
-  "push-only publish job"
+  "non-dry-run publish job"
 )
 
 require_includes!(
@@ -77,9 +134,14 @@ require_includes!(
 
 require_includes!(
   workflow,
-  "if: github.event_name == 'push'",
-  "push-only publish guard"
+  "if: ${{ !inputs.dry_run }}",
+  "dry-run publish guard"
 )
+
+if workflow.include?("github.event_name == 'push'")
+  warn "release workflow must not gate publishing on push events"
+  exit 1
+end
 
 require_includes!(
   workflow,
