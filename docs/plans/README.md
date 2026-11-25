@@ -76,6 +76,10 @@ active plan.
   React discovery API. Document discovery roots and supported namespaces.
 - [x] Pass React formatting, tests, and Clippy, plus the website checks. Verify
   discovery and lookup on the pinned Neobrutalism fixture.
+- [x] Phase 1b ([THE-933](https://linear.app/the-good-egg-studio/issue/THE-933/phase-1b-extract-intersection-props-and-cvatv-variants))
+  extracts intersection props and literal `cva` and `tv` variants. Verify the
+  React discovery API, the refine-docs skill contract, and Button and Card
+  discovery on the pinned Neobrutalism fixture.
 
 
 ---

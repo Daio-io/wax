@@ -29,10 +29,15 @@ use crate::public_exports::{PublicBinding, public_bindings, relative_module_path
 use crate::swc_parse::ParsedReactModule;
 use crate::tailwind_theme::discover_theme_tokens;
 
+mod variants;
+
+use variants::{VariantDefinitions, collect_variant_definitions, variant_facts};
+
 #[derive(Debug)]
 struct PropsDefinition {
     parameters: Vec<RegistryParameter>,
     inherited: bool,
+    gaps: Vec<RegistryFieldGap>,
 }
 
 #[derive(Debug)]
@@ -199,7 +204,8 @@ fn component_declarations(
     imports: &ImportPackages,
     enum_values: &EnumValues,
 ) -> BTreeMap<String, ComponentDeclaration> {
-    let props = collect_props_definitions(parsed, imports, enum_values);
+    let variants = collect_variant_definitions(parsed);
+    let props = collect_props_definitions(parsed, imports, enum_values, &variants);
     let wrapper_callees = react_wrapper_callees(&parsed.module.body);
     let locals = local_component_impls(parsed);
     let named_exports = local_named_value_exports(&parsed.module.body);
@@ -216,6 +222,7 @@ fn component_declarations(
                     &props,
                     imports,
                     enum_values,
+                    &variants,
                 ),
             },
         );
@@ -752,32 +759,65 @@ fn collect_props_definitions(
     parsed: &ParsedReactModule,
     imports: &ImportPackages,
     enum_values: &EnumValues,
+    variants: &VariantDefinitions,
 ) -> HashMap<Id, PropsDefinition> {
-    module_declarations(parsed)
-        .filter_map(|decl| {
-            let (id, members, inherited) = match decl {
-                Decl::TsInterface(interface) => (
-                    &interface.id,
-                    &interface.body.body,
-                    !interface.extends.is_empty(),
-                ),
-                Decl::TsTypeAlias(alias) => {
-                    let TsType::TsTypeLit(literal) = &*alias.type_ann else {
-                        return None;
-                    };
-                    (&alias.id, &literal.members, false)
+    let mut props = HashMap::new();
+    let mut aliases = BTreeMap::new();
+    for decl in module_declarations(parsed) {
+        let (id, members, inherited) = match decl {
+            Decl::TsInterface(interface) => (
+                &interface.id,
+                &interface.body.body,
+                !interface.extends.is_empty(),
+            ),
+            Decl::TsTypeAlias(alias) => match alias.type_ann.as_ref() {
+                TsType::TsTypeLit(literal) => (&alias.id, &literal.members, false),
+                ty if intersection_members(ty).is_some() => {
+                    aliases.insert(alias.id.to_id(), ty);
+                    continue;
                 }
-                _ => return None,
-            };
-            Some((
-                id.to_id(),
-                PropsDefinition {
-                    parameters: parameters_from_members(parsed, members, imports, enum_values),
-                    inherited,
-                },
-            ))
-        })
-        .collect()
+                _ => continue,
+            },
+            _ => continue,
+        };
+        props.insert(
+            id.to_id(),
+            PropsDefinition {
+                parameters: parameters_from_members(parsed, members, imports, enum_values),
+                inherited,
+                gaps: Vec::new(),
+            },
+        );
+    }
+
+    let alias_ids: Vec<_> = aliases.keys().cloned().collect();
+    for id in alias_ids {
+        let mut pending = vec![(id, None)];
+        while let Some((id, definition)) = pending.pop() {
+            if let Some(ty) = definition {
+                let (parameters, gaps) =
+                    intersection_facts(parsed, ty, &props, imports, enum_values, variants);
+                props.insert(
+                    id,
+                    PropsDefinition {
+                        parameters,
+                        inherited: false,
+                        gaps,
+                    },
+                );
+            } else if let Some(ty) = aliases.remove(&id) {
+                // Remove active aliases so a circular reference remains opaque.
+                pending.push((id, Some(ty)));
+                pending.extend(
+                    flattened_intersection_members(ty)
+                        .filter_map(imported_type_id)
+                        .filter(|id| aliases.contains_key(id))
+                        .map(|id| (id, None)),
+                );
+            }
+        }
+    }
+    props
 }
 
 fn parameters_from_members(
@@ -903,13 +943,14 @@ fn component_details(
     props: &HashMap<Id, PropsDefinition>,
     imports: &ImportPackages,
     enum_values: &EnumValues,
+    variants: &VariantDefinitions,
 ) -> RegistryDetails {
     let ComponentImpl {
         signature_span,
         parameter,
     } = implementation;
     let (props_type_text, mut parameters, mut field_gaps) =
-        signature_facts(parsed, parameter, props, imports, enum_values);
+        signature_facts(parsed, parameter, props, imports, enum_values, variants);
     let type_text = signature_span
         .and_then(|span| parsed.source_slice_from_span(span))
         .map(|text| text.trim().to_owned());
@@ -983,6 +1024,7 @@ fn signature_facts(
     props: &HashMap<Id, PropsDefinition>,
     imports: &ImportPackages,
     enum_values: &EnumValues,
+    variants: &VariantDefinitions,
 ) -> (
     Option<String>,
     Vec<RegistryParameter>,
@@ -1005,6 +1047,11 @@ fn signature_facts(
                 parameters_from_members(parsed, &literal.members, imports, enum_values),
                 Vec::new(),
             );
+        }
+        ty if intersection_members(ty).is_some() => {
+            let (parameters, gaps) =
+                intersection_facts(parsed, ty, props, imports, enum_values, variants);
+            return (type_text, parameters, gaps);
         }
         TsType::TsTypeRef(reference) => match &reference.type_name {
             swc_ecma_ast::TsEntityName::Ident(ident) => ident,
@@ -1047,23 +1094,109 @@ fn signature_facts(
             }],
         );
     };
+    let (parameters, gaps) = local_props_facts(type_name, definition);
+    (type_text, parameters, gaps)
+}
+
+fn local_props_facts(
+    type_name: &str,
+    definition: &PropsDefinition,
+) -> (Vec<RegistryParameter>, Vec<RegistryFieldGap>) {
     let mut parameters = definition.parameters.clone();
-    let gaps = if definition.inherited {
+    let mut gaps = definition.gaps.clone();
+    if definition.inherited {
         for parameter in &mut parameters {
             parameter.type_kind = None;
             parameter.allowed_values.clear();
         }
-        vec![RegistryFieldGap {
-            field: "signature.parameters".to_owned(),
-            reason: format!(
-                "props type `{type_name}` inherits fields that require type resolution"
-            ),
-            extra: Map::new(),
-        }]
-    } else {
-        Vec::new()
-    };
-    (type_text, parameters, gaps)
+        gaps.push(parameter_gap(format!(
+            "props type `{type_name}` inherits fields that require type resolution"
+        )));
+    }
+    (parameters, gaps)
+}
+
+fn unparenthesized_type(mut ty: &TsType) -> &TsType {
+    while let TsType::TsParenthesizedType(parenthesized) = ty {
+        ty = &parenthesized.type_ann;
+    }
+    ty
+}
+
+fn intersection_members(ty: &TsType) -> Option<&[Box<TsType>]> {
+    match unparenthesized_type(ty) {
+        TsType::TsUnionOrIntersectionType(TsUnionOrIntersectionType::TsIntersectionType(
+            intersection,
+        )) => Some(&intersection.types),
+        _ => None,
+    }
+}
+
+fn flattened_intersection_members(ty: &TsType) -> impl Iterator<Item = &TsType> {
+    let mut pending = vec![ty];
+    std::iter::from_fn(move || {
+        while let Some(member) = pending.pop() {
+            let member = unparenthesized_type(member);
+            if let Some(members) = intersection_members(member) {
+                pending.extend(members.iter().rev().map(Box::as_ref));
+            } else {
+                return Some(member);
+            }
+        }
+        None
+    })
+}
+
+fn intersection_facts(
+    parsed: &ParsedReactModule,
+    ty: &TsType,
+    props: &HashMap<Id, PropsDefinition>,
+    imports: &ImportPackages,
+    enum_values: &EnumValues,
+    variants: &VariantDefinitions,
+) -> (Vec<RegistryParameter>, Vec<RegistryFieldGap>) {
+    let mut parameters: Vec<RegistryParameter> = Vec::new();
+    let mut gaps = Vec::new();
+    for member in flattened_intersection_members(ty) {
+        let (facts, member_gaps) = if let TsType::TsTypeLit(literal) = member {
+            (
+                parameters_from_members(parsed, &literal.members, imports, enum_values),
+                Vec::new(),
+            )
+        } else if let Some(id) = imported_type_id(member)
+            && let Some(definition) = props.get(&id)
+        {
+            local_props_facts(&id.0, definition)
+        } else if let Some(facts) = variant_facts(member, variants) {
+            (facts.parameters.clone(), facts.gaps.clone())
+        } else {
+            let source = parsed
+                .source_slice_from_span(member.span())
+                .unwrap_or_default();
+            gaps.push(parameter_gap(format!(
+                "props intersection member `{}` requires type resolution",
+                source.trim()
+            )));
+            continue;
+        };
+        gaps.extend(member_gaps);
+        for fact in facts {
+            if let Some(existing) = parameters.iter_mut().find(|p| p.name == fact.name) {
+                *existing = fact;
+            } else {
+                parameters.push(fact);
+            }
+        }
+    }
+    (parameters, gaps)
+}
+
+fn parameter_gap(reason: String) -> RegistryFieldGap {
+    RegistryFieldGap {
+        field: "signature.parameters".to_owned(),
+        reason,
+        extra: Map::new(),
+    }
 }
 
 fn imported_props_parameters(

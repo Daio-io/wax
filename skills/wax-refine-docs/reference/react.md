@@ -61,23 +61,26 @@ Wax reads members from the type annotation on the component's first parameter
 when it is:
 
 - a local `interface` **without `extends`**,
-- a local `type X = { ... }` object literal, or
-- an inline object type.
+- a local `type X = { ... }` object literal,
+- an inline object type, or
+- an intersection written inline or in a local type alias.
 
-Other shapes lose structured facts:
+Other props shapes yield these facts.
 
 | Props shape | Result |
 |-------------|--------|
 | `interface X extends Y` | Members and descriptions are kept, but `type_kind`/`allowed_values` are cleared and an inherits field gap is recorded. |
-| Intersection alias (`type X = A & B`) | No parameters, and a field gap is recorded. |
+| Intersection (`A & B` or `type X = A & B`) | Wax combines inline objects, local props definitions, and supported `VariantProps` members in source order. A later member replaces duplicate props in their original position. Each unresolved member gets a field gap. |
 | Imported props type | One opaque parameter with no member facts. |
 | No type annotation | No parameters, and a field gap is recorded. |
 
 Per-prop facts:
 
-- `required` is false for `?` members.
+- `required` is false for `?` members and variants from `cva` or `tv`.
 - `default` comes from **destructuring defaults** (`variant = 'primary'`).
   `defaultProps` and `@default` tags are not read.
+  For `cva` and `tv` variants, Wax uses the literal in `defaultVariants`
+  when the prop has no destructuring default.
 - `type_kind`:
   - `string`, `number`, `boolean`: the matching keyword types
   - `function`: function types
@@ -89,6 +92,14 @@ Per-prop facts:
     the discovery roots, including renamed imports and one named re-export.
     For example, `import type { ButtonVariant } from './types'` can resolve
     `export type ButtonVariant = 'primary' | 'secondary'`.
+  - A `VariantProps<typeof styles>` intersection member can resolve a
+    same-file top-level `const` initialized with `cva(base, config)` or
+    `tv(config)`. Wax recognizes the named imports (including aliases) from
+    `class-variance-authority` and `tailwind-variants`. Literal variant keys
+    supply ordered enum values. Variants whose keys are all `true` or `false`
+    become boolean props. Put JSDoc on the variant property to document the
+    prop. Spread entries, computed keys, and unsupported variant objects
+    produce field gaps.
 - String union members are decoded, so `'primary' | "secondary"` yields
   `["primary", "secondary"]`. Numeric, boolean, and bigint members keep their
   source spelling. TypeScript enums contribute member names, so
