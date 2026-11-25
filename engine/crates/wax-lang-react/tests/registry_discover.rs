@@ -3313,6 +3313,48 @@ fn rediscovery_tracks_removed_and_damaged_tailwind_declarations() -> io::Result<
 }
 
 #[test]
+fn rediscovery_tracks_tailwind_tokens_after_generated_value_marker_is_cleared() -> io::Result<()> {
+    use wax_contract::RegistryExtractionStatus::{NotObserved, Stale};
+
+    let fixture = tempfile::tempdir()?;
+    let root = fixture.path();
+    fs::write(root.join("removed.css"), "@theme { --color-removed: red; }")?;
+    fs::write(
+        root.join("damaged.css"),
+        "@theme { --color-damaged: blue; }",
+    )?;
+    let mut request = theme_request(root, &["."]);
+    request.registry = discover_registry_details(&request).unwrap().document;
+    for token in &mut request.registry.tokens {
+        token
+            .details
+            .as_mut()
+            .unwrap()
+            .extra
+            .remove("discovered_literal_value");
+    }
+
+    fs::remove_file(root.join("removed.css"))?;
+    fs::write(root.join("damaged.css"), "@theme { --color-damaged: ; }")?;
+    let result = discover_registry_details(&request).unwrap();
+    let status_by_id: std::collections::BTreeMap<_, _> = result
+        .document
+        .tokens
+        .iter()
+        .map(|token| (token.id.as_str(), token.details.as_ref().unwrap().status))
+        .collect();
+    assert_eq!(
+        status_by_id,
+        [
+            ("css.color-damaged", Stale),
+            ("css.color-removed", NotObserved)
+        ]
+        .into()
+    );
+    Ok(())
+}
+
+#[test]
 fn css_without_tailwind_theme_leaves_discovery_output_unchanged() -> io::Result<()> {
     let fixture = tempfile::tempdir()?;
     let request = theme_request(fixture.path(), &["."]);

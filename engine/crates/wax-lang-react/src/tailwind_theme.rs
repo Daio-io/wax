@@ -175,7 +175,7 @@ pub(crate) fn discover_theme_tokens(
             }
         } else if seed.id.starts_with("css.")
             && let Some(prior) = &seed.details
-            && prior.extra.contains_key(DISCOVERED_LITERAL_VALUE)
+            && prior.source_evidence.is_some()
         {
             has_theme = true;
             let token = &mut document.tokens[index];
