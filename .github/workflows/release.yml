@@ -1,21 +1,25 @@
 name: Release
 
 "on":
-  push:
-    tags:
-      - "v*"
-    branches-ignore:
-      - "**"
   workflow_dispatch:
     inputs:
-      release_tag:
-        description: "Release tag to dry-run, for example v0.1.0-alpha.1"
+      version:
+        description: "Version to release, without the leading v, for example 0.11.0-alpha.2"
         required: true
         type: string
+      dry_run:
+        description: "Build and verify release assets without tagging or publishing"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
-  WAX_RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
+  WAX_RELEASE_TAG: v${{ inputs.version }}
 
 jobs:
   validate-tag:
@@ -29,15 +33,39 @@ jobs:
         # actions/checkout@v6
         uses: actions/checkout@v6
 
-      - name: Validate release tag
+      - name: Validate release version
+        env:
+          WAX_RELEASE_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          version="${WAX_RELEASE_TAG#v}"
-          if [[ "${version}" == "${WAX_RELEASE_TAG}" || -z "${version}" || "${version}" == */* ]]; then
-            echo "release tag ${WAX_RELEASE_TAG} must look like v<version>" >&2
+          version="${WAX_RELEASE_VERSION}"
+          numeric='0|[1-9][0-9]*'
+          identifier='[0-9A-Za-z-]+'
+          semver_pattern="^(${numeric})\\.(${numeric})\\.(${numeric})(-${identifier}(\\.${identifier})*)?$"
+          if [[ ! "${version}" =~ ${semver_pattern} ]]; then
+            echo "release version '${version}' must be a semantic version without a leading v, for example 0.11.0-alpha.2" >&2
             exit 1
           fi
-          echo "release version ${version}"
+          echo "release tag ${WAX_RELEASE_TAG}"
+
+      - name: Require default branch for publishing releases
+        if: ${{ !inputs.dry_run }}
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" != "refs/heads/${DEFAULT_BRANCH}" ]]; then
+            echo "releases must be dispatched from ${DEFAULT_BRANCH}; got ${GITHUB_REF}. Use dry_run to verify other refs." >&2
+            exit 1
+          fi
+
+      - name: Require unused release tag
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/${WAX_RELEASE_TAG}" >/dev/null; then
+            echo "release tag ${WAX_RELEASE_TAG} already exists" >&2
+            exit 1
+          fi
 
   verify:
     name: Verify engine
@@ -253,13 +281,13 @@ jobs:
         run: cd engine && cargo test -p wax-core --locked validates_pack_index_from_env -- --ignored --nocapture
 
       - name: Report dry-run success
-        if: github.event_name == 'workflow_dispatch'
+        if: ${{ inputs.dry_run }}
         run: echo "release dry run passed for ${WAX_RELEASE_TAG}; skipping GitHub Release publish"
 
   publish:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
+    if: ${{ !inputs.dry_run }}
     needs: verify-release-assets
     permissions:
       contents: write
@@ -303,10 +331,29 @@ jobs:
           WAX_PACK_INDEX_URL: file://${{ github.workspace }}/release-assets/index.json
         run: cd engine && cargo test -p wax-core --locked validates_pack_index_from_env -- --ignored --nocapture
 
+      - name: Create release tag
+        run: |
+          set -euo pipefail
+          remote_tag="$(git ls-remote --tags origin "refs/tags/${WAX_RELEASE_TAG}^{}" "refs/tags/${WAX_RELEASE_TAG}" | awk 'NR == 1 || /\^\{\}$/ { sha = $1 } END { print sha }')"
+          if [[ -n "${remote_tag}" ]]; then
+            if [[ "${remote_tag}" != "${GITHUB_SHA}" ]]; then
+              echo "release tag ${WAX_RELEASE_TAG} already points at ${remote_tag}, expected ${GITHUB_SHA}" >&2
+              exit 1
+            fi
+            echo "release tag ${WAX_RELEASE_TAG} already points at ${GITHUB_SHA}; reusing it"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${WAX_RELEASE_TAG}" -m "wax ${WAX_RELEASE_TAG}" "${GITHUB_SHA}"
+          git push origin "refs/tags/${WAX_RELEASE_TAG}"
+
       - name: Publish release assets
         # softprops/action-gh-release@v2
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.WAX_RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
           files: |
             release-assets/*.tar.gz
             release-assets/*.tar.gz.sha256
@@ -340,7 +387,7 @@ jobs:
   publish-npm:
     name: Publish npm package
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
+    if: ${{ !inputs.dry_run }}
     needs: publish
     permissions:
       contents: read
@@ -418,7 +465,7 @@ jobs:
   verify-published-pack-index:
     name: Verify published pack index
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
+    if: ${{ !inputs.dry_run }}
     needs: publish
     permissions:
       contents: read
