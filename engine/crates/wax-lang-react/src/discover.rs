@@ -241,6 +241,30 @@ fn collect_react_files(
     files: &mut Vec<PathBuf>,
     include_declarations: bool,
 ) -> Result<(), std::io::Error> {
+    collect_discovery_files(dir, files, &|path, _| {
+        is_supported_react_source(path) || (include_declarations && is_declaration_file(path))
+    })
+}
+
+pub(crate) fn collect_discovery_css_files(roots: &[PathBuf]) -> std::io::Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    for root in roots {
+        if !is_ignored_discovery_dir(root) && !fs::symlink_metadata(root)?.is_symlink() {
+            collect_discovery_files(root, &mut files, &|path, file_type| {
+                file_type.is_file() && crate::files::is_css_file(path)
+            })?;
+        }
+    }
+    files.sort();
+    files.dedup();
+    Ok(files)
+}
+
+fn collect_discovery_files(
+    dir: &Path,
+    files: &mut Vec<PathBuf>,
+    accepts: &impl Fn(&Path, fs::FileType) -> bool,
+) -> std::io::Result<()> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
@@ -249,25 +273,23 @@ fn collect_react_files(
             continue;
         }
         if file_type.is_dir() {
-            if path_components_contain(&path, "node_modules")
-                || path_components_contain(&path, "generated")
-                || path_components_contain(&path, "__generated__")
-            {
+            if is_ignored_discovery_dir(&path) {
                 continue;
             }
-            collect_react_files(&path, files, include_declarations)?;
-        } else if is_supported_react_source(&path)
-            || (include_declarations && is_declaration_file(&path))
-        {
+            collect_discovery_files(&path, files, accepts)?;
+        } else if accepts(&path, file_type) {
             files.push(path);
         }
     }
     Ok(())
 }
 
-fn path_components_contain(path: &Path, name: &str) -> bool {
-    path.components()
-        .any(|component| component.as_os_str() == name)
+fn is_ignored_discovery_dir(path: &Path) -> bool {
+    path.components().any(|component| {
+        ["node_modules", "generated", "__generated__"]
+            .iter()
+            .any(|name| component.as_os_str() == *name)
+    })
 }
 
 pub(crate) fn is_declaration_file(path: &Path) -> bool {

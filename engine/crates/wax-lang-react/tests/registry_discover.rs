@@ -2974,3 +2974,357 @@ export const Slot = makeSlot();
     );
     Ok(())
 }
+
+fn theme_request(root: &std::path::Path, roots: &[&str]) -> DiscoverRegistryRequest {
+    palette_request(root, roots)
+}
+
+#[test]
+fn discovers_top_level_tailwind_theme_tokens_with_evidence() -> io::Result<()> {
+    let fixture = tempfile::tempdir()?;
+    fs::write(
+        fixture.path().join("globals.css"),
+        r#":root {
+  --main: hsl(217, 100%, 66%);
+  --shadow: var(--box-shadow-x) var(--box-shadow-y) 0px 0px var(--border);
+}
+@theme inline {
+  --color-main: var(--main);
+  --radius-base: 5px;
+  --font-weight-base: 500;
+  --shadow-shadow: var(--shadow);
+  --text-shadow-nav: 1px 2px black;
+  @keyframes spin { to { --color-nested: red; } }
+}
+"#,
+    )?;
+    let result = discover_registry_details(&theme_request(fixture.path(), &["."])).unwrap();
+
+    use wax_contract::TokenCategory::{Color, Elevation, Radius, Typography};
+    let expected = [
+        ("color-main", Color, "hsl(217, 100%, 66%)", 6),
+        ("radius-base", Radius, "5px", 7),
+        ("font-weight-base", Typography, "500", 8),
+        (
+            "shadow-shadow",
+            Elevation,
+            "var(--box-shadow-x) var(--box-shadow-y) 0px 0px var(--border)",
+            9,
+        ),
+        ("text-shadow-nav", Elevation, "1px 2px black", 10),
+    ];
+    assert_eq!(result.document.tokens.len(), expected.len());
+    assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
+    for (name, category, value, line) in expected {
+        let token = result
+            .document
+            .tokens
+            .iter()
+            .find(|token| token.id == format!("css.{name}"))
+            .unwrap();
+        assert_eq!(
+            (
+                &*token.key,
+                &token.package,
+                token.category,
+                token.value.as_deref()
+            ),
+            (
+                format!("var(--{name})").as_str(),
+                &None,
+                category,
+                Some(value)
+            )
+        );
+        let details = token.details.as_ref().unwrap();
+        assert_eq!(
+            details.status,
+            wax_contract::RegistryExtractionStatus::Complete
+        );
+        let evidence = details.source_evidence.as_ref().unwrap();
+        assert_eq!(
+            (evidence.path.as_str(), evidence.start_line),
+            ("globals.css", Some(line))
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn resolves_whole_value_theme_references_with_bounded_root_first_lookup() -> io::Result<()> {
+    let fixture = tempfile::tempdir()?;
+    fs::write(
+        fixture.path().join("a.css"),
+        r#":root {
+  --first: var(--color-literal);
+  --color-literal: purple;
+  --loop-a: var(--loop-b);
+  --loop-b: var(--loop-a);
+  --hop-1: var(--hop-2); --hop-2: var(--hop-3); --hop-3: var(--hop-4);
+  --hop-4: var(--hop-5); --hop-5: var(--hop-6); --hop-6: var(--hop-7);
+  --hop-7: var(--hop-8); --hop-8: var(--hop-9); --hop-9: blue;
+}
+@theme inline {
+  --color-main: var(--first);
+  --color-literal: red;
+  --color-cycle: var(--loop-a);
+  --color-fallback: var(--missing, rgb(1, 2, 3)) !important;
+  --color-missing: var(--missing);
+  --color-theme-ref: var(--color-fallback);
+  --shadow-multiple: var(--color-literal) var(--missing);
+  --color-bound: var(--hop-1);
+  --color-commented: /* keep */ blue /* source */ !important;
+}
+"#,
+    )?;
+    fs::write(
+        fixture.path().join("z.css"),
+        ":root { --color-literal: orange; --color-literal: green; }",
+    )?;
+    let result = discover_registry_details(&theme_request(fixture.path(), &["."])).unwrap();
+    let values: std::collections::BTreeMap<_, _> = result
+        .document
+        .tokens
+        .iter()
+        .map(|token| (token.id.as_str(), token.value.as_deref().unwrap()))
+        .collect();
+    assert_eq!(
+        values,
+        [
+            ("css.color-main", "green"),
+            ("css.color-literal", "red"),
+            ("css.color-cycle", "var(--loop-a)"),
+            ("css.color-fallback", "rgb(1, 2, 3)"),
+            ("css.color-missing", "var(--missing)"),
+            ("css.color-theme-ref", "rgb(1, 2, 3)"),
+            ("css.shadow-multiple", "var(--color-literal) var(--missing)"),
+            ("css.color-bound", "var(--hop-9)"),
+            ("css.color-commented", "/* keep */ blue /* source */"),
+        ]
+        .into()
+    );
+    Ok(())
+}
+
+#[test]
+fn discovers_only_supported_top_level_namespaces_under_css_roots() -> io::Result<()> {
+    let fixture = tempfile::tempdir()?;
+    let root = fixture.path();
+    fs::create_dir(root.join("styles"))?;
+    fs::write(root.join("outside.css"), "@theme { --color-outside: red; }")?;
+    for dir in ["node_modules", "generated", "__generated__"] {
+        fs::create_dir(root.join("styles").join(dir))?;
+        fs::write(
+            root.join("styles").join(dir).join("theme.css"),
+            "@theme { --color-ignored: red; }",
+        )?;
+    }
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(root.join("outside.css"), root.join("styles/link.css"))?;
+
+    fs::write(
+        root.join("styles/theme.css"),
+        r#"div { --main: red; }
+@media screen { @theme inline { --color-media: red; } }
+@theme {
+    --color-*: initial;
+    --color-: red;
+    --font-weight-: 500;
+    --text-shadow-: 1px 2px black;
+    --unknown-name: red;
+    --text-xl--line-height: 2;
+    --color-main: var(--main);
+}
+@theme /* mode */ static { --spacing: 4px; }
+@theme default { --container-s: 10rem; }
+@theme reference { --animate-spin: spin 1s linear; }
+@theme invalid { --color-invalid: red; }
+"#,
+    )?;
+    let result = discover_registry_details(&theme_request(
+        root,
+        &["styles", "styles", "styles/generated"],
+    ))
+    .unwrap();
+    let values: std::collections::BTreeMap<_, _> = result
+        .document
+        .tokens
+        .iter()
+        .map(|token| (token.id.as_str(), token.value.as_deref().unwrap()))
+        .collect();
+    assert_eq!(
+        values,
+        [
+            ("css.color-main", "var(--main)"),
+            ("css.spacing", "4px"),
+            ("css.container-s", "10rem"),
+            ("css.animate-spin", "spin 1s linear"),
+        ]
+        .into()
+    );
+    assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
+    Ok(())
+}
+
+#[test]
+fn keeps_first_tailwind_declaration_and_warns_on_conflicting_values() -> io::Result<()> {
+    let fixture = tempfile::tempdir()?;
+    for (file, css) in [
+        ("b.css", "@theme { --color-main: blue; }"),
+        ("a.css", "@theme { --color-main: red; --color-main: red; }"),
+    ] {
+        fs::write(fixture.path().join(file), css)?;
+    }
+    let result = discover_registry_details(&theme_request(fixture.path(), &["."])).unwrap();
+
+    assert_eq!(result.document.tokens.len(), 1);
+    assert_eq!(result.document.tokens[0].value.as_deref(), Some("red"));
+    let [warning] = result.diagnostics.as_slice() else {
+        panic!(
+            "expected one duplicate warning, got {:?}",
+            result.diagnostics
+        );
+    };
+    assert_eq!(warning.code, "tailwind_theme_duplicate");
+    assert_eq!(warning.severity, wax_contract::DiagnosticSeverity::Warning);
+    assert_eq!(warning.location.as_ref().unwrap().file, "b.css");
+    Ok(())
+}
+
+#[test]
+fn rediscovery_preserves_authored_theme_fields_and_logical_css_variants() -> io::Result<()> {
+    let fixture = tempfile::tempdir()?;
+    fs::write(
+        fixture.path().join("theme.css"),
+        "@theme inline { --color-main: blue; --color-logical: green; --color-authored: red; }",
+    )?;
+    let mut request = theme_request(fixture.path(), &["."]);
+    request.registry = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "tokens": [
+            {
+                "id": "brand.primary", "key": "var(--color-main)", "category": "color",
+                "aliases": ["brand"], "metadata": {"description": "Primary brand color"},
+                "value": "red",
+                "details": {"status": "complete", "discovered_literal_value": "red"}
+            },
+            {
+                "id": "brand.logical", "key": "var(--color-logical)", "category": "color",
+                "css_variants": ["brand.primary"],
+                "details": {"status": "complete", "discovered_literal_value": "red"}
+            },
+            {
+                "id": "brand.custom", "key": "var(--color-authored)", "category": "unknown",
+                "value": "black"
+            }
+        ]
+    }))
+    .unwrap();
+    let result = discover_registry_details(&request).unwrap();
+    result.document.validate().unwrap();
+
+    let [main, logical, authored] = result.document.tokens.as_slice() else {
+        panic!("expected exactly the three seed tokens");
+    };
+    assert_eq!(main.id, "brand.primary");
+    assert_eq!(main.aliases, ["brand"]);
+    assert_eq!(main.metadata, request.registry.tokens[0].metadata);
+    assert_eq!(main.value.as_deref(), Some("blue"));
+    let details = main.details.as_ref().unwrap();
+    assert_eq!(details.extra["discovered_literal_value"], "blue");
+    assert_eq!(details.source_evidence.as_ref().unwrap().path, "theme.css");
+
+    assert_eq!(logical.id, "brand.logical");
+    assert_eq!(logical.css_variants, ["brand.primary"]);
+    assert_eq!(logical.value, None);
+    let details = logical.details.as_ref().unwrap();
+    assert!(!details.extra.contains_key("discovered_literal_value"));
+    assert_eq!(details.source_evidence.as_ref().unwrap().path, "theme.css");
+
+    assert_eq!(authored.value.as_deref(), Some("black"));
+    assert_eq!(authored.category, wax_contract::TokenCategory::Unknown);
+    Ok(())
+}
+
+#[test]
+fn rediscovery_tracks_removed_and_damaged_tailwind_declarations() -> io::Result<()> {
+    use wax_contract::RegistryExtractionStatus::{Complete, NotObserved, Stale};
+
+    let fixture = tempfile::tempdir()?;
+    let root = fixture.path();
+    fs::write(root.join("removed.css"), "@theme { --color-removed: red; }")?;
+    fs::write(
+        root.join("damaged.css"),
+        "@theme { --color-damaged: blue; }",
+    )?;
+    let mut request = theme_request(root, &["."]);
+    request.registry = discover_registry_details(&request).unwrap().document;
+    fs::remove_file(root.join("removed.css"))?;
+    fs::write(root.join("damaged.css"), "@theme { --color-damaged: ; }")?;
+    fs::write(root.join("clean.css"), "@theme { --color-clean: green; }")?;
+    let result = discover_registry_details(&request).unwrap();
+
+    let tokens: std::collections::BTreeMap<_, _> = result
+        .document
+        .tokens
+        .iter()
+        .map(|token| {
+            (
+                token.id.as_str(),
+                (
+                    token.details.as_ref().unwrap().status,
+                    token.value.as_deref(),
+                ),
+            )
+        })
+        .collect();
+    assert_eq!(
+        tokens,
+        [
+            ("css.color-clean", (Complete, Some("green"))),
+            ("css.color-damaged", (Stale, Some("blue"))),
+            ("css.color-removed", (NotObserved, Some("red"))),
+        ]
+        .into()
+    );
+    let [error] = result.diagnostics.as_slice() else {
+        panic!(
+            "expected one CSS parse failure, got {:?}",
+            result.diagnostics
+        );
+    };
+    assert_eq!(error.code, "parse_failed");
+    let location = error.location.as_ref().unwrap();
+    assert_eq!((location.file.as_str(), location.line), ("damaged.css", 1));
+
+    request.registry = result.document;
+    fs::remove_file(root.join("clean.css"))?;
+    fs::remove_file(root.join("damaged.css"))?;
+    let result = discover_registry_details(&request).unwrap();
+    assert!(
+        result
+            .document
+            .tokens
+            .iter()
+            .all(|token| token.details.as_ref().unwrap().status == NotObserved)
+    );
+    assert!(result.diagnostics.is_empty());
+    Ok(())
+}
+
+#[test]
+fn css_without_tailwind_theme_leaves_discovery_output_unchanged() -> io::Result<()> {
+    let fixture = tempfile::tempdir()?;
+    let request = theme_request(fixture.path(), &["."]);
+    let before = discover_registry_details(&request).unwrap();
+    fs::write(
+        fixture.path().join("ordinary.css"),
+        ":root { --color-main: blue; } .button { color: ; }",
+    )?;
+    let after = discover_registry_details(&request).unwrap();
+    assert_eq!(
+        serde_json::to_vec(&before).unwrap(),
+        serde_json::to_vec(&after).unwrap()
+    );
+    Ok(())
+}

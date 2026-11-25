@@ -113,6 +113,26 @@ stylesheet reports a `parse_failed` gap and keeps references from its clean
 declarations. Discovery preserves authored `css_variants` groups and their
 targets.
 
+### Tailwind v4 theme tokens
+
+React discovery reads top-level `@theme` blocks in CSS under a discovery root,
+such as `--root src/styling`. For example, `--color-main: var(--main)` becomes
+`css.color-main` with key `var(--color-main)`, category `color`, and source
+evidence at the declaration. Discovery resolves whole-value references against
+top-level `:root` properties and then the theme declarations.
+
+| Theme namespace | Registry category |
+| --- | --- |
+| `--color-` | `color` |
+| `--spacing-`, `--spacing`, `--container-` | `spacing` |
+| `--radius-` | `radius` |
+| `--shadow-`, `--inset-shadow-`, `--drop-shadow-`, `--text-shadow-` | `elevation` |
+| `--text-`, `--font-`, `--font-weight-`, `--tracking-`, `--leading-` | `typography` |
+| `--blur-`, `--perspective-`, `--aspect-`, `--ease-`, `--animate-`, `--breakpoint-` | `unknown` |
+
+Out of scope are `.dark` variants, Tailwind v3 config, and deriving the
+`--spacing` scale from the base spacing token.
+
 Publisher files normally live at `.wax/registries/<language-id>.json` and are
 reviewed source. Consuming apps receive registry snapshots through `wax init`
 and `wax sync`; global remembered sources and caches live under `~/.wax/`.
