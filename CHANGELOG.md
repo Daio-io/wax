@@ -92,6 +92,9 @@
 
 ### wax-lang-react
 
+- Extract props from inline intersections and local intersection aliases.
+  Discover literal `cva` and `tv` variants and defaults, with field gaps for
+  unresolved intersection members.
 - Discover Tailwind v4 theme declarations in CSS under React discovery roots
   as searchable `var(--name)` tokens with resolved values and source evidence.
 

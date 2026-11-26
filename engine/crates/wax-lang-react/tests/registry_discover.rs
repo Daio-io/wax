@@ -3370,3 +3370,289 @@ fn css_without_tailwind_theme_leaves_discovery_output_unchanged() -> io::Result<
     );
     Ok(())
 }
+
+#[test]
+fn discover_intersection_preserves_inline_props_and_destructured_defaults() -> io::Result<()> {
+    let details = discover_documented_button(
+        r#"import * as React from "react";
+export function Button({ size = "default", ...props }:
+    React.ComponentProps<"div"> & ({ size?: "default" | "sm" })) {
+    return <div {...props} />;
+}"#,
+    )?;
+    let parameters = details.signature.unwrap().parameters;
+    assert_eq!(parameters.len(), 1);
+    let size = &parameters[0];
+    assert_eq!(size.name, "size");
+    assert_eq!(size.type_kind, Some(RegistryParameterTypeKind::Enum));
+    assert_eq!(size.allowed_values, ["default", "sm"]);
+    assert_eq!(size.default.as_deref(), Some(r#""default""#));
+    assert_eq!(details.field_gaps.len(), 1);
+    assert_eq!(details.field_gaps[0].field, "signature.parameters");
+    assert_eq!(
+        details.field_gaps[0].reason,
+        r#"props intersection member `React.ComponentProps<"div">` requires type resolution"#
+    );
+    Ok(())
+}
+
+#[test]
+fn discover_button_intersection_extracts_cva_variants() -> io::Result<()> {
+    let details = discover_documented_button(
+        r#"import * as React from "react";
+import { cva, type VariantProps } from "class-variance-authority";
+const buttonVariants = cva("button", {
+    variants: {
+        /** Visual emphasis. */
+        variant: { default: "", noShadow: "", neutral: "", reverse: "" },
+        size: { default: "", xs: "", sm: "", lg: "", icon: "",
+                "icon-xs": "", "icon-sm": "", "icon-lg": "" },
+    },
+    defaultVariants: { variant: "default", size: "default" },
+});
+export function Button({ variant, size, ...props }:
+    React.ComponentProps<typeof ButtonPrimitive> & VariantProps<typeof buttonVariants>) {
+    return <ButtonPrimitive {...props} />;
+}"#,
+    )?;
+    assert_eq!(
+        serde_json::to_value(details.signature.unwrap().parameters).unwrap(),
+        serde_json::json!([
+            {
+                "name": "variant", "type_kind": "enum",
+                "allowed_values": ["default", "noShadow", "neutral", "reverse"],
+                "description": "Visual emphasis.", "default": "\"default\"", "required": false
+            },
+            {
+                "name": "size", "type_kind": "enum",
+                "allowed_values": ["default", "xs", "sm", "lg", "icon", "icon-xs", "icon-sm", "icon-lg"],
+                "default": "\"default\"", "required": false
+            }
+        ])
+    );
+    assert_eq!(
+        details.status,
+        wax_contract::RegistryExtractionStatus::Partial
+    );
+    assert_eq!(details.field_gaps.len(), 1);
+    assert_eq!(
+        details.field_gaps[0].reason,
+        "props intersection member `React.ComponentProps<typeof ButtonPrimitive>` requires type resolution"
+    );
+    Ok(())
+}
+
+#[test]
+fn discover_intersection_alias_resolves_local_members_and_keeps_gap_evidence() -> io::Result<()> {
+    let details = discover_documented_button(
+        r#"import { cva, type VariantProps } from "class-variance-authority";
+const v = cva("", { variants: { size: { sm: "", lg: "" } }, defaultVariants: { size: "lg" } });
+type ButtonProps = A & (VariantProps<typeof v> & MoreProps) & { loading?: boolean };
+type MoreProps = React.ComponentProps<"button"> & { label: string };
+interface A extends NativeProps {
+    size: number;
+    /** An inherited interface's own prop. */
+    disabled?: boolean;
+}
+export function Button({ size = "sm" }: ButtonProps) { return <button />; }"#,
+    )?;
+    assert_eq!(
+        serde_json::to_value(details.signature.unwrap().parameters).unwrap(),
+        serde_json::json!([
+            {"name": "size", "type_kind": "enum", "allowed_values": ["sm", "lg"],
+             "default": "\"sm\"", "required": false},
+            {"name": "disabled", "type_text": "boolean", "required": false,
+             "description": "An inherited interface's own prop."},
+            {"name": "label", "type_text": "string", "type_kind": "string", "required": true},
+            {"name": "loading", "type_text": "boolean", "type_kind": "boolean", "required": false}
+        ])
+    );
+    assert_eq!(
+        details
+            .field_gaps
+            .into_iter()
+            .map(|gap| gap.reason)
+            .collect::<Vec<_>>(),
+        [
+            "props type `A` inherits fields that require type resolution",
+            r#"props intersection member `React.ComponentProps<"button">` requires type resolution"#
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn discover_badge_intersection_extracts_boolean_variant_from_renamed_cva() -> io::Result<()> {
+    let details = discover_documented_button(
+        r#"import { cva as variants } from "class-variance-authority";
+import type { VariantProps as StyleProps } from "class-variance-authority";
+export const badgeVariants = variants("", {
+    variants: { highlighted: { true: "", false: "" } },
+    defaultVariants: { highlighted: false },
+});
+function Badge(props: useRender.ComponentProps<"span"> & StyleProps<typeof badgeVariants>) {
+    return <span {...props} />;
+}
+export { Badge as Button };"#,
+    )?;
+    let parameters = details.signature.unwrap().parameters;
+    assert_eq!(
+        serde_json::to_value(parameters).unwrap(),
+        serde_json::json!([
+            {"name": "highlighted", "type_kind": "boolean", "default": "false", "required": false}
+        ])
+    );
+    assert_eq!(details.field_gaps.len(), 1);
+    assert_eq!(
+        details.field_gaps[0].reason,
+        r#"props intersection member `useRender.ComponentProps<"span">` requires type resolution"#
+    );
+    Ok(())
+}
+
+#[test]
+fn discover_intersection_extracts_tv_values_in_first_seen_order() -> io::Result<()> {
+    let details = discover_documented_button(
+        r#"import { tv as define, type VariantProps } from "tailwind-variants";
+const v = define({
+    variants: { "density": { 2: "", compact: "", "2": "", 1: "" } },
+    defaultVariants: { density: 2 },
+});
+export function Button(props: (VariantProps<typeof v> & {})) { return <button />; }"#,
+    )?;
+    assert_eq!(
+        serde_json::to_value(details.signature.unwrap().parameters).unwrap(),
+        serde_json::json!([
+            {"name": "density", "type_kind": "enum", "allowed_values": ["2", "compact", "1"],
+             "default": "2", "required": false}
+        ])
+    );
+    assert_eq!(
+        details.status,
+        wax_contract::RegistryExtractionStatus::Complete
+    );
+    assert!(details.field_gaps.is_empty());
+    Ok(())
+}
+
+#[test]
+fn discover_intersection_does_not_claim_variant_facts_before_trailing_spreads() -> io::Result<()> {
+    let details = discover_documented_button(
+        r#"import { cva, type VariantProps } from "class-variance-authority";
+const config = cva("", {
+    variants: { size: { sm: "" } },
+    defaultVariants: { size: "sm" },
+    ...overrides,
+});
+export function Button(props: {} & VariantProps<typeof config>) { return <button />; }"#,
+    )?;
+    assert!(details.signature.unwrap().parameters.is_empty());
+    Ok(())
+}
+
+#[test]
+fn discover_intersection_does_not_claim_defaults_before_trailing_spreads() -> io::Result<()> {
+    let details = discover_documented_button(
+        r#"import { cva, type VariantProps } from "class-variance-authority";
+const config = cva("", {
+    variants: { size: { sm: "", lg: "" } },
+    defaultVariants: { size: "sm", ...defaults },
+});
+export function Button(props: {} & VariantProps<typeof config>) { return <button />; }"#,
+    )?;
+    let parameters = details.signature.unwrap().parameters;
+    assert_eq!(parameters[0].allowed_values, ["sm", "lg"]);
+    assert_eq!(parameters[0].default, None);
+    Ok(())
+}
+
+#[test]
+fn discover_intersection_reports_nonliteral_variant_entries() -> io::Result<()> {
+    let details = discover_documented_button(
+        r#"import { cva, type VariantProps } from "class-variance-authority";
+const v = cva("", {
+    variants: {
+        ...extra,
+        [dynamic]: { one: "" },
+        external: values,
+        empty: {},
+        indirect: { known: "", ...more },
+        computed: { [dynamic]: "" },
+        known: { one: "", two: "" }
+    },
+    defaultVariants: { known: theme.defaultVariant },
+});
+export function Button(props: {} & VariantProps<typeof v>) { return <button />; }"#,
+    )?;
+    assert_eq!(
+        serde_json::to_value(details.signature.unwrap().parameters).unwrap(),
+        serde_json::json!([
+            {"name": "known", "type_kind": "enum", "allowed_values": ["one", "two"], "required": false}
+        ])
+    );
+    assert_eq!(
+        details.status,
+        wax_contract::RegistryExtractionStatus::Partial
+    );
+    assert_eq!(
+        details
+            .field_gaps
+            .into_iter()
+            .map(|gap| gap.reason)
+            .collect::<Vec<_>>(),
+        [
+            "variant `...extra` is not a literal object",
+            "variant `[dynamic]` is not a literal object",
+            "variant `external` is not a literal object",
+            "variant `empty` is not a literal object",
+            "variant `indirect` is not a literal object",
+            "variant `computed` is not a literal object"
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn discover_intersection_keeps_unproven_variant_bindings_opaque() -> io::Result<()> {
+    let details = discover_documented_button(
+        r#"import { cva, type VariantProps } from "class-variance-authority";
+import type { VariantProps as OtherProps } from "other";
+import { cva as otherCva } from "other";
+import { unrelated as notCva } from "class-variance-authority";
+const proven = cva("", { variants: { size: { sm: "" } } });
+const wrongPackage = otherCva("", { variants: { size: { sm: "" } } });
+const wrongExport = notCva("", { variants: { size: { sm: "" } } });
+const indirect = cva("", config);
+const spreadBase = cva(...base, { variants: { size: { sm: "" } } });
+function localCva() {}
+const local = localCva("", { variants: { size: { sm: "" } } });
+export function Button(props:
+    React.ComponentProps<"button"> & OtherProps<typeof proven> &
+    VariantProps<typeof wrongPackage> & VariantProps<typeof wrongExport> &
+    VariantProps<typeof indirect> & VariantProps<typeof spreadBase> &
+    VariantProps<typeof local>
+) { return <button />; }"#,
+    )?;
+    assert!(details.signature.unwrap().parameters.is_empty());
+    assert_eq!(
+        details.status,
+        wax_contract::RegistryExtractionStatus::Partial
+    );
+    assert_eq!(
+        details
+            .field_gaps
+            .into_iter()
+            .map(|gap| gap.reason)
+            .collect::<Vec<_>>(),
+        [
+            r#"props intersection member `React.ComponentProps<"button">` requires type resolution"#,
+            "props intersection member `OtherProps<typeof proven>` requires type resolution",
+            "props intersection member `VariantProps<typeof wrongPackage>` requires type resolution",
+            "props intersection member `VariantProps<typeof wrongExport>` requires type resolution",
+            "props intersection member `VariantProps<typeof indirect>` requires type resolution",
+            "props intersection member `VariantProps<typeof spreadBase>` requires type resolution",
+            "props intersection member `VariantProps<typeof local>` requires type resolution",
+        ]
+    );
+    Ok(())
+}
