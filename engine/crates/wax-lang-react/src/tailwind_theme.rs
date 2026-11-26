@@ -198,7 +198,7 @@ pub(crate) fn utility_token<'a>(
     if value.starts_with(['[', '(']) {
         return css_tokens.get(arbitrary_property(value)?);
     }
-    if value.bytes().all(|byte| byte.is_ascii_digit()) {
+    if namespaces.contains(&"spacing") && value.bytes().all(|byte| byte.is_ascii_digit()) {
         return None;
     }
     namespaces

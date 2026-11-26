@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use swc_common::{BytePos, Span};
+use swc_common::{BytePos, Span, Spanned};
 use swc_ecma_ast::{
     BinaryOp, CallExpr, Expr, ExprOrSpread, JSXAttr, JSXAttrName, JSXAttrValue, JSXExpr, Lit,
     OptCall, OptChainBase, Prop, PropName, PropOrSpread, Tpl,
@@ -95,13 +95,13 @@ impl ClassTokenCollector<'_> {
                 self.collect_expr(&conditional.cons, object_keys);
                 self.collect_expr(&conditional.alt, object_keys);
             }
+            Expr::Bin(binary) if binary.op == BinaryOp::Add => {
+                self.collect_static_concat(expr);
+            }
             Expr::Bin(binary)
                 if matches!(
                     binary.op,
-                    BinaryOp::Add
-                        | BinaryOp::LogicalAnd
-                        | BinaryOp::LogicalOr
-                        | BinaryOp::NullishCoalescing
+                    BinaryOp::LogicalAnd | BinaryOp::LogicalOr | BinaryOp::NullishCoalescing
                 ) =>
             {
                 self.collect_expr(&binary.left, object_keys);
@@ -176,6 +176,42 @@ impl ClassTokenCollector<'_> {
         }
     }
 
+    fn collect_static_concat(&mut self, expr: &Expr) {
+        fn flatten<'a>(expr: &'a Expr, parts: &mut Vec<&'a Expr>) -> bool {
+            let Expr::Bin(binary) = peel_expr(expr) else {
+                parts.push(peel_expr(expr));
+                return matches!(peel_expr(expr), Expr::Lit(Lit::Str(_)));
+            };
+            if binary.op != BinaryOp::Add {
+                parts.push(peel_expr(expr));
+                return false;
+            }
+            flatten(&binary.left, parts) && flatten(&binary.right, parts)
+        }
+
+        let mut parts = Vec::new();
+        if !flatten(expr, &mut parts) {
+            return;
+        }
+        let mut combined = String::new();
+        for part in parts {
+            let Expr::Lit(Lit::Str(literal)) = part else {
+                return;
+            };
+            let Some(raw) = self.parsed.source_slice_from_span(literal.span) else {
+                return;
+            };
+            let Some(text) = raw.get(1..raw.len().saturating_sub(1)) else {
+                return;
+            };
+            combined.push_str(text);
+        }
+        // A synthetic span is only used to deduplicate and attribute the
+        // resulting complete classes to the concatenation expression.
+        let span = expr.span();
+        self.collect_classes(span, span.lo(), &combined);
+    }
+
     fn collect_template(&mut self, template: &Tpl) {
         let whitespace = |ch: char| ch.is_ascii_whitespace();
         for (index, quasi) in template.quasis.iter().enumerate() {
@@ -194,6 +230,17 @@ impl ClassTokenCollector<'_> {
             };
             if let Some(text) = raw.get(start..end) {
                 self.collect_classes(quasi.span, quasi.span.lo() + BytePos(start as u32), text);
+            }
+        }
+        for (index, expr) in template.exprs.iter().enumerate() {
+            let left = template.quasis.get(index).is_some_and(|quasi| {
+                quasi.raw.is_empty() || quasi.raw.chars().last().is_some_and(whitespace)
+            });
+            let right = template.quasis.get(index + 1).is_some_and(|quasi| {
+                quasi.raw.is_empty() || quasi.raw.chars().next().is_some_and(whitespace)
+            });
+            if left && right {
+                self.collect_expr(expr, false);
             }
         }
     }

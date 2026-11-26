@@ -1340,6 +1340,41 @@ export const Other = () => <div class={on ? "bg-alt" : "bg-main"} />;
 }
 
 #[test]
+fn stdio_scan_preserves_complete_classes_across_concatenation_and_templates() {
+    let facts = scan_tailwind_fixture(
+        r#"export const App = () => <div className={cn(
+  "bg-main" + "-hover",
+  `${on ? "bg-main" : "bg-alt"}`,
+  `bg-${tone}`
+)} />;"#,
+        &["color-main", "color-main-hover", "color-alt"],
+    );
+    let tokens = facts
+        .token_sites
+        .iter()
+        .map(|site| site.token_id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        tokens,
+        ["css.color-main-hover", "css.color-main", "css.color-alt"]
+    );
+}
+
+#[test]
+fn stdio_scan_counts_registered_numeric_color_and_font_weight_tokens() {
+    let facts = scan_tailwind_fixture(
+        r#"export const App = () => <div className="bg-500 font-400 p-500" />;"#,
+        &["color-500", "font-weight-400", "spacing-500"],
+    );
+    let tokens = facts
+        .token_sites
+        .iter()
+        .map(|site| site.token_id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(tokens, ["css.color-500", "css.font-weight-400"]);
+}
+
+#[test]
 fn stdio_scan_locates_complete_static_classes_in_templates() {
     let facts = scan_tailwind_fixture(
         r#"export const App = () => <div className={cn(`bg-main bg-main`, `
