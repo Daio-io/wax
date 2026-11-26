@@ -19,6 +19,66 @@ pub enum PathsError {
     },
 }
 
+/// Root and filesystem layout for wax global state, caches, and language packs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WaxHome {
+    root: PathBuf,
+}
+
+impl WaxHome {
+    /// Uses the given root for all global wax paths.
+    pub fn new(root: impl Into<PathBuf>) -> Self {
+        Self { root: root.into() }
+    }
+
+    /// Resolves the wax home from `WAX_HOME` or the current user's `~/.wax`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PathsError::HomeUnavailable`] when neither can be resolved.
+    pub fn from_env() -> Result<Self, PathsError> {
+        match non_empty_os_var("WAX_HOME") {
+            Some(path) => Ok(Self::new(path)),
+            None => Ok(Self::new(home_dir()?.join(".wax"))),
+        }
+    }
+
+    /// Returns the root of this wax home.
+    #[must_use]
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Returns the global state file path.
+    #[must_use]
+    pub fn state_file(&self) -> PathBuf {
+        self.root.join("state.json")
+    }
+
+    /// Returns the immutable registry snapshot cache directory.
+    #[must_use]
+    pub fn registry_cache_dir(&self) -> PathBuf {
+        self.root.join("cache").join("registries")
+    }
+
+    /// Returns the directory that holds all installed versions of a language pack.
+    #[must_use]
+    pub fn langs_dir(&self, id: &LanguageId) -> PathBuf {
+        self.root.join("langs").join(id.as_str())
+    }
+
+    /// Returns the install directory for one language pack version.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PathsError::InvalidVersion`] when the version is not one normal path segment.
+    pub fn lang_install_dir(&self, id: &LanguageId, version: &str) -> Result<PathBuf, PathsError> {
+        validate_version_segment(version)?;
+        Ok(self.langs_dir(id).join(version))
+    }
+}
+
+// Compatibility wrappers retained until Phase 2a.
 /// Returns the global wax home directory.
 ///
 /// `WAX_HOME` overrides the default. When the override is absent, the path is
@@ -29,10 +89,7 @@ pub enum PathsError {
 /// Returns [`PathsError::HomeUnavailable`] when neither `WAX_HOME` nor a user
 /// home directory can be resolved.
 pub fn wax_home() -> Result<PathBuf, PathsError> {
-    match non_empty_os_var("WAX_HOME") {
-        Some(path) => Ok(PathBuf::from(path)),
-        None => Ok(home_dir()?.join(".wax")),
-    }
+    Ok(WaxHome::from_env()?.root)
 }
 
 /// Returns the global state file path.
@@ -41,7 +98,7 @@ pub fn wax_home() -> Result<PathBuf, PathsError> {
 ///
 /// Returns [`PathsError::HomeUnavailable`] when the wax home cannot be resolved.
 pub fn state_file() -> Result<PathBuf, PathsError> {
-    Ok(wax_home()?.join("state.json"))
+    Ok(WaxHome::from_env()?.state_file())
 }
 
 /// Returns the global immutable registry snapshot cache directory.
@@ -52,7 +109,7 @@ pub fn state_file() -> Result<PathBuf, PathsError> {
 ///
 /// Returns [`PathsError::HomeUnavailable`] when the wax home cannot be resolved.
 pub fn registry_cache_dir() -> Result<PathBuf, PathsError> {
-    Ok(wax_home()?.join("cache").join("registries"))
+    Ok(WaxHome::from_env()?.registry_cache_dir())
 }
 
 /// Returns the install directory for one language pack version.
@@ -63,7 +120,7 @@ pub fn registry_cache_dir() -> Result<PathBuf, PathsError> {
 /// segment, or [`PathsError::HomeUnavailable`] when wax home cannot be resolved.
 pub fn lang_install_dir(id: &LanguageId, version: &str) -> Result<PathBuf, PathsError> {
     validate_version_segment(version)?;
-    Ok(wax_home()?.join("langs").join(id.as_str()).join(version))
+    WaxHome::from_env()?.lang_install_dir(id, version)
 }
 
 pub(crate) fn validate_version_segment(version: &str) -> Result<(), PathsError> {

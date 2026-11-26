@@ -1,56 +1,24 @@
-use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use sha2::{Digest, Sha256};
 use wax_contract::{LanguageId, MergedScan, ScanFacts, TokenInferenceClassification};
+use wax_core::paths::WaxHome;
 use wax_core::{AtomicWriteError, Engine, EngineError, ScanOptions};
-
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-fn env_lock() -> MutexGuard<'static, ()> {
-    ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
-}
-
-struct EnvVarGuard {
-    name: &'static str,
-    previous: Option<OsString>,
-}
-
-impl EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while mutating process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-        let previous = std::env::var_os(name);
-        unsafe {
-            std::env::set_var(name, value);
-        }
-        Self { name, previous }
-    }
-}
-
-impl Drop for EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while restoring process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn drop(&mut self) {
-        unsafe {
-            match &self.previous {
-                Some(value) => std::env::set_var(self.name, value),
-                None => std::env::remove_var(self.name),
-            }
-        }
-    }
-}
 
 struct ScanOutputFixture {
     repo: PathBuf,
     wax_home: PathBuf,
+}
+
+impl ScanOutputFixture {
+    fn scan_options(&self) -> ScanOptions {
+        ScanOptions {
+            wax_home: Some(WaxHome::new(&self.wax_home)),
+            ..ScanOptions::default()
+        }
+    }
 }
 
 fn fixture(name: &str, languages: &[&str]) -> ScanOutputFixture {
@@ -298,9 +266,7 @@ fn overwrite_pack_script(wax_home: &Path, language: &str, script: &str) {
 
 #[test]
 fn scan_output_groups_registry_aliases_by_canonical_key_and_status() {
-    let _guard = env_lock();
     let fixture = fixture("scan-output-package-identities", &["react"]);
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &fixture.wax_home);
     let components = serde_json::json!([
         {"id":"ds.dialog.root", "symbol":"Root", "package":"@radix-ui/react-dialog"},
         {"id":"ds.popover.root", "symbol":"Root", "package":"@radix-ui/react-popover"}
@@ -376,7 +342,8 @@ fn scan_output_groups_registry_aliases_by_canonical_key_and_status() {
     let script = format!("#!/bin/sh\ncat >/dev/null\ncat <<'JSON'\n{response}\nJSON\n");
     overwrite_pack_script(&fixture.wax_home, "react", &script);
 
-    Engine::scan_repo(&fixture.repo).expect("scan should pass");
+    Engine::scan_repo_with_options(&fixture.repo, fixture.scan_options())
+        .expect("scan should pass");
     let output = fs::read(fixture.repo.join(".wax/out/scan-merged.json")).unwrap();
     let merged: MergedScan = serde_json::from_slice(&output).unwrap();
     merged.validate().expect("merged facts should validate");
@@ -427,12 +394,11 @@ fn scan_output_groups_registry_aliases_by_canonical_key_and_status() {
 
 #[test]
 fn scan_output_merges_token_counts_summaries_and_ratio() {
-    let _guard = env_lock();
     let fixture = fixture("scan-output-tokens", &["compose"]);
     overwrite_pack_script(&fixture.wax_home, "compose", token_fixture_script());
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &fixture.wax_home);
 
-    let merged = Engine::scan_repo(&fixture.repo).expect("scan should pass");
+    let merged = Engine::scan_repo_with_options(&fixture.repo, fixture.scan_options())
+        .expect("scan should pass");
 
     assert_eq!(merged.repo_summary.counts.tokens.configured_token_count, 1);
     assert_eq!(merged.repo_summary.counts.tokens.used_token_count, 1);
@@ -470,12 +436,10 @@ fn scan_output_merges_token_counts_summaries_and_ratio() {
 
 #[test]
 fn scan_output_classifies_exact_near_and_unmatched_token_inference() {
-    let _guard = env_lock();
     let fixture = fixture("scan-output-token-inference", &["react"]);
     overwrite_pack_script(&fixture.wax_home, "react", token_inference_fixture_script());
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &fixture.wax_home);
 
-    let merged = Engine::scan_repo_with_options(&fixture.repo, ScanOptions::default())
+    let merged = Engine::scan_repo_with_options(&fixture.repo, fixture.scan_options())
         .expect("scan should pass");
 
     assert_eq!(merged.token_inference.numeric_tolerance, 2.0);
@@ -543,16 +507,15 @@ fn scan_output_classifies_exact_near_and_unmatched_token_inference() {
 
 #[test]
 fn scan_rejects_duplicate_hardcoded_ids_before_writing_outputs() {
-    let _guard = env_lock();
     let fixture = fixture("scan-output-duplicate-hardcoded", &["compose"]);
     overwrite_pack_script(
         &fixture.wax_home,
         "compose",
         duplicate_hardcoded_fixture_script(),
     );
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &fixture.wax_home);
 
-    let err = Engine::scan_repo(&fixture.repo).expect_err("duplicate site ids must fail");
+    let err = Engine::scan_repo_with_options(&fixture.repo, fixture.scan_options())
+        .expect_err("duplicate site ids must fail");
 
     assert!(matches!(
         err,
@@ -566,15 +529,13 @@ fn scan_rejects_duplicate_hardcoded_ids_before_writing_outputs() {
 
 #[test]
 fn scan_output_writes_per_language_and_merged_output_json() {
-    let _guard = env_lock();
     let fixture = fixture("scan-output", &["react", "compose"]);
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &fixture.wax_home);
 
     let returned = Engine::scan_repo_with_options(
         &fixture.repo,
         ScanOptions {
             scan_concurrency: Some(2),
-            ..ScanOptions::default()
+            ..fixture.scan_options()
         },
     )
     .expect("scan should pass");
@@ -638,17 +599,17 @@ fn scan_output_writes_per_language_and_merged_output_json() {
 
 #[test]
 fn scan_output_can_replace_existing_output_from_prior_scan() {
-    let _guard = env_lock();
     let fixture = fixture("scan-output-replace", &["compose"]);
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &fixture.wax_home);
 
-    Engine::scan_repo(&fixture.repo).expect("first scan should pass");
+    Engine::scan_repo_with_options(&fixture.repo, fixture.scan_options())
+        .expect("first scan should pass");
     let out_dir = fixture.repo.join(".wax/out");
     let languages_dir = out_dir.join("languages");
     fs::write(out_dir.join(".scan-merged.json.0.tmp"), "stale temp").unwrap();
     fs::write(languages_dir.join(".compose.json.0.tmp"), "stale temp").unwrap();
 
-    let returned = Engine::scan_repo(&fixture.repo).expect("second scan should replace output");
+    let returned = Engine::scan_repo_with_options(&fixture.repo, fixture.scan_options())
+        .expect("second scan should replace output");
 
     let merged: MergedScan =
         serde_json::from_str(&fs::read_to_string(out_dir.join("scan-merged.json")).unwrap())
@@ -674,17 +635,17 @@ fn scan_output_can_replace_existing_output_from_prior_scan() {
 
 #[test]
 fn scan_output_removes_language_files_missing_from_latest_scan() {
-    let _guard = env_lock();
     let fixture = fixture("scan-output-prune", &["react", "compose"]);
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &fixture.wax_home);
 
-    Engine::scan_repo(&fixture.repo).expect("first scan should pass");
+    Engine::scan_repo_with_options(&fixture.repo, fixture.scan_options())
+        .expect("first scan should pass");
     let languages_dir = fixture.repo.join(".wax/out/languages");
     assert!(languages_dir.join("compose.json").exists());
     assert!(languages_dir.join("react.json").exists());
 
     write_waxrc(&fixture.repo, &["compose"]);
-    let returned = Engine::scan_repo(&fixture.repo).expect("second scan should pass");
+    let returned = Engine::scan_repo_with_options(&fixture.repo, fixture.scan_options())
+        .expect("second scan should pass");
 
     assert!(languages_dir.join("compose.json").exists());
     assert!(
@@ -702,11 +663,10 @@ fn scan_output_removes_language_files_missing_from_latest_scan() {
 fn scan_output_preserves_previous_json_when_output_write_fails() {
     use std::os::unix::fs::PermissionsExt;
 
-    let _guard = env_lock();
     let fixture = fixture("scan-output-failure-preserves", &["compose"]);
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &fixture.wax_home);
 
-    Engine::scan_repo(&fixture.repo).expect("first scan should pass");
+    Engine::scan_repo_with_options(&fixture.repo, fixture.scan_options())
+        .expect("first scan should pass");
     let out_dir = fixture.repo.join(".wax/out");
     let languages_dir = out_dir.join("languages");
     let merged_path = out_dir.join("scan-merged.json");
@@ -718,7 +678,8 @@ fn scan_output_preserves_previous_json_when_output_write_fails() {
     permissions.set_mode(0o555);
     fs::set_permissions(&languages_dir, permissions).unwrap();
 
-    let error = Engine::scan_repo(&fixture.repo).expect_err("unwritable output should fail");
+    let error = Engine::scan_repo_with_options(&fixture.repo, fixture.scan_options())
+        .expect_err("unwritable output should fail");
 
     let mut permissions = fs::metadata(&languages_dir).unwrap().permissions();
     permissions.set_mode(0o755);
@@ -739,14 +700,13 @@ fn scan_output_preserves_previous_json_when_output_write_fails() {
 fn scan_output_keeps_old_language_files_when_merged_output_write_fails() {
     use std::os::unix::fs::PermissionsExt;
 
-    let _guard = env_lock();
     let fixture = fixture(
         "scan-output-merged-failure-preserves",
         &["react", "compose"],
     );
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &fixture.wax_home);
 
-    Engine::scan_repo(&fixture.repo).expect("first scan should pass");
+    Engine::scan_repo_with_options(&fixture.repo, fixture.scan_options())
+        .expect("first scan should pass");
     let out_dir = fixture.repo.join(".wax/out");
     let languages_dir = out_dir.join("languages");
     let merged_path = out_dir.join("scan-merged.json");
@@ -759,7 +719,8 @@ fn scan_output_keeps_old_language_files_when_merged_output_write_fails() {
     out_permissions.set_mode(0o555);
     fs::set_permissions(&out_dir, out_permissions).unwrap();
 
-    let error = Engine::scan_repo(&fixture.repo).expect_err("merged output write should fail");
+    let error = Engine::scan_repo_with_options(&fixture.repo, fixture.scan_options())
+        .expect_err("merged output write should fail");
 
     let mut out_permissions = fs::metadata(&out_dir).unwrap().permissions();
     out_permissions.set_mode(0o755);
@@ -790,7 +751,6 @@ JSON
 
 #[test]
 fn scan_output_merges_css_and_tailwind_class_references_by_root_group() {
-    let _guard = env_lock();
     let fixture = fixture("scan-output-css-tokens", &["react"]);
     fs::write(
         fixture.repo.join(".wax/wax.config.json"),
@@ -798,9 +758,9 @@ fn scan_output_merges_css_and_tailwind_class_references_by_root_group() {
     )
     .unwrap();
     overwrite_pack_script(&fixture.wax_home, "react", css_token_fixture_script());
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &fixture.wax_home);
 
-    let merged = Engine::scan_repo(&fixture.repo).expect("scan should pass");
+    let merged = Engine::scan_repo_with_options(&fixture.repo, fixture.scan_options())
+        .expect("scan should pass");
 
     let facts = &merged.languages[&LanguageId::try_from("react").unwrap()];
     let css = facts

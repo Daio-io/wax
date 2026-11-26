@@ -1,56 +1,15 @@
-use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard};
 
 use wax_contract::LanguageId;
 use wax_contract::RegistryLookupErrorCode;
 use wax_contract::RegistrySnapshotRef;
 use wax_core::digest::sha256_hex;
 use wax_core::global_state::{GlobalState, RememberedDesignSystem, save_global_state};
+use wax_core::paths::WaxHome;
 use wax_core::registry_cache::{RegistryCache, RegistrySourceSpec};
 use wax_core::registry_lookup::{RegistryLookupOptions, resolve_lookup_snapshots};
 use wax_core::registry_memory::{add_remembered_registry, remember_design_system};
-
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-fn env_lock() -> MutexGuard<'static, ()> {
-    ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
-}
-
-struct EnvVarGuard {
-    name: &'static str,
-    previous: Option<OsString>,
-}
-
-impl EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while mutating process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-        let previous = std::env::var_os(name);
-        unsafe {
-            std::env::set_var(name, value);
-        }
-        Self { name, previous }
-    }
-}
-
-impl Drop for EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while restoring process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn drop(&mut self) {
-        unsafe {
-            match &self.previous {
-                Some(value) => std::env::set_var(self.name, value),
-                None => std::env::remove_var(self.name),
-            }
-        }
-    }
-}
 
 struct TestDir(PathBuf);
 
@@ -416,12 +375,10 @@ fn outside_context_requires_selector() {
 }
 
 #[test]
-fn remembered_selector_uses_default_state_path_when_override_absent() {
-    let _guard = env_lock();
-    let root = TestDir::new("default-state");
-    let wax_home = root.0.join("wax-home");
-    fs::create_dir_all(&wax_home).expect("create wax home");
-    let state_path = wax_home.join("state.json");
+fn remembered_selector_uses_overridden_state_file() {
+    let root = TestDir::new("overridden-state");
+    let home = WaxHome::new(root.0.join("wax-home"));
+    let state_path = home.root().join("alternate-state.json");
     let source_path = root.0.join("remote-compose.json");
     let bytes = br#"{"schema_version":1,"language":"compose","components":[{"id":"remote","symbol":"Remote"}]}"#;
     fs::write(&source_path, bytes).expect("write source registry");
@@ -435,7 +392,6 @@ fn remembered_selector_uses_default_state_path_when_override_absent() {
         },
     )
     .expect("remember registry source");
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
 
     let snapshots = resolve_lookup_snapshots(&RegistryLookupOptions {
         repo_root: root.0.join("standalone"),
@@ -444,16 +400,15 @@ fn remembered_selector_uses_default_state_path_when_override_absent() {
         tag: None,
         snapshot: None,
         offline: true,
-        state_path: None,
+        state_path: Some(state_path),
     })
-    .expect("resolve remembered id via default state path");
+    .expect("resolve remembered id via overridden state file");
 
     assert_eq!(snapshots[0].reference.digest, sha256_hex(bytes));
 }
 
 #[test]
 fn remembered_id_wins_over_colliding_publisher_system_id() {
-    let _guard = env_lock();
     let root = TestDir::new("remembered-over-publisher");
     let repo = root.0.join("publisher");
     fs::create_dir_all(repo.join(".wax/registries")).expect("create registries");

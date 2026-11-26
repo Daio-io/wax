@@ -1,9 +1,7 @@
-use std::ffi::OsString;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use sha2::{Digest, Sha256};
@@ -12,47 +10,8 @@ use wax_contract::{
     CountSummary, LanguageId, LanguageMetadata, MergedScan, Metrics, SCHEMA_VERSION, ScanFacts,
     ScanStatus,
 };
+use wax_core::paths::WaxHome;
 use wax_core::{Engine, EngineError, ScanOptions};
-
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-fn env_lock() -> MutexGuard<'static, ()> {
-    ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
-}
-
-struct EnvVarGuard {
-    name: &'static str,
-    previous: Option<OsString>,
-}
-
-impl EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while mutating process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-        let previous = std::env::var_os(name);
-        unsafe {
-            std::env::set_var(name, value);
-        }
-        Self { name, previous }
-    }
-}
-
-impl Drop for EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while restoring process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn drop(&mut self) {
-        unsafe {
-            match &self.previous {
-                Some(value) => std::env::set_var(self.name, value),
-                None => std::env::remove_var(self.name),
-            }
-        }
-    }
-}
 
 fn temp_dir(name: &str) -> PathBuf {
     let nonce = SystemTime::now()
@@ -72,9 +31,7 @@ fn scan_preserves_atomic_error_when_saving_new_git_pin_fails() {
     use wax_core::AtomicWriteError;
     use wax_core::config::lockfile::LockfileError;
 
-    let _guard = env_lock();
     let root = temp_dir("scan-lockfile-write");
-    let _wax_home = EnvVarGuard::set("WAX_HOME", root.join("wax-home"));
     let repo = root.join("app");
     let wax_dir = repo.join(".wax");
     fs::create_dir_all(wax_dir.join("cache")).unwrap();
@@ -127,8 +84,15 @@ fn scan_preserves_atomic_error_when_saving_new_git_pin_fails() {
     let permissions = fs::metadata(&wax_dir).unwrap().permissions();
     fs::set_permissions(&wax_dir, fs::Permissions::from_mode(0o555)).unwrap();
     let directory_is_read_only = fs::write(wax_dir.join("permission-check"), "").is_err();
-    let result = directory_is_read_only
-        .then(|| Engine::scan_repo_with_options(&repo, ScanOptions::default()));
+    let result = directory_is_read_only.then(|| {
+        Engine::scan_repo_with_options(
+            &repo,
+            ScanOptions {
+                wax_home: Some(WaxHome::new(root.join("wax-home"))),
+                ..ScanOptions::default()
+            },
+        )
+    });
     fs::set_permissions(&wax_dir, permissions).unwrap();
     fs::remove_dir_all(root).unwrap();
 
@@ -344,7 +308,6 @@ fn install_capturing_pack(wax_home: &Path, root: &Path, capture_name: &str) -> (
 
 #[test]
 fn scan_resolve_runs_enabled_language_and_merges_results() {
-    let _guard = env_lock();
     let root = temp_dir("scan-resolve");
     let repo = root.join("repo");
     let wax_home = root.join("wax-home");
@@ -405,8 +368,14 @@ fn scan_resolve_runs_enabled_language_and_merges_results() {
     )
     .unwrap();
 
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
-    let merged: MergedScan = Engine::scan_repo(&repo).expect("scan should pass");
+    let merged: MergedScan = Engine::scan_repo_with_options(
+        &repo,
+        ScanOptions {
+            wax_home: Some(WaxHome::new(&wax_home)),
+            ..ScanOptions::default()
+        },
+    )
+    .expect("scan should pass");
 
     assert_eq!(merged.schema_version, SCHEMA_VERSION);
     assert_eq!(merged.languages.len(), 1);
@@ -417,7 +386,6 @@ fn scan_resolve_runs_enabled_language_and_merges_results() {
 
 #[test]
 fn scan_resolve_forwards_enabled_language_config_to_pack_request() {
-    let _guard = env_lock();
     let root = temp_dir("scan-resolve-config");
     let repo = root.join("repo");
     let wax_home = root.join("wax-home");
@@ -506,8 +474,14 @@ fn scan_resolve_forwards_enabled_language_config_to_pack_request() {
     )
     .unwrap();
 
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
-    Engine::scan_repo(&repo).expect("scan should pass");
+    Engine::scan_repo_with_options(
+        &repo,
+        ScanOptions {
+            wax_home: Some(WaxHome::new(&wax_home)),
+            ..ScanOptions::default()
+        },
+    )
+    .expect("scan should pass");
 
     let request: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(captured_request).unwrap()).unwrap();
@@ -527,7 +501,6 @@ fn scan_resolve_forwards_enabled_language_config_to_pack_request() {
 
 #[test]
 fn scan_repo_rewrites_default_registry_to_pack_config() {
-    let _guard = env_lock();
     let root = temp_dir("scan-rewrite-default-registry");
     let repo = root.join("repo");
     let wax_home = root.join("wax-home");
@@ -543,8 +516,14 @@ fn scan_repo_rewrites_default_registry_to_pack_config() {
     write_lockfile_with_source(&repo, "https://example.invalid/compose-index.json");
     let (_, captured_request) = install_capturing_pack(&wax_home, &root, "default-request.json");
 
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
-    Engine::scan_repo(&repo).expect("scan should pass");
+    Engine::scan_repo_with_options(
+        &repo,
+        ScanOptions {
+            wax_home: Some(WaxHome::new(&wax_home)),
+            ..ScanOptions::default()
+        },
+    )
+    .expect("scan should pass");
 
     let request: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(captured_request).unwrap()).unwrap();
@@ -557,7 +536,6 @@ fn scan_repo_rewrites_default_registry_to_pack_config() {
 
 #[test]
 fn scan_repo_materializes_file_registry_before_pack_spawn() {
-    let _guard = env_lock();
     let root = temp_dir("scan-materialize-file-registry");
     let repo = root.join("repo");
     let wax_home = root.join("wax-home");
@@ -589,8 +567,14 @@ fn scan_repo_materializes_file_registry_before_pack_spawn() {
     write_lockfile_with_sources(&repo, "https://example.invalid/compose-index.json", &source);
     let (_, captured_request) = install_capturing_pack(&wax_home, &root, "file-request.json");
 
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
-    Engine::scan_repo(&repo).expect("scan should pass");
+    Engine::scan_repo_with_options(
+        &repo,
+        ScanOptions {
+            wax_home: Some(WaxHome::new(&wax_home)),
+            ..ScanOptions::default()
+        },
+    )
+    .expect("scan should pass");
 
     let request: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(captured_request).unwrap()).unwrap();
@@ -602,7 +586,6 @@ fn scan_repo_materializes_file_registry_before_pack_spawn() {
 
 #[test]
 fn scan_resolve_surfaces_missing_install_as_auto_install_required() {
-    let _guard = env_lock();
     let root = temp_dir("scan-resolve-missing");
     let repo = root.join("repo");
     let wax_home = root.join("wax-home");
@@ -618,10 +601,10 @@ fn scan_resolve_surfaces_missing_install_as_auto_install_required() {
     )
     .unwrap();
 
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
     let err = Engine::scan_repo_with_options(
         &repo,
         ScanOptions {
+            wax_home: Some(WaxHome::new(&wax_home)),
             scan_concurrency: None,
             allow_auto_install: false,
             ..ScanOptions::default()
@@ -637,7 +620,6 @@ fn scan_resolve_surfaces_missing_install_as_auto_install_required() {
 
 #[test]
 fn scan_resolve_ready_install_does_not_require_registry_access() {
-    let _guard = env_lock();
     let root = temp_dir("scan-resolve-ready-no-registry");
     let repo = root.join("repo");
     let wax_home = root.join("wax-home");
@@ -696,14 +678,19 @@ fn scan_resolve_ready_install_does_not_require_registry_access() {
     )
     .unwrap();
 
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
-    let merged: MergedScan = Engine::scan_repo(&repo).expect("ready install should scan");
+    let merged: MergedScan = Engine::scan_repo_with_options(
+        &repo,
+        ScanOptions {
+            wax_home: Some(WaxHome::new(&wax_home)),
+            ..ScanOptions::default()
+        },
+    )
+    .expect("ready install should scan");
     assert_eq!(merged.languages.len(), 1);
 }
 
 #[test]
 fn scan_resolve_fetches_registry_only_for_missing_languages() {
-    let _guard = env_lock();
     let root = temp_dir("scan-resolve-mixed-registry");
     let repo = root.join("repo");
     let wax_home = root.join("wax-home");
@@ -836,8 +823,14 @@ fn scan_resolve_fetches_registry_only_for_missing_languages() {
     )
     .unwrap();
 
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
-    let err = Engine::scan_repo(&repo).expect_err("react digest drift should block scan");
+    let err = Engine::scan_repo_with_options(
+        &repo,
+        ScanOptions {
+            wax_home: Some(WaxHome::new(&wax_home)),
+            ..ScanOptions::default()
+        },
+    )
+    .expect_err("react digest drift should block scan");
     let EngineError::AutoInstallPolicyBlocked { errors } = err else {
         panic!("expected digest drift policy block, got {err:?}");
     };
@@ -850,7 +843,6 @@ fn scan_resolve_fetches_registry_only_for_missing_languages() {
 
 #[test]
 fn scan_resolve_rejects_registry_lock_source_drift() {
-    let _guard = env_lock();
     let root = temp_dir("scan-resolve-registry-lock-source");
     let repo = root.join("repo");
     fs::create_dir_all(&repo).unwrap();
@@ -881,7 +873,14 @@ fn scan_resolve_rejects_registry_lock_source_drift() {
     );
     fs::write(repo.join(".wax/wax.lock.json"), lock).unwrap();
 
-    let err = Engine::scan_repo(&repo).expect_err("registry source drift should block scan");
+    let err = Engine::scan_repo_with_options(
+        &repo,
+        ScanOptions {
+            wax_home: Some(WaxHome::new(root.join("wax-home"))),
+            ..ScanOptions::default()
+        },
+    )
+    .expect_err("registry source drift should block scan");
     assert!(matches!(
         err,
         EngineError::RegistryLock { language_id, reason }
@@ -892,7 +891,6 @@ fn scan_resolve_rejects_registry_lock_source_drift() {
 
 #[test]
 fn scan_resolve_rejects_registry_lock_digest_drift() {
-    let _guard = env_lock();
     let root = temp_dir("scan-resolve-registry-lock-digest");
     let repo = root.join("repo");
     fs::create_dir_all(&repo).unwrap();
@@ -920,7 +918,14 @@ fn scan_resolve_rejects_registry_lock_digest_drift() {
 }"#;
     fs::write(repo.join(".wax/wax.lock.json"), lock).unwrap();
 
-    let err = Engine::scan_repo(&repo).expect_err("registry digest drift should block scan");
+    let err = Engine::scan_repo_with_options(
+        &repo,
+        ScanOptions {
+            wax_home: Some(WaxHome::new(root.join("wax-home"))),
+            ..ScanOptions::default()
+        },
+    )
+    .expect_err("registry digest drift should block scan");
     assert!(matches!(
         err,
         EngineError::RegistryLock { language_id, reason }
@@ -931,7 +936,6 @@ fn scan_resolve_rejects_registry_lock_digest_drift() {
 
 #[test]
 fn scan_resolve_no_auto_install_validates_missing_pack_index_before_required_error() {
-    let _guard = env_lock();
     let root = temp_dir("scan-resolve-no-auto-install-validates-index");
     let repo = root.join("repo");
     let wax_home = root.join("wax-home");
@@ -947,10 +951,10 @@ fn scan_resolve_no_auto_install_validates_missing_pack_index_before_required_err
     )
     .unwrap();
 
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
     let err = Engine::scan_repo_with_options(
         &repo,
         ScanOptions {
+            wax_home: Some(WaxHome::new(&wax_home)),
             scan_concurrency: None,
             allow_auto_install: false,
             ..ScanOptions::default()
@@ -962,7 +966,6 @@ fn scan_resolve_no_auto_install_validates_missing_pack_index_before_required_err
 
 #[test]
 fn scan_resolve_ignores_stale_installed_versions() {
-    let _guard = env_lock();
     let root = temp_dir("scan-resolve-stale-installed");
     let repo = root.join("repo");
     let wax_home = root.join("wax-home");
@@ -1027,7 +1030,13 @@ fn scan_resolve_ignores_stale_installed_versions() {
     )
     .unwrap();
 
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
-    let merged: MergedScan = Engine::scan_repo(&repo).expect("locked install should scan");
+    let merged: MergedScan = Engine::scan_repo_with_options(
+        &repo,
+        ScanOptions {
+            wax_home: Some(WaxHome::new(&wax_home)),
+            ..ScanOptions::default()
+        },
+    )
+    .expect("locked install should scan");
     assert_eq!(merged.languages.len(), 1);
 }

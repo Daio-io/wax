@@ -44,7 +44,7 @@ use config::lockfile::{LockfileError, WaxLock, load_lockfile, save_lockfile};
 use config::waxrc::{WaxRc, WaxRcError, load_waxrc};
 use global_state::{GlobalStateError, InstalledLanguagePack, load_global_state, save_global_state};
 use install::{InstallError, LanguagePackManifestSpec, install_language};
-use paths::{PathsError, state_file};
+use paths::{PathsError, WaxHome};
 use progress::{ScanProgress, ScanProgressEvent};
 use root_group::RootGroups;
 use serde::{Deserialize, Serialize};
@@ -123,6 +123,8 @@ pub struct Engine;
 /// Runtime options for repository scans.
 #[derive(Debug)]
 pub struct ScanOptions {
+    /// Overrides the wax home. When absent, resolve it when global state is needed.
+    pub wax_home: Option<WaxHome>,
     /// Overrides `.wax/wax.config.json` `engine.scan_concurrency` when set.
     ///
     /// Values less than 1 are treated as serial execution.
@@ -149,6 +151,7 @@ pub struct EphemeralScanConfig {
 impl Default for ScanOptions {
     fn default() -> Self {
         Self {
+            wax_home: None,
             scan_concurrency: None,
             root_group: None,
             allow_auto_install: true,
@@ -353,7 +356,11 @@ impl Engine {
                 configured: root_groups.keys().cloned().collect(),
             });
         }
-        let state_path = state_file()?;
+        let home = match options.wax_home {
+            Some(home) => home,
+            None => WaxHome::from_env()?,
+        };
+        let state_path = home.state_file();
         let mut state = load_global_state(&state_path)?;
 
         let mut enabled_ids = BTreeSet::new();
@@ -480,6 +487,7 @@ impl Engine {
                     &policy_with_auto_install.needs_install,
                     &lockfile,
                     &pack_index_artifacts,
+                    &home,
                     &state_path,
                     &progress,
                 )?;
@@ -852,6 +860,7 @@ fn execute_install_plans(
     plans: &[auto_install::InstallPlan],
     lockfile: &config::lockfile::WaxLock,
     pack_index_artifacts: &BTreeMap<LanguageId, BTreeMap<String, Vec<PackIndexArtifact>>>,
+    home: &WaxHome,
     state_path: &Path,
     progress: &ScanProgress,
 ) -> Result<(), EngineError> {
@@ -899,6 +908,7 @@ fn execute_install_plans(
             &plan.sha256,
             Some(&artifact.sha256),
             &manifest,
+            home,
         )?;
 
         record_installed_language_or_cleanup(

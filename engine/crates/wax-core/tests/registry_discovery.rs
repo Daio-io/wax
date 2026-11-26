@@ -1,22 +1,19 @@
-use std::ffi::OsString;
 use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 #[cfg(unix)]
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::json;
 use sha2::{Digest, Sha256};
+use wax_core::paths::WaxHome;
 use wax_core::registry_discovery::{
     RegistryDiscoverError, RegistryDiscoverOptions, discover_registry,
 };
 use wax_core::subprocess_discover::DiscoverError;
 use wax_lang_api::WireErrorCode;
-
-static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 fn bytes_sha256(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
@@ -27,46 +24,6 @@ fn bytes_sha256(bytes: &[u8]) -> String {
             let _ = write!(hex, "{byte:02x}");
             hex
         })
-}
-
-fn env_lock() -> MutexGuard<'static, ()> {
-    ENV_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-struct EnvVarGuard {
-    name: &'static str,
-    previous: Option<OsString>,
-}
-
-impl EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while mutating process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-        let previous = std::env::var_os(name);
-        unsafe {
-            std::env::set_var(name, value);
-        }
-        Self { name, previous }
-    }
-}
-
-impl Drop for EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while restoring process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn drop(&mut self) {
-        unsafe {
-            match &self.previous {
-                Some(value) => std::env::set_var(self.name, value),
-                None => std::env::remove_var(self.name),
-            }
-        }
-    }
 }
 
 struct TestRepo {
@@ -282,7 +239,7 @@ fn write_multi_language_lockfile(repo: &Path) {
     .expect("write multi-language lockfile");
 }
 
-fn install_compose_pack_fixture() -> (PathBuf, EnvVarGuard) {
+fn install_compose_pack_fixture() -> TestRepo {
     install_discover_fixture_pack(
         "compose",
         "0.1.0",
@@ -291,7 +248,7 @@ fn install_compose_pack_fixture() -> (PathBuf, EnvVarGuard) {
     )
 }
 
-fn install_react_discover_fixture_pack() -> (PathBuf, EnvVarGuard) {
+fn install_react_discover_fixture_pack() -> TestRepo {
     install_discover_fixture_pack(
         "react",
         "0.1.0",
@@ -305,17 +262,12 @@ fn install_discover_fixture_pack(
     version: &str,
     response_json: &str,
     sha256: &str,
-) -> (PathBuf, EnvVarGuard) {
-    let wax_home = std::env::temp_dir().join(format!(
-        "wax-core-registry-discover-home-{language_id}-{version}-{}",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock should be after epoch")
-            .as_nanos()
-    ));
-    let install_dir = wax_home.join(format!("langs/{language_id}/{version}"));
+) -> TestRepo {
+    let wax_home = TestRepo::new("registry-discover-home");
+    let install_dir = wax_home
+        .path()
+        .join(format!("langs/{language_id}/{version}"));
     fs::create_dir_all(&install_dir).expect("create language install dir");
-    fs::create_dir_all(&wax_home).expect("create wax home");
 
     let script_path = install_dir.join(format!("wax-lang-{language_id}"));
     fs::write(
@@ -368,7 +320,7 @@ esac
     .expect("write fixture manifest");
 
     fs::write(
-        wax_home.join("state.json"),
+        wax_home.path().join("state.json"),
         format!(
             r#"{{
   "installed_languages": {{
@@ -383,21 +335,16 @@ esac
     )
     .expect("write fixture state file");
 
-    let guard = EnvVarGuard::set("WAX_HOME", &wax_home);
-    (wax_home, guard)
+    wax_home
 }
 
-fn install_rich_discover_fixture_pack() -> (PathBuf, EnvVarGuard) {
+fn install_rich_discover_fixture_pack() -> TestRepo {
     let language_id = "compose";
     let version = "0.1.0";
-    let wax_home = std::env::temp_dir().join(format!(
-        "wax-core-registry-rich-home-{}",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock should be after epoch")
-            .as_nanos()
-    ));
-    let install_dir = wax_home.join(format!("langs/{language_id}/{version}"));
+    let wax_home = TestRepo::new("registry-rich-home");
+    let install_dir = wax_home
+        .path()
+        .join(format!("langs/{language_id}/{version}"));
     fs::create_dir_all(&install_dir).expect("create language install dir");
     let script_path = install_dir.join("wax-lang-compose");
     fs::write(
@@ -468,7 +415,7 @@ esac
     )
     .expect("write rich fixture manifest");
     fs::write(
-        wax_home.join("state.json"),
+        wax_home.path().join("state.json"),
         format!(
             "{}\n",
             serde_json::to_string(&json!({
@@ -482,15 +429,16 @@ esac
         ),
     )
     .expect("write rich fixture state");
-    let guard = EnvVarGuard::set("WAX_HOME", &wax_home);
-    (wax_home, guard)
+    wax_home
 }
 
 fn discover_with_config_roots(
     repo: &Path,
+    home: WaxHome,
 ) -> Result<wax_core::registry_discovery::RegistryDiscoverResult, RegistryDiscoverError> {
     discover_registry(RegistryDiscoverOptions {
         repo_root: repo,
+        wax_home: Some(home),
         language_id: "compose",
         roots: vec![],
         dry_run: true,
@@ -502,9 +450,11 @@ fn discover_with_config_roots(
 
 fn discover_with_config_roots_write(
     repo: &Path,
+    home: WaxHome,
 ) -> Result<wax_core::registry_discovery::RegistryDiscoverResult, RegistryDiscoverError> {
     discover_registry(RegistryDiscoverOptions {
         repo_root: repo,
+        wax_home: Some(home),
         language_id: "compose",
         roots: vec![],
         dry_run: false,
@@ -515,14 +465,38 @@ fn discover_with_config_roots_write(
 }
 
 #[test]
+fn discovery_remembers_design_system_in_explicit_home() {
+    let repo = TestRepo::new("registry-discovery-remember");
+    let wax_home = install_compose_pack_fixture();
+
+    discover_registry(RegistryDiscoverOptions {
+        repo_root: repo.path(),
+        wax_home: Some(WaxHome::new(wax_home.path())),
+        language_id: "compose",
+        roots: vec![compose_fixture_root()],
+        dry_run: false,
+        force: false,
+        design_system_id: Some("acme"),
+        design_system_name: Some("Acme"),
+    })
+    .expect("discover with the pack installed in the explicit home");
+
+    let systems = wax_core::registry_memory::list_remembered_design_systems(
+        wax_home.path().join("state.json"),
+    )
+    .expect("load remembered systems from the explicit home");
+    assert_eq!(systems[0].id, "acme");
+}
+
+#[test]
 fn first_rich_discovery_enumerates_and_enriches_components_without_force() {
-    let _guard = env_lock();
     let repo = TestRepo::new("registry-discovery-first-rich");
-    let (_wax_home, _wax_home_guard) = install_rich_discover_fixture_pack();
+    let wax_home = install_rich_discover_fixture_pack();
     link_compose_fixture_into_repo(repo.path());
     write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
 
-    let result = discover_with_config_roots(repo.path()).expect("first rich preview");
+    let result = discover_with_config_roots(repo.path(), WaxHome::new(wax_home.path()))
+        .expect("first rich preview");
 
     assert_eq!(
         result.registry["components"],
@@ -537,9 +511,8 @@ fn first_rich_discovery_enumerates_and_enriches_components_without_force() {
 
 #[test]
 fn first_rich_write_populates_token_only_registry_and_preserves_authored_fields() {
-    let _guard = env_lock();
     let repo = TestRepo::new("registry-discovery-token-only");
-    let (_wax_home, _wax_home_guard) = install_rich_discover_fixture_pack();
+    let wax_home = install_rich_discover_fixture_pack();
     link_compose_fixture_into_repo(repo.path());
     write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
     let path = repo.path().join(".wax/compose.registry.json");
@@ -556,7 +529,8 @@ fn first_rich_write_populates_token_only_registry_and_preserves_authored_fields(
     });
     fs::write(&path, original.to_string()).expect("write token-only registry");
 
-    discover_with_config_roots_write(repo.path()).expect("populate token-only registry");
+    discover_with_config_roots_write(repo.path(), WaxHome::new(wax_home.path()))
+        .expect("populate token-only registry");
 
     let written: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
     assert_eq!(written["components"][0]["symbol"], "Button");
@@ -566,9 +540,8 @@ fn first_rich_write_populates_token_only_registry_and_preserves_authored_fields(
 
 #[test]
 fn rich_rediscovery_refreshes_generated_values_and_keeps_authored_ones() {
-    let _guard = env_lock();
     let repo = TestRepo::new("registry-discovery-palette-refresh");
-    let (_wax_home, _wax_home_guard) = install_rich_discover_fixture_pack();
+    let wax_home = install_rich_discover_fixture_pack();
     link_compose_fixture_into_repo(repo.path());
     write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
     let path = repo.path().join(".wax/compose.registry.json");
@@ -592,7 +565,8 @@ fn rich_rediscovery_refreshes_generated_values_and_keeps_authored_ones() {
     });
     fs::write(&path, original.to_string()).expect("write seeded registry");
 
-    discover_with_config_roots_write(repo.path()).expect("refresh palette tokens");
+    discover_with_config_roots_write(repo.path(), WaxHome::new(wax_home.path()))
+        .expect("refresh palette tokens");
 
     let written: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
     let tokens = written["tokens"].as_array().unwrap();
@@ -608,16 +582,16 @@ fn rich_rediscovery_refreshes_generated_values_and_keeps_authored_ones() {
 
 #[test]
 fn failed_rich_bootstrap_preserves_token_only_registry() {
-    let _guard = env_lock();
     let repo = TestRepo::new("registry-discovery-bootstrap-failure");
-    let (_wax_home, _wax_home_guard) = install_rich_discover_fixture_pack();
+    let wax_home = install_rich_discover_fixture_pack();
     link_compose_fixture_into_repo(repo.path());
     write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
     let path = repo.path().join(".wax/compose.registry.json");
     let original = br#"{"schema_version":1,"tokens":[{"id":"brand","key":"Brand","category":"color"}],"publisher":"fail-enrichment"}"#;
     fs::write(&path, original).expect("write token-only registry");
 
-    let error = discover_with_config_roots_write(repo.path()).expect_err("enrichment failed");
+    let error = discover_with_config_roots_write(repo.path(), WaxHome::new(wax_home.path()))
+        .expect_err("enrichment failed");
 
     assert!(matches!(
         error,
@@ -662,7 +636,6 @@ fn generated_ids_use_ds_kebab_case_symbol() {
 
 #[test]
 fn generated_ids_split_acronym_boundaries() {
-    let _guard = env_lock();
     let repo = TestRepo::new("registry-discovery-acronym");
     let source_root = repo.path().join("src/main/kotlin");
     fs::create_dir_all(&source_root).expect("create source root");
@@ -676,7 +649,7 @@ fun XMLButton() {}
     )
     .expect("write kotlin fixture");
     write_compose_lockfile(repo.path());
-    let (_wax_home, _wax_home_guard) = install_discover_fixture_pack(
+    let wax_home = install_discover_fixture_pack(
         "compose",
         "0.1.0",
         r#"{"type":"discover_symbols","api_version":1,"language_id":"compose","symbols":["XMLButton"],"diagnostics":[]}"#,
@@ -684,6 +657,7 @@ fun XMLButton() {}
     );
 
     let result = discover_registry(RegistryDiscoverOptions {
+        wax_home: Some(WaxHome::new(wax_home.path())),
         repo_root: repo.path(),
         language_id: "compose",
         roots: vec![source_root],
@@ -708,7 +682,6 @@ fun XMLButton() {}
 
 #[test]
 fn conflicting_symbols_with_same_generated_id_are_rejected() {
-    let _guard = env_lock();
     let repo = TestRepo::new("registry-discovery-id-collision");
     let source_root = repo.path().join("src/main/kotlin");
     fs::create_dir_all(&source_root).expect("create source root");
@@ -725,7 +698,7 @@ fun XmlButton() {}
     )
     .expect("write kotlin fixture");
     write_compose_lockfile(repo.path());
-    let (_wax_home, _wax_home_guard) = install_discover_fixture_pack(
+    let wax_home = install_discover_fixture_pack(
         "compose",
         "0.1.0",
         r#"{"type":"discover_symbols","api_version":1,"language_id":"compose","symbols":["XMLButton","XmlButton"],"diagnostics":[]}"#,
@@ -733,6 +706,7 @@ fun XmlButton() {}
     );
 
     let err = discover_registry(RegistryDiscoverOptions {
+        wax_home: Some(WaxHome::new(wax_home.path())),
         repo_root: repo.path(),
         language_id: "compose",
         roots: vec![source_root],
@@ -793,14 +767,14 @@ fn duplicate_symbols_collapse_to_one_component() {
 
 #[test]
 fn resolves_roots_from_wax_config_when_roots_omitted() {
-    let _guard = env_lock();
     let repo = TestRepo::new("registry-discovery-config-roots");
     link_compose_fixture_into_repo(repo.path());
     write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
     write_compose_lockfile(repo.path());
-    let (_wax_home, _wax_home_guard) = install_compose_pack_fixture();
+    let wax_home = install_compose_pack_fixture();
 
     let result = discover_registry(RegistryDiscoverOptions {
+        wax_home: Some(WaxHome::new(wax_home.path())),
         repo_root: repo.path(),
         language_id: "compose",
         roots: vec![],
@@ -823,14 +797,14 @@ fn resolves_roots_from_wax_config_when_roots_omitted() {
 
 #[test]
 fn resolves_grouped_roots_from_wax_config_when_roots_omitted() {
-    let _guard = env_lock();
     let repo = TestRepo::new("registry-discovery-grouped-config-roots");
     link_compose_fixture_into_repo(repo.path());
     write_compose_config_with_grouped_roots(repo.path(), &["design-system/src/main/kotlin"]);
     write_compose_lockfile(repo.path());
-    let (_wax_home, _wax_home_guard) = install_compose_pack_fixture();
+    let wax_home = install_compose_pack_fixture();
 
     let result = discover_registry(RegistryDiscoverOptions {
+        wax_home: Some(WaxHome::new(wax_home.path())),
         repo_root: repo.path(),
         language_id: "compose",
         roots: vec![],
@@ -860,6 +834,7 @@ fn missing_configured_roots_fails_with_guidance() {
     .expect("write wax config without roots");
 
     let err = discover_registry(RegistryDiscoverOptions {
+        wax_home: Some(WaxHome::new(repo.path().join("wax-home"))),
         repo_root: repo.path(),
         language_id: "compose",
         roots: vec![],
@@ -894,7 +869,7 @@ fn omitted_language_fails_with_guidance() {
     )
     .expect("write wax config");
 
-    let err = discover_with_config_roots(repo.path())
+    let err = discover_with_config_roots(repo.path(), WaxHome::new(repo.path().join("wax-home")))
         .expect_err("omitted language should not resolve roots");
 
     assert!(matches!(
@@ -914,8 +889,8 @@ fn absolute_configured_root_is_rejected() {
     let absolute_root = repo.path().join("design-system/src/main/kotlin");
     write_compose_config_with_roots(repo.path(), &[absolute_root.to_str().unwrap()]);
 
-    let err =
-        discover_with_config_roots(repo.path()).expect_err("absolute configured root should fail");
+    let err = discover_with_config_roots(repo.path(), WaxHome::new(repo.path().join("wax-home")))
+        .expect_err("absolute configured root should fail");
 
     assert!(matches!(err, RegistryDiscoverError::InvalidRootPath { .. }));
 }
@@ -926,7 +901,7 @@ fn parent_dir_configured_root_is_rejected() {
     link_compose_fixture_into_repo(repo.path());
     write_compose_config_with_roots(repo.path(), &["../design-system/src/main/kotlin"]);
 
-    let err = discover_with_config_roots(repo.path())
+    let err = discover_with_config_roots(repo.path(), WaxHome::new(repo.path().join("wax-home")))
         .expect_err("parent-dir configured root should fail");
 
     assert!(matches!(err, RegistryDiscoverError::InvalidRootPath { .. }));
@@ -937,7 +912,7 @@ fn missing_configured_root_path_is_rejected() {
     let repo = TestRepo::new("registry-discovery-missing-root-path");
     write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin/missing"]);
 
-    let err = discover_with_config_roots(repo.path())
+    let err = discover_with_config_roots(repo.path(), WaxHome::new(repo.path().join("wax-home")))
         .expect_err("missing configured root path should fail");
 
     assert!(matches!(err, RegistryDiscoverError::RootNotFound { .. }));
@@ -967,7 +942,8 @@ fn configured_root_symlink_outside_repo_is_rejected() {
     .expect("symlink design-system outside repo");
     write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
 
-    let err = discover_with_config_roots(repo.path()).expect_err("symlink escape should fail");
+    let err = discover_with_config_roots(repo.path(), WaxHome::new(repo.path().join("wax-home")))
+        .expect_err("symlink escape should fail");
 
     assert!(matches!(err, RegistryDiscoverError::RootEscapesRepo { .. }));
     let _ = fs::remove_dir_all(&outside);
@@ -975,14 +951,14 @@ fn configured_root_symlink_outside_repo_is_rejected() {
 
 #[test]
 fn discover_writes_language_specific_default_registry_path() {
-    let _guard = env_lock();
     let repo = TestRepo::new("discover-compose-default-path");
     write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
     link_compose_fixture_into_repo(repo.path());
     write_compose_lockfile(repo.path());
-    let (_wax_home, _wax_home_guard) = install_compose_pack_fixture();
+    let wax_home = install_compose_pack_fixture();
 
-    let result = discover_with_config_roots_write(repo.path()).expect("discover should succeed");
+    let result = discover_with_config_roots_write(repo.path(), WaxHome::new(wax_home.path()))
+        .expect("discover should succeed");
 
     assert_eq!(
         result.output_path,
@@ -1018,14 +994,14 @@ fn discover_writes_language_specific_default_registry_path() {
 
 #[test]
 fn discover_compose_then_react_writes_both_without_force() {
-    let _guard = env_lock();
     let repo = TestRepo::new("discover-multi-language");
     write_multi_language_config(repo.path());
     link_compose_fixture_into_repo(repo.path());
     write_multi_language_lockfile(repo.path());
-    let (_compose_home, _compose_home_guard) = install_compose_pack_fixture();
+    let compose_home = install_compose_pack_fixture();
 
     discover_registry(RegistryDiscoverOptions {
+        wax_home: Some(WaxHome::new(compose_home.path())),
         repo_root: repo.path(),
         language_id: "compose",
         roots: vec![repo.path().join("design-system/src/main/kotlin")],
@@ -1036,8 +1012,9 @@ fn discover_compose_then_react_writes_both_without_force() {
     })
     .expect("compose discover");
 
-    let (_react_home, _react_home_guard) = install_react_discover_fixture_pack();
+    let react_home = install_react_discover_fixture_pack();
     discover_registry(RegistryDiscoverOptions {
+        wax_home: Some(WaxHome::new(react_home.path())),
         repo_root: repo.path(),
         language_id: "react",
         roots: vec![repo.path().join("design-system/src")],
@@ -1075,7 +1052,6 @@ fn discover_compose_then_react_writes_both_without_force() {
 
 #[test]
 fn discover_rejects_external_registry_source() {
-    let _guard = env_lock();
     let repo = TestRepo::new("discover-external-registry-source");
     write_config_with_registry_object(
         repo.path(),
@@ -1084,9 +1060,9 @@ fn discover_rejects_external_registry_source() {
     );
     link_compose_fixture_into_repo(repo.path());
     write_compose_lockfile(repo.path());
-    let (_wax_home, _wax_home_guard) = install_compose_pack_fixture();
+    let wax_home = install_compose_pack_fixture();
 
-    let err = discover_with_config_roots_write(repo.path())
+    let err = discover_with_config_roots_write(repo.path(), WaxHome::new(wax_home.path()))
         .expect_err("hosted registry source should not be writable by discover");
 
     assert!(matches!(
@@ -1097,7 +1073,6 @@ fn discover_rejects_external_registry_source() {
 
 #[test]
 fn discover_rejects_uppercase_https_and_other_external_schemes() {
-    let _guard = env_lock();
     for source in [
         "HTTPS://example.com/registry.json",
         "ftp://example.com/registry.json",
@@ -1106,9 +1081,9 @@ fn discover_rejects_uppercase_https_and_other_external_schemes() {
         write_config_with_registry_object(repo.path(), "compose", &format!(r#""{source}""#));
         link_compose_fixture_into_repo(repo.path());
         write_compose_lockfile(repo.path());
-        let (_wax_home, _wax_home_guard) = install_compose_pack_fixture();
+        let wax_home = install_compose_pack_fixture();
 
-        let err = discover_with_config_roots_write(repo.path())
+        let err = discover_with_config_roots_write(repo.path(), WaxHome::new(wax_home.path()))
             .expect_err("external registry source should not be writable by discover");
 
         assert!(
@@ -1120,7 +1095,6 @@ fn discover_rejects_uppercase_https_and_other_external_schemes() {
 
 #[test]
 fn discover_writes_configured_registry_path() {
-    let _guard = env_lock();
     let repo = TestRepo::new("discover-registry-key");
     fs::create_dir_all(repo.path().join(".wax")).unwrap();
     fs::write(
@@ -1138,9 +1112,10 @@ fn discover_writes_configured_registry_path() {
     .unwrap();
     link_compose_fixture_into_repo(repo.path());
     write_compose_lockfile(repo.path());
-    let (_wax_home, _wax_home_guard) = install_compose_pack_fixture();
+    let wax_home = install_compose_pack_fixture();
 
-    let result = discover_with_config_roots_write(repo.path()).expect("registry path discover");
+    let result = discover_with_config_roots_write(repo.path(), WaxHome::new(wax_home.path()))
+        .expect("registry path discover");
 
     assert_eq!(
         result.output_path,
@@ -1150,27 +1125,19 @@ fn discover_writes_configured_registry_path() {
 
 #[test]
 fn discover_without_installed_pack_returns_clear_error() {
-    let _guard = env_lock();
     let repo = TestRepo::new("discover-missing-pack");
     write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
     link_compose_fixture_into_repo(repo.path());
     write_compose_lockfile(repo.path());
-    let wax_home = std::env::temp_dir().join(format!(
-        "wax-core-empty-home-{}",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock should be after epoch")
-            .as_nanos()
-    ));
-    fs::create_dir_all(&wax_home).expect("create empty wax home");
+    let wax_home = TestRepo::new("empty-home");
     fs::write(
-        wax_home.join("state.json"),
+        wax_home.path().join("state.json"),
         "{\"installed_languages\":{}}\n",
     )
     .expect("write empty wax state");
-    let _wax_home_guard = EnvVarGuard::set("WAX_HOME", &wax_home);
 
-    let err = discover_with_config_roots_write(repo.path()).expect_err("missing installed pack");
+    let err = discover_with_config_roots_write(repo.path(), WaxHome::new(wax_home.path()))
+        .expect_err("missing installed pack");
 
     assert!(matches!(
         err,
@@ -1180,16 +1147,17 @@ fn discover_without_installed_pack_returns_clear_error() {
 
 #[test]
 fn unchanged_discover_rerun_succeeds_without_force_and_is_stable() {
-    let _guard = env_lock();
     let repo = TestRepo::new("discover-same-language-overwrite");
     write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
     link_compose_fixture_into_repo(repo.path());
     write_compose_lockfile(repo.path());
-    let (_wax_home, _wax_home_guard) = install_compose_pack_fixture();
+    let wax_home = install_compose_pack_fixture();
 
-    let first = discover_with_config_roots_write(repo.path()).expect("first discover");
+    let first = discover_with_config_roots_write(repo.path(), WaxHome::new(wax_home.path()))
+        .expect("first discover");
     let first_contents = fs::read_to_string(&first.output_path).expect("read first registry");
-    let second = discover_with_config_roots_write(repo.path()).expect("second discover");
+    let second = discover_with_config_roots_write(repo.path(), WaxHome::new(wax_home.path()))
+        .expect("second discover");
     let second_contents = fs::read_to_string(&second.output_path).expect("read second registry");
 
     assert_eq!(second_contents, first_contents);
@@ -1199,11 +1167,11 @@ fn unchanged_discover_rerun_succeeds_without_force_and_is_stable() {
 #[test]
 fn dry_run_generates_registry_without_writing_output() {
     let repo = TestRepo::new("registry-discovery-dry-run");
-    let _guard = env_lock();
-    let (_wax_home, _wax_home_guard) = install_compose_pack_fixture();
+    let wax_home = install_compose_pack_fixture();
     write_compose_lockfile(repo.path());
 
     let result = discover_registry(RegistryDiscoverOptions {
+        wax_home: Some(WaxHome::new(wax_home.path())),
         repo_root: repo.path(),
         language_id: "compose",
         roots: vec![compose_fixture_root()],
@@ -1224,11 +1192,11 @@ fn dry_run_generates_registry_without_writing_output() {
 #[test]
 fn default_write_targets_centralized_registry_path() {
     let repo = TestRepo::new("registry-discovery-default-write");
-    let _guard = env_lock();
-    let (_wax_home, _wax_home_guard) = install_compose_pack_fixture();
+    let wax_home = install_compose_pack_fixture();
     write_compose_lockfile(repo.path());
 
     let result = discover_registry(RegistryDiscoverOptions {
+        wax_home: Some(WaxHome::new(wax_home.path())),
         repo_root: repo.path(),
         language_id: "compose",
         roots: vec![compose_fixture_root()],
@@ -1247,8 +1215,7 @@ fn default_write_targets_centralized_registry_path() {
 #[test]
 fn rediscovery_without_force_retains_unobserved_components() {
     let repo = TestRepo::new("registry-discovery-safe-refresh");
-    let _guard = env_lock();
-    let (_wax_home, _wax_home_guard) = install_compose_pack_fixture();
+    let wax_home = install_compose_pack_fixture();
     write_compose_lockfile(repo.path());
     let output_path = repo.path().join(".wax/compose.registry.json");
     fs::create_dir_all(output_path.parent().expect("registry parent")).unwrap();
@@ -1257,6 +1224,7 @@ fn rediscovery_without_force_retains_unobserved_components() {
     fs::write(&output_path, original_contents).unwrap();
 
     let result = discover_registry(RegistryDiscoverOptions {
+        wax_home: Some(WaxHome::new(wax_home.path())),
         repo_root: repo.path(),
         language_id: "compose",
         roots: vec![compose_fixture_root()],
@@ -1281,8 +1249,7 @@ fn rediscovery_without_force_retains_unobserved_components() {
 #[test]
 fn invalid_existing_registry_failure_keeps_previous_file_recoverable() {
     let repo = TestRepo::new("registry-discovery-invalid-existing-recovery");
-    let _guard = env_lock();
-    let (_wax_home, _wax_home_guard) = install_compose_pack_fixture();
+    let wax_home = install_compose_pack_fixture();
     write_compose_lockfile(repo.path());
     let output_path = repo.path().join(".wax/compose.registry.json");
     fs::create_dir_all(output_path.parent().expect("registry parent"))
@@ -1291,6 +1258,7 @@ fn invalid_existing_registry_failure_keeps_previous_file_recoverable() {
     fs::write(&output_path, original_contents).expect("seed invalid registry");
 
     let err = discover_registry(RegistryDiscoverOptions {
+        wax_home: Some(WaxHome::new(wax_home.path())),
         repo_root: repo.path(),
         language_id: "compose",
         roots: vec![compose_fixture_root()],
@@ -1314,11 +1282,10 @@ fn invalid_existing_registry_failure_keeps_previous_file_recoverable() {
 #[test]
 fn failed_forced_discovery_leaves_previous_file_unchanged() {
     let repo = TestRepo::new("registry-discovery-force-failure");
-    let _guard = env_lock();
-    let (wax_home, _wax_home_guard) = install_compose_pack_fixture();
+    let wax_home = install_compose_pack_fixture();
     write_compose_lockfile(repo.path());
-    let script_path = wax_home.join("langs/compose/0.1.0/wax-lang-compose");
-    let marker_path = wax_home.join("replacement-discover-started");
+    let script_path = wax_home.path().join("langs/compose/0.1.0/wax-lang-compose");
+    let marker_path = wax_home.path().join("replacement-discover-started");
     fs::write(
         &script_path,
         format!(
@@ -1357,6 +1324,7 @@ esac
     fs::write(&output_path, original_contents).expect("seed registry");
 
     let error = discover_registry(RegistryDiscoverOptions {
+        wax_home: Some(WaxHome::new(wax_home.path())),
         repo_root: repo.path(),
         language_id: "compose",
         roots: vec![compose_fixture_root()],
@@ -1380,8 +1348,7 @@ esac
 #[test]
 fn force_prunes_unobserved_components_and_keeps_observed_creator_fields() {
     let repo = TestRepo::new("registry-discovery-force");
-    let _guard = env_lock();
-    let (_wax_home, _wax_home_guard) = install_compose_pack_fixture();
+    let wax_home = install_compose_pack_fixture();
     write_compose_lockfile(repo.path());
     let output_path = repo.path().join(".wax/compose.registry.json");
     fs::create_dir_all(output_path.parent().expect("registry parent")).unwrap();
@@ -1392,6 +1359,7 @@ fn force_prunes_unobserved_components_and_keeps_observed_creator_fields() {
     .unwrap();
 
     discover_registry(RegistryDiscoverOptions {
+        wax_home: Some(WaxHome::new(wax_home.path())),
         repo_root: repo.path(),
         language_id: "compose",
         roots: vec![compose_fixture_root()],
@@ -1438,12 +1406,12 @@ fn force_prunes_unobserved_components_and_keeps_observed_creator_fields() {
 
 #[test]
 fn configless_discover_without_lockfile_uses_global_install() {
-    let _guard = env_lock();
     let repo = TestRepo::new("configless-discover-no-lockfile-core");
     link_compose_fixture_into_repo(repo.path());
-    let (_wax_home, _wax_home_guard) = install_compose_pack_fixture();
+    let wax_home = install_compose_pack_fixture();
 
     let result = discover_registry(RegistryDiscoverOptions {
+        wax_home: Some(WaxHome::new(wax_home.path())),
         repo_root: repo.path(),
         language_id: "compose",
         roots: vec![compose_fixture_root()],
@@ -1465,11 +1433,10 @@ fn configless_discover_without_lockfile_uses_global_install() {
 
 #[test]
 fn discover_with_lockfile_does_not_fallback_to_latest_global_install() {
-    let _guard = env_lock();
     let repo = TestRepo::new("discover-lockfile-no-global-fallback");
     link_compose_fixture_into_repo(repo.path());
     write_compose_lockfile(repo.path());
-    let (_wax_home, _wax_home_guard) = install_discover_fixture_pack(
+    let wax_home = install_discover_fixture_pack(
         "compose",
         "0.2.0",
         r#"{"type":"discover_symbols","api_version":1,"language_id":"compose","symbols":["WrongPack"],"diagnostics":[]}"#,
@@ -1477,6 +1444,7 @@ fn discover_with_lockfile_does_not_fallback_to_latest_global_install() {
     );
 
     let err = discover_registry(RegistryDiscoverOptions {
+        wax_home: Some(WaxHome::new(wax_home.path())),
         repo_root: repo.path(),
         language_id: "compose",
         roots: vec![compose_fixture_root()],
@@ -1495,7 +1463,6 @@ fn discover_with_lockfile_does_not_fallback_to_latest_global_install() {
 
 #[test]
 fn dry_run_returns_losslessly_merged_rich_document_and_structured_changes() {
-    let _guard = env_lock();
     let repo = TestRepo::new("registry-discovery-rich-merge");
     link_compose_fixture_into_repo(repo.path());
     write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
@@ -1532,9 +1499,10 @@ fn dry_run_returns_losslessly_merged_rich_document_and_structured_changes() {
 "#,
     )
     .expect("write authored registry");
-    let (_wax_home, _wax_home_guard) = install_rich_discover_fixture_pack();
+    let wax_home = install_rich_discover_fixture_pack();
 
     let result = discover_registry(RegistryDiscoverOptions {
+        wax_home: Some(WaxHome::new(wax_home.path())),
         repo_root: repo.path(),
         language_id: "compose",
         roots: vec![repo.path().join("design-system/src/main/kotlin")],
@@ -1616,7 +1584,6 @@ fn dry_run_returns_losslessly_merged_rich_document_and_structured_changes() {
 #[cfg(unix)]
 #[test]
 fn attachment_failure_leaves_existing_registry_recoverable() {
-    let _guard = env_lock();
     let repo = TestRepo::new("registry-discovery-attachment-recovery");
     link_compose_fixture_into_repo(repo.path());
     write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
@@ -1630,9 +1597,10 @@ fn attachment_failure_leaves_existing_registry_recoverable() {
     let original_contents = r#"{"schema_version":1,"components":[{"id":"button","symbol":"Button","metadata":{"description":"Recover me","sources":[{"kind":"documentation","path":"docs/button.md"}]}}]}
 "#;
     fs::write(&output_path, original_contents).expect("write authored registry");
-    let (_wax_home, _wax_home_guard) = install_rich_discover_fixture_pack();
+    let wax_home = install_rich_discover_fixture_pack();
 
     let error = discover_registry(RegistryDiscoverOptions {
+        wax_home: Some(WaxHome::new(wax_home.path())),
         repo_root: repo.path(),
         language_id: "compose",
         roots: vec![],
@@ -1653,11 +1621,11 @@ fn attachment_failure_leaves_existing_registry_recoverable() {
 
 fn dry_run_registry() -> serde_json::Value {
     let repo = TestRepo::new("registry-discovery-dry-run-shared");
-    let _guard = env_lock();
-    let (_wax_home, _wax_home_guard) = install_compose_pack_fixture();
+    let wax_home = install_compose_pack_fixture();
     write_compose_lockfile(repo.path());
 
     discover_registry(RegistryDiscoverOptions {
+        wax_home: Some(WaxHome::new(wax_home.path())),
         repo_root: repo.path(),
         language_id: "compose",
         roots: vec![compose_fixture_root()],
@@ -1672,12 +1640,11 @@ fn dry_run_registry() -> serde_json::Value {
 
 #[test]
 fn replacement_discovery_preserves_token_metadata_by_package_and_key() {
-    let _guard = env_lock();
     let repo = TestRepo::new("registry-discovery-scoped-tokens");
     link_compose_fixture_into_repo(repo.path());
     write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
     write_compose_lockfile(repo.path());
-    let (_wax_home, _wax_home_guard) = install_rich_discover_fixture_pack();
+    let wax_home = install_rich_discover_fixture_pack();
     fs::write(
         repo.path().join(".wax/compose.registry.json"),
         r#"{
@@ -1693,6 +1660,7 @@ fn replacement_discovery_preserves_token_metadata_by_package_and_key() {
     .unwrap();
 
     let result = discover_registry(RegistryDiscoverOptions {
+        wax_home: Some(WaxHome::new(wax_home.path())),
         repo_root: repo.path(),
         language_id: "compose",
         roots: vec![repo.path().join("design-system/src/main/kotlin")],
@@ -1724,12 +1692,11 @@ fn replacement_discovery_preserves_token_metadata_by_package_and_key() {
 
 #[test]
 fn discovery_keeps_authored_css_groups_and_shared_variants_in_both_write_modes() {
-    let _guard = env_lock();
     let repo = TestRepo::new("registry-discovery-css-variants");
     link_compose_fixture_into_repo(repo.path());
     write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
     write_compose_lockfile(repo.path());
-    let (_wax_home, _wax_home_guard) = install_rich_discover_fixture_pack();
+    let wax_home = install_rich_discover_fixture_pack();
     let path = repo.path().join(".wax/compose.registry.json");
     let seed = json!({
         "schema_version": 1, "publisher": "css-variants",
@@ -1745,6 +1712,7 @@ fn discovery_keeps_authored_css_groups_and_shared_variants_in_both_write_modes()
     for force in [false, true] {
         fs::write(&path, seed.to_string()).unwrap();
         discover_registry(RegistryDiscoverOptions {
+            wax_home: Some(WaxHome::new(wax_home.path())),
             repo_root: repo.path(),
             language_id: "compose",
             roots: vec![],
@@ -1789,12 +1757,11 @@ fn discovery_keeps_authored_css_groups_and_shared_variants_in_both_write_modes()
 #[test]
 fn discovery_rejects_conflicting_css_variant_identities_without_writing() {
     use wax_core::registry_merge::RegistryMergeError;
-    let _guard = env_lock();
     let repo = TestRepo::new("registry-discovery-css-conflict");
     link_compose_fixture_into_repo(repo.path());
     write_compose_config_with_roots(repo.path(), &["design-system/src/main/kotlin"]);
     write_compose_lockfile(repo.path());
-    let (_wax_home, _wax_home_guard) = install_rich_discover_fixture_pack();
+    let wax_home = install_rich_discover_fixture_pack();
     let path = repo.path().join(".wax/compose.registry.json");
 
     for publisher in ["css-conflict", "css-reused-id", "css-duplicate-match"] {
@@ -1809,6 +1776,7 @@ fn discovery_rejects_conflicting_css_variant_identities_without_writing() {
         for force in [false, true] {
             fs::write(&path, &seed).unwrap();
             let result = discover_registry(RegistryDiscoverOptions {
+                wax_home: Some(WaxHome::new(wax_home.path())),
                 repo_root: repo.path(),
                 language_id: "compose",
                 roots: vec![],
