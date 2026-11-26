@@ -1218,10 +1218,19 @@ fn classify_jsx_usage(
 ) -> Option<ClassifiedJsxUsage> {
     let import = module_graph.import_binding(&parsed.file, &candidate.binding_name);
     let resolved = module_graph.resolve_import(&parsed.file, &candidate.binding_name);
+    let namespace_member_owner = resolved
+        .as_ref()
+        .filter(|resolved| resolved.symbol == "*")
+        .and_then(|resolved| {
+            let member = jsx_member_path(candidate)?;
+            module_graph.resolve_export(&resolved.module, member)
+        })
+        .and_then(|resolved| module_graph.owning_package(&resolved.module));
     let owner = import
         .and_then(|binding| binding.source_module.as_deref())
         .and_then(|module| module_graph.owning_package(module))
-        .or_else(|| module_graph.owning_package(&resolved.as_ref()?.module));
+        .or_else(|| module_graph.owning_package(&resolved.as_ref()?.module))
+        .or(namespace_member_owner);
     let import_package = owner
         .map(str::to_owned)
         .or_else(|| import.map(|binding| npm_import_package_root(&binding.source_specifier)));

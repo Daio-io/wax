@@ -959,6 +959,61 @@ export function Page() { return <><TsButton /><RelativeButton /><AliasedButton /
 }
 
 #[test]
+fn stdio_scan_attributes_namespace_members_through_unowned_barrels() {
+    use wax_contract::{MatchStatus, ResolutionEvidenceKind};
+
+    let repo = tempfile::tempdir().unwrap();
+    let root = repo.path();
+    fs::create_dir_all(root.join("src/ui")).unwrap();
+    fs::create_dir_all(root.join("src/app")).unwrap();
+    fs::write(
+        root.join("src/ui/button.tsx"),
+        "export function Button() { return <button />; }",
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/app/barrel.ts"),
+        r#"export { Button } from "../ui/button";"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/app/page.tsx"),
+        r#"import * as UI from "./barrel";
+export function Page() { return <UI.Button />; }"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("react.json"),
+        r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button","package":"copied-ui"}]}"#,
+    )
+    .unwrap();
+
+    let facts = scan_package_fixture(
+        root,
+        json!({
+            "registry": "react.json",
+            "roots": ["src"],
+            "packages": {"copied-ui": {"exports": {"./*": "src/ui/*"}}}
+        }),
+    );
+
+    let [site] = facts.usage_sites.as_slice() else {
+        panic!("expected one namespace usage, got {:?}", facts.usage_sites);
+    };
+    assert_eq!(site.match_status, MatchStatus::Resolved);
+    assert_eq!(site.registry_symbol.as_deref(), Some("Button"));
+    assert_eq!(
+        site.resolution_evidence.kind,
+        ResolutionEvidenceKind::RegistryPackageMatch
+    );
+    assert_eq!(
+        site.resolution_evidence.package.as_deref(),
+        Some("copied-ui")
+    );
+    assert_eq!(site.qualified_symbol.as_deref(), Some("copied-ui#Button"));
+}
+
+#[test]
 fn stdio_scan_excludes_owned_component_and_style_facts() {
     let repo = tempfile::tempdir().unwrap();
     let root = repo.path();
