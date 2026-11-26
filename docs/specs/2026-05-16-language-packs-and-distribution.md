@@ -425,7 +425,7 @@ Evaluation order for each **enabled** language id (engine policy; see `wax-core`
 3. **Auto-install disabled** (`wax scan --no-auto-install`) — if the locked artifact is not installed locally, scan fails with a clear missing-install error (CI path).
 4. **Pack index lookup** — when auto-install is allowed, fetch index metadata for the locked `version` + `resolved.target`.
 5. **Digest drift** — if the index sha256 for that version/target differs from `resolved.sha256`, refuse install/scan even when auto-install is on.
-6. **Install plan** — when allowed and digests match, download exactly the locked `version` and verify bytes against `resolved.sha256` (never a newer index version).
+6. **Install plan** — when allowed and digests match, reuse an existing pack directory whose manifest matches the lock and restore its global state entry. If the directory is absent, download the locked `version` and verify bytes against `resolved.sha256`.
 
 | Scenario | `.wax/wax.lock.json` | Local install | `--no-auto-install` | Outcome |
 |----------|-----------------|---------------|---------------------|---------|

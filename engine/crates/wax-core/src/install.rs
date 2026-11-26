@@ -15,9 +15,9 @@ use crate::paths::{PathsError, WaxHome};
 /// Manifest fields written to `manifest.json` next to installed pack binaries.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct LanguagePackManifestSpec {
-    /// Stable language id (must match [`install_language`] `id`).
+    /// Stable language id for the pack.
     pub id: LanguageId,
-    /// Pack version string (must match [`install_language`] `version`).
+    /// Pack version string.
     pub version: String,
     /// Wire API version supported by this pack.
     pub api_version: u32,
@@ -189,7 +189,7 @@ pub enum FetchError {
     clippy::too_many_arguments,
     reason = "installation takes explicit pack metadata and destination"
 )]
-pub fn install_language(
+pub(crate) fn install_language(
     id: &LanguageId,
     version: &str,
     target_triple: &str,
@@ -635,5 +635,27 @@ fn promote_staging_dir(staging_dir: &Path, destination: &Path) -> Result<(), Ins
             ),
             source,
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn manifest_binary_rejects_parent_traversal() {
+        let manifest = LanguagePackManifestSpec {
+            id: LanguageId::try_from("compose").unwrap(),
+            version: "0.4.2".to_owned(),
+            api_version: 1,
+            command: vec!["./../outside".to_owned(), "--stdio".to_owned()],
+            ecosystem: "compose".to_owned(),
+            parser_name: "compose".to_owned(),
+            parser_version: "0.4.2".to_owned(),
+        };
+
+        let error = validated_manifest_binary(Path::new("unused"), &manifest).unwrap_err();
+
+        assert!(matches!(error, InstallError::PathTraversal { .. }));
     }
 }
