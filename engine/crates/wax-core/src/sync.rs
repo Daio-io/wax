@@ -1,14 +1,13 @@
 //! App registry sync from remembered design systems.
 
 use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 use thiserror::Error;
 use wax_contract::LanguageId;
 
-use crate::config::lockfile::{LockedRegistry, WAX_LOCK_SCHEMA_VERSION, WaxLock, load_lockfile};
+use crate::config::lockfile::{LockedRegistry, WaxLock, load_lockfile, save_lockfile};
 use crate::config::repo_files::discover_repo_files;
 use crate::config::waxrc::{LanguageEntry, WaxRc, WaxRcError, load_waxrc};
 use crate::registry_memory::{
@@ -64,20 +63,11 @@ struct RegistryCopyPlan {
 }
 
 #[derive(Debug, Clone)]
-struct PreparedLockFields {
-    source: String,
-    sha256: String,
-    git_commit: Option<String>,
-    subdir: Option<String>,
-    definition: Option<wax_contract::RegistryDefinitionPin>,
-}
-
-#[derive(Debug, Clone)]
 struct PreparedSync {
     update: SyncUpdate,
     registry_copy: Option<RegistryCopyPlan>,
     /// Prepare-time resolution reused when writing the lock, when present.
-    prepared_lock: Option<PreparedLockFields>,
+    prepared_lock: Option<LockedRegistry>,
 }
 
 #[derive(Debug, Clone)]
@@ -110,9 +100,6 @@ pub enum SyncError {
         /// Reason the replacement is incompatible.
         reason: &'static str,
     },
-    /// Bundle languages disagree on immutable publisher metadata.
-    #[error(transparent)]
-    Bundle(#[from] wax_contract::CatalogError),
     /// Global wax paths could not be resolved for an upstream registry.
     #[error(transparent)]
     Paths(#[from] PathsError),
@@ -168,24 +155,6 @@ pub enum SyncError {
         #[source]
         source: AtomicWriteError,
     },
-    /// Lockfile could not be written to disk.
-    #[error("failed to write wax lockfile at {path}: {source}")]
-    LockfileWrite {
-        /// Lockfile path that failed to write.
-        path: String,
-        /// Underlying I/O failure.
-        #[source]
-        source: io::Error,
-    },
-    /// Atomic lockfile replacement failed.
-    #[error("failed to atomically write wax lockfile at {path}: {source}")]
-    LockfileAtomicWrite {
-        /// Lockfile path that failed to write.
-        path: String,
-        /// Atomic-write failure.
-        #[source]
-        source: AtomicWriteError,
-    },
     /// Atomic registry rollback restoration failed.
     #[error("failed to atomically restore registry backup at {path}: {source}")]
     RegistryRestoreAtomicWrite {
@@ -215,11 +184,11 @@ pub enum SyncError {
 ///
 /// Returns [`SyncError::MissingConfig`] or [`SyncError::MissingLockfile`] for
 /// missing inputs; [`SyncError::InvalidDesignSystemSelection`] for incompatible
-/// explicit adoption; [`SyncError::Config`], [`SyncError::Lockfile`],
+/// explicit adoption; [`SyncError::Config`],
 /// [`SyncError::RegistryMemory`], [`SyncError::RegistrySource`], or
-/// [`SyncError::InvalidUpstream`] while preparing updates; and
+/// [`SyncError::InvalidUpstream`] while preparing updates;
+/// [`SyncError::Lockfile`] when loading or saving the lockfile; and
 /// [`SyncError::ConfigUpdate`], [`SyncError::ConfigAtomicWrite`],
-/// [`SyncError::LockfileWrite`], [`SyncError::LockfileAtomicWrite`],
 /// [`SyncError::RegistryRestoreAtomicWrite`], or [`SyncError::LockRefreshFailed`]
 /// when persistence or rollback fails.
 pub fn sync_app_registries(options: &SyncOptions) -> Result<Vec<SyncUpdate>, SyncError> {
@@ -447,7 +416,7 @@ fn persist_sync_updates(input: &mut PersistSyncInput<'_>) -> Result<(), SyncErro
             input.config_changed,
             &registry_backups,
         )?;
-        return Err(error);
+        return Err(error.into());
     }
 
     Ok(())
@@ -571,10 +540,12 @@ fn prepare_language_upstream_sync(
     } else {
         resolved.config_source.clone()
     };
-    let prepared_lock = resolved.digest.as_ref().map(|digest| PreparedLockFields {
+    let prepared_lock = resolved.digest.as_ref().map(|digest| LockedRegistry {
         source: source.clone(),
         sha256: digest.clone(),
-        git_commit: resolved.git_commit.clone(),
+        git: resolved.git.clone(),
+        tag: resolved.tag.clone(),
+        commit: resolved.git_commit.clone(),
         subdir: resolved.subdir.clone(),
         definition: resolved.definition.clone(),
     });
@@ -688,13 +659,7 @@ fn prepare_design_system_selection(
                 new_subdir: verified.subdir.clone(),
             },
             registry_copy: None,
-            prepared_lock: Some(PreparedLockFields {
-                source: verified.source,
-                sha256: verified.sha256,
-                git_commit: verified.git_commit,
-                subdir: verified.subdir,
-                definition: verified.definition,
-            }),
+            prepared_lock: Some(verified.to_locked(Some(&desired))),
         });
     }
     Ok(prepared)
@@ -724,38 +689,27 @@ fn prepare_language_git_sync(
         lockfile.registries.get(&entry.id),
         options.upgrade,
     )?;
-    let (git, tag) = match entry.registry_source.as_ref() {
-        Some(crate::config::waxrc::LanguageRegistrySource::Git { git, tag, .. }) => {
-            (Some(git.clone()), Some(tag.clone()))
-        }
-        _ => (None, None),
-    };
+    let prepared_lock = resolved.to_locked(entry.registry_source.as_ref());
     Ok(PreparedSync {
         update: SyncUpdate {
             language_id: entry.id.clone(),
             upstream: git_sync_label(entry),
-            source: resolved.source.clone(),
-            git,
-            tag,
+            source: resolved.source,
+            git: prepared_lock.git.clone(),
+            tag: prepared_lock.tag.clone(),
             old_commit: lockfile
                 .registries
                 .get(&entry.id)
                 .and_then(|lock| lock.commit.clone()),
-            new_commit: resolved.git_commit.clone(),
+            new_commit: resolved.git_commit,
             old_subdir: lockfile
                 .registries
                 .get(&entry.id)
                 .and_then(|lock| lock.subdir.clone()),
-            new_subdir: resolved.subdir.clone(),
+            new_subdir: resolved.subdir,
         },
         registry_copy: None,
-        prepared_lock: Some(PreparedLockFields {
-            source: resolved.source,
-            sha256: resolved.sha256,
-            git_commit: resolved.git_commit,
-            subdir: resolved.subdir,
-            definition: resolved.definition,
-        }),
+        prepared_lock: Some(prepared_lock),
     })
 }
 
@@ -857,97 +811,36 @@ fn refresh_registry_locks(
         let prepared = refreshed_languages
             .iter()
             .find(|prepared| prepared.update.language_id == entry.id);
-        let (source, sha256, git_commit, subdir, definition) = if let Some(prepared_lock) =
+        let refreshed = if let Some(prepared_lock) =
             prepared.and_then(|prepared| prepared.prepared_lock.as_ref())
         {
-            (
-                prepared_lock.source.clone(),
-                prepared_lock.sha256.clone(),
-                prepared_lock.git_commit.clone(),
-                prepared_lock.subdir.clone(),
-                prepared_lock.definition.clone(),
-            )
+            prepared_lock.clone()
         } else {
-            let is_git = entry.registry_source.as_ref().is_some_and(|source| {
-                matches!(
-                    source,
-                    crate::config::waxrc::LanguageRegistrySource::Git { .. }
-                )
-            });
+            let configured = entry.registry_source.as_ref();
+            let is_git = configured
+                .and_then(crate::config::waxrc::LanguageRegistrySource::git_parts)
+                .is_some();
             let resolved = resolve_language_registry_source(
                 repo_root,
                 entry.id.as_str(),
-                entry.registry_source.as_ref(),
+                configured,
                 lockfile.registries.get(&entry.id),
                 is_git && upgrade,
             )?;
-            (
-                resolved.source,
-                resolved.sha256,
-                resolved.git_commit,
-                resolved.subdir,
-                resolved.definition,
-            )
-        };
-        let refreshed = LockedRegistry {
-            subdir,
-            definition,
-            source,
-            sha256,
-            git: entry
-                .registry_source
-                .as_ref()
-                .and_then(|source| match source {
-                    crate::config::waxrc::LanguageRegistrySource::Git { git, .. } => {
-                        Some(git.clone())
-                    }
-                    _ => None,
-                }),
-            tag: entry
-                .registry_source
-                .as_ref()
-                .and_then(|source| match source {
-                    crate::config::waxrc::LanguageRegistrySource::Git { tag, .. } => {
-                        Some(tag.clone())
-                    }
-                    _ => None,
-                }),
-            commit: git_commit,
+            resolved.to_locked(configured)
         };
         if lockfile.registries.get(&entry.id) != Some(&refreshed) {
             lockfile.registries.insert(entry.id.clone(), refreshed);
             changed = true;
         }
     }
-    if changed && lockfile.schema_version != WAX_LOCK_SCHEMA_VERSION {
-        lockfile.schema_version = WAX_LOCK_SCHEMA_VERSION;
-    }
     Ok(changed)
-}
-
-fn save_lockfile(path: &Path, lockfile: &WaxLock) -> Result<(), SyncError> {
-    crate::config::lockfile::validate_bundle_registry_locks(&lockfile.registries)?;
-    let mut lockfile = lockfile.clone();
-    lockfile.schema_version = WAX_LOCK_SCHEMA_VERSION;
-    let contents =
-        serde_json::to_string_pretty(&lockfile).map_err(|source| SyncError::LockfileWrite {
-            path: path.display().to_string(),
-            source: io::Error::new(io::ErrorKind::InvalidData, source),
-        })?;
-    write_atomically(
-        path,
-        format!("{contents}\n").as_bytes(),
-        AtomicWriteOptions::default(),
-    )
-    .map_err(|source| SyncError::LockfileAtomicWrite {
-        path: path.display().to_string(),
-        source,
-    })
 }
 
 #[cfg(test)]
 mod sync_tests {
     use super::*;
+    use crate::config::lockfile::WAX_LOCK_SCHEMA_VERSION;
     use crate::registry_memory::remember_design_system;
     use std::process::Command;
     use std::sync::{Mutex, MutexGuard};
@@ -1516,13 +1409,15 @@ mod sync_tests {
                 new_subdir: None,
             },
             registry_copy: None,
-            prepared_lock: Some(PreparedLockFields {
+            prepared_lock: Some(LockedRegistry {
                 subdir: None,
                 definition: None,
                 source: "git:https://example.invalid/repo.git#v1".to_owned(),
                 sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                     .to_owned(),
-                git_commit: Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned()),
+                git: Some("https://example.invalid/repo.git".to_owned()),
+                tag: Some("v1".to_owned()),
+                commit: Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned()),
             }),
         }];
 

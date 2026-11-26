@@ -694,6 +694,32 @@ fn second_write_refreshes_without_force() {
     assert_eq!(fs::read_to_string(&registry_path).unwrap(), original);
 }
 
+#[cfg(unix)]
+#[test]
+fn discover_preserves_lockfile_when_new_pin_is_invalid() {
+    let _guard = env_lock();
+    let root = TestDir::new("registry-discover-invalid-bundle-lock");
+    let repo = root.path.join("repo");
+    let _harness = setup_compose_discover_repo(&repo, false);
+    fs::write(
+        repo.join(".wax/wax.config.json"),
+        r#"{"schema_version":2,"languages":{"compose":{"registry":"git-system:registry.json"}}}"#,
+    )
+    .unwrap();
+    let lockfile = repo.join(".wax/wax.lock.json");
+    let original = fs::read(&lockfile).unwrap();
+
+    let output = run_discover(&repo, &[]);
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "{stderr}");
+    assert!(
+        stderr.contains("nested Git source requires subdir"),
+        "{stderr}"
+    );
+    assert_eq!(fs::read(lockfile).unwrap(), original);
+}
+
 #[test]
 fn force_prunes_symbols_absent_from_discovery() {
     let _guard = env_lock();

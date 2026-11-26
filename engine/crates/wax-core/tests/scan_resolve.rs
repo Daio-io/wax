@@ -64,6 +64,88 @@ fn temp_dir(name: &str) -> PathBuf {
     path
 }
 
+#[cfg(unix)]
+#[test]
+fn scan_preserves_atomic_error_when_saving_new_git_pin_fails() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::Command;
+    use wax_core::AtomicWriteError;
+    use wax_core::config::lockfile::LockfileError;
+
+    let _guard = env_lock();
+    let root = temp_dir("scan-lockfile-write");
+    let _wax_home = EnvVarGuard::set("WAX_HOME", root.join("wax-home"));
+    let repo = root.join("app");
+    let wax_dir = repo.join(".wax");
+    fs::create_dir_all(wax_dir.join("cache")).unwrap();
+    let remote = root.join("registry");
+    fs::create_dir_all(remote.join(".wax/registries")).unwrap();
+    fs::write(
+        remote.join(".wax/registries/compose.json"),
+        r#"{"schema_version":1,"components":[]}"#,
+    )
+    .unwrap();
+    for args in [
+        &["init"][..],
+        &["add", "."],
+        &["commit", "-m", "Registry"],
+        &["tag", "v1"],
+    ] {
+        let output = Command::new("git")
+            .args([
+                "-c",
+                "user.name=Wax Test",
+                "-c",
+                "user.email=wax@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .current_dir(&remote)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    fs::write(
+        wax_dir.join("wax.config.json"),
+        serde_json::json!({
+            "schema_version": 2,
+            "languages": { "compose": { "registry": { "git": remote, "tag": "v1" } } }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    fs::write(
+        wax_dir.join("wax.lock.json"),
+        r#"{"schema_version":2,"engine_api_version":1,"wax_version":"0.0.0","registries":{},"languages":{}}"#,
+    )
+    .unwrap();
+    let permissions = fs::metadata(&wax_dir).unwrap().permissions();
+    fs::set_permissions(&wax_dir, fs::Permissions::from_mode(0o555)).unwrap();
+    let directory_is_read_only = fs::write(wax_dir.join("permission-check"), "").is_err();
+    let result = directory_is_read_only
+        .then(|| Engine::scan_repo_with_options(&repo, ScanOptions::default()));
+    fs::set_permissions(&wax_dir, permissions).unwrap();
+    fs::remove_dir_all(root).unwrap();
+
+    if let Some(result) = result {
+        assert!(
+            matches!(
+                result,
+                Err(EngineError::Lockfile(LockfileError::Write {
+                    source: AtomicWriteError::CreateTemp { .. },
+                    ..
+                }))
+            ),
+            "{result:?}"
+        );
+    }
+}
+
 fn build_scan_facts(language: &str, version: &str) -> ScanFacts {
     ScanFacts {
         schema_version: SCHEMA_VERSION,

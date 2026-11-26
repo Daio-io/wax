@@ -13,8 +13,8 @@ use std::sync::Arc;
 use thiserror::Error;
 use wax_contract::{LanguageId, LanguageIdError};
 use wax_core::config::lockfile::{
-    LockedLanguage, LockedRegistry, LockfileError, ResolvedLanguage, WAX_LOCK_SCHEMA_VERSION,
-    WaxLock, load_lockfile,
+    LockedLanguage, LockfileError, ResolvedLanguage, WAX_LOCK_SCHEMA_VERSION, WaxLock,
+    load_lockfile, save_lockfile,
 };
 use wax_core::config::waxrc::{WaxRc, WaxRcError, load_waxrc};
 use wax_core::defaults::DEFAULT_WAX_PACK_INDEX;
@@ -26,7 +26,6 @@ use wax_core::paths::{PathsError, lang_install_dir};
 use wax_core::registry::{
     RegistryArtifact, RegistryError, RegistryManifest, fetch_pack_index, select_target_artifact,
 };
-use wax_core::{AtomicWriteError, AtomicWriteOptions, write_atomically};
 use wax_lang_api::build_version;
 
 /// Options for `wax language list`.
@@ -179,15 +178,12 @@ pub enum LanguageCommandError {
     /// `.wax/wax.config.json` loading failed.
     #[error(transparent)]
     WaxRc(#[from] WaxRcError),
-    /// Lockfile loading failed.
+    /// Lockfile loading or saving failed.
     #[error(transparent)]
     Lockfile(#[from] LockfileError),
     /// Registry source resolution failed.
     #[error(transparent)]
     RegistrySource(#[from] wax_core::registry_source::RegistrySourceError),
-    /// Atomic replacement of a repository contract file failed.
-    #[error(transparent)]
-    AtomicWrite(#[from] AtomicWriteError),
     /// Filesystem operation failed.
     #[error("{context}: {source}")]
     Io {
@@ -641,22 +637,6 @@ pub(crate) fn update_lockfile_entry(
     );
 }
 
-pub(crate) fn save_lockfile(path: &Path, lockfile: &WaxLock) -> Result<(), LanguageCommandError> {
-    let mut lockfile = lockfile.clone();
-    lockfile.schema_version = WAX_LOCK_SCHEMA_VERSION;
-    let contents =
-        serde_json::to_string_pretty(&lockfile).map_err(|source| LanguageCommandError::Io {
-            context: format!("serialize lockfile {}", path.display()),
-            source: io::Error::new(io::ErrorKind::InvalidData, source),
-        })?;
-    write_atomically(
-        path,
-        format!("{contents}\n").as_bytes(),
-        AtomicWriteOptions::default(),
-    )?;
-    Ok(())
-}
-
 fn record_installed_language(
     state_path: Option<PathBuf>,
     language_id: &LanguageId,
@@ -812,29 +792,10 @@ fn refresh_registry_locks_in_lockfile(
         )?;
         lockfile.registries.insert(
             entry.id.clone(),
-            LockedRegistry {
-                subdir: resolved.subdir,
-                definition: resolved.definition,
-                source: resolved.source,
-                sha256: resolved.sha256,
-                git: entry.registry_source.as_ref().and_then(|s| match s {
-                    wax_core::config::waxrc::LanguageRegistrySource::Git { git, .. } => {
-                        Some(git.clone())
-                    }
-                    _ => None,
-                }),
-                tag: entry.registry_source.as_ref().and_then(|s| match s {
-                    wax_core::config::waxrc::LanguageRegistrySource::Git { tag, .. } => {
-                        Some(tag.clone())
-                    }
-                    _ => None,
-                }),
-                commit: resolved.git_commit,
-            },
+            resolved.to_locked(entry.registry_source.as_ref()),
         );
     }
 
-    lockfile.schema_version = WAX_LOCK_SCHEMA_VERSION;
     Ok(())
 }
 
@@ -847,7 +808,8 @@ pub(crate) fn refresh_registry_locks_for_repo(
     let waxrc = load_waxrc(&repo_files.config_path)?;
     let mut lockfile = load_lockfile(&repo_files.lockfile_path)?;
     refresh_registry_locks_in_lockfile(&mut lockfile, repo_root, &waxrc)?;
-    save_lockfile(&repo_files.lockfile_path, &lockfile)
+    save_lockfile(&repo_files.lockfile_path, &lockfile)?;
+    Ok(())
 }
 
 fn has_missing_binary(state: &GlobalState, language_id: &LanguageId) -> bool {
@@ -1546,6 +1508,52 @@ mod tests {
         assert_eq!(registry.sha256.len(), 64);
         assert_eq!(lockfile.schema_version, WAX_LOCK_SCHEMA_VERSION);
         assert_eq!(lockfile.languages[&lang("compose")].version, "0.4.2");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn update_preserves_lockfile_when_refreshed_pin_is_invalid() {
+        let temp = TestDir::new("update-invalid-bundle-lock");
+        let wax_dir = temp.path().join(".wax");
+        fs::create_dir_all(&wax_dir).unwrap();
+        fs::write(
+            wax_dir.join("wax.config.json"),
+            r#"{"schema_version":2,"languages":{"compose":{"registry":"git-system:registry.json"}}}"#,
+        )
+        .unwrap();
+        fs::write(
+            temp.path().join("git-system:registry.json"),
+            r#"{"schema_version":1,"components":[]}"#,
+        )
+        .unwrap();
+        let lockfile = wax_dir.join("wax.lock.json");
+        let original = minimal_v1_lockfile_json();
+        fs::write(&lockfile, &original).unwrap();
+        let index = temp.path().join("index.json");
+        fs::write(&index, "[]").unwrap();
+
+        let result = run_update(
+            UpdateOptions {
+                language_id: None,
+                all: true,
+                registry_url: Some(file_url(&index)),
+                target_triple: None,
+                state_path: Some(temp.path().join("state.json")),
+                repo_root: temp.path().to_path_buf(),
+            },
+            &mut Vec::new(),
+        );
+
+        assert!(
+            matches!(
+                result,
+                Err(LanguageCommandError::Lockfile(
+                    LockfileError::InvalidBundleLock { .. }
+                ))
+            ),
+            "{result:?}"
+        );
+        assert_eq!(fs::read_to_string(lockfile).unwrap(), original);
     }
 
     #[test]

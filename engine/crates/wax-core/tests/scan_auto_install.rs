@@ -8,6 +8,7 @@ use flate2::Compression;
 use flate2::write::GzEncoder;
 use sha2::{Digest, Sha256};
 use wax_contract::LanguageId;
+use wax_core::config::lockfile::{load_lockfile, save_lockfile};
 use wax_core::global_state::GlobalState;
 use wax_core::{Engine, EngineError, ScanOptions};
 
@@ -253,15 +254,10 @@ fn scan_auto_install_disabled_does_not_fetch_registry_index() {
     let _wax_home = EnvVarGuard::set("WAX_HOME", &fixture.wax_home);
 
     let lockfile_path = fixture.repo.join(".wax/wax.lock.json");
-    let mut lockfile: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(&lockfile_path).unwrap()).unwrap();
-    lockfile["languages"]["compose"]["source"] =
-        serde_json::json!("https://example.invalid/unreachable-index.json");
-    fs::write(
-        &lockfile_path,
-        format!("{}\n", serde_json::to_string_pretty(&lockfile).unwrap()),
-    )
-    .unwrap();
+    let mut lockfile = load_lockfile(&lockfile_path).unwrap();
+    lockfile.languages.get_mut("compose").unwrap().source =
+        "https://example.invalid/unreachable-index.json".to_owned();
+    save_lockfile(&lockfile_path, &lockfile).unwrap();
 
     let err = Engine::scan_repo_with_options(
         &fixture.repo,

@@ -16,7 +16,7 @@ use wax_lang_api::{DiscoverRegistryRequest, WIRE_API_VERSION};
 use crate::atomic_file::write_atomically_no_clobber;
 use crate::auto_install::{InstalledManifest, installed_manifest_matches_locked};
 use crate::config::lockfile::{
-    LockedRegistry, LockfileError, WAX_LOCK_SCHEMA_VERSION, WaxLock, load_lockfile,
+    LockedRegistry, LockfileError, WaxLock, load_lockfile, save_lockfile,
 };
 use crate::config::repo_files::{default_registry_path_for_language, discover_repo_files};
 use crate::config::waxrc::{LanguageEntry, WaxRc, WaxRcError, load_waxrc};
@@ -93,7 +93,7 @@ pub enum RegistryDiscoverError {
     /// Wax config could not be loaded while resolving discovery roots.
     #[error(transparent)]
     Config(#[from] WaxRcError),
-    /// Lockfile could not be loaded.
+    /// Lockfile could not be loaded or saved.
     #[error(transparent)]
     Lockfile(#[from] LockfileError),
     /// Global state could not be loaded.
@@ -256,24 +256,6 @@ pub enum RegistryDiscoverError {
         #[source]
         source: AtomicWriteError,
     },
-    /// Lockfile could not be patched after writing discover output.
-    #[error("failed to patch lockfile at {path}: {source}")]
-    LockfilePatch {
-        /// Lockfile path that failed to update.
-        path: String,
-        /// Underlying I/O or parse failure.
-        #[source]
-        source: Box<dyn std::error::Error + Send + Sync>,
-    },
-    /// Lockfile replacement failed after patching registry metadata.
-    #[error("failed to patch lockfile at {path}: {source}")]
-    LockfilePatchAtomicWrite {
-        /// Lockfile path that failed to update.
-        path: String,
-        /// Atomic-write failure.
-        #[source]
-        source: AtomicWriteError,
-    },
     /// Design-system remember/update failed after discovery.
     #[error(transparent)]
     RegistryMemory(#[from] RegistryMemoryError),
@@ -336,8 +318,7 @@ pub enum RegistryDiscoverError {
 /// [`RegistryDiscoverError::AtomicWrite`] when output cannot be generated or
 /// published; and [`RegistryDiscoverError::ConfigPatch`],
 /// [`RegistryDiscoverError::ConfigPatchAtomicWrite`],
-/// [`RegistryDiscoverError::LockfilePatch`],
-/// [`RegistryDiscoverError::LockfilePatchAtomicWrite`], or
+/// [`RegistryDiscoverError::Lockfile`], or
 /// [`RegistryDiscoverError::RegistryMemory`] when follow-up metadata cannot be
 /// persisted.
 pub fn discover_registry(
@@ -494,10 +475,10 @@ pub fn discover_registry(
         )?;
     }
 
-    if let Some(lockfile) = lockfile.as_ref() {
+    if let Some(mut lockfile) = lockfile {
         patch_lockfile_registry(
             &repo_files.lockfile_path,
-            lockfile,
+            &mut lockfile,
             language_id,
             output_source,
             crate::digest::sha256_hex(written_bytes.as_bytes()),
@@ -1077,13 +1058,11 @@ fn patch_config_registry(
 
 fn patch_lockfile_registry(
     lockfile_path: &Path,
-    existing_lockfile: &WaxLock,
+    lockfile: &mut WaxLock,
     language_id: LanguageId,
     source: String,
     sha256: String,
 ) -> Result<(), RegistryDiscoverError> {
-    let path_display = lockfile_path.display().to_string();
-    let mut lockfile = existing_lockfile.clone();
     lockfile.registries.insert(
         language_id,
         LockedRegistry {
@@ -1096,21 +1075,6 @@ fn patch_lockfile_registry(
             commit: None,
         },
     );
-    lockfile.schema_version = WAX_LOCK_SCHEMA_VERSION;
-    let serialized = serde_json::to_string_pretty(&lockfile).map_err(|source| {
-        RegistryDiscoverError::LockfilePatch {
-            path: path_display.clone(),
-            source: Box::new(source),
-        }
-    })?;
-    write_atomically(
-        lockfile_path,
-        format!("{serialized}\n").as_bytes(),
-        AtomicWriteOptions::default(),
-    )
-    .map_err(|source| RegistryDiscoverError::LockfilePatchAtomicWrite {
-        path: path_display,
-        source,
-    })?;
+    save_lockfile(lockfile_path, lockfile)?;
     Ok(())
 }
