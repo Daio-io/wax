@@ -169,6 +169,19 @@ registered. An explicitly registered numeric token such as `--spacing-4` counts
 for `p-4`, but deriving `p-4` from the base `--spacing` scale, fractions such
 as `w-1/2`, and Tailwind v3 configuration are outside this scan's scope.
 
+#### Token inference for Tailwind arbitrary values
+
+React scans record literal arbitrary values such as `text-[10px]`,
+`bg-[#fff]`, `p-[13px]`, and `rounded-[6px]` as hard-coded style candidates
+even when the registry has no tokens. Wax compares them with canonical token
+values using the same inference rules as inline React styles. Type hints such
+as `color:` disambiguate the category, and unescaped underscores become spaces.
+
+Wax skips values containing `var(`, `theme(`, `env(`, `calc(`, `url(`, or `--`
+and utility/value combinations without a mapped style context, such as
+`border-[3px]` or `grid-cols-[1fr_auto]`. Registered CSS variable references
+still count as token references.
+
 Publisher files normally live at `.wax/registries/<language-id>.json` and are
 reviewed source. Consuming apps receive registry snapshots through `wax init`
 and `wax sync`; global remembered sources and caches live under `~/.wax/`.

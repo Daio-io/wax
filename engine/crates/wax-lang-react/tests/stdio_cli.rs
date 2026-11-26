@@ -1026,7 +1026,7 @@ fn stdio_scan_excludes_owned_component_and_style_facts() {
         root.join("src/components/ui/button.tsx"),
         r##"export function Button() { return <button />; }
 export function AlertDialog() {
-    return <Button className="bg-(--blue-9)" style={{ color: "#fff", background: theme.blue }} />;
+    return <Button className="bg-(--blue-9) text-[10px]" style={{ color: "#fff", background: theme.blue }} />;
 }"##,
     )
     .unwrap();
@@ -1064,7 +1064,7 @@ export function App() { return <Button style={{ color: "#000", background: theme
         baseline
             .hardcoded_style_sites
             .iter()
-            .any(|site| is_owned(&site.location.file))
+            .any(|site| is_owned(&site.location.file) && site.value == "10px")
     );
     for file in [
         "src/components/ui/button.tsx",
@@ -1264,6 +1264,132 @@ fn scan_tailwind_fixture(source: &str, properties: &[&str]) -> wax_contract::Sca
     let facts = scan_css_fixture(repo.path(), &tokens);
     assert_eq!(facts.status, ScanStatus::Complete);
     facts
+}
+
+#[test]
+fn stdio_scan_reports_arbitrary_text_values_without_a_registry() {
+    use wax_contract::{StyleContext, TokenCategory};
+
+    let facts = scan_tailwind_fixture(
+        r#"export const App = () => <div className="text-[10px] bg-[#ffffff]" />;"#,
+        &[],
+    );
+    let sites = facts
+        .hardcoded_style_sites
+        .iter()
+        .map(|site| {
+            (
+                site.id.as_str(),
+                site.location.column,
+                site.value.as_str(),
+                site.category,
+                site.context,
+                site.parent.as_ref().map(|parent| parent.symbol.as_str()),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        sites,
+        [
+            (
+                "hardcoded.react:src/App.tsx:1:42:Typography",
+                Some(42),
+                "10px",
+                TokenCategory::Typography,
+                StyleContext::Typography,
+                Some("App")
+            ),
+            (
+                "hardcoded.react:src/App.tsx:1:54:Color",
+                Some(54),
+                "#ffffff",
+                TokenCategory::Color,
+                StyleContext::Color,
+                Some("App")
+            ),
+        ]
+    );
+}
+
+#[test]
+fn stdio_scan_classifies_tailwind_arbitrary_utilities_and_omits_non_literals() {
+    let facts = scan_tailwind_fixture(
+        r##"export const App = () => <div className="hover:border-x-[rgb(1_2_3)] md:text-[color:red]
+            font-[450] leading-[1.3] tracking-[-.05em] px-[13px] scroll-pt-[1rem] -mt-[3px]
+            md:-mt-[8px] scroll-mx-[4px] gap-x-[.5em] space-y-[7px] min-w-[25%] max-h-[40dvh]
+            [&_svg]:size-[14px] inset-x-[1in] translate-y-[2px] rounded-bl-[6px]
+            shadow-[4px_4px_0_0_#000] inset-shadow-[#0008] drop-shadow-[inherit]
+            text-shadow-[2px] text-[length:1rem] w-[percentage:50%] leading-[number:1.5]
+            text-[color:brand\_blue] p-[length:3px]"
+        data-unused="p-[23px]" />;
+const ignored = cn(`text-[length:var(--x)] w-[calc(100%-2rem)] bg-[url(/a.png)]
+    bg-[var(--x)] p-[theme(spacing.4)] m-[env(safe-area-inset-top)] bg-[color:--x]
+    border-[3px] grid-cols-[1fr_auto] font-[family-name:serif] font-[3px]
+    bg-[#abcdz] w-[fit-content] w-[2potatoes] p-[#fff]`);
+"##,
+        &[],
+    );
+    let sites = facts
+        .hardcoded_style_sites
+        .iter()
+        .map(|site| (site.value.as_str(), site.category, site.context))
+        .collect::<Vec<_>>();
+    use wax_contract::{StyleContext as Context, TokenCategory as Category};
+
+    assert_eq!(
+        sites,
+        [
+            ("rgb(1 2 3)", Category::Color, Context::Color),
+            ("red", Category::Color, Context::Color),
+            ("450", Category::Typography, Context::Typography),
+            ("1.3", Category::Typography, Context::Typography),
+            ("-.05em", Category::Typography, Context::Typography),
+            ("13px", Category::Spacing, Context::Padding),
+            ("1rem", Category::Spacing, Context::Padding),
+            ("-3px", Category::Spacing, Context::Margin),
+            ("-8px", Category::Spacing, Context::Margin),
+            ("4px", Category::Spacing, Context::Margin),
+            (".5em", Category::Spacing, Context::Gap),
+            ("7px", Category::Spacing, Context::Gap),
+            ("25%", Category::Spacing, Context::Width),
+            ("40dvh", Category::Spacing, Context::Height),
+            ("14px", Category::Spacing, Context::Size),
+            ("1in", Category::Spacing, Context::Unknown),
+            ("2px", Category::Spacing, Context::Unknown),
+            ("6px", Category::Radius, Context::Radius),
+            ("4px 4px 0 0 #000", Category::Elevation, Context::Elevation),
+            ("#0008", Category::Color, Context::Color),
+            ("inherit", Category::Elevation, Context::Elevation),
+            ("2px", Category::Elevation, Context::Elevation),
+            ("1rem", Category::Typography, Context::Typography),
+            ("50%", Category::Spacing, Context::Width),
+            ("1.5", Category::Typography, Context::Typography),
+            ("brand_blue", Category::Color, Context::Color),
+            ("3px", Category::Spacing, Context::Padding),
+        ]
+    );
+}
+
+#[test]
+fn stdio_scan_reports_tailwind_references_and_literals_in_the_same_class_string() {
+    let facts = scan_tailwind_fixture(
+        r##"export const App = () => <div className={cn("bg-main bg-[#fff]")} />;"##,
+        &["color-main"],
+    );
+    let [reference] = facts.token_sites.as_slice() else {
+        panic!("expected one token reference, got {:?}", facts.token_sites);
+    };
+    let [literal] = facts.hardcoded_style_sites.as_slice() else {
+        panic!(
+            "expected one literal, got {:?}",
+            facts.hardcoded_style_sites
+        );
+    };
+
+    assert_eq!(reference.key, "var(--color-main)");
+    assert_eq!(literal.value, "#fff");
+    assert_eq!(literal.parent.as_ref().unwrap().symbol, "App");
 }
 
 #[test]

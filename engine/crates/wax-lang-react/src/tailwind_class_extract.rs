@@ -1,4 +1,4 @@
-//! Registered Tailwind token references in React class strings.
+//! Tailwind token references and hard-coded styles in React class strings.
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -8,38 +8,40 @@ use swc_ecma_ast::{
     OptCall, OptChainBase, Prop, PropName, PropOrSpread, Tpl,
 };
 use swc_ecma_visit::{Visit, VisitWith};
-use wax_contract::TokenSite;
+use wax_contract::{HardcodedStyleSite, TokenSite};
 use wax_lang_api::TokenMatch;
 
 use crate::component_scope::{ComponentDefinition, parent_for_span, peel_expr};
 use crate::swc_parse::ParsedReactModule;
-use crate::tailwind_theme::{top_level_delimiters, utility_tokens};
+use crate::tailwind_theme::{arbitrary_style, top_level_delimiters, utility_tokens};
 
-pub(crate) fn collect_class_token_sites(
+pub(crate) fn collect_class_style_facts(
     parsed: &ParsedReactModule,
     css_tokens: &BTreeMap<String, TokenMatch>,
     components: &[ComponentDefinition],
-) -> Vec<TokenSite> {
-    let mut collector = ClassTokenCollector {
+) -> (Vec<TokenSite>, Vec<HardcodedStyleSite>) {
+    let mut collector = ClassStyleCollector {
         parsed,
         css_tokens,
         components,
         seen: HashSet::new(),
-        sites: Vec::new(),
+        token_sites: Vec::new(),
+        hardcoded_sites: Vec::new(),
     };
     parsed.module.visit_with(&mut collector);
-    collector.sites
+    (collector.token_sites, collector.hardcoded_sites)
 }
 
-struct ClassTokenCollector<'a> {
+struct ClassStyleCollector<'a> {
     parsed: &'a ParsedReactModule,
     css_tokens: &'a BTreeMap<String, TokenMatch>,
     components: &'a [ComponentDefinition],
     seen: HashSet<Span>,
-    sites: Vec<TokenSite>,
+    token_sites: Vec<TokenSite>,
+    hardcoded_sites: Vec<HardcodedStyleSite>,
 }
 
-impl Visit for ClassTokenCollector<'_> {
+impl Visit for ClassStyleCollector<'_> {
     fn visit_jsx_attr(&mut self, attr: &JSXAttr) {
         if matches!(&attr.name, JSXAttrName::Ident(name) if matches!(name.sym.as_ref(), "className" | "class"))
         {
@@ -86,7 +88,7 @@ fn helper_object_keys(callee: &Expr) -> Option<bool> {
     }
 }
 
-impl ClassTokenCollector<'_> {
+impl ClassStyleCollector<'_> {
     fn collect_expr(&mut self, expr: &Expr, object_keys: bool) {
         match peel_expr(expr) {
             Expr::Lit(Lit::Str(literal)) => self.collect_string(literal.span),
@@ -292,8 +294,13 @@ impl ClassTokenCollector<'_> {
                 continue;
             }
             let (utility, modifier) = normalize_class(class);
-            let tokens = utility_tokens(utility, modifier, self.css_tokens);
-            if tokens.is_empty() {
+            let tokens = utility_tokens(
+                utility.strip_prefix('-').unwrap_or(utility),
+                modifier,
+                self.css_tokens,
+            );
+            let hardcoded = arbitrary_style(utility);
+            if tokens.is_empty() && hardcoded.is_none() {
                 continue;
             }
             let class_start = start + BytePos(class_offset as u32);
@@ -305,7 +312,7 @@ impl ClassTokenCollector<'_> {
             };
             let parent = parent_for_span(self.parsed, self.components, span);
             for token in tokens {
-                self.sites.push(TokenSite {
+                self.token_sites.push(TokenSite {
                     id: format!(
                         "token.react:{}:{}:{}:{}",
                         location.file,
@@ -318,6 +325,21 @@ impl ClassTokenCollector<'_> {
                     key: token.key.clone(),
                     category: token.category,
                     parent: parent.clone(),
+                });
+            }
+            if let Some((value, category, context)) = hardcoded {
+                self.hardcoded_sites.push(HardcodedStyleSite {
+                    id: format!(
+                        "hardcoded.react:{}:{}:{}:{category:?}",
+                        location.file,
+                        location.line,
+                        location.column.unwrap_or(0),
+                    ),
+                    location,
+                    value,
+                    category,
+                    context,
+                    parent,
                 });
             }
         }
@@ -345,6 +367,5 @@ fn normalize_class(class: &str) -> (&str, Option<&str>) {
         Some(slash) => (&class[start..slash], Some(&class[slash + 1..])),
         None => (&class[start..], None),
     };
-    let utility = utility.strip_prefix('-').unwrap_or(utility);
     (utility, modifier.filter(|modifier| !modifier.is_empty()))
 }

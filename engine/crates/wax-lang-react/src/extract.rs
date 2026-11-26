@@ -32,7 +32,7 @@ use crate::module_graph::{ImportedSymbol, ReactModuleGraph, ResolvedSymbol};
 use crate::registry::ReactRegistryIndex;
 use crate::style_extract::collect_hardcoded_style_sites;
 use crate::swc_parse::ParsedReactModule;
-use crate::tailwind_class_extract::collect_class_token_sites;
+use crate::tailwind_class_extract::collect_class_style_facts;
 use crate::token_extract::collect_token_sites;
 
 /// JSX usage extraction output.
@@ -363,13 +363,10 @@ pub fn collect_usage_sites(
             &components,
             module_graph,
         ));
-        if !registry.css_tokens.is_empty() {
-            extraction.token_sites.extend(collect_class_token_sites(
-                parsed,
-                &registry.css_tokens,
-                &components,
-            ));
-        }
+        let (tokens, hardcoded) =
+            collect_class_style_facts(parsed, &registry.css_tokens, &components);
+        extraction.token_sites.extend(tokens);
+        extraction.hardcoded_style_sites.extend(hardcoded);
         extraction
             .hardcoded_style_sites
             .extend(collect_hardcoded_style_sites(parsed, &components));

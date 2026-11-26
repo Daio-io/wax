@@ -17,6 +17,13 @@ defines language metadata, snapshot id, `complete|partial|failed` status,
 design-system and local components, `usage_sites`, diagnostics, raw counts,
 adoption metrics, token references, and hard-coded style observations.
 
+React includes literal Tailwind arbitrary values in `hardcoded_style_sites`.
+Each observation records the value, category, context, and position at the
+start of the class, with a parent component when Wax can identify one. These
+sites feed token inference alongside inline style observations. Wax skips values
+containing `var(`, `theme(`, `env(`, `calc(`, `url(`, or `--` and utility/value
+combinations without a mapped style context.
+
 In parser-backed packs, a design-system component's `symbol` is its declared
 source name. When registry entries share that name, package-tagged entries use
 `package#symbol` as their canonical `registry_symbol`. Unique names and the
