@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use wax_contract::LanguageId;
 use wax_core::config::lockfile::{
-    LockfileError, WaxLockLanguageReport, check_waxrc_lockfile_languages, load_lockfile,
+    LockfileError, WAX_LOCK_SCHEMA_VERSION, WaxLockLanguageReport, check_waxrc_lockfile_languages,
+    load_lockfile, save_lockfile,
 };
 use wax_core::config::waxrc::{LanguageEntry, WaxRc};
 
@@ -84,6 +85,46 @@ fn loads_minimal_lockfile() {
         compose.resolved.sha256,
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     );
+}
+
+#[test]
+fn saves_legacy_lockfile_in_current_format() {
+    let fixture = fixture_path("git-registry.wax.lock.json");
+    let lock = load_lockfile(&fixture).unwrap();
+    let original = fs::read_to_string(&fixture).unwrap().replace("\r\n", "\n");
+    let destination = TestFile::new("save-current-format", "");
+
+    save_lockfile(destination.path(), &lock).unwrap();
+
+    let contents = fs::read_to_string(destination.path()).unwrap();
+    assert!(contents.ends_with('\n'));
+    assert_eq!(
+        contents,
+        original.replacen(
+            "\"schema_version\": 2",
+            &format!("\"schema_version\": {WAX_LOCK_SCHEMA_VERSION}"),
+            1,
+        )
+    );
+    let mut expected = lock;
+    expected.schema_version = WAX_LOCK_SCHEMA_VERSION;
+    assert_eq!(load_lockfile(destination.path()).unwrap(), expected);
+}
+
+#[test]
+fn save_rejects_invalid_bundle_lock_without_replacing_file() {
+    let original = fs::read_to_string(fixture_path("git-registry.wax.lock.json")).unwrap();
+    let destination = TestFile::new("invalid-bundle-save", &original);
+    let mut lock = load_lockfile(destination.path()).unwrap();
+    lock.registries.get_mut("compose").unwrap().subdir = Some("../outside".to_owned());
+
+    let result = save_lockfile(destination.path(), &lock);
+
+    assert!(matches!(
+        result,
+        Err(LockfileError::InvalidBundleLock { .. })
+    ));
+    assert_eq!(fs::read_to_string(destination.path()).unwrap(), original);
 }
 
 #[test]

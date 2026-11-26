@@ -144,6 +144,27 @@ pub struct ResolvedRegistrySource {
     pub definition: Option<wax_contract::RegistryDefinitionPin>,
 }
 
+impl ResolvedRegistrySource {
+    /// Builds the lock pin, copying the Git remote and tag from a configured Git source.
+    #[must_use]
+    pub fn to_locked(&self, configured: Option<&LanguageRegistrySource>) -> LockedRegistry {
+        let (git, tag) = configured
+            .and_then(LanguageRegistrySource::git_parts)
+            .map_or((None, None), |(git, tag)| {
+                (Some(git.to_owned()), Some(tag.to_owned()))
+            });
+        LockedRegistry {
+            source: self.source.clone(),
+            sha256: self.sha256.clone(),
+            git,
+            tag,
+            commit: self.git_commit.clone(),
+            subdir: self.subdir.clone(),
+            definition: self.definition.clone(),
+        }
+    }
+}
+
 /// Typed failures while resolving registry sources.
 #[derive(Debug, Error)]
 pub enum RegistrySourceError {
@@ -952,6 +973,71 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn resolved_registry_builds_git_and_path_lock_pins() {
+        let git = "https://example.com/design.git";
+        let tag = "v1";
+        let commit = "a".repeat(40);
+        let sha256 = "b".repeat(64);
+        let subdir = "systems/design";
+        let definition = wax_contract::RegistryDefinitionPin {
+            system_id: "design".to_owned(),
+            path: format!("{subdir}/.wax/wax.config.json"),
+            sha256: "c".repeat(64),
+        };
+        let resolved = ResolvedRegistrySource {
+            source: format!("git-system:{git}#{tag}:{subdir}:design"),
+            repo_relative_path: ".wax/cache/git.registry.json".to_owned(),
+            sha256: sha256.clone(),
+            git_commit: Some(commit.clone()),
+            subdir: Some(subdir.to_owned()),
+            definition: Some(definition.clone()),
+        };
+        let configured = LanguageRegistrySource::Git {
+            git: git.to_owned(),
+            tag: tag.to_owned(),
+            subdir: Some(subdir.to_owned()),
+            system: Some("design".to_owned()),
+        };
+        assert_eq!(
+            resolved.to_locked(Some(&configured)),
+            LockedRegistry {
+                source: resolved.source,
+                sha256: sha256.clone(),
+                git: Some(git.to_owned()),
+                tag: Some(tag.to_owned()),
+                commit: Some(commit),
+                subdir: Some(subdir.to_owned()),
+                definition: Some(definition),
+            }
+        );
+
+        let path = ".wax/react.registry.json";
+        let local = ResolvedRegistrySource {
+            source: path.to_owned(),
+            repo_relative_path: path.to_owned(),
+            sha256: sha256.clone(),
+            git_commit: None,
+            subdir: None,
+            definition: None,
+        };
+        let configured = LanguageRegistrySource::PathOrUrl {
+            source: path.to_owned(),
+            upstream: None,
+        };
+        let expected = LockedRegistry {
+            source: path.to_owned(),
+            sha256,
+            git: None,
+            tag: None,
+            commit: None,
+            subdir: None,
+            definition: None,
+        };
+        assert_eq!(local.to_locked(Some(&configured)), expected);
+        assert_eq!(local.to_locked(None), expected);
+    }
 
     struct Fixture {
         root: PathBuf,

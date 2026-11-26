@@ -1,5 +1,6 @@
-//! `wax.lock.json` repository lockfile parsing and consistency checks.
+//! `wax.lock.json` repository lockfile loading, saving, and consistency checks.
 
+use crate::atomic_file::{AtomicWriteError, AtomicWriteOptions, write_atomically};
 use crate::config::waxrc::WaxRc;
 use serde::de::Error as DeError;
 use serde::{Deserialize, Serialize};
@@ -116,7 +117,7 @@ struct WaxLockVersion {
     schema_version: u32,
 }
 
-/// Errors returned while loading `wax.lock.json`.
+/// Errors returned while loading or saving `wax.lock.json`.
 #[derive(Debug, Error)]
 pub enum LockfileError {
     /// The file could not be read from disk.
@@ -137,14 +138,32 @@ pub enum LockfileError {
         #[source]
         source: serde_json::Error,
     },
-    /// The JSON is valid but does not match the supported lockfile shape.
+    /// The lockfile could not be decoded or serialized.
     #[error("invalid wax.lock.json config in {path}: {source}")]
     InvalidConfig {
-        /// Path passed to [`load_lockfile`].
+        /// Lockfile path.
         path: String,
-        /// Underlying lockfile decoding error.
+        /// Underlying lockfile decoding or serialization error.
         #[source]
         source: serde_json::Error,
+    },
+    /// The lockfile contains invalid bundle registry pins.
+    #[error("invalid wax.lock.json bundle lock in {path}: {source}")]
+    InvalidBundleLock {
+        /// Path passed to [`save_lockfile`].
+        path: String,
+        /// Underlying bundle validation error.
+        #[source]
+        source: wax_contract::CatalogError,
+    },
+    /// The lockfile could not be written atomically.
+    #[error("failed to write wax.lock.json to {path}: {source}")]
+    Write {
+        /// Path passed to [`save_lockfile`].
+        path: String,
+        /// Underlying atomic-write error.
+        #[source]
+        source: AtomicWriteError,
     },
     /// The file uses a schema version this engine does not understand.
     #[error(
@@ -238,6 +257,38 @@ pub fn load_lockfile(path: impl AsRef<Path>) -> Result<WaxLock, LockfileError> {
     }
 
     Ok(lock)
+}
+
+/// Stamps [`WAX_LOCK_SCHEMA_VERSION`], validates bundle registry locks, and
+/// atomically writes pretty JSON with a trailing newline.
+///
+/// # Errors
+///
+/// Returns [`LockfileError::InvalidBundleLock`] for invalid bundle pins,
+/// [`LockfileError::InvalidConfig`] if serialization fails, or
+/// [`LockfileError::Write`] if the atomic write fails.
+pub fn save_lockfile(path: impl AsRef<Path>, lockfile: &WaxLock) -> Result<(), LockfileError> {
+    let path = path.as_ref();
+    validate_bundle_registry_locks(&lockfile.registries).map_err(|source| {
+        LockfileError::InvalidBundleLock {
+            path: path.display().to_string(),
+            source,
+        }
+    })?;
+    let mut lockfile = lockfile.clone();
+    lockfile.schema_version = WAX_LOCK_SCHEMA_VERSION;
+    let mut contents =
+        serde_json::to_string_pretty(&lockfile).map_err(|source| LockfileError::InvalidConfig {
+            path: path.display().to_string(),
+            source,
+        })?;
+    contents.push('\n');
+    write_atomically(path, contents.as_bytes(), AtomicWriteOptions::default()).map_err(|source| {
+        LockfileError::Write {
+            path: path.display().to_string(),
+            source,
+        }
+    })
 }
 
 /// Compares configured language ids against the ids pinned in a lockfile.

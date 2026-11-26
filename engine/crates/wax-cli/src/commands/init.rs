@@ -2,7 +2,7 @@
 
 use super::language::{
     LanguageCommandError, default_target_triple, install_pinned_manifest, manifest_for_language,
-    resolve_registry_url, save_lockfile, update_lockfile_entry,
+    resolve_registry_url, update_lockfile_entry,
 };
 use super::state_path::resolve_state_path;
 use std::collections::BTreeMap;
@@ -11,7 +11,9 @@ use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 use wax_contract::{LanguageId, LanguageIdError};
-use wax_core::config::lockfile::{LockedRegistry, WAX_LOCK_SCHEMA_VERSION, WaxLock};
+use wax_core::config::lockfile::{
+    LockedRegistry, LockfileError, WAX_LOCK_SCHEMA_VERSION, WaxLock, save_lockfile,
+};
 use wax_core::config::repo_files::{
     PREFERRED_CONFIG_RELATIVE_PATH, PREFERRED_LOCKFILE_RELATIVE_PATH,
     default_registry_path_for_language,
@@ -151,6 +153,9 @@ pub enum InitCommandError {
     /// Language lifecycle command failed during init.
     #[error(transparent)]
     Language(#[from] LanguageCommandError),
+    /// Generated lockfile could not be saved.
+    #[error(transparent)]
+    Lockfile(#[from] LockfileError),
     /// Pack index fetch or resolution failed.
     #[error(transparent)]
     Registry(#[from] RegistryError),
@@ -194,6 +199,7 @@ pub enum InitCommandError {
 /// use [`InitCommandError::Language`], [`InitCommandError::Registry`],
 /// [`InitCommandError::RegistrySource`],
 /// [`InitCommandError::RegistryMemory`], or [`InitCommandError::Paths`].
+/// Lockfile save failures use [`InitCommandError::Lockfile`].
 /// Filesystem and output failures use [`InitCommandError::Io`].
 pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), InitCommandError> {
     if options.design_system.is_some()

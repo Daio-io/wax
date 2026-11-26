@@ -40,7 +40,7 @@ pub mod validate;
 
 use adoption_merge::{MergeOptions, merge_language_scans_with_options};
 use auto_install::{AutoInstallPolicyInput, InstalledManifest, PackIndexArtifact};
-use config::lockfile::{LockfileError, WAX_LOCK_SCHEMA_VERSION, WaxLock, load_lockfile};
+use config::lockfile::{LockfileError, WaxLock, load_lockfile, save_lockfile};
 use config::waxrc::{WaxRc, WaxRcError, load_waxrc};
 use global_state::{GlobalStateError, InstalledLanguagePack, load_global_state, save_global_state};
 use install::{InstallError, LanguagePackManifestSpec, install_language};
@@ -377,22 +377,16 @@ impl Engine {
                 lockfile.registries.get(&entry.id),
                 false,
             )?;
-            if let (Some(config::waxrc::LanguageRegistrySource::Git { git, tag, .. }), false) = (
-                entry.registry_source.as_ref(),
-                lockfile.registries.contains_key(&entry.id),
-            ) {
-                let (git, tag) = (git.clone(), tag.clone());
+            if entry
+                .registry_source
+                .as_ref()
+                .and_then(config::waxrc::LanguageRegistrySource::git_parts)
+                .is_some()
+                && !lockfile.registries.contains_key(&entry.id)
+            {
                 lockfile.registries.insert(
                     entry.id.clone(),
-                    config::lockfile::LockedRegistry {
-                        subdir: resolved_registry.subdir.clone(),
-                        definition: resolved_registry.definition.clone(),
-                        source: resolved_registry.source.clone(),
-                        sha256: resolved_registry.sha256.clone(),
-                        git: Some(git),
-                        tag: Some(tag),
-                        commit: resolved_registry.git_commit.clone(),
-                    },
+                    resolved_registry.to_locked(entry.registry_source.as_ref()),
                 );
                 registry_lock_changed = true;
             } else {
@@ -417,33 +411,8 @@ impl Engine {
             enabled_ids.insert(entry.id);
         }
         if registry_lock_changed && !is_ephemeral {
-            lockfile.schema_version = WAX_LOCK_SCHEMA_VERSION;
             let path = config::repo_files::discover_repo_files(repo_root).lockfile_path;
-            config::lockfile::validate_bundle_registry_locks(&lockfile.registries).map_err(
-                |source| {
-                    EngineError::Lockfile(LockfileError::InvalidConfig {
-                        path: path.display().to_string(),
-                        source: <serde_json::Error as serde::de::Error>::custom(source),
-                    })
-                },
-            )?;
-            let contents = serde_json::to_string_pretty(&lockfile).map_err(|source| {
-                EngineError::Lockfile(LockfileError::InvalidConfig {
-                    path: path.display().to_string(),
-                    source,
-                })
-            })?;
-            write_atomically(
-                &path,
-                format!("{contents}\n").as_bytes(),
-                AtomicWriteOptions::default(),
-            )
-            .map_err(|_| {
-                EngineError::Lockfile(LockfileError::Read {
-                    path: path.display().to_string(),
-                    source: io::Error::other("failed to write lockfile"),
-                })
-            })?;
+            save_lockfile(path, &lockfile)?;
         }
 
         let installed_manifests = collect_installed_manifests(&enabled_ids, &lockfile, &state)?;
