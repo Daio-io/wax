@@ -123,8 +123,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Cross-compiled on Intel: hosted arm64 macOS runners are
+          # capacity-constrained and can fail to be acquired at all, while
+          # Xcode's universal SDK builds arm64 binaries from x86_64 hosts.
+          # Native arm64 execution is still covered by alpha_smoke.yml.
           - target: aarch64-apple-darwin
-            os: macos-15
+            os: macos-15-intel
           - target: x86_64-apple-darwin
             os: macos-15-intel
           - target: x86_64-unknown-linux-gnu
