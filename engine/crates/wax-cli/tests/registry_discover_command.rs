@@ -1,54 +1,12 @@
 use std::collections::BTreeMap;
-use std::ffi::OsString;
 use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
-
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-fn env_lock() -> MutexGuard<'static, ()> {
-    ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
-}
-
-struct EnvVarGuard {
-    name: &'static str,
-    previous: Option<OsString>,
-}
-
-impl EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while mutating process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-        let previous = std::env::var_os(name);
-        unsafe {
-            std::env::set_var(name, value);
-        }
-        Self { name, previous }
-    }
-}
-
-impl Drop for EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while restoring process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn drop(&mut self) {
-        unsafe {
-            match &self.previous {
-                Some(value) => std::env::set_var(self.name, value),
-                None => std::env::remove_var(self.name),
-            }
-        }
-    }
-}
 
 struct TestDir {
     path: PathBuf,
@@ -345,11 +303,7 @@ fn install_compose_and_react_discover_fixture_packs(wax_home: &Path) {
     );
 }
 
-struct DiscoverHarness {
-    _wax_home_guard: EnvVarGuard,
-}
-
-fn setup_compose_discover_repo(repo: &Path, with_fixture: bool) -> DiscoverHarness {
+fn setup_compose_discover_repo(repo: &Path, with_fixture: bool) {
     if with_fixture {
         link_compose_fixture_into_repo(repo);
     }
@@ -357,10 +311,6 @@ fn setup_compose_discover_repo(repo: &Path, with_fixture: bool) -> DiscoverHarne
     let wax_home = repo.parent().expect("repo parent").join("wax-home");
     fs::create_dir_all(&wax_home).expect("create wax-home");
     install_compose_discover_fixture_pack(&wax_home);
-    let wax_home_guard = EnvVarGuard::set("WAX_HOME", &wax_home);
-    DiscoverHarness {
-        _wax_home_guard: wax_home_guard,
-    }
 }
 
 fn run_discover_for_language(
@@ -395,6 +345,10 @@ fn run_discover_command(
     extra_args: &[&str],
 ) -> std::process::Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_wax"));
+    command.env(
+        "WAX_HOME",
+        repo.parent().expect("repo parent").join("wax-home"),
+    );
     command.args(discover_prefix);
     command.args(["--language", language_id, "--repo-root"]);
     command.arg(repo);
@@ -409,12 +363,46 @@ fn run_discover(repo: &Path, extra_args: &[&str]) -> std::process::Output {
 }
 
 #[test]
+fn discover_uses_the_pack_in_the_injected_home() {
+    use wax_cli::commands::registry::{RegistryDiscoverCommandOptions, run_registry_discover};
+    use wax_core::paths::WaxHome;
+
+    let root = TestDir::new("discover-injected-home");
+    let repo = root.path.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    let wax_home = root.path.join("wax-home");
+    install_compose_discover_fixture_pack(&wax_home);
+
+    let mut output = Vec::new();
+    run_registry_discover(
+        RegistryDiscoverCommandOptions {
+            repo_root: repo,
+            language_id: "compose".to_owned(),
+            roots: vec![compose_fixture_root()],
+            dry_run: true,
+            force: false,
+            design_system_id: None,
+            design_system_name: None,
+            wax_home: Some(WaxHome::new(wax_home)),
+        },
+        &mut output,
+    )
+    .unwrap();
+
+    let registry: Value = serde_json::from_slice(&output).unwrap();
+    assert!(
+        registry["components"]
+            .as_array()
+            .is_some_and(|components| !components.is_empty())
+    );
+}
+
+#[test]
 fn dry_run_prints_valid_json_to_stdout() {
-    let _guard = env_lock();
     let root = TestDir::new("registry-discover-dry-run-json");
     let repo = root.path.join("repo");
     fs::create_dir_all(&repo).unwrap();
-    let _harness = setup_compose_discover_repo(&repo, false);
+    setup_compose_discover_repo(&repo, false);
 
     let output = run_discover(&repo, &["--dry-run"]);
 
@@ -439,11 +427,10 @@ fn dry_run_prints_valid_json_to_stdout() {
 
 #[test]
 fn dry_run_writes_summaries_and_warnings_to_stderr_not_stdout() {
-    let _guard = env_lock();
     let root = TestDir::new("registry-discover-dry-run-streams");
     let repo = root.path.join("repo");
     fs::create_dir_all(&repo).unwrap();
-    let _harness = setup_compose_discover_repo(&repo, false);
+    setup_compose_discover_repo(&repo, false);
 
     let output = run_discover(&repo, &["--dry-run"]);
 
@@ -460,11 +447,10 @@ fn dry_run_writes_summaries_and_warnings_to_stderr_not_stdout() {
 
 #[test]
 fn rediscovery_without_force_remains_lossless() {
-    let _guard = env_lock();
     let root = TestDir::new("registry-discover-dry-run-changes");
     let repo = root.path.join("repo");
     fs::create_dir_all(&repo).unwrap();
-    let _harness = setup_compose_discover_repo(&repo, false);
+    setup_compose_discover_repo(&repo, false);
     fs::create_dir_all(repo.join(".wax")).unwrap();
     fs::write(
         repo.join(".wax/compose.registry.json"),
@@ -520,11 +506,10 @@ fn rediscovery_without_force_remains_lossless() {
 
 #[test]
 fn force_dry_run_previews_removal_without_writing() {
-    let _guard = env_lock();
     let root = TestDir::new("registry-discover-force-dry-run");
     let repo = root.path.join("repo");
     fs::create_dir_all(&repo).unwrap();
-    let _harness = setup_compose_discover_repo(&repo, false);
+    setup_compose_discover_repo(&repo, false);
     let registry_path = repo.join(".wax/compose.registry.json");
     fs::create_dir_all(registry_path.parent().unwrap()).unwrap();
     let original = r#"{
@@ -574,11 +559,10 @@ fn discover_help_describes_force_replacement_and_pruning() {
 
 #[test]
 fn default_write_creates_language_specific_registry_path() {
-    let _guard = env_lock();
     let root = TestDir::new("registry-discover-write");
     let repo = root.path.join("repo");
     fs::create_dir_all(&repo).unwrap();
-    let _harness = setup_compose_discover_repo(&repo, false);
+    setup_compose_discover_repo(&repo, false);
 
     let output = run_discover(&repo, &[]);
 
@@ -609,7 +593,6 @@ fn default_write_creates_language_specific_registry_path() {
 
 #[test]
 fn discover_compose_then_react_writes_both_without_force() {
-    let _guard = env_lock();
     let root = TestDir::new("registry-discover-multi-language");
     let repo = root.path.join("repo");
     fs::create_dir_all(&repo).unwrap();
@@ -620,7 +603,6 @@ fn discover_compose_then_react_writes_both_without_force() {
     let wax_home = root.path.join("wax-home");
     fs::create_dir_all(&wax_home).unwrap();
     install_compose_and_react_discover_fixture_packs(&wax_home);
-    let _wax_home_guard = EnvVarGuard::set("WAX_HOME", &wax_home);
 
     let compose_output = run_discover_for_language(
         &repo,
@@ -676,11 +658,10 @@ fn discover_compose_then_react_writes_both_without_force() {
 
 #[test]
 fn second_write_refreshes_without_force() {
-    let _guard = env_lock();
     let root = TestDir::new("registry-discover-refuse-overwrite");
     let repo = root.path.join("repo");
     fs::create_dir_all(&repo).unwrap();
-    let _harness = setup_compose_discover_repo(&repo, false);
+    setup_compose_discover_repo(&repo, false);
 
     let first = run_discover(&repo, &[]);
     assert!(first.status.success(), "first write should succeed");
@@ -697,10 +678,9 @@ fn second_write_refreshes_without_force() {
 #[cfg(unix)]
 #[test]
 fn discover_preserves_lockfile_when_new_pin_is_invalid() {
-    let _guard = env_lock();
     let root = TestDir::new("registry-discover-invalid-bundle-lock");
     let repo = root.path.join("repo");
-    let _harness = setup_compose_discover_repo(&repo, false);
+    setup_compose_discover_repo(&repo, false);
     fs::write(
         repo.join(".wax/wax.config.json"),
         r#"{"schema_version":2,"languages":{"compose":{"registry":"git-system:registry.json"}}}"#,
@@ -722,11 +702,10 @@ fn discover_preserves_lockfile_when_new_pin_is_invalid() {
 
 #[test]
 fn force_prunes_symbols_absent_from_discovery() {
-    let _guard = env_lock();
     let root = TestDir::new("registry-discover-force");
     let repo = root.path.join("repo");
     fs::create_dir_all(&repo).unwrap();
-    let _harness = setup_compose_discover_repo(&repo, false);
+    setup_compose_discover_repo(&repo, false);
 
     let registry_path = repo.join(".wax/compose.registry.json");
     fs::create_dir_all(registry_path.parent().unwrap()).unwrap();
@@ -768,7 +747,6 @@ fn force_prunes_symbols_absent_from_discovery() {
 
 #[test]
 fn relative_root_is_resolved_against_repo_root_when_cwd_differs() {
-    let _guard = env_lock();
     let root = TestDir::new("registry-discover-relative-root");
     let repo = root.path.join("repo");
     let kotlin_root = repo.join("src/main/kotlin");
@@ -782,12 +760,13 @@ fun PrimaryButton() {}
 "#,
     )
     .unwrap();
-    let _harness = setup_compose_discover_repo(&repo, false);
+    setup_compose_discover_repo(&repo, false);
 
     let outside_cwd = root.path.join("outside");
     fs::create_dir_all(&outside_cwd).unwrap();
 
     let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .env("WAX_HOME", root.path.join("wax-home"))
         .current_dir(&outside_cwd)
         .args([
             "registry",
@@ -814,15 +793,15 @@ fun PrimaryButton() {}
 
 #[test]
 fn dry_run_uses_config_roots_when_root_omitted() {
-    let _guard = env_lock();
     let root = TestDir::new("registry-discover-config-roots");
     let repo = root.path.join("repo");
     fs::create_dir_all(&repo).unwrap();
     link_compose_fixture_into_repo(&repo);
     write_compose_config_with_roots(&repo, &["design-system/src/main/kotlin"]);
-    let _harness = setup_compose_discover_repo(&repo, false);
+    setup_compose_discover_repo(&repo, false);
 
     let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .env("WAX_HOME", root.path.join("wax-home"))
         .args([
             "registry",
             "discover",
@@ -854,7 +833,6 @@ fn dry_run_uses_config_roots_when_root_omitted() {
 
 #[test]
 fn missing_root_fails_with_guidance() {
-    let _guard = env_lock();
     let root = TestDir::new("registry-discover-missing-root");
     let repo = root.path.join("repo");
     fs::create_dir_all(&repo).unwrap();
@@ -881,12 +859,11 @@ fn missing_root_fails_with_guidance() {
 
 #[test]
 fn top_level_discover_matches_registry_discover_dry_run() {
-    let _guard = env_lock();
     let root = TestDir::new("top-level-discover-dry-run");
     let repo = root.path.join("repo");
     fs::create_dir_all(&repo).unwrap();
     link_compose_fixture_into_repo(&repo);
-    let _harness = setup_compose_discover_repo(&repo, false);
+    setup_compose_discover_repo(&repo, false);
 
     let legacy = run_discover(&repo, &["--dry-run"]);
     let shorthand = run_top_level_discover_for_language(
@@ -914,7 +891,6 @@ fn top_level_discover_matches_registry_discover_dry_run() {
 
 #[test]
 fn configless_discover_without_lockfile_writes_registry() {
-    let _guard = env_lock();
     let root = TestDir::new("configless-discover-no-lockfile");
     let repo = root.path.join("repo");
     fs::create_dir_all(&repo).unwrap();
@@ -922,7 +898,6 @@ fn configless_discover_without_lockfile_writes_registry() {
     let wax_home = root.path.join("wax-home");
     fs::create_dir_all(&wax_home).unwrap();
     install_compose_discover_fixture_pack(&wax_home);
-    let _wax_home_guard = EnvVarGuard::set("WAX_HOME", &wax_home);
 
     let output = run_top_level_discover_for_language(
         &repo,
@@ -954,7 +929,6 @@ fn configless_discover_without_lockfile_writes_registry() {
 
 #[test]
 fn registry_discover_design_system_writes_registry_config_and_remembers() {
-    let _guard = env_lock();
     let root = TestDir::new("registry-discover-design-system");
     let repo = root.path.join("repo");
     fs::create_dir_all(&repo).unwrap();
@@ -962,7 +936,6 @@ fn registry_discover_design_system_writes_registry_config_and_remembers() {
     let wax_home = root.path.join("wax-home");
     fs::create_dir_all(&wax_home).unwrap();
     install_compose_discover_fixture_pack(&wax_home);
-    let _wax_home_guard = EnvVarGuard::set("WAX_HOME", &wax_home);
 
     let output = run_discover_command(
         &repo,
@@ -1016,7 +989,7 @@ fn registry_discover_design_system_writes_registry_config_and_remembers() {
     assert!(stdout.contains("`wax sync`"));
 }
 
-fn setup_react_publisher(root: &TestDir) -> (PathBuf, PathBuf, EnvVarGuard) {
+fn setup_react_publisher(root: &TestDir) -> (PathBuf, PathBuf) {
     let repo = root.path.join("repo");
     fs::create_dir_all(repo.join("src")).unwrap();
     fs::write(
@@ -1047,8 +1020,7 @@ esac
         "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     );
     write_discover_fixture_state(&wax_home, &[("react", "0.1.0", install_dir)]);
-    let guard = EnvVarGuard::set("WAX_HOME", &wax_home);
-    (repo, wax_home, guard)
+    (repo, wax_home)
 }
 
 fn run_react_publisher_discover(repo: &Path, extra_args: &[&str]) -> std::process::Output {
@@ -1080,9 +1052,8 @@ fn snapshot_tree(root: &Path) -> BTreeMap<PathBuf, Option<Vec<u8>>> {
 
 #[test]
 fn configless_react_publisher_previews_match_and_leave_all_files_unchanged() {
-    let _guard = env_lock();
     let root = TestDir::new("registry-discover-react-preview");
-    let (repo, wax_home, _wax_home_guard) = setup_react_publisher(&root);
+    let (repo, wax_home) = setup_react_publisher(&root);
     let original_repo = snapshot_tree(&repo);
     let original_home = snapshot_tree(&wax_home);
 
@@ -1104,9 +1075,8 @@ fn configless_react_publisher_previews_match_and_leave_all_files_unchanged() {
 
 #[test]
 fn configless_react_publisher_first_write_discovers_components_without_force() {
-    let _guard = env_lock();
     let root = TestDir::new("registry-discover-react-first-write");
-    let (repo, _wax_home, _wax_home_guard) = setup_react_publisher(&root);
+    let (repo, _wax_home) = setup_react_publisher(&root);
 
     run_react_publisher_discover(&repo, &[]);
 
@@ -1117,11 +1087,10 @@ fn configless_react_publisher_first_write_discovers_components_without_force() {
 
 #[test]
 fn registry_discover_rejects_partial_design_system_flags() {
-    let _guard = env_lock();
     let root = TestDir::new("registry-discover-partial-design-system");
     let repo = root.path.join("repo");
     fs::create_dir_all(&repo).unwrap();
-    let _harness = setup_compose_discover_repo(&repo, false);
+    setup_compose_discover_repo(&repo, false);
 
     let output = run_discover_command(
         &repo,

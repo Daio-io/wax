@@ -1,49 +1,7 @@
-use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
-
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-fn env_lock() -> MutexGuard<'static, ()> {
-    ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
-}
-
-struct EnvVarGuard {
-    name: &'static str,
-    previous: Option<OsString>,
-}
-
-impl EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while mutating process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-        let previous = std::env::var_os(name);
-        unsafe {
-            std::env::set_var(name, value);
-        }
-        Self { name, previous }
-    }
-}
-
-impl Drop for EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while restoring process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn drop(&mut self) {
-        unsafe {
-            match &self.previous {
-                Some(value) => std::env::set_var(self.name, value),
-                None => std::env::remove_var(self.name),
-            }
-        }
-    }
-}
 
 struct TestDir {
     path: PathBuf,
@@ -69,15 +27,14 @@ impl Drop for TestDir {
 
 #[test]
 fn validate_command_exits_zero_and_prints_warning_for_empty_components() {
-    let _guard = env_lock();
     let root = TestDir::new("validate-command-warning");
     let repo = root.path.join("repo");
     fs::create_dir_all(&repo).unwrap();
 
     write_repo(&repo, "design-system/registry.json", "[]");
-    let _wax_home = EnvVarGuard::set("WAX_HOME", root.path.join("wax-home"));
 
     let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .env("WAX_HOME", root.path.join("wax-home"))
         .args(["validate", "--repo-root"])
         .arg(&repo)
         .output()
@@ -97,7 +54,6 @@ fn validate_command_exits_zero_and_prints_warning_for_empty_components() {
 
 #[test]
 fn validate_command_exits_non_zero_on_invalid_repo() {
-    let _guard = env_lock();
     let root = TestDir::new("validate-command-fail");
     let repo = root.path.join("repo");
     fs::create_dir_all(repo.join(".wax")).unwrap();
@@ -148,7 +104,6 @@ fn validate_command_exits_non_zero_on_invalid_repo() {
 
 #[test]
 fn validate_command_exits_non_zero_on_registry_source_drift() {
-    let _guard = env_lock();
     let root = TestDir::new("validate-command-registry-source-drift");
     let repo = root.path.join("repo");
     write_repo(

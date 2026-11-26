@@ -1,51 +1,9 @@
 //! Tests that CLI progress spinners stay off stderr when it is not a TTY.
 
-use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
-
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-fn env_lock() -> MutexGuard<'static, ()> {
-    ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
-}
-
-struct EnvVarGuard {
-    name: &'static str,
-    previous: Option<OsString>,
-}
-
-impl EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while mutating process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-        let previous = std::env::var_os(name);
-        unsafe {
-            std::env::set_var(name, value);
-        }
-        Self { name, previous }
-    }
-}
-
-impl Drop for EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while restoring process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn drop(&mut self) {
-        unsafe {
-            match &self.previous {
-                Some(value) => std::env::set_var(self.name, value),
-                None => std::env::remove_var(self.name),
-            }
-        }
-    }
-}
 
 struct TestDir {
     path: PathBuf,
@@ -161,14 +119,13 @@ fn stderr_has_no_progress_spinner(stderr: &str) {
 
 #[test]
 fn validate_command_stderr_piped_suppresses_progress_spinner() {
-    let _guard = env_lock();
     let root = TestDir::new("progress-validate-piped");
     let repo = root.path.join("repo");
     fs::create_dir_all(&repo).expect("create repo");
     write_minimal_validate_repo(repo.as_path());
-    let _wax_home = EnvVarGuard::set("WAX_HOME", root.path.join("wax-home"));
 
     let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .env("WAX_HOME", root.path.join("wax-home"))
         .args(["validate", "--repo-root"])
         .arg(&repo)
         .stdout(Stdio::piped())
@@ -187,14 +144,13 @@ fn validate_command_stderr_piped_suppresses_progress_spinner() {
 
 #[test]
 fn scan_command_stderr_piped_suppresses_progress_spinner() {
-    let _guard = env_lock();
     let root = TestDir::new("progress-scan-piped");
     let repo = root.path.join("repo");
     fs::create_dir_all(&repo).expect("create repo");
     write_minimal_validate_repo(repo.as_path());
-    let _wax_home = EnvVarGuard::set("WAX_HOME", root.path.join("wax-home"));
 
     let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .env("WAX_HOME", root.path.join("wax-home"))
         .args([
             "scan",
             "--repo-root",

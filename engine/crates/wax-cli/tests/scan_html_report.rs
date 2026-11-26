@@ -1,11 +1,10 @@
 mod common;
 
-use common::{env_lock, run_scan, setup_scan_repo};
+use common::{run_scan, setup_scan_repo};
 use std::fs;
 
 #[test]
 fn html_contains_adoption_headline_and_diagnostics() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-html-headline",
         &[(
@@ -34,7 +33,6 @@ fn html_contains_adoption_headline_and_diagnostics() {
 
 #[test]
 fn html_is_offline_no_external_script_src() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-html-offline",
         &[("compose", "complete", "0.5", "", "")],
@@ -50,7 +48,6 @@ fn html_is_offline_no_external_script_src() {
 
 #[test]
 fn html_placeholder_when_metrics_empty() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-html-empty",
         &[("compose", "complete", "null", "", "")],
@@ -65,7 +62,6 @@ fn html_placeholder_when_metrics_empty() {
 
 #[test]
 fn html_parent_dir_created() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-html-parent",
         &[("compose", "complete", "0.5", "", "")],
@@ -78,7 +74,6 @@ fn html_parent_dir_created() {
 
 #[test]
 fn config_output_html_idempotent() {
-    let _guard = env_lock();
     let root = common::TestDir::new("scan-html-config");
     let repo = root.path.join("repo");
     let wax_home = root.path.join("wax-home");
@@ -95,7 +90,6 @@ fn config_output_html_idempotent() {
         ),
     );
     common::write_installed_packs(&wax_home, &[("compose", "complete", "0.5", "", "")]);
-    let _wax_home = common::EnvVarGuard::set("WAX_HOME", &wax_home);
 
     let output = run_scan(&repo, &[]);
     assert!(output.status.success());
@@ -110,7 +104,6 @@ fn config_output_html_idempotent() {
 
 #[test]
 fn write_order_graph_before_html_when_both_written() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) =
         setup_scan_repo("scan-html-order", &[("compose", "complete", "0.5", "", "")]);
 
@@ -131,7 +124,6 @@ fn write_order_graph_before_html_when_both_written() {
 
 #[test]
 fn html_links_json_summary_when_both_written() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) =
         setup_scan_repo("scan-html-links", &[("compose", "complete", "0.5", "", "")]);
 
@@ -151,7 +143,6 @@ fn html_links_json_summary_when_both_written() {
 
 #[test]
 fn html_links_merged_scan_when_html_is_only_output() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-html-merged-link",
         &[("compose", "complete", "0.5", "", "")],

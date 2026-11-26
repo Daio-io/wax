@@ -1,53 +1,11 @@
 use flate2::Compression;
 use flate2::write::GzEncoder;
 use sha2::{Digest, Sha256};
-use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 use wax_contract::{LanguageId, SCHEMA_VERSION};
-
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-fn env_lock() -> MutexGuard<'static, ()> {
-    ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
-}
-
-struct EnvVarGuard {
-    name: &'static str,
-    previous: Option<OsString>,
-}
-
-impl EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while mutating process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-        let previous = std::env::var_os(name);
-        unsafe {
-            std::env::set_var(name, value);
-        }
-        Self { name, previous }
-    }
-}
-
-impl Drop for EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while restoring process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn drop(&mut self) {
-        unsafe {
-            match &self.previous {
-                Some(value) => std::env::set_var(self.name, value),
-                None => std::env::remove_var(self.name),
-            }
-        }
-    }
-}
 
 struct TestDir {
     path: PathBuf,
@@ -72,8 +30,47 @@ impl Drop for TestDir {
 }
 
 #[test]
+fn configured_scan_uses_packs_from_the_injected_home() {
+    use wax_cli::cli::ScanStdoutFormat;
+    use wax_cli::commands::scan::{ScanCommandOptions, run_scan_cli};
+    use wax_cli::presentation::Presentation;
+
+    let root = TestDir::new("scan-injected-home");
+    let repo = root.path.join("repo");
+    let wax_home = root.path.join("wax-home");
+    fs::create_dir_all(&repo).unwrap();
+    fs::create_dir_all(&wax_home).unwrap();
+    let registry_file = root.path.join("registry.json");
+    write_pack_index(&registry_file);
+    write_repo_files(&repo, &registry_file, &["compose"]);
+    write_installed_packs(&wax_home, &[("compose", "complete", "0.5", "", "")]);
+
+    let mut output = Vec::new();
+    run_scan_cli(
+        ScanCommandOptions {
+            presentation: Presentation::Plain,
+            repo_root: repo,
+            strict: true,
+            allow_auto_install: false,
+            scan_concurrency: Some(1),
+            root_group: None,
+            format: ScanStdoutFormat::Summary,
+            compact: false,
+            cli_outputs: Vec::new(),
+            allow_absolute_output: false,
+            baseline: None,
+            wax_home: Some(wax_core::paths::WaxHome::new(wax_home)),
+            pack_index_url: None,
+            target_triple: None,
+            ephemeral: None,
+        },
+        &mut output,
+    )
+    .expect("scan should use the pack installed in the injected home");
+}
+
+#[test]
 fn scan_command_prints_full_summary_and_writes_output() {
-    let _guard = env_lock();
     let root = TestDir::new("scan-command-summary");
     let repo = root.path.join("repo");
     let wax_home = root.path.join("wax-home");
@@ -92,8 +89,8 @@ fn scan_command_prints_full_summary_and_writes_output() {
         ],
     );
 
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
     let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .env("WAX_HOME", &wax_home)
         .args(["scan", "--repo-root"])
         .arg(&repo)
         .args(["--concurrency", "1"])
@@ -242,7 +239,6 @@ fn run_fixture_scan_with_args(
     specs: &[(&str, &str, &str, &str, &str)],
     args: &[&str],
 ) -> (TestDir, std::process::Output) {
-    let _guard = env_lock();
     let root = TestDir::new(name);
     let repo = root.path.join("repo");
     let wax_home = root.path.join("wax-home");
@@ -258,8 +254,8 @@ fn run_fixture_scan_with_args(
     write_repo_files(&repo, &registry_file, &languages);
     write_installed_packs(&wax_home, specs);
 
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
     let mut command = Command::new(env!("CARGO_BIN_EXE_wax"));
+    command.env("WAX_HOME", &wax_home);
     command.args(["scan", "--repo-root"]).arg(&repo);
     command.args(args);
     let output = command.output().expect("spawn wax scan");
@@ -291,7 +287,6 @@ fn assert_strict_failure_output(
 
 #[test]
 fn scan_command_no_auto_install_fails_when_pack_missing() {
-    let _guard = env_lock();
     let root = TestDir::new("scan-command-no-auto-install");
     let repo = root.path.join("repo");
     let wax_home = root.path.join("wax-home");
@@ -307,8 +302,8 @@ fn scan_command_no_auto_install_fails_when_pack_missing() {
     )
     .unwrap();
 
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
     let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .env("WAX_HOME", &wax_home)
         .args(["scan", "--repo-root"])
         .arg(&repo)
         .arg("--no-auto-install")
@@ -330,7 +325,6 @@ fn scan_command_no_auto_install_fails_when_pack_missing() {
 
 #[test]
 fn scan_command_default_auto_installs_missing_pack() {
-    let _guard = env_lock();
     let root = TestDir::new("scan-command-auto-install");
     let repo = root.path.join("repo");
     let wax_home = root.path.join("wax-home");
@@ -358,8 +352,8 @@ fn scan_command_default_auto_installs_missing_pack() {
         )],
     );
 
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
     let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .env("WAX_HOME", &wax_home)
         .args(["scan", "--repo-root"])
         .arg(&repo)
         .output()

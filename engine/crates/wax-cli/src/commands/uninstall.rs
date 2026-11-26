@@ -1,17 +1,20 @@
 //! `wax uninstall` command implementation.
 
+use super::wax_home::resolve_wax_home;
 use std::collections::BTreeSet;
 use std::fs;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use thiserror::Error;
-use wax_core::paths::{PathsError, wax_home};
+use wax_core::paths::{PathsError, WaxHome};
 
 /// Options for `wax uninstall`.
 #[derive(Debug, Clone)]
 pub struct UninstallCliOptions {
     /// Remove all global wax state and binaries.
     pub full: bool,
+    /// Wax home containing the global state to remove.
+    pub wax_home: Option<WaxHome>,
 }
 
 /// Errors returned by `wax uninstall`.
@@ -57,10 +60,11 @@ pub fn run_uninstall_cli(
         return Err(UninstallCliError::FullFlagRequired);
     }
 
-    let wax_home = wax_home()?;
+    let home = resolve_wax_home(options.wax_home.as_ref())?;
+    let wax_home = home.root();
     let mut removed_wax_home = false;
     if wax_home.exists() {
-        fs::remove_dir_all(&wax_home).map_err(|source| UninstallCliError::RemoveWaxHome {
+        fs::remove_dir_all(wax_home).map_err(|source| UninstallCliError::RemoveWaxHome {
             path: wax_home.display().to_string(),
             source,
         })?;
@@ -149,11 +153,19 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
+    use wax_core::paths::WaxHome;
 
     #[test]
     fn requires_full_flag() {
         let mut output = Vec::new();
-        let err = run_uninstall_cli(UninstallCliOptions { full: false }, &mut output).unwrap_err();
+        let err = run_uninstall_cli(
+            UninstallCliOptions {
+                full: false,
+                wax_home: None,
+            },
+            &mut output,
+        )
+        .unwrap_err();
         assert!(matches!(err, UninstallCliError::FullFlagRequired));
     }
 
@@ -162,16 +174,24 @@ mod tests {
         let _guard = env_lock();
         let temp_home = unique_temp_dir("uninstall-full");
         fs::create_dir_all(temp_home.join(".wax/bin")).unwrap();
-        fs::create_dir_all(temp_home.join(".wax/langs/compose/0.1.0")).unwrap();
-        fs::write(temp_home.join(".wax/state.json"), b"{}\n").unwrap();
+        fs::create_dir_all(temp_home.join("custom-wax-home/langs/compose/0.1.0")).unwrap();
+        fs::write(temp_home.join("custom-wax-home/state.json"), b"{}\n").unwrap();
         fs::write(temp_home.join(".wax/bin/wax"), b"binary\n").unwrap();
 
         let _home_guard = EnvVarGuard::set("HOME", &temp_home);
 
         let mut output = Vec::new();
-        run_uninstall_cli(UninstallCliOptions { full: true }, &mut output).unwrap();
+        run_uninstall_cli(
+            UninstallCliOptions {
+                full: true,
+                wax_home: Some(WaxHome::new(temp_home.join("custom-wax-home"))),
+            },
+            &mut output,
+        )
+        .unwrap();
 
-        assert!(!temp_home.join(".wax").exists());
+        assert!(!temp_home.join("custom-wax-home").exists());
+        assert!(!temp_home.join(".wax/bin/wax").exists());
         let stdout = String::from_utf8(output).unwrap();
         assert!(stdout.contains("removed global state:"));
         assert!(stdout.contains("deleted"));

@@ -4,7 +4,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use common::{EnvVarGuard, TestDir, env_lock};
+use common::TestDir;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -114,7 +114,6 @@ fn fixture_registry() -> &'static str {
 
 #[test]
 fn search_json_finds_fuzzy_component_and_keeps_stdout_schema_valid() {
-    let _guard = env_lock();
     let root = TestDir::new("search-json");
     let wax_home = root.path.join("wax-home");
     let repo = root.path.join("repo");
@@ -122,7 +121,6 @@ fn search_json_finds_fuzzy_component_and_keeps_stdout_schema_valid() {
     fs::create_dir_all(&repo).unwrap();
     let registry = root.path.join("registry.json");
     write_registry(&registry, fixture_registry());
-    let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
     remember_local_registry(&wax_home, "acme", &registry);
 
     let output = run_wax(
@@ -163,7 +161,6 @@ fn search_json_finds_fuzzy_component_and_keeps_stdout_schema_valid() {
 
 #[test]
 fn search_text_includes_aliases_and_tags() {
-    let _guard = env_lock();
     let root = TestDir::new("search-text-fields");
     let wax_home = root.path.join("wax-home");
     let repo = root.path.join("repo");
@@ -171,7 +168,6 @@ fn search_text_includes_aliases_and_tags() {
     fs::create_dir_all(&repo).unwrap();
     let registry = root.path.join("registry.json");
     write_registry(&registry, fixture_registry());
-    let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
     remember_local_registry(&wax_home, "acme", &registry);
 
     let output = run_wax(
@@ -195,7 +191,6 @@ fn search_text_includes_aliases_and_tags() {
 
 #[test]
 fn search_compact_is_terse_and_snapshot_actionable() {
-    let _guard = env_lock();
     let root = TestDir::new("search-compact");
     let wax_home = root.path.join("wax-home");
     let repo = root.path.join("repo");
@@ -208,7 +203,6 @@ fn search_compact_is_terse_and_snapshot_actionable() {
     );
     write_registry(&registry, &registry_body);
     let digest = sha256_hex(registry_body.as_bytes());
-    let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
     remember_local_registry(&wax_home, "acme", &registry);
 
     let output = run_wax(
@@ -233,7 +227,6 @@ fn search_compact_is_terse_and_snapshot_actionable() {
 
 #[test]
 fn search_compact_no_match_is_count_only() {
-    let _guard = env_lock();
     let root = TestDir::new("search-compact-empty");
     let wax_home = root.path.join("wax-home");
     let repo = root.path.join("repo");
@@ -241,7 +234,6 @@ fn search_compact_no_match_is_count_only() {
     fs::create_dir_all(&repo).unwrap();
     let registry = root.path.join("registry.json");
     write_registry(&registry, fixture_registry());
-    let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
     remember_local_registry(&wax_home, "acme", &registry);
 
     let output = run_wax(
@@ -281,7 +273,6 @@ fn search_compact_rejects_explicit_format() {
 
 #[test]
 fn search_rejects_empty_query_and_zero_limit_with_typed_json_errors() {
-    let _guard = env_lock();
     let root = TestDir::new("search-invalid");
     let wax_home = root.path.join("wax-home");
     let repo = root.path.join("repo");
@@ -289,7 +280,6 @@ fn search_rejects_empty_query_and_zero_limit_with_typed_json_errors() {
     fs::create_dir_all(&repo).unwrap();
     let registry = root.path.join("registry.json");
     write_registry(&registry, fixture_registry());
-    let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
     remember_local_registry(&wax_home, "acme", &registry);
 
     let empty = run_wax(
@@ -333,7 +323,6 @@ fn search_rejects_empty_query_and_zero_limit_with_typed_json_errors() {
 
 #[test]
 fn search_no_matches_is_success_with_empty_results() {
-    let _guard = env_lock();
     let root = TestDir::new("search-empty");
     let wax_home = root.path.join("wax-home");
     let repo = root.path.join("repo");
@@ -341,7 +330,6 @@ fn search_no_matches_is_success_with_empty_results() {
     fs::create_dir_all(&repo).unwrap();
     let registry = root.path.join("registry.json");
     write_registry(&registry, fixture_registry());
-    let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
     remember_local_registry(&wax_home, "acme", &registry);
 
     let output = run_wax(
@@ -365,7 +353,6 @@ fn search_no_matches_is_success_with_empty_results() {
 
 #[test]
 fn search_supports_kind_language_limit_and_offline() {
-    let _guard = env_lock();
     let root = TestDir::new("search-flags");
     let wax_home = root.path.join("wax-home");
     let repo = root.path.join("repo");
@@ -373,7 +360,6 @@ fn search_supports_kind_language_limit_and_offline() {
     fs::create_dir_all(&repo).unwrap();
     let registry = root.path.join("registry.json");
     write_registry(&registry, fixture_registry());
-    let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
     remember_local_registry(&wax_home, "acme", &registry);
 
     let tokens = run_wax(
@@ -412,7 +398,6 @@ fn search_supports_kind_language_limit_and_offline() {
 
 #[test]
 fn search_tag_selects_git_snapshot_and_offline_miss_is_typed() {
-    let _guard = env_lock();
     let root = TestDir::new("search-tag-offline");
     let wax_home = root.path.join("wax-home");
     let repo = root.path.join("repo");
@@ -421,7 +406,6 @@ fn search_tag_selects_git_snapshot_and_offline_miss_is_typed() {
     fs::create_dir_all(&wax_home).unwrap();
     fs::create_dir_all(&repo).unwrap();
     fs::create_dir_all(work.join(".wax/registries")).unwrap();
-    let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
 
     let git = |args: &[&str], cwd: &Path| {
         let output = Command::new("git")
@@ -523,7 +507,6 @@ fn search_tag_selects_git_snapshot_and_offline_miss_is_typed() {
 
 #[test]
 fn component_and_token_detail_json_include_complete_sections() {
-    let _guard = env_lock();
     let root = TestDir::new("detail-json");
     let wax_home = root.path.join("wax-home");
     let repo = root.path.join("repo");
@@ -531,7 +514,6 @@ fn component_and_token_detail_json_include_complete_sections() {
     fs::create_dir_all(&repo).unwrap();
     let registry = root.path.join("registry.json");
     write_registry(&registry, fixture_registry());
-    let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
     remember_local_registry(&wax_home, "acme", &registry);
 
     let component = run_wax(
@@ -583,7 +565,6 @@ fn component_and_token_detail_json_include_complete_sections() {
 
 #[test]
 fn detail_reports_absence_and_ambiguity_as_typed_json_errors() {
-    let _guard = env_lock();
     let root = TestDir::new("detail-errors");
     let wax_home = root.path.join("wax-home");
     let repo = root.path.join("repo");
@@ -599,7 +580,6 @@ fn detail_reports_absence_and_ambiguity_as_typed_json_errors() {
         &second,
         r#"{"schema_version":1,"language":"compose","components":[{"id":"shared","symbol":"Two"}],"tokens":[]}"#,
     );
-    let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
     remember_local_registry(&wax_home, "one", &first);
     let add_compose = Command::new(env!("CARGO_BIN_EXE_wax"))
         .args([
@@ -689,7 +669,6 @@ fn detail_reports_absence_and_ambiguity_as_typed_json_errors() {
 
 #[test]
 fn search_to_detail_preserves_snapshot_after_refresh() {
-    let _guard = env_lock();
     let root = TestDir::new("search-to-detail-refresh");
     let wax_home = root.path.join("wax-home");
     let repo = root.path.join("repo");
@@ -697,7 +676,6 @@ fn search_to_detail_preserves_snapshot_after_refresh() {
     fs::create_dir_all(&repo).unwrap();
     let registry = root.path.join("registry.json");
     write_registry(&registry, fixture_registry());
-    let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
     remember_local_registry(&wax_home, "acme", &registry);
 
     let search = run_wax(
@@ -829,7 +807,6 @@ fn search_to_detail_preserves_snapshot_after_refresh() {
 
 #[test]
 fn search_to_detail_preserves_app_lock_snapshot() {
-    let _guard = env_lock();
     let root = TestDir::new("search-to-detail-app-lock");
     let wax_home = root.path.join("wax-home");
     let repo = root.path.join("repo");
@@ -869,7 +846,6 @@ fn search_to_detail_preserves_app_lock_snapshot() {
         ),
     )
     .unwrap();
-    let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
     fs::create_dir_all(&wax_home).unwrap();
 
     let search = run_wax(
@@ -967,13 +943,11 @@ fn search_to_detail_preserves_app_lock_snapshot() {
 
 #[test]
 fn detail_reports_missing_metadata_duplicate_ids_and_snapshot_mismatch() {
-    let _guard = env_lock();
     let root = TestDir::new("detail-contract-errors");
     let wax_home = root.path.join("wax-home");
     let repo = root.path.join("repo");
     fs::create_dir_all(&wax_home).unwrap();
     fs::create_dir_all(&repo).unwrap();
-    let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
 
     let sparse = root.path.join("sparse.json");
     write_registry(
@@ -1070,13 +1044,11 @@ fn detail_reports_missing_metadata_duplicate_ids_and_snapshot_mismatch() {
 
 #[test]
 fn selected_source_failure_fails_the_whole_query() {
-    let _guard = env_lock();
     let root = TestDir::new("source-failure");
     let wax_home = root.path.join("wax-home");
     let repo = root.path.join("repo");
     fs::create_dir_all(&wax_home).unwrap();
     fs::create_dir_all(&repo).unwrap();
-    let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
 
     let output = run_wax(
         &wax_home,
@@ -1105,7 +1077,6 @@ fn selected_source_failure_fails_the_whole_query() {
 
 #[test]
 fn text_search_and_detail_render_readable_sections() {
-    let _guard = env_lock();
     let root = TestDir::new("text-output");
     let wax_home = root.path.join("wax-home");
     let repo = root.path.join("repo");
@@ -1113,7 +1084,6 @@ fn text_search_and_detail_render_readable_sections() {
     fs::create_dir_all(&repo).unwrap();
     let registry = root.path.join("registry.json");
     write_registry(&registry, fixture_registry());
-    let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
     remember_local_registry(&wax_home, "acme", &registry);
 
     let search = run_wax(
@@ -1173,7 +1143,6 @@ fn non_lookup_clap_failure_with_format_json_does_not_emit_lookup_error_json() {
 
 #[test]
 fn detail_snapshot_digest_pins_matching_language_after_multi_lang_refresh() {
-    let _guard = env_lock();
     let root = TestDir::new("multi-lang-snapshot-pin");
     let wax_home = root.path.join("wax-home");
     let repo = root.path.join("publisher");
@@ -1204,7 +1173,6 @@ fn detail_snapshot_digest_pins_matching_language_after_multi_lang_refresh() {
 }"#,
     )
     .unwrap();
-    let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
     let add = Command::new(env!("CARGO_BIN_EXE_wax"))
         .args([
             "registry",
@@ -1390,7 +1358,6 @@ fn public_search_before_install_keeps_exact_detail_after_catalogue_refresh() {
 
 #[test]
 fn token_detail_retains_ordered_css_variant_links_retrievable_by_id() {
-    let _guard = env_lock();
     let root = TestDir::new("detail-css-variants");
     let wax_home = root.path.join("wax-home");
     let repo = root.path.join("repo");
@@ -1412,7 +1379,6 @@ fn token_detail_retains_ordered_css_variant_links_retrievable_by_id() {
   ]
 }"##,
     );
-    let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
     remember_local_registry(&wax_home, "acme", &registry);
 
     let detail = |id: &str| -> Value {

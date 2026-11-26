@@ -1,7 +1,7 @@
 mod common;
 
 use common::{
-    EnvVarGuard, TestDir, env_lock, no_registry_symbol_usage_override, run_scan, setup_scan_repo,
+    TestDir, no_registry_symbol_usage_override, run_scan, setup_scan_repo,
     write_grouped_repo_files, write_installed_packs, write_installed_packs_with_usage_sites,
     write_pack_index, write_repo_files,
 };
@@ -36,7 +36,6 @@ fn read_graph(repo: &Path, relative: &str) -> serde_json::Value {
 
 #[test]
 fn graph_data_validates_against_schema() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-graph-validates",
         &[("compose", "complete", "0.5", "", "")],
@@ -64,7 +63,6 @@ fn graph_data_validates_against_schema() {
 
 #[test]
 fn graph_includes_candidate_usage_edges() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-graph-candidate-edges",
         &[("compose", "complete", "0.5", "", "")],
@@ -101,7 +99,6 @@ fn graph_includes_candidate_usage_edges() {
 
 #[test]
 fn graph_skips_usage_without_registry_symbol() {
-    let _guard = env_lock();
     let root = TestDir::new("scan-graph-skip-no-registry");
     let repo = root.path.join("repo");
     let wax_home = root.path.join("wax-home");
@@ -115,7 +112,6 @@ fn graph_skips_usage_without_registry_symbol() {
         &[("compose", "complete", "0.5", "", "")],
         Some(no_registry_symbol_usage_override()),
     );
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
 
     let output = run_scan(&repo, &["--output", "graph-data=.wax/out/scan-graph.json"]);
     assert!(
@@ -134,7 +130,6 @@ fn graph_skips_usage_without_registry_symbol() {
 
 #[test]
 fn config_output_graph_idempotent() {
-    let _guard = env_lock();
     let root = TestDir::new("scan-graph-config-idempotent");
     let repo = root.path.join("repo");
     let wax_home = root.path.join("wax-home");
@@ -154,7 +149,6 @@ fn config_output_graph_idempotent() {
         ),
     );
     write_installed_packs(&wax_home, &[("compose", "complete", "0.5", "", "")]);
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
 
     let output = run_scan(&repo, &[]);
     assert!(
@@ -175,7 +169,6 @@ fn config_output_graph_idempotent() {
 
 #[test]
 fn graph_and_json_summary_both_succeed() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-graph-and-summary",
         &[("compose", "complete", "0.5", "", "")],
@@ -205,7 +198,6 @@ fn graph_and_json_summary_both_succeed() {
 
 #[test]
 fn root_group_graph_scoped_only() {
-    let _guard = env_lock();
     let root = TestDir::new("scan-graph-root-group");
     let repo = root.path.join("repo");
     let wax_home = root.path.join("wax-home");
@@ -221,7 +213,6 @@ fn root_group_graph_scoped_only() {
             ("react", "complete", "0.5", "", ""),
         ],
     );
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
 
     let output = run_scan(
         &repo,

@@ -58,7 +58,7 @@ fn main() {
             LanguageSubcommand::List(args) => run_list(
                 ListOptions {
                     registry_url: args.pack_index,
-                    state_path: None,
+                    wax_home: None,
                 },
                 &mut stdout,
             ),
@@ -68,7 +68,7 @@ fn main() {
                     version: args.language.version,
                     registry_url: args.pack_index,
                     target_triple: args.target,
-                    state_path: None,
+                    wax_home: None,
                 },
                 &mut stdout,
             ),
@@ -76,7 +76,7 @@ fn main() {
                 UninstallOptions {
                     language_id: args.language_id,
                     version: args.version,
-                    state_path: None,
+                    wax_home: None,
                 },
                 &mut stdout,
             ),
@@ -86,7 +86,7 @@ fn main() {
                     all: args.all,
                     registry_url: args.pack_index,
                     target_triple: args.target,
-                    state_path: None,
+                    wax_home: None,
                     repo_root: args.repo_root,
                 },
                 &mut stdout,
@@ -94,7 +94,7 @@ fn main() {
             LanguageSubcommand::Doctor(args) => run_doctor(
                 DoctorOptions {
                     repo_root: args.repo_root,
-                    state_path: None,
+                    wax_home: None,
                 },
                 &mut stdout,
             ),
@@ -109,7 +109,7 @@ fn main() {
                 registry_url: args.pack_index,
                 repo_root: args.repo_root,
                 target_triple: args.target,
-                state_path: None,
+                wax_home: None,
                 scaffold_registries: !args.no_scaffold_registries,
                 interactive: None,
             },
@@ -120,7 +120,7 @@ fn main() {
             command: RegistrySubcommand::Find(args),
         }) => {
             let repo_root = args.repo_root.clone();
-            run_registry_find_with_presentation(args, repo_root, presentation, &mut stdout)
+            run_registry_find_with_presentation(args, repo_root, None, presentation, &mut stdout)
                 .map_err(Into::into)
         }
         Commands::Registry(wax_cli::cli::RegistryCli {
@@ -138,6 +138,7 @@ fn main() {
                 force: args.force,
                 design_system_id: args.design_system,
                 design_system_name: args.name,
+                wax_home: None,
             },
             &mut stdout,
         )
@@ -151,7 +152,7 @@ fn main() {
                 source: args.source,
                 language: args.language,
                 tag: args.tag,
-                state_path: None,
+                wax_home: None,
             },
             &mut stdout,
         )
@@ -160,22 +161,19 @@ fn main() {
             command: RegistrySubcommand::Refresh(args),
         }) => run_registry_refresh(
             &args.design_system_id,
-            RegistryMemoryCommandOptions { state_path: None },
+            RegistryMemoryCommandOptions { wax_home: None },
             &mut stdout,
         )
         .map_err(Into::into),
         Commands::Registry(wax_cli::cli::RegistryCli {
             command: RegistrySubcommand::List(_),
-        }) => run_registry_list(
-            RegistryMemoryCommandOptions { state_path: None },
-            &mut stdout,
-        )
-        .map_err(Into::into),
+        }) => run_registry_list(RegistryMemoryCommandOptions { wax_home: None }, &mut stdout)
+            .map_err(Into::into),
         Commands::Registry(wax_cli::cli::RegistryCli {
             command: RegistrySubcommand::Show(args),
         }) => run_registry_show(
             &args.design_system_id,
-            RegistryMemoryCommandOptions { state_path: None },
+            RegistryMemoryCommandOptions { wax_home: None },
             &mut stdout,
         )
         .map_err(Into::into),
@@ -185,7 +183,7 @@ fn main() {
             RegistryUpdateCommandOptions {
                 design_system_id: args.design_system_id,
                 repo_root: args.repo_root,
-                state_path: None,
+                wax_home: None,
             },
             &mut stdout,
         )
@@ -194,7 +192,7 @@ fn main() {
             command: RegistrySubcommand::Delete(args),
         }) => run_registry_delete(
             &args.design_system_id,
-            RegistryMemoryCommandOptions { state_path: None },
+            RegistryMemoryCommandOptions { wax_home: None },
             &mut stdout,
         )
         .map_err(Into::into),
@@ -249,7 +247,7 @@ fn main() {
                     cli_outputs,
                     allow_absolute_output: args.allow_absolute_output,
                     baseline: args.baseline,
-                    state_path: None,
+                    wax_home: None,
                     pack_index_url: None,
                     target_triple: None,
                     ephemeral,
@@ -262,7 +260,7 @@ fn main() {
             SyncCommandOptions {
                 design_system: args.design_system,
                 repo_root: args.repo_root,
-                state_path: None,
+                wax_home: None,
                 upgrade: args.upgrade,
             },
             &mut stdout,
@@ -275,10 +273,14 @@ fn main() {
             &mut stdout,
         )
         .map_err(Into::into),
-        Commands::Uninstall(args) => {
-            run_uninstall_cli(UninstallCliOptions { full: args.full }, &mut stdout)
-                .map_err(Into::into)
-        }
+        Commands::Uninstall(args) => run_uninstall_cli(
+            UninstallCliOptions {
+                full: args.full,
+                wax_home: None,
+            },
+            &mut stdout,
+        )
+        .map_err(Into::into),
     };
 
     if let Err(err) = result {
@@ -306,7 +308,7 @@ fn lookup_options_from_common(common: wax_cli::cli::LookupCommonArgs) -> LookupC
         tag: common.tag,
         offline: common.offline,
         format: common.format,
-        state_path: None,
+        wax_home: None,
     }
 }
 

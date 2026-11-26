@@ -1,7 +1,8 @@
+use wax_core::paths::WaxHome;
 mod common;
 
 use common::{
-    EnvVarGuard, TestDir, assert_schema_valid_summary, env_lock, run_scan, setup_scan_repo,
+    TestDir, assert_schema_valid_summary, run_scan, setup_scan_repo,
     write_committed_scan_repo_with_upstream, write_grouped_repo_files, write_installed_packs,
     write_pack_index,
 };
@@ -10,7 +11,6 @@ use std::process::Command;
 
 #[test]
 fn format_summary_default_matches_legacy_prefix() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-format-summary",
         &[("compose", "complete", "0.5", "", "")],
@@ -32,7 +32,6 @@ fn format_summary_default_matches_legacy_prefix() {
 
 #[test]
 fn compact_summary_is_one_line_with_status_and_headline_counts() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-format-compact",
         &[
@@ -64,7 +63,6 @@ fn compact_summary_is_one_line_with_status_and_headline_counts() {
 
 #[test]
 fn compact_summary_uses_na_when_coverage_is_unavailable() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-format-compact-no-coverage",
         &[("react", "partial", "null", "", "")],
@@ -79,7 +77,6 @@ fn compact_summary_uses_na_when_coverage_is_unavailable() {
 
 #[test]
 fn compact_sync_warning_goes_to_stderr() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-format-compact-sync-stderr",
         &[("react", "complete", "0.5", "", "")],
@@ -123,7 +120,6 @@ fn compact_rejects_explicit_format() {
 
 #[test]
 fn format_quiet_path_only() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-format-quiet",
         &[("compose", "complete", "0.5", "", "")],
@@ -145,7 +141,6 @@ fn format_quiet_path_only() {
 
 #[test]
 fn format_json_summary_is_sole_stdout_and_schema_valid() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-format-json",
         &[("compose", "complete", "0.5", "", "")],
@@ -167,7 +162,6 @@ fn format_json_summary_is_sole_stdout_and_schema_valid() {
 
 #[test]
 fn format_json_summary_has_schema_version_1() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-format-json-version",
         &[("compose", "complete", "0.5", "", "")],
@@ -182,7 +176,6 @@ fn format_json_summary_has_schema_version_1() {
 
 #[test]
 fn format_json_summary_uses_repo_relative_paths() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-format-json-relative-paths",
         &[("compose", "complete", "0.5", "", "")],
@@ -210,7 +203,6 @@ fn format_json_summary_uses_repo_relative_paths() {
 
 #[test]
 fn format_and_output_json_summary_both_schema_valid() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-format-and-output",
         &[("compose", "complete", "0.5", "", "")],
@@ -249,7 +241,6 @@ fn format_and_output_json_summary_both_schema_valid() {
 
 #[test]
 fn root_group_json_summary_scoped() {
-    let _guard = env_lock();
     let root = TestDir::new("scan-format-root-group");
     let repo = root.path.join("repo");
     let wax_home = root.path.join("wax-home");
@@ -265,7 +256,6 @@ fn root_group_json_summary_scoped() {
             ("react", "complete", "0.5", "", ""),
         ],
     );
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
 
     let output = run_scan(
         &repo,
@@ -286,7 +276,6 @@ fn root_group_json_summary_scoped() {
 
 #[test]
 fn json_summary_sync_warning_goes_to_stderr() {
-    let _guard = env_lock();
     let root = TestDir::new("scan-format-sync-stderr");
     let app_repo = root.path.join("app");
     write_committed_scan_repo_with_upstream(&app_repo);
@@ -300,8 +289,8 @@ fn json_summary_sync_warning_goes_to_stderr() {
     )
     .unwrap();
 
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
     let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .env("WAX_HOME", &wax_home)
         .args(["scan", "--repo-root"])
         .arg(&app_repo)
         .args(["--format", "json-summary", "--concurrency", "1"])
@@ -324,8 +313,7 @@ fn json_summary_sync_warning_goes_to_stderr() {
 fn human_summary_groups_existing_facts_without_losing_status_or_metrics() {
     use wax_cli::commands::scan::{ScanCommandOptions, run_scan as render_scan};
     use wax_cli::presentation::Presentation;
-    let _guard = env_lock();
-    let (_root, repo, _wax_home) = setup_scan_repo(
+    let (_root, repo, wax_home) = setup_scan_repo(
         "human-summary",
         &[
             ("compose", "complete", "0.5", "", ""),
@@ -346,7 +334,7 @@ fn human_summary_groups_existing_facts_without_losing_status_or_metrics() {
             cli_outputs: Vec::new(),
             allow_absolute_output: false,
             baseline: None,
-            state_path: None,
+            wax_home: Some(WaxHome::new(wax_home)),
             pack_index_url: None,
             target_triple: None,
             ephemeral: None,
@@ -385,7 +373,10 @@ fn human_summary_groups_existing_facts_without_losing_status_or_metrics() {
     assert!(!human.contains("Artifacts"));
 }
 
-fn human_options(repo: &std::path::Path) -> wax_cli::commands::scan::ScanCommandOptions {
+fn human_options(
+    repo: &std::path::Path,
+    wax_home: &std::path::Path,
+) -> wax_cli::commands::scan::ScanCommandOptions {
     wax_cli::commands::scan::ScanCommandOptions {
         presentation: wax_cli::presentation::Presentation::Human,
         repo_root: repo.to_path_buf(),
@@ -398,7 +389,7 @@ fn human_options(repo: &std::path::Path) -> wax_cli::commands::scan::ScanCommand
         cli_outputs: Vec::new(),
         allow_absolute_output: false,
         baseline: None,
-        state_path: None,
+        wax_home: Some(WaxHome::new(wax_home)),
         pack_index_url: None,
         target_triple: None,
         ephemeral: None,
@@ -408,8 +399,7 @@ fn human_options(repo: &std::path::Path) -> wax_cli::commands::scan::ScanCommand
 #[test]
 fn human_strict_summary_keeps_unavailable_metrics_bounded_diagnostics_and_artifacts() {
     use wax_cli::commands::scan::{ScanCommandError, ScanOutputRequest, run_scan as render_scan};
-    let _guard = env_lock();
-    let (root, repo, _wax_home) = setup_scan_repo(
+    let (root, repo, wax_home) = setup_scan_repo(
         "human-strict",
         &[
             ("compose", "partial", "null", "", ""),
@@ -431,7 +421,7 @@ fn human_strict_summary_keeps_unavailable_metrics_bounded_diagnostics_and_artifa
         format!("#!/bin/sh\ncat >/dev/null\ncat <<'JSON'\n{wire}\nJSON\n"),
     )
     .unwrap();
-    let mut opts = human_options(&repo);
+    let mut opts = human_options(&repo, &wax_home);
     opts.strict = true;
     opts.cli_outputs.push(ScanOutputRequest {
         format: "markdown".into(),
@@ -469,8 +459,7 @@ fn human_strict_summary_keeps_unavailable_metrics_bounded_diagnostics_and_artifa
 #[test]
 fn human_root_groups_keep_full_labels_and_section_order() {
     use wax_cli::commands::scan::run_scan as render_scan;
-    let _guard = env_lock();
-    let (root, repo, _wax_home) = setup_scan_repo(
+    let (root, repo, wax_home) = setup_scan_repo(
         "human-groups",
         &[
             ("compose", "complete", "0.5", "", ""),
@@ -500,7 +489,7 @@ fn human_root_groups_keep_full_labels_and_section_order() {
         .unwrap();
     }
     let mut bytes = Vec::new();
-    render_scan(human_options(&repo), &mut bytes, false).unwrap();
+    render_scan(human_options(&repo, &wax_home), &mut bytes, false).unwrap();
     let human = String::from_utf8(bytes).unwrap();
     assert!(human.contains("\n\nRoot groups\n-----------\n"));
     assert!(
@@ -514,8 +503,7 @@ fn human_root_groups_keep_full_labels_and_section_order() {
 #[test]
 fn human_token_inference_retains_confidence_evidence_and_comparison_caveats() {
     use wax_cli::commands::scan::run_scan as render_scan;
-    let _guard = env_lock();
-    let (root, repo, _wax_home) =
+    let (root, repo, wax_home) =
         setup_scan_repo("human-tokens", &[("compose", "complete", "0.5", "", "")]);
     let registry = serde_json::json!({
         "schema_version": 1, "components": [{"id":"ds.button", "symbol":"Button"}],
@@ -559,7 +547,7 @@ fn human_token_inference_retains_confidence_evidence_and_comparison_caveats() {
     )
     .unwrap();
     let mut bytes = Vec::new();
-    render_scan(human_options(&repo), &mut bytes, false).unwrap();
+    render_scan(human_options(&repo, &wax_home), &mut bytes, false).unwrap();
     let human = String::from_utf8(bytes).unwrap();
     for fact in [
         "Assessed observations: 1 of 2",

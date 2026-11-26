@@ -1,11 +1,10 @@
 mod common;
 
-use common::{assert_schema_valid_summary, env_lock, run_scan, setup_scan_repo};
+use common::{assert_schema_valid_summary, run_scan, setup_scan_repo};
 use std::fs;
 
 #[test]
 fn format_markdown_stdout_has_headline_and_table() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-markdown-stdout",
         &[("compose", "complete", "0.5", "", "")],
@@ -32,7 +31,6 @@ fn format_markdown_stdout_has_headline_and_table() {
 
 #[test]
 fn markdown_artifact_written() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-markdown-artifact",
         &[(
@@ -69,7 +67,6 @@ fn markdown_artifact_written() {
 
 #[test]
 fn markdown_diagnostics_are_capped_at_ten() {
-    let _guard = env_lock();
     let specs = [
         ("lang00", "partial", "0.5", "error_00", "failure 00"),
         ("lang01", "partial", "0.5", "error_01", "failure 01"),
@@ -103,7 +100,6 @@ fn markdown_diagnostics_are_capped_at_ten() {
 
 #[test]
 fn baseline_json_summary_emits_deltas() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-markdown-json-baseline",
         &[(
@@ -179,7 +175,6 @@ fn baseline_json_summary_emits_deltas() {
 
 #[test]
 fn baseline_merged_scan_supported() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-markdown-merged-baseline",
         &[("compose", "complete", "0.5", "", "")],
@@ -213,7 +208,6 @@ fn baseline_merged_scan_supported() {
 
 #[test]
 fn missing_baseline_fails() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-markdown-missing-baseline",
         &[("compose", "complete", "0.5", "", "")],
@@ -238,7 +232,6 @@ fn missing_baseline_fails() {
 
 #[test]
 fn unrecognized_baseline_fails() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-markdown-unrecognized-baseline",
         &[("compose", "complete", "0.5", "", "")],
@@ -264,7 +257,6 @@ fn unrecognized_baseline_fails() {
 
 #[test]
 fn identical_baseline_zero_deltas() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-markdown-identical-baseline",
         &[("compose", "partial", "0.5", "parse_failed", "same failure")],
@@ -302,7 +294,6 @@ fn identical_baseline_zero_deltas() {
 
 #[test]
 fn no_baseline_omits_changes_and_deltas_field() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-markdown-no-baseline",
         &[("compose", "complete", "0.5", "", "")],
@@ -324,7 +315,6 @@ fn no_baseline_omits_changes_and_deltas_field() {
 
 #[test]
 fn baseline_with_quiet_only_skips_deltas() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-markdown-quiet-baseline",
         &[("compose", "complete", "0.5", "", "")],

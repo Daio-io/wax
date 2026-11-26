@@ -4,6 +4,7 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use thiserror::Error;
+use wax_core::paths::WaxHome;
 use wax_core::sync::{SyncError, SyncOptions, sync_app_registries};
 
 /// Options for `wax sync`.
@@ -11,8 +12,8 @@ use wax_core::sync::{SyncError, SyncOptions, sync_app_registries};
 pub struct SyncCommandOptions {
     /// Repository root containing wax config and lockfile.
     pub repo_root: PathBuf,
-    /// Global state path override for tests.
-    pub state_path: Option<PathBuf>,
+    /// Wax home to use for remembered registry state.
+    pub wax_home: Option<WaxHome>,
     /// Refresh Git-backed registry tags instead of using their locked commits.
     pub upgrade: bool,
     /// Explicit remembered bundle revision to adopt for the same bound system.
@@ -47,7 +48,8 @@ pub fn run_sync_cli(
     let updates = sync_app_registries(&SyncOptions {
         design_system: options.design_system,
         repo_root: options.repo_root,
-        state_path: options.state_path,
+        // Core resolves an omitted state path only for syncs that need remembered state.
+        state_path: options.wax_home.as_ref().map(WaxHome::state_file),
         upgrade: options.upgrade,
     })?;
 

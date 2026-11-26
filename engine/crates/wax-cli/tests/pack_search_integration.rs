@@ -10,7 +10,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use common::{EnvVarGuard, TestDir, env_lock};
+use common::TestDir;
 use serde_json::{Value, json};
 use wax_contract::{RegistryDocument, registry_to_json};
 use wax_core::registry_merge::merge_registry;
@@ -183,13 +183,11 @@ fn run_wax(wax_home: &Path, repo: &Path, args: &[&str]) -> std::process::Output 
 
 #[test]
 fn parser_packs_publish_merge_then_search_and_detail() {
-    let _guard = env_lock();
     let root = TestDir::new("pack-e2e");
     let wax_home = root.path.join("wax-home");
     let repo = root.path.join("repo");
     fs::create_dir_all(&wax_home).unwrap();
     fs::create_dir_all(&repo).unwrap();
-    let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
 
     for pack in &pack_cases() {
         let _document = prepare_pack_registry(&root, &wax_home, pack);
@@ -266,13 +264,11 @@ fn parser_packs_publish_merge_then_search_and_detail() {
 
 #[test]
 fn parser_packs_search_guidance_then_return_snapshot_pinned_facts() {
-    let _guard = env_lock();
     let root = TestDir::new("pack-guidance-snapshot");
     let wax_home = root.path.join("wax-home");
     let repo = root.path.join("repo");
     fs::create_dir_all(&wax_home).unwrap();
     fs::create_dir_all(&repo).unwrap();
-    let _home = EnvVarGuard::set("WAX_HOME", &wax_home);
 
     for pack in &pack_cases() {
         let document = prepare_pack_registry(&root, &wax_home, pack);

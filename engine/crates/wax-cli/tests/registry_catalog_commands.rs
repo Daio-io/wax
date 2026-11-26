@@ -68,8 +68,6 @@ fn find_json_reports_cold_offline_partial_success_and_matches_schema() {
 #[test]
 fn find_runner_uses_json_even_when_passed_human_presentation() {
     let root = common::TestDir::new("find-json-human");
-    let _lock = common::env_lock();
-    let _home = common::EnvVarGuard::set("WAX_HOME", root.path.join("home"));
     let args = RegistryFindArgs {
         query: String::new(),
         language: None,
@@ -78,8 +76,14 @@ fn find_runner_uses_json_even_when_passed_human_presentation() {
         repo_root: root.path.clone(),
     };
     let mut stdout = Vec::new();
-    run_registry_find_with_presentation(args, root.path.clone(), Presentation::Human, &mut stdout)
-        .unwrap();
+    run_registry_find_with_presentation(
+        args,
+        root.path.clone(),
+        Some(&wax_core::paths::WaxHome::new(root.path.join("home"))),
+        Presentation::Human,
+        &mut stdout,
+    )
+    .unwrap();
     assert_eq!(
         validated_find_json(&stdout)["results"],
         serde_json::json!([])
