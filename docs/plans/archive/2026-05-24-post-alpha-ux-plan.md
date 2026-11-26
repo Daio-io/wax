@@ -1,6 +1,6 @@
 # Post-Alpha UX Implementation Plan
 
-> **Archived:** Historical record only. All tasks shipped; see the [post-alpha UX ADR](../../adr/2026-05-24-post-alpha-ux-scan-outputs.md). Work is now tracked in Linear.
+> **Archived:** Historical record only. All tasks shipped; see the [post-alpha UX ADR](../../adr/2026-05-24-post-alpha-ux-scan-outputs.md). Work is now tracked in the issue tracker.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 >

@@ -42,7 +42,7 @@ cargo test -p wax-core
 cargo clippy -p wax-core --all-targets -- -D warnings
 ```
 
-Always run `cargo fmt` before committing Rust changes. If a Linear issue specifies exact verification commands, run those commands and broaden only when the touched code requires it.
+Always run `cargo fmt` before committing Rust changes. If the tracking issue specifies exact verification commands, run those commands and broaden only when the touched code requires it.
 
 For release/install changes, run the relevant script or workflow-adjacent checks in addition to Rust checks when applicable:
 
@@ -62,9 +62,9 @@ npm --prefix website test
 
 ## Planning
 
-- Work is planned and tracked in Linear. The Linear issue defines scope, acceptance, and any required verification; there are no repo-local plan gates.
+- Work is planned and tracked outside this repository in the issue tracker. The tracking issue defines scope, acceptance, and any required verification; there are no repo-local plan gates.
 - `docs/plans/` is a historical archive. Do not read it for current scope, and do not add, update, or tick off plans there.
-- Treat one Linear issue as one focused PR unless explicitly directed otherwise.
+- Treat one tracking issue as one focused PR unless explicitly directed otherwise.
 - When shipped work makes a significant product or engineering decision, record it as an ADR in `docs/adr/` and add it to the [ADR index](docs/adr/README.md). Keep design specs in `docs/specs/` current when changing the contracts they describe.
 - For feature closeout, check the documentation impact guidance in [CONTRIBUTING.md](CONTRIBUTING.md#feature-closeout).
 - If a change updates release behavior, keep README, install docs, changelog, and scripts consistent in the same PR.

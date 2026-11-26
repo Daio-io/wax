@@ -16,5 +16,5 @@ and unknown-import consumers exercise the public React scanner.
 
 CLI lifecycle tests use a separate local synthetic two-revision Git catalogue
 and test packs. They never access public network services. Adding the remaining
-pinned pilots is tracked in Linear; see the
+pinned pilots is tracked in the issue tracker; see the
 [public registry catalogue ADR](../../../docs/adr/2026-11-16-public-registry-catalogue.md).

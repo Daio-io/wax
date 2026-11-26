@@ -1,7 +1,7 @@
 # Archived implementation plans
 
-Historical implementation plans. Wax now tracks work in Linear, so these files
-are a read-only record and are not maintained. Shipped decisions are summarized
+Historical implementation plans. Wax now tracks work in the issue tracker, so
+these files are a read-only record and are not maintained. Shipped decisions are summarized
 in the [ADR index](../../adr/README.md).
 
 | Order | Plan | ADR | Status |
@@ -31,7 +31,7 @@ in the [ADR index](../../adr/README.md).
 | 16 | [Git registry sources](./2026-08-01-git-registry-sources-plan.md) | [ADR](../../adr/2026-08-01-git-registry-sources.md) | Complete |
 | 17 | [Phase 2B — resolution evidence and callee origin](./2026-08-22-phase-2b-resolution-evidence-plan.md) | [ADR](../../adr/2026-08-22-resolution-evidence-and-callee-origin.md) | Complete |
 | 18 | [Registry search and agent workflow](./2026-10-22-registry-search-plan.md) | [ADR](../../adr/2026-10-22-registry-search.md) | Complete |
-| 19 | [Public registry catalogue](./2026-11-16-public-registry-catalogue-plan.md) | [ADR](../../adr/2026-11-16-public-registry-catalogue.md) | Follow-ups in Linear |
+| 19 | [Public registry catalogue](./2026-11-16-public-registry-catalogue-plan.md) | [ADR](../../adr/2026-11-16-public-registry-catalogue.md) | Follow-ups in issue tracker |
 
 Order numbers come from the retired plan roadmap; its final version is in git
 history at `docs/plans/README.md`.

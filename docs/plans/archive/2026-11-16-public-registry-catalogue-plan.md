@@ -1,6 +1,6 @@
 # Public registry catalogue implementation plan
 
-> **Archived:** Historical record only. The unchecked items below are tracked in Linear under THE-889 / THE-894; see the [public registry catalogue ADR](../../adr/2026-11-16-public-registry-catalogue.md).
+> **Archived:** Historical record only. The unchecked items below are tracked in the issue tracker under THE-889 / THE-894; see the [public registry catalogue ADR](../../adr/2026-11-16-public-registry-catalogue.md).
 
 **Status:** Phase 1 and Phase 3a complete. Phase 4 consumption implemented; remaining pilot and Phase 3b evidence gates are open, as recorded below. Authorized as a THE-889 extraction
 that runs alongside the active Phase 2B plan without displacing it.

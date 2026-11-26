@@ -1,6 +1,6 @@
 # ADR: Public registry catalogue and Git design-system bundles
 
-**Status:** Accepted (implemented; pilot follow-ups tracked in Linear)
+**Status:** Accepted (implemented; pilot follow-ups tracked in the issue tracker)
 **Date:** 2026-11-16
 **Type:** Registry source, lockfile, and catalogue contract
 **Related:** [Public registry distribution options](../specs/public-registry-options.md) · [Git registry sources ADR](./2026-08-01-git-registry-sources.md) · [Archived implementation plan](../plans/archive/2026-11-16-public-registry-catalogue-plan.md)
@@ -44,7 +44,7 @@ and there was no way to find published systems.
 
 ## Open follow-ups
 
-Tracked in Linear under THE-889 / THE-894, not in this repository:
+Tracked in the issue tracker under THE-889 / THE-894, not in this repository:
 
 - Add the six remaining pinned pilot registries and consumers once the
   catalogue publishes them. The catalogue currently contains shadcn only.

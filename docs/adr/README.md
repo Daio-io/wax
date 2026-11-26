@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-ADRs record significant product and engineering decisions after implementation. Each ADR summarizes **what was decided**, **what shipped**, and **where to read more**. Work is planned in Linear; add an ADR when a shipped change makes a decision worth recording. Older ADRs link to [archived plans](../plans/archive/README.md), which are a historical record only.
+ADRs record significant product and engineering decisions after implementation. Each ADR summarizes **what was decided**, **what shipped**, and **where to read more**. Work is planned in the issue tracker; add an ADR when a shipped change makes a decision worth recording. Older ADRs link to [archived plans](../plans/archive/README.md), which are a historical record only.
 
 | Date | ADR | Status | Implementation |
 |------|-----|--------|----------------|

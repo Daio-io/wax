@@ -14,7 +14,7 @@ End users install a **`wax` binary** and download language packs globally. Each 
 
 ## Delivery history
 
-Work is tracked in Linear. Shipped phases are recorded in **[`docs/adr/`](../adr/README.md)**; historical plans are in **[`docs/plans/archive/`](../plans/archive/README.md)**.
+Work is tracked in the issue tracker. Shipped phases are recorded in **[`docs/adr/`](../adr/README.md)**; historical plans are in **[`docs/plans/archive/`](../plans/archive/README.md)**.
 
 ## Terminology
 

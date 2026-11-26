@@ -116,7 +116,7 @@ For documentation-only changes, inspect the rendered Markdown when practical and
 
 ## Commits and PRs
 
-- Work is planned and tracked in Linear. `docs/plans/` is a read-only historical archive; record significant shipped decisions as [ADRs](docs/adr/README.md).
+- Work is planned and tracked outside this repository in the issue tracker. `docs/plans/` is a read-only historical archive; record significant shipped decisions as [ADRs](docs/adr/README.md).
 - Use focused branches and PRs.
 - Keep unrelated changes out of commits.
 - Prefer conventional commit prefixes such as `feat:`, `fix:`, `docs:`, `ci:`, `test:`, and `chore:`.
