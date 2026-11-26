@@ -133,6 +133,42 @@ top-level `:root` properties and then the theme declarations.
 Out of scope are `.dark` variants, Tailwind v3 config, and deriving the
 `--spacing` scale from the base spacing token.
 
+#### Tailwind utility classes
+
+React scans count token references in `className` and `class` attributes and in
+calls to `cn`, `clsx`, `classnames`, `classNames`, `cx`, `twMerge`,
+`twJoin`, `cva`, and `tv`. Scans read static class text in strings and
+templates. Within helper calls, `cn`, `clsx`, `classnames`, `classNames`,
+and `cx` read class names from object keys and ignore the condition values,
+while `cva` and `tv` read class names from configuration values. Scans count
+only classes that appear whole in source, as Tailwind does: string
+concatenation such as `"bg-" + tone` or `"bg-main" + "-hover"` is not
+reconstructed, and fragments that touch another operand or interpolation
+without whitespace are ignored.
+
+| Utility examples | Theme namespaces in lookup order |
+| --- | --- |
+| `bg-`, `border-`, `ring-`, `fill-`, `from-` | `color` |
+| `text-` | `text`, `color` |
+| `shadow-`, `inset-shadow-`, `drop-shadow-`, `text-shadow-` | Matching shadow namespace, then `color` |
+| `font-` | `font-weight`, `font` |
+| `tracking-`, `leading-` | Matching namespace |
+| `rounded-`, including side and corner utilities | `radius` |
+| Padding, margin, gap, height, inset, translation, and related utilities | `spacing` |
+| `w-`, `min-w-`, `max-w-` | `container`, `spacing` |
+| `blur-`, `perspective-`, `aspect-`, `ease-`, `animate-` | Matching namespace |
+
+For example, `hover:bg-main/50` references `var(--color-main)` when that token
+is registered. Direct references such as `bg-[var(--chart-1)]` and
+`bg-(color:--chart-1)` can match any registered unscoped CSS custom-property
+token. A class can reference more than one token: `/` modifiers such as
+`text-sm/(--body-leading)` or `bg-main/[var(--alpha)]` also count the
+referenced property, and a named font-size modifier such as `text-sm/tight`
+counts `var(--leading-tight)`. Default palette colors count only when
+registered. An explicitly registered numeric token such as `--spacing-4` counts
+for `p-4`, but deriving `p-4` from the base `--spacing` scale, fractions such
+as `w-1/2`, and Tailwind v3 configuration are outside this scan's scope.
+
 Publisher files normally live at `.wax/registries/<language-id>.json` and are
 reviewed source. Consuming apps receive registry snapshots through `wax init`
 and `wax sync`; global remembered sources and caches live under `~/.wax/`.
