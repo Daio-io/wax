@@ -1,52 +1,11 @@
-use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use sha2::{Digest, Sha256};
 use wax_contract::LanguageId;
+use wax_core::paths::WaxHome;
 use wax_core::{Engine, ScanOptions};
-
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-fn env_lock() -> MutexGuard<'static, ()> {
-    ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
-}
-
-struct EnvVarGuard {
-    name: &'static str,
-    previous: Option<OsString>,
-}
-
-impl EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while mutating process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-        let previous = std::env::var_os(name);
-        unsafe {
-            std::env::set_var(name, value);
-        }
-        Self { name, previous }
-    }
-}
-
-impl Drop for EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while restoring process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn drop(&mut self) {
-        unsafe {
-            match &self.previous {
-                Some(value) => std::env::set_var(self.name, value),
-                None => std::env::remove_var(self.name),
-            }
-        }
-    }
-}
 
 fn temp_dir(name: &str) -> PathBuf {
     let nonce = SystemTime::now()
@@ -513,34 +472,38 @@ fn concurrency_fixture_barrier_fails_closed_when_peer_missing() {
 
 #[test]
 fn scan_repo_uses_default_waxrc_scan_concurrency() {
-    let _guard = env_lock();
     let fixture = fixture(
         "scan-concurrency-default",
         &["compose", "react", "vue"],
         None,
         Some(2),
     );
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &fixture.wax_home);
 
-    Engine::scan_repo(&fixture.repo).expect("scan should pass");
+    Engine::scan_repo_with_options(
+        &fixture.repo,
+        ScanOptions {
+            wax_home: Some(WaxHome::new(&fixture.wax_home)),
+            ..ScanOptions::default()
+        },
+    )
+    .expect("scan should pass");
 
     assert_eq!(max_concurrency(&fixture.log_dir), 2);
 }
 
 #[test]
 fn scan_repo_options_can_override_waxrc_scan_concurrency_to_serial() {
-    let _guard = env_lock();
     let fixture = fixture(
         "scan-concurrency-override",
         &["compose", "react", "vue"],
         Some(3),
         None,
     );
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &fixture.wax_home);
 
     Engine::scan_repo_with_options(
         &fixture.repo,
         ScanOptions {
+            wax_home: Some(WaxHome::new(&fixture.wax_home)),
             scan_concurrency: Some(1),
             ..ScanOptions::default()
         },
@@ -552,39 +515,48 @@ fn scan_repo_options_can_override_waxrc_scan_concurrency_to_serial() {
 
 #[test]
 fn scan_concurrency_runs_enabled_languages_in_parallel_with_bounded_concurrency() {
-    let _guard = env_lock();
     let fixture = fixture(
         "scan-concurrency-bounded",
         &["compose", "react", "swift", "vue"],
         Some(3),
         Some(3),
     );
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &fixture.wax_home);
 
-    Engine::scan_repo(&fixture.repo).expect("scan should pass");
+    Engine::scan_repo_with_options(
+        &fixture.repo,
+        ScanOptions {
+            wax_home: Some(WaxHome::new(&fixture.wax_home)),
+            ..ScanOptions::default()
+        },
+    )
+    .expect("scan should pass");
 
     assert_eq!(max_concurrency(&fixture.log_dir), 3);
 }
 
 #[test]
 fn scan_concurrency_merges_parallel_results_in_language_id_order() {
-    let _guard = env_lock();
     let fixture = fixture(
         "scan-concurrency-order",
         &["vue", "react", "compose"],
         Some(3),
         None,
     );
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &fixture.wax_home);
 
-    let scan = Engine::scan_repo(&fixture.repo).expect("scan should pass");
+    let scan = Engine::scan_repo_with_options(
+        &fixture.repo,
+        ScanOptions {
+            wax_home: Some(WaxHome::new(&fixture.wax_home)),
+            ..ScanOptions::default()
+        },
+    )
+    .expect("scan should pass");
 
     assert_eq!(language_order(&scan), ["compose", "react", "vue"]);
 }
 
 #[test]
 fn scan_concurrency_cancels_in_flight_scans_after_first_error() {
-    let _guard = env_lock();
     let root = temp_dir("scan-concurrency-cancel");
     let repo = root.join("repo");
     let wax_home = root.join("wax-home");
@@ -618,8 +590,14 @@ fn scan_concurrency_cancels_in_flight_scans_after_first_error() {
     )
     .unwrap();
 
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
-    let err = Engine::scan_repo(&repo).expect_err("failing pack should fail the scan");
+    let err = Engine::scan_repo_with_options(
+        &repo,
+        ScanOptions {
+            wax_home: Some(WaxHome::new(&wax_home)),
+            ..ScanOptions::default()
+        },
+    )
+    .expect_err("failing pack should fail the scan");
 
     assert!(
         err.to_string().contains("language subprocess"),

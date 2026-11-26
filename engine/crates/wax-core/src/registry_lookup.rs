@@ -9,7 +9,7 @@ use crate::config::lockfile::{LockedRegistry, load_lockfile};
 use crate::config::repo_files::discover_repo_files;
 use crate::config::waxrc::{LanguageEntry, LanguageRegistrySource, load_waxrc};
 use crate::global_state::load_global_state;
-use crate::paths::state_file;
+use crate::paths::WaxHome;
 use crate::registry_cache::{
     RegistryCache, RegistryCacheError, RegistryReadPolicy, RegistrySnapshot, RegistrySourceSpec,
 };
@@ -143,7 +143,7 @@ fn resolve_remembered_selector(
     } else {
         let state_path = match &options.state_path {
             Some(path) => path.clone(),
-            None => state_file().map_err(invalid_registry)?,
+            None => WaxHome::from_env().map_err(invalid_registry)?.state_file(),
         };
         let summary =
             show_remembered_design_system(&state_path, selector).map_err(invalid_registry)?;
@@ -235,7 +235,7 @@ fn load_remembered_for_selector(
     };
     let state_path = match &options.state_path {
         Some(path) => path.clone(),
-        None => state_file().map_err(invalid_registry)?,
+        None => WaxHome::from_env().map_err(invalid_registry)?.state_file(),
     };
     if !state_path.is_file() {
         return Ok(None);
@@ -448,17 +448,18 @@ fn resolve_explicit_source(
 }
 
 fn lookup_cache(options: &RegistryLookupOptions) -> Result<RegistryCache, RegistryLookupError> {
-    if let Some(state_path) = &options.state_path {
-        let Some(home) = state_path.parent() else {
+    let home = if let Some(state_path) = &options.state_path {
+        let Some(root) = state_path.parent() else {
             return Err(RegistryLookupError::new(
                 RegistryLookupErrorCode::InvalidArgument,
                 "global state path must have a parent directory",
             ));
         };
-        Ok(RegistryCache::open(home.join("cache/registries")))
+        WaxHome::new(root)
     } else {
-        RegistryCache::open_default().map_err(invalid_registry)
-    }
+        WaxHome::from_env().map_err(invalid_registry)?
+    };
+    Ok(RegistryCache::open(home.registry_cache_dir()))
 }
 
 fn invalid_registry(error: impl std::fmt::Display) -> RegistryLookupError {
@@ -532,7 +533,7 @@ pub fn resolve_public_lookup_snapshots(
     }
     let state_path = match &options.state_path {
         Some(path) => path.clone(),
-        None => state_file().map_err(invalid_registry)?,
+        None => WaxHome::from_env().map_err(invalid_registry)?.state_file(),
     };
     let mut catalog =
         crate::registry_catalog::CatalogOptions::new(options.repo_root.clone(), state_path);

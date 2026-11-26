@@ -14,7 +14,6 @@ use wax_contract::{
 use crate::advisory_lock::AdvisoryLock;
 use crate::atomic_file::write_atomically_no_clobber;
 use crate::config::waxrc::{WaxRcError, load_waxrc, parse_waxrc_bytes};
-use crate::paths::{PathsError, registry_cache_dir};
 use crate::registry_git::{
     RegistryGitError, conventional_git_registry_path, fetch_git_files, fetch_git_registry,
     fetch_git_registry_at_commit,
@@ -104,20 +103,10 @@ pub struct RegistryCache {
 impl RegistryCache {
     /// Opens a registry cache rooted at `root`.
     ///
-    /// Production callers should pass [`crate::paths::registry_cache_dir`]
-    /// (`~/.wax/cache/registries`) or use [`Self::open_default`].
+    /// Use [`crate::paths::WaxHome::registry_cache_dir`] for a global cache.
     #[must_use]
     pub fn open(root: PathBuf) -> Self {
         Self { root }
-    }
-
-    /// Opens the process-global registry cache under [`registry_cache_dir`].
-    ///
-    /// # Errors
-    ///
-    /// Returns [`PathsError::HomeUnavailable`] when the wax home cannot be resolved.
-    pub fn open_default() -> Result<Self, PathsError> {
-        Ok(Self::open(registry_cache_dir()?))
     }
 
     /// Returns the cache root that holds `blobs/` and `sources/`.

@@ -669,7 +669,7 @@ fn resolve_upstream_state_path(
     resolved_state_path: &mut Option<PathBuf>,
 ) -> Result<&Path, SyncError> {
     if resolved_state_path.is_none() {
-        *resolved_state_path = Some(crate::paths::state_file()?);
+        *resolved_state_path = Some(crate::paths::WaxHome::from_env()?.state_file());
     }
     let Some(path) = resolved_state_path.as_deref() else {
         unreachable!("state path is initialized before borrowing");

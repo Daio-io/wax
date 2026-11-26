@@ -21,7 +21,7 @@ use crate::config::lockfile::{
 use crate::config::repo_files::{default_registry_path_for_language, discover_repo_files};
 use crate::config::waxrc::{LanguageEntry, WaxRc, WaxRcError, load_waxrc};
 use crate::global_state::{GlobalStateError, load_global_state};
-use crate::paths::{PathsError, state_file};
+use crate::paths::{PathsError, WaxHome};
 use crate::registry_attachments::{RegistryAttachmentError, materialize_registry_attachments};
 use crate::registry_memory::{
     RegistryMemoryError, design_system_registry_relative_path,
@@ -41,6 +41,8 @@ const DEFAULT_DISCOVER_TIMEOUT: Duration = Duration::from_secs(120);
 /// Inputs for registry discovery orchestration.
 #[derive(Debug, Clone)]
 pub struct RegistryDiscoverOptions<'a> {
+    /// Overrides the wax home. When absent, resolve it when global state is needed.
+    pub wax_home: Option<WaxHome>,
     /// Repository root where the registry should be written.
     pub repo_root: &'a Path,
     /// Language pack identifier to use for discovery.
@@ -377,7 +379,12 @@ pub fn discover_registry(
 
     let lockfile = load_optional_lockfile(&repo_files.lockfile_path)?;
     let lockfile_present = lockfile.is_some();
-    let state = load_global_state(state_file()?)?;
+    let home = match options.wax_home {
+        Some(home) => home,
+        None => WaxHome::from_env()?,
+    };
+    let state_path = home.state_file();
+    let state = load_global_state(&state_path)?;
     let pack_command = resolve_discover_pack_command(&state, lockfile.as_ref(), &language_id)?;
     let existing = load_existing_registry(&output_path)?;
     let seed = existing.clone().unwrap_or_else(|| RegistryDocument {
@@ -468,7 +475,7 @@ pub fn discover_registry(
             &output_source,
         )?;
         remember_design_system(
-            state_file()?,
+            &state_path,
             design_system_id,
             design_system_name,
             options.repo_root,

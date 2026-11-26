@@ -179,6 +179,7 @@ pub fn run_registry_discover(
     let roots = resolve_cli_roots(&repo_root, options.roots);
 
     let result = discover_registry(RegistryDiscoverOptions {
+        wax_home: None,
         repo_root: &repo_root,
         language_id: &language_id,
         roots,

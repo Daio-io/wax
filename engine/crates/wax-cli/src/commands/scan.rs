@@ -501,6 +501,7 @@ pub fn run_scan(
     let merged = Engine::scan_repo_with_options(
         &options.repo_root,
         ScanOptions {
+            wax_home: None,
             scan_concurrency: options.scan_concurrency,
             root_group: options.root_group.clone(),
             allow_auto_install: options.allow_auto_install,
@@ -600,6 +601,7 @@ fn run_ephemeral_scan(
     let merged = Engine::scan_repo_with_options(
         &options.repo_root,
         ScanOptions {
+            wax_home: None,
             scan_concurrency: options.scan_concurrency,
             root_group: options.root_group.clone(),
             allow_auto_install: options.allow_auto_install,

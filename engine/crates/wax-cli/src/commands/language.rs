@@ -22,7 +22,7 @@ use wax_core::global_state::{
     GlobalState, GlobalStateError, InstalledLanguagePack, load_global_state, save_global_state,
 };
 use wax_core::install::{InstallError, LanguagePackManifestSpec, install_language};
-use wax_core::paths::{PathsError, lang_install_dir};
+use wax_core::paths::{PathsError, WaxHome, lang_install_dir};
 use wax_core::registry::{
     RegistryArtifact, RegistryError, RegistryManifest, fetch_pack_index, select_target_artifact,
 };
@@ -600,6 +600,7 @@ fn install_resolved_manifest(
         parser_version: registry_manifest.version.clone(),
     };
 
+    let home = WaxHome::from_env().map_err(InstallError::from)?;
     Ok(install_language(
         &registry_manifest.id,
         &registry_manifest.version,
@@ -608,6 +609,7 @@ fn install_resolved_manifest(
         &artifact.sha256,
         Some(&artifact.sha256),
         &manifest,
+        &home,
     )?)
 }
 

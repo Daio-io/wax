@@ -10,7 +10,7 @@ use tar::Archive;
 use thiserror::Error;
 use wax_contract::LanguageId;
 
-use crate::paths::{PathsError, lang_install_dir, validate_version_segment, wax_home};
+use crate::paths::{PathsError, WaxHome};
 
 /// Manifest fields written to `manifest.json` next to installed pack binaries.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -162,7 +162,7 @@ pub enum FetchError {
 
 /// Downloads an artifact, verifies digest, extracts contents to a staging dir,
 /// writes `manifest.json`, optionally compares registry digest against lockfile
-/// digest before download, then atomically promotes into `~/.wax/langs/<id>/<version>`.
+/// digest before download, then atomically promotes into `<home>/langs/<id>/<version>`.
 ///
 /// Returns [`InstallError::AlreadyInstalled`] when that destination path already
 /// exists. Same-version reinstall and in-place update are intentionally out of
@@ -174,7 +174,7 @@ pub enum FetchError {
 ///
 /// # Errors
 ///
-/// Returns [`InstallError::Paths`] for unsafe versions or unresolved wax paths;
+/// Returns [`InstallError::Paths`] for unsafe versions;
 /// [`InstallError::ManifestMismatch`], [`InstallError::MissingPrimaryBinary`],
 /// [`InstallError::InvalidPrimaryBinaryPath`], or
 /// [`InstallError::InvalidPrimaryBinary`] for invalid manifest contents;
@@ -185,6 +185,10 @@ pub enum FetchError {
 /// entries return [`InstallError::UnsupportedArchiveEntry`] or
 /// [`InstallError::PathTraversal`]; destination conflicts and filesystem
 /// failures return [`InstallError::AlreadyInstalled`] or [`InstallError::Io`].
+#[expect(
+    clippy::too_many_arguments,
+    reason = "installation takes explicit pack metadata and destination"
+)]
 pub fn install_language(
     id: &LanguageId,
     version: &str,
@@ -193,9 +197,9 @@ pub fn install_language(
     expected_digest_hex: &str,
     pack_index_digest_hex: Option<&str>,
     manifest: &LanguagePackManifestSpec,
+    home: &WaxHome,
 ) -> Result<PathBuf, InstallError> {
-    let _ = target_triple;
-    validate_version_segment(version)?;
+    let destination = home.lang_install_dir(id, version)?;
 
     if manifest.id.as_str() != id.as_str() || manifest.version != version {
         return Err(InstallError::ManifestMismatch {
@@ -217,7 +221,6 @@ pub fn install_language(
         }
     }
 
-    let destination = lang_install_dir(id, version)?;
     if destination.exists() {
         return Err(InstallError::AlreadyInstalled {
             path: destination.display().to_string(),
@@ -235,7 +238,7 @@ pub fn install_language(
         });
     }
 
-    let langs_parent = wax_home()?.join("langs").join(id.as_str());
+    let langs_parent = home.langs_dir(id);
     fs::create_dir_all(&langs_parent).map_err(|source| InstallError::Io {
         context: format!("create langs staging parent {}", langs_parent.display()),
         source,
@@ -264,7 +267,6 @@ pub fn install_language(
         return Err(err);
     }
 
-    let destination = lang_install_dir(id, version)?;
     if let Err(err) = promote_staging_dir(&staging_dir, &destination) {
         let _ = fs::remove_dir_all(&staging_dir);
         return Err(err);

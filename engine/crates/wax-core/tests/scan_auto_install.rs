@@ -1,8 +1,7 @@
-use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
+use wax_core::paths::WaxHome;
 
 use flate2::Compression;
 use flate2::write::GzEncoder;
@@ -11,46 +10,6 @@ use wax_contract::LanguageId;
 use wax_core::config::lockfile::{load_lockfile, save_lockfile};
 use wax_core::global_state::GlobalState;
 use wax_core::{Engine, EngineError, ScanOptions};
-
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-fn env_lock() -> MutexGuard<'static, ()> {
-    ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
-}
-
-struct EnvVarGuard {
-    name: &'static str,
-    previous: Option<OsString>,
-}
-
-impl EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while mutating process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-        let previous = std::env::var_os(name);
-        unsafe {
-            std::env::set_var(name, value);
-        }
-        Self { name, previous }
-    }
-}
-
-impl Drop for EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while restoring process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn drop(&mut self) {
-        unsafe {
-            match &self.previous {
-                Some(value) => std::env::set_var(self.name, value),
-                None => std::env::remove_var(self.name),
-            }
-        }
-    }
-}
 
 struct Fixture {
     repo: PathBuf,
@@ -205,18 +164,26 @@ fn read_state(path: &Path) -> GlobalState {
 }
 
 #[test]
-fn scan_auto_install_installs_missing_pack_then_runs_scan() {
-    let _guard = env_lock();
+fn scan_auto_install_uses_explicit_home_for_state_and_pack() {
     let fixture = fixture("scan-auto-install");
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &fixture.wax_home);
-
-    let merged = Engine::scan_repo(&fixture.repo).expect("default scan should auto-install");
+    let merged = Engine::scan_repo_with_options(
+        &fixture.repo,
+        ScanOptions {
+            wax_home: Some(WaxHome::new(&fixture.wax_home)),
+            ..ScanOptions::default()
+        },
+    )
+    .expect("default scan should auto-install");
 
     let compose = LanguageId::try_from("compose").unwrap();
     assert_eq!(merged.languages[&compose].language.id, compose);
 
     let state = read_state(&fixture.wax_home.join("state.json"));
     let installed = &state.installed_languages[&compose]["0.1.0"];
+    assert_eq!(
+        installed.install_dir,
+        fixture.wax_home.join("langs/compose/0.1.0")
+    );
     assert!(installed.install_dir.join("manifest.json").exists());
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(
@@ -229,13 +196,12 @@ fn scan_auto_install_installs_missing_pack_then_runs_scan() {
 
 #[test]
 fn scan_auto_install_disabled_returns_required_error_without_installing() {
-    let _guard = env_lock();
     let fixture = fixture("scan-auto-install-disabled");
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &fixture.wax_home);
 
     let err = Engine::scan_repo_with_options(
         &fixture.repo,
         ScanOptions {
+            wax_home: Some(WaxHome::new(&fixture.wax_home)),
             scan_concurrency: None,
             allow_auto_install: false,
             ..ScanOptions::default()
@@ -249,9 +215,7 @@ fn scan_auto_install_disabled_returns_required_error_without_installing() {
 
 #[test]
 fn scan_auto_install_disabled_does_not_fetch_registry_index() {
-    let _guard = env_lock();
     let fixture = fixture("scan-auto-install-disabled-offline");
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &fixture.wax_home);
 
     let lockfile_path = fixture.repo.join(".wax/wax.lock.json");
     let mut lockfile = load_lockfile(&lockfile_path).unwrap();
@@ -262,6 +226,7 @@ fn scan_auto_install_disabled_does_not_fetch_registry_index() {
     let err = Engine::scan_repo_with_options(
         &fixture.repo,
         ScanOptions {
+            wax_home: Some(WaxHome::new(&fixture.wax_home)),
             scan_concurrency: None,
             allow_auto_install: false,
             ..ScanOptions::default()
@@ -277,15 +242,19 @@ fn scan_auto_install_disabled_does_not_fetch_registry_index() {
 
 #[test]
 fn scan_auto_install_downloads_from_lockfile_url_not_registry_url() {
-    let _guard = env_lock();
     let fixture = fixture_with_registry_url(
         "scan-auto-install-lock-url",
         Some("https://example.invalid/registry-url-must-not-be-fetched.tgz"),
     );
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &fixture.wax_home);
 
-    let merged =
-        Engine::scan_repo(&fixture.repo).expect("scan should install from lockfile URL and pass");
+    let merged = Engine::scan_repo_with_options(
+        &fixture.repo,
+        ScanOptions {
+            wax_home: Some(WaxHome::new(&fixture.wax_home)),
+            ..ScanOptions::default()
+        },
+    )
+    .expect("scan should install from lockfile URL and pass");
 
     let compose = LanguageId::try_from("compose").unwrap();
     assert_eq!(merged.languages[&compose].language.id, compose);

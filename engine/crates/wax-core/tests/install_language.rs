@@ -1,9 +1,7 @@
 //! Integration tests for [`wax_core::install::install_language`].
 
-use std::ffi::OsString;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::{Mutex, MutexGuard};
 
 use flate2::Compression;
 use flate2::write::GzEncoder;
@@ -11,51 +9,10 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use wax_contract::LanguageId;
 use wax_core::install::{InstallError, LanguagePackManifestSpec, install_language};
-use wax_core::paths::lang_install_dir;
-
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-fn env_lock() -> MutexGuard<'static, ()> {
-    ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
-}
-
-struct EnvVarGuard {
-    name: &'static str,
-    previous: Option<OsString>,
-}
-
-impl EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while mutating process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-        let previous = std::env::var_os(name);
-        unsafe {
-            std::env::set_var(name, value);
-        }
-        Self { name, previous }
-    }
-}
-
-impl Drop for EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while restoring process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn drop(&mut self) {
-        unsafe {
-            match &self.previous {
-                Some(value) => std::env::set_var(self.name, value),
-                None => std::env::remove_var(self.name),
-            }
-        }
-    }
-}
+use wax_core::paths::WaxHome;
 
 struct TestHome {
     root: PathBuf,
-    _wax_guard: EnvVarGuard,
 }
 
 impl TestHome {
@@ -65,12 +22,7 @@ impl TestHome {
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).expect("temp wax home");
 
-        let wax_guard = EnvVarGuard::set("WAX_HOME", &root);
-
-        Self {
-            root,
-            _wax_guard: wax_guard,
-        }
+        Self { root }
     }
 }
 
@@ -155,7 +107,6 @@ struct ManifestJson {
 
 #[test]
 fn install_language_writes_manifest_and_unpacks_pack() {
-    let _guard = env_lock();
     let home = TestHome::new("happy");
 
     let id = LanguageId::try_from("compose").expect("language id");
@@ -178,13 +129,11 @@ fn install_language_writes_manifest_and_unpacks_pack() {
         &digest,
         None,
         &manifest,
+        &WaxHome::new(&home.root),
     )
     .expect("install succeeds");
 
-    assert_eq!(
-        destination,
-        lang_install_dir(&id, "0.4.2").expect("destination path")
-    );
+    assert_eq!(destination, home.root.join("langs/compose/0.4.2"));
 
     let manifest_path = destination.join("manifest.json");
     let raw = fs::read_to_string(&manifest_path).expect("manifest exists");
@@ -229,7 +178,6 @@ fn install_language_writes_manifest_and_unpacks_pack() {
 
 #[test]
 fn install_language_accepts_matching_pack_index_digest() {
-    let _guard = env_lock();
     let home = TestHome::new("pack-match");
 
     let id = LanguageId::try_from("compose").expect("language id");
@@ -251,12 +199,13 @@ fn install_language_accepts_matching_pack_index_digest() {
         &digest,
         Some(&digest),
         &manifest,
+        &WaxHome::new(&home.root),
     )
     .expect("matching pack-index digest must install");
 
     assert!(
-        lang_install_dir(&id, "0.4.2")
-            .expect("destination path")
+        home.root
+            .join("langs/compose/0.4.2")
             .join("manifest.json")
             .exists(),
         "install should succeed when pack-index digest matches lock digest"
@@ -265,7 +214,6 @@ fn install_language_accepts_matching_pack_index_digest() {
 
 #[test]
 fn install_language_sha_mismatch_refuses_before_promotion() {
-    let _guard = env_lock();
     let home = TestHome::new("sha");
 
     let id = LanguageId::try_from("compose").expect("language id");
@@ -288,6 +236,7 @@ fn install_language_sha_mismatch_refuses_before_promotion() {
         &wrong_digest,
         None,
         &manifest,
+        &WaxHome::new(&home.root),
     )
     .expect_err("digest mismatch must abort");
 
@@ -296,7 +245,7 @@ fn install_language_sha_mismatch_refuses_before_promotion() {
         "unexpected error: {err:?}"
     );
 
-    let destination = lang_install_dir(&id, "0.4.2").expect("destination path");
+    let destination = home.root.join("langs/compose/0.4.2");
     assert!(
         !destination.exists(),
         "failed installs must not leave the destination directory"
@@ -305,8 +254,7 @@ fn install_language_sha_mismatch_refuses_before_promotion() {
 
 #[test]
 fn install_language_digest_drift_refuses_before_fetch() {
-    let _guard = env_lock();
-    let _home = TestHome::new("drift");
+    let home = TestHome::new("drift");
 
     let id = LanguageId::try_from("compose").expect("language id");
     let manifest = sample_manifest(id.clone());
@@ -322,6 +270,7 @@ fn install_language_digest_drift_refuses_before_fetch() {
         &lock_digest,
         Some(&index_digest),
         &manifest,
+        &WaxHome::new(&home.root),
     )
     .expect_err("digest drift must abort");
 
@@ -333,7 +282,6 @@ fn install_language_digest_drift_refuses_before_fetch() {
 
 #[test]
 fn install_language_rejects_tar_path_traversal() {
-    let _guard = env_lock();
     let home = TestHome::new("traversal");
 
     let id = LanguageId::try_from("compose").expect("language id");
@@ -358,6 +306,7 @@ fn install_language_rejects_tar_path_traversal() {
         &digest,
         None,
         &manifest,
+        &WaxHome::new(&home.root),
     )
     .expect_err("unsafe archive paths must abort");
 
@@ -366,7 +315,7 @@ fn install_language_rejects_tar_path_traversal() {
         "unexpected error: {err:?}"
     );
 
-    let destination = lang_install_dir(&id, "0.4.2").expect("destination path");
+    let destination = home.root.join("langs/compose/0.4.2");
     assert!(
         !destination.exists(),
         "path traversal attempts must not promote partial installs"
@@ -375,7 +324,6 @@ fn install_language_rejects_tar_path_traversal() {
 
 #[test]
 fn install_language_cleans_staging_after_unpack_failure() {
-    let _guard = env_lock();
     let home = TestHome::new("partial");
 
     let id = LanguageId::try_from("compose").expect("language id");
@@ -403,6 +351,7 @@ fn install_language_cleans_staging_after_unpack_failure() {
         &digest,
         None,
         &manifest,
+        &WaxHome::new(&home.root),
     )
     .expect_err("install should fail before promotion");
 
@@ -419,7 +368,6 @@ fn install_language_cleans_staging_after_unpack_failure() {
 
 #[test]
 fn install_language_rejects_unsafe_manifest_command_path() {
-    let _guard = env_lock();
     let home = TestHome::new("manifest-traversal");
 
     let id = LanguageId::try_from("compose").expect("language id");
@@ -444,6 +392,7 @@ fn install_language_rejects_unsafe_manifest_command_path() {
         &digest,
         None,
         &manifest,
+        &WaxHome::new(&home.root),
     )
     .expect_err("unsafe manifest command paths must abort");
 
@@ -455,7 +404,7 @@ fn install_language_rejects_unsafe_manifest_command_path() {
         "unexpected error: {err:?}"
     );
 
-    let destination = lang_install_dir(&id, "0.4.2").expect("destination path");
+    let destination = home.root.join("langs/compose/0.4.2");
     assert!(
         !destination.exists(),
         "unsafe manifest command paths must not promote partial installs"
@@ -464,7 +413,6 @@ fn install_language_rejects_unsafe_manifest_command_path() {
 
 #[test]
 fn install_language_rejects_manifest_command_pointing_at_directory() {
-    let _guard = env_lock();
     let home = TestHome::new("manifest-dir");
 
     let id = LanguageId::try_from("compose").expect("language id");
@@ -498,6 +446,7 @@ fn install_language_rejects_manifest_command_pointing_at_directory() {
         &digest,
         None,
         &manifest,
+        &WaxHome::new(&home.root),
     )
     .expect_err("manifest command pointing at directory must abort");
 
@@ -509,7 +458,6 @@ fn install_language_rejects_manifest_command_pointing_at_directory() {
 
 #[test]
 fn install_language_refuses_existing_destination() {
-    let _guard = env_lock();
     let home = TestHome::new("existing");
 
     let id = LanguageId::try_from("compose").expect("language id");
@@ -529,6 +477,7 @@ fn install_language_refuses_existing_destination() {
         &digest,
         None,
         &manifest,
+        &WaxHome::new(&home.root),
     )
     .expect("first install succeeds");
 
@@ -540,6 +489,7 @@ fn install_language_refuses_existing_destination() {
         &digest,
         None,
         &manifest,
+        &WaxHome::new(&home.root),
     )
     .expect_err("reinstall must be refused");
 
