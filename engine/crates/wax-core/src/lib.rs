@@ -178,6 +178,16 @@ pub enum EngineError {
         /// Locked language version expected by scan policy.
         expected_version: String,
     },
+    /// Installed pack artifact metadata did not match the requested artifact pin.
+    #[error(
+        "installed artifact mismatch for language {language_id} version {version}; remove it before installing the requested artifact"
+    )]
+    InstalledArtifactMismatch {
+        /// Language id being resolved.
+        language_id: LanguageId,
+        /// Requested language version.
+        version: String,
+    },
     /// Registry index could not be loaded while evaluating auto-install policy.
     #[error(transparent)]
     Registry(#[from] registry::RegistryError),
@@ -264,6 +274,13 @@ impl From<PackStoreError> for EngineError {
             } => Self::InstalledManifestMismatch {
                 language_id,
                 expected_version,
+            },
+            PackStoreError::ArtifactMismatch {
+                language_id,
+                version,
+            } => Self::InstalledArtifactMismatch {
+                language_id,
+                version,
             },
             PackStoreError::Cleanup { path, source } => Self::InstallCleanup { path, source },
         }

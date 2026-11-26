@@ -144,6 +144,31 @@ fn pack_store_records_reused_directory_without_fetching_the_artifact() {
     );
 }
 
+#[test]
+fn pack_store_rejects_reused_directory_with_different_artifact_metadata() {
+    let home = TestHome::new("reused-artifact-mismatch");
+    let (store, id, url, sha256) = pack_store_fixture(&home);
+    let installed = store
+        .install(&id, "0.4.2", pack_artifact(&url, &sha256))
+        .unwrap();
+
+    let changed_sha256 = "a".repeat(64);
+    let mut changed_artifact = pack_artifact(&url, &changed_sha256);
+    changed_artifact.target = "x86_64-unknown-linux-gnu";
+    changed_artifact.api_version = 2;
+
+    assert!(
+        store.install(&id, "0.4.2", changed_artifact).is_err(),
+        "a directory installed from different artifact metadata must be rejected"
+    );
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(installed.install_dir.join("manifest.json")).unwrap())
+            .unwrap();
+    assert_eq!(manifest["target"], "aarch64-apple-darwin");
+    assert_eq!(manifest["sha256"], sha256);
+    assert_eq!(manifest["api_version"], 1);
+}
+
 #[cfg(unix)]
 #[test]
 fn pack_store_removes_fresh_install_when_state_write_fails() {

@@ -75,6 +75,16 @@ pub enum PackStoreError {
         /// Version being looked up.
         expected_version: String,
     },
+    /// An installed manifest has the requested identity but a different artifact pin.
+    #[error(
+        "installed artifact mismatch for language {language_id} version {version}; remove it before installing the requested artifact"
+    )]
+    ArtifactMismatch {
+        /// Language being installed.
+        language_id: LanguageId,
+        /// Version being installed.
+        version: String,
+    },
     /// An install directory could not be removed.
     #[error("failed to clean up installed language pack at {path}: {source}")]
     Cleanup {
@@ -139,9 +149,21 @@ impl PackStore {
             let command = match command {
                 Some(command) => command,
                 None => {
-                    InstalledManifestFile::load(&install_dir)?
-                        .verify(id, version)?
-                        .command
+                    let installed =
+                        InstalledManifestFile::load(&install_dir)?.verify(id, version)?;
+                    if installed.metadata.target != artifact.target
+                        || !installed
+                            .metadata
+                            .sha256
+                            .eq_ignore_ascii_case(artifact.sha256.trim())
+                        || installed.metadata.api_version != artifact.api_version
+                    {
+                        return Err(PackStoreError::ArtifactMismatch {
+                            language_id: id.clone(),
+                            version: version.to_owned(),
+                        });
+                    }
+                    installed.command
                 }
             };
             state

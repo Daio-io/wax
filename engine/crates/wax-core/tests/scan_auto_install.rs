@@ -239,7 +239,7 @@ fn scan_auto_install_rejects_leftover_pack_with_different_digest() {
 
     assert!(matches!(
         error,
-        EngineError::Install(wax_core::install::InstallError::AlreadyInstalled { .. })
+        EngineError::InstalledArtifactMismatch { .. }
     ));
 }
 
