@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use swc_common::{BytePos, Span, Spanned};
+use swc_common::{BytePos, Span};
 use swc_ecma_ast::{
     BinaryOp, CallExpr, Expr, ExprOrSpread, JSXAttr, JSXAttrName, JSXAttrValue, JSXExpr, Lit,
     OptCall, OptChainBase, Prop, PropName, PropOrSpread, Tpl,
@@ -13,7 +13,7 @@ use wax_lang_api::TokenMatch;
 
 use crate::component_scope::{ComponentDefinition, parent_for_span, peel_expr};
 use crate::swc_parse::ParsedReactModule;
-use crate::tailwind_theme::{top_level_delimiters, utility_token};
+use crate::tailwind_theme::{top_level_delimiters, utility_tokens};
 
 pub(crate) fn collect_class_token_sites(
     parsed: &ParsedReactModule,
@@ -96,7 +96,7 @@ impl ClassTokenCollector<'_> {
                 self.collect_expr(&conditional.alt, object_keys);
             }
             Expr::Bin(binary) if binary.op == BinaryOp::Add => {
-                self.collect_static_concat(expr);
+                self.collect_concat(expr);
             }
             Expr::Bin(binary)
                 if matches!(
@@ -141,12 +141,15 @@ impl ClassTokenCollector<'_> {
         }
     }
 
+    /// `cn`/`clsx`-style objects map class keys to conditions, while
+    /// `cva`/`tv` configuration objects carry classes in their values.
     fn collect_property(&mut self, property: &Prop, object_keys: bool) {
         let key = match property {
-            Prop::KeyValue(property) => {
+            Prop::KeyValue(property) if !object_keys => {
                 self.collect_expr(&property.value, object_keys);
-                &property.key
+                return;
             }
+            Prop::KeyValue(property) => &property.key,
             Prop::Method(property) => &property.key,
             Prop::Getter(property) => &property.key,
             Prop::Setter(property) => &property.key,
@@ -168,69 +171,75 @@ impl ClassTokenCollector<'_> {
     }
 
     fn collect_string(&mut self, span: Span) {
-        let Some(raw) = self.parsed.source_slice_from_span(span) else {
-            return;
-        };
-        if let Some(text) = raw.get(1..raw.len().saturating_sub(1)) {
-            self.collect_classes(span, span.lo() + BytePos(1), text);
+        if let Some(text) = self.string_text(span) {
+            self.collect_classes(span, span.lo() + BytePos(1), &text);
         }
     }
 
-    fn collect_static_concat(&mut self, expr: &Expr) {
-        fn flatten<'a>(expr: &'a Expr, parts: &mut Vec<&'a Expr>) -> bool {
-            let Expr::Bin(binary) = peel_expr(expr) else {
-                parts.push(peel_expr(expr));
-                return matches!(peel_expr(expr), Expr::Lit(Lit::Str(_)));
-            };
-            if binary.op != BinaryOp::Add {
-                parts.push(peel_expr(expr));
-                return false;
+    fn string_text(&self, span: Span) -> Option<String> {
+        let raw = self.parsed.source_slice_from_span(span)?;
+        raw.get(1..raw.len().saturating_sub(1)).map(str::to_owned)
+    }
+
+    /// Tailwind only generates classes that appear whole in source, so each
+    /// operand is scanned on its own and fragments joined across an operand
+    /// boundary without whitespace are excluded, as in templates.
+    fn collect_concat(&mut self, expr: &Expr) {
+        fn flatten<'a>(expr: &'a Expr, parts: &mut Vec<&'a Expr>) {
+            match peel_expr(expr) {
+                Expr::Bin(binary) if binary.op == BinaryOp::Add => {
+                    flatten(&binary.left, parts);
+                    flatten(&binary.right, parts);
+                }
+                part => parts.push(part),
             }
-            flatten(&binary.left, parts) && flatten(&binary.right, parts)
         }
 
         let mut parts = Vec::new();
-        if !flatten(expr, &mut parts) {
-            return;
+        flatten(expr, &mut parts);
+        let texts = parts
+            .iter()
+            .map(|part| match part {
+                Expr::Lit(Lit::Str(literal)) => self
+                    .string_text(literal.span)
+                    .map(|text| (literal.span, text)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let whitespace = |ch: char| ch.is_ascii_whitespace();
+        let separated = |left: usize| {
+            texts[left]
+                .as_ref()
+                .is_some_and(|(_, text)| text.ends_with(whitespace))
+                || texts[left + 1]
+                    .as_ref()
+                    .is_some_and(|(_, text)| text.starts_with(whitespace))
+        };
+        let last = parts.len() - 1;
+        for (index, part) in parts.iter().enumerate() {
+            let open_start = index > 0 && !separated(index - 1);
+            let open_end = index < last && !separated(index);
+            match &texts[index] {
+                Some((span, text)) => {
+                    self.collect_bounded(*span, span.lo() + BytePos(1), text, open_start, open_end)
+                }
+                None if !open_start && !open_end => self.collect_expr(part, false),
+                None => {}
+            }
         }
-        let mut combined = String::new();
-        for part in parts {
-            let Expr::Lit(Lit::Str(literal)) = part else {
-                return;
-            };
-            let Some(raw) = self.parsed.source_slice_from_span(literal.span) else {
-                return;
-            };
-            let Some(text) = raw.get(1..raw.len().saturating_sub(1)) else {
-                return;
-            };
-            combined.push_str(text);
-        }
-        // A synthetic span is only used to deduplicate and attribute the
-        // resulting complete classes to the concatenation expression.
-        let span = expr.span();
-        self.collect_classes(span, span.lo(), &combined);
     }
 
     fn collect_template(&mut self, template: &Tpl) {
         let whitespace = |ch: char| ch.is_ascii_whitespace();
         for (index, quasi) in template.quasis.iter().enumerate() {
-            // SWC's quasi spans already exclude delimiters. Ignore fragments
-            // that touch an interpolation without intervening whitespace.
-            let raw = quasi.raw.as_ref();
-            let start = if index == 0 {
-                0
-            } else {
-                raw.find(whitespace).unwrap_or(raw.len())
-            };
-            let end = if quasi.tail {
-                raw.len()
-            } else {
-                raw.rfind(whitespace).unwrap_or(0)
-            };
-            if let Some(text) = raw.get(start..end) {
-                self.collect_classes(quasi.span, quasi.span.lo() + BytePos(start as u32), text);
-            }
+            // SWC's quasi spans already exclude delimiters.
+            self.collect_bounded(
+                quasi.span,
+                quasi.span.lo(),
+                quasi.raw.as_ref(),
+                index > 0,
+                !quasi.tail,
+            );
         }
         for (index, expr) in template.exprs.iter().enumerate() {
             let left = template.quasis.get(index).is_some_and(|quasi| {
@@ -245,6 +254,32 @@ impl ClassTokenCollector<'_> {
         }
     }
 
+    /// Collects classes from `text`, ignoring fragments at an open edge that
+    /// join a neighbouring expression without intervening whitespace.
+    fn collect_bounded(
+        &mut self,
+        span: Span,
+        start: BytePos,
+        text: &str,
+        open_start: bool,
+        open_end: bool,
+    ) {
+        let whitespace = |ch: char| ch.is_ascii_whitespace();
+        let from = if open_start {
+            text.find(whitespace).unwrap_or(text.len())
+        } else {
+            0
+        };
+        let to = if open_end {
+            text.rfind(whitespace).unwrap_or(0)
+        } else {
+            text.len()
+        };
+        if let Some(text) = text.get(from..to) {
+            self.collect_classes(span, start + BytePos(from as u32), text);
+        }
+    }
+
     fn collect_classes(&mut self, span: Span, start: BytePos, text: &str) {
         if !self.seen.insert(span) {
             return;
@@ -256,9 +291,11 @@ impl ClassTokenCollector<'_> {
             if class.is_empty() || class.contains("${") {
                 continue;
             }
-            let Some(token) = utility_token(normalize_class(class), self.css_tokens) else {
+            let (utility, modifier) = normalize_class(class);
+            let tokens = utility_tokens(utility, modifier, self.css_tokens);
+            if tokens.is_empty() {
                 continue;
-            };
+            }
             let class_start = start + BytePos(class_offset as u32);
             let Some(location) = self
                 .parsed
@@ -266,39 +303,48 @@ impl ClassTokenCollector<'_> {
             else {
                 continue;
             };
-            self.sites.push(TokenSite {
-                id: format!(
-                    "token.react:{}:{}:{}:{}",
-                    location.file,
-                    location.line,
-                    location.column.unwrap_or(0),
-                    token.token_id
-                ),
-                location,
-                token_id: token.token_id.clone(),
-                key: token.key.clone(),
-                category: token.category,
-                parent: parent_for_span(self.parsed, self.components, span),
-            });
+            let parent = parent_for_span(self.parsed, self.components, span);
+            for token in tokens {
+                self.sites.push(TokenSite {
+                    id: format!(
+                        "token.react:{}:{}:{}:{}",
+                        location.file,
+                        location.line,
+                        location.column.unwrap_or(0),
+                        token.token_id
+                    ),
+                    location: location.clone(),
+                    token_id: token.token_id.clone(),
+                    key: token.key.clone(),
+                    category: token.category,
+                    parent: parent.clone(),
+                });
+            }
         }
     }
 }
 
-fn normalize_class(class: &str) -> &str {
+/// Strips variants and the important flag, returning the utility and its
+/// optional `/` modifier.
+fn normalize_class(class: &str) -> (&str, Option<&str>) {
     let class = class.strip_prefix('!').unwrap_or(class);
     let class = class.strip_suffix('!').unwrap_or(class);
     let mut start = 0;
-    let mut end = class.len();
+    let mut slash = None;
     for (offset, delimiter) in top_level_delimiters(class) {
         match delimiter {
             b':' => {
                 start = offset + 1;
-                end = class.len();
+                slash = None;
             }
-            b'/' if end == class.len() => end = offset,
+            b'/' if slash.is_none() => slash = Some(offset),
             _ => {}
         }
     }
-    let utility = &class[start..end];
-    utility.strip_prefix('-').unwrap_or(utility)
+    let (utility, modifier) = match slash {
+        Some(slash) => (&class[start..slash], Some(&class[slash + 1..])),
+        None => (&class[start..], None),
+    };
+    let utility = utility.strip_prefix('-').unwrap_or(utility);
+    (utility, modifier.filter(|modifier| !modifier.is_empty()))
 }

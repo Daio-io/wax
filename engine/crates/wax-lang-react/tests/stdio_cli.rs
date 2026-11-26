@@ -1344,10 +1344,47 @@ fn stdio_scan_preserves_complete_classes_across_concatenation_and_templates() {
     let facts = scan_tailwind_fixture(
         r#"export const App = () => <div className={cn(
   "bg-main" + "-hover",
+  "bg-" + "main",
+  "bg-main " + "bg-alt" + tone + "bg-main",
+  "bg-main-hover " + (on ? "bg-alt" : "bg-main") + " bg-main-hover",
+  "bg-alt " + tone + " bg-alt",
   `${on ? "bg-main" : "bg-alt"}`,
   `bg-${tone}`
 )} />;"#,
-        &["color-main", "color-main-hover", "color-alt"],
+        &["color-main", "color-main-hover", "color-alt", "color-hover"],
+    );
+    let sites = facts
+        .token_sites
+        .iter()
+        .map(|site| (site.location.line, site.token_id.as_str()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        sites,
+        [
+            (4, "css.color-main"),
+            (5, "css.color-main-hover"),
+            (5, "css.color-alt"),
+            (5, "css.color-main"),
+            (5, "css.color-main-hover"),
+            (6, "css.color-alt"),
+            (6, "css.color-alt"),
+            (7, "css.color-main"),
+            (7, "css.color-alt"),
+        ]
+    );
+}
+
+#[test]
+fn stdio_scan_counts_registered_numeric_tokens_but_not_derived_spacing() {
+    let facts = scan_tailwind_fixture(
+        r#"export const App = () => <div className="bg-500 font-400 p-500 m-4 w-1/2 bg-500/50" />;"#,
+        &[
+            "color-500",
+            "font-weight-400",
+            "spacing-500",
+            "spacing",
+            "spacing-1",
+        ],
     );
     let tokens = facts
         .token_sites
@@ -1356,22 +1393,76 @@ fn stdio_scan_preserves_complete_classes_across_concatenation_and_templates() {
         .collect::<Vec<_>>();
     assert_eq!(
         tokens,
-        ["css.color-main-hover", "css.color-main", "css.color-alt"]
+        [
+            "css.color-500",
+            "css.font-weight-400",
+            "css.spacing-500",
+            "css.color-500",
+        ]
     );
 }
 
 #[test]
-fn stdio_scan_counts_registered_numeric_color_and_font_weight_tokens() {
+fn stdio_scan_counts_tokens_referenced_by_slash_modifiers() {
     let facts = scan_tailwind_fixture(
-        r#"export const App = () => <div className="bg-500 font-400 p-500" />;"#,
-        &["color-500", "font-weight-400", "spacing-500"],
+        r#"export const App = () => <div className="
+text-sm/(--body-leading) md:text-sm/tight text-main/tight bg-main/[var(--alpha)]
+bg-main/(--color-main) text-sm/6 text-(--body-leading)/tight
+" />;"#,
+        &[
+            "text-sm",
+            "body-leading",
+            "leading-tight",
+            "color-main",
+            "alpha",
+        ],
     );
-    let tokens = facts
+    let sites = facts
         .token_sites
         .iter()
-        .map(|site| site.token_id.as_str())
+        .map(|site| (site.location.line, site.token_id.as_str()))
         .collect::<Vec<_>>();
-    assert_eq!(tokens, ["css.color-500", "css.font-weight-400"]);
+    assert_eq!(
+        sites,
+        [
+            (2, "css.body-leading"),
+            (2, "css.text-sm"),
+            (2, "css.leading-tight"),
+            (2, "css.text-sm"),
+            (2, "css.color-main"),
+            (2, "css.alpha"),
+            (2, "css.color-main"),
+            (3, "css.color-main"),
+            (3, "css.text-sm"),
+            (3, "css.body-leading"),
+        ]
+    );
+}
+
+#[test]
+fn stdio_scan_ignores_condition_values_in_class_helper_objects() {
+    let facts = scan_tailwind_fixture(
+        r#"const a = clsx({ "bg-main": status === "bg-alt", "bg-other": pick("bg-alt") });
+const b = cn({ "bg-main": on ? "bg-alt" : "bg-alt" });
+const c = cva("bg-main", { variants: { tone: { alt: "bg-alt" } } });
+"#,
+        &["color-main", "color-alt", "color-other"],
+    );
+    let sites = facts
+        .token_sites
+        .iter()
+        .map(|site| (site.location.line, site.token_id.as_str()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        sites,
+        [
+            (1, "css.color-main"),
+            (1, "css.color-other"),
+            (2, "css.color-main"),
+            (3, "css.color-main"),
+            (3, "css.color-alt"),
+        ]
+    );
 }
 
 #[test]
@@ -1483,6 +1574,7 @@ bg-red-500 p-4 bg-[#fff] ring-offset-missing
             "css.aspect-card",
             "css.ease-smooth",
             "css.animate-fade",
+            "css.spacing-4",
         ]
     );
 }

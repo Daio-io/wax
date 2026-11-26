@@ -184,26 +184,60 @@ const UTILITIES: &[(&str, &[&str])] = &[
     ("animate", &["animate"]),
 ];
 
-pub(crate) fn utility_token<'a>(
+/// Registered tokens a Tailwind utility and its optional `/` modifier reference.
+pub(crate) fn utility_tokens<'a>(
     utility: &str,
+    modifier: Option<&str>,
     css_tokens: &'a BTreeMap<String, TokenMatch>,
-) -> Option<&'a TokenMatch> {
-    let (_, value, namespaces) = UTILITIES
+) -> Vec<&'a TokenMatch> {
+    let Some((prefix, value, namespaces)) = UTILITIES
         .iter()
         .filter_map(|&(prefix, namespaces)| {
             let value = utility.strip_prefix(prefix)?.strip_prefix('-')?;
             (!value.is_empty()).then_some((prefix, value, namespaces))
         })
-        .max_by_key(|(prefix, _, _)| prefix.len())?;
-    if value.starts_with(['[', '(']) {
-        return css_tokens.get(arbitrary_property(value)?);
+        .max_by_key(|(prefix, _, _)| prefix.len())
+    else {
+        return Vec::new();
+    };
+    let is_number = |text: &str| text.bytes().all(|byte| byte.is_ascii_digit());
+    if namespaces.contains(&"spacing") && modifier.is_some_and(is_number) && is_number(value) {
+        // `w-1/2` is the fraction `1/2`, not `--spacing-1` with a modifier.
+        return Vec::new();
     }
-    if namespaces.contains(&"spacing") && value.bytes().all(|byte| byte.is_ascii_digit()) {
-        return None;
-    }
-    namespaces
-        .iter()
-        .find_map(|namespace| css_tokens.get(&format!("--{namespace}-{value}")))
+    let (namespace, base) = if value.starts_with(['[', '(']) {
+        (
+            None,
+            arbitrary_property(value).and_then(|property| css_tokens.get(property)),
+        )
+    } else {
+        // An explicitly registered numeric token such as `--spacing-4` wins;
+        // deriving `p-4` from the base `--spacing` scale is out of scope.
+        namespaces
+            .iter()
+            .find_map(|&namespace| {
+                css_tokens
+                    .get(&format!("--{namespace}-{value}"))
+                    .map(|token| (Some(namespace), Some(token)))
+            })
+            .unwrap_or((None, None))
+    };
+    let modifier = modifier.and_then(|modifier| {
+        if modifier.starts_with(['[', '(']) {
+            css_tokens.get(arbitrary_property(modifier)?)
+        } else if prefix == "text" && namespace != Some("color") && !value.starts_with(['[', '(']) {
+            // A named font-size modifier selects a line height.
+            css_tokens.get(&format!("--leading-{modifier}"))
+        } else {
+            None
+        }
+    });
+    let mut tokens = Vec::with_capacity(2);
+    tokens.extend(base);
+    tokens.extend(
+        modifier.filter(|modifier| base.is_none_or(|base| base.token_id != modifier.token_id)),
+    );
+    tokens
 }
 
 fn arbitrary_property(value: &str) -> Option<&str> {
