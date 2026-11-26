@@ -855,7 +855,11 @@ fn stdio_scan_ignores_css_without_eligible_unscoped_keys() {
         ".a { color: var(--blue-9); }\n.broken { color: ",
     )
     .unwrap();
-    fs::write(repo.path().join("src/index.ts"), "export const x = 1;\n").unwrap();
+    fs::write(
+        repo.path().join("src/index.tsx"),
+        r#"export const App = () => <div className="bg-(--blue-9)" />;"#,
+    )
+    .unwrap();
     let facts = scan_css_fixture(
         repo.path(),
         &[
@@ -1022,7 +1026,7 @@ fn stdio_scan_excludes_owned_component_and_style_facts() {
         root.join("src/components/ui/button.tsx"),
         r##"export function Button() { return <button />; }
 export function AlertDialog() {
-    return <Button style={{ color: "#fff", background: theme.blue }} />;
+    return <Button className="bg-(--blue-9)" style={{ color: "#fff", background: theme.blue }} />;
 }"##,
     )
     .unwrap();
@@ -1074,6 +1078,10 @@ export function App() { return <Button style={{ color: "#000", background: theme
             "{file}"
         );
     }
+
+    assert!(baseline.token_sites.iter().any(|site| {
+        site.location.file == "src/components/ui/button.tsx" && site.token_id == "css.blue-9"
+    }));
 
     config["packages"] = json!({"copied-ui": {"exports": {"./*": "src/components/ui/*"}}});
     let facts = scan_package_fixture(root, config);
@@ -1237,4 +1245,278 @@ export function App() { return <><Button /><Card /><Dialog /></>; }"#,
     for text in ["a-ui", "b-ui", "src/ui/button.tsx"] {
         assert!(warning.message.contains(text), "{warning:?}");
     }
+}
+
+fn scan_tailwind_fixture(source: &str, properties: &[&str]) -> wax_contract::ScanFacts {
+    let repo = tempfile::tempdir().unwrap();
+    fs::create_dir_all(repo.path().join("src/nested")).unwrap();
+    fs::write(repo.path().join("src/App.tsx"), source).unwrap();
+    let tokens = properties
+        .iter()
+        .map(|property| {
+            json!({
+                "id": format!("css.{property}"),
+                "key": format!("var(--{property})"),
+                "category": "color"
+            })
+        })
+        .collect::<Vec<_>>();
+    let facts = scan_css_fixture(repo.path(), &tokens);
+    assert_eq!(facts.status, ScanStatus::Complete);
+    facts
+}
+
+#[test]
+fn stdio_scan_attributes_tailwind_class_to_its_column_and_component() {
+    let facts = scan_tailwind_fixture(
+        r#"export const App = () => <div className="hover:bg-main/50" />;"#,
+        &["color-main"],
+    );
+    let [site] = facts.token_sites.as_slice() else {
+        panic!(
+            "expected one Tailwind reference, got {:?}",
+            facts.token_sites
+        );
+    };
+
+    assert_eq!(site.id, "token.react:src/App.tsx:1:42:css.color-main");
+    assert_eq!(site.key, "var(--color-main)");
+    assert_eq!(site.category, wax_contract::TokenCategory::Color);
+    assert_eq!(site.parent.as_ref().unwrap().symbol, "App");
+}
+
+#[test]
+fn stdio_scan_reads_class_expressions_and_helper_arguments() {
+    let facts = scan_tailwind_fixture(
+        r#"const label = "bg-ignored";
+const a = cn(on ? "bg-main" : "bg-alt");
+const b = clsx({ "bg-conditional": on, ["bg-computed"]: on });
+const c = cva("bg-main", { variants: { "bg-ignored": { main: "bg-alt" } } });
+const d = tv({ base: "bg-main", variants: { "bg-ignored": { main: "bg-alt" } } });
+const e = twMerge({ "bg-ignored": "bg-main" });
+const f = helpers.cn("bg-ignored");
+export const App = () => <div className={cn(
+    cn("bg-main"), ["bg-alt" as string], on && ("bg-main" + " bg-alt"),
+    make("bg-main"), () => "bg-ignored", <div title="bg-ignored" />,
+    tv({ "bg-ignored": "bg-main" })
+)} />;
+export const Other = () => <div class={on ? "bg-alt" : "bg-main"} />;
+"#,
+        &[
+            "color-main",
+            "color-alt",
+            "color-conditional",
+            "color-computed",
+            "color-ignored",
+        ],
+    );
+    let sites = facts
+        .token_sites
+        .iter()
+        .map(|site| (site.location.line, site.token_id.as_str()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        sites,
+        [
+            (2, "css.color-main"),
+            (2, "css.color-alt"),
+            (3, "css.color-conditional"),
+            (3, "css.color-computed"),
+            (4, "css.color-main"),
+            (4, "css.color-alt"),
+            (5, "css.color-main"),
+            (5, "css.color-alt"),
+            (6, "css.color-main"),
+            (9, "css.color-main"),
+            (9, "css.color-alt"),
+            (9, "css.color-main"),
+            (9, "css.color-alt"),
+            (10, "css.color-main"),
+            (11, "css.color-main"),
+            (13, "css.color-alt"),
+            (13, "css.color-main"),
+        ]
+    );
+}
+
+#[test]
+fn stdio_scan_locates_complete_static_classes_in_templates() {
+    let facts = scan_tailwind_fixture(
+        r#"export const App = () => <div className={cn(`bg-main bg-main`, `
+  é bg-main
+  bg-ignored${value}bg-ignored
+  ${value} bg-main
+  bg-ignored\${value}
+`)} />;
+"#,
+        &["color-main", "color-ignored"],
+    );
+    let sites = facts
+        .token_sites
+        .iter()
+        .map(|site| {
+            (
+                site.location.line,
+                site.location.column,
+                site.token_id.as_str(),
+                site.parent.as_ref().unwrap().symbol.as_str(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        sites,
+        [
+            (1, Some(46), "css.color-main", "App"),
+            (1, Some(54), "css.color-main", "App"),
+            (2, Some(5), "css.color-main", "App"),
+            (4, Some(12), "css.color-main", "App"),
+        ]
+    );
+}
+
+#[test]
+fn stdio_scan_resolves_tailwind_utilities_in_namespace_order() {
+    let facts = scan_tailwind_fixture(
+        r#"export const App = () => <div className="
+bg-main text-sm text-main-foreground shadow-shadow font-base tracking-wide leading-tight rounded-ee-base
+inset-shadow-soft drop-shadow-soft text-shadow-soft ring-offset-edge border-x-edge
+gap-x-room max-h-room max-w-room min-w-flex scroll-mt-room scroll-px-room
+blur-soft perspective-near aspect-card ease-smooth animate-fade
+bg-red-500 p-4 bg-[#fff] ring-offset-missing
+" />;"#,
+        &[
+            "color-main",
+            "text-sm",
+            "color-sm",
+            "color-main-foreground",
+            "shadow-shadow",
+            "color-shadow",
+            "font-weight-base",
+            "font-base",
+            "tracking-wide",
+            "leading-tight",
+            "radius-base",
+            "inset-shadow-soft",
+            "drop-shadow-soft",
+            "text-shadow-soft",
+            "color-soft",
+            "spacing-shadow-soft",
+            "color-edge",
+            "color-offset-edge",
+            "color-x-edge",
+            "spacing-room",
+            "container-room",
+            "spacing-flex",
+            "blur-soft",
+            "perspective-near",
+            "aspect-card",
+            "ease-smooth",
+            "animate-fade",
+            "spacing-4",
+            "color-offset-missing",
+        ],
+    );
+    let tokens = facts
+        .token_sites
+        .iter()
+        .map(|site| site.token_id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        tokens,
+        [
+            "css.color-main",
+            "css.text-sm",
+            "css.color-main-foreground",
+            "css.shadow-shadow",
+            "css.font-weight-base",
+            "css.tracking-wide",
+            "css.leading-tight",
+            "css.radius-base",
+            "css.inset-shadow-soft",
+            "css.drop-shadow-soft",
+            "css.text-shadow-soft",
+            "css.color-edge",
+            "css.color-edge",
+            "css.spacing-room",
+            "css.spacing-room",
+            "css.container-room",
+            "css.spacing-flex",
+            "css.spacing-room",
+            "css.spacing-room",
+            "css.blur-soft",
+            "css.perspective-near",
+            "css.aspect-card",
+            "css.ease-smooth",
+            "css.animate-fade",
+        ]
+    );
+}
+
+#[test]
+fn stdio_scan_resolves_tailwind_modifiers_and_direct_css_variables() {
+    let facts = scan_tailwind_fixture(
+        r#"export const App = () => <div className="
+!hover:bg-main/50 hover:bg-main! md:-translate-x-boxShadowX
+[&_[data-size='a:b']]:focus:bg-main/50 group-hover/item:bg-main
+bg-[var(--chart-1)] bg-(--chart-1) bg-(color:--chart-1)
+bg-[color:var(--chart-1)] bg-[var(--chart-1,url(https://example.com/x))]/50
+[&_[data-value=']:/']]:bg-main/[0.5] bg-[var(--chart-1,url('/chart(1.png'))]/50
+bg-[calc(var(--chart-1)*2)] bg-[var(--chart-1,red)_other()] bg-(--missing)
+" />;"#,
+        &["color-main", "spacing-boxShadowX", "chart-1"],
+    );
+    let tokens = facts
+        .token_sites
+        .iter()
+        .map(|site| site.token_id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        tokens,
+        [
+            "css.color-main",
+            "css.color-main",
+            "css.spacing-boxShadowX",
+            "css.color-main",
+            "css.color-main",
+            "css.chart-1",
+            "css.chart-1",
+            "css.chart-1",
+            "css.chart-1",
+            "css.chart-1",
+            "css.color-main",
+            "css.chart-1",
+        ]
+    );
+}
+
+#[test]
+fn stdio_scan_reads_class_helper_object_keys_without_entering_methods() {
+    let facts = scan_tailwind_fixture(
+        r#"const classes = clsx({ "bg-main"() { return "bg-ignored"; } });"#,
+        &["color-main", "color-ignored"],
+    );
+    let tokens = facts
+        .token_sites
+        .iter()
+        .map(|site| site.token_id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(tokens, ["css.color-main"]);
+}
+
+#[test]
+fn stdio_scan_reads_optional_class_helper_calls_by_identifier() {
+    let facts = scan_tailwind_fixture(
+        r#"const classes = clsx?.({ "bg-main": on });
+const variants = cva?.({ "bg-ignored": "bg-main" });
+const ignored = helpers.cn?.("bg-ignored");
+export const App = () => <div className={format?.("bg-main")} />;
+"#,
+        &["color-main", "color-ignored"],
+    );
+    let tokens = facts
+        .token_sites
+        .iter()
+        .map(|site| site.token_id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(tokens, ["css.color-main"; 3]);
 }

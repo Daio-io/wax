@@ -133,6 +133,32 @@ top-level `:root` properties and then the theme declarations.
 Out of scope are `.dark` variants, Tailwind v3 config, and deriving the
 `--spacing` scale from the base spacing token.
 
+#### Tailwind utility classes
+
+React scans count token references in `className` and `class` attributes and in
+calls to `cn`, `clsx`, `classnames`, `classNames`, `cx`, `twMerge`,
+`twJoin`, `cva`, and `tv`. Scans read static class text in strings and
+templates. Within helper calls, `cn`, `clsx`, `classnames`, `classNames`,
+and `cx` also read class names from object keys.
+
+| Utility examples | Theme namespaces in lookup order |
+| --- | --- |
+| `bg-`, `border-`, `ring-`, `fill-`, `from-` | `color` |
+| `text-` | `text`, `color` |
+| `shadow-`, `inset-shadow-`, `drop-shadow-`, `text-shadow-` | Matching shadow namespace, then `color` |
+| `font-` | `font-weight`, `font` |
+| `tracking-`, `leading-` | Matching namespace |
+| `rounded-`, including side and corner utilities | `radius` |
+| Padding, margin, gap, height, inset, translation, and related utilities | `spacing` |
+| `w-`, `min-w-`, `max-w-` | `container`, `spacing` |
+| `blur-`, `perspective-`, `aspect-`, `ease-`, `animate-` | Matching namespace |
+
+For example, `hover:bg-main/50` references `var(--color-main)` when that token
+is registered. Direct references such as `bg-[var(--chart-1)]` and
+`bg-(color:--chart-1)` can match any registered unscoped CSS custom-property
+token. Default palette colors count only when registered. Numeric
+`--spacing` scales and Tailwind v3 configuration are outside this scan's scope.
+
 Publisher files normally live at `.wax/registries/<language-id>.json` and are
 reviewed source. Consuming apps receive registry snapshots through `wax init`
 and `wax sync`; global remembered sources and caches live under `~/.wax/`.

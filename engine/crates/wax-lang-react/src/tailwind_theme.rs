@@ -1,4 +1,4 @@
-//! CSS tokens proven by Tailwind v4 theme declarations.
+//! Tailwind v4 theme declarations and utility namespaces.
 
 use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 use std::path::{Path, PathBuf};
@@ -9,7 +9,7 @@ use wax_contract::{
     RegistrySourceEvidence, RegistryToken, TokenCategory, is_css_custom_property,
 };
 use wax_lang_api::{
-    DISCOVERED_LITERAL_VALUE, discovered_token_marker, refresh_discovered_token_value,
+    DISCOVERED_LITERAL_VALUE, TokenMatch, discovered_token_marker, refresh_discovered_token_value,
 };
 
 use crate::css_token_extract::{css_parser, first_error, source_location};
@@ -66,6 +66,207 @@ pub(crate) fn theme_namespace(property: &str) -> Option<ThemeNamespace> {
         .map(|&(prefix, category)| ThemeNamespace { prefix, category })
         .max_by_key(|namespace| namespace.prefix.len())?;
     (property.len() > namespace.prefix.len()).then_some(namespace)
+}
+
+const UTILITIES: &[(&str, &[&str])] = &[
+    ("bg", &["color"]),
+    ("border", &["color"]),
+    ("border-x", &["color"]),
+    ("border-y", &["color"]),
+    ("border-t", &["color"]),
+    ("border-r", &["color"]),
+    ("border-b", &["color"]),
+    ("border-l", &["color"]),
+    ("border-s", &["color"]),
+    ("border-e", &["color"]),
+    ("outline", &["color"]),
+    ("ring", &["color"]),
+    ("ring-offset", &["color"]),
+    ("inset-ring", &["color"]),
+    ("divide", &["color"]),
+    ("fill", &["color"]),
+    ("stroke", &["color"]),
+    ("decoration", &["color"]),
+    ("accent", &["color"]),
+    ("caret", &["color"]),
+    ("placeholder", &["color"]),
+    ("from", &["color"]),
+    ("via", &["color"]),
+    ("to", &["color"]),
+    ("text", &["text", "color"]),
+    ("shadow", &["shadow", "color"]),
+    ("inset-shadow", &["inset-shadow", "color"]),
+    ("drop-shadow", &["drop-shadow", "color"]),
+    ("text-shadow", &["text-shadow", "color"]),
+    ("font", &["font-weight", "font"]),
+    ("tracking", &["tracking"]),
+    ("leading", &["leading"]),
+    ("rounded", &["radius"]),
+    ("rounded-t", &["radius"]),
+    ("rounded-r", &["radius"]),
+    ("rounded-b", &["radius"]),
+    ("rounded-l", &["radius"]),
+    ("rounded-s", &["radius"]),
+    ("rounded-e", &["radius"]),
+    ("rounded-tl", &["radius"]),
+    ("rounded-tr", &["radius"]),
+    ("rounded-br", &["radius"]),
+    ("rounded-bl", &["radius"]),
+    ("rounded-ss", &["radius"]),
+    ("rounded-se", &["radius"]),
+    ("rounded-es", &["radius"]),
+    ("rounded-ee", &["radius"]),
+    ("p", &["spacing"]),
+    ("px", &["spacing"]),
+    ("py", &["spacing"]),
+    ("pt", &["spacing"]),
+    ("pr", &["spacing"]),
+    ("pb", &["spacing"]),
+    ("pl", &["spacing"]),
+    ("ps", &["spacing"]),
+    ("pe", &["spacing"]),
+    ("m", &["spacing"]),
+    ("mx", &["spacing"]),
+    ("my", &["spacing"]),
+    ("mt", &["spacing"]),
+    ("mr", &["spacing"]),
+    ("mb", &["spacing"]),
+    ("ml", &["spacing"]),
+    ("ms", &["spacing"]),
+    ("me", &["spacing"]),
+    ("gap", &["spacing"]),
+    ("gap-x", &["spacing"]),
+    ("gap-y", &["spacing"]),
+    ("space-x", &["spacing"]),
+    ("space-y", &["spacing"]),
+    ("h", &["spacing"]),
+    ("min-h", &["spacing"]),
+    ("max-h", &["spacing"]),
+    ("size", &["spacing"]),
+    ("inset", &["spacing"]),
+    ("inset-x", &["spacing"]),
+    ("inset-y", &["spacing"]),
+    ("top", &["spacing"]),
+    ("right", &["spacing"]),
+    ("bottom", &["spacing"]),
+    ("left", &["spacing"]),
+    ("start", &["spacing"]),
+    ("end", &["spacing"]),
+    ("translate-x", &["spacing"]),
+    ("translate-y", &["spacing"]),
+    ("scroll-m", &["spacing"]),
+    ("scroll-mx", &["spacing"]),
+    ("scroll-my", &["spacing"]),
+    ("scroll-mt", &["spacing"]),
+    ("scroll-mr", &["spacing"]),
+    ("scroll-mb", &["spacing"]),
+    ("scroll-ml", &["spacing"]),
+    ("scroll-ms", &["spacing"]),
+    ("scroll-me", &["spacing"]),
+    ("scroll-p", &["spacing"]),
+    ("scroll-px", &["spacing"]),
+    ("scroll-py", &["spacing"]),
+    ("scroll-pt", &["spacing"]),
+    ("scroll-pr", &["spacing"]),
+    ("scroll-pb", &["spacing"]),
+    ("scroll-pl", &["spacing"]),
+    ("scroll-ps", &["spacing"]),
+    ("scroll-pe", &["spacing"]),
+    ("indent", &["spacing"]),
+    ("basis", &["spacing"]),
+    ("w", &["container", "spacing"]),
+    ("min-w", &["container", "spacing"]),
+    ("max-w", &["container", "spacing"]),
+    ("blur", &["blur"]),
+    ("perspective", &["perspective"]),
+    ("aspect", &["aspect"]),
+    ("ease", &["ease"]),
+    ("animate", &["animate"]),
+];
+
+pub(crate) fn utility_token<'a>(
+    utility: &str,
+    css_tokens: &'a BTreeMap<String, TokenMatch>,
+) -> Option<&'a TokenMatch> {
+    let (_, value, namespaces) = UTILITIES
+        .iter()
+        .filter_map(|&(prefix, namespaces)| {
+            let value = utility.strip_prefix(prefix)?.strip_prefix('-')?;
+            (!value.is_empty()).then_some((prefix, value, namespaces))
+        })
+        .max_by_key(|(prefix, _, _)| prefix.len())?;
+    if value.starts_with(['[', '(']) {
+        return css_tokens.get(arbitrary_property(value)?);
+    }
+    if value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    namespaces
+        .iter()
+        .find_map(|namespace| css_tokens.get(&format!("--{namespace}-{value}")))
+}
+
+fn arbitrary_property(value: &str) -> Option<&str> {
+    let property = if let Some(inner) = value.strip_prefix('(') {
+        without_type_hint(inner.strip_suffix(')')?)
+    } else {
+        let inner = value.strip_prefix('[')?.strip_suffix(']')?;
+        let call = without_type_hint(inner).strip_prefix("var(")?;
+        let close = top_level_delimiters(call)
+            .find(|&(_, byte)| byte == b')')?
+            .0;
+        if close + 1 != call.len() {
+            return None;
+        }
+        call[..close].split(',').next()?
+    };
+    is_css_custom_property(property).then_some(property)
+}
+
+fn without_type_hint(value: &str) -> &str {
+    match value.split_once(':') {
+        Some((hint, rest))
+            if hint.starts_with(|ch: char| ch.is_ascii_alphabetic())
+                && hint
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphabetic() || byte == b'-') =>
+        {
+            rest
+        }
+        _ => value,
+    }
+}
+
+/// Finds delimiters outside bracketed, parenthesized, and quoted content.
+pub(crate) fn top_level_delimiters(value: &str) -> impl Iterator<Item = (usize, u8)> + '_ {
+    let mut depth = 0usize;
+    let mut quote = None;
+    let mut escaped = false;
+    value.bytes().enumerate().filter(move |&(_, byte)| {
+        if escaped {
+            escaped = false;
+            return false;
+        }
+        if byte == b'\\' {
+            escaped = true;
+            return false;
+        }
+        if let Some(delimiter) = quote {
+            if byte == delimiter {
+                quote = None;
+            }
+            return false;
+        }
+
+        match byte {
+            b'\'' | b'"' => quote = Some(byte),
+            b'[' | b'(' => depth += 1,
+            b']' | b')' if depth > 0 => depth -= 1,
+            b':' | b'/' | b')' => return depth == 0,
+            _ => {}
+        }
+        false
+    })
 }
 
 pub(crate) fn discover_theme_tokens(

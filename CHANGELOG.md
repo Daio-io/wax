@@ -103,6 +103,8 @@
   unresolved intersection members.
 - Discover Tailwind v4 theme declarations in CSS under React discovery roots
   as searchable `var(--name)` tokens with resolved values and source evidence.
+- Count registered Tailwind v4 token references in React class attributes and
+  class-helper calls.
 
 - Resolve registry enum values from exported literal-union aliases and
   TypeScript enums imported from relative modules within the discovery roots.
