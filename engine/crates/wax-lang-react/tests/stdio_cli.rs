@@ -867,3 +867,319 @@ fn stdio_scan_ignores_css_without_eligible_unscoped_keys() {
     assert!(facts.token_sites.is_empty());
     assert!(facts.diagnostics.is_empty());
 }
+
+fn scan_package_fixture(repo: &std::path::Path, config: Value) -> wax_contract::ScanFacts {
+    let output = run_stdio_request(&json!({
+        "type": "scan",
+        "api_version": 1,
+        "language_id": "react",
+        "repo_root": repo,
+        "snapshot_id": "snap-copied-package",
+        "config": config
+    }));
+    let WirePackResponse::ScanFacts { facts, .. } = serde_json::from_str(output.trim()).unwrap()
+    else {
+        panic!("expected scan facts, got {output}");
+    };
+    *facts
+}
+
+#[test]
+fn stdio_scan_attributes_copied_components_through_path_imports() {
+    use wax_contract::{MatchStatus, ResolutionEvidenceKind};
+
+    let repo = tempfile::tempdir().unwrap();
+    let root = repo.path();
+    fs::create_dir_all(root.join("src/components/ui")).unwrap();
+    fs::create_dir_all(root.join("src/app")).unwrap();
+    fs::write(
+        root.join("src/components/ui/button.tsx"),
+        "export function Button() { return <button />; }",
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/components/ui/index.ts"),
+        r#"export { Button as Primary } from "./button";"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/app/ui.ts"),
+        r#"export { Primary as Action } from "../components/ui";"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/app/page.tsx"),
+        r#"import { Button as TsButton } from "@/components/ui/button";
+import { Button as RelativeButton } from "../components/ui/button";
+import { Primary as AliasedButton } from "ui";
+import { Action as BarrelButton } from "./ui";
+export function Page() { return <><TsButton /><RelativeButton /><AliasedButton /><BarrelButton /></>; }"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("tsconfig.json"),
+        r#"{"compilerOptions":{"baseUrl":".","paths":{"@/*":["src/*"]}}}"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("react.json"),
+        r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button","package":"neobrutalism-components"}]}"#,
+    )
+    .unwrap();
+
+    let facts = scan_package_fixture(
+        root,
+        json!({
+            "registry": "react.json",
+            "roots": ["src"],
+            "tsconfig": "tsconfig.json",
+            "aliases": {"ui": ["src/components/ui"]},
+            "packages": {"neobrutalism-components": {"exports": {"./*": "src/components/ui/*"}}}
+        }),
+    );
+
+    assert_eq!(facts.usage_sites.len(), 4);
+    for site in facts.usage_sites {
+        assert_eq!(site.match_status, MatchStatus::Resolved, "{}", site.symbol);
+        assert_eq!(site.registry_symbol.as_deref(), Some("Button"));
+        assert_eq!(
+            site.resolution_evidence.kind,
+            ResolutionEvidenceKind::RegistryPackageMatch
+        );
+        assert_eq!(
+            site.resolution_evidence.package.as_deref(),
+            Some("neobrutalism-components")
+        );
+        assert!(
+            site.qualified_symbol
+                .unwrap()
+                .starts_with("neobrutalism-components#")
+        );
+    }
+}
+
+#[test]
+fn stdio_scan_excludes_owned_component_and_style_facts() {
+    let repo = tempfile::tempdir().unwrap();
+    let root = repo.path();
+    fs::create_dir_all(root.join("src/components/ui")).unwrap();
+    fs::write(
+        root.join("src/components/ui/button.tsx"),
+        r##"export function Button() { return <button />; }
+export function AlertDialog() {
+    return <Button style={{ color: "#fff", background: theme.blue }} />;
+}"##,
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/App.tsx"),
+        r##"import { Button } from "./components/ui/button";
+export function App() { return <Button style={{ color: "#000", background: theme.blue }} />; }"##,
+    )
+    .unwrap();
+    for file in ["src/app.css", "src/components/ui/button.css"] {
+        fs::write(root.join(file), ".a { color: var(--blue-9); }").unwrap();
+    }
+    fs::write(
+        root.join("react.json"),
+        r#"{"schema_version":1,"components":[{"id":"ds.button","symbol":"Button"}],"tokens":[{"id":"css.blue-9","key":"var(--blue-9)","category":"color"},{"id":"theme.blue","key":"theme.blue","category":"color"}]}"#,
+    )
+    .unwrap();
+
+    let mut config = json!({"registry": "react.json", "roots": ["src"]});
+    let baseline = scan_package_fixture(root, config.clone());
+    let is_owned = |file: &str| file.starts_with("src/components/ui/");
+    assert!(
+        baseline
+            .usage_sites
+            .iter()
+            .any(|site| is_owned(&site.location.file))
+    );
+    assert!(
+        baseline
+            .local_components
+            .iter()
+            .any(|site| is_owned(&site.location.file))
+    );
+    assert!(
+        baseline
+            .hardcoded_style_sites
+            .iter()
+            .any(|site| is_owned(&site.location.file))
+    );
+    for file in [
+        "src/components/ui/button.tsx",
+        "src/components/ui/button.css",
+    ] {
+        assert!(
+            baseline
+                .token_sites
+                .iter()
+                .any(|site| site.location.file == file),
+            "{file}"
+        );
+    }
+
+    config["packages"] = json!({"copied-ui": {"exports": {"./*": "src/components/ui/*"}}});
+    let facts = scan_package_fixture(root, config);
+    assert_eq!(facts.metrics.files_scanned, 4);
+    assert_eq!(facts.usage_sites.len(), 1);
+    assert_eq!(facts.usage_sites[0].location.file, "src/App.tsx");
+    assert_eq!(
+        facts.usage_sites[0].resolution_evidence.kind,
+        wax_contract::ResolutionEvidenceKind::RegistryNameOnlyLegacy
+    );
+    assert_eq!(
+        facts.usage_sites[0].match_status,
+        wax_contract::MatchStatus::Resolved
+    );
+    assert_eq!(facts.local_components.len(), 1);
+    assert_eq!(facts.local_components[0].location.file, "src/App.tsx");
+    assert_eq!(facts.hardcoded_style_sites.len(), 1);
+    assert_eq!(facts.hardcoded_style_sites[0].location.file, "src/App.tsx");
+    let token_files: Vec<_> = facts
+        .token_sites
+        .iter()
+        .map(|site| site.location.file.as_str())
+        .collect();
+    assert_eq!(token_files, ["src/App.tsx", "src/app.css"]);
+}
+
+#[test]
+fn stdio_scan_reports_parse_failures_in_owned_files() {
+    let repo = tempfile::tempdir().unwrap();
+    let root = repo.path();
+    fs::create_dir_all(root.join("src/ui")).unwrap();
+    fs::write(
+        root.join("src/ui/bad.tsx"),
+        "export function Broken() { return <button><span></button>; }",
+    )
+    .unwrap();
+    fs::write(root.join("src/ui/bad.css"), ".broken { color: ").unwrap();
+    fs::write(
+        root.join("react.json"),
+        r#"{"schema_version":1,"components":[]}"#,
+    )
+    .unwrap();
+
+    let facts = scan_package_fixture(
+        root,
+        json!({
+            "registry": "react.json",
+            "roots": ["src"],
+            "packages": {"copied-ui": {"exports": {"./*": "src/ui/*"}}}
+        }),
+    );
+
+    assert_eq!(facts.status, ScanStatus::Partial);
+    assert_eq!(facts.metrics.files_scanned, 2);
+    let failures: Vec<_> = facts
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code == "parse_failed")
+        .map(|diagnostic| diagnostic.location.as_ref().unwrap().file.as_str())
+        .collect();
+    assert_eq!(failures, ["src/ui/bad.css", "src/ui/bad.tsx"]);
+}
+
+#[test]
+fn stdio_scan_prefers_specific_package_owners_and_warns_on_a_tie() {
+    use wax_contract::{DiagnosticSeverity, MatchStatus, ResolutionEvidenceKind};
+
+    let repo = tempfile::tempdir().unwrap();
+    let root = repo.path();
+    fs::create_dir_all(root.join("src/ui/nested")).unwrap();
+    for (file, symbol) in [
+        ("src/ui/button.tsx", "Button"),
+        ("src/ui/nested/card.tsx", "Card"),
+        ("src/ui/nested/dialog.tsx", "Dialog"),
+    ] {
+        fs::write(
+            root.join(file),
+            format!("export function {symbol}() {{ return <div />; }}"),
+        )
+        .unwrap();
+    }
+    fs::write(
+        root.join("src/App.tsx"),
+        r#"import { Button } from "./ui/button";
+import { Card } from "./ui/nested/card";
+import { Dialog } from "./ui/nested/dialog";
+export function App() { return <><Button /><Card /><Dialog /></>; }"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("react.json"),
+        json!({
+            "schema_version": 1,
+            "components": [
+                {"id":"ds.button","symbol":"Button","package":"a-ui"},
+                {"id":"ds.card","symbol":"Card","package":"a-ui"},
+                {"id":"ds.dialog","symbol":"Dialog","package":"z-exact"}
+            ]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let facts = scan_package_fixture(
+        root,
+        json!({
+            "registry": "react.json",
+            "roots": ["src"],
+            "packages": {
+                "a-ui": {"exports": {"./*": "src/ui/*"}},
+                "b-ui": {"exports": {"./*": "src/ui/*.tsx", "./other/*": "src/ui/*"}},
+                "z-nested": {"exports": {"./*": "src/ui/nested/*"}},
+                "z-exact": {"exports": {".": "src/ui/nested/dialog.tsx"}}
+            }
+        }),
+    );
+    assert_eq!(facts.status, ScanStatus::Complete);
+    assert_eq!(facts.usage_sites.len(), 3);
+    for (symbol, package, status, kind) in [
+        (
+            "Button",
+            "a-ui",
+            MatchStatus::Resolved,
+            ResolutionEvidenceKind::RegistryPackageMatch,
+        ),
+        (
+            "Card",
+            "z-nested",
+            MatchStatus::Unresolved,
+            ResolutionEvidenceKind::PackageMismatch,
+        ),
+        (
+            "Dialog",
+            "z-exact",
+            MatchStatus::Resolved,
+            ResolutionEvidenceKind::RegistryPackageMatch,
+        ),
+    ] {
+        let site = facts
+            .usage_sites
+            .iter()
+            .find(|site| site.symbol == symbol)
+            .unwrap();
+        assert_eq!(
+            site.resolution_evidence.package.as_deref(),
+            Some(package),
+            "{symbol}"
+        );
+        assert_eq!(site.match_status, status, "{symbol}");
+        assert_eq!(site.resolution_evidence.kind, kind, "{symbol}");
+        assert_eq!(
+            site.qualified_symbol.as_deref(),
+            Some(format!("{package}#{symbol}").as_str())
+        );
+    }
+    let [warning] = facts.diagnostics.as_slice() else {
+        panic!("expected one conflict warning, got {:?}", facts.diagnostics);
+    };
+    assert_eq!(warning.severity, DiagnosticSeverity::Warning);
+    assert_eq!(warning.code, "package_ownership_conflict");
+    for text in ["a-ui", "b-ui", "src/ui/button.tsx"] {
+        assert!(warning.message.contains(text), "{warning:?}");
+    }
+}

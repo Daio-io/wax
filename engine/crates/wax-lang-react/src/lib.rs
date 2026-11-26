@@ -180,7 +180,7 @@ impl ReactLanguage {
                     repo_root,
                     &config.roots,
                     &config.ignore,
-                    !registry.css_tokens.is_empty(),
+                    !registry.css_tokens.is_empty() || !config.packages.is_empty(),
                 )?;
                 let mut facts = configured_scan_facts(
                     request,

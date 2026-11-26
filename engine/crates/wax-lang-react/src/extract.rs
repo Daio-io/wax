@@ -28,7 +28,7 @@ use crate::config::ReactScanConfig;
 use crate::discover::{
     ReactWrapperCallees, is_base_ui_package, react_wrapper_callees, resolve_react_bindings,
 };
-use crate::module_graph::{ImportedSymbol, ReactModuleGraph};
+use crate::module_graph::{ImportedSymbol, ReactModuleGraph, ResolvedSymbol};
 use crate::registry::ReactRegistryIndex;
 use crate::style_extract::collect_hardcoded_style_sites;
 use crate::swc_parse::ParsedReactModule;
@@ -50,6 +50,12 @@ pub struct ReactUsageExtraction {
 /// Discovers repo-local React components in parsed modules.
 #[must_use]
 pub fn discover_local_components(parsed_modules: &[ParsedReactModule]) -> Vec<LocalComponent> {
+    discover_local_components_in(parsed_modules.iter())
+}
+
+pub(crate) fn discover_local_components_in<'a>(
+    parsed_modules: impl IntoIterator<Item = &'a ParsedReactModule>,
+) -> Vec<LocalComponent> {
     let mut components = BTreeMap::new();
 
     for parsed in parsed_modules {
@@ -257,6 +263,9 @@ pub fn collect_usage_sites(
     let mut extraction = ReactUsageExtraction::default();
 
     for parsed in parsed_modules {
+        if module_graph.owning_package(&parsed.file).is_some() {
+            continue;
+        }
         let mut candidates = Vec::new();
         for item in &parsed.module.body {
             collect_jsx_usage_candidates_from_module_item(parsed, item, &mut candidates);
@@ -1208,10 +1217,18 @@ fn classify_jsx_usage(
     candidate: &JsxUsageCandidate,
 ) -> Option<ClassifiedJsxUsage> {
     let import = module_graph.import_binding(&parsed.file, &candidate.binding_name);
-    let import_package = import.map(|binding| npm_import_package_root(&binding.source_specifier));
-    let is_external = import.is_some_and(|binding| {
-        binding.source_module.is_none() && !is_path_like_import(&binding.source_specifier)
-    });
+    let resolved = module_graph.resolve_import(&parsed.file, &candidate.binding_name);
+    let owner = import
+        .and_then(|binding| binding.source_module.as_deref())
+        .and_then(|module| module_graph.owning_package(module))
+        .or_else(|| module_graph.owning_package(&resolved.as_ref()?.module));
+    let import_package = owner
+        .map(str::to_owned)
+        .or_else(|| import.map(|binding| npm_import_package_root(&binding.source_specifier)));
+    let is_external = owner.is_none()
+        && import.is_some_and(|binding| {
+            binding.source_module.is_none() && !is_path_like_import(&binding.source_specifier)
+        });
     let observed_path = import
         .filter(|binding| is_external || binding.imported_symbol != ImportedSymbol::Default)
         .and_then(|binding| imported_jsx_path(candidate, &binding.imported_symbol));
@@ -1230,7 +1247,8 @@ fn classify_jsx_usage(
             })
             .map(Cow::Borrowed)
     } else {
-        registry_lookup_name(parsed, module_graph, config, registry, candidate).map(Cow::Owned)
+        registry_lookup_name(parsed, module_graph, config, registry, candidate, resolved)
+            .map(Cow::Owned)
     };
     if name.is_none()
         && candidate.parent_component.is_none()
@@ -1302,9 +1320,9 @@ fn registry_lookup_name(
     config: &ReactScanConfig,
     registry: &ReactRegistryIndex,
     candidate: &JsxUsageCandidate,
+    resolved: Option<ResolvedSymbol>,
 ) -> Option<String> {
     let contains_name = |name: &str| registry.components.contains_name(name);
-    let resolved = module_graph.resolve_import(&parsed.file, &candidate.binding_name);
     if let Some(member) = jsx_member_path(candidate) {
         let import = module_graph.import_binding(&parsed.file, &candidate.binding_name);
         let configured_namespace = resolved.as_ref().filter(|resolved| {

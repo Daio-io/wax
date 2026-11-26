@@ -171,6 +171,10 @@ React discovery follows in-scope package entry points and root indexes to
 report public names such as `Dialog.Root`. Source evidence points to the
 implementation. Roots without an entry point still discover file-local exports.
 
+For components copied into a React app, use the
+[React resolution hints](website/docs/reference/configuration.md#react-resolution-hints)
+to attribute imports to the design-system package.
+
 `--dry-run` prints the merged registry JSON on stdout and structured
 added/updated entry changes on stderr. It never rewrites the existing registry
 file; rediscovery preserves authored ids, metadata, and tokens.

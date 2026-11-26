@@ -9,6 +9,8 @@ pub const DS_IMPORT_UNRESOLVED: &str = "ds_import_unresolved";
 pub const DS_EXPORT_UNRESOLVED: &str = "ds_export_unresolved";
 /// Configured package entrypoint target file is missing.
 pub const PACKAGE_ENTRYPOINT_UNRESOLVED: &str = "package_entrypoint_unresolved";
+/// Multiple configured packages share the longest ownership target prefix.
+pub const PACKAGE_OWNERSHIP_CONFLICT: &str = "package_ownership_conflict";
 /// JSX usage could not be resolved to a registry symbol.
 pub const DS_USAGE_UNRESOLVED: &str = "ds_usage_unresolved";
 
