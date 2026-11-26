@@ -15,7 +15,7 @@ use wax_contract::{
     CalleeOrigin, Diagnostic, HardcodedStyleSite, IdentityStability, LocalComponent, MatchStatus,
     ParentScope, ResolutionEvidence, ResolutionEvidenceKind, SourceLocation, TokenSite, UsageSite,
 };
-use wax_lang_api::{RegistryImportMatch, npm_import_package_root};
+use wax_lang_api::{RegistryImportMatch, classify_registry_usage, npm_import_package_root};
 
 use crate::component_detect::{
     class_returns_jsx, function_returns_jsx, is_pascal_case, module_export_name,
@@ -1276,34 +1276,12 @@ fn classify_jsx_usage(
         .as_deref()
         .and_then(|name| registry.components.resolve(name, import_package.as_deref()));
     let target = registry_match.and_then(|(_, target)| target);
-    let (match_status, callee_origin, evidence_kind) =
-        match registry_match.map(|(classification, _)| classification) {
-            Some(RegistryImportMatch::Resolved) => (
-                MatchStatus::Resolved,
-                CalleeOrigin::Registry,
-                ResolutionEvidenceKind::RegistryPackageMatch,
-            ),
-            Some(RegistryImportMatch::Candidate) => (
-                MatchStatus::Candidate,
-                CalleeOrigin::Registry,
-                ResolutionEvidenceKind::RegistryImportMissing,
-            ),
-            Some(RegistryImportMatch::Mismatch) => (
-                MatchStatus::Unresolved,
-                unresolved_origin(module_graph, parsed, &candidate.binding_name),
-                ResolutionEvidenceKind::PackageMismatch,
-            ),
-            Some(RegistryImportMatch::LegacyNameOnly) => (
-                MatchStatus::Resolved,
-                CalleeOrigin::Registry,
-                ResolutionEvidenceKind::RegistryNameOnlyLegacy,
-            ),
-            None => (
-                MatchStatus::Unresolved,
-                unresolved_origin(module_graph, parsed, &candidate.binding_name),
-                ResolutionEvidenceKind::NoMatchingDefinition,
-            ),
-        };
+    // JS imports are never ambiguous for registry classification.
+    let classification = classify_registry_usage(
+        registry_match.map(|(classification, _)| classification),
+        false,
+        || unresolved_origin(module_graph, parsed, &candidate.binding_name),
+    );
     let qualified_symbol = import_package.as_deref().and_then(|package| {
         let observed = observed_path
             .as_deref()
@@ -1318,11 +1296,11 @@ fn classify_jsx_usage(
     });
     Some(ClassifiedJsxUsage {
         registry_symbol: target.map(|component| component.registry_symbol.clone()),
-        match_status,
+        match_status: classification.match_status,
         qualified_symbol,
-        callee_origin,
+        callee_origin: classification.callee_origin,
         resolution_evidence: ResolutionEvidence {
-            kind: evidence_kind,
+            kind: classification.evidence_kind,
             package: import_package,
         },
     })

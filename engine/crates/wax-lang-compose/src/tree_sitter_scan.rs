@@ -28,8 +28,8 @@ use wax_contract::{
     TokenCategory, TokenSite, UsageSite,
 };
 use wax_lang_api::{
-    RegistryComponentIndex, RegistryImportMatch, RegistryTokenIndex, RootResolutionError,
-    ScanConfig, TokenMatch, normalize_repo_relative_path, path_matches_any, registry_token_index,
+    RegistryComponentIndex, RegistryTokenIndex, RootResolutionError, ScanConfig, TokenMatch,
+    classify_registry_usage, normalize_repo_relative_path, path_matches_any, registry_token_index,
     resolve_source_roots, root_not_found_code, root_not_found_message, scan_registry_components,
     static_dotted_token_path,
 };
@@ -612,54 +612,30 @@ fn visit_component_usage(
                 .registry
                 .components
                 .resolve(&call_symbol, import_package);
-            let (match_status, callee_origin, kind) =
-                match registry_match.map(|(classification, _)| classification) {
-                    Some(RegistryImportMatch::Resolved) => (
-                        MatchStatus::Resolved,
-                        CalleeOrigin::Registry,
-                        ResolutionEvidenceKind::RegistryPackageMatch,
-                    ),
-                    Some(RegistryImportMatch::Candidate) => (
-                        MatchStatus::Candidate,
-                        CalleeOrigin::Registry,
-                        if import_is_ambiguous {
-                            ResolutionEvidenceKind::RegistryImportAmbiguous
-                        } else {
-                            ResolutionEvidenceKind::RegistryImportMissing
-                        },
-                    ),
-                    Some(RegistryImportMatch::LegacyNameOnly) => (
-                        MatchStatus::Resolved,
-                        CalleeOrigin::Registry,
-                        ResolutionEvidenceKind::RegistryNameOnlyLegacy,
-                    ),
-                    mismatch => (
-                        MatchStatus::Unresolved,
-                        unresolved_origin(
-                            import_package,
-                            ctx.package,
-                            &ctx.local_index.scanned_packages,
-                            import_is_ambiguous,
-                        ),
-                        if mismatch.is_some() {
-                            ResolutionEvidenceKind::PackageMismatch
-                        } else {
-                            ResolutionEvidenceKind::NoMatchingDefinition
-                        },
-                    ),
-                };
+            let classification = classify_registry_usage(
+                registry_match.map(|(classification, _)| classification),
+                import_is_ambiguous,
+                || {
+                    unresolved_origin(
+                        import_package,
+                        ctx.package,
+                        &ctx.local_index.scanned_packages,
+                        import_is_ambiguous,
+                    )
+                },
+            );
             ctx.usage_sites.push(UsageSite {
                 id: format!("usage.compose:{}:{line}:{column}:{call_symbol}", ctx.file),
                 location,
                 qualified_symbol: import_package
                     .map(|package| qualified_composable_symbol(Some(package), imported_symbol)),
                 symbol: call_symbol,
-                callee_origin,
+                callee_origin: classification.callee_origin,
                 resolution_evidence: ResolutionEvidence {
-                    kind,
+                    kind: classification.evidence_kind,
                     package: import_package.map(str::to_owned),
                 },
-                match_status,
+                match_status: classification.match_status,
                 registry_symbol: registry_match
                     .and_then(|(_, target)| target)
                     .map(|target| target.registry_symbol.clone()),
