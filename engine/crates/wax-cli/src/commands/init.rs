@@ -1,7 +1,7 @@
 //! `wax init` repository onboarding.
 
 use super::language::{
-    LanguageCommandError, default_target_triple, install_pinned_manifest, manifest_for_language,
+    LanguageCommandError, default_target_triple, install_selected_pack, manifest_for_language,
     resolve_registry_url, update_lockfile_entry,
 };
 use super::wax_home::resolve_wax_home;
@@ -20,6 +20,7 @@ use wax_core::config::repo_files::{
 };
 use wax_core::config::waxrc::WAXRC_SCHEMA_VERSION;
 use wax_core::digest::sha256_hex;
+use wax_core::pack_store::PackStore;
 use wax_core::paths::{PathsError, WaxHome};
 use wax_core::registry::{
     RegistryArtifact, RegistryError, RegistryManifest, fetch_pack_index, select_target_artifact,
@@ -367,12 +368,13 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
         let home = resolve_wax_home(home.as_ref())
             .map_err(wax_core::install::InstallError::from)
             .map_err(LanguageCommandError::from)?;
+        let store = PackStore::new(home);
         for resolved in &resolved_languages {
-            install_pinned_manifest(
+            install_selected_pack(
+                &store,
                 &resolved.manifest,
                 &target,
                 &resolved.artifact,
-                &home,
                 writer,
             )?;
         }

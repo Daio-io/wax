@@ -14,6 +14,7 @@ pub mod defaults;
 pub mod digest;
 pub mod global_state;
 pub mod install;
+pub mod pack_store;
 pub mod paths;
 mod process_control;
 pub mod progress;
@@ -42,16 +43,17 @@ use adoption_merge::{MergeOptions, merge_language_scans_with_options};
 use auto_install::{AutoInstallPolicyInput, InstalledManifest, PackIndexArtifact};
 use config::lockfile::{LockfileError, WaxLock, load_lockfile, save_lockfile};
 use config::waxrc::{WaxRc, WaxRcError, load_waxrc};
-use global_state::{GlobalStateError, InstalledLanguagePack, load_global_state, save_global_state};
-use install::{InstallError, LanguagePackManifestSpec, install_language};
+use global_state::{GlobalStateError, load_global_state};
+use install::InstallError;
+use pack_store::{InstalledManifestFile, PackArtifact, PackStore, PackStoreError};
 use paths::{PathsError, WaxHome};
 use progress::{ScanProgress, ScanProgressEvent};
 use root_group::RootGroups;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -82,25 +84,6 @@ fn resolve_scan_timeout(raw: Option<&str>) -> Duration {
 fn scan_timeout() -> Duration {
     resolve_scan_timeout(std::env::var(SCAN_TIMEOUT_ENV).ok().as_deref())
 }
-#[derive(Debug, Deserialize)]
-struct InstalledManifestFile {
-    id: LanguageId,
-    version: String,
-    api_version: u32,
-    command: Vec<String>,
-    #[serde(default)]
-    target: String,
-    #[serde(default)]
-    sha256: String,
-    #[serde(flatten)]
-    _extra: serde_json::Map<String, serde_json::Value>,
-}
-
-#[derive(Debug)]
-struct InstalledPackScanSpec {
-    command: Vec<String>,
-}
-
 #[derive(Debug)]
 struct ScanJob {
     language_id: LanguageId,
@@ -266,6 +249,27 @@ pub enum EngineError {
     },
 }
 
+impl From<PackStoreError> for EngineError {
+    fn from(error: PackStoreError) -> Self {
+        match error {
+            PackStoreError::Install(error) => Self::Install(error),
+            PackStoreError::GlobalState(error) => Self::GlobalState(error),
+            PackStoreError::Paths(error) => Self::Paths(error),
+            PackStoreError::ManifestRead { path, source } => {
+                Self::InstalledManifest { path, source }
+            }
+            PackStoreError::ManifestMismatch {
+                language_id,
+                expected_version,
+            } => Self::InstalledManifestMismatch {
+                language_id,
+                expected_version,
+            },
+            PackStoreError::Cleanup { path, source } => Self::InstallCleanup { path, source },
+        }
+    }
+}
+
 impl Engine {
     /// Scans a repository by running enabled language packs.
     ///
@@ -361,7 +365,8 @@ impl Engine {
             None => WaxHome::from_env()?,
         };
         let state_path = home.state_file();
-        let mut state = load_global_state(&state_path)?;
+        let state = load_global_state(&state_path)?;
+        let store = PackStore::new(home);
 
         let mut enabled_ids = BTreeSet::new();
         let mut language_configs = BTreeMap::new();
@@ -487,19 +492,16 @@ impl Engine {
                     &policy_with_auto_install.needs_install,
                     &lockfile,
                     &pack_index_artifacts,
-                    &home,
-                    &state_path,
+                    &store,
                     &progress,
                 )?;
-                state = load_global_state(&state_path)?;
             }
         }
 
         let mut jobs = Vec::new();
         for language_id in enabled_ids {
             let locked = &lockfile.languages[&language_id];
-            let pack_spec =
-                load_installed_manifest_for_locked(&state, &language_id, &locked.version)?;
+            let pack_spec = store.installed(&language_id, &locked.version)?;
             let config = language_configs.remove(&language_id).unwrap_or_default();
             jobs.push(ScanJob {
                 language_id,
@@ -795,33 +797,16 @@ fn collect_installed_manifests(
 ) -> Result<BTreeMap<LanguageId, Vec<InstalledManifest>>, EngineError> {
     let mut by_language = BTreeMap::new();
     for language_id in enabled_ids {
-        if !lockfile.languages.contains_key(language_id) {
-            continue;
-        }
         let Some(locked) = lockfile.languages.get(language_id) else {
             continue;
         };
-        let Some(pack) = state
-            .installed_languages
-            .get(language_id)
-            .and_then(|versions| versions.get(&locked.version))
-        else {
-            continue;
-        };
-
-        let manifest = load_manifest_file(pack.install_dir.join("manifest.json"))?;
-        if manifest.id != *language_id || manifest.version != locked.version {
-            continue;
+        match PackStore::installed_manifest(state, language_id, &locked.version) {
+            Ok((_, manifest)) => {
+                by_language.insert(language_id.clone(), vec![manifest.metadata]);
+            }
+            Err(PackStoreError::ManifestMismatch { .. }) => {}
+            Err(error) => return Err(error.into()),
         }
-        by_language.insert(
-            language_id.clone(),
-            vec![InstalledManifest {
-                version: locked.version.clone(),
-                api_version: manifest.api_version,
-                target: manifest.target.clone(),
-                sha256: manifest.sha256.clone(),
-            }],
-        );
     }
     Ok(by_language)
 }
@@ -860,8 +845,7 @@ fn execute_install_plans(
     plans: &[auto_install::InstallPlan],
     lockfile: &config::lockfile::WaxLock,
     pack_index_artifacts: &BTreeMap<LanguageId, BTreeMap<String, Vec<PackIndexArtifact>>>,
-    home: &WaxHome,
-    state_path: &Path,
+    store: &PackStore,
     progress: &ScanProgress,
 ) -> Result<(), EngineError> {
     for plan in plans {
@@ -887,129 +871,26 @@ fn execute_install_plans(
                 ],
             })?;
 
-        let manifest = LanguagePackManifestSpec {
-            id: plan.language_id.clone(),
-            version: plan.version.clone(),
-            api_version: locked.api_version,
-            command: vec![
-                format!("./wax-lang-{}", plan.language_id),
-                "--stdio".to_owned(),
-            ],
-            ecosystem: plan.language_id.to_string(),
-            parser_name: plan.language_id.to_string(),
-            parser_version: plan.version.clone(),
-        };
-
-        let install_dir = install_language(
+        let installed = store.install(
             &plan.language_id,
             &plan.version,
-            &locked.resolved.target,
-            &locked.resolved.url,
-            &plan.sha256,
-            Some(&artifact.sha256),
-            &manifest,
-            home,
+            PackArtifact {
+                target: &locked.resolved.target,
+                url: &locked.resolved.url,
+                sha256: &plan.sha256,
+                pack_index_sha256: Some(&artifact.sha256),
+                api_version: locked.api_version,
+            },
         )?;
-
-        record_installed_language_or_cleanup(
-            state_path,
-            &plan.language_id,
-            &plan.version,
-            install_dir,
-        )?;
-    }
-    Ok(())
-}
-
-fn record_installed_language_or_cleanup(
-    state_path: &Path,
-    language_id: &LanguageId,
-    version: &str,
-    install_dir: PathBuf,
-) -> Result<(), EngineError> {
-    let record_result = (|| {
-        let mut state = load_global_state(state_path)?;
-        state
-            .installed_languages
-            .entry(language_id.clone())
-            .or_default()
-            .insert(
-                version.to_owned(),
-                InstalledLanguagePack {
-                    install_dir: install_dir.clone(),
-                },
-            );
-        save_global_state(state_path, &state)?;
-        Ok(())
-    })();
-
-    if let Err(err) = record_result {
-        remove_installed_dir(&install_dir)?;
-        return Err(err);
-    }
-
-    Ok(())
-}
-
-fn remove_installed_dir(path: &Path) -> Result<(), EngineError> {
-    match fs::remove_dir_all(path) {
-        Ok(()) => Ok(()),
-        Err(source) if source.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(source) => Err(EngineError::InstallCleanup {
-            path: path.display().to_string(),
-            source,
-        }),
-    }
-}
-
-fn load_installed_manifest_for_locked(
-    state: &global_state::GlobalState,
-    language_id: &LanguageId,
-    expected_version: &str,
-) -> Result<InstalledPackScanSpec, EngineError> {
-    let pack = state
-        .installed_languages
-        .get(language_id)
-        .and_then(|versions| versions.get(expected_version))
-        .ok_or_else(|| EngineError::InstalledManifestMismatch {
-            language_id: language_id.clone(),
-            expected_version: expected_version.to_owned(),
-        })?;
-    let manifest = load_manifest_file(pack.install_dir.join("manifest.json"))?;
-    if manifest.id != *language_id || manifest.version != expected_version {
-        return Err(EngineError::InstalledManifestMismatch {
-            language_id: language_id.clone(),
-            expected_version: expected_version.to_owned(),
-        });
-    }
-    Ok(InstalledPackScanSpec {
-        command: resolve_manifest_command(pack.install_dir.as_path(), manifest.command),
-    })
-}
-
-fn resolve_manifest_command(install_dir: &Path, mut command: Vec<String>) -> Vec<String> {
-    if let Some(primary) = command.first_mut()
-        && let Some(relative) = primary.strip_prefix("./")
-    {
-        let resolved = install_dir.join(relative);
-        *primary = resolved.display().to_string();
-    }
-    command
-}
-
-fn load_manifest_file(path: PathBuf) -> Result<InstalledManifestFile, EngineError> {
-    let path_display = path.display().to_string();
-    let raw = fs::read_to_string(&path).map_err(|source| EngineError::InstalledManifest {
-        path: path_display.clone(),
-        source: Box::new(source),
-    })?;
-    let parsed = serde_json::from_str::<InstalledManifestFile>(&raw).map_err(|source| {
-        EngineError::InstalledManifest {
-            path: path_display,
-            source: Box::new(source),
+        let manifest = InstalledManifestFile::load(&installed.install_dir)?;
+        if !auto_install::installed_manifest_matches_locked(&manifest.metadata, locked) {
+            return Err(InstallError::AlreadyInstalled {
+                path: installed.install_dir.display().to_string(),
+            }
+            .into());
         }
-    })?;
-    Ok(parsed)
+    }
+    Ok(())
 }
 
 fn new_snapshot_id() -> String {
@@ -1069,35 +950,6 @@ mod tests {
         assert_eq!(resolve_scan_timeout(Some("   ")), DEFAULT_SCAN_TIMEOUT);
         assert_eq!(resolve_scan_timeout(Some("-1")), DEFAULT_SCAN_TIMEOUT);
         assert_eq!(resolve_scan_timeout(Some(" 90 ")), Duration::from_secs(90));
-    }
-
-    #[test]
-    fn record_installed_language_cleans_up_when_state_load_fails() {
-        let root = std::env::temp_dir().join(format!(
-            "wax-core-record-cleanup-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let install_dir = root.join("langs/compose/0.1.0");
-        fs::create_dir_all(&install_dir).unwrap();
-        let state_path = root.join("state.json");
-        fs::write(&state_path, "{not valid json").unwrap();
-
-        let language_id = LanguageId::try_from("compose").unwrap();
-        let err = record_installed_language_or_cleanup(
-            &state_path,
-            &language_id,
-            "0.1.0",
-            install_dir.clone(),
-        )
-        .expect_err("malformed state should fail");
-
-        assert!(matches!(err, EngineError::GlobalState(_)));
-        assert!(!install_dir.exists());
-
-        let _ = fs::remove_dir_all(root);
     }
 }
 

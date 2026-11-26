@@ -21,15 +21,17 @@ pub struct AutoInstallPolicyInput {
 }
 
 /// Minimal installed-manifest metadata used by policy evaluation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 pub struct InstalledManifest {
     /// Installed language pack version.
     pub version: String,
     /// Installed language pack API version.
     pub api_version: u32,
     /// Installed artifact target triple.
+    #[serde(default)]
     pub target: String,
     /// Installed artifact digest.
+    #[serde(default)]
     pub sha256: String,
 }
 

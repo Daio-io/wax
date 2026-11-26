@@ -195,6 +195,55 @@ fn scan_auto_install_uses_explicit_home_for_state_and_pack() {
 }
 
 #[test]
+fn scan_auto_install_recovers_leftover_pack_directory() {
+    let fixture = fixture("scan-auto-install-reuse");
+    let options = || ScanOptions {
+        wax_home: Some(WaxHome::new(&fixture.wax_home)),
+        ..ScanOptions::default()
+    };
+    Engine::scan_repo_with_options(&fixture.repo, options()).unwrap();
+
+    let state_path = fixture.wax_home.join("state.json");
+    fs::remove_file(&state_path).unwrap();
+    fs::remove_file(fixture.repo.with_file_name("compose-0.1.0.tgz")).unwrap();
+
+    let merged = Engine::scan_repo_with_options(&fixture.repo, options()).unwrap();
+
+    let compose = LanguageId::try_from("compose").unwrap();
+    assert_eq!(merged.languages[&compose].language.id, compose);
+    let state = read_state(&state_path);
+    assert_eq!(
+        state.installed_languages[&compose]["0.1.0"].install_dir,
+        fixture.wax_home.join("langs/compose/0.1.0")
+    );
+}
+
+#[test]
+fn scan_auto_install_rejects_leftover_pack_with_different_digest() {
+    let fixture = fixture("scan-auto-install-reused-drift");
+    let options = || ScanOptions {
+        wax_home: Some(WaxHome::new(&fixture.wax_home)),
+        ..ScanOptions::default()
+    };
+    Engine::scan_repo_with_options(&fixture.repo, options()).unwrap();
+
+    fs::remove_file(fixture.wax_home.join("state.json")).unwrap();
+    let manifest_path = fixture.wax_home.join("langs/compose/0.1.0/manifest.json");
+    let mut manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+    manifest["sha256"] = "0".repeat(64).into();
+    fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+
+    let error = Engine::scan_repo_with_options(&fixture.repo, options())
+        .expect_err("reused pack must match the lockfile pin");
+
+    assert!(matches!(
+        error,
+        EngineError::Install(wax_core::install::InstallError::AlreadyInstalled { .. })
+    ));
+}
+
+#[test]
 fn scan_auto_install_disabled_returns_required_error_without_installing() {
     let fixture = fixture("scan-auto-install-disabled");
 
