@@ -1362,7 +1362,7 @@ fn discover_registry_details_does_not_stale_unrelated_components_on_damage() -> 
 
     assert_eq!(
         details.status,
-        wax_contract::RegistryExtractionStatus::Partial
+        wax_contract::RegistryExtractionStatus::Complete
     );
     assert_eq!(
         details.documentation.as_deref(),
