@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use tree_sitter::Node;
 use wax_contract::{
     Diagnostic, DiagnosticSeverity, RegistryDocument, RegistryExtractionStatus,
-    RegistrySourceEvidence, RegistryToken, TokenCategory, is_css_custom_property,
+    RegistrySourceEvidence, RegistryToken, StyleContext, TokenCategory, is_css_custom_property,
 };
 use wax_lang_api::{
     DISCOVERED_LITERAL_VALUE, TokenMatch, discovered_token_marker, refresh_discovered_token_value,
@@ -184,12 +184,163 @@ const UTILITIES: &[(&str, &[&str])] = &[
     ("animate", &["animate"]),
 ];
 
+#[derive(Clone, Copy)]
+enum ArbitraryShape {
+    Color,
+    Length,
+    Other,
+}
+
+fn arbitrary_metadata(
+    prefix: &str,
+    shape: ArbitraryShape,
+    value: &str,
+) -> Option<(TokenCategory, StyleContext)> {
+    use ArbitraryShape::{Color, Length, Other};
+    use StyleContext as Context;
+    use TokenCategory as Category;
+
+    Some(match (prefix, shape) {
+        (
+            "bg" | "border" | "border-x" | "border-y" | "border-t" | "border-r" | "border-b"
+            | "border-l" | "border-s" | "border-e" | "outline" | "ring" | "ring-offset"
+            | "inset-ring" | "divide" | "fill" | "stroke" | "decoration" | "accent" | "caret"
+            | "placeholder" | "from" | "via" | "to" | "text" | "shadow" | "inset-shadow"
+            | "drop-shadow" | "text-shadow",
+            Color,
+        ) => (Category::Color, Context::Color),
+        ("text" | "leading" | "tracking", Length) => (Category::Typography, Context::Typography),
+        ("font", Length) if is_finite_number(value) => (Category::Typography, Context::Typography),
+        (
+            "p" | "px" | "py" | "pt" | "pr" | "pb" | "pl" | "ps" | "pe" | "scroll-p" | "scroll-px"
+            | "scroll-py" | "scroll-pt" | "scroll-pr" | "scroll-pb" | "scroll-pl" | "scroll-ps"
+            | "scroll-pe",
+            Length,
+        ) => (Category::Spacing, Context::Padding),
+        (
+            "m" | "mx" | "my" | "mt" | "mr" | "mb" | "ml" | "ms" | "me" | "scroll-m" | "scroll-mx"
+            | "scroll-my" | "scroll-mt" | "scroll-mr" | "scroll-mb" | "scroll-ml" | "scroll-ms"
+            | "scroll-me",
+            Length,
+        ) => (Category::Spacing, Context::Margin),
+        ("gap" | "gap-x" | "gap-y" | "space-x" | "space-y", Length) => {
+            (Category::Spacing, Context::Gap)
+        }
+        ("w" | "min-w" | "max-w", Length) => (Category::Spacing, Context::Width),
+        ("h" | "min-h" | "max-h", Length) => (Category::Spacing, Context::Height),
+        ("size", Length) => (Category::Spacing, Context::Size),
+        (
+            "inset" | "inset-x" | "inset-y" | "top" | "right" | "bottom" | "left" | "start" | "end"
+            | "translate-x" | "translate-y" | "indent" | "basis",
+            Length,
+        ) => (Category::Spacing, Context::Unknown),
+        (
+            "rounded" | "rounded-t" | "rounded-r" | "rounded-b" | "rounded-l" | "rounded-s"
+            | "rounded-e" | "rounded-tl" | "rounded-tr" | "rounded-br" | "rounded-bl"
+            | "rounded-ss" | "rounded-se" | "rounded-es" | "rounded-ee",
+            Length,
+        ) => (Category::Radius, Context::Radius),
+        ("shadow" | "inset-shadow" | "drop-shadow" | "text-shadow", Length | Other) => {
+            (Category::Elevation, Context::Elevation)
+        }
+        _ => return None,
+    })
+}
+
+/// Decodes a literal arbitrary value for utilities with a hard-coded style context.
+pub(crate) fn arbitrary_style(utility: &str) -> Option<(String, TokenCategory, StyleContext)> {
+    let (prefix, raw) = utility.split_once("-[")?;
+    let raw = raw.strip_suffix(']')?;
+    let (negative, prefix) = match prefix.strip_prefix('-') {
+        Some(prefix) => (true, prefix),
+        None => (false, prefix),
+    };
+    let lowercase = raw.to_ascii_lowercase();
+    if ["var(", "theme(", "env(", "calc(", "url(", "--"]
+        .iter()
+        .any(|pattern| lowercase.contains(pattern))
+    {
+        return None;
+    }
+
+    let hint = lowercase.split_once(':').filter(|(hint, _)| {
+        hint.starts_with(|ch: char| ch.is_ascii_alphabetic())
+            && hint
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte == b'-')
+    });
+    let (shape, raw) = match hint {
+        Some((hint, _)) => (
+            match hint {
+                "color" => ArbitraryShape::Color,
+                "length" | "number" | "percentage" => ArbitraryShape::Length,
+                _ => ArbitraryShape::Other,
+            },
+            &raw[hint.len() + 1..],
+        ),
+        None => (infer_arbitrary_shape(&lowercase), raw),
+    };
+    if raw.is_empty() {
+        return None;
+    }
+    let (category, context) = arbitrary_metadata(prefix, shape, raw)?;
+
+    let mut value = String::with_capacity(raw.len() + usize::from(negative));
+    if negative {
+        value.push('-');
+    }
+    let mut chars = raw.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\\' if chars.next_if_eq(&'_').is_some() => value.push('_'),
+            '_' => value.push(' '),
+            _ => value.push(ch),
+        }
+    }
+    Some((value, category, context))
+}
+
+fn infer_arbitrary_shape(value: &str) -> ArbitraryShape {
+    if value.strip_prefix('#').is_some_and(|hex| {
+        matches!(hex.len(), 3 | 4 | 6 | 8) && hex.bytes().all(|byte| byte.is_ascii_hexdigit())
+    }) || value.split_once('(').is_some_and(|(name, _)| {
+        matches!(
+            name,
+            "rgb" | "rgba" | "hsl" | "hsla" | "hwb" | "lab" | "lch" | "oklab" | "oklch" | "color"
+        )
+    }) {
+        return ArbitraryShape::Color;
+    }
+
+    const CSS_LENGTH_UNITS: &[&str] = &[
+        "%", "px", "cm", "mm", "q", "in", "pc", "pt", "cap", "ch", "em", "ex", "ic", "lh", "rcap",
+        "rch", "rem", "rex", "ric", "rlh", "vw", "vh", "vi", "vb", "vmin", "vmax", "svw", "svh",
+        "svi", "svb", "svmin", "svmax", "lvw", "lvh", "lvi", "lvb", "lvmin", "lvmax", "dvw", "dvh",
+        "dvi", "dvb", "dvmin", "dvmax", "cqw", "cqh", "cqi", "cqb", "cqmin", "cqmax",
+    ];
+    let number = value.trim_end_matches(|ch: char| ch.is_ascii_lowercase() || ch == '%');
+    if is_finite_number(number)
+        && (number.len() == value.len() || CSS_LENGTH_UNITS.contains(&&value[number.len()..]))
+    {
+        ArbitraryShape::Length
+    } else {
+        ArbitraryShape::Other
+    }
+}
+
+fn is_finite_number(value: &str) -> bool {
+    value.parse::<f64>().is_ok_and(f64::is_finite)
+}
+
 /// Registered tokens a Tailwind utility and its optional `/` modifier reference.
 pub(crate) fn utility_tokens<'a>(
     utility: &str,
     modifier: Option<&str>,
     css_tokens: &'a BTreeMap<String, TokenMatch>,
 ) -> Vec<&'a TokenMatch> {
+    if css_tokens.is_empty() {
+        return Vec::new();
+    }
     let Some((prefix, value, namespaces)) = UTILITIES
         .iter()
         .filter_map(|&(prefix, namespaces)| {

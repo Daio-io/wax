@@ -268,7 +268,7 @@ set -eu
 language="$1"
 cat >/dev/null
 cat <<JSON
-{"type":"scan_facts","api_version":1,"language_id":"$language","facts":{"schema_version":4,"language":{"id":"$language","version":"0.1.0","ecosystem":"test","parser_name":"fixture","parser_version":"1.0.0"},"snapshot_id":"snap-$language","scanned_at":"1970-01-01T00:00:00Z","status":"complete","design_system_components":[],"local_components":[],"usage_sites":[],"diagnostics":[],"metrics":{"invocation_adoption_ratio":null,"registry_resolution_ratio":null,"parse_extract_ms":11,"files_scanned":1},"counts":{"registry":{"component_count":0,"used_component_count":0,"resolved_raw_invocation_count":0,"candidate_raw_invocation_count":0},"definitions":{"local_definition_count":0,"invoked_local_definition_count":0,"unused_local_definition_count":0},"raw_invocations":{"total":0,"resolved":0,"local":0,"candidate":0,"unresolved":0},"adoption":{"eligible_invocation_count":0,"adopted_invocation_count":0,"non_adopted_invocation_count":0},"parent_scopes":{"total":0,"with_resolved_invocations":0,"with_local_invocations":0,"with_unresolved_invocations":0},"invocation_origins":{"registry":0,"local":0,"framework":0,"external":0,"application":0,"unknown":0},"tokens":{"configured_token_count":1,"used_token_count":0,"token_reference_site_count":0,"hardcoded_style_candidate_count":2,"token_references_by_category":{"color":0,"spacing":0,"typography":0,"radius":0,"elevation":0,"unknown":0},"hardcoded_by_category":{"color":0,"spacing":2,"typography":0,"radius":0,"elevation":0,"unknown":0},"parent_scopes_with_token_references":0,"parent_scopes_with_hardcoded_candidates":0}},"design_system_tokens":[{"id":"spacing.s","key":"Spacing.s","category":"spacing","value":"4px"}],"token_sites":[],"hardcoded_style_sites":[{"id":"hardcoded.react:src/Card.tsx:1:10:spacing","location":{"file":"src/Card.tsx","line":1,"column":10},"value":"3","category":"spacing","context":"padding"},{"id":"hardcoded.react:src/Card.tsx:2:10:spacing","location":{"file":"src/Card.tsx","line":2,"column":10},"value":"200","category":"spacing","context":"width"}]}}
+{"type":"scan_facts","api_version":1,"language_id":"$language","facts":{"schema_version":4,"language":{"id":"$language","version":"0.1.0","ecosystem":"test","parser_name":"fixture","parser_version":"1.0.0"},"snapshot_id":"snap-$language","scanned_at":"1970-01-01T00:00:00Z","status":"complete","design_system_components":[],"local_components":[],"usage_sites":[],"diagnostics":[],"metrics":{"invocation_adoption_ratio":null,"registry_resolution_ratio":null,"parse_extract_ms":11,"files_scanned":1},"counts":{"registry":{"component_count":0,"used_component_count":0,"resolved_raw_invocation_count":0,"candidate_raw_invocation_count":0},"definitions":{"local_definition_count":0,"invoked_local_definition_count":0,"unused_local_definition_count":0},"raw_invocations":{"total":0,"resolved":0,"local":0,"candidate":0,"unresolved":0},"adoption":{"eligible_invocation_count":0,"adopted_invocation_count":0,"non_adopted_invocation_count":0},"parent_scopes":{"total":0,"with_resolved_invocations":0,"with_local_invocations":0,"with_unresolved_invocations":0},"invocation_origins":{"registry":0,"local":0,"framework":0,"external":0,"application":0,"unknown":0},"tokens":{"configured_token_count":2,"used_token_count":0,"token_reference_site_count":0,"hardcoded_style_candidate_count":3,"token_references_by_category":{"color":0,"spacing":0,"typography":0,"radius":0,"elevation":0,"unknown":0},"hardcoded_by_category":{"color":0,"spacing":2,"typography":1,"radius":0,"elevation":0,"unknown":0},"parent_scopes_with_token_references":0,"parent_scopes_with_hardcoded_candidates":0}},"design_system_tokens":[{"id":"spacing.s","key":"Spacing.s","category":"spacing","value":"4px"},{"id":"type.body","key":"var(--text-body)","category":"typography","value":"16px"}],"token_sites":[],"hardcoded_style_sites":[{"id":"hardcoded.react:src/Card.tsx:1:10:spacing","location":{"file":"src/Card.tsx","line":1,"column":10},"value":"3","category":"spacing","context":"padding"},{"id":"hardcoded.react:src/Card.tsx:2:10:spacing","location":{"file":"src/Card.tsx","line":2,"column":10},"value":"200","category":"spacing","context":"width"},{"id":"hardcoded.react:src/Card.tsx:3:10:Typography","location":{"file":"src/Card.tsx","line":3,"column":10},"value":"16px","category":"typography","context":"typography"}]}}
 JSON
 "#
 }
@@ -469,16 +469,17 @@ fn scan_output_merges_token_counts_summaries_and_ratio() {
 }
 
 #[test]
-fn scan_output_classifies_near_and_unmatched_token_inference() {
+fn scan_output_classifies_exact_near_and_unmatched_token_inference() {
     let _guard = env_lock();
     let fixture = fixture("scan-output-token-inference", &["react"]);
     overwrite_pack_script(&fixture.wax_home, "react", token_inference_fixture_script());
     let _wax_home = EnvVarGuard::set("WAX_HOME", &fixture.wax_home);
 
-    let merged = Engine::scan_repo(&fixture.repo).expect("scan should pass");
+    let merged = Engine::scan_repo_with_options(&fixture.repo, ScanOptions::default())
+        .expect("scan should pass");
 
     assert_eq!(merged.token_inference.numeric_tolerance, 2.0);
-    assert_eq!(merged.token_inference.counts.hardcoded_observation_count, 2);
+    assert_eq!(merged.token_inference.counts.hardcoded_observation_count, 3);
     assert_eq!(
         merged
             .token_inference
@@ -492,14 +493,30 @@ fn scan_output_classifies_near_and_unmatched_token_inference() {
             .token_inference
             .counts
             .exact_replacement_candidate_count,
-        0
+        1
     );
     assert_eq!(
         merged.token_inference.counts.unassessed_observation_count,
         0
     );
-    assert_eq!(merged.token_inference.counts.assessed_observation_count, 2);
-    assert_eq!(merged.token_inference.sites.len(), 2);
+    assert_eq!(merged.token_inference.counts.assessed_observation_count, 3);
+    assert_eq!(merged.token_inference.sites.len(), 3);
+
+    let exact = merged
+        .token_inference
+        .sites
+        .iter()
+        .find(|row| row.site_id == "hardcoded.react:src/Card.tsx:3:10:Typography")
+        .expect("inference row for the bare Tailwind typography value");
+    assert_eq!(exact.classification, TokenInferenceClassification::Exact);
+    let [suggestion] = exact.suggestions.as_slice() else {
+        panic!(
+            "expected a single exact suggestion, got {:?}",
+            exact.suggestions
+        );
+    };
+    assert_eq!(suggestion.token_key, "var(--text-body)");
+    assert_eq!(suggestion.canonical_value, "16px");
 
     let near = merged
         .token_inference
