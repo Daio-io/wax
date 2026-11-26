@@ -1,5 +1,7 @@
 # Public registry catalogue implementation plan
 
+> **Archived:** Historical record only. The unchecked items below are tracked in Linear under THE-889 / THE-894; see the [public registry catalogue ADR](../../adr/2026-11-16-public-registry-catalogue.md).
+
 **Status:** Phase 1 and Phase 3a complete. Phase 4 consumption implemented; remaining pilot and Phase 3b evidence gates are open, as recorded below. Authorized as a THE-889 extraction
 that runs alongside the active Phase 2B plan without displacing it.
 
@@ -65,9 +67,9 @@ unchanged.
 
 - [x] Record the rejected main-repository and npm-package distribution options
   and the selected Git-subfolder bundle contract in
-  [`docs/specs/public-registry-options.md`](../specs/public-registry-options.md).
+  [`docs/specs/public-registry-options.md`](../../specs/public-registry-options.md).
 - [x] Link this plan as an authorized THE-889 extraction in
-  [`docs/plans/README.md`](./README.md) while Phase 2B remains the
+  [`docs/plans/README.md`](../README.md) while Phase 2B remains the
   sequential active plan.
 - [x] Update Git source examples, compatibility specs, changelog, and website
   guidance; verify Markdown links and the website build/tests. CLI help and

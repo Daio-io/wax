@@ -60,20 +60,10 @@ require_text "skills/wax-registry-discover/SKILL.md" 'wax-search'
 require_text "skills/wax-scan/SKILL.md" 'wax-search'
 require_text "skills/wax-scan/SKILL.md" 'independent lookup workflow'
 require_text "CHANGELOG.md" '`wax-search`'
-require_text "docs/plans/README.md" 'Registry search and agent workflow'
-require_text "docs/plans/README.md" '| `complete` |'
-require_text "docs/plans/archive/README.md" '2026-10-22-registry-search-plan.md'
 require_text "docs/adr/README.md" '2026-10-22-registry-search.md'
 
-PLAN="docs/plans/archive/2026-10-22-registry-search-plan.md"
 ADR="docs/adr/2026-10-22-registry-search.md"
-[[ -f "$PLAN" ]] || fail "$PLAN is missing"
 [[ -f "$ADR" ]] || fail "$ADR is missing"
-if grep -Fq -- '- [ ]' "$PLAN"; then
-  fail "$PLAN still contains incomplete checkboxes"
-fi
-require_text "$PLAN" 'scripts/test-wax-search-skill-contract.sh'
-require_text "$PLAN" 'cargo test --workspace'
 require_text "$ADR" 'Status:** Accepted'
 require_text "$ADR" '`RegistrySearchResponse`'
 require_text "$ADR" '`RegistryDetailResponse`'

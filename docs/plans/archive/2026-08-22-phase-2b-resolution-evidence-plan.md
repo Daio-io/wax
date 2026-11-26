@@ -1,5 +1,7 @@
 # Phase 2B — explicit resolution evidence and callee origin
 
+> **Archived:** Historical record only. Shipped in #293 (THE-310); see the [resolution evidence ADR](../../adr/2026-08-22-resolution-evidence-and-callee-origin.md). Work is now tracked in Linear.
+
 ## Status
 
 - Doc status: `merged`

@@ -1,11 +1,12 @@
 # Architecture Decision Records
 
-ADRs record significant product and engineering decisions after implementation. Each ADR summarizes **what was decided**, **what shipped**, and **where to read more** (specs, archived plans). A stacked docs PR may add a `Pending merge` ADR once implementation is complete in open PRs; update it to `Accepted` and point at the plan archive when the stack lands.
+ADRs record significant product and engineering decisions after implementation. Each ADR summarizes **what was decided**, **what shipped**, and **where to read more**. Work is planned in Linear; add an ADR when a shipped change makes a decision worth recording. Older ADRs link to [archived plans](../plans/archive/README.md), which are a historical record only.
 
 | Date | ADR | Status | Implementation |
 |------|-----|--------|----------------|
 | 2026-05-16 | [Rust engine with downloadable language packs](./2026-05-16-rust-engine-language-packs.md) | Accepted | [Plan archive](../plans/archive/2026-05-16-rust-engine-language-packs-plan.md) |
 | 2026-05-24 | [Alpha release and distribution](./2026-05-24-alpha-release-and-distribution.md) | Accepted | [Plan archive](../plans/archive/2026-05-24-release-and-rollout-plan.md) |
+| 2026-05-24 | [Post-alpha UX scan outputs and reports](./2026-05-24-post-alpha-ux-scan-outputs.md) | Accepted | [Plan archive](../plans/archive/2026-05-24-post-alpha-ux-plan.md) |
 | 2026-06-02 | [Registry sources and centralized `.wax/` layout](./2026-06-02-registry-sources-and-wax-layout.md) | Accepted | [Plan archive](../plans/archive/2026-06-02-registry-sources-and-wax-layout.md) |
 | 2026-06-04 | [Registry discovery and skill-assisted review](./2026-06-04-registry-discovery.md) | Accepted | [Plan archive](../plans/archive/2026-06-04-registry-discovery-plan.md) |
 | 2026-06-04 | [npm trusted publishing and tag-driven versioning](./2026-06-04-npm-trusted-publishing.md) | Accepted | [Plan archive](../plans/archive/2026-06-04-npm-trusted-publishing.md), [tag-driven versioning](../plans/archive/2026-06-04-npm-tag-driven-versioning.md) |
@@ -20,6 +21,6 @@ ADRs record significant product and engineering decisions after implementation. 
 | 2026-07-19 | [Token inference and reporting](./2026-07-19-token-inference-reporting.md) | Accepted | [Plan archive](../plans/archive/2026-07-19-token-inference-reporting-plan.md) |
 | 2026-07-22 | [Compose parse recovery and UI scoping](./2026-07-22-compose-parse-recovery.md) | Accepted | [Plan archive](../plans/archive/2026-07-22-compose-parse-recovery-plan.md) |
 | 2026-08-01 | [Git registry sources](./2026-08-01-git-registry-sources.md) | Accepted | [Plan archive](../plans/archive/2026-08-01-git-registry-sources-plan.md) |
+| 2026-08-22 | [Resolution evidence and callee origin](./2026-08-22-resolution-evidence-and-callee-origin.md) | Accepted | [#293](https://github.com/Daio-io/wax/pull/293) |
 | 2026-10-22 | [Registry search and agent workflow](./2026-10-22-registry-search.md) | Accepted | [Plan archive](../plans/archive/2026-10-22-registry-search-plan.md) |
-
-**Active plans** (not yet implemented or deferred) remain in [`docs/plans/`](../plans/README.md).
+| 2026-11-16 | [Public registry catalogue and Git design-system bundles](./2026-11-16-public-registry-catalogue.md) | Accepted | [Plan archive](../plans/archive/2026-11-16-public-registry-catalogue-plan.md) |

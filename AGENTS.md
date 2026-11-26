@@ -34,7 +34,7 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-For focused crate changes, use the relevant package checks from the active plan, for example:
+For focused crate changes, use the relevant package checks, for example:
 
 ```bash
 cd engine
@@ -42,7 +42,7 @@ cargo test -p wax-core
 cargo clippy -p wax-core --all-targets -- -D warnings
 ```
 
-Always run `cargo fmt` before committing Rust changes. If a plan specifies exact verification commands for a task, run those commands and broaden only when the touched code requires it.
+Always run `cargo fmt` before committing Rust changes. If a Linear issue specifies exact verification commands, run those commands and broaden only when the touched code requires it.
 
 For release/install changes, run the relevant script or workflow-adjacent checks in addition to Rust checks when applicable:
 
@@ -51,7 +51,7 @@ scripts/test-generate-pack-index.sh
 scripts/install.sh --help
 ```
 
-For documentation-only changes, inspect the rendered Markdown when practical and ensure links point to current plan/spec files.
+For documentation-only changes, inspect the rendered Markdown when practical and ensure links point to current files.
 
 For website changes, run:
 
@@ -60,16 +60,14 @@ npm --prefix website ci
 npm --prefix website test
 ```
 
-## Planning Discipline
+## Planning
 
-- Use `docs/plans/README.md` as the source of truth for plan order, active implementation phase, and gates. Completed plans live in `docs/plans/archive/` with ADR records in `docs/adr/`.
-- Read the active plan before editing. Follow its task boundaries and verification commands.
-- Treat one checked task as one focused PR unless explicitly directed otherwise.
-- Tick off every completed plan checkbox in the same PR, including the task heading and each completed step under it.
-- Before opening or updating a task PR, review the active plan section and make sure completed implementation, verification, and commit steps are reflected there.
+- Work is planned and tracked in Linear. The Linear issue defines scope, acceptance, and any required verification; there are no repo-local plan gates.
+- `docs/plans/` is a historical archive. Do not read it for current scope, and do not add, update, or tick off plans there.
+- Treat one Linear issue as one focused PR unless explicitly directed otherwise.
+- When shipped work makes a significant product or engineering decision, record it as an ADR in `docs/adr/` and add it to the [ADR index](docs/adr/README.md). Keep design specs in `docs/specs/` current when changing the contracts they describe.
 - For feature closeout, check the documentation impact guidance in [CONTRIBUTING.md](CONTRIBUTING.md#feature-closeout).
-- Do not start the next plan or phase until the roadmap and plan gates allow it.
-- If a task updates release behavior, keep README, install docs, changelog, scripts, and plan checkboxes consistent in the same PR when the plan calls for it.
+- If a change updates release behavior, keep README, install docs, changelog, and scripts consistent in the same PR.
 
 ## Git And Commits
 
@@ -87,7 +85,7 @@ npm --prefix website test
 - Prefer existing crate patterns over new abstractions.
 - Keep public Rust API docs current; crates may use `#![deny(missing_docs)]`.
 - Use typed errors at contract boundaries instead of returning bare strings.
-- Keep CLI behavior scriptable: preserve non-interactive flags, stable JSON output contracts, and deterministic paths where plans or specs require them.
+- Keep CLI behavior scriptable: preserve non-interactive flags, stable JSON output contracts, and deterministic paths where specs or contracts require them.
 - Keep language-pack protocol changes backward-aware. Update contract/API crates, pack implementations, fixtures, and schemas together.
 - Prefer repo-relative paths in config and outputs unless a task explicitly introduces an absolute-path escape hatch.
 
@@ -110,4 +108,4 @@ If a pack needs ecosystem-specific import syntax, mirror the same outcomes: impo
 - `wax validate` must remain repo-local and CI-friendly; it should not depend on global `~/.wax/` install state.
 - `wax scan --no-auto-install` must remain suitable for CI with committed lockfiles and preinstalled language packs.
 - Install channels distribute the engine binary; language packs are downloaded on demand into `~/.wax/langs/`.
-- Alpha release work targets GitHub Releases, curl installer, Homebrew tap, and optional npm wrapper as described in the release plan.
+- Alpha release work targets GitHub Releases, curl installer, Homebrew tap, and optional npm wrapper as described in the [alpha release ADR](docs/adr/2026-05-24-alpha-release-and-distribution.md).

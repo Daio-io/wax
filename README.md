@@ -833,6 +833,5 @@ inference classifications, confidence, and reviewed registry maintenance, see
 - [Token scanning](docs/specs/2026-07-03-token-scanning-design.md)
 - [Token inference and reporting](docs/specs/2026-07-19-token-inference-reporting-design.md)
 - [CI scan summaries](docs/ci-scan-summary.md)
-- [Implementation plans](docs/plans/README.md)
 - [Architecture decision records](docs/adr/README.md)
 - [Contributing](CONTRIBUTING.md)

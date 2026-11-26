@@ -13,7 +13,7 @@
 ## Reference Specs
 
 - [Interactive init design](../../specs/2026-06-13-interactive-init-design.md)
-- [Post-alpha UX plan, Task 1](../2026-05-24-post-alpha-ux-plan.md#phase-1--guided-init)
+- [Post-alpha UX plan, Task 1](./2026-05-24-post-alpha-ux-plan.md#phase-1--guided-init)
 - [Language packs and distribution](../../specs/2026-05-16-language-packs-and-distribution.md)
 
 ## When to Start

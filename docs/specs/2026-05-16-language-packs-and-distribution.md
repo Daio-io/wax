@@ -12,9 +12,9 @@
 
 End users install a **`wax` binary** and download language packs globally. Each repository uses **`.wax/wax.config.json`** to enable languages and hold per-language config. Language packs **do not communicate with each other**; only the engine talks to each pack.
 
-## Implementation plan roadmap
+## Delivery history
 
-Plan order, doc/implementation status, gates, and agent rules live in **[`docs/plans/README.md`](../plans/README.md)** only. Completed phases are recorded in **[`docs/adr/`](../adr/README.md)** with archived plans in **[`docs/plans/archive/`](../plans/archive/README.md)**.
+Work is tracked in Linear. Shipped phases are recorded in **[`docs/adr/`](../adr/README.md)**; historical plans are in **[`docs/plans/archive/`](../plans/archive/README.md)**.
 
 ## Terminology
 

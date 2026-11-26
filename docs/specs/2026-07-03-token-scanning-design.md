@@ -265,12 +265,10 @@ Engine tests should cover:
 
 ## Delivery Notes
 
-The implementation should follow the active roadmap discipline:
+The implementation followed this order:
 
 1. Extend `wax-contract` and schemas.
 2. Update registry loaders and fixtures.
 3. Update `wax-core` aggregation.
 4. Update language packs, keeping parser-backed semantics aligned.
 5. Update CLI summary output and docs.
-
-Token Scanning is roadmap order 13. Registry Sync and Config v2 (order 12) is complete on `main`. Do not start token scanning implementation until Adoption Metrics v2 (order 11) is complete or the maintainer explicitly promotes this plan to active work.

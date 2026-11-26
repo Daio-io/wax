@@ -363,11 +363,9 @@ Porting selected rules into a Wax-maintained grammar could produce accurate tree
 
 Skipping to the next boundary without recognizing known syntax would protect later declarations, but it would lose guarded branch bodies and composable slot lambdas that matter directly to design-system analysis. Use generic recovery as defense in depth after focused known-syntax normalization, not as the only mechanism.
 
-## Delivery and Roadmap Gate
+## Delivery
 
-Implementation should be split into focused reviewable tasks: recovery metadata and diagnostics, known syntax normalization, scope-aware extraction, generic bounded recovery, CLI reporting, compiler validation, and corpus replay. The detailed implementation plan should preserve the repository rule of one checked task per focused PR.
-
-Token inference and reporting (order 14) is complete and archived, and the current roadmap has no promoted active plan. This Compose recovery work may be fully planned now, but implementation starts only when the maintainer promotes it or explicitly grants an exception to the active-plan gate.
+Implementation was split into focused reviewable tasks: recovery metadata and diagnostics, known syntax normalization, scope-aware extraction, generic bounded recovery, CLI reporting, compiler validation, and corpus replay.
 
 ## Acceptance Criteria
 

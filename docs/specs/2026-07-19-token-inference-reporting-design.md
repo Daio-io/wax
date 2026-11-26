@@ -363,7 +363,7 @@ AI-derived values remain authoring suggestions. They become deterministic scan i
 
 ## Delivery Sequence
 
-This work should be delivered as a new roadmap plan after the current active-plan gates permit it or the maintainer explicitly promotes it:
+This work was delivered in this sequence:
 
 1. Contract v3, optional registry value, raw context shape, validation, fixtures, and a complete unassessed merge stub.
 2. Repo config, core normalization, inference, validation, and counts, replacing the contract-cutover stub.
