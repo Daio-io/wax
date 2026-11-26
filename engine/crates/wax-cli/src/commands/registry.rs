@@ -1,13 +1,13 @@
 //! Registry discovery command implementations for `wax discover` and `wax registry discover`.
 
 use super::diagnostic_output::format_diagnostic_line;
-use super::state_path::resolve_state_path;
+use super::wax_home::resolve_wax_home;
 use crate::presentation::Presentation;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 use wax_contract::{CatalogFindResponse, Diagnostic, LanguageId};
-use wax_core::paths::PathsError;
+use wax_core::paths::{PathsError, WaxHome};
 use wax_core::registry_cache::RegistrySourceSpec;
 use wax_core::registry_discovery::{
     RegistryDiscoverError, RegistryDiscoverOptions, discover_registry,
@@ -38,13 +38,15 @@ pub struct RegistryDiscoverCommandOptions {
     pub design_system_id: Option<String>,
     /// Display name for the remembered design system.
     pub design_system_name: Option<String>,
+    /// Wax home to use for global state and language packs.
+    pub wax_home: Option<WaxHome>,
 }
 
 /// Options for registry memory management commands.
 #[derive(Debug, Clone)]
 pub struct RegistryMemoryCommandOptions {
-    /// Global state path override for tests.
-    pub state_path: Option<PathBuf>,
+    /// Wax home to use for global state and registry caches.
+    pub wax_home: Option<WaxHome>,
 }
 
 /// Options for `wax registry update`.
@@ -54,8 +56,8 @@ pub struct RegistryUpdateCommandOptions {
     pub design_system_id: String,
     /// New repository root for the remembered design system.
     pub repo_root: PathBuf,
-    /// Global state path override for tests.
-    pub state_path: Option<PathBuf>,
+    /// Wax home to use for global state and registry caches.
+    pub wax_home: Option<WaxHome>,
 }
 
 /// Options for `wax registry add`.
@@ -71,8 +73,8 @@ pub struct RegistryAddCommandOptions {
     pub language: Option<LanguageId>,
     /// Optional Git tag or commit.
     pub tag: Option<String>,
-    /// Global state path override for tests.
-    pub state_path: Option<PathBuf>,
+    /// Wax home to use for global state and registry caches.
+    pub wax_home: Option<WaxHome>,
 }
 
 /// Errors returned by registry discovery commands.
@@ -118,7 +120,7 @@ pub fn run_registry_add(
     options: RegistryAddCommandOptions,
     writer: &mut impl Write,
 ) -> Result<(), RegistryMemoryCommandError> {
-    let state_path = resolve_state_path(options.state_path.as_deref())?;
+    let state_path = resolve_wax_home(options.wax_home.as_ref())?.state_file();
     let mut source = RegistrySourceSpec::parse(&options.source, options.language)
         .map_err(RegistryMemoryError::from)?;
     if let Some(tag) = options.tag {
@@ -151,7 +153,7 @@ pub fn run_registry_refresh(
     options: RegistryMemoryCommandOptions,
     writer: &mut impl Write,
 ) -> Result<(), RegistryMemoryCommandError> {
-    let state_path = resolve_state_path(options.state_path.as_deref())?;
+    let state_path = resolve_wax_home(options.wax_home.as_ref())?.state_file();
     let snapshots = refresh_remembered_registry(&state_path, design_system_id)?;
     writeln!(
         writer,
@@ -178,8 +180,10 @@ pub fn run_registry_discover(
     let repo_root = options.repo_root.clone();
     let roots = resolve_cli_roots(&repo_root, options.roots);
 
+    // Let core report a missing home after it validates the discovery inputs.
+    let home = resolve_wax_home(options.wax_home.as_ref()).ok();
     let result = discover_registry(RegistryDiscoverOptions {
-        wax_home: None,
+        wax_home: home,
         repo_root: &repo_root,
         language_id: &language_id,
         roots,
@@ -272,7 +276,7 @@ pub fn run_registry_list(
     options: RegistryMemoryCommandOptions,
     writer: &mut impl Write,
 ) -> Result<(), RegistryMemoryCommandError> {
-    let state_path = resolve_state_path(options.state_path.as_deref())?;
+    let state_path = resolve_wax_home(options.wax_home.as_ref())?.state_file();
     let entries = list_remembered_design_systems(&state_path)?;
 
     writeln!(
@@ -326,7 +330,7 @@ pub fn run_registry_show(
     options: RegistryMemoryCommandOptions,
     writer: &mut impl Write,
 ) -> Result<(), RegistryMemoryCommandError> {
-    let state_path = resolve_state_path(options.state_path.as_deref())?;
+    let state_path = resolve_wax_home(options.wax_home.as_ref())?.state_file();
     let entry = show_remembered_design_system(&state_path, design_system_id)?;
 
     writeln!(writer, "id: {}", entry.id).map_err(write_memory_error)?;
@@ -380,7 +384,7 @@ pub fn run_registry_update(
     options: RegistryUpdateCommandOptions,
     writer: &mut impl Write,
 ) -> Result<(), RegistryMemoryCommandError> {
-    let state_path = resolve_state_path(options.state_path.as_deref())?;
+    let state_path = resolve_wax_home(options.wax_home.as_ref())?.state_file();
     update_remembered_design_system_repo_root(
         &state_path,
         &options.design_system_id,
@@ -411,7 +415,7 @@ pub fn run_registry_delete(
     options: RegistryMemoryCommandOptions,
     writer: &mut impl Write,
 ) -> Result<(), RegistryMemoryCommandError> {
-    let state_path = resolve_state_path(options.state_path.as_deref())?;
+    let state_path = resolve_wax_home(options.wax_home.as_ref())?.state_file();
     delete_remembered_design_system(&state_path, design_system_id)?;
 
     writeln!(
@@ -714,7 +718,7 @@ pub fn run_registry_find(
     repo_root: PathBuf,
     writer: &mut impl Write,
 ) -> Result<(), RegistryCatalogCommandError> {
-    run_registry_find_with_presentation(args, repo_root, Presentation::Plain, writer)
+    run_registry_find_with_presentation(args, repo_root, None, Presentation::Plain, writer)
 }
 
 /// Runs catalogue discovery using the requested presentation for text output.
@@ -726,11 +730,14 @@ pub fn run_registry_find(
 pub fn run_registry_find_with_presentation(
     args: crate::cli::RegistryFindArgs,
     repo_root: PathBuf,
+    wax_home: Option<&WaxHome>,
     presentation: Presentation,
     writer: &mut impl Write,
 ) -> Result<(), RegistryCatalogCommandError> {
-    let mut options =
-        wax_core::registry_catalog::CatalogOptions::new(repo_root, resolve_state_path(None)?);
+    let mut options = wax_core::registry_catalog::CatalogOptions::new(
+        repo_root,
+        resolve_wax_home(wax_home)?.state_file(),
+    );
     options.query = args.query;
     options.language = args.language;
     options.offline = args.offline;
@@ -885,7 +892,7 @@ pub fn run_registry_install(
 ) -> Result<(), RegistryCatalogCommandError> {
     let mut options = wax_core::registry_catalog::CatalogOptions::new(
         PathBuf::from("."),
-        resolve_state_path(None)?,
+        resolve_wax_home(None)?.state_file(),
     );
     options.offline = args.offline;
     let pin =

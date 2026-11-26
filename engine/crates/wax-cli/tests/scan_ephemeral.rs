@@ -1,11 +1,9 @@
 use std::collections::BTreeMap;
-use std::ffi::OsString;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{Mutex, MutexGuard};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 use wax_cli::cli::{ConfiglessScanArgs, ScanStdoutFormat};
@@ -14,14 +12,9 @@ use wax_cli::commands::scan::{
     repo_relative_dir_has_entries, repo_relative_path_exists, run_scan_cli,
 };
 use wax_contract::LanguageId;
+use wax_core::paths::WaxHome;
 use wax_core::registry_cache::RegistrySourceSpec;
 use wax_core::registry_memory::{add_remembered_registry, remember_design_system};
-
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-fn env_lock() -> MutexGuard<'static, ()> {
-    ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
-}
 
 struct TestDir {
     path: PathBuf,
@@ -42,40 +35,6 @@ impl TestDir {
 impl Drop for TestDir {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.path);
-    }
-}
-
-struct EnvVarGuard {
-    name: &'static str,
-    previous: Option<OsString>,
-}
-
-impl EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while mutating process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-        let previous = std::env::var_os(name);
-        unsafe {
-            std::env::set_var(name, value);
-        }
-        Self { name, previous }
-    }
-}
-
-impl Drop for EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while restoring process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn drop(&mut self) {
-        unsafe {
-            match &self.previous {
-                Some(value) => std::env::set_var(self.name, value),
-                None => std::env::remove_var(self.name),
-            }
-        }
     }
 }
 
@@ -306,7 +265,7 @@ fn setup_remembered_basic_design_system(
     root: &Path,
     pack_sha256: &str,
     status: wax_contract::ScanStatus,
-) -> (PathBuf, PathBuf, PathBuf) {
+) -> (PathBuf, PathBuf) {
     let ds_repo = root.join("acme-ds");
     fs::create_dir_all(ds_repo.join(".wax/registries")).expect("create ds registries dir");
     fs::write(
@@ -340,12 +299,11 @@ fn setup_remembered_basic_design_system(
     remember_design_system(&state_path, "acme", "Acme Design System", &ds_repo)
         .expect("remember design system");
 
-    (ds_repo, wax_home, state_path)
+    (ds_repo, wax_home)
 }
 
 #[test]
 fn scan_without_config_non_tty_suggests_init() {
-    let _guard = env_lock();
     let root = TestDir::new("scan-non-tty");
     let repo = root.path.join("repo");
     fs::create_dir_all(&repo).expect("create repo");
@@ -450,7 +408,6 @@ fn configless_flags_conflict_with_root_group() {
 
 #[test]
 fn configless_local_registry_scan_non_tty() {
-    let _guard = env_lock();
     let root = TestDir::new("configless-local-registry");
     let artifact_path = root.path.join("basic.tgz");
     let digest = write_pack_artifact(&artifact_path, "wax-lang-basic");
@@ -481,10 +438,10 @@ fn configless_local_registry_scan_non_tty() {
     .expect("write registry fixture");
     let repo = root.path.join("repo");
     fs::create_dir_all(repo.join("src")).expect("create scan root");
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
-    let _pack_index = EnvVarGuard::set("WAX_PACK_INDEX", file_url(&pack_index));
 
     let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .env("WAX_PACK_INDEX", file_url(&pack_index))
+        .env("WAX_HOME", &wax_home)
         .arg("scan")
         .arg("--repo-root")
         .arg(&repo)
@@ -587,17 +544,16 @@ fn configless_roots_use_config_equivalent_validation() {
 
 #[test]
 fn configless_http_then_offline_cached_scan() {
-    let _guard = env_lock();
     let root = TestDir::new("configless-http-offline");
     let (wax_home, pack_index) = setup_binary_scan_pack(&root.path);
     let repo = root.path.join("repo");
     fs::create_dir_all(repo.join("src")).expect("create scan root");
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
-    let _pack_index = EnvVarGuard::set("WAX_PACK_INDEX", pack_index);
     let (registry_url, server) =
         serve_registry_once(br#"{"schema_version":1,"language":"basic","components":[]}"#.to_vec());
 
     let first = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .env("WAX_PACK_INDEX", &pack_index)
+        .env("WAX_HOME", &wax_home)
         .arg("scan")
         .arg("--repo-root")
         .arg(&repo)
@@ -622,6 +578,8 @@ fn configless_http_then_offline_cached_scan() {
     );
 
     let second = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .env("WAX_PACK_INDEX", &pack_index)
+        .env("WAX_HOME", &wax_home)
         .arg("scan")
         .arg("--repo-root")
         .arg(&repo)
@@ -649,15 +607,14 @@ fn configless_http_then_offline_cached_scan() {
 
 #[test]
 fn configless_offline_cache_miss_is_typed() {
-    let _guard = env_lock();
     let root = TestDir::new("configless-offline-miss");
     let (wax_home, pack_index) = setup_binary_scan_pack(&root.path);
     let repo = root.path.join("repo");
     fs::create_dir_all(repo.join("src")).expect("create scan root");
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
-    let _pack_index = EnvVarGuard::set("WAX_PACK_INDEX", pack_index);
 
     let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .env("WAX_PACK_INDEX", &pack_index)
+        .env("WAX_HOME", &wax_home)
         .arg("scan")
         .arg("--repo-root")
         .arg(&repo)
@@ -688,11 +645,10 @@ fn configless_offline_cache_miss_is_typed() {
 
 #[test]
 fn ephemeral_scan_does_not_write_repo_config_or_registries() {
-    let _guard = env_lock();
     let root = TestDir::new("scan-ephemeral");
     let artifact_path = root.path.join("basic.tgz");
     let digest = write_pack_artifact(&artifact_path, "wax-lang-basic");
-    let (_ds_repo, wax_home, state_path) = setup_remembered_basic_design_system(
+    let (_ds_repo, wax_home) = setup_remembered_basic_design_system(
         &root.path,
         &digest,
         wax_contract::ScanStatus::Complete,
@@ -710,7 +666,6 @@ fn ephemeral_scan_does_not_write_repo_config_or_registries() {
 
     let repo = root.path.join("repo");
     fs::create_dir_all(repo.join("src")).expect("create scan roots");
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
 
     assert!(!repo_relative_path_exists(&repo, ".wax/wax.config.json"));
     assert!(!repo_relative_path_exists(&repo, ".wax/wax.lock.json"));
@@ -729,7 +684,7 @@ fn ephemeral_scan_does_not_write_repo_config_or_registries() {
             cli_outputs: Vec::new(),
             allow_absolute_output: false,
             baseline: None,
-            state_path: Some(state_path),
+            wax_home: Some(WaxHome::new(wax_home)),
             pack_index_url: Some(file_url(&registry_path)),
             target_triple: Some("test-target".to_owned()),
             ephemeral: Some(EphemeralScanSelections {
@@ -767,11 +722,10 @@ fn ephemeral_scan_does_not_write_repo_config_or_registries() {
 
 #[test]
 fn ephemeral_json_summary_stdout_omits_init_hint() {
-    let _guard = env_lock();
     let root = TestDir::new("scan-ephemeral-json-summary");
     let artifact_path = root.path.join("basic.tgz");
     let digest = write_pack_artifact(&artifact_path, "wax-lang-basic");
-    let (_ds_repo, wax_home, state_path) = setup_remembered_basic_design_system(
+    let (_ds_repo, wax_home) = setup_remembered_basic_design_system(
         &root.path,
         &digest,
         wax_contract::ScanStatus::Complete,
@@ -788,7 +742,6 @@ fn ephemeral_json_summary_stdout_omits_init_hint() {
     .expect("write pack index fixture");
     let repo = root.path.join("repo");
     fs::create_dir_all(repo.join("src")).expect("create scan roots");
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
     let mut output = Vec::new();
 
     run_scan_cli(
@@ -804,7 +757,7 @@ fn ephemeral_json_summary_stdout_omits_init_hint() {
             cli_outputs: Vec::new(),
             allow_absolute_output: false,
             baseline: None,
-            state_path: Some(state_path),
+            wax_home: Some(WaxHome::new(wax_home)),
             pack_index_url: Some(file_url(&registry_path)),
             target_triple: Some("test-target".to_owned()),
             ephemeral: Some(EphemeralScanSelections {
@@ -838,11 +791,10 @@ fn ephemeral_json_summary_stdout_omits_init_hint() {
 
 #[test]
 fn ephemeral_output_writes_json_summary_under_repo_root() {
-    let _guard = env_lock();
     let root = TestDir::new("scan-ephemeral-output-artifact");
     let artifact_path = root.path.join("basic.tgz");
     let digest = write_pack_artifact(&artifact_path, "wax-lang-basic");
-    let (_ds_repo, wax_home, state_path) = setup_remembered_basic_design_system(
+    let (_ds_repo, wax_home) = setup_remembered_basic_design_system(
         &root.path,
         &digest,
         wax_contract::ScanStatus::Complete,
@@ -859,7 +811,6 @@ fn ephemeral_output_writes_json_summary_under_repo_root() {
     .expect("write pack index fixture");
     let repo = root.path.join("repo");
     fs::create_dir_all(repo.join("src")).expect("create scan roots");
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
     let mut output = Vec::new();
 
     run_scan_cli(
@@ -878,7 +829,7 @@ fn ephemeral_output_writes_json_summary_under_repo_root() {
             }],
             allow_absolute_output: false,
             baseline: None,
-            state_path: Some(state_path),
+            wax_home: Some(WaxHome::new(wax_home)),
             pack_index_url: Some(file_url(&registry_path)),
             target_triple: Some("test-target".to_owned()),
             ephemeral: Some(EphemeralScanSelections {
@@ -909,11 +860,10 @@ fn ephemeral_output_writes_json_summary_under_repo_root() {
 
 #[test]
 fn ephemeral_strict_scan_writes_output_before_failing_on_partial_result() {
-    let _guard = env_lock();
     let root = TestDir::new("scan-ephemeral-strict-partial");
     let artifact_path = root.path.join("basic.tgz");
     let digest = write_pack_artifact(&artifact_path, "wax-lang-basic");
-    let (_ds_repo, wax_home, state_path) = setup_remembered_basic_design_system(
+    let (_ds_repo, wax_home) = setup_remembered_basic_design_system(
         &root.path,
         &digest,
         wax_contract::ScanStatus::Partial,
@@ -929,7 +879,6 @@ fn ephemeral_strict_scan_writes_output_before_failing_on_partial_result() {
     .expect("write pack index fixture");
     let repo = root.path.join("repo");
     fs::create_dir_all(repo.join("src")).expect("create scan roots");
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
     let mut output = Vec::new();
     let error = run_scan_cli(
         ScanCommandOptions {
@@ -944,7 +893,7 @@ fn ephemeral_strict_scan_writes_output_before_failing_on_partial_result() {
             cli_outputs: Vec::new(),
             allow_absolute_output: false,
             baseline: None,
-            state_path: Some(state_path),
+            wax_home: Some(WaxHome::new(wax_home)),
             pack_index_url: Some(file_url(&registry_path)),
             target_triple: Some("test-target".to_owned()),
             ephemeral: Some(EphemeralScanSelections {
@@ -970,7 +919,6 @@ fn ephemeral_strict_scan_writes_output_before_failing_on_partial_result() {
 
 #[test]
 fn ephemeral_scan_uses_source_backed_remembered_registry_without_publisher_checkout() {
-    let _guard = env_lock();
     let root = TestDir::new("scan-ephemeral-source-backed");
     let artifact_path = root.path.join("basic.tgz");
     let digest = write_pack_artifact(&artifact_path, "wax-lang-basic");
@@ -1009,7 +957,6 @@ fn ephemeral_scan_uses_source_backed_remembered_registry_without_publisher_check
 
     let repo = root.path.join("repo");
     fs::create_dir_all(repo.join("src")).expect("create scan roots");
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
 
     run_scan_cli(
         ScanCommandOptions {
@@ -1024,7 +971,7 @@ fn ephemeral_scan_uses_source_backed_remembered_registry_without_publisher_check
             cli_outputs: Vec::new(),
             allow_absolute_output: false,
             baseline: None,
-            state_path: Some(state_path),
+            wax_home: Some(WaxHome::new(wax_home)),
             pack_index_url: Some(file_url(&registry_path)),
             target_triple: Some("test-target".to_owned()),
             ephemeral: Some(EphemeralScanSelections {
@@ -1058,7 +1005,6 @@ fn ephemeral_scan_uses_source_backed_remembered_registry_without_publisher_check
 
 #[test]
 fn strict_scans_use_each_repos_relative_registry_with_shared_home() {
-    let _guard = env_lock();
     let root = TestDir::new("relative-registries");
     let (wax_home, pack_index) = setup_binary_scan_pack(&root.path);
     let script = wax_home.join("langs/basic/0.1.0/wax-lang-basic");
@@ -1081,13 +1027,13 @@ response['facts']['design_system_components'] = [{{'id': component['id'], 'symbo
 response['facts']['counts']['registry']['component_count'] = 1
 print(json.dumps(response))
 "##)).unwrap();
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
-    let _pack_index = EnvVarGuard::set("WAX_PACK_INDEX", pack_index);
     for name in ["Alpha", "Beta"] {
         let repo = root.path.join(name);
         fs::create_dir_all(repo.join("src")).unwrap();
         fs::write(repo.join("basic.json"), format!(r#"{{"schema_version":1,"language":"basic","components":[{{"id":"{name}","symbol":"{name}"}}]}}"#)).unwrap();
         let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+            .env("WAX_PACK_INDEX", &pack_index)
+            .env("WAX_HOME", &wax_home)
             .arg("scan")
             .arg("--repo-root")
             .arg(&repo)

@@ -593,7 +593,7 @@ fn interactive_selections_use_the_same_pinned_bundle_handoff() {
             registry_url: Some(format!("file://{}", index.display())),
             repo_root: root.path.clone(),
             target_triple: Some("x86_64-unknown-linux-gnu".into()),
-            state_path: Some(state_path),
+            wax_home: Some(wax_core::paths::WaxHome::new(root.path.join("home"))),
             scaffold_registries: false,
             interactive: Some(InitSelections {
                 scan_roots: languages

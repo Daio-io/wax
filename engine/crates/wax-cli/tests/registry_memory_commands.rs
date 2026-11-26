@@ -1,48 +1,6 @@
-use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Mutex, MutexGuard};
-
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-fn env_lock() -> MutexGuard<'static, ()> {
-    ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
-}
-
-struct EnvVarGuard {
-    name: &'static str,
-    previous: Option<OsString>,
-}
-
-impl EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while mutating process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-        let previous = std::env::var_os(name);
-        unsafe {
-            std::env::set_var(name, value);
-        }
-        Self { name, previous }
-    }
-}
-
-impl Drop for EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while restoring process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn drop(&mut self) {
-        unsafe {
-            match &self.previous {
-                Some(value) => std::env::set_var(self.name, value),
-                None => std::env::remove_var(self.name),
-            }
-        }
-    }
-}
 
 struct TestDir {
     path: PathBuf,
@@ -66,11 +24,6 @@ impl Drop for TestDir {
     }
 }
 
-struct MemoryHarness {
-    wax_home: PathBuf,
-    _wax_home_guard: EnvVarGuard,
-}
-
 fn setup_memory_state(wax_home: &Path, repo_root: &Path) {
     fs::write(
         wax_home.join("state.json"),
@@ -91,19 +44,16 @@ fn setup_memory_state(wax_home: &Path, repo_root: &Path) {
     .expect("write state");
 }
 
-fn setup_harness(repo_root: &Path) -> MemoryHarness {
+fn setup_harness(repo_root: &Path) -> PathBuf {
     let wax_home = repo_root.parent().expect("repo parent").join("wax-home");
     fs::create_dir_all(&wax_home).expect("create wax-home");
     setup_memory_state(&wax_home, repo_root);
-    let wax_home_guard = EnvVarGuard::set("WAX_HOME", &wax_home);
-    MemoryHarness {
-        wax_home,
-        _wax_home_guard: wax_home_guard,
-    }
+    wax_home
 }
 
-fn run_registry(command: &[&str]) -> std::process::Output {
+fn run_registry(wax_home: &Path, command: &[&str]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_wax"))
+        .env("WAX_HOME", wax_home)
         .args(["registry"])
         .args(command)
         .output()
@@ -112,13 +62,12 @@ fn run_registry(command: &[&str]) -> std::process::Output {
 
 #[test]
 fn registry_memory_commands_list_and_show() {
-    let _guard = env_lock();
     let root = TestDir::new("list-show");
     let repo = root.path.join("acme-ds");
     fs::create_dir_all(&repo).expect("create repo");
-    let harness = setup_harness(&repo);
+    let wax_home = setup_harness(&repo);
 
-    let list = run_registry(&["list"]);
+    let list = run_registry(&wax_home, &["list"]);
     assert!(
         list.status.success(),
         "list failed: {}",
@@ -128,7 +77,7 @@ fn registry_memory_commands_list_and_show() {
     assert!(list_stdout.contains("id\tname\trepo_root\tsource"));
     assert!(list_stdout.contains("acme\tAcme Design System\t"));
 
-    let show = run_registry(&["show", "acme"]);
+    let show = run_registry(&wax_home, &["show", "acme"]);
     assert!(
         show.status.success(),
         "show failed: {}",
@@ -139,26 +88,26 @@ fn registry_memory_commands_list_and_show() {
     assert!(show_stdout.contains("name: Acme Design System"));
     assert!(show_stdout.contains("last_seen_config: .wax/wax.config.json"));
     assert!(show_stdout.contains(&repo.display().to_string()));
-
-    drop(harness);
 }
 
 #[test]
 fn registry_memory_commands_update_repo_root() {
-    let _guard = env_lock();
     let root = TestDir::new("update");
     let original_repo = root.path.join("acme-ds");
     let updated_repo = root.path.join("acme-ds-moved");
     fs::create_dir_all(&original_repo).expect("create original repo");
     fs::create_dir_all(&updated_repo).expect("create updated repo");
-    let harness = setup_harness(&original_repo);
+    let wax_home = setup_harness(&original_repo);
 
-    let output = run_registry(&[
-        "update",
-        "acme",
-        "--repo-root",
-        updated_repo.to_str().expect("utf8 path"),
-    ]);
+    let output = run_registry(
+        &wax_home,
+        &[
+            "update",
+            "acme",
+            "--repo-root",
+            updated_repo.to_str().expect("utf8 path"),
+        ],
+    );
     assert!(
         output.status.success(),
         "update failed: {}",
@@ -168,26 +117,23 @@ fn registry_memory_commands_update_repo_root() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("Updated design system `acme`"));
 
-    let show = run_registry(&["show", "acme"]);
+    let show = run_registry(&wax_home, &["show", "acme"]);
     assert!(show.status.success());
     let show_stdout = String::from_utf8(show.stdout).unwrap();
     assert!(show_stdout.contains(&updated_repo.display().to_string()));
 
-    let state = fs::read_to_string(harness.wax_home.join("state.json")).unwrap();
+    let state = fs::read_to_string(wax_home.join("state.json")).unwrap();
     assert!(state.contains("acme-ds-moved"));
-
-    drop(harness);
 }
 
 #[test]
 fn registry_memory_commands_delete() {
-    let _guard = env_lock();
     let root = TestDir::new("delete");
     let repo = root.path.join("acme-ds");
     fs::create_dir_all(&repo).expect("create repo");
-    let harness = setup_harness(&repo);
+    let wax_home = setup_harness(&repo);
 
-    let output = run_registry(&["delete", "acme"]);
+    let output = run_registry(&wax_home, &["delete", "acme"]);
     assert!(
         output.status.success(),
         "delete failed: {}",
@@ -197,25 +143,22 @@ fn registry_memory_commands_delete() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("Deleted remembered design system `acme`"));
 
-    let list = run_registry(&["list"]);
+    let list = run_registry(&wax_home, &["list"]);
     assert!(list.status.success());
     let list_stdout = String::from_utf8(list.stdout).unwrap();
     assert_eq!(list_stdout.lines().count(), 1, "expected header only");
 
-    let show = run_registry(&["show", "acme"]);
+    let show = run_registry(&wax_home, &["show", "acme"]);
     assert!(!show.status.success());
     assert!(
         String::from_utf8(show.stderr)
             .unwrap()
             .contains("not remembered")
     );
-
-    drop(harness);
 }
 
 #[test]
 fn registry_memory_commands_show_missing_reports_error() {
-    let _guard = env_lock();
     let root = TestDir::new("missing");
     let wax_home = root.path.join("wax-home");
     fs::create_dir_all(&wax_home).expect("create wax-home");
@@ -224,9 +167,8 @@ fn registry_memory_commands_show_missing_reports_error() {
         r#"{"installed_languages":{},"design_systems":{}}"#,
     )
     .expect("write empty state");
-    let _wax_home_guard = EnvVarGuard::set("WAX_HOME", &wax_home);
 
-    let output = run_registry(&["show", "missing"]);
+    let output = run_registry(&wax_home, &["show", "missing"]);
     assert!(!output.status.success());
     assert!(
         String::from_utf8(output.stderr)
@@ -237,7 +179,6 @@ fn registry_memory_commands_show_missing_reports_error() {
 
 #[test]
 fn registry_memory_commands_add_and_refresh_typed_source() {
-    let _guard = env_lock();
     let root = TestDir::new("add-refresh");
     let wax_home = root.path.join("wax-home");
     fs::create_dir_all(&wax_home).expect("create wax-home");
@@ -247,28 +188,30 @@ fn registry_memory_commands_add_and_refresh_typed_source() {
         r#"{"schema_version":1,"language":"compose","components":[{"id":"one","symbol":"One"}]}"#,
     )
     .expect("write registry");
-    let _wax_home_guard = EnvVarGuard::set("WAX_HOME", &wax_home);
 
-    let add = run_registry(&[
-        "add",
-        "acme",
-        source.to_str().expect("utf8 source"),
-        "--name",
-        "Acme Design System",
-    ]);
+    let add = run_registry(
+        &wax_home,
+        &[
+            "add",
+            "acme",
+            source.to_str().expect("utf8 source"),
+            "--name",
+            "Acme Design System",
+        ],
+    );
     assert!(
         add.status.success(),
         "add failed: {}",
         String::from_utf8_lossy(&add.stderr)
     );
 
-    let list = run_registry(&["list"]);
+    let list = run_registry(&wax_home, &["list"]);
     let list_stdout = String::from_utf8_lossy(&list.stdout);
     assert!(list_stdout.contains("id\tname\trepo_root\tsource"));
     assert!(list_stdout.contains("acme\tAcme Design System\t"));
     assert!(list_stdout.contains("file:"));
 
-    let show = run_registry(&["show", "acme"]);
+    let show = run_registry(&wax_home, &["show", "acme"]);
     let show_stdout = String::from_utf8_lossy(&show.stdout);
     assert!(show_stdout.contains("source: file:"));
     assert!(show_stdout.contains("snapshots: 1"));
@@ -278,19 +221,22 @@ fn registry_memory_commands_add_and_refresh_typed_source() {
         r#"{"schema_version":1,"language":"compose","components":[{"id":"two","symbol":"Two"}]}"#,
     )
     .expect("update registry");
-    let refresh = run_registry(&["refresh", "acme"]);
+    let refresh = run_registry(&wax_home, &["refresh", "acme"]);
     assert!(
         refresh.status.success(),
         "refresh failed: {}",
         String::from_utf8_lossy(&refresh.stderr)
     );
 
-    let update = run_registry(&[
-        "update",
-        "acme",
-        "--repo-root",
-        root.path.to_str().expect("utf8 path"),
-    ]);
+    let update = run_registry(
+        &wax_home,
+        &[
+            "update",
+            "acme",
+            "--repo-root",
+            root.path.to_str().expect("utf8 path"),
+        ],
+    );
     assert!(!update.status.success());
     assert!(
         String::from_utf8_lossy(&update.stderr).contains("source-backed"),

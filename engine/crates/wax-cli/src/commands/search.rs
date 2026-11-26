@@ -1,6 +1,6 @@
 //! Registry search and exact entry detail commands.
 
-use super::state_path::resolve_state_path;
+use super::wax_home::resolve_wax_home;
 use serde::Serialize;
 use serde_json::Map;
 use std::io::{self, Write};
@@ -10,7 +10,7 @@ use wax_contract::{
     LanguageId, RegistryDetailResponse, RegistryEntryKind, RegistryExtractionStatus,
     RegistryLookupError, RegistryLookupErrorCode, RegistrySearchResponse, RegistrySnapshotRef,
 };
-use wax_core::paths::PathsError;
+use wax_core::paths::{PathsError, WaxHome};
 use wax_core::registry_lookup::{RegistryLookupOptions, resolve_lookup_snapshots};
 use wax_core::registry_search::{
     RegistrySearchOptions, lookup_registry_entry, search_registry_entries,
@@ -33,8 +33,8 @@ pub struct LookupCommandOptions {
     pub offline: bool,
     /// Stdout format.
     pub format: LookupStdoutFormat,
-    /// Global state path override for tests.
-    pub state_path: Option<PathBuf>,
+    /// Wax home to use for global state and registry caches.
+    pub wax_home: Option<WaxHome>,
 }
 
 /// Options for `wax search`.
@@ -153,7 +153,7 @@ fn resolve_snapshots(
     options: &LookupCommandOptions,
     snapshot_digest: Option<&str>,
 ) -> Result<Vec<wax_core::registry_cache::RegistrySnapshot>, SearchCommandError> {
-    let state_path = resolve_state_path(options.state_path.as_deref())?;
+    let state_path = resolve_wax_home(options.wax_home.as_ref())?.state_file();
     let base = RegistryLookupOptions {
         repo_root: options.repo_root.clone(),
         selector: options.design_system.clone(),

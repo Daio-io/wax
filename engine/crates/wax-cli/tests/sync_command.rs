@@ -1,51 +1,9 @@
-use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 use wax_core::registry_cache::RegistrySourceSpec;
 use wax_core::registry_memory::{add_remembered_registry, remember_design_system};
-
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-fn env_lock() -> MutexGuard<'static, ()> {
-    ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
-}
-
-struct EnvVarGuard {
-    name: &'static str,
-    previous: Option<OsString>,
-}
-
-impl EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while mutating process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-        let previous = std::env::var_os(name);
-        unsafe {
-            std::env::set_var(name, value);
-        }
-        Self { name, previous }
-    }
-}
-
-impl Drop for EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while restoring process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn drop(&mut self) {
-        unsafe {
-            match &self.previous {
-                Some(value) => std::env::set_var(self.name, value),
-                None => std::env::remove_var(self.name),
-            }
-        }
-    }
-}
 
 struct TestDir {
     path: PathBuf,
@@ -152,7 +110,6 @@ fn setup_remembered_local_ds(root: &Path) -> (PathBuf, PathBuf) {
 
 #[test]
 fn sync_command_copies_local_design_system_registry_changes() {
-    let _guard = env_lock();
     let root = TestDir::new("sync-copy-local");
     let app_repo = root.path.join("app");
     write_app_repo(&app_repo, "acme/react", ".wax/registries/acme/react.json");
@@ -163,8 +120,8 @@ fn sync_command_copies_local_design_system_registry_changes() {
     )
     .expect("update ds registry");
 
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
     let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .env("WAX_HOME", &wax_home)
         .args(["sync", "--repo-root"])
         .arg(&app_repo)
         .output()
@@ -184,7 +141,6 @@ fn sync_command_copies_local_design_system_registry_changes() {
 
 #[test]
 fn sync_command_refreshes_source_backed_remembered_registry() {
-    let _guard = env_lock();
     let root = TestDir::new("sync-source-backed");
     let app_repo = root.path.join("app");
     write_app_repo(&app_repo, "acme/react", ".wax/registries/acme/react.json");
@@ -210,8 +166,8 @@ fn sync_command_refreshes_source_backed_remembered_registry() {
         br#"{"schema_version":1,"language":"react","components":[{"id":"card","symbol":"Card"}]}"#;
     fs::write(&source, updated).expect("update source registry");
 
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
     let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .env("WAX_HOME", &wax_home)
         .args(["sync", "--repo-root"])
         .arg(&app_repo)
         .output()
@@ -250,7 +206,6 @@ fn sync_command_refreshes_source_backed_remembered_registry() {
 
 #[test]
 fn sync_command_switches_app_registry_source_to_published_source() {
-    let _guard = env_lock();
     let root = TestDir::new("sync-published-source");
     let app_repo = root.path.join("app");
     write_app_repo(&app_repo, "acme/react", ".wax/registries/acme/react.json");
@@ -284,8 +239,8 @@ fn sync_command_switches_app_registry_source_to_published_source() {
     )
     .expect("write ds config with published source");
 
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
     let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .env("WAX_HOME", &wax_home)
         .args(["sync", "--repo-root"])
         .arg(&app_repo)
         .output()
@@ -303,7 +258,6 @@ fn sync_command_switches_app_registry_source_to_published_source() {
 
 #[test]
 fn sync_command_fails_when_upstream_design_system_is_not_remembered() {
-    let _guard = env_lock();
     let root = TestDir::new("sync-missing-memory");
     let app_repo = root.path.join("app");
     write_app_repo(&app_repo, "acme/react", ".wax/registries/acme/react.json");
@@ -315,8 +269,8 @@ fn sync_command_fails_when_upstream_design_system_is_not_remembered() {
     )
     .expect("write empty state");
 
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
     let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .env("WAX_HOME", &wax_home)
         .args(["sync", "--repo-root"])
         .arg(&app_repo)
         .output()

@@ -3,53 +3,11 @@
 pub mod catalog;
 
 use sha2::{Digest, Sha256};
-use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 use wax_contract::{LanguageId, SCHEMA_VERSION};
-
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-pub fn env_lock() -> MutexGuard<'static, ()> {
-    ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
-}
-
-pub struct EnvVarGuard {
-    name: &'static str,
-    previous: Option<OsString>,
-}
-
-impl EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while mutating process environment variables"
-    )]
-    pub fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-        let previous = std::env::var_os(name);
-        unsafe {
-            std::env::set_var(name, value);
-        }
-        Self { name, previous }
-    }
-}
-
-impl Drop for EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while restoring process environment variables"
-    )]
-    fn drop(&mut self) {
-        unsafe {
-            match &self.previous {
-                Some(value) => std::env::set_var(self.name, value),
-                None => std::env::remove_var(self.name),
-            }
-        }
-    }
-}
 
 pub struct TestDir {
     pub path: PathBuf,
@@ -92,7 +50,7 @@ pub fn assert_schema_valid_summary(value: &serde_json::Value) {
 pub fn setup_scan_repo(
     name: &str,
     specs: &[(&str, &str, &str, &str, &str)],
-) -> (TestDir, PathBuf, EnvVarGuard) {
+) -> (TestDir, PathBuf, PathBuf) {
     let root = TestDir::new(name);
     let repo = root.path.join("repo");
     let wax_home = root.path.join("wax-home");
@@ -108,13 +66,16 @@ pub fn setup_scan_repo(
     write_repo_files(&repo, &registry_file, &languages, None);
     write_installed_packs(&wax_home, specs);
 
-    let wax_home_guard = EnvVarGuard::set("WAX_HOME", &wax_home);
-    (root, repo, wax_home_guard)
+    (root, repo, wax_home)
 }
 
 pub fn run_scan(repo: &Path, extra_args: &[&str]) -> std::process::Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_wax"));
     command.args(["scan", "--repo-root"]).arg(repo);
+    command.env(
+        "WAX_HOME",
+        repo.parent().expect("repo parent").join("wax-home"),
+    );
     command.args(["--concurrency", "1"]);
     command.args(extra_args);
     command.output().expect("spawn wax scan")
@@ -661,7 +622,6 @@ JSON
 
 /// Asserts that requesting a deferred `--output` format fails with the standard message.
 pub fn assert_deferred_format(format: &str) {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         &format!("scan-artifact-deferred-{format}"),
         &[("compose", "complete", "0.5", "", "")],

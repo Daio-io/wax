@@ -5,6 +5,7 @@ use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 use wax_cli::commands::init::{InitOptions, InitSelections, RegistrySetup, run_init};
 use wax_contract::LanguageId;
+use wax_core::paths::WaxHome;
 use wax_core::registry_cache::RegistrySourceSpec;
 use wax_core::registry_memory::{add_remembered_registry, remember_design_system};
 
@@ -72,7 +73,7 @@ fn file_url(path: &Path) -> String {
     format!("file://{}", path.display())
 }
 
-fn setup_remembered_react_design_system(root: &Path) -> (PathBuf, PathBuf, PathBuf) {
+fn setup_remembered_react_design_system(root: &Path) -> (PathBuf, PathBuf) {
     let ds_repo = root.join("acme-ds");
     fs::create_dir_all(ds_repo.join(".wax/registries")).expect("create ds registries dir");
     fs::write(
@@ -105,7 +106,7 @@ fn setup_remembered_react_design_system(root: &Path) -> (PathBuf, PathBuf, PathB
     remember_design_system(&state_path, "acme", "Acme Design System", &ds_repo)
         .expect("remember design system");
 
-    (ds_repo, wax_home, state_path)
+    (ds_repo, wax_home)
 }
 
 #[test]
@@ -167,7 +168,7 @@ fn init_rejects_existing_config_before_tty_check() {
 #[test]
 fn init_remembered_design_system_writes_upstream_registry_config() {
     let root = TestDir::new("init-remembered-registry");
-    let (_ds_repo, _wax_home, state_path) = setup_remembered_react_design_system(&root.path);
+    let (_ds_repo, wax_home) = setup_remembered_react_design_system(&root.path);
     let artifact_path = root.path.join("react.tgz");
     let digest = write_pack_artifact(&artifact_path, "wax-lang-react");
     let registry_path = root.path.join("registry.json");
@@ -193,7 +194,7 @@ fn init_remembered_design_system_writes_upstream_registry_config() {
             registry_url: Some(file_url(&registry_path)),
             repo_root: app_repo.clone(),
             target_triple: Some("test-target".to_owned()),
-            state_path: Some(state_path),
+            wax_home: Some(WaxHome::new(wax_home)),
             scaffold_registries: false,
             interactive: Some(InitSelections {
                 languages: vec![LanguageId::try_from("react").unwrap()],
@@ -276,7 +277,7 @@ fn init_source_backed_remembered_writes_explicit_url_config() {
             registry_url: Some(file_url(&registry_path)),
             repo_root: app_repo.clone(),
             target_triple: Some("test-target".to_owned()),
-            state_path: Some(state_path),
+            wax_home: Some(WaxHome::new(wax_home)),
             scaffold_registries: false,
             interactive: Some(InitSelections {
                 languages: vec![LanguageId::try_from("react").unwrap()],

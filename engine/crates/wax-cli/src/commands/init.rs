@@ -4,7 +4,7 @@ use super::language::{
     LanguageCommandError, default_target_triple, install_pinned_manifest, manifest_for_language,
     resolve_registry_url, update_lockfile_entry,
 };
-use super::state_path::resolve_state_path;
+use super::wax_home::resolve_wax_home;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, IsTerminal, Write};
@@ -20,7 +20,7 @@ use wax_core::config::repo_files::{
 };
 use wax_core::config::waxrc::WAXRC_SCHEMA_VERSION;
 use wax_core::digest::sha256_hex;
-use wax_core::paths::PathsError;
+use wax_core::paths::{PathsError, WaxHome};
 use wax_core::registry::{
     RegistryArtifact, RegistryError, RegistryManifest, fetch_pack_index, select_target_artifact,
 };
@@ -94,8 +94,8 @@ pub struct InitOptions {
     pub repo_root: PathBuf,
     /// Target triple override for tests.
     pub target_triple: Option<String>,
-    /// Global state path override for tests.
-    pub state_path: Option<PathBuf>,
+    /// Wax home to use for global state, caches, and language packs.
+    pub wax_home: Option<WaxHome>,
     /// Copy example design-system registry files when paths are missing.
     pub scaffold_registries: bool,
     /// Interactive selections. When present, init uses these answers instead of CLI language flags.
@@ -235,19 +235,20 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
         return Err(InitCommandError::WaxConfigAlreadyExists { path: config_path });
     }
 
-    let remembered_state = selections
-        .as_ref()
-        .and_then(|selections| match &selections.registry_setup {
-            RegistrySetup::RememberedDesignSystem { design_system_id } => {
-                Some(design_system_id.clone())
-            }
-            RegistrySetup::External => None,
-        })
-        .map(|design_system_id| {
-            resolve_state_path(options.state_path.as_deref())
-                .map(|state_path| (design_system_id, state_path))
-        })
-        .transpose()?;
+    let remembered_id =
+        selections
+            .as_ref()
+            .and_then(|selections| match &selections.registry_setup {
+                RegistrySetup::RememberedDesignSystem { design_system_id } => {
+                    Some(design_system_id.clone())
+                }
+                RegistrySetup::External => None,
+            });
+    let mut home = options.wax_home;
+    if remembered_id.is_some() && home.is_none() {
+        home = Some(resolve_wax_home(None)?);
+    }
+    let remembered_state = remembered_id.zip(home.as_ref().map(WaxHome::state_file));
 
     let base_waxrc = build_waxrc_contents(
         &languages,
@@ -363,12 +364,15 @@ pub fn run_init(options: InitOptions, writer: &mut impl Write) -> Result<(), Ini
     update_gitignore(&options.repo_root)?;
 
     if !options.no_install {
+        let home = resolve_wax_home(home.as_ref())
+            .map_err(wax_core::install::InstallError::from)
+            .map_err(LanguageCommandError::from)?;
         for resolved in &resolved_languages {
             install_pinned_manifest(
                 &resolved.manifest,
                 &target,
                 &resolved.artifact,
-                options.state_path.clone(),
+                &home,
                 writer,
             )?;
         }
@@ -417,12 +421,13 @@ pub fn run_init_cli(options: InitOptions, writer: &mut impl Write) -> Result<(),
 
     let registry_url = resolve_registry_url(options.registry_url.clone());
     let manifests = fetch_pack_index(&registry_url)?;
-    let state_path = resolve_state_path(options.state_path.as_deref())?;
+    let home = resolve_wax_home(options.wax_home.as_ref())?;
     let mut prompts = DialoguerInitPrompts;
-    let selections = collect_interactive_selections(&manifests, &mut prompts, &state_path)?;
+    let selections = collect_interactive_selections(&manifests, &mut prompts, &home.state_file())?;
     run_init(
         InitOptions {
             interactive: Some(selections),
+            wax_home: Some(home),
             registry_url: Some(registry_url),
             ..options
         },
@@ -953,18 +958,6 @@ mod tests {
             unsafe_code,
             reason = "these tests hold ENV_LOCK while mutating process environment variables, which keeps env access serialized inside this test binary"
         )]
-        fn set(key: &'static str, value: impl AsRef<std::path::Path>) -> Self {
-            let previous = std::env::var_os(key);
-            unsafe {
-                std::env::set_var(key, value.as_ref());
-            }
-            Self { key, previous }
-        }
-
-        #[expect(
-            unsafe_code,
-            reason = "these tests hold ENV_LOCK while mutating process environment variables, which keeps env access serialized inside this test binary"
-        )]
         fn remove(key: &'static str) -> Self {
             let previous = std::env::var_os(key);
             unsafe {
@@ -1067,7 +1060,7 @@ mod tests {
                 registry_url: Some("file:///tmp/registry.json".to_owned()),
                 repo_root: temp.path.clone(),
                 target_triple: Some("test-target".to_owned()),
-                state_path: None,
+                wax_home: None,
                 scaffold_registries: false,
                 interactive: None,
             },
@@ -1110,7 +1103,7 @@ mod tests {
                 registry_url: Some(file_url(&registry_path)),
                 repo_root: repo_root.clone(),
                 target_triple: Some("test-target".to_owned()),
-                state_path: Some(temp.path.join("home/state.json")),
+                wax_home: Some(WaxHome::new(temp.path.join("home"))),
                 scaffold_registries: true,
                 interactive: Some(InitSelections {
                     languages: vec![
@@ -1192,7 +1185,7 @@ mod tests {
                 registry_url: Some(file_url(&pack_index)),
                 repo_root: repo_root.clone(),
                 target_triple: Some("test-target".to_owned()),
-                state_path: Some(state_path),
+                wax_home: Some(WaxHome::new(temp.path.join("home"))),
                 scaffold_registries: false,
                 interactive: Some(InitSelections {
                     languages: vec![lang("compose")],
@@ -1258,7 +1251,7 @@ mod tests {
                 registry_url: Some(file_url(&registry_path)),
                 repo_root: repo_root.clone(),
                 target_triple: Some("test-target".to_owned()),
-                state_path: Some(temp.path.join("home/state.json")),
+                wax_home: Some(WaxHome::new(temp.path.join("home"))),
                 scaffold_registries: true,
                 interactive: Some(InitSelections {
                     languages: vec![LanguageId::try_from("compose").unwrap()],
@@ -1418,9 +1411,7 @@ mod tests {
 
     #[test]
     fn init_writes_waxrc_lockfile_and_installs_selected_language() {
-        let _guard = env_lock();
         let temp = TestDir::new("happy-path");
-        let _wax_home = EnvVarGuard::set("WAX_HOME", temp.path.join("home"));
 
         let artifact_path = temp.path.join("compose.tgz");
         let digest = write_pack_artifact(&artifact_path, "wax-lang-compose");
@@ -1448,7 +1439,7 @@ mod tests {
                 registry_url: Some(file_url(&registry_path)),
                 repo_root: repo_root.clone(),
                 target_triple: Some("test-target".to_owned()),
-                state_path: Some(temp.path.join("home/state.json")),
+                wax_home: Some(WaxHome::new(temp.path.join("home"))),
                 scaffold_registries: true,
                 interactive: None,
             },
@@ -1483,6 +1474,11 @@ mod tests {
                 .is_file()
         );
 
+        assert!(
+            temp.path
+                .join("home/langs/compose/0.4.2/manifest.json")
+                .is_file()
+        );
         let state = load_global_state(temp.path.join("home/state.json")).unwrap();
         assert!(state.installed_languages[&lang("compose")].contains_key("0.4.2"));
 
@@ -1493,9 +1489,7 @@ mod tests {
 
     #[test]
     fn init_no_install_skips_global_install() {
-        let _guard = env_lock();
         let temp = TestDir::new("no-install");
-        let _wax_home = EnvVarGuard::set("WAX_HOME", temp.path.join("home"));
 
         let artifact_path = temp.path.join("compose.tgz");
         let digest = write_pack_artifact(&artifact_path, "wax-lang-compose");
@@ -1523,7 +1517,7 @@ mod tests {
                 registry_url: Some(file_url(&registry_path)),
                 repo_root: repo_root.clone(),
                 target_triple: Some("test-target".to_owned()),
-                state_path: Some(temp.path.join("home/state.json")),
+                wax_home: Some(WaxHome::new(temp.path.join("home"))),
                 scaffold_registries: false,
                 interactive: None,
             },
@@ -1542,9 +1536,7 @@ mod tests {
 
     #[test]
     fn init_reuses_already_installed_language_for_second_repo() {
-        let _guard = env_lock();
         let temp = TestDir::new("second-repo");
-        let _wax_home = EnvVarGuard::set("WAX_HOME", temp.path.join("home"));
 
         let artifact_path = temp.path.join("compose.tgz");
         let digest = write_pack_artifact(&artifact_path, "wax-lang-compose");
@@ -1576,7 +1568,7 @@ mod tests {
                 registry_url: Some(file_url(&registry_path)),
                 repo_root: first_repo.clone(),
                 target_triple: Some("test-target".to_owned()),
-                state_path: Some(state_path.clone()),
+                wax_home: Some(WaxHome::new(temp.path.join("home"))),
                 scaffold_registries: false,
                 interactive: None,
             },
@@ -1594,7 +1586,7 @@ mod tests {
                 registry_url: Some(file_url(&registry_path)),
                 repo_root: second_repo.clone(),
                 target_triple: Some("test-target".to_owned()),
-                state_path: Some(state_path.clone()),
+                wax_home: Some(WaxHome::new(temp.path.join("home"))),
                 scaffold_registries: false,
                 interactive: None,
             },
@@ -1637,7 +1629,7 @@ mod tests {
                 registry_url: Some("file:///tmp/registry.json".to_owned()),
                 repo_root,
                 target_triple: Some("test-target".to_owned()),
-                state_path: None,
+                wax_home: None,
                 scaffold_registries: false,
                 interactive: None,
             },
@@ -1673,7 +1665,7 @@ mod tests {
                 registry_url: Some(file_url(&registry_path)),
                 repo_root: repo_root.clone(),
                 target_triple: Some("test-target".to_owned()),
-                state_path: None,
+                wax_home: None,
                 scaffold_registries: false,
                 interactive: None,
             },
@@ -1722,7 +1714,7 @@ mod tests {
                 registry_url: Some(file_url(&registry_path)),
                 repo_root: repo_root.clone(),
                 target_triple: Some("test-target".to_owned()),
-                state_path: None,
+                wax_home: None,
                 scaffold_registries: false,
                 interactive: None,
             },
@@ -1742,9 +1734,7 @@ mod tests {
 
     #[test]
     fn init_does_not_overwrite_existing_per_language_registry_when_scaffolding() {
-        let _guard = env_lock();
         let temp = TestDir::new("preserve-existing-registry");
-        let _wax_home = EnvVarGuard::set("WAX_HOME", temp.path.join("home"));
 
         let artifact_path = temp.path.join("compose.tgz");
         let digest = write_pack_artifact(&artifact_path, "wax-lang-compose");
@@ -1779,7 +1769,7 @@ mod tests {
                 registry_url: Some(file_url(&registry_path)),
                 repo_root: repo_root.clone(),
                 target_triple: Some("test-target".to_owned()),
-                state_path: Some(temp.path.join("home/state.json")),
+                wax_home: Some(WaxHome::new(temp.path.join("home"))),
                 scaffold_registries: true,
                 interactive: None,
             },
@@ -1798,9 +1788,7 @@ mod tests {
 
     #[test]
     fn init_scaffolded_registry_digest_matches_written_file() {
-        let _guard = env_lock();
         let temp = TestDir::new("scaffolded-registry-digest");
-        let _wax_home = EnvVarGuard::set("WAX_HOME", temp.path.join("home"));
 
         let artifact_path = temp.path.join("compose.tgz");
         let digest = write_pack_artifact(&artifact_path, "wax-lang-compose");
@@ -1827,7 +1815,7 @@ mod tests {
                 registry_url: Some(file_url(&registry_path)),
                 repo_root: repo_root.clone(),
                 target_triple: Some("test-target".to_owned()),
-                state_path: Some(temp.path.join("home/state.json")),
+                wax_home: Some(WaxHome::new(temp.path.join("home"))),
                 scaffold_registries: true,
                 interactive: None,
             },
@@ -1878,7 +1866,7 @@ mod tests {
                 registry_url: Some(file_url(&registry_path)),
                 repo_root: repo_root.clone(),
                 target_triple: Some("test-target".to_owned()),
-                state_path: None,
+                wax_home: None,
                 scaffold_registries: false,
                 interactive: None,
             },
@@ -1891,9 +1879,7 @@ mod tests {
 
     #[test]
     fn init_dedupes_duplicate_language_flags() {
-        let _guard = env_lock();
         let temp = TestDir::new("dedupe");
-        let _wax_home = EnvVarGuard::set("WAX_HOME", temp.path.join("home"));
 
         let artifact_path = temp.path.join("compose.tgz");
         let digest = write_pack_artifact(&artifact_path, "wax-lang-compose");
@@ -1921,7 +1907,7 @@ mod tests {
                 registry_url: Some(file_url(&registry_path)),
                 repo_root: repo_root.clone(),
                 target_triple: Some("test-target".to_owned()),
-                state_path: Some(temp.path.join("home/state.json")),
+                wax_home: Some(WaxHome::new(temp.path.join("home"))),
                 scaffold_registries: false,
                 interactive: None,
             },

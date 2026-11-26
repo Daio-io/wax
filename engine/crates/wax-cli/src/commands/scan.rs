@@ -13,7 +13,7 @@ use super::scan_summary::{
     status_label, write_json_summary,
 };
 use super::scan_summary_md::render_markdown_summary;
-use super::state_path::resolve_state_path;
+use super::wax_home::resolve_wax_home;
 use crate::cli::{ConfiglessScanArgs, ScanStdoutFormat};
 use crate::presentation::{Presentation, write_scan_heading};
 use crate::progress::{CliProgress, optional_scan_progress_sink};
@@ -36,7 +36,7 @@ use wax_core::config::waxrc::{
     SCAN_OUTPUT_FORMAT_MARKDOWN, ScanOutputSpec, WAXRC_SCHEMA_VERSION, WaxRc, WaxRcError,
     is_deferred_scan_output_format, load_waxrc,
 };
-use wax_core::paths::PathsError;
+use wax_core::paths::{PathsError, WaxHome};
 use wax_core::registry::{fetch_pack_index, select_target_artifact};
 use wax_core::registry_cache::RegistrySnapshot;
 use wax_core::registry_lookup::{RegistryLookupOptions, resolve_lookup_snapshots};
@@ -147,8 +147,8 @@ pub struct ScanCommandOptions {
     pub allow_absolute_output: bool,
     /// Prior JSON summary or merged scan used to compute output deltas.
     pub baseline: Option<PathBuf>,
-    /// Global state path override for tests.
-    pub state_path: Option<PathBuf>,
+    /// Wax home to use for global state, caches, and language packs.
+    pub wax_home: Option<WaxHome>,
     /// Pack index URL override for ephemeral scans.
     pub pack_index_url: Option<String>,
     /// Target triple override for ephemeral scans.
@@ -438,7 +438,7 @@ impl From<HtmlWriteError> for ScanCommandError {
 /// [`ScanCommandError::Io`] when prompts, sync warnings, or summary output cannot
 /// be written.
 pub fn run_scan_cli(
-    options: ScanCommandOptions,
+    mut options: ScanCommandOptions,
     writer: &mut impl Write,
 ) -> Result<(), ScanCommandError> {
     let config_path = options.repo_root.join(PREFERRED_CONFIG_RELATIVE_PATH);
@@ -457,11 +457,13 @@ pub fn run_scan_cli(
         return Err(ScanCommandError::RequiresInit { config_path });
     }
 
-    let state_path = resolve_state_path(options.state_path.as_deref())?;
+    let home = resolve_wax_home(options.wax_home.as_ref())?;
     let registry_url = resolve_registry_url(options.pack_index_url.clone());
     let manifests = fetch_pack_index(&registry_url).map_err(LanguageCommandError::from)?;
     let mut prompts = DialoguerScanPrompts;
-    let selections = collect_ephemeral_scan_selections(&manifests, &mut prompts, &state_path)?;
+    let selections =
+        collect_ephemeral_scan_selections(&manifests, &mut prompts, &home.state_file())?;
+    options.wax_home = Some(home);
     run_ephemeral_scan(options, selections, writer)
 }
 
@@ -481,10 +483,14 @@ pub fn run_scan_cli(
 /// or [`ScanCommandError::Io`] when a sync warning or scan summary cannot be
 /// written.
 pub fn run_scan(
-    options: ScanCommandOptions,
+    mut options: ScanCommandOptions,
     writer: &mut impl Write,
     ephemeral: bool,
 ) -> Result<(), ScanCommandError> {
+    if options.wax_home.is_none() {
+        // Core preserves the sync warnings and validation order if no home is available.
+        options.wax_home = resolve_wax_home(None).ok();
+    }
     let config_outputs = if ephemeral {
         Vec::new()
     } else {
@@ -501,7 +507,7 @@ pub fn run_scan(
     let merged = Engine::scan_repo_with_options(
         &options.repo_root,
         ScanOptions {
-            wax_home: None,
+            wax_home: options.wax_home.clone(),
             scan_concurrency: options.scan_concurrency,
             root_group: options.root_group.clone(),
             allow_auto_install: options.allow_auto_install,
@@ -544,7 +550,7 @@ fn load_config_outputs_and_attempt_registry_sync(
     match best_effort_sync_app_registries(&SyncOptions {
         design_system: None,
         repo_root: options.repo_root.clone(),
-        state_path: options.state_path.clone(),
+        state_path: options.wax_home.as_ref().map(WaxHome::state_file),
         upgrade: false,
     }) {
         Ok((_updates, failures)) => {
@@ -589,8 +595,8 @@ fn run_ephemeral_scan(
     writer: &mut impl Write,
 ) -> Result<(), ScanCommandError> {
     validate_ephemeral_scan_roots(&selections)?;
-    let state_path = resolve_state_path(options.state_path.as_deref())?;
-    let ephemeral = build_ephemeral_scan_config(&options, &selections, &state_path)?;
+    let home = resolve_wax_home(options.wax_home.as_ref())?;
+    let ephemeral = build_ephemeral_scan_config(&options, &selections, &home.state_file())?;
     let progress = Arc::new(CliProgress::for_presentation(
         if options.compact || options.format != ScanStdoutFormat::Summary {
             Presentation::Plain
@@ -601,7 +607,7 @@ fn run_ephemeral_scan(
     let merged = Engine::scan_repo_with_options(
         &options.repo_root,
         ScanOptions {
-            wax_home: None,
+            wax_home: Some(home),
             scan_concurrency: options.scan_concurrency,
             root_group: options.root_group.clone(),
             allow_auto_install: options.allow_auto_install,
@@ -1841,7 +1847,7 @@ mod tests {
         TokenInferenceCounts, TokenInferenceEvidence, TokenInferenceReport, TokenMatchKind,
         TokenReplacementSuggestion,
     };
-    use wax_core::paths::PathsError;
+    use wax_core::paths::{PathsError, WaxHome};
 
     struct EnvVarGuard {
         name: &'static str,
@@ -2579,7 +2585,7 @@ mod tests {
                 cli_outputs: Vec::new(),
                 allow_absolute_output: false,
                 baseline: None,
-                state_path: Some(wax_home.join("state.json")),
+                wax_home: Some(WaxHome::new(wax_home)),
                 pack_index_url: None,
                 target_triple: None,
                 ephemeral: None,
@@ -2619,7 +2625,7 @@ mod tests {
                 cli_outputs: Vec::new(),
                 allow_absolute_output: false,
                 baseline: None,
-                state_path: None,
+                wax_home: None,
                 pack_index_url: None,
                 target_triple: None,
                 ephemeral: Some(EphemeralScanSelections {
@@ -2669,7 +2675,7 @@ mod tests {
                 cli_outputs: Vec::new(),
                 allow_absolute_output: false,
                 baseline: None,
-                state_path: None,
+                wax_home: None,
                 pack_index_url: None,
                 target_triple: None,
                 ephemeral: None,

@@ -29,10 +29,10 @@ pub mod commands {
     pub mod scan_summary;
     pub mod scan_summary_md;
     pub mod search;
-    mod state_path;
     pub mod sync;
     pub mod uninstall;
     pub mod validate;
+    mod wax_home;
 }
 
 pub mod presentation;

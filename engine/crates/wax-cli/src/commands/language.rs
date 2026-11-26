@@ -1,6 +1,6 @@
 //! `wax language` command implementations.
 
-use super::state_path::resolve_state_path;
+use super::wax_home::resolve_wax_home;
 use crate::progress::CliProgress;
 use semver::Version;
 use serde::Deserialize;
@@ -22,7 +22,7 @@ use wax_core::global_state::{
     GlobalState, GlobalStateError, InstalledLanguagePack, load_global_state, save_global_state,
 };
 use wax_core::install::{InstallError, LanguagePackManifestSpec, install_language};
-use wax_core::paths::{PathsError, WaxHome, lang_install_dir};
+use wax_core::paths::{PathsError, WaxHome};
 use wax_core::registry::{
     RegistryArtifact, RegistryError, RegistryManifest, fetch_pack_index, select_target_artifact,
 };
@@ -33,8 +33,8 @@ use wax_lang_api::build_version;
 pub struct ListOptions {
     /// Deprecated registry URL retained for CLI compatibility.
     pub registry_url: Option<String>,
-    /// State path override for tests.
-    pub state_path: Option<PathBuf>,
+    /// Wax home to use for global state and language packs.
+    pub wax_home: Option<WaxHome>,
 }
 
 /// Parsed `wax language install <id>[@version]` target.
@@ -93,8 +93,8 @@ pub struct InstallOptions {
     pub registry_url: Option<String>,
     /// Target triple override for tests.
     pub target_triple: Option<String>,
-    /// State path override for tests.
-    pub state_path: Option<PathBuf>,
+    /// Wax home to use for global state and language packs.
+    pub wax_home: Option<WaxHome>,
 }
 
 /// Options for `wax language uninstall`.
@@ -104,8 +104,8 @@ pub struct UninstallOptions {
     pub language_id: LanguageId,
     /// Optional specific version to remove.
     pub version: Option<String>,
-    /// State path override for tests.
-    pub state_path: Option<PathBuf>,
+    /// Wax home to use for global state and language packs.
+    pub wax_home: Option<WaxHome>,
 }
 
 /// Options for `wax language update`.
@@ -119,8 +119,8 @@ pub struct UpdateOptions {
     pub registry_url: Option<String>,
     /// Target triple override for tests.
     pub target_triple: Option<String>,
-    /// State path override for tests.
-    pub state_path: Option<PathBuf>,
+    /// Wax home to use for global state and language packs.
+    pub wax_home: Option<WaxHome>,
     /// Repository root; config and lock paths are discovered under `.wax/wax.config.json` and `.wax/wax.lock.json`.
     pub repo_root: PathBuf,
 }
@@ -130,8 +130,8 @@ pub struct UpdateOptions {
 pub struct DoctorOptions {
     /// Repository root; config and lock paths are discovered under `.wax/wax.config.json` and `.wax/wax.lock.json`.
     pub repo_root: PathBuf,
-    /// State path override for tests.
-    pub state_path: Option<PathBuf>,
+    /// Wax home to use for global state and language packs.
+    pub wax_home: Option<WaxHome>,
 }
 
 /// Errors returned by language lifecycle commands.
@@ -205,10 +205,10 @@ pub enum LanguageCommandError {
 pub fn run_list(options: ListOptions, writer: &mut impl Write) -> Result<(), LanguageCommandError> {
     let ListOptions {
         registry_url,
-        state_path,
+        wax_home,
     } = options;
     drop(registry_url);
-    let state = load_state(state_path.as_deref())?;
+    let state = load_state(wax_home.as_ref())?;
 
     writeln!(writer, "language\tversion\tstatus").map_err(write_error)?;
     for (language_id, versions) in state.installed_languages {
@@ -243,18 +243,21 @@ pub fn run_install(
     let manifest =
         manifest_for_language(&manifests, &options.language_id, options.version.as_deref())?;
     progress.set_message(format!("Installing {}@{}…", manifest.id, manifest.version));
-    let install_dir = install_manifest(&manifest, options.target_triple.as_deref())?;
+    let target = options.target_triple.unwrap_or_else(default_target_triple);
+    let artifact = select_target_artifact(&manifest, &target)?;
+    let home = resolve_wax_home(options.wax_home.as_ref()).map_err(InstallError::from)?;
+    let install_dir = install_resolved_manifest(&manifest, &target, artifact, &home)?;
     progress.set_message(format!(
         "Recording {}@{} install…",
         manifest.id, manifest.version
     ));
     if let Err(err) = record_installed_language(
-        options.state_path,
+        &home.state_file(),
         &manifest.id,
         &manifest.version,
         install_dir,
     ) {
-        remove_dir_if_exists(&lang_install_dir(&manifest.id, &manifest.version)?)?;
+        remove_dir_if_exists(&home.lang_install_dir(&manifest.id, &manifest.version)?)?;
         return Err(err);
     }
     progress.finish();
@@ -274,10 +277,11 @@ pub fn run_uninstall(
     options: UninstallOptions,
     writer: &mut impl Write,
 ) -> Result<(), LanguageCommandError> {
-    let state_path = resolve_state_path(options.state_path.as_deref())?;
+    let home = resolve_wax_home(options.wax_home.as_ref())?;
+    let state_path = home.state_file();
     let mut state = load_global_state(&state_path)?;
     let removed = remove_installed_versions(
-        &state_path,
+        &home,
         &mut state,
         &options.language_id,
         options.version.as_deref(),
@@ -310,7 +314,8 @@ pub fn run_update(
 ) -> Result<(), LanguageCommandError> {
     let registry_url = resolve_registry_url(options.registry_url);
     let manifests = fetch_pack_index(&registry_url)?;
-    let state_path = resolve_state_path(options.state_path.as_deref())?;
+    let home = resolve_wax_home(options.wax_home.as_ref())?;
+    let state_path = home.state_file();
     let mut state = load_global_state(&state_path)?;
     let repo_files = wax_core::config::repo_files::discover_repo_files(&options.repo_root);
     let lockfile_path = repo_files.lockfile_path;
@@ -332,7 +337,7 @@ pub fn run_update(
             .get(&language_id)
             .is_some_and(|versions| versions.contains_key(&manifest.version))
         {
-            let install_dir = install_resolved_manifest(&manifest, &target, &artifact)?;
+            let install_dir = install_resolved_manifest(&manifest, &target, &artifact, &home)?;
             state
                 .installed_languages
                 .entry(manifest.id.clone())
@@ -343,7 +348,7 @@ pub fn run_update(
                 );
             if let Err(err) = save_global_state(&state_path, &state) {
                 remove_installed_version_from_state(&mut state, &manifest.id, &manifest.version);
-                remove_dir_if_exists(&lang_install_dir(&manifest.id, &manifest.version)?)?;
+                remove_dir_if_exists(&home.lang_install_dir(&manifest.id, &manifest.version)?)?;
                 return Err(err.into());
             }
         }
@@ -352,12 +357,8 @@ pub fn run_update(
             update_lockfile_entry(lockfile, &manifest, &registry_url, &target, &artifact);
         }
 
-        total_removed += remove_installed_versions_except(
-            &state_path,
-            &mut state,
-            &language_id,
-            &manifest.version,
-        )?;
+        total_removed +=
+            remove_installed_versions_except(&home, &mut state, &language_id, &manifest.version)?;
         updated.push((manifest.id, manifest.version));
     }
 
@@ -392,7 +393,7 @@ pub fn run_doctor(
     let repo_files = wax_core::config::repo_files::discover_repo_files(&options.repo_root);
     let waxrc = load_waxrc(&repo_files.config_path)?;
     let lockfile = load_optional_lockfile(&repo_files.lockfile_path)?;
-    let state = load_state(options.state_path.as_deref())?;
+    let state = load_state(options.wax_home.as_ref())?;
 
     let mut language_ids = BTreeSet::new();
     let mut config_status = BTreeMap::new();
@@ -490,8 +491,8 @@ struct EffectiveRegistryUrl {
     source: RegistryUrlSource,
 }
 
-fn load_state(state_path: Option<&Path>) -> Result<GlobalState, LanguageCommandError> {
-    Ok(load_global_state(&resolve_state_path(state_path)?)?)
+fn load_state(home: Option<&WaxHome>) -> Result<GlobalState, LanguageCommandError> {
+    Ok(load_global_state(resolve_wax_home(home)?.state_file())?)
 }
 
 pub(crate) fn manifest_for_language(
@@ -532,27 +533,16 @@ fn compare_registry_versions(left: &str, right: &str) -> std::cmp::Ordering {
     }
 }
 
-fn install_manifest(
-    registry_manifest: &RegistryManifest,
-    target_triple: Option<&str>,
-) -> Result<PathBuf, LanguageCommandError> {
-    let target = target_triple
-        .map(str::to_owned)
-        .unwrap_or_else(default_target_triple);
-    let artifact = select_target_artifact(registry_manifest, &target)?;
-    install_resolved_manifest(registry_manifest, &target, artifact)
-}
-
 /// Installs or reuses a language pack from registry metadata already resolved for lockfile pinning.
 pub(crate) fn install_pinned_manifest(
     registry_manifest: &RegistryManifest,
     target: &str,
     artifact: &RegistryArtifact,
-    state_path: Option<PathBuf>,
+    home: &WaxHome,
     writer: &mut impl Write,
 ) -> Result<(), LanguageCommandError> {
     let (install_dir, installed_fresh) =
-        match install_resolved_manifest(registry_manifest, target, artifact) {
+        match install_resolved_manifest(registry_manifest, target, artifact, home) {
             Ok(install_dir) => (install_dir, true),
             Err(LanguageCommandError::Install(InstallError::AlreadyInstalled { path })) => {
                 (path.into(), false)
@@ -560,16 +550,15 @@ pub(crate) fn install_pinned_manifest(
             Err(err) => return Err(err),
         };
     if let Err(err) = record_installed_language(
-        state_path,
+        &home.state_file(),
         &registry_manifest.id,
         &registry_manifest.version,
         install_dir,
     ) {
         if installed_fresh {
-            remove_dir_if_exists(&lang_install_dir(
-                &registry_manifest.id,
-                &registry_manifest.version,
-            )?)?;
+            remove_dir_if_exists(
+                &home.lang_install_dir(&registry_manifest.id, &registry_manifest.version)?,
+            )?;
         }
         return Err(err);
     }
@@ -586,6 +575,7 @@ fn install_resolved_manifest(
     registry_manifest: &RegistryManifest,
     target: &str,
     artifact: &RegistryArtifact,
+    home: &WaxHome,
 ) -> Result<PathBuf, LanguageCommandError> {
     let manifest = LanguagePackManifestSpec {
         id: registry_manifest.id.clone(),
@@ -600,7 +590,6 @@ fn install_resolved_manifest(
         parser_version: registry_manifest.version.clone(),
     };
 
-    let home = WaxHome::from_env().map_err(InstallError::from)?;
     Ok(install_language(
         &registry_manifest.id,
         &registry_manifest.version,
@@ -609,7 +598,7 @@ fn install_resolved_manifest(
         &artifact.sha256,
         Some(&artifact.sha256),
         &manifest,
-        &home,
+        home,
     )?)
 }
 
@@ -640,24 +629,23 @@ pub(crate) fn update_lockfile_entry(
 }
 
 fn record_installed_language(
-    state_path: Option<PathBuf>,
+    state_path: &Path,
     language_id: &LanguageId,
     version: &str,
     install_dir: PathBuf,
 ) -> Result<(), LanguageCommandError> {
-    let state_path = resolve_state_path(state_path.as_deref())?;
-    let mut state = load_global_state(&state_path)?;
+    let mut state = load_global_state(state_path)?;
     state
         .installed_languages
         .entry(language_id.clone())
         .or_default()
         .insert(version.to_owned(), InstalledLanguagePack { install_dir });
-    save_global_state(&state_path, &state)?;
+    save_global_state(state_path, &state)?;
     Ok(())
 }
 
 fn remove_installed_versions(
-    state_path: &Path,
+    home: &WaxHome,
     state: &mut GlobalState,
     language_id: &LanguageId,
     version: Option<&str>,
@@ -677,18 +665,19 @@ fn remove_installed_versions(
         None => versions.keys().cloned().collect(),
     };
 
+    let state_path = home.state_file();
     for version in &removals {
-        let install_dir = lang_install_dir(language_id, version)?;
+        let install_dir = home.lang_install_dir(language_id, version)?;
         remove_dir_if_exists(&install_dir)?;
         remove_installed_version_from_state(state, language_id, version);
-        save_global_state(state_path, state)?;
+        save_global_state(&state_path, state)?;
     }
 
     Ok(removals.len())
 }
 
 fn remove_installed_versions_except(
-    state_path: &Path,
+    home: &WaxHome,
     state: &mut GlobalState,
     language_id: &LanguageId,
     keep_version: &str,
@@ -703,11 +692,12 @@ fn remove_installed_versions_except(
         .map(|(version, _)| version.clone())
         .collect();
 
+    let state_path = home.state_file();
     for version in &removals {
-        let install_dir = lang_install_dir(language_id, version)?;
+        let install_dir = home.lang_install_dir(language_id, version)?;
         remove_dir_if_exists(&install_dir)?;
         remove_installed_version_from_state(state, language_id, version);
-        save_global_state(state_path, state)?;
+        save_global_state(&state_path, state)?;
     }
 
     Ok(removals.len())
@@ -898,6 +888,7 @@ struct InstalledManifest {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::env_lock;
     use clap::CommandFactory;
     use std::collections::BTreeMap;
     use std::ffi::OsString;
@@ -905,8 +896,6 @@ mod tests {
     use std::path::{Path, PathBuf};
     use wax_contract::LanguageId;
     use wax_core::global_state::{GlobalState, InstalledLanguagePack, save_global_state};
-
-    use crate::testing::env_lock;
 
     #[test]
     fn clap_tree_exposes_language_lifecycle_subcommands() {
@@ -958,7 +947,7 @@ mod tests {
         run_list(
             ListOptions {
                 registry_url: Some(file_url(&registry_path)),
-                state_path: Some(state_path),
+                wax_home: Some(WaxHome::new(temp.path())),
             },
             &mut output,
         )
@@ -991,7 +980,7 @@ mod tests {
         run_list(
             ListOptions {
                 registry_url: None,
-                state_path: Some(state_path),
+                wax_home: Some(WaxHome::new(temp.path())),
             },
             &mut output,
         )
@@ -1032,7 +1021,7 @@ mod tests {
         run_list(
             ListOptions {
                 registry_url: None,
-                state_path: Some(state_path),
+                wax_home: Some(WaxHome::new(temp.path())),
             },
             &mut output,
         )
@@ -1105,9 +1094,7 @@ mod tests {
 
     #[test]
     fn install_uses_registry_artifact_and_records_global_state() {
-        let _guard = env_lock();
         let temp = TestDir::new("install");
-        let _wax_home = EnvVarGuard::set("WAX_HOME", temp.path());
 
         let artifact_path = temp.path().join("compose.tgz");
         let digest = write_pack_artifact(&artifact_path, "wax-lang-compose");
@@ -1129,12 +1116,17 @@ mod tests {
                 version: None,
                 registry_url: Some(file_url(&registry_path)),
                 target_triple: Some("test-target".to_owned()),
-                state_path: None,
+                wax_home: Some(WaxHome::new(temp.path())),
             },
             &mut output,
         )
         .unwrap();
 
+        assert!(
+            temp.path()
+                .join("langs/compose/0.4.2/manifest.json")
+                .is_file()
+        );
         let state =
             wax_core::global_state::load_global_state(temp.path().join("state.json")).unwrap();
         assert!(state.installed_languages[&lang("compose")].contains_key("0.4.2"));
@@ -1147,9 +1139,7 @@ mod tests {
 
     #[test]
     fn install_uses_exact_registry_version_when_requested() {
-        let _guard = env_lock();
         let temp = TestDir::new("install-exact");
-        let _wax_home = EnvVarGuard::set("WAX_HOME", temp.path());
 
         let artifact_path = temp.path().join("compose.tgz");
         let digest = write_pack_artifact(&artifact_path, "wax-lang-compose");
@@ -1176,7 +1166,7 @@ mod tests {
                 version: Some("0.4.1".to_owned()),
                 registry_url: Some(file_url(&registry_path)),
                 target_triple: Some("test-target".to_owned()),
-                state_path: None,
+                wax_home: Some(WaxHome::new(temp.path())),
             },
             &mut output,
         )
@@ -1213,9 +1203,7 @@ mod tests {
 
     #[test]
     fn uninstall_removes_all_versions_when_version_is_omitted() {
-        let _guard = env_lock();
         let temp = TestDir::new("uninstall");
-        let _wax_home = EnvVarGuard::set("WAX_HOME", temp.path());
         let state_path = temp.path().join("state.json");
         let install_a = temp.path().join("langs/compose/0.4.1");
         let install_b = temp.path().join("langs/compose/0.4.2");
@@ -1247,7 +1235,7 @@ mod tests {
             UninstallOptions {
                 language_id: lang("compose"),
                 version: None,
-                state_path: Some(state_path.clone()),
+                wax_home: Some(WaxHome::new(temp.path())),
             },
             &mut output,
         )
@@ -1261,9 +1249,7 @@ mod tests {
 
     #[test]
     fn uninstall_derives_removal_path_instead_of_trusting_state_install_dir() {
-        let _guard = env_lock();
         let temp = TestDir::new("uninstall-safe-path");
-        let _wax_home = EnvVarGuard::set("WAX_HOME", temp.path());
         let state_path = temp.path().join("state.json");
         let expected_dir = temp.path().join("langs/compose/0.4.2");
         let malicious_dir = temp.path().join("do-not-delete");
@@ -1288,7 +1274,7 @@ mod tests {
             UninstallOptions {
                 language_id: lang("compose"),
                 version: Some("0.4.2".to_owned()),
-                state_path: Some(state_path),
+                wax_home: Some(WaxHome::new(temp.path())),
             },
             &mut output,
         )
@@ -1300,9 +1286,7 @@ mod tests {
 
     #[test]
     fn uninstall_saves_state_after_each_successful_removal() {
-        let _guard = env_lock();
         let temp = TestDir::new("uninstall-partial-failure");
-        let _wax_home = EnvVarGuard::set("WAX_HOME", temp.path());
         let state_path = temp.path().join("state.json");
         let install_a = temp.path().join("langs/compose/0.4.1");
         let install_b = temp.path().join("langs/compose/0.4.2");
@@ -1334,7 +1318,7 @@ mod tests {
             UninstallOptions {
                 language_id: lang("compose"),
                 version: None,
-                state_path: Some(state_path.clone()),
+                wax_home: Some(WaxHome::new(temp.path())),
             },
             &mut Vec::new(),
         )
@@ -1354,9 +1338,7 @@ mod tests {
 
     #[test]
     fn update_installs_latest_registry_version_then_removes_old_versions() {
-        let _guard = env_lock();
         let temp = TestDir::new("update");
-        let _wax_home = EnvVarGuard::set("WAX_HOME", temp.path());
 
         let old_dir = temp.path().join("langs/compose/0.4.1");
         fs::create_dir_all(&old_dir).unwrap();
@@ -1404,7 +1386,7 @@ mod tests {
                 all: false,
                 registry_url: Some(registry_url.clone()),
                 target_triple: Some("test-target".to_owned()),
-                state_path: None,
+                wax_home: Some(WaxHome::new(temp.path())),
                 repo_root: temp.path().to_path_buf(),
             },
             &mut output,
@@ -1434,9 +1416,7 @@ mod tests {
 
     #[test]
     fn update_refreshes_registry_locks_for_centralized_layout() {
-        let _guard = env_lock();
         let temp = TestDir::new("update-centralized-registry");
-        let _wax_home = EnvVarGuard::set("WAX_HOME", temp.path());
 
         fs::create_dir_all(temp.path().join(".wax")).unwrap();
         fs::write(
@@ -1492,7 +1472,7 @@ mod tests {
                 all: false,
                 registry_url: Some(registry_url),
                 target_triple: Some("test-target".to_owned()),
-                state_path: None,
+                wax_home: Some(WaxHome::new(temp.path())),
                 repo_root: temp.path().to_path_buf(),
             },
             &mut Vec::new(),
@@ -1540,7 +1520,7 @@ mod tests {
                 all: true,
                 registry_url: Some(file_url(&index)),
                 target_triple: None,
-                state_path: Some(temp.path().join("state.json")),
+                wax_home: Some(WaxHome::new(temp.path())),
                 repo_root: temp.path().to_path_buf(),
             },
             &mut Vec::new(),
@@ -1560,9 +1540,7 @@ mod tests {
 
     #[test]
     fn install_rolls_back_promoted_directory_when_recording_state_fails() {
-        let _guard = env_lock();
         let temp = TestDir::new("install-rollback");
-        let _wax_home = EnvVarGuard::set("WAX_HOME", temp.path());
 
         let artifact_path = temp.path().join("compose.tgz");
         let digest = write_pack_artifact(&artifact_path, "wax-lang-compose");
@@ -1576,7 +1554,7 @@ mod tests {
             ),
         )
         .unwrap();
-        let bad_state_path = temp.path().join("state-dir");
+        let bad_state_path = temp.path().join("state.json");
         fs::create_dir_all(&bad_state_path).unwrap();
 
         let err = run_install(
@@ -1585,7 +1563,7 @@ mod tests {
                 version: None,
                 registry_url: Some(file_url(&registry_path)),
                 target_triple: Some("test-target".to_owned()),
-                state_path: Some(bad_state_path),
+                wax_home: Some(WaxHome::new(temp.path())),
             },
             &mut Vec::new(),
         )
@@ -1597,15 +1575,13 @@ mod tests {
 
     #[test]
     fn install_pinned_manifest_keeps_reused_directory_when_recording_state_fails() {
-        let _guard = env_lock();
         let temp = TestDir::new("init-reuse-rollback");
-        let _wax_home = EnvVarGuard::set("WAX_HOME", temp.path());
 
         let install_dir = temp.path().join("langs/compose/0.4.2");
         fs::create_dir_all(&install_dir).unwrap();
         fs::write(install_dir.join("wax-lang-compose"), "#!/bin/sh\nexit 0\n").unwrap();
 
-        let bad_state_path = temp.path().join("state-dir");
+        let bad_state_path = temp.path().join("state.json");
         fs::create_dir_all(&bad_state_path).unwrap();
         let manifest = registry_manifest("compose", "0.4.2");
         let artifact = RegistryArtifact {
@@ -1617,7 +1593,7 @@ mod tests {
             &manifest,
             "test-target",
             &artifact,
-            Some(bad_state_path),
+            &WaxHome::new(temp.path()),
             &mut Vec::new(),
         )
         .expect_err("recording state should fail");
@@ -1684,7 +1660,7 @@ mod tests {
         run_doctor(
             DoctorOptions {
                 repo_root: temp.path().to_path_buf(),
-                state_path: Some(state_path),
+                wax_home: Some(WaxHome::new(temp.path())),
             },
             &mut output,
         )
@@ -1739,7 +1715,7 @@ mod tests {
         run_doctor(
             DoctorOptions {
                 repo_root: temp.path().to_path_buf(),
-                state_path: Some(state_path),
+                wax_home: Some(WaxHome::new(temp.path())),
             },
             &mut output,
         )
@@ -1789,7 +1765,7 @@ mod tests {
         run_doctor(
             DoctorOptions {
                 repo_root: temp.path().to_path_buf(),
-                state_path: Some(temp.path().join("state.json")),
+                wax_home: Some(WaxHome::new(temp.path())),
             },
             &mut output,
         )
@@ -1861,7 +1837,7 @@ mod tests {
         run_doctor(
             DoctorOptions {
                 repo_root: temp.path().to_path_buf(),
-                state_path: Some(temp.path().join("state.json")),
+                wax_home: Some(WaxHome::new(temp.path())),
             },
             &mut output,
         )
@@ -2013,7 +1989,6 @@ mod tests {
             let _ = fs::remove_dir_all(&self.root);
         }
     }
-
     struct EnvVarGuard {
         name: &'static str,
         previous: Option<OsString>,

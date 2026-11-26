@@ -14,7 +14,7 @@ pub enum PathsError {
     /// A language pack version is not a single normal path segment.
     #[error("invalid language pack version path component {version:?}")]
     InvalidVersion {
-        /// Version string passed to [`lang_install_dir`].
+        /// Version string passed to [`WaxHome::lang_install_dir`].
         version: String,
     },
 }
@@ -76,51 +76,6 @@ impl WaxHome {
         validate_version_segment(version)?;
         Ok(self.langs_dir(id).join(version))
     }
-}
-
-// Compatibility wrappers retained until Phase 2a.
-/// Returns the global wax home directory.
-///
-/// `WAX_HOME` overrides the default. When the override is absent, the path is
-/// resolved as `~/.wax` using the current user's home directory environment.
-///
-/// # Errors
-///
-/// Returns [`PathsError::HomeUnavailable`] when neither `WAX_HOME` nor a user
-/// home directory can be resolved.
-pub fn wax_home() -> Result<PathBuf, PathsError> {
-    Ok(WaxHome::from_env()?.root)
-}
-
-/// Returns the global state file path.
-///
-/// # Errors
-///
-/// Returns [`PathsError::HomeUnavailable`] when the wax home cannot be resolved.
-pub fn state_file() -> Result<PathBuf, PathsError> {
-    Ok(WaxHome::from_env()?.state_file())
-}
-
-/// Returns the global immutable registry snapshot cache directory.
-///
-/// Layout: `~/.wax/cache/registries` (or `$WAX_HOME/cache/registries`).
-///
-/// # Errors
-///
-/// Returns [`PathsError::HomeUnavailable`] when the wax home cannot be resolved.
-pub fn registry_cache_dir() -> Result<PathBuf, PathsError> {
-    Ok(WaxHome::from_env()?.registry_cache_dir())
-}
-
-/// Returns the install directory for one language pack version.
-///
-/// # Errors
-///
-/// Returns [`PathsError::InvalidVersion`] when `version` is not one normal path
-/// segment, or [`PathsError::HomeUnavailable`] when wax home cannot be resolved.
-pub fn lang_install_dir(id: &LanguageId, version: &str) -> Result<PathBuf, PathsError> {
-    validate_version_segment(version)?;
-    WaxHome::from_env()?.lang_install_dir(id, version)
 }
 
 pub(crate) fn validate_version_segment(version: &str) -> Result<(), PathsError> {

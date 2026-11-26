@@ -1,56 +1,15 @@
 use std::collections::BTreeMap;
-use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 use wax_cli::commands::init::{InitOptions, InitSelections, RegistrySetup, run_init};
 use wax_contract::LanguageId;
 use wax_core::config::lockfile::load_lockfile;
 use wax_core::config::waxrc::load_waxrc;
+use wax_core::paths::WaxHome;
 use wax_core::registry_cache::RegistrySourceSpec;
 use wax_core::registry_memory::add_remembered_registry;
-
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-fn env_lock() -> MutexGuard<'static, ()> {
-    ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
-}
-
-struct EnvVarGuard {
-    name: &'static str,
-    previous: Option<OsString>,
-}
-
-impl EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while mutating process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-        let previous = std::env::var_os(name);
-        unsafe {
-            std::env::set_var(name, value);
-        }
-        Self { name, previous }
-    }
-}
-
-impl Drop for EnvVarGuard {
-    #[expect(
-        unsafe_code,
-        reason = "these tests hold ENV_LOCK while restoring process environment variables, which keeps env access serialized inside this test binary"
-    )]
-    fn drop(&mut self) {
-        unsafe {
-            match &self.previous {
-                Some(value) => std::env::set_var(self.name, value),
-                None => std::env::remove_var(self.name),
-            }
-        }
-    }
-}
 
 struct TestDir {
     path: PathBuf,
@@ -76,7 +35,6 @@ impl Drop for TestDir {
 
 #[test]
 fn init_loads_file_copy_of_alpha_pack_index() {
-    let _guard = env_lock();
     let root = TestDir::new("init-alpha-index");
     let repo = root.path.join("repo");
     let wax_home = root.path.join("wax-home");
@@ -94,8 +52,8 @@ fn init_loads_file_copy_of_alpha_pack_index() {
     assert_alpha_index_ids(&registry_copy);
     let registry_url = format!("file://{}", registry_copy.display());
 
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
     let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .env("WAX_HOME", &wax_home)
         .args([
             "init",
             "--non-interactive",
@@ -176,7 +134,6 @@ fn assert_alpha_index_ids(index_path: &Path) {
 
 #[test]
 fn init_writes_centralized_wax_layout_and_gitignore() {
-    let _guard = env_lock();
     let root = TestDir::new("init-centralized-layout");
     let repo = root.path.join("repo");
     let wax_home = root.path.join("wax-home");
@@ -193,8 +150,8 @@ fn init_writes_centralized_wax_layout_and_gitignore() {
     fs::copy(&alpha_index, &registry_copy).expect("copy alpha index fixture");
     let registry_url = format!("file://{}", registry_copy.display());
 
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
     let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .env("WAX_HOME", &wax_home)
         .args([
             "init",
             "--non-interactive",
@@ -233,7 +190,6 @@ fn init_writes_centralized_wax_layout_and_gitignore() {
 
 #[test]
 fn init_does_not_duplicate_gitignore_entries() {
-    let _guard = env_lock();
     let root = TestDir::new("init-gitignore-dedupe");
     let repo = root.path.join("repo");
     let wax_home = root.path.join("wax-home");
@@ -252,8 +208,8 @@ fn init_does_not_duplicate_gitignore_entries() {
     fs::copy(&alpha_index, &registry_copy).expect("copy alpha index fixture");
     let registry_url = format!("file://{}", registry_copy.display());
 
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
     let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .env("WAX_HOME", &wax_home)
         .args([
             "init",
             "--non-interactive",
@@ -284,7 +240,6 @@ fn init_does_not_duplicate_gitignore_entries() {
 
 #[test]
 fn init_scaffolds_per_language_registry_for_single_language() {
-    let _guard = env_lock();
     let root = TestDir::new("init-per-language-registry");
     let repo = root.path.join("repo");
     let wax_home = root.path.join("wax-home");
@@ -301,8 +256,8 @@ fn init_scaffolds_per_language_registry_for_single_language() {
     fs::copy(&alpha_index, &registry_copy).expect("copy alpha index fixture");
     let registry_url = format!("file://{}", registry_copy.display());
 
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
     let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .env("WAX_HOME", &wax_home)
         .args([
             "init",
             "--non-interactive",
@@ -337,7 +292,6 @@ fn lang(id: &str) -> LanguageId {
 
 #[test]
 fn init_scaffolds_per_language_registry_files_for_multi_language_repo() {
-    let _guard = env_lock();
     let root = TestDir::new("init-per-language-registries");
     let repo = root.path.join("repo");
     let wax_home = root.path.join("wax-home");
@@ -354,8 +308,8 @@ fn init_scaffolds_per_language_registry_files_for_multi_language_repo() {
     fs::copy(&alpha_index, &registry_copy).expect("copy alpha index fixture");
     let registry_url = format!("file://{}", registry_copy.display());
 
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
     let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .env("WAX_HOME", &wax_home)
         .args([
             "init",
             "--non-interactive",
@@ -424,7 +378,6 @@ fn init_scaffolds_per_language_registry_files_for_multi_language_repo() {
 
 #[test]
 fn init_scaffolds_swift_per_language_registry_and_lock_entry() {
-    let _guard = env_lock();
     let root = TestDir::new("init-swift-per-language-registry");
     let repo = root.path.join("repo");
     let wax_home = root.path.join("wax-home");
@@ -441,8 +394,8 @@ fn init_scaffolds_swift_per_language_registry_and_lock_entry() {
     fs::copy(&alpha_index, &registry_copy).expect("copy alpha index fixture");
     let registry_url = format!("file://{}", registry_copy.display());
 
-    let _wax_home = EnvVarGuard::set("WAX_HOME", &wax_home);
     let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .env("WAX_HOME", &wax_home)
         .args([
             "init",
             "--non-interactive",
@@ -534,7 +487,6 @@ fn file_url(path: &Path) -> String {
 
 #[test]
 fn init_non_interactive_source_backed_remembered_writes_explicit_url() {
-    let _guard = env_lock();
     let root = TestDir::new("init-noninteractive-source-backed");
     let source = root.path.join("compose-registry.json");
     let registry_bytes = br#"{"schema_version":1,"language":"compose","components":[{"id":"button","symbol":"Button"}]}"#;
@@ -578,7 +530,7 @@ fn init_non_interactive_source_backed_remembered_writes_explicit_url() {
             registry_url: Some(file_url(&pack_index)),
             repo_root: repo.clone(),
             target_triple: Some("test-target".to_owned()),
-            state_path: Some(state_path),
+            wax_home: Some(WaxHome::new(wax_home)),
             scaffold_registries: false,
             interactive: Some(InitSelections {
                 languages: vec![lang("compose")],
@@ -626,7 +578,6 @@ fn init_git_remembered(nested: bool) {
     use std::process::Output;
     use wax_core::digest::sha256_hex;
 
-    let _guard = env_lock();
     let root = TestDir::new("init-noninteractive-git-remembered");
     let work = root.path.join("git-work");
     let remote = root.path.join("remote.git");
@@ -741,7 +692,7 @@ fn init_git_remembered(nested: bool) {
             registry_url: Some(file_url(&pack_index)),
             repo_root: repo.clone(),
             target_triple: Some("test-target".to_owned()),
-            state_path: Some(state_path),
+            wax_home: Some(WaxHome::new(wax_home)),
             scaffold_registries: false,
             interactive: Some(InitSelections {
                 languages: vec![lang("compose")],

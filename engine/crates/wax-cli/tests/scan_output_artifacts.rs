@@ -1,12 +1,11 @@
 mod common;
 
-use common::{assert_schema_valid_summary, env_lock, run_scan, setup_scan_repo, write_repo_files};
+use common::{assert_schema_valid_summary, run_scan, setup_scan_repo, write_repo_files};
 use std::fs;
 use std::path::PathBuf;
 
 #[test]
 fn cli_output_writes_json_summary() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-artifact-cli",
         &[("compose", "complete", "0.5", "", "")],
@@ -35,7 +34,6 @@ fn cli_output_writes_json_summary() {
 
 #[test]
 fn each_written_json_summary_lists_all_requested_artifacts() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-artifact-manifest-complete",
         &[("compose", "complete", "0.5", "", "")],
@@ -80,7 +78,6 @@ fn each_written_json_summary_lists_all_requested_artifacts() {
 
 #[test]
 fn config_outputs_union_with_cli_idempotent() {
-    let _guard = env_lock();
     let root = common::TestDir::new("scan-artifact-union");
     let repo = root.path.join("repo");
     let wax_home = root.path.join("wax-home");
@@ -100,7 +97,6 @@ fn config_outputs_union_with_cli_idempotent() {
         ),
     );
     common::write_installed_packs(&wax_home, &[("compose", "complete", "0.5", "", "")]);
-    let _wax_home = common::EnvVarGuard::set("WAX_HOME", &wax_home);
 
     let output = run_scan(
         &repo,
@@ -124,7 +120,6 @@ fn config_outputs_union_with_cli_idempotent() {
 
 #[test]
 fn duplicate_output_pair_idempotent() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-artifact-dedupe",
         &[("compose", "complete", "0.5", "", "")],
@@ -156,7 +151,6 @@ fn duplicate_output_pair_idempotent() {
 
 #[test]
 fn shared_destination_across_formats_rejected() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-artifact-shared-dest",
         &[("compose", "complete", "0.5", "", "")],
@@ -186,7 +180,6 @@ fn shared_destination_across_formats_rejected() {
 
 #[test]
 fn unknown_artifact_format_errors_distinctly_from_parse_shape() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-artifact-unknown-format",
         &[("compose", "complete", "0.5", "", "")],
@@ -208,7 +201,6 @@ fn unknown_artifact_format_errors_distinctly_from_parse_shape() {
 
 #[test]
 fn absolute_path_requires_allow_flag() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-artifact-absolute-denied",
         &[("compose", "complete", "0.5", "", "")],
@@ -229,7 +221,6 @@ fn absolute_path_requires_allow_flag() {
 
 #[test]
 fn parent_traversal_output_path_rejected() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-artifact-parent-escape",
         &[("compose", "complete", "0.5", "", "")],
@@ -248,7 +239,6 @@ fn parent_traversal_output_path_rejected() {
 
 #[test]
 fn nested_parent_escape_output_path_rejected() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-artifact-nested-escape",
         &[("compose", "complete", "0.5", "", "")],
@@ -269,7 +259,6 @@ fn nested_parent_escape_output_path_rejected() {
 
 #[test]
 fn output_colliding_with_scan_merged_rejected() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-artifact-merged-collision",
         &[("compose", "complete", "0.5", "", "")],
@@ -294,7 +283,6 @@ fn output_colliding_with_scan_merged_rejected() {
 
 #[test]
 fn allow_absolute_output_writes() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-artifact-absolute-allowed",
         &[("compose", "complete", "0.5", "", "")],
@@ -322,7 +310,6 @@ fn allow_absolute_output_writes() {
 
 #[test]
 fn output_flag_missing_equals_errors() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-artifact-missing-eq",
         &[("compose", "complete", "0.5", "", "")],
@@ -339,7 +326,6 @@ fn output_flag_missing_equals_errors() {
 
 #[test]
 fn output_flag_empty_path_errors() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-artifact-empty-path",
         &[("compose", "complete", "0.5", "", "")],
@@ -356,7 +342,6 @@ fn output_flag_empty_path_errors() {
 
 #[test]
 fn output_flag_empty_format_errors() {
-    let _guard = env_lock();
     let (_root, repo, _wax_home) = setup_scan_repo(
         "scan-artifact-empty-format",
         &[("compose", "complete", "0.5", "", "")],
@@ -373,7 +358,6 @@ fn output_flag_empty_format_errors() {
 
 #[test]
 fn config_absolute_path_requires_allow_flag() {
-    let _guard = env_lock();
     let root = common::TestDir::new("scan-artifact-config-abs");
     let repo = root.path.join("repo");
     let wax_home = root.path.join("wax-home");
@@ -392,7 +376,6 @@ fn config_absolute_path_requires_allow_flag() {
         )),
     );
     common::write_installed_packs(&wax_home, &[("compose", "complete", "0.5", "", "")]);
-    let _wax_home = common::EnvVarGuard::set("WAX_HOME", &wax_home);
 
     let output = run_scan(&repo, &[]);
     assert!(!output.status.success());
