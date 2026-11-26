@@ -46,6 +46,52 @@ this configuration. Writers use lock schema 3 with optional `subdir` and
 schema 2. Both files are repository-local. Installed packs and registry
 caches under `~/.wax/` are global and must not be committed.
 
+## React resolution hints
+
+Set these optional keys under `languages.react`:
+
+- `tsconfig` is a repository-relative path to the TypeScript config. Wax
+  reads `compilerOptions.baseUrl` and `compilerOptions.paths` to resolve imports.
+- `aliases` maps import specifiers or single-`*` patterns to ordered arrays of
+  repository-relative targets. Wax tries these aliases before TypeScript paths.
+- `packages` maps package names to `exports` maps. Each export maps an
+  entry point such as `.` or `./*` to a repository-relative file or pattern.
+  Set the package key to the `package` value in the discovered registry, which
+  comes from the library's `package.json` `name`.
+
+For copied-in components under `src/components/ui`, configure the registry's
+package name and point its exports at the copied source:
+
+```json
+{
+  "schema_version": 2,
+  "languages": {
+    "react": {
+      "roots": ["src"],
+      "registry": ".wax/react.registry.json",
+      "tsconfig": "tsconfig.json",
+      "aliases": {"ui/*": ["src/components/ui/*"]},
+      "packages": {
+        "neobrutalism-components": {
+          "exports": {"./*": "src/components/ui/*"}
+        }
+      }
+    }
+  }
+}
+```
+
+Imports that resolve into the exported files use the configured package name
+for registry matching. Relative imports, TypeScript paths, and aliases all
+work. Keep the copied source under the scan roots so Wax can resolve imports
+and report parse errors there. Owned files emit no usage sites, local component
+definitions, token sites, or hard-coded style sites.
+
+An exact target owns one resolved file. Wildcard targets also match paths with
+the file extension or trailing `/index.<ext>` removed. If packages overlap, the
+longest target prefix wins. Wax warns on ties and uses the first package name in
+lexicographic order.
+
 ## Public bundle handoff
 
 `wax init --non-interactive --language react --design-system public-shadcn-r1`

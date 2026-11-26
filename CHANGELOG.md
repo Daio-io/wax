@@ -92,6 +92,9 @@
 
 ### wax-lang-react
 
+- **Behavior change** — Imports into files owned by configured package exports
+  use the owning package for registry matching. Owned files no longer emit
+  usages, local component definitions, token references, or hard-coded styles.
 - Discover components that return Base UI's `useRender` and report app-authored
   components of that shape in scans. Discover public aliases of third-party
   primitives with partial details and source evidence.

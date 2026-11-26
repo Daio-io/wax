@@ -13,7 +13,7 @@ use wax_lang_api::{ScanRequest, build_version, parse_extract_millis};
 use crate::config::ReactScanConfig;
 use crate::css_token_extract::{collect_css_token_sites, css_parser};
 use crate::diagnostics::is_gap_diagnostic;
-use crate::extract::{collect_usage_sites, discover_local_components};
+use crate::extract::{collect_usage_sites, discover_local_components_in};
 use crate::files::{ReactSourceFileCollection, is_css_file};
 use crate::module_graph::build_react_module_graph;
 use crate::registry::ReactRegistryIndex;
@@ -70,51 +70,47 @@ pub fn configured_scan_facts(
     config: &ReactScanConfig,
 ) -> Result<ScanFacts, ReactParseError> {
     let started = Instant::now();
-    let ReactSourceFileCollection {
-        files,
-        root_diagnostics,
-    } = collection;
-    let mut diagnostics = root_diagnostics;
-    let files_scanned = u32::try_from(files.len()).unwrap_or(u32::MAX);
+    let files_scanned = u32::try_from(collection.files.len()).unwrap_or(u32::MAX);
     let (css_files, react_files): (Vec<_>, Vec<_>) =
-        files.into_iter().partition(|path| is_css_file(path));
+        collection.files.iter().partition(|path| is_css_file(path));
+    let mut parsed_modules = Vec::<ParsedReactModule>::new();
+    let mut react_diagnostics = Vec::new();
+    for relative_path in react_files {
+        match parse_react_source_file(repo_root, relative_path)? {
+            ReactParseOutcome::Parsed(parsed) => parsed_modules.push(parsed),
+            ReactParseOutcome::Failed(diagnostic) => react_diagnostics.push(diagnostic),
+        }
+    }
+
+    let graph_build =
+        build_react_module_graph(repo_root, &parsed_modules, &collection, config, &registry);
+    let mut diagnostics = collection.root_diagnostics;
     let mut css_sites = Vec::new();
-    if !registry.css_tokens.is_empty() {
+    if !css_files.is_empty() {
         let mut parser = css_parser()?;
-        for relative_path in &css_files {
+        for relative_path in css_files {
+            let owned = graph_build.graph.owning_package(relative_path).is_some();
+            if !owned && registry.css_tokens.is_empty() {
+                continue;
+            }
             collect_css_token_sites(
                 &mut parser,
                 repo_root,
                 relative_path,
-                &registry.css_tokens,
+                (!owned).then_some(&registry.css_tokens),
                 &mut css_sites,
                 &mut diagnostics,
             )?;
         }
     }
-
-    let mut parsed_modules = Vec::<ParsedReactModule>::new();
-    for relative_path in &react_files {
-        match parse_react_source_file(repo_root, relative_path)? {
-            ReactParseOutcome::Parsed(parsed) => parsed_modules.push(parsed),
-            ReactParseOutcome::Failed(diagnostic) => diagnostics.push(diagnostic),
-        }
-    }
-
-    let file_collection = ReactSourceFileCollection {
-        files: react_files,
-        root_diagnostics: Vec::new(),
-    };
-    let graph_build = build_react_module_graph(
-        repo_root,
-        &parsed_modules,
-        &file_collection,
-        config,
-        &registry,
-    );
+    diagnostics.extend(react_diagnostics);
     diagnostics.extend(graph_build.diagnostics);
 
-    let local_components = discover_local_components(&parsed_modules);
+    let local_components = discover_local_components_in(
+        parsed_modules
+            .iter()
+            .filter(|parsed| graph_build.graph.owning_package(&parsed.file).is_none()),
+    );
     let mut usage_extraction = collect_usage_sites(
         &parsed_modules,
         &graph_build.graph,

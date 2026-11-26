@@ -1,6 +1,6 @@
 //! React module graph indexing and resolver helpers.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
@@ -10,12 +10,14 @@ use swc_ecma_ast::{
     ImportSpecifier, ModuleDecl, ModuleExportName, ModuleItem, Pat,
 };
 use wax_contract::{Diagnostic, DiagnosticSeverity};
+use wax_lang_api::normalize_repo_relative_path;
 
 use crate::config::{PackageConfig, ReactScanConfig};
 use crate::diagnostics::{
     DS_EXPORT_UNRESOLVED, DS_IMPORT_UNRESOLVED, PACKAGE_ENTRYPOINT_UNRESOLVED,
+    PACKAGE_OWNERSHIP_CONFLICT,
 };
-use crate::files::ReactSourceFileCollection;
+use crate::files::{ReactSourceFileCollection, is_css_file};
 use crate::registry::ReactRegistryIndex;
 use crate::swc_parse::ParsedReactModule;
 
@@ -85,9 +87,16 @@ pub struct ReactModuleGraph {
     /// Per-module import/export records.
     pub modules: BTreeMap<PathBuf, ReactModuleRecord>,
     path_aliases: BTreeSet<String>,
+    package_owners: BTreeMap<PathBuf, String>,
 }
 
 impl ReactModuleGraph {
+    /// Returns the configured package that owns a collected repo-relative file.
+    #[must_use]
+    pub fn owning_package(&self, module: &Path) -> Option<&str> {
+        self.package_owners.get(module).map(String::as_str)
+    }
+
     pub(crate) fn is_path_alias(&self, specifier: &str) -> bool {
         self.path_aliases.contains(specifier)
     }
@@ -129,6 +138,10 @@ impl ReactModuleGraph {
         config: &ReactScanConfig,
     ) -> bool {
         self.import_resolves_through_configured_package_internal(module, local_name, config, 0)
+            || (!self.package_owners.is_empty()
+                && self
+                    .resolve_import(module, local_name)
+                    .is_some_and(|resolved| self.owning_package(&resolved.module).is_some()))
     }
 
     /// Resolves one local import binding to the final symbol location.
@@ -233,7 +246,10 @@ impl ReactModuleGraph {
         let Some(source_module) = import.source_module.as_deref() else {
             return false;
         };
-        if configured_package_for_specifier(&import.source_specifier, &config.packages).is_some() {
+        if self.owning_package(source_module).is_some()
+            || configured_package_for_specifier(&import.source_specifier, &config.packages)
+                .is_some()
+        {
             return true;
         }
 
@@ -315,13 +331,21 @@ pub fn build_react_module_graph(
     config: &ReactScanConfig,
     registry: &ReactRegistryIndex,
 ) -> ReactModuleGraphBuild {
-    let known_files = files.files.iter().cloned().collect::<BTreeSet<_>>();
+    let known_files = files
+        .files
+        .iter()
+        .filter(|file| !is_css_file(file))
+        .cloned()
+        .collect::<BTreeSet<_>>();
     let tsconfig = load_tsconfig_options(repo_root, config.tsconfig.as_deref());
     let resolver = ModuleResolver::new(config, &known_files, tsconfig.as_ref());
     let mut diagnostics = Vec::new();
     diagnostics.extend(package_entrypoint_diagnostics(config, &known_files));
 
-    let mut graph = ReactModuleGraph::default();
+    let mut graph = ReactModuleGraph {
+        package_owners: build_package_owners(&config.packages, &files.files, &mut diagnostics),
+        ..ReactModuleGraph::default()
+    };
     for parsed in parsed_modules {
         let mut record = ReactModuleRecord::default();
 
@@ -601,6 +625,105 @@ fn is_unconfigured_bare_package_specifier(source: &str, config: &ReactScanConfig
             .any(|pattern| match_wildcard_pattern(pattern, source).is_some())
 }
 
+fn build_package_owners(
+    packages: &BTreeMap<String, PackageConfig>,
+    files: &[PathBuf],
+    diagnostics: &mut Vec<Diagnostic>,
+) -> BTreeMap<PathBuf, String> {
+    if packages.is_empty() {
+        return BTreeMap::new();
+    }
+    let mut owners = BTreeMap::new();
+    let known_files: BTreeSet<_> = files.iter().cloned().collect();
+    for (package, config) in packages {
+        for target in config.exports.values() {
+            let Some(normalized) = normalize_relative_path(Path::new(target)) else {
+                continue;
+            };
+            let pattern = normalize_repo_relative_path(&normalized);
+            let prefix_len = pattern_prefix_len(&pattern);
+            if target.contains('*') {
+                for file in files {
+                    if matches_wildcard_target(&pattern, file) {
+                        record_package_owner(&mut owners, file.clone(), package, prefix_len);
+                    }
+                }
+            } else if let Some(file) = resolve_repo_relative_target(target, &known_files) {
+                record_package_owner(&mut owners, file, package, prefix_len);
+            }
+        }
+    }
+    owners
+        .into_iter()
+        .map(|(file, owner)| {
+            if !owner.conflicts.is_empty() {
+                let path = normalize_repo_relative_path(&file);
+                let others = owner.conflicts.join(", ");
+                diagnostics.push(Diagnostic {
+                    severity: DiagnosticSeverity::Warning,
+                    code: PACKAGE_OWNERSHIP_CONFLICT.to_owned(),
+                    message: format!(
+                        "configured package '{}' owns '{path}' after a target prefix tie with: {others}",
+                        owner.package
+                    ),
+                    location: None,
+                });
+            }
+            (file, owner.package.to_owned())
+        })
+        .collect()
+}
+
+struct PackageOwner<'a> {
+    package: &'a str,
+    prefix_len: usize,
+    conflicts: Vec<&'a str>,
+}
+
+fn record_package_owner<'a>(
+    owners: &mut BTreeMap<PathBuf, PackageOwner<'a>>,
+    file: PathBuf,
+    package: &'a str,
+    prefix_len: usize,
+) {
+    let claim = PackageOwner {
+        package,
+        prefix_len,
+        conflicts: Vec::new(),
+    };
+    let owner = match owners.entry(file) {
+        Entry::Vacant(entry) => {
+            entry.insert(claim);
+            return;
+        }
+        Entry::Occupied(entry) => entry.into_mut(),
+    };
+    if prefix_len > owner.prefix_len {
+        *owner = claim;
+    } else if prefix_len == owner.prefix_len
+        && package != owner.package
+        && owner.conflicts.last() != Some(&package)
+    {
+        owner.conflicts.push(package);
+    }
+}
+
+fn matches_wildcard_target(target: &str, file: &Path) -> bool {
+    let path = normalize_repo_relative_path(file);
+    let stem = path
+        .rsplit_once('.')
+        .filter(|(_, extension)| !extension.contains('/'))
+        .map(|(stem, _)| stem);
+    [
+        Some(path.as_str()),
+        stem,
+        stem.and_then(|stem| stem.strip_suffix("/index")),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|path| match_wildcard_pattern(target, path).is_some())
+}
+
 fn package_entrypoint_diagnostics(
     config: &ReactScanConfig,
     known_files: &BTreeSet<PathBuf>,
@@ -693,7 +816,7 @@ impl<'a> ModuleResolver<'a> {
             let Some(wildcard) = match_wildcard_pattern(pattern, source_specifier) else {
                 continue;
             };
-            let specificity = alias_pattern_specificity(pattern);
+            let specificity = pattern_prefix_len(pattern);
             for target_pattern in targets {
                 let substituted = apply_wildcard_target(target_pattern, wildcard);
                 let candidate = base_url.join(substituted);
@@ -867,7 +990,7 @@ fn match_wildcard_pattern<'a>(pattern: &'a str, value: &'a str) -> Option<&'a st
     None
 }
 
-fn alias_pattern_specificity(pattern: &str) -> usize {
+fn pattern_prefix_len(pattern: &str) -> usize {
     pattern.find('*').unwrap_or(pattern.len())
 }
 
@@ -1354,6 +1477,55 @@ mod tests {
             aliases: BTreeMap::new(),
             packages: BTreeMap::new(),
         }
+    }
+
+    #[test]
+    fn owning_package_matches_exact_and_wildcard_export_targets() {
+        let fixture = Fixture::new();
+        let files = [
+            ("src/ds/index.ts", Some("exact-ui")),
+            ("src/ds/sibling.ts", None),
+            ("src/ui/forms/button.tsx", Some("wildcard-ui")),
+            ("src/ui/forms/card.tsx", Some("wildcard-ui")),
+            ("src/ui/forms/menu/index.ts", Some("wildcard-ui")),
+            ("src/ui/forms/menu/item.ts", None),
+        ];
+        for (file, _) in files {
+            fixture.write(file, "export {};");
+        }
+        let mut config = base_config();
+        config.packages = BTreeMap::from([
+            (
+                "exact-ui".to_owned(),
+                PackageConfig {
+                    exports: BTreeMap::from([(".".to_owned(), "src/ds/index.ts".to_owned())]),
+                },
+            ),
+            (
+                "wildcard-ui".to_owned(),
+                PackageConfig {
+                    exports: BTreeMap::from([
+                        ("./*/button".to_owned(), "src/ui/*/button.tsx".to_owned()),
+                        ("./*/card".to_owned(), "./src/ui/*/card".to_owned()),
+                        ("./*/menu".to_owned(), "src/ui/*/menu".to_owned()),
+                    ]),
+                },
+            ),
+        ]);
+        let build = fixture.build_graph(
+            files.iter().map(|(file, _)| *file).collect(),
+            config,
+            registry_with_symbols(&[]),
+        );
+
+        for (file, expected) in files {
+            assert_eq!(
+                build.graph.owning_package(Path::new(file)),
+                expected,
+                "{file}"
+            );
+        }
+        assert!(build.diagnostics.is_empty());
     }
 
     fn registry_with_symbols(symbols: &[&str]) -> ReactRegistryIndex {

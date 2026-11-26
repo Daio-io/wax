@@ -22,7 +22,7 @@ pub(crate) fn collect_css_token_sites(
     parser: &mut Parser,
     repo_root: &Path,
     relative_path: &Path,
-    matches: &BTreeMap<String, TokenMatch>,
+    matches: Option<&BTreeMap<String, TokenMatch>>,
     sites: &mut Vec<TokenSite>,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Result<(), ReactParseError> {
@@ -44,6 +44,9 @@ pub(crate) fn collect_css_token_sites(
             location: Some(source_location(&file, point)),
         });
     }
+    let Some(matches) = matches else {
+        return Ok(());
+    };
     let mut nodes = vec![(tree.root_node(), false)];
     while let Some((node, in_declaration)) = nodes.pop() {
         if node.is_error()
