@@ -32,6 +32,7 @@ pub mod registry_search;
 pub mod registry_source;
 pub use registry_lookup_error::{RegistryLookupError, RegistryLookupErrorCode};
 mod root_group;
+mod scan_plan;
 pub mod subprocess_discover;
 mod subprocess_exchange;
 pub mod subprocess_lang;
@@ -39,16 +40,16 @@ pub mod sync;
 pub mod token_inference;
 pub mod validate;
 
-use adoption_merge::{MergeOptions, merge_language_scans_with_options};
+use adoption_merge::merge_language_scans_with_options;
 use auto_install::{AutoInstallPolicyInput, InstalledManifest, PackIndexArtifact};
 use config::lockfile::{LockfileError, WaxLock, load_lockfile, save_lockfile};
 use config::waxrc::{WaxRc, WaxRcError, load_waxrc};
-use global_state::{GlobalStateError, load_global_state};
+use global_state::{GlobalState, GlobalStateError, load_global_state};
 use install::InstallError;
 use pack_store::{InstalledManifestFile, PackArtifact, PackStore, PackStoreError};
 use paths::{PathsError, WaxHome};
 use progress::{ScanProgress, ScanProgressEvent};
-use root_group::RootGroups;
+use scan_plan::{PlannedScan, ScanPlan, ScanSelection, prepare_scan};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
@@ -342,13 +343,20 @@ impl Engine {
     /// while handling a progress event.
     pub fn scan_repo_with_options(
         repo_root: impl AsRef<Path>,
-        mut options: ScanOptions,
+        options: ScanOptions,
     ) -> Result<MergedScan, EngineError> {
         let repo_root = repo_root.as_ref();
-        let progress = options.progress.clone();
+        let ScanOptions {
+            wax_home,
+            scan_concurrency,
+            root_group,
+            allow_auto_install,
+            progress,
+            ephemeral,
+        } = options;
         progress.emit(ScanProgressEvent::Preparing);
-        let is_ephemeral = options.ephemeral.is_some();
-        let (waxrc, mut lockfile) = if let Some(ephemeral) = options.ephemeral.take() {
+        let is_ephemeral = ephemeral.is_some();
+        let (waxrc, lockfile) = if let Some(ephemeral) = ephemeral {
             (ephemeral.waxrc, ephemeral.lockfile)
         } else {
             let repo_files = config::repo_files::discover_repo_files(repo_root);
@@ -357,187 +365,41 @@ impl Engine {
                 load_lockfile(&repo_files.lockfile_path)?,
             )
         };
-        let scan_concurrency = effective_scan_concurrency(&waxrc.engine, &options);
-        let parent_scope_limit = waxrc.adoption.symbol_usage_summary.parent_scope_limit;
-        let token_inference = waxrc.token_inference.clone();
-        let mut root_groups = RootGroups::new();
-        for entry in &waxrc.languages {
-            for (group, roots) in &entry.root_groups {
-                root_groups
-                    .entry(group.clone())
-                    .or_default()
-                    .insert(entry.id.clone(), roots.clone());
-            }
-        }
-        if let Some(root_group) = &options.root_group
-            && !root_groups.contains_key(root_group)
-        {
-            return Err(EngineError::UnknownRootGroup {
-                root_group: root_group.clone(),
-                configured: root_groups.keys().cloned().collect(),
-            });
-        }
-        let home = match options.wax_home {
-            Some(home) => home,
-            None => WaxHome::from_env()?,
+        let selection = ScanSelection {
+            root_group,
+            scan_concurrency,
         };
-        let state_path = home.state_file();
-        let state = load_global_state(&state_path)?;
-        let store = PackStore::new(home);
-
-        let mut enabled_ids = BTreeSet::new();
-        let mut language_configs = BTreeMap::new();
-        let mut registry_lock_changed = false;
-        for entry in waxrc.languages {
-            let roots = if let Some(root_group) = &options.root_group {
-                let Some(roots) = entry.root_groups.get(root_group) else {
-                    continue;
-                };
-                roots.clone()
-            } else if entry.root_groups.is_empty() {
-                entry.roots.clone()
-            } else {
-                entry.root_groups.values().flatten().cloned().collect()
-            };
-            let resolved_registry = registry_source::resolve_language_registry_source(
-                repo_root,
-                entry.id.as_str(),
-                entry.registry_source.as_ref(),
-                lockfile.registries.get(&entry.id),
-                false,
-            )?;
-            if entry
-                .registry_source
-                .as_ref()
-                .and_then(config::waxrc::LanguageRegistrySource::git_parts)
-                .is_some()
-                && !lockfile.registries.contains_key(&entry.id)
-            {
-                lockfile.registries.insert(
-                    entry.id.clone(),
-                    resolved_registry.to_locked(entry.registry_source.as_ref()),
-                );
-                registry_lock_changed = true;
-            } else {
-                registry_lock::verify_registry_lock(&entry.id, &resolved_registry, &lockfile)
-                    .map_err(registry_lock_mismatch_to_engine_error)?;
+        let (store, state) = match load_scan_pack_state(wax_home) {
+            Ok(pack_state) => pack_state,
+            Err(error) => {
+                // An invalid group takes priority over unavailable pack state.
+                scan_plan::configured_root_groups(&waxrc, &selection)?;
+                return Err(error);
             }
-
-            let mut config = entry.extra;
-            if !roots.is_empty() {
-                config.insert(
-                    "roots".to_owned(),
-                    serde_json::Value::Array(
-                        roots.into_iter().map(serde_json::Value::String).collect(),
-                    ),
-                );
-            }
-            config.insert(
-                "registry".to_owned(),
-                serde_json::Value::String(resolved_registry.repo_relative_path),
-            );
-            language_configs.insert(entry.id.clone(), config);
-            enabled_ids.insert(entry.id);
-        }
-        if registry_lock_changed && !is_ephemeral {
+        };
+        let ScanPlan {
+            scans,
+            merge,
+            concurrency,
+            lockfile,
+            lockfile_changed,
+        } = prepare_scan(repo_root, waxrc, lockfile, &selection)?;
+        if lockfile_changed && !is_ephemeral {
             let path = config::repo_files::discover_repo_files(repo_root).lockfile_path;
             save_lockfile(path, &lockfile)?;
         }
 
-        let installed_manifests = collect_installed_manifests(&enabled_ids, &lockfile, &state)?;
-        let policy_without_auto_install =
-            auto_install::evaluate_auto_install_policy(&AutoInstallPolicyInput {
-                enabled_language_ids: enabled_ids.clone(),
-                locked_languages: lockfile.languages.clone(),
-                installed_manifests,
-                allow_auto_install: false,
-                pack_index_artifacts: BTreeMap::new(),
-            });
-
-        let mut missing_install_ids = BTreeSet::new();
-        for error in &policy_without_auto_install.errors {
-            match error {
-                auto_install::AutoInstallPolicyError::MissingInstalledWithAutoInstallDisabled {
-                    language_id,
-                    ..
-                } => {
-                    missing_install_ids.insert(language_id.clone());
-                }
-                _ => {
-                    return Err(EngineError::AutoInstallPolicyBlocked {
-                        errors: policy_without_auto_install.errors,
-                    });
-                }
-            }
-        }
-
-        if !missing_install_ids.is_empty() {
-            if !options.allow_auto_install {
-                let plans = missing_install_ids
-                    .iter()
-                    .map(|language_id| auto_install::InstallPlan {
-                        language_id: language_id.clone(),
-                        version: lockfile.languages[language_id].version.clone(),
-                        sha256: lockfile.languages[language_id].resolved.sha256.clone(),
-                    })
-                    .collect();
-                return Err(EngineError::AutoInstallRequired { plans });
-            }
-
-            let pack_index_artifacts =
-                collect_pack_index_artifacts(&missing_install_ids, &lockfile)?;
-            let policy_with_auto_install =
-                auto_install::evaluate_auto_install_policy(&AutoInstallPolicyInput {
-                    enabled_language_ids: enabled_ids.clone(),
-                    locked_languages: lockfile.languages.clone(),
-                    installed_manifests: collect_installed_manifests(
-                        &enabled_ids,
-                        &lockfile,
-                        &state,
-                    )?,
-                    allow_auto_install: true,
-                    pack_index_artifacts: pack_index_artifacts.clone(),
-                });
-
-            if !policy_with_auto_install.errors.is_empty() {
-                return Err(EngineError::AutoInstallPolicyBlocked {
-                    errors: policy_with_auto_install.errors,
-                });
-            }
-            if !policy_with_auto_install.needs_install.is_empty() {
-                execute_install_plans(
-                    &policy_with_auto_install.needs_install,
-                    &lockfile,
-                    &pack_index_artifacts,
-                    &store,
-                    &progress,
-                )?;
-            }
-        }
-
-        let mut jobs = Vec::new();
-        for language_id in enabled_ids {
-            let locked = &lockfile.languages[&language_id];
-            let pack_spec = store.installed(&language_id, &locked.version)?;
-            let config = language_configs.remove(&language_id).unwrap_or_default();
-            jobs.push(ScanJob {
-                language_id,
-                command: pack_spec.command,
-                config,
-            });
-        }
-        let languages = run_scan_jobs(repo_root, jobs, scan_concurrency, &progress)?;
-        let root_groups = root_groups_for_scan(root_groups, options.root_group.as_deref());
-        let merged = merge_language_scans_with_options(
-            languages,
-            &MergeOptions {
-                parent_scope_limit,
-                token_inference,
-                root_groups,
-                scan_scope: options.root_group,
-            },
-        )
-        .map_err(EngineError::ScanFacts)?;
+        let jobs = ensure_packs(
+            scans,
+            &lockfile,
+            &store,
+            &state,
+            allow_auto_install,
+            &progress,
+        )?;
+        let languages = run_scan_jobs(repo_root, jobs, concurrency, &progress)?;
+        let merged =
+            merge_language_scans_with_options(languages, &merge).map_err(EngineError::ScanFacts)?;
         progress.emit(ScanProgressEvent::WritingOutputs);
         write_scan_outputs(repo_root, &merged)?;
 
@@ -545,51 +407,107 @@ impl Engine {
     }
 }
 
-fn root_groups_for_scan(root_groups: RootGroups, selected: Option<&str>) -> RootGroups {
-    match selected {
-        Some(selected) => root_groups
-            .into_iter()
-            .filter(|(group, _)| group == selected)
-            .collect(),
-        None => root_groups,
-    }
+fn load_scan_pack_state(
+    wax_home: Option<WaxHome>,
+) -> Result<(PackStore, GlobalState), EngineError> {
+    let home = match wax_home {
+        Some(home) => home,
+        None => WaxHome::from_env()?,
+    };
+    let state = load_global_state(home.state_file())?;
+    Ok((PackStore::new(home), state))
 }
 
-fn effective_scan_concurrency(
-    engine_config: &config::waxrc::EngineConfig,
-    options: &ScanOptions,
-) -> usize {
-    let configured = options
-        .scan_concurrency
-        .unwrap_or(engine_config.scan_concurrency);
-    configured.max(1) as usize
-}
+fn ensure_packs(
+    scans: Vec<PlannedScan>,
+    lockfile: &WaxLock,
+    store: &PackStore,
+    state: &GlobalState,
+    allow_auto_install: bool,
+    progress: &ScanProgress,
+) -> Result<Vec<ScanJob>, EngineError> {
+    let enabled_ids = scans.iter().map(|scan| scan.language_id.clone()).collect();
+    let installed_manifests = collect_installed_manifests(&enabled_ids, lockfile, state)?;
+    let policy_without_auto_install =
+        auto_install::evaluate_auto_install_policy(&AutoInstallPolicyInput {
+            enabled_language_ids: enabled_ids.clone(),
+            locked_languages: lockfile.languages.clone(),
+            installed_manifests,
+            allow_auto_install: false,
+            pack_index_artifacts: BTreeMap::new(),
+        });
 
-fn registry_lock_mismatch_to_engine_error(
-    mismatch: registry_lock::RegistryLockMismatch,
-) -> EngineError {
-    match mismatch {
-        registry_lock::RegistryLockMismatch::Missing { language_id } => EngineError::RegistryLock {
-            language_id,
-            reason: "missing registry lock entry".to_owned(),
-        },
-        registry_lock::RegistryLockMismatch::SourceDrift {
-            language_id,
-            lockfile_source,
-            resolved_source,
-        } => EngineError::RegistryLock {
-            language_id,
-            reason: format!("source changed from {lockfile_source} to {resolved_source}"),
-        },
-        registry_lock::RegistryLockMismatch::DigestDrift {
-            language_id,
-            lockfile_sha256,
-            resolved_sha256,
-        } => EngineError::RegistryLock {
-            language_id,
-            reason: format!("digest changed from {lockfile_sha256} to {resolved_sha256}"),
-        },
+    let mut missing_install_ids = BTreeSet::new();
+    for error in &policy_without_auto_install.errors {
+        match error {
+            auto_install::AutoInstallPolicyError::MissingInstalledWithAutoInstallDisabled {
+                language_id,
+                ..
+            } => {
+                missing_install_ids.insert(language_id.clone());
+            }
+            _ => {
+                return Err(EngineError::AutoInstallPolicyBlocked {
+                    errors: policy_without_auto_install.errors,
+                });
+            }
+        }
     }
+
+    if !missing_install_ids.is_empty() {
+        if !allow_auto_install {
+            let plans = missing_install_ids
+                .iter()
+                .map(|language_id| auto_install::InstallPlan {
+                    language_id: language_id.clone(),
+                    version: lockfile.languages[language_id].version.clone(),
+                    sha256: lockfile.languages[language_id].resolved.sha256.clone(),
+                })
+                .collect();
+            return Err(EngineError::AutoInstallRequired { plans });
+        }
+
+        let pack_index_artifacts = collect_pack_index_artifacts(&missing_install_ids, lockfile)?;
+        let policy_with_auto_install =
+            auto_install::evaluate_auto_install_policy(&AutoInstallPolicyInput {
+                enabled_language_ids: enabled_ids.clone(),
+                locked_languages: lockfile.languages.clone(),
+                installed_manifests: collect_installed_manifests(&enabled_ids, lockfile, state)?,
+                allow_auto_install: true,
+                pack_index_artifacts: pack_index_artifacts.clone(),
+            });
+
+        if !policy_with_auto_install.errors.is_empty() {
+            return Err(EngineError::AutoInstallPolicyBlocked {
+                errors: policy_with_auto_install.errors,
+            });
+        }
+        if !policy_with_auto_install.needs_install.is_empty() {
+            execute_install_plans(
+                &policy_with_auto_install.needs_install,
+                lockfile,
+                &pack_index_artifacts,
+                store,
+                progress,
+            )?;
+        }
+    }
+
+    let mut jobs = Vec::with_capacity(scans.len());
+    for PlannedScan {
+        language_id,
+        config,
+    } in scans
+    {
+        let locked = &lockfile.languages[&language_id];
+        let pack_spec = store.installed(&language_id, &locked.version)?;
+        jobs.push(ScanJob {
+            language_id,
+            command: pack_spec.command,
+            config,
+        });
+    }
+    Ok(jobs)
 }
 
 fn run_scan_jobs(
@@ -921,25 +839,6 @@ fn new_snapshot_id() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn selected_root_group_limits_attribution_candidates() {
-        let compose = LanguageId::try_from("compose").unwrap();
-        let groups = RootGroups::from([
-            (
-                "mobile".to_owned(),
-                BTreeMap::from([(compose.clone(), vec!["mobile/src".to_owned()])]),
-            ),
-            (
-                "shared".to_owned(),
-                BTreeMap::from([(compose, vec!["shared/src".to_owned()])]),
-            ),
-        ]);
-
-        let selected = root_groups_for_scan(groups, Some("mobile"));
-
-        assert_eq!(selected.keys().collect::<Vec<_>>(), [&"mobile".to_owned()]);
-    }
 
     #[test]
     fn scan_timeout_defaults_to_ten_minutes() {
