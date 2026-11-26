@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 use thiserror::Error;
-use wax_contract::DesignSystemComponent;
+use wax_contract::{CalleeOrigin, DesignSystemComponent, MatchStatus, ResolutionEvidenceKind};
 
 /// Errors returned while indexing registry component definitions.
 #[derive(Debug, Error)]
@@ -224,6 +224,66 @@ pub enum RegistryImportMatch {
     LegacyNameOnly,
 }
 
+/// Usage-site classification derived from a registry match.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RegistryUsageClassification {
+    /// Resolution status of the usage.
+    pub match_status: MatchStatus,
+    /// Origin of the callee.
+    pub callee_origin: CalleeOrigin,
+    /// Evidence supporting the classification.
+    pub evidence_kind: ResolutionEvidenceKind,
+}
+
+/// Classifies a registry match for a usage site.
+///
+/// `import_ambiguous` distinguishes ambiguous from missing import evidence for
+/// candidates. `unresolved_origin` supplies the pack-specific origin only for
+/// package mismatches and absent matches.
+#[must_use]
+pub fn classify_registry_usage(
+    registry_match: Option<RegistryImportMatch>,
+    import_ambiguous: bool,
+    unresolved_origin: impl FnOnce() -> CalleeOrigin,
+) -> RegistryUsageClassification {
+    let (match_status, callee_origin, evidence_kind) = match registry_match {
+        Some(RegistryImportMatch::Resolved) => (
+            MatchStatus::Resolved,
+            CalleeOrigin::Registry,
+            ResolutionEvidenceKind::RegistryPackageMatch,
+        ),
+        Some(RegistryImportMatch::LegacyNameOnly) => (
+            MatchStatus::Resolved,
+            CalleeOrigin::Registry,
+            ResolutionEvidenceKind::RegistryNameOnlyLegacy,
+        ),
+        Some(RegistryImportMatch::Candidate) => (
+            MatchStatus::Candidate,
+            CalleeOrigin::Registry,
+            if import_ambiguous {
+                ResolutionEvidenceKind::RegistryImportAmbiguous
+            } else {
+                ResolutionEvidenceKind::RegistryImportMissing
+            },
+        ),
+        Some(RegistryImportMatch::Mismatch) => (
+            MatchStatus::Unresolved,
+            unresolved_origin(),
+            ResolutionEvidenceKind::PackageMismatch,
+        ),
+        None => (
+            MatchStatus::Unresolved,
+            unresolved_origin(),
+            ResolutionEvidenceKind::NoMatchingDefinition,
+        ),
+    };
+    RegistryUsageClassification {
+        match_status,
+        callee_origin,
+        evidence_kind,
+    }
+}
+
 /// Classifies a registry-backed usage site against the package implied by its import.
 #[must_use]
 pub fn resolve_import_aware_match(
@@ -267,6 +327,69 @@ pub fn npm_import_package_root(specifier: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn registry_usage_classification_follows_the_parity_table() {
+        use crate::classify_registry_usage;
+        use wax_contract::{CalleeOrigin, MatchStatus, ResolutionEvidenceKind};
+
+        let cases = [
+            (
+                Some(RegistryImportMatch::Resolved),
+                false,
+                MatchStatus::Resolved,
+                CalleeOrigin::Registry,
+                ResolutionEvidenceKind::RegistryPackageMatch,
+            ),
+            (
+                Some(RegistryImportMatch::LegacyNameOnly),
+                false,
+                MatchStatus::Resolved,
+                CalleeOrigin::Registry,
+                ResolutionEvidenceKind::RegistryNameOnlyLegacy,
+            ),
+            (
+                Some(RegistryImportMatch::Candidate),
+                false,
+                MatchStatus::Candidate,
+                CalleeOrigin::Registry,
+                ResolutionEvidenceKind::RegistryImportMissing,
+            ),
+            (
+                Some(RegistryImportMatch::Candidate),
+                true,
+                MatchStatus::Candidate,
+                CalleeOrigin::Registry,
+                ResolutionEvidenceKind::RegistryImportAmbiguous,
+            ),
+            (
+                Some(RegistryImportMatch::Mismatch),
+                false,
+                MatchStatus::Unresolved,
+                CalleeOrigin::External,
+                ResolutionEvidenceKind::PackageMismatch,
+            ),
+            (
+                None,
+                false,
+                MatchStatus::Unresolved,
+                CalleeOrigin::Application,
+                ResolutionEvidenceKind::NoMatchingDefinition,
+            ),
+        ];
+
+        for (registry_match, import_ambiguous, status, origin, evidence) in cases {
+            let usage = classify_registry_usage(registry_match, import_ambiguous, || {
+                assert_ne!(origin, CalleeOrigin::Registry, "{registry_match:?}");
+                origin
+            });
+            assert_eq!(
+                (usage.match_status, usage.callee_origin, usage.evidence_kind),
+                (status, origin, evidence),
+                "{registry_match:?}, import_ambiguous={import_ambiguous}"
+            );
+        }
+    }
 
     #[test]
     fn import_aware_match_resolves_only_matching_ds_imports() {

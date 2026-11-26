@@ -20,8 +20,8 @@ use crate::swift_ast::{
     tree_has_syntax_errors, unparseable_file_diagnostic,
 };
 use wax_lang_api::{
-    RegistryComponentIndex, RegistryImportMatch, RegistryTokenIndex, RootResolutionError,
-    ScanConfig, TokenMatch, normalize_repo_relative_path, path_matches_any, registry_token_index,
+    RegistryComponentIndex, RegistryTokenIndex, RootResolutionError, ScanConfig, TokenMatch,
+    classify_registry_usage, normalize_repo_relative_path, path_matches_any, registry_token_index,
     resolve_source_roots, root_not_found_code, root_not_found_message, scan_registry_components,
     static_dotted_token_path, swift_module_from_source_path,
 };
@@ -600,66 +600,44 @@ fn extract_usage_from_source(
                 let symbol = &call_site.symbol;
                 let package = import_package.as_deref();
                 let registry_match = registry.components.resolve(symbol, package);
-                let (match_status, callee_origin, kind) =
-                    match registry_match.map(|(classification, _)| classification) {
-                        Some(RegistryImportMatch::Resolved) => (
-                            MatchStatus::Resolved,
-                            CalleeOrigin::Registry,
-                            ResolutionEvidenceKind::RegistryPackageMatch,
-                        ),
-                        Some(RegistryImportMatch::LegacyNameOnly) => (
-                            MatchStatus::Resolved,
-                            CalleeOrigin::Registry,
-                            ResolutionEvidenceKind::RegistryNameOnlyLegacy,
-                        ),
-                        Some(RegistryImportMatch::Candidate) => (
-                            MatchStatus::Candidate,
-                            CalleeOrigin::Registry,
-                            if import_identity_is_ambiguous(&call_site, &imports) {
-                                ResolutionEvidenceKind::RegistryImportAmbiguous
-                            } else {
-                                ResolutionEvidenceKind::RegistryImportMissing
-                            },
-                        ),
-                        mismatch => (
-                            MatchStatus::Unresolved,
-                            unresolved_origin(
+                let import_is_ambiguous = import_identity_is_ambiguous(&call_site, &imports);
+                let classification = classify_registry_usage(
+                    registry_match.map(|(classification, _)| classification),
+                    import_is_ambiguous,
+                    || {
+                        unresolved_origin(
+                            package,
+                            symbol,
+                            has_explicit_swiftui_framework_evidence(
                                 package,
                                 symbol,
-                                has_explicit_swiftui_framework_evidence(
-                                    package,
-                                    symbol,
-                                    call_site.qualifier.as_deref(),
-                                    imports.symbol_packages.get(symbol).is_some_and(|package| {
-                                        is_framework_swiftui_module(package)
-                                    }),
-                                ),
+                                call_site.qualifier.as_deref(),
                                 imports
-                                    .module_imports
-                                    .iter()
-                                    .any(|module| is_framework_swiftui_module(module)),
-                                semantic_module,
-                                &local_index.scanned_modules,
-                                import_identity_is_ambiguous(&call_site, &imports),
+                                    .symbol_packages
+                                    .get(symbol)
+                                    .is_some_and(|package| is_framework_swiftui_module(package)),
                             ),
-                            if mismatch.is_some() {
-                                ResolutionEvidenceKind::PackageMismatch
-                            } else {
-                                ResolutionEvidenceKind::NoMatchingDefinition
-                            },
-                        ),
-                    };
+                            imports
+                                .module_imports
+                                .iter()
+                                .any(|module| is_framework_swiftui_module(module)),
+                            semantic_module,
+                            &local_index.scanned_modules,
+                            import_is_ambiguous,
+                        )
+                    },
+                );
                 usage_sites.push(UsageSite {
                     id: format!("usage.swift:{file}:{line}:{column}:{symbol}"),
                     location,
                     symbol: symbol.clone(),
                     qualified_symbol: package.map(|package| qualified_view_symbol(package, symbol)),
-                    callee_origin,
+                    callee_origin: classification.callee_origin,
                     resolution_evidence: ResolutionEvidence {
-                        kind,
+                        kind: classification.evidence_kind,
                         package: import_package,
                     },
-                    match_status,
+                    match_status: classification.match_status,
                     registry_symbol: registry_match
                         .and_then(|(_, target)| target)
                         .map(|target| target.registry_symbol.clone()),

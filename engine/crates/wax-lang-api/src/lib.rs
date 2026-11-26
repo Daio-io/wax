@@ -39,7 +39,8 @@ pub use discover::{
 };
 
 pub use import_resolution::{
-    RegistryComponentError, RegistryComponentIndex, RegistryImportMatch, npm_import_package_root,
+    RegistryComponentError, RegistryComponentIndex, RegistryImportMatch,
+    RegistryUsageClassification, classify_registry_usage, npm_import_package_root,
     resolve_import_aware_match,
 };
 
