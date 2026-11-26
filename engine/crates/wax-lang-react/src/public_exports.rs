@@ -12,9 +12,7 @@ use swc_ecma_ast::{
 };
 use wax_contract::{Diagnostic, DiagnosticSeverity};
 
-use crate::component_detect::{
-    class_returns_jsx, function_returns_jsx, is_pascal_case, module_export_name,
-};
+use crate::component_detect::{class_returns_jsx, is_pascal_case, module_export_name};
 
 use crate::discover::{
     DamagedReactSources, ParsedReactSourceFile, default_expression_component,
@@ -230,9 +228,10 @@ impl<'a> ModuleExports<'a> {
                 }
                 ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultDecl(export)) => {
                     let (ident, component) = match &export.decl {
-                        DefaultDecl::Fn(function) => {
-                            (&function.ident, function_returns_jsx(&function.function))
-                        }
+                        DefaultDecl::Fn(function) => (
+                            &function.ident,
+                            wrappers.returns_component_element(&function.function),
+                        ),
                         DefaultDecl::Class(class) => {
                             (&class.ident, class_returns_jsx(&class.class))
                         }

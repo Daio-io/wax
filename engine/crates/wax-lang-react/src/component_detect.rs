@@ -62,7 +62,7 @@ pub(crate) fn expression_returns_element(
     }
 }
 
-fn block_returns_element(
+pub(crate) fn block_returns_element(
     block: &BlockStmt,
     render_call: &impl Fn(&CallExpr, &HashSet<Id>) -> bool,
 ) -> bool {

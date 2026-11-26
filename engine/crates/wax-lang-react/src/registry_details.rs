@@ -276,6 +276,22 @@ fn component_declarations(
                         if !is_direct(&name) && !is_public(&name) {
                             continue;
                         }
+                        if is_public(&name)
+                            && wrapper_callees
+                                .is_external_component_alias(variable.kind, declarator)
+                        {
+                            let fallback = is_direct(&name).then(|| name.clone());
+                            record(
+                                name,
+                                fallback,
+                                declarator.span,
+                                ComponentImpl {
+                                    signature_span: None,
+                                    parameter: None,
+                                },
+                            );
+                            continue;
+                        }
                         let Some(init) = declarator.init.as_deref() else {
                             continue;
                         };
