@@ -214,13 +214,16 @@ fn literal_property_name(key: &PropName) -> Option<String> {
 }
 
 fn object_property<'a>(object: &'a ObjectLit, name: &str) -> Option<&'a Expr> {
-    let property = object
-        .props
-        .iter()
-        .rev()
-        .filter_map(PropOrSpread::as_prop)
-        .find(|property| property_name(property).as_deref() == Some(name))?;
-    Some(property.as_key_value()?.value.as_ref())
+    for entry in object.props.iter().rev() {
+        let Some(property) = entry.as_prop() else {
+            // A later spread may replace any property before it.
+            return None;
+        };
+        if property_name(property).as_deref() == Some(name) {
+            return Some(property.as_key_value()?.value.as_ref());
+        }
+    }
+    None
 }
 
 pub(super) fn variant_facts<'a>(

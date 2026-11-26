@@ -1362,7 +1362,7 @@ fn discover_registry_details_does_not_stale_unrelated_components_on_damage() -> 
 
     assert_eq!(
         details.status,
-        wax_contract::RegistryExtractionStatus::Complete
+        wax_contract::RegistryExtractionStatus::Partial
     );
     assert_eq!(
         details.documentation.as_deref(),
@@ -3532,6 +3532,37 @@ export function Button(props: (VariantProps<typeof v> & {})) { return <button />
         wax_contract::RegistryExtractionStatus::Complete
     );
     assert!(details.field_gaps.is_empty());
+    Ok(())
+}
+
+#[test]
+fn discover_intersection_does_not_claim_variant_facts_before_trailing_spreads() -> io::Result<()> {
+    let details = discover_documented_button(
+        r#"import { cva, type VariantProps } from "class-variance-authority";
+const config = cva("", {
+    variants: { size: { sm: "" } },
+    defaultVariants: { size: "sm" },
+    ...overrides,
+});
+export function Button(props: {} & VariantProps<typeof config>) { return <button />; }"#,
+    )?;
+    assert!(details.signature.unwrap().parameters.is_empty());
+    Ok(())
+}
+
+#[test]
+fn discover_intersection_does_not_claim_defaults_before_trailing_spreads() -> io::Result<()> {
+    let details = discover_documented_button(
+        r#"import { cva, type VariantProps } from "class-variance-authority";
+const config = cva("", {
+    variants: { size: { sm: "", lg: "" } },
+    defaultVariants: { size: "sm", ...defaults },
+});
+export function Button(props: {} & VariantProps<typeof config>) { return <button />; }"#,
+    )?;
+    let parameters = details.signature.unwrap().parameters;
+    assert_eq!(parameters[0].allowed_values, ["sm", "lg"]);
+    assert_eq!(parameters[0].default, None);
     Ok(())
 }
 
