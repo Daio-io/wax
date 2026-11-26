@@ -116,6 +116,7 @@ For documentation-only changes, inspect the rendered Markdown when practical and
 
 ## Commits and PRs
 
+- Work is planned and tracked outside this repository in the issue tracker. `docs/plans/` is a read-only historical archive; record significant shipped decisions as [ADRs](docs/adr/README.md).
 - Use focused branches and PRs.
 - Keep unrelated changes out of commits.
 - Prefer conventional commit prefixes such as `feat:`, `fix:`, `docs:`, `ci:`, `test:`, and `chore:`.
@@ -126,7 +127,7 @@ For documentation-only changes, inspect the rendered Markdown when practical and
 
 - The engine binary is distributed through release channels.
 - Language packs install on demand into `~/.wax/langs/`.
-- If a change affects release behavior, keep README, install docs, scripts, and relevant plans aligned in the same PR when required.
+- If a change affects release behavior, keep README, install docs, changelog, and scripts aligned in the same PR.
 
 ### Cutting a release
 

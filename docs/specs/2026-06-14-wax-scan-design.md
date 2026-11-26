@@ -234,10 +234,9 @@ Engine crate tests are not required for this phase unless the extractor is later
 ## Documentation
 
 - Design spec: this document
-- Implementation plan: `docs/plans/2026-06-14-wax-scan-plan.md`
+- Implementation plan (archived): [`docs/plans/archive/2026-06-14-wax-scan-plan.md`](../plans/archive/2026-06-14-wax-scan-plan.md)
 - Skill: `skills/wax-scan/SKILL.md` with `--html` and related parameters in frontmatter and a `## Parameters` section
 - `README.md`: short AI skills section entry when implementation lands
-- `docs/plans/README.md`: roadmap entry for the wax-scan skill plan
 
 ## Future Compatibility
 

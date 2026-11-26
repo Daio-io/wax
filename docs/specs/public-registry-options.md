@@ -1,7 +1,7 @@
 # Public registry distribution options
 
-**Status:** Bundle consumption and explicit revision adoption implemented; full pilot/maintenance closeout pending. See the
-[public registry catalogue plan](../plans/2026-11-16-public-registry-catalogue-plan.md).
+**Status:** Bundle consumption and explicit revision adoption implemented; remaining pilot coverage is tracked in the issue tracker. See the
+[public registry catalogue ADR](../adr/2026-11-16-public-registry-catalogue.md).
 
 A public design system needs a way to publish its registries so other
 repositories can pin and consume them. This spec records the options
@@ -105,7 +105,7 @@ in its bundle directory and tagging a commit.
   through shared digest-checked lookup, without app config/lock writes. Existing
   `--offline` uses exact warmed sources; cold lookup never selects latest.
 
-## Coverage, trust and remaining gates
+## Coverage, trust and remaining work
 
 Matching retains parser package/candidate/legacy contracts; bundle setup makes
 no parser changes. See [pilot coverage and provenance](../../website/docs/guides/registries.md#public-coverage-and-provenance)
@@ -118,10 +118,9 @@ release mapping.
 The available catalogue at `761243349f9a74a9a70dc20a8877b430241bcae7` contains
 shadcn only, rather than the expected six systems/seven registries. The Phase
 3b merge SHA, maintenance/staging evidence, remaining pilot artifacts and
-cross-repository documentation are not present there. Full seven-pilot smoke,
-accepted extraction ADR and archive closeout remain gated on that evidence.
-Phase 2B remains the sequential active plan. Language-pack distribution is
-unchanged and independent of registry distribution.
+cross-repository documentation are not present there. The full seven-pilot
+smoke is tracked in the issue tracker. Language-pack distribution is unchanged and
+independent of registry distribution.
 
 Engine contributions follow [Wax contributing](../../CONTRIBUTING.md);
 registry contributions belong in [wax-registries](https://github.com/Daio-io/wax-registries).

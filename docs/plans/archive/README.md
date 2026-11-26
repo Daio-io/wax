@@ -1,6 +1,8 @@
 # Archived implementation plans
 
-Completed implementation plans live here. Each plan has a corresponding **ADR** in [`docs/adr/`](../../adr/README.md) summarizing what shipped.
+Historical implementation plans. Wax now tracks work in the issue tracker, so
+these files are a read-only record and are not maintained. Shipped decisions are summarized
+in the [ADR index](../../adr/README.md).
 
 | Order | Plan | ADR | Status |
 |------:|------|-----|--------|
@@ -11,6 +13,7 @@ Completed implementation plans live here. Each plan has a corresponding **ADR** 
 | 3 | [Registry sources and wax layout](./2026-06-02-registry-sources-and-wax-layout.md) | [ADR](../../adr/2026-06-02-registry-sources-and-wax-layout.md) | Complete |
 | 4 | [Registry discovery](./2026-06-04-registry-discovery-plan.md) | [ADR](../../adr/2026-06-04-registry-discovery.md) | Complete |
 | 4 (design) | [Registry discovery design](./2026-06-04-registry-discovery-design.md) | — | Reference |
+| 5 | [Post-alpha UX](./2026-05-24-post-alpha-ux-plan.md) | [ADR](../../adr/2026-05-24-post-alpha-ux-scan-outputs.md) | Complete |
 | 6 | [React language pack](./2026-06-07-react-language-pack-plan.md) | [ADR](../../adr/2026-06-07-react-language-pack.md) | Complete |
 | 6 (design) | [React language pack design](./2026-06-07-react-language-pack-design.md) | — | Reference |
 | 6 (roadmap) | [React capability roadmap](./2026-06-07-react-language-pack-roadmap.md) | — | Reference |
@@ -26,6 +29,9 @@ Completed implementation plans live here. Each plan has a corresponding **ADR** 
 | 14 | [Token inference and reporting](./2026-07-19-token-inference-reporting-plan.md) | [ADR](../../adr/2026-07-19-token-inference-reporting.md) | Complete |
 | 15 | [Compose parse recovery and UI scoping](./2026-07-22-compose-parse-recovery-plan.md) | [ADR](../../adr/2026-07-22-compose-parse-recovery.md) | Complete |
 | 16 | [Git registry sources](./2026-08-01-git-registry-sources-plan.md) | [ADR](../../adr/2026-08-01-git-registry-sources.md) | Complete |
+| 17 | [Phase 2B — resolution evidence and callee origin](./2026-08-22-phase-2b-resolution-evidence-plan.md) | [ADR](../../adr/2026-08-22-resolution-evidence-and-callee-origin.md) | Complete |
 | 18 | [Registry search and agent workflow](./2026-10-22-registry-search-plan.md) | [ADR](../../adr/2026-10-22-registry-search.md) | Complete |
+| 19 | [Public registry catalogue](./2026-11-16-public-registry-catalogue-plan.md) | [ADR](../../adr/2026-11-16-public-registry-catalogue.md) | Follow-ups in issue tracker |
 
-**Active plans** remain in [`docs/plans/`](../README.md).
+Order numbers come from the retired plan roadmap; its final version is in git
+history at `docs/plans/README.md`.

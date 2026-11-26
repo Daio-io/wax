@@ -15,6 +15,6 @@ authored MIT examples under the same license terms. Positive, wrong-package,
 and unknown-import consumers exercise the public React scanner.
 
 CLI lifecycle tests use a separate local synthetic two-revision Git catalogue
-and test packs. They never access public network services. Remaining pinned
-pilots and the Phase 3b production/staging evidence are required before full
-extraction closeout; see the [plan](../../../docs/plans/2026-11-16-public-registry-catalogue-plan.md).
+and test packs. They never access public network services. Adding the remaining
+pinned pilots is tracked in the issue tracker; see the
+[public registry catalogue ADR](../../../docs/adr/2026-11-16-public-registry-catalogue.md).

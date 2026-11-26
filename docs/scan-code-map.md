@@ -1,6 +1,6 @@
 # Finding scan code
 
-Read the [plan index](plans/README.md) for the current implementation gate and its active task. For shipped decisions, use the [ADR index](adr/README.md). Older specs describe the design at the time they were written; check current code and schemas before changing a contract.
+For shipped decisions, use the [ADR index](adr/README.md). Older specs describe the design at the time they were written; check current code and schemas before changing a contract.
 
 The scan path runs from the CLI through core to each language pack, then back through core's merge and output code.
 

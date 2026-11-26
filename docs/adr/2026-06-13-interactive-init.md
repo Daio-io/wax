@@ -47,5 +47,5 @@ All 4 tasks shipped:
 
 - [Interactive init design spec](../specs/2026-06-13-interactive-init-design.md)
 - [Archived implementation plan](../plans/archive/2026-06-13-interactive-init.md)
-- [Post-alpha UX plan, Task 1](../plans/2026-05-24-post-alpha-ux-plan.md#phase-1--guided-init)
+- [Post-alpha UX plan, Task 1](../plans/archive/2026-05-24-post-alpha-ux-plan.md#phase-1--guided-init)
 - [Alpha release ADR](./2026-05-24-alpha-release-and-distribution.md)
