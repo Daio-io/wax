@@ -175,6 +175,10 @@ Use configless discovery: **always pass `--root`** and do not assume configured 
 
    React discovery adds package-scoped `color` tokens from public palette objects with literal hex or `color(display-p3 ...)` values. A token-only registry (no `components`) is valid for scan. Rediscovery refreshes a token value only while it equals the recorded `details.discovered_literal_value`; authored or cleared values are preserved. Treat refreshed values as discovery output, not creator edits.
 
+   React discovery lists public constants that alias third-party primitives.
+   These entries have partial details with source evidence for the declarator
+   and field gaps for the signature and props.
+
    For Tailwind v4 theme tokens, include the directory containing the theme CSS
    as a discovery root, for example `--root src/styling`.
 

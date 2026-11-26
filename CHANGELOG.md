@@ -92,6 +92,9 @@
 
 ### wax-lang-react
 
+- Discover components that return Base UI's `useRender` and report app-authored
+  components of that shape in scans. Discover public aliases of third-party
+  primitives with partial details and source evidence.
 - Extract props from inline intersections and local intersection aliases.
   Discover literal `cva` and `tv` variants and defaults, with field gaps for
   unresolved intersection members.

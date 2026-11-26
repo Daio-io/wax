@@ -18,13 +18,16 @@ use wax_contract::{
 use wax_lang_api::{RegistryImportMatch, npm_import_package_root};
 
 use crate::component_detect::{
-    class_returns_jsx, expression_returns_jsx, function_returns_jsx, is_pascal_case,
-    module_export_name, simple_binding_ident,
+    class_returns_jsx, function_returns_jsx, is_pascal_case, module_export_name,
+    simple_binding_ident,
 };
 use crate::component_scope::{
     collect_component_definitions, parent_scope_for_component as parent_scope_for_component_def,
 };
 use crate::config::ReactScanConfig;
+use crate::discover::{
+    ReactWrapperCallees, is_base_ui_package, react_wrapper_callees, resolve_react_bindings,
+};
 use crate::module_graph::{ImportedSymbol, ReactModuleGraph};
 use crate::registry::ReactRegistryIndex;
 use crate::style_extract::collect_hardcoded_style_sites;
@@ -51,9 +54,35 @@ pub fn discover_local_components(parsed_modules: &[ParsedReactModule]) -> Vec<Lo
 
     for parsed in parsed_modules {
         let mut detected = BTreeSet::new();
+        // Only resolve bindings for modules where callers can shadow a Base UI import.
+        let resolved = parsed
+            .module
+            .body
+            .iter()
+            .any(|item| {
+                matches!(item, ModuleItem::ModuleDecl(ModuleDecl::Import(import))
+                    if !import.type_only
+                        && is_base_ui_package(&npm_import_package_root(&import.src.value.to_string_lossy())))
+            })
+            .then(|| {
+                let mut module = parsed.module.clone();
+                resolve_react_bindings(&mut module);
+                module
+            });
+        let items = &resolved.as_ref().unwrap_or(&parsed.module).body;
+        let wrapper_callees = resolved
+            .as_ref()
+            .map(|module| react_wrapper_callees(&module.body))
+            .unwrap_or_default();
 
-        for item in &parsed.module.body {
-            collect_jsx_returning_declaration(parsed, item, &mut detected, &mut components);
+        for item in items {
+            collect_jsx_returning_declaration(
+                parsed,
+                item,
+                &mut detected,
+                &mut components,
+                &wrapper_callees,
+            );
         }
 
         let mut changed = true;
@@ -1459,19 +1488,26 @@ fn collect_jsx_returning_declaration(
     item: &ModuleItem,
     detected: &mut BTreeSet<String>,
     components: &mut BTreeMap<(String, String), LocalComponent>,
+    wrapper_callees: &ReactWrapperCallees<'_>,
 ) {
     match item {
         ModuleItem::Stmt(Stmt::Decl(decl)) => {
-            collect_decl_component(parsed, decl, detected, components);
+            collect_decl_component(parsed, decl, detected, components, wrapper_callees);
         }
         ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(export_decl)) => {
-            collect_decl_component(parsed, &export_decl.decl, detected, components);
+            collect_decl_component(
+                parsed,
+                &export_decl.decl,
+                detected,
+                components,
+                wrapper_callees,
+            );
         }
         ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultDecl(default_decl)) => {
             if let DefaultDecl::Fn(fn_expr) = &default_decl.decl
                 && let Some(ident) = &fn_expr.ident
                 && is_pascal_case(&ident.sym)
-                && function_returns_jsx(&fn_expr.function)
+                && wrapper_callees.returns_component_element(&fn_expr.function)
             {
                 insert_component(
                     parsed,
@@ -1523,10 +1559,12 @@ fn collect_decl_component(
     decl: &Decl,
     detected: &mut BTreeSet<String>,
     components: &mut BTreeMap<(String, String), LocalComponent>,
+    wrapper_callees: &ReactWrapperCallees<'_>,
 ) {
     match decl {
         Decl::Fn(fn_decl)
-            if is_pascal_case(&fn_decl.ident.sym) && function_returns_jsx(&fn_decl.function) =>
+            if is_pascal_case(&fn_decl.ident.sym)
+                && wrapper_callees.returns_component_element(&fn_decl.function) =>
         {
             insert_component(
                 parsed,
@@ -1540,10 +1578,9 @@ fn collect_decl_component(
             for declarator in &var_decl.decls {
                 if let Some((name, span)) = simple_binding_ident(declarator)
                     && is_pascal_case(&name)
-                    && declarator
-                        .init
-                        .as_deref()
-                        .is_some_and(expression_returns_jsx)
+                    && declarator.init.as_deref().is_some_and(|init| {
+                        wrapper_callees.expression_returns_component_element(init)
+                    })
                 {
                     insert_component(parsed, name, span, detected, components);
                 }

@@ -7,18 +7,20 @@ use std::rc::Rc;
 
 use swc_common::{GLOBALS, Globals, Mark};
 use swc_ecma_ast::{
-    Callee, Decl, DefaultDecl, Expr, Id, ImportSpecifier, MemberProp, ModuleDecl, ModuleItem, Stmt,
-    VarDeclarator,
+    Callee, Decl, DefaultDecl, Expr, Function, Id, ImportSpecifier, MemberProp, Module, ModuleDecl,
+    ModuleItem, Pat, Stmt, VarDeclKind, VarDeclarator,
 };
 use swc_ecma_transforms_base::resolver;
 use swc_ecma_visit::VisitMutWith;
 use wax_contract::{Diagnostic, DiagnosticSeverity};
-use wax_lang_api::DiscoveredRegistrySymbol;
+use wax_lang_api::{DiscoveredRegistrySymbol, npm_import_package_root};
 
 use crate::component_detect::{
-    LocalValue, LocalValues, class_returns_jsx, expression_returns_element, expression_returns_jsx,
-    function_returns_jsx, is_jsx_expression, module_export_name, simple_binding_ident,
+    LocalValue, LocalValues, block_returns_element, class_returns_jsx, expression_returns_element,
+    expression_returns_jsx, function_returns_jsx, is_jsx_expression, is_pascal_case,
+    module_export_name, simple_binding_ident,
 };
+use crate::extract::is_path_like_import;
 use crate::public_exports::{PackageManifest, package_for_file, public_bindings};
 use crate::swc_parse::{ParsedReactModule, ReactParseOutcome, parse_react_source_file};
 
@@ -183,11 +185,7 @@ pub(crate) fn collect_and_parse_react_sources(
             }
         })? {
             ReactParseOutcome::Parsed(mut parsed) => {
-                GLOBALS.set(&Globals::new(), || {
-                    parsed
-                        .module
-                        .visit_mut_with(&mut resolver(Mark::new(), Mark::new(), true));
-                });
+                resolve_react_bindings(&mut parsed.module);
                 parsed_files.push(ParsedReactSourceFile { package, parsed });
             }
             ReactParseOutcome::Failed(diagnostic) => {
@@ -198,6 +196,12 @@ pub(crate) fn collect_and_parse_react_sources(
     }
 
     Ok((parsed_files, damaged_paths))
+}
+
+pub(crate) fn resolve_react_bindings(module: &mut Module) {
+    GLOBALS.set(&Globals::new(), || {
+        module.visit_mut_with(&mut resolver(Mark::new(), Mark::new(), true));
+    });
 }
 
 fn insert_discovered_symbol(
@@ -327,7 +331,26 @@ fn is_supported_react_source(path: &Path) -> bool {
 #[derive(Debug, Default)]
 pub(crate) struct ReactWrapperCallees<'a> {
     locals: LocalValues<'a>,
-    imports: HashMap<Id, (&'static str, Option<String>)>,
+    imports: HashMap<Id, (ImportPackage, ImportName)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ImportPackage {
+    React,
+    ReactDom,
+    BaseUi,
+    External,
+}
+
+#[derive(Debug)]
+enum ImportName {
+    Named(String),
+    Default,
+    Namespace,
+}
+
+pub(crate) fn is_base_ui_package(package: &str) -> bool {
+    matches!(package, "@base-ui/react" | "@base-ui-components/react")
 }
 
 pub(crate) fn react_wrapper_callees(items: &[ModuleItem]) -> ReactWrapperCallees<'_> {
@@ -340,16 +363,25 @@ pub(crate) fn react_wrapper_callees(items: &[ModuleItem]) -> ReactWrapperCallees
         let ModuleItem::ModuleDecl(ModuleDecl::Import(import)) = item else {
             continue;
         };
-        let package = match import.src.value.to_string_lossy().as_ref() {
-            "react" if !import.type_only => "react",
-            "react-dom" if !import.type_only => "react-dom",
-            _ => continue,
+        if import.type_only {
+            continue;
+        }
+        let source = import.src.value.to_string_lossy();
+        let package = match source.as_ref() {
+            "react" => ImportPackage::React,
+            "react-dom" => ImportPackage::ReactDom,
+            source if is_path_like_import(source) => continue,
+            source => match npm_import_package_root(source).as_str() {
+                package if is_base_ui_package(package) => ImportPackage::BaseUi,
+                "react" | "react-dom" => continue,
+                _ => ImportPackage::External,
+            },
         };
         for specifier in &import.specifiers {
             let (local, name) = match specifier {
                 ImportSpecifier::Named(named) if !named.is_type_only => (
                     &named.local,
-                    Some(
+                    ImportName::Named(
                         named
                             .imported
                             .as_ref()
@@ -357,8 +389,8 @@ pub(crate) fn react_wrapper_callees(items: &[ModuleItem]) -> ReactWrapperCallees
                     ),
                 ),
                 ImportSpecifier::Named(_) => continue,
-                ImportSpecifier::Default(default) => (&default.local, None),
-                ImportSpecifier::Namespace(namespace) => (&namespace.local, None),
+                ImportSpecifier::Default(default) => (&default.local, ImportName::Default),
+                ImportSpecifier::Namespace(namespace) => (&namespace.local, ImportName::Namespace),
             };
             callees.imports.insert(local.to_id(), (package, name));
         }
@@ -368,13 +400,27 @@ pub(crate) fn react_wrapper_callees(items: &[ModuleItem]) -> ReactWrapperCallees
 }
 
 impl<'a> ReactWrapperCallees<'a> {
+    pub(crate) fn returns_component_element(&self, function: &Function) -> bool {
+        function.body.as_ref().is_some_and(|block| {
+            block_returns_element(block, &|call, _| self.is_render_hook(&call.callee))
+        })
+    }
+
+    pub(crate) fn expression_returns_component_element(&self, expr: &Expr) -> bool {
+        expression_returns_element(expr, &|call, _| self.is_render_hook(&call.callee))
+    }
+
+    fn is_render_hook(&self, callee: &Callee) -> bool {
+        self.matches(callee, ImportPackage::BaseUi, "useRender")
+    }
+
     pub(crate) fn callback_returns_element(&self, expr: &Expr) -> bool {
         expression_returns_element(expr, &|call, jsx_bindings| {
             let Some(first) = call.args.first().filter(|arg| arg.spread.is_none()) else {
                 return false;
             };
-            self.matches(&call.callee, "react", "cloneElement")
-                || (self.matches(&call.callee, "react-dom", "createPortal")
+            self.matches(&call.callee, ImportPackage::React, "cloneElement")
+                || (self.matches(&call.callee, ImportPackage::ReactDom, "createPortal")
                     && is_jsx_expression(&first.expr, jsx_bindings))
         })
     }
@@ -444,8 +490,8 @@ impl<'a> ReactWrapperCallees<'a> {
             if arg.spread.is_some() {
                 return None;
             }
-            let memo = self.matches(&call.callee, "react", "memo");
-            if !memo && !self.matches(&call.callee, "react", "forwardRef") {
+            let memo = self.matches(&call.callee, ImportPackage::React, "memo");
+            if !memo && !self.matches(&call.callee, ImportPackage::React, "forwardRef") {
                 return None;
             }
             expr = arg.expr.unwrap_parens();
@@ -457,7 +503,46 @@ impl<'a> ReactWrapperCallees<'a> {
         }
     }
 
-    fn matches(&self, callee: &Callee, package: &str, expected: &str) -> bool {
+    pub(crate) fn is_external_component_alias(
+        &self,
+        kind: VarDeclKind,
+        declarator: &VarDeclarator,
+    ) -> bool {
+        if kind != VarDeclKind::Const
+            || !matches!(&declarator.name, Pat::Ident(binding) if is_pascal_case(&binding.id.sym))
+        {
+            return false;
+        }
+
+        let Some(init) = declarator.init.as_deref().map(Expr::unwrap_parens) else {
+            return false;
+        };
+        let is_member = match init {
+            Expr::Ident(_) => false,
+            Expr::Member(member) if matches!(&member.prop, MemberProp::Ident(prop) if is_pascal_case(&prop.sym)) => {
+                true
+            }
+            _ => return false,
+        };
+        let mut root = init;
+        while let Expr::Member(member) = root {
+            if !matches!(member.prop, MemberProp::Ident(_)) {
+                return false;
+            }
+            root = member.obj.unwrap_parens();
+        }
+        let Expr::Ident(root) = root else {
+            return false;
+        };
+        self.imports
+            .get(&root.to_id())
+            .is_some_and(|(package, name)| {
+                matches!(package, ImportPackage::BaseUi | ImportPackage::External)
+                    && (is_member || !matches!(name, ImportName::Namespace))
+            })
+    }
+
+    fn matches(&self, callee: &Callee, package: ImportPackage, expected: &str) -> bool {
         let Callee::Expr(expr) = callee else {
             return false;
         };
@@ -466,7 +551,8 @@ impl<'a> ReactWrapperCallees<'a> {
                 .imports
                 .get(&ident.to_id())
                 .is_some_and(|(source, name)| {
-                    *source == package && name.as_deref() == Some(expected)
+                    *source == package
+                        && matches!(name, ImportName::Named(name) if name == expected)
                 }),
             Expr::Member(member)
                 if let Expr::Ident(object) = &*member.obj
@@ -474,7 +560,10 @@ impl<'a> ReactWrapperCallees<'a> {
             {
                 self.imports
                     .get(&object.to_id())
-                    .is_some_and(|(source, name)| *source == package && name.is_none())
+                    .is_some_and(|(source, name)| {
+                        *source == package
+                            && matches!(name, ImportName::Default | ImportName::Namespace)
+                    })
             }
             _ => false,
         }
@@ -488,7 +577,7 @@ pub(crate) fn local_component_bindings(
     let mut detected = BTreeSet::new();
 
     for item in items {
-        collect_jsx_returning_declaration(item, &mut detected);
+        collect_jsx_returning_declaration(item, &mut detected, wrapper_callees);
     }
 
     let mut changed = true;
@@ -504,17 +593,23 @@ pub(crate) fn local_component_bindings(
     detected
 }
 
-fn collect_jsx_returning_declaration(item: &ModuleItem, detected: &mut BTreeSet<String>) {
+fn collect_jsx_returning_declaration(
+    item: &ModuleItem,
+    detected: &mut BTreeSet<String>,
+    wrapper_callees: &ReactWrapperCallees<'_>,
+) {
     match item {
-        ModuleItem::Stmt(Stmt::Decl(decl)) => collect_decl_component(decl, detected),
+        ModuleItem::Stmt(Stmt::Decl(decl)) => {
+            collect_decl_component(decl, detected, wrapper_callees);
+        }
         ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(export_decl)) => {
-            collect_decl_component(&export_decl.decl, detected);
+            collect_decl_component(&export_decl.decl, detected, wrapper_callees);
         }
         ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultDecl(default_decl)) => {
             match &default_decl.decl {
                 DefaultDecl::Fn(fn_expr)
                     if let Some(ident) = &fn_expr.ident
-                        && function_returns_jsx(&fn_expr.function) =>
+                        && wrapper_callees.returns_component_element(&fn_expr.function) =>
                 {
                     detected.insert(ident.sym.to_string());
                 }
@@ -531,9 +626,13 @@ fn collect_jsx_returning_declaration(item: &ModuleItem, detected: &mut BTreeSet<
     }
 }
 
-fn collect_decl_component(decl: &Decl, detected: &mut BTreeSet<String>) {
+fn collect_decl_component(
+    decl: &Decl,
+    detected: &mut BTreeSet<String>,
+    wrapper_callees: &ReactWrapperCallees<'_>,
+) {
     match decl {
-        Decl::Fn(fn_decl) if function_returns_jsx(&fn_decl.function) => {
+        Decl::Fn(fn_decl) if wrapper_callees.returns_component_element(&fn_decl.function) => {
             detected.insert(fn_decl.ident.sym.to_string());
         }
         Decl::Class(class_decl) if class_returns_jsx(&class_decl.class) => {
@@ -542,10 +641,10 @@ fn collect_decl_component(decl: &Decl, detected: &mut BTreeSet<String>) {
         Decl::Var(var_decl) => {
             for declarator in &var_decl.decls {
                 if let Some((name, _)) = simple_binding_ident(declarator)
-                    && declarator
-                        .init
-                        .as_deref()
-                        .is_some_and(expression_returns_jsx)
+                    && (wrapper_callees.is_external_component_alias(var_decl.kind, declarator)
+                        || declarator.init.as_deref().is_some_and(|init| {
+                            wrapper_callees.expression_returns_component_element(init)
+                        }))
                 {
                     detected.insert(name);
                 }

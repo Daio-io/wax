@@ -1,12 +1,15 @@
 use std::path::PathBuf;
 use std::{fs, io};
 
-use wax_contract::{RegistryDetails, RegistryDocument, RegistryParameterTypeKind};
+use wax_contract::{
+    RegistryDetails, RegistryDocument, RegistryExtractionStatus, RegistryParameterTypeKind,
+};
 use wax_lang_api::{
     DiscoverRegistryRequest, DiscoverRequest, DiscoverRequestType, WIRE_API_VERSION,
 };
 use wax_lang_react::{
-    ReactDiscoverError, ReactLanguage, discover_registry_details, discover_registry_symbols,
+    ReactDiscoverError, ReactLanguage, ReactParseOutcome, discover_local_components,
+    discover_registry_details, discover_registry_symbols, parse_react_source_file,
 };
 
 #[test]
@@ -102,6 +105,190 @@ fn discover_registry_details_extracts_direct_component_api_facts() {
 
 fn discover_documented_button(source: &str) -> io::Result<RegistryDetails> {
     discover_button_with_sources(source, &[])
+}
+
+#[test]
+fn discover_registry_details_extracts_signature_for_base_ui_render_hook() -> io::Result<()> {
+    let details = discover_button_with_sources(
+        r#"export { Badge as Button } from "./Badge";"#,
+        &[(
+            "src/Badge.tsx",
+            r#"import { useRender } from "@base-ui/react/use-render";
+export function Badge(props: { disabled: boolean }) {
+    return useRender({ props });
+}
+
+"#,
+        )],
+    )?;
+    assert_eq!(
+        details
+            .signature
+            .as_ref()
+            .and_then(|sig| sig.type_text.as_deref()),
+        Some("export function Badge(props: { disabled: boolean })")
+    );
+    Ok(())
+}
+
+const EXTERNAL_ALIAS_SOURCE: &str = r#"import { Select as SelectPrimitive } from "@base-ui/react/select";
+import * as RechartsPrimitive from "recharts";
+import { FormProvider } from "react-hook-form";
+import Controls from "external/controls";
+import React from "react";
+import { createPortal } from "react-dom/client";
+import { RelativePrimitive } from "./relative";
+import { PathPrimitive } from "@/components";
+import { TildePrimitive } from "~/components";
+import type { TypePrimitive } from "external";
+import { type InlineType } from "external";
+
+export const Select = SelectPrimitive.Root,
+    ChartTooltip = RechartsPrimitive.Tooltip;
+const Form = FormProvider;
+export { Form };
+export const Nested = Controls.Fields.Input;
+export const DefaultAlias = Controls;
+export const CarouselContext = React.createContext(null);
+export const Fragment = React.Fragment;
+export const Portal = createPortal;
+export const Relative = RelativePrimitive, Path = PathPrimitive, Tilde = TildePrimitive;
+export const Lowercase = Controls.input, Computed = Controls["Input"];
+export const Namespace = RechartsPrimitive, typed = Controls.Input;
+export const FromType = TypePrimitive, FromInlineType = InlineType;
+export let Mutable = Controls.Input;
+const Private = Controls.Input;
+export { DirectionProvider } from "@base-ui/react/direction-provider";
+"#;
+
+#[test]
+fn discover_registry_symbols_lists_public_external_component_aliases() -> io::Result<()> {
+    let repo = tempfile::tempdir()?;
+    fs::write(repo.path().join("Aliases.tsx"), EXTERNAL_ALIAS_SOURCE)?;
+
+    let result = discover_registry_symbols(repo.path(), &[repo.path().to_path_buf()])
+        .expect("discover external aliases");
+
+    assert_eq!(
+        result.symbols(),
+        ["ChartTooltip", "DefaultAlias", "Form", "Nested", "Select"]
+    );
+    Ok(())
+}
+
+const RENDER_HOOK_SOURCE: &str = r#"import { useRender as render } from "@base-ui/react";
+import { useRender as legacyRender } from "@base-ui-components/react/use-render";
+import * as BaseUI from "@base-ui/react/use-render";
+import LegacyUI from "@base-ui-components/react";
+import { useRender as otherRender } from "another-package";
+import type { useRender as typeRender } from "@base-ui/react";
+import { type useRender as inlineTypeRender } from "@base-ui/react";
+import { Primitive } from "third-party";
+
+function useRender() { return null; }
+export function Renamed() { return render({}); }
+export const Legacy = () => legacyRender({});
+export const Namespace = function () { return BaseUI.useRender({}); };
+export default function DefaultMember() { return LegacyUI.useRender({}); }
+export function LocalHook() { return useRender(); }
+export function OtherPackage() { return otherRender({}); }
+export const TypeImport = () => typeRender({});
+export const InlineTypeImport = () => inlineTypeRender({});
+export function Shadowed(render) { return render({}); }
+export function ShadowedNamespace(BaseUI) { return BaseUI.useRender({}); }
+export const ExternalAlias = Primitive;
+"#;
+
+#[test]
+fn discover_registry_symbols_recognises_supported_render_hook_imports() -> io::Result<()> {
+    let repo = tempfile::tempdir()?;
+    fs::write(repo.path().join("Components.tsx"), RENDER_HOOK_SOURCE)?;
+
+    let result = discover_registry_symbols(repo.path(), &[repo.path().to_path_buf()])
+        .expect("discover Base UI render-hook exports");
+
+    assert_eq!(
+        result.symbols(),
+        [
+            "DefaultMember",
+            "ExternalAlias",
+            "Legacy",
+            "Namespace",
+            "Renamed"
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn discover_local_components_recognises_only_app_authored_render_hook_components() -> io::Result<()>
+{
+    let repo = tempfile::tempdir()?;
+    let path = std::path::Path::new("App.tsx");
+    fs::write(repo.path().join(path), RENDER_HOOK_SOURCE)?;
+    let ReactParseOutcome::Parsed(parsed) =
+        parse_react_source_file(repo.path(), path).expect("read app source")
+    else {
+        panic!("app source should parse");
+    };
+
+    let components = discover_local_components(&[parsed]);
+    assert_eq!(
+        components
+            .iter()
+            .map(|component| component.symbol.as_str())
+            .collect::<Vec<_>>(),
+        ["DefaultMember", "Legacy", "Namespace", "Renamed"]
+    );
+    Ok(())
+}
+
+#[test]
+fn discover_registry_details_records_external_alias_declarators() -> io::Result<()> {
+    let repo = tempfile::tempdir()?;
+    fs::write(repo.path().join("Aliases.tsx"), EXTERNAL_ALIAS_SOURCE)?;
+    let result = discover_registry_details(&DiscoverRegistryRequest {
+        api_version: WIRE_API_VERSION,
+        language_id: "react".try_into().unwrap(),
+        repo_root: repo.path().to_string_lossy().into_owned(),
+        roots: vec![".".to_owned()],
+        registry: serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "components": [
+                {"id": "select", "symbol": "Select"},
+                {"id": "chart-tooltip", "symbol": "ChartTooltip"},
+                {"id": "form", "symbol": "Form"}
+            ]
+        }))
+        .unwrap(),
+    })
+    .expect("enrich external aliases");
+
+    for (component, line) in result.document.components.iter().zip([13, 14, 15]) {
+        let details = component.details.as_ref().expect("alias details");
+        assert_eq!(details.status, RegistryExtractionStatus::Partial);
+        let evidence = details
+            .source_evidence
+            .as_ref()
+            .expect("declarator evidence");
+        assert_eq!(
+            (
+                evidence.path.as_str(),
+                evidence.start_line,
+                evidence.end_line
+            ),
+            ("Aliases.tsx", Some(line), Some(line))
+        );
+        assert_eq!(
+            details
+                .field_gaps
+                .iter()
+                .map(|gap| gap.field.as_str())
+                .collect::<Vec<_>>(),
+            ["signature.type_text", "signature.parameters"]
+        );
+    }
+    Ok(())
 }
 
 fn discover_button_with_sources(
