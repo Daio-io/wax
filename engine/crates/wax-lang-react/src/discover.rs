@@ -228,16 +228,17 @@ fn insert_discovered_symbol(
     components.insert(symbol, package);
 }
 
+/// Returns `file_path` relative to `parse_root`, or the full path when it is not
+/// under `parse_root`.
+///
+/// The fallback keeps the full path so the file can still be read; reducing it
+/// to a bare file name would point at a different (usually missing) file.
 pub(crate) fn repo_relative_path(parse_root: &Path, file_path: &Path) -> String {
     file_path
         .strip_prefix(parse_root)
-        .map(|relative| relative.to_string_lossy().replace('\\', "/"))
-        .unwrap_or_else(|_| {
-            file_path
-                .file_name()
-                .map(|name| name.to_string_lossy().replace('\\', "/"))
-                .unwrap_or_else(|| file_path.to_string_lossy().replace('\\', "/"))
-        })
+        .unwrap_or(file_path)
+        .to_string_lossy()
+        .replace('\\', "/")
 }
 
 fn collect_react_files(
@@ -746,6 +747,46 @@ mod tests {
         assert!(!is_supported_react_source(Path::new("Button.spec.ts")));
         assert!(!is_supported_react_source(Path::new("Button.stories.tsx")));
         assert!(!is_supported_react_source(Path::new("types.d.ts")));
+    }
+
+    #[test]
+    fn repo_relative_path_keeps_full_path_outside_parse_root() {
+        assert_eq!(
+            repo_relative_path(
+                Path::new("."),
+                Path::new("/repo/packages/ui/src/button.tsx")
+            ),
+            "/repo/packages/ui/src/button.tsx"
+        );
+        assert_eq!(
+            repo_relative_path(Path::new("/repo"), Path::new("/repo/src/button.tsx")),
+            "src/button.tsx"
+        );
+    }
+
+    #[test]
+    fn sources_under_absolute_root_parse_when_parse_root_does_not_prefix_them() -> io::Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let source_root = tempdir.path().join("packages/ui/src");
+        fs::create_dir_all(&source_root)?;
+        fs::write(
+            source_root.join("button.tsx"),
+            "export function Button() { return <button />; }",
+        )?;
+
+        let mut diagnostics = Vec::new();
+        let (parsed, damaged) = collect_and_parse_react_sources(
+            Path::new("."),
+            &[fs::canonicalize(&source_root)?],
+            false,
+            &mut diagnostics,
+        )
+        .expect("sources outside the parse root prefix should still be read");
+
+        assert_eq!(parsed.len(), 1);
+        assert!(damaged.is_empty());
+        assert!(diagnostics.is_empty());
+        Ok(())
     }
 
     #[test]

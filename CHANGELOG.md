@@ -116,6 +116,8 @@
   also extracts values from same-file literal-union aliases and TypeScript enums.
 - Join wrapped JSDoc `@guidance`, skip continuation lines on ignored tags, and
   strip code fences from `@example` attachments during registry discovery.
+- Read discovery sources by their full path when a root is outside the parse
+  root prefix, instead of falling back to the bare file name.
 
 ### wax-lang-swift
 
@@ -128,6 +130,11 @@
 
 ### wax-core
 
+- Fix `wax registry discover` with roots taken from `languages.<id>.roots` in
+  `.wax/wax.config.json`. Configured roots were sent to language packs as
+  absolute canonical paths, so the React pack failed with `read React source
+  <file>: No such file or directory`. Configured roots and absolute `--root`
+  values inside the repository are now sent repo-relative.
 - Scan auto-install now reuses an existing language pack directory that matches the lockfile and restores its missing global state entry. `wax language install` and `wax language update` use the same pack store.
 - Raise the default language-pack scan timeout from 120s to 10 minutes and honor `WAX_SCAN_TIMEOUT_SECS`, matching the language-pack distribution spec.
 - Add shared `registry_lock::verify_registry_lock` used by validate and scan.

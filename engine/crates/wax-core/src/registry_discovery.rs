@@ -606,15 +606,18 @@ fn resolve_configured_root(
             source,
         })?;
 
-    if !canonical_candidate.starts_with(&canonical_repo_root) {
+    let Ok(canonical_relative) = canonical_candidate.strip_prefix(&canonical_repo_root) else {
         return Err(RegistryDiscoverError::RootEscapesRepo {
             language_id: language_id.to_owned(),
             config_path: config_path.to_owned(),
             root: root.to_owned(),
         });
-    }
+    };
 
-    Ok(canonical_candidate)
+    // Join the resolved target back onto `repo_root` so the pack request stays
+    // repo-relative when `repo_root` is not canonical (for example the default
+    // `.`), while root symlinks inside the repo resolve to their target.
+    Ok(repo_root.join(canonical_relative))
 }
 
 fn load_optional_waxrc(path: &Path) -> Result<Option<WaxRc>, RegistryDiscoverError> {
@@ -991,10 +994,29 @@ fn unique_token_identity_match<'a>(
     matches.next().is_none().then_some(candidate)
 }
 
+/// Builds the repo-relative `roots` sent to language packs.
+///
+/// A plain prefix strip handles roots joined onto `repo_root`. When that fails
+/// (for example an absolute `--root` with a relative or symlinked `repo_root`),
+/// both paths are canonicalized so roots inside the repository are still sent
+/// repo-relative, as the discovery request contract requires.
 fn request_roots(repo_root: &Path, roots: &[PathBuf]) -> Vec<String> {
+    let canonical_repo_root = fs::canonicalize(repo_root).ok();
     roots
         .iter()
-        .map(|root| repo_relative_path(repo_root, root))
+        .map(|root| {
+            if root.strip_prefix(repo_root).is_ok() {
+                return repo_relative_path(repo_root, root);
+            }
+            match (&canonical_repo_root, fs::canonicalize(root)) {
+                (Some(canonical_repo_root), Ok(canonical_root))
+                    if canonical_root.starts_with(canonical_repo_root) =>
+                {
+                    repo_relative_path(canonical_repo_root, &canonical_root)
+                }
+                _ => root.display().to_string(),
+            }
+        })
         .collect()
 }
 
