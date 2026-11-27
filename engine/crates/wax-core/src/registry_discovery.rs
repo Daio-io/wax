@@ -606,17 +606,18 @@ fn resolve_configured_root(
             source,
         })?;
 
-    if !canonical_candidate.starts_with(&canonical_repo_root) {
+    let Ok(canonical_relative) = canonical_candidate.strip_prefix(&canonical_repo_root) else {
         return Err(RegistryDiscoverError::RootEscapesRepo {
             language_id: language_id.to_owned(),
             config_path: config_path.to_owned(),
             root: root.to_owned(),
         });
-    }
+    };
 
-    // Keep the configured spelling so the pack request stays repo-relative even
-    // when `repo_root` is not canonical (for example the default `.`).
-    Ok(candidate)
+    // Join the resolved target back onto `repo_root` so the pack request stays
+    // repo-relative when `repo_root` is not canonical (for example the default
+    // `.`), while root symlinks inside the repo resolve to their target.
+    Ok(repo_root.join(canonical_relative))
 }
 
 fn load_optional_waxrc(path: &Path) -> Result<Option<WaxRc>, RegistryDiscoverError> {

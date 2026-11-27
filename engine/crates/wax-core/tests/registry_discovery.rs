@@ -827,6 +827,30 @@ fn configured_roots_are_sent_repo_relative_when_repo_root_is_not_canonical() {
 
 #[cfg(unix)]
 #[test]
+fn configured_root_symlink_inside_repo_is_sent_as_its_target() {
+    let real_repo = TestRepo::new("registry-discovery-config-root-symlink-real");
+    link_compose_fixture_into_repo(real_repo.path());
+    symlink(
+        real_repo.path().join("design-system/src/main/kotlin"),
+        real_repo.path().join("ds-link"),
+    )
+    .expect("symlink root inside repo");
+    write_compose_config_with_roots(real_repo.path(), &["ds-link"]);
+    write_compose_lockfile(real_repo.path());
+    let links = TestRepo::new("registry-discovery-config-root-symlink-link");
+    let linked_repo = links.path().join("repo");
+    symlink(real_repo.path(), &linked_repo).expect("symlink repo root");
+    let wax_home = install_compose_pack_fixture();
+
+    discover_with_config_roots(&linked_repo, WaxHome::new(wax_home.path()))
+        .expect("symlinked configured root inside the repo should resolve");
+
+    let request = last_discover_request(wax_home.path(), "compose");
+    assert_eq!(request["roots"], json!(["design-system/src/main/kotlin"]));
+}
+
+#[cfg(unix)]
+#[test]
 fn absolute_cli_roots_inside_repo_are_sent_repo_relative() {
     let real_repo = TestRepo::new("registry-discovery-absolute-cli-root-real");
     link_compose_fixture_into_repo(real_repo.path());
