@@ -14,7 +14,7 @@ Output: versioned insights JSON consumed by the agent when rendering terminal an
 
 | Field | Description |
 |-------|-------------|
-| `schema_version` | Insights contract version (`3` for token inference reporting; source scan schema is `4`) |
+| `schema_version` | Insights contract version (`3` for token inference reporting; source scan schema is `5`) |
 | `generated_at` | RFC3339 timestamp |
 | `source_scan` | Path to merged scan input |
 | `repo_summary` | Repository-level DS-vs-local coverage, invocation adoption, registry resolution, raw invocation counters, local definitions, and parent-scope totals |
@@ -36,7 +36,7 @@ Output: versioned insights JSON consumed by the agent when rendering terminal an
 | `limits[]` | Metrics unavailable from current facts |
 | `baseline_deltas` | Trend deltas when `--baseline` supplied |
 
-The extractor requires scan schema `3`, builds a unique raw-site lookup keyed by `(language, site_id)`, and fails closed when any inference row has zero or multiple raw matches. Candidate arrays are sorted by confidence (`very_high`, `high`, `medium`, `low`) then language/file/line. Schema-v2 baselines are incompatible because they lack inference classifications.
+The extractor requires scan schema `5`, builds a unique raw-site lookup keyed by `(language, site_id)`, and fails closed when any inference row has zero or multiple raw matches. Candidate arrays are sorted by confidence (`very_high`, `high`, `medium`, `low`) then language/file/line. Baselines must also use scan schema `5`.
 
 ## Unassessed delegation
 
@@ -91,7 +91,7 @@ Compute when the baseline is a compatible v3 `scan-merged.json`:
 - Parent-scope total change
 - Per-language deltas when language sets match
 
-If the baseline is schema v1 or v2, emit a single limit entry explaining the compatibility data gap instead of mixing older denominators with v3 inference classifications.
+If the baseline uses an older scan schema, show the compatibility message from the extractor. Regenerate the baseline with a v5 scan to get deltas.
 
 ## HTML escaping
 

@@ -3843,3 +3843,66 @@ export function Button(props:
     );
     Ok(())
 }
+
+#[test]
+fn discovers_and_counts_tailwind_aspect_ratio_tokens() {
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path();
+    fs::write(
+        root.join("theme.css"),
+        "@theme { --aspect-16x9: 16 / 9; }\n.video { aspect-ratio: var(--aspect-16x9); }",
+    )
+    .unwrap();
+    fs::write(
+        root.join("Card.tsx"),
+        r#"export const Card = () => <div className="aspect-16x9" />;"#,
+    )
+    .unwrap();
+    let discovered = discover_registry_details(&theme_request(root, &["."])).unwrap();
+    let [token] = discovered.document.tokens.as_slice() else {
+        panic!("expected one discovered aspect ratio token");
+    };
+    assert_eq!(
+        (
+            token.id.as_str(),
+            token.key.as_str(),
+            token.category,
+            token.value.as_deref()
+        ),
+        (
+            "css.aspect-16x9",
+            "var(--aspect-16x9)",
+            wax_contract::TokenCategory::AspectRatio,
+            Some("16 / 9")
+        ),
+    );
+    fs::write(
+        root.join("registry.json"),
+        serde_json::to_vec(&discovered.document).unwrap(),
+    )
+    .unwrap();
+
+    let facts = ReactLanguage::new()
+        .scan(&wax_lang_api::ScanRequest {
+            request_type: wax_lang_api::ScanRequestType::Scan,
+            api_version: WIRE_API_VERSION,
+            language_id: "react".try_into().unwrap(),
+            repo_root: root.display().to_string(),
+            snapshot_id: "aspect-theme".to_owned(),
+            config: serde_json::from_value(serde_json::json!({
+                "registry": "registry.json",
+                "roots": ["."]
+            }))
+            .unwrap(),
+        })
+        .unwrap();
+
+    assert_eq!(
+        facts
+            .counts
+            .tokens
+            .token_references_by_category
+            .aspect_ratio,
+        2
+    );
+}

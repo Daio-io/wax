@@ -662,6 +662,7 @@ fn compose_style_metadata(call: &str) -> Option<(TokenCategory, StyleContext)> {
         "size" => Some((TokenCategory::Spacing, StyleContext::Size)),
         "width" => Some((TokenCategory::Spacing, StyleContext::Width)),
         "height" => Some((TokenCategory::Spacing, StyleContext::Height)),
+        "aspectRatio" => Some((TokenCategory::AspectRatio, StyleContext::AspectRatio)),
         "spacedBy" => Some((TokenCategory::Spacing, StyleContext::Gap)),
         "fontSize" | "TextStyle" => Some((TokenCategory::Typography, StyleContext::Typography)),
         "clip" | "cornerRadius" | "RoundedCornerShape" => {
@@ -715,7 +716,27 @@ fn first_style_literal(
 ) -> Option<String> {
     let arguments = call_value_arguments(node)?;
     let mut cursor = arguments.walk();
-    for value_argument in arguments.named_children(&mut cursor) {
+    let value_arguments = arguments
+        .named_children(&mut cursor)
+        .filter(|child| child.kind() == "value_argument");
+    if category == TokenCategory::AspectRatio {
+        for (index, argument) in value_arguments.enumerate() {
+            let mut cursor = argument.walk();
+            let mut children = argument
+                .named_children(&mut cursor)
+                .filter(|child| !child.is_extra());
+            let first = children.next()?;
+            let value = match children.next() {
+                Some(value) if first.utf8_text(source).ok()? == "ratio" => value,
+                None if index == 0 => first,
+                _ => continue,
+            };
+            let text = value.utf8_text(source).ok()?;
+            return wax_lang_api::aspect_ratio::normalize_kotlin(text).map(|_| text.to_owned());
+        }
+        return None;
+    }
+    for value_argument in value_arguments {
         if value_argument_contains_call_expression(value_argument) {
             continue;
         }
@@ -797,7 +818,7 @@ fn style_literal_from_node(
             }
             None
         }
-        TokenCategory::Unknown => None,
+        TokenCategory::AspectRatio | TokenCategory::Unknown => None,
     }
 }
 

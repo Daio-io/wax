@@ -25,7 +25,7 @@ pub(crate) struct ThemeNamespace {
 }
 
 const NAMESPACES: &[(&str, TokenCategory)] = {
-    use TokenCategory::{Color, Elevation, Radius, Spacing, Typography, Unknown};
+    use TokenCategory::{AspectRatio, Color, Elevation, Radius, Spacing, Typography, Unknown};
     &[
         ("--color-", Color),
         ("--spacing-", Spacing),
@@ -42,7 +42,7 @@ const NAMESPACES: &[(&str, TokenCategory)] = {
         ("--leading-", Typography),
         ("--blur-", Unknown),
         ("--perspective-", Unknown),
-        ("--aspect-", Unknown),
+        ("--aspect-", AspectRatio),
         ("--ease-", Unknown),
         ("--animate-", Unknown),
         ("--breakpoint-", Unknown),
@@ -226,6 +226,7 @@ fn arbitrary_metadata(
         ("gap" | "gap-x" | "gap-y" | "space-x" | "space-y", Length) => {
             (Category::Spacing, Context::Gap)
         }
+        ("aspect", Length | Other) => (Category::AspectRatio, Context::AspectRatio),
         ("w" | "min-w" | "max-w", Length) => (Category::Spacing, Context::Width),
         ("h" | "min-h" | "max-h", Length) => (Category::Spacing, Context::Height),
         ("size", Length) => (Category::Spacing, Context::Size),
@@ -296,6 +297,11 @@ pub(crate) fn arbitrary_style(utility: &str) -> Option<(String, TokenCategory, S
             '_' => value.push(' '),
             _ => value.push(ch),
         }
+    }
+    if category == TokenCategory::AspectRatio
+        && wax_lang_api::aspect_ratio::normalize(&value).is_none()
+    {
+        return None;
     }
     Some((value, category, context))
 }

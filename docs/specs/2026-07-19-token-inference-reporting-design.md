@@ -111,6 +111,7 @@ Registry validation should reject an explicitly present empty value. It should o
 - `color`
 - `typography`
 - `elevation`
+- `aspect_ratio` (schema v5)
 - `unknown`
 
 The existing `category` remains broader and continues to align observations with token categories. For example, width and gap both remain in the `spacing` category while their contexts remain distinct.
@@ -205,7 +206,11 @@ The classifier applies these rules in order:
 
 Category is a semantic compatibility filter derived from code usage, not a completeness gate. A spacing observation compares only with spacing tokens, but each spacing token with a usable value participates independently of missing or unsupported siblings.
 
-Near matching initially applies to numeric scalar values only. Colors, shadows, and composite typography values require an exact normalized match.
+Near matching applies to compatible numeric scalars. Colors, shadows, and
+composite typography values require an exact normalized match. Starting in
+schema v5, aspect ratios also require an exact match against a same-language
+token. Normalize a unitless scalar or quotient to four decimal places before
+comparing. `token_inference.numeric_tolerance` has no effect on these matches.
 
 Keeping all equally good suggestions avoids an arbitrary token choice. It also makes registry ambiguity visible to maintainers.
 
@@ -217,7 +222,7 @@ Base confidence is adjusted by at most one level for context:
 
 | Classification | Context | Confidence |
 |---|---|---|
-| Exact | Padding, margin, gap, radius, color, typography, or elevation | `very_high` |
+| Exact | Padding, margin, gap, radius, color, typography, elevation, or aspect ratio | `very_high` |
 | Exact | Width, height, size, or unknown | `high` |
 | Near | Padding, margin, gap, radius, color, typography, or elevation | `medium` |
 | Near | Width, height, size, or unknown | `low` |

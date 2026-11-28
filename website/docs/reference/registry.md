@@ -36,7 +36,8 @@ targets, metadata, source associations, signatures, best practices,
 deprecation, attachments, and typed detail gaps. Tokens carry stable ids and
 keys plus optional aliases, category, canonical value, metadata, and details.
 Known token categories are `color`, `spacing`, `typography`, `radius`,
-`elevation`, and `unknown`.
+`elevation`, `aspect_ratio`, and `unknown`. Registries also accept `ratio`
+and `aspect-ratio` as input spellings for `aspect_ratio`.
 
 ### Token package identity
 
@@ -128,7 +129,8 @@ top-level `:root` properties and then the theme declarations.
 | `--radius-` | `radius` |
 | `--shadow-`, `--inset-shadow-`, `--drop-shadow-`, `--text-shadow-` | `elevation` |
 | `--text-`, `--font-`, `--font-weight-`, `--tracking-`, `--leading-` | `typography` |
-| `--blur-`, `--perspective-`, `--aspect-`, `--ease-`, `--animate-`, `--breakpoint-` | `unknown` |
+| `--aspect-` | `aspect_ratio` |
+| `--blur-`, `--perspective-`, `--ease-`, `--animate-`, `--breakpoint-` | `unknown` |
 
 Out of scope are `.dark` variants, Tailwind v3 config, and deriving the
 `--spacing` scale from the base spacing token.
@@ -172,7 +174,7 @@ as `w-1/2`, and Tailwind v3 configuration are outside this scan's scope.
 #### Token inference for Tailwind arbitrary values
 
 React scans record literal arbitrary values such as `text-[10px]`,
-`bg-[#fff]`, `p-[13px]`, and `rounded-[6px]` as hard-coded style candidates
+`bg-[#fff]`, `p-[13px]`, `rounded-[6px]`, and `aspect-[4/3]` as hard-coded style candidates
 even when the registry has no tokens. Wax compares them with canonical token
 values using the same inference rules as inline React styles. Type hints such
 as `color:` disambiguate the category, and unescaped underscores become spaces.

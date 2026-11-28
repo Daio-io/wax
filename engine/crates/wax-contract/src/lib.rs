@@ -49,7 +49,7 @@ use thiserror::Error;
 use time::OffsetDateTime;
 
 /// Current JSON schema version for [`ScanFacts`] and [`MergedScan`].
-pub const SCHEMA_VERSION: u32 = 4;
+pub const SCHEMA_VERSION: u32 = 5;
 
 /// Maximum parser/extraction duration accepted by the frozen JSON contract.
 ///
@@ -444,6 +444,8 @@ pub enum TokenCategory {
     Radius,
     /// Elevation, shadow, or z-depth token or candidate.
     Elevation,
+    /// Aspect ratio of a layout or view.
+    AspectRatio,
     /// Known token whose category is not classified.
     Unknown,
 }
@@ -509,6 +511,8 @@ pub enum StyleContext {
     Typography,
     /// Elevation / shadow styling.
     Elevation,
+    /// Aspect ratio of a layout or view.
+    AspectRatio,
     /// Recognized styling literal without a more precise context.
     Unknown,
 }
@@ -798,6 +802,8 @@ pub struct TokenCategoryCounts {
     pub radius: u32,
     /// Elevation token references or candidates.
     pub elevation: u32,
+    /// Aspect ratio token references or candidates.
+    pub aspect_ratio: u32,
     /// Unknown-category token references or candidates.
     pub unknown: u32,
 }
@@ -1035,6 +1041,8 @@ pub struct StyleContextCounts {
     pub typography: u32,
     /// Elevation candidates.
     pub elevation: u32,
+    /// Aspect ratio candidates.
+    pub aspect_ratio: u32,
     /// Unknown-context candidates.
     pub unknown: u32,
 }
@@ -2108,6 +2116,7 @@ fn increment_style_context_count(counts: &mut StyleContextCounts, context: Style
         StyleContext::Color => counts.color = counts.color.saturating_add(1),
         StyleContext::Typography => counts.typography = counts.typography.saturating_add(1),
         StyleContext::Elevation => counts.elevation = counts.elevation.saturating_add(1),
+        StyleContext::AspectRatio => counts.aspect_ratio = counts.aspect_ratio.saturating_add(1),
         StyleContext::Unknown => counts.unknown = counts.unknown.saturating_add(1),
     }
 }
@@ -2707,6 +2716,7 @@ fn add_token_category_counts(
         typography: left.typography.saturating_add(right.typography),
         radius: left.radius.saturating_add(right.radius),
         elevation: left.elevation.saturating_add(right.elevation),
+        aspect_ratio: left.aspect_ratio.saturating_add(right.aspect_ratio),
         unknown: left.unknown.saturating_add(right.unknown),
     }
 }
@@ -2775,6 +2785,7 @@ fn increment_token_category(
         TokenCategory::Typography => &mut counts.typography,
         TokenCategory::Radius => &mut counts.radius,
         TokenCategory::Elevation => &mut counts.elevation,
+        TokenCategory::AspectRatio => &mut counts.aspect_ratio,
         TokenCategory::Unknown => &mut counts.unknown,
     };
     increment_count(field, slot)

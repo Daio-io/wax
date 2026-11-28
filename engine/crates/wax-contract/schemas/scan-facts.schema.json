@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://wax.dev/schemas/scan-facts.v4.schema.json",
+  "$id": "https://wax.dev/schemas/scan-facts.v5.schema.json",
   "title": "ScanFacts",
   "type": "object",
   "additionalProperties": false,
@@ -19,7 +19,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": 4
+      "const": 5
     },
     "language": {
       "$ref": "#/$defs/language_metadata"
@@ -1110,6 +1110,7 @@
         "typography",
         "radius",
         "elevation",
+        "aspect_ratio",
         "unknown"
       ]
     },
@@ -1222,6 +1223,7 @@
         "typography",
         "radius",
         "elevation",
+        "aspect_ratio",
         "unknown"
       ],
       "properties": {
@@ -1246,6 +1248,11 @@
           "maximum": 4294967295
         },
         "elevation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "aspect_ratio": {
           "type": "integer",
           "minimum": 0,
           "maximum": 4294967295
@@ -1402,6 +1409,7 @@
         "color",
         "typography",
         "elevation",
+        "aspect_ratio",
         "unknown"
       ]
     }

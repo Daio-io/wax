@@ -20,6 +20,7 @@
 //! # Ok::<(), wax_contract::LanguageIdError>(())
 //! ```
 
+pub mod aspect_ratio;
 pub mod build_info;
 pub mod discover;
 pub mod import_resolution;

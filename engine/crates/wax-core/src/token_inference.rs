@@ -9,6 +9,8 @@ use wax_contract::{
     TokenInferenceEvidence, TokenInferenceReport, TokenMatchKind, TokenReplacementSuggestion,
 };
 
+use wax_lang_api::aspect_ratio;
+
 use crate::config::waxrc::TokenInferenceConfig;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -152,6 +154,7 @@ fn bump_category(counts: &mut TokenCategoryCounts, category: TokenCategory) {
         TokenCategory::Typography => counts.typography = counts.typography.saturating_add(1),
         TokenCategory::Radius => counts.radius = counts.radius.saturating_add(1),
         TokenCategory::Elevation => counts.elevation = counts.elevation.saturating_add(1),
+        TokenCategory::AspectRatio => counts.aspect_ratio = counts.aspect_ratio.saturating_add(1),
         TokenCategory::Unknown => counts.unknown = counts.unknown.saturating_add(1),
     }
 }
@@ -168,6 +171,7 @@ fn bump_context(counts: &mut StyleContextCounts, context: StyleContext) {
         StyleContext::Color => counts.color = counts.color.saturating_add(1),
         StyleContext::Typography => counts.typography = counts.typography.saturating_add(1),
         StyleContext::Elevation => counts.elevation = counts.elevation.saturating_add(1),
+        StyleContext::AspectRatio => counts.aspect_ratio = counts.aspect_ratio.saturating_add(1),
         StyleContext::Unknown => counts.unknown = counts.unknown.saturating_add(1),
     }
 }
@@ -424,6 +428,7 @@ fn is_clear_context(context: StyleContext) -> bool {
             | StyleContext::Color
             | StyleContext::Typography
             | StyleContext::Elevation
+            | StyleContext::AspectRatio
     )
 }
 
@@ -513,6 +518,24 @@ fn normalize_value(
     let trimmed = strip_wrapping_quotes(value.trim());
     if trimmed.is_empty() {
         return NormalizedValue::Unsupported;
+    }
+
+    if category == TokenCategory::AspectRatio {
+        let trimmed = trimmed
+            .strip_prefix('`')
+            .and_then(|value| value.strip_suffix('`'))
+            .unwrap_or(trimmed);
+        let normalized = match language.as_str() {
+            "compose" => aspect_ratio::normalize_kotlin(trimmed),
+            _ => aspect_ratio::normalize(trimmed),
+        };
+        return normalized.map_or(NormalizedValue::Unsupported, |scalar| {
+            NormalizedValue::Numeric {
+                scalar,
+                unit: None,
+                allow_near: false,
+            }
+        });
     }
 
     if let Some(color) = parse_hash_color(trimmed) {
@@ -1171,6 +1194,38 @@ mod tests {
         )
         .unwrap();
         report.sites.into_iter().next().unwrap()
+    }
+
+    #[test]
+    fn aspect_ratios_match_only_at_four_decimal_places() {
+        use TokenInferenceClassification::{Exact, Unassessed, Unmatched};
+
+        for (language, value, expected) in [
+            ("react", "\"16 / 9\"", Exact),
+            ("compose", "16f / 9F", Exact),
+            ("swift", "32/18", Exact),
+            ("swift", "1.77784", Exact),
+            ("swift", "1.77786", Unmatched),
+            ("swift", "16/0", Unassessed),
+        ] {
+            let result = classify_category(
+                language,
+                value,
+                TokenCategory::AspectRatio,
+                StyleContext::AspectRatio,
+                vec![token("wide", TokenCategory::AspectRatio, Some("1.7778"))],
+                10.0,
+            );
+
+            assert_eq!(
+                (
+                    result.classification,
+                    result.suggestions.first().map(|s| s.token_id.as_str())
+                ),
+                (expected, (expected == Exact).then_some("wide")),
+                "{language}: {value}",
+            );
+        }
     }
 
     #[test]

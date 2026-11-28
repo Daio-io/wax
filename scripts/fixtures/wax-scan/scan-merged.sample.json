@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "recorded_at": "2026-06-14T12:00:00Z",
   "repo_summary": {
     "languages": [
@@ -196,6 +196,7 @@
         "typography": 0,
         "radius": 0,
         "elevation": 0,
+        "aspect_ratio": 0,
         "unknown": 0
       },
       "candidates_by_context": {
@@ -209,6 +210,7 @@
         "color": 0,
         "typography": 0,
         "elevation": 0,
+        "aspect_ratio": 0,
         "unknown": 0
       }
     },
@@ -263,7 +265,7 @@
   },
   "languages": {
     "compose": {
-      "schema_version": 4,
+      "schema_version": 5,
       "language": {
         "id": "compose",
         "version": "0.1.0",
@@ -496,7 +498,7 @@
       "symbol_usage_summary": []
     },
     "react": {
-      "schema_version": 4,
+      "schema_version": 5,
       "language": {
         "id": "react",
         "version": "0.1.0",

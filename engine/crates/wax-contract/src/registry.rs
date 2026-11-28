@@ -1,7 +1,8 @@
 //! Lossless design-system registry document types and validation.
 
 use crate::TokenCategory;
-use serde::{Deserialize, Serialize};
+use serde::de::IntoDeserializer;
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
@@ -73,6 +74,17 @@ pub struct RegistryComponent {
     pub extra: Map<String, Value>,
 }
 
+fn deserialize_registry_token_category<'de, D>(deserializer: D) -> Result<TokenCategory, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let category = String::deserialize(deserializer)?;
+    match category.as_str() {
+        "ratio" | "aspect-ratio" => Ok(TokenCategory::AspectRatio),
+        category => TokenCategory::deserialize(category.into_deserializer()),
+    }
+}
+
 /// Token entry in a published registry.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RegistryToken {
@@ -88,6 +100,7 @@ pub struct RegistryToken {
     )]
     pub package: Option<String>,
     /// Token category.
+    #[serde(deserialize_with = "deserialize_registry_token_category")]
     pub category: TokenCategory,
     /// Exact source-facing aliases for the same token.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

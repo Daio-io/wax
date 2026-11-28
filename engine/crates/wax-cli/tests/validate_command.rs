@@ -211,3 +211,35 @@ fn lockfile_json_with_sha256(source: &str, sha256: &str) -> String {
 "#
     )
 }
+
+#[test]
+fn validate_accepts_aspect_ratio_registry_aliases() {
+    let root = TestDir::new("validate-aspect-ratio");
+    let registry_path = "design-system/registry.json";
+    write_repo(&root.path, registry_path, "[]");
+    fs::write(
+        root.path.join(registry_path),
+        r#"{
+            "schema_version": 1,
+            "tokens": [
+                {"id":"wide","key":"Theme.wide","category":"ratio"},
+                {"id":"square","key":"Theme.square","category":"aspect-ratio"}
+            ]
+        }"#,
+    )
+    .unwrap();
+    write_lockfile_with_registry(&root.path, registry_path);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_wax"))
+        .env("WAX_HOME", root.path.join("wax-home"))
+        .args(["validate", "--repo-root"])
+        .arg(&root.path)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

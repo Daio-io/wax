@@ -518,6 +518,7 @@ fn parse_category(index: usize, value: &str) -> Result<TokenCategory, TokenRegis
         "typography" => Ok(TokenCategory::Typography),
         "radius" => Ok(TokenCategory::Radius),
         "elevation" => Ok(TokenCategory::Elevation),
+        "aspect_ratio" | "aspect-ratio" | "ratio" => Ok(TokenCategory::AspectRatio),
         "unknown" => Ok(TokenCategory::Unknown),
         other => Err(TokenRegistryError::InvalidTokenField {
             index,

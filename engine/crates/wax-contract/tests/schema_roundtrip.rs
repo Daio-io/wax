@@ -745,7 +745,7 @@ fn rejects_v2_schema_version() {
         err,
         wax_contract::ScanFactsError::UnsupportedSchemaVersion {
             found: 2,
-            supported: 4
+            supported: 5
         }
     ));
 }
@@ -762,7 +762,7 @@ fn rejects_v3_schema_version() {
         err,
         wax_contract::ScanFactsError::UnsupportedSchemaVersion {
             found: 3,
-            supported: 4
+            supported: 5
         }
     ));
 }
@@ -971,7 +971,7 @@ fn merged_scan_rejects_malformed_token_usage_summary() {
 }
 
 #[test]
-fn schema_v3_token_inference_roundtrips() {
+fn schema_v5_aspect_ratio_inference_roundtrips() {
     use wax_contract::{
         HardcodedStyleInference, HardcodedStyleSite, StyleContext, StyleContextCounts,
         TokenCategory, TokenCategoryCounts, TokenConfidenceCounts, TokenInferenceClassification,
@@ -980,23 +980,23 @@ fn schema_v3_token_inference_roundtrips() {
     };
 
     let token = wax_contract::DesignSystemToken {
-        id: "spacing.s".into(),
-        key: "Spacing.s".into(),
-        category: TokenCategory::Spacing,
+        id: "ratio.wide".into(),
+        key: "Ratios.wide".into(),
+        category: TokenCategory::AspectRatio,
         aliases: vec![],
-        value: Some("4.dp".into()),
+        value: Some("16 / 9".into()),
     };
     let site = HardcodedStyleSite {
-        id: "hardcoded.compose:src/Card.kt:8:20:spacing".into(),
+        id: "hardcoded.compose:src/Card.kt:8:20:AspectRatio".into(),
         location: SourceLocation {
             file: "src/Card.kt".into(),
             line: 8,
             column: Some(20),
             root_group: None,
         },
-        value: "4.dp".into(),
-        category: TokenCategory::Spacing,
-        context: StyleContext::Padding,
+        value: "16f / 9f".into(),
+        category: TokenCategory::AspectRatio,
+        context: StyleContext::AspectRatio,
         parent: None,
     };
     let inference = HardcodedStyleInference {
@@ -1007,10 +1007,10 @@ fn schema_v3_token_inference_roundtrips() {
         suggestions: vec![TokenReplacementSuggestion {
             token_id: token.id.clone(),
             token_key: token.key.clone(),
-            canonical_value: "4.dp".into(),
+            canonical_value: "16 / 9".into(),
             match_kind: TokenMatchKind::Exact,
             distance: Some(0.0),
-            normalized_unit: Some("dp".into()),
+            normalized_unit: None,
         }],
         evidence: vec![
             TokenInferenceEvidence::ExactValue,
@@ -1029,11 +1029,11 @@ fn schema_v3_token_inference_roundtrips() {
         wax_contract::scan_facts_from_json(&serde_json::to_string(&facts).unwrap()).unwrap();
     assert_eq!(
         back_facts.design_system_tokens[0].value.as_deref(),
-        Some("4.dp")
+        Some("16 / 9")
     );
     assert_eq!(
         back_facts.hardcoded_style_sites[0].context,
-        StyleContext::Padding
+        StyleContext::AspectRatio
     );
 
     let mut languages = BTreeMap::new();
@@ -1071,14 +1071,15 @@ fn schema_v3_token_inference_roundtrips() {
                 },
                 candidates_by_category: TokenCategoryCounts {
                     color: 0,
-                    spacing: 1,
+                    spacing: 0,
                     typography: 0,
                     radius: 0,
                     elevation: 0,
+                    aspect_ratio: 1,
                     unknown: 0,
                 },
                 candidates_by_context: StyleContextCounts {
-                    padding: 1,
+                    padding: 0,
                     margin: 0,
                     gap: 0,
                     width: 0,
@@ -1088,6 +1089,7 @@ fn schema_v3_token_inference_roundtrips() {
                     color: 0,
                     typography: 0,
                     elevation: 0,
+                    aspect_ratio: 1,
                     unknown: 0,
                 },
             },

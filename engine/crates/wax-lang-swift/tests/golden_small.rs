@@ -484,3 +484,68 @@ func loop() {
         ]
     );
 }
+
+#[test]
+fn scans_swiftui_aspect_ratios_from_the_first_unlabeled_argument() {
+    use wax_contract::{StyleContext, TokenCategory};
+
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path();
+    std::fs::create_dir(root.join("Sources")).unwrap();
+    std::fs::create_dir(root.join("design-system")).unwrap();
+    std::fs::write(
+        root.join("design-system/registry.json"),
+        r#"{"schema_version":1,"components":[]}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("Sources/Card.swift"),
+        r#"import SwiftUI
+
+struct Card: View {
+    var body: some View {
+        VStack {
+            Text("Wide").aspectRatio(16/9, contentMode: .fit)
+            Text("Tall").aspectRatio(0.75, contentMode: .fill)
+            Text("Fit").aspectRatio(contentMode: .fit)
+            Text("Token").aspectRatio(Theme.ratio / 9, contentMode: .fit)
+            Text("Invalid").aspectRatio(16/0, contentMode: .fit)
+            Text("Dynamic").aspectRatio(max(1, 2), contentMode: .fit)
+        }
+    }
+}
+"#,
+    )
+    .unwrap();
+
+    let facts = scan_fixture(root, "Sources", "swift-aspect-ratio");
+    let sites = facts
+        .hardcoded_style_sites
+        .iter()
+        .map(|site| {
+            (
+                site.value.as_str(),
+                site.category,
+                site.context,
+                site.parent.as_ref().map(|parent| parent.symbol.as_str()),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        sites,
+        [
+            (
+                "16/9",
+                TokenCategory::AspectRatio,
+                StyleContext::AspectRatio,
+                Some("Card")
+            ),
+            (
+                "0.75",
+                TokenCategory::AspectRatio,
+                StyleContext::AspectRatio,
+                Some("Card")
+            ),
+        ]
+    );
+}

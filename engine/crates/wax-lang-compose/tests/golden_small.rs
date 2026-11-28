@@ -625,3 +625,67 @@ fn css_variant_registry_validation_and_legacy_registry_compatibility() {
     assert_eq!(legacy.token_sites.len(), 1);
     assert_eq!(legacy.token_sites[0].token_id, "legacy");
 }
+
+#[test]
+fn scans_compose_aspect_ratio_arguments_as_whole_literals() {
+    use wax_contract::{StyleContext, TokenCategory};
+
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path();
+    std::fs::create_dir(root.join("src")).unwrap();
+    std::fs::create_dir(root.join("design-system")).unwrap();
+    std::fs::write(
+        root.join("design-system/registry.json"),
+        r#"{"schema_version":1,"components":[]}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src/Card.kt"),
+        r#"import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.ui.Modifier
+
+@Composable
+fun Card() {
+    Box(Modifier.aspectRatio(16f / 9f))
+    Box(Modifier.aspectRatio(matchHeightConstraintsFirst = true, ratio = 1.5f))
+    Box(Modifier.aspectRatio(Theme.ratio / 9f))
+    Box(Modifier.aspectRatio(16f / 0f))
+    Box(Modifier.aspectRatio(ratio = Theme.ratio, matchHeightConstraintsFirst = true))
+    Box(Modifier.aspectRatio(ratio = maxOf(1f, 2f)))
+}
+"#,
+    )
+    .unwrap();
+
+    let facts = scan_fixture(root, "src", "compose-aspect-ratio");
+    let sites = facts
+        .hardcoded_style_sites
+        .iter()
+        .map(|site| {
+            (
+                site.value.as_str(),
+                site.category,
+                site.context,
+                site.parent.as_ref().map(|parent| parent.symbol.as_str()),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        sites,
+        [
+            (
+                "16f / 9f",
+                TokenCategory::AspectRatio,
+                StyleContext::AspectRatio,
+                Some("Card")
+            ),
+            (
+                "1.5f",
+                TokenCategory::AspectRatio,
+                StyleContext::AspectRatio,
+                Some("Card")
+            ),
+        ]
+    );
+}
