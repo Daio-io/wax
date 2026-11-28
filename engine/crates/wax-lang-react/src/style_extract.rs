@@ -148,7 +148,15 @@ fn react_style_metadata(prop_name: &str) -> Option<(TokenCategory, StyleContext)
             Some((TokenCategory::Typography, StyleContext::Typography))
         }
         "aspectRatio" => Some((TokenCategory::AspectRatio, StyleContext::AspectRatio)),
-        "borderRadius" => Some((TokenCategory::Radius, StyleContext::Radius)),
+        "borderRadius"
+        | "borderTopLeftRadius"
+        | "borderTopRightRadius"
+        | "borderBottomLeftRadius"
+        | "borderBottomRightRadius"
+        | "borderStartStartRadius"
+        | "borderStartEndRadius"
+        | "borderEndStartRadius"
+        | "borderEndEndRadius" => Some((TokenCategory::Radius, StyleContext::Radius)),
         "boxShadow" | "shadow" => Some((TokenCategory::Elevation, StyleContext::Elevation)),
         _ => None,
     }
@@ -186,7 +194,7 @@ mod tests {
     use crate::component_scope::collect_component_definitions;
     use crate::swc_parse::{ParsedReactModule, ReactParseOutcome, parse_react_source_file};
     use std::path::Path;
-    use wax_contract::TokenCategory;
+    use wax_contract::{StyleContext, TokenCategory};
 
     struct Hold {
         _root: tempfile::TempDir,
@@ -207,6 +215,41 @@ mod tests {
             _root: root,
             parsed,
         }
+    }
+
+    #[test]
+    fn emits_radius_literals_for_physical_and_logical_corners() {
+        let hold = parse(
+            r#"
+            export const Rounded = () => (
+                <div style={{
+                    borderRadius: "2px",
+                    borderTopLeftRadius: 8,
+                    borderTopRightRadius: 9,
+                    borderBottomLeftRadius: 10,
+                    borderBottomRightRadius: 11,
+                    borderStartStartRadius: "1px",
+                    borderStartEndRadius: "2px",
+                    borderEndStartRadius: "3px",
+                    borderEndEndRadius: "4px",
+                }} />
+            );
+            export const Themed = () => <div style={{ borderTopLeftRadius: theme.radius }} />;
+            "#,
+        );
+        let components = collect_component_definitions(&hold.parsed);
+        let sites = collect_hardcoded_style_sites(&hold.parsed, &components);
+        let facts: Vec<_> = sites
+            .iter()
+            .map(|site| (site.category, site.context, site.value.as_str()))
+            .collect();
+        assert_eq!(
+            facts,
+            [
+                r#""2px""#, "8", "9", "10", "11", r#""1px""#, r#""2px""#, r#""3px""#, r#""4px""#,
+            ]
+            .map(|value| (TokenCategory::Radius, StyleContext::Radius, value))
+        );
     }
 
     #[test]

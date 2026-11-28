@@ -854,7 +854,12 @@ fn style_label_metadata(label: &str) -> Option<(TokenCategory, StyleContext)> {
         "size" | "weight" | "pointSize" => {
             Some((TokenCategory::Typography, StyleContext::Typography))
         }
-        "cornerRadius" | "radius" => Some((TokenCategory::Radius, StyleContext::Radius)),
+        "cornerRadius"
+        | "radius"
+        | "topLeadingRadius"
+        | "topTrailingRadius"
+        | "bottomLeadingRadius"
+        | "bottomTrailingRadius" => Some((TokenCategory::Radius, StyleContext::Radius)),
         "blur" => Some((TokenCategory::Elevation, StyleContext::Elevation)),
         _ => None,
     }
@@ -1040,6 +1045,7 @@ fn is_swiftui_style_label_callee(symbol: &str) -> bool {
             | "GridRow"
             | "RoundedRectangle"
             | "UnevenRoundedRectangle"
+            | "rect"
             | "Rectangle"
             | "Circle"
             | "Ellipse"
@@ -2556,6 +2562,74 @@ struct Screen: View {
         ranges.sort();
         ranges.dedup();
         assert_eq!(before, ranges.len(), "duplicate hardcoded sites: {sites:?}");
+    }
+
+    #[test]
+    fn uneven_rounded_rectangle_reports_each_corner_radius() {
+        let source = r#"
+import SwiftUI
+struct Screen: View {
+    var body: some View {
+        UnevenRoundedRectangle(
+            topLeadingRadius: 8,
+            bottomLeadingRadius: 9,
+            bottomTrailingRadius: 12,
+            topTrailingRadius: 10
+        )
+    }
+}
+"#;
+        let mut sites = extract_hardcoded(source);
+        sites.sort_by_key(|site| site.location.line);
+        let facts: Vec<_> = sites
+            .iter()
+            .map(|site| (site.category, site.context, site.value.as_str()))
+            .collect();
+        assert_eq!(
+            facts,
+            ["8", "9", "12", "10"].map(|value| (
+                TokenCategory::Radius,
+                StyleContext::Radius,
+                value
+            ))
+        );
+    }
+
+    #[test]
+    fn implicit_rect_reports_radius_in_clip_shape_and_background() {
+        let source = r#"
+import SwiftUI
+struct Screen: View {
+    var body: some View {
+        Text("Hi")
+            .clipShape(.rect(cornerRadius: 6))
+            .background(.blue, in: .rect(topLeadingRadius: 8))
+    }
+}
+"#;
+        let sites = extract_hardcoded(source);
+        let mut facts: Vec<_> = sites
+            .iter()
+            .map(|site| (site.category, site.context, site.value.as_str()))
+            .collect();
+        facts.sort_unstable_by_key(|&(_, _, value)| value);
+        assert_eq!(
+            facts,
+            ["6", "8"].map(|value| (TokenCategory::Radius, StyleContext::Radius, value))
+        );
+    }
+
+    #[test]
+    fn shadow_radius_remains_an_elevation_literal() {
+        let sites = extract_hardcoded(r#"Text("Hi").shadow(radius: 4)"#);
+        let facts: Vec<_> = sites
+            .iter()
+            .map(|site| (site.category, site.context, site.value.as_str()))
+            .collect();
+        assert_eq!(
+            facts,
+            [(TokenCategory::Elevation, StyleContext::Elevation, "4")]
+        );
     }
 
     #[test]
