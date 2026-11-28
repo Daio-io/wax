@@ -725,41 +725,53 @@ fn style_literals_per_argument<'a>(
     source: &'a [u8],
     category: TokenCategory,
 ) -> impl Iterator<Item = (String, tree_sitter::Point)> + 'a {
-    if category == TokenCategory::AspectRatio {
-        let Some(arguments) = call_value_arguments(node) else {
-            return None.into_iter();
-        };
-        let mut cursor = arguments.walk();
-        for (index, argument) in arguments
+    let is_aspect_ratio = category == TokenCategory::AspectRatio;
+    let aspect_ratio = is_aspect_ratio
+        .then(|| aspect_ratio_literal(node, source))
+        .flatten();
+    let first = (!is_aspect_ratio)
+        .then(|| call_value_arguments(node).and_then(|arguments| arguments.named_child(0)))
+        .flatten();
+    aspect_ratio.into_iter().chain(
+        std::iter::successors(first, tree_sitter::Node::next_named_sibling)
+            .filter(|&argument| !value_argument_contains_call_expression(argument))
+            .filter_map(move |argument| find_style_literal_in_argument(argument, source, category)),
+    )
+}
+
+/// Finds the aspect-ratio literal in `aspectRatio(...)`: the first positional argument
+/// or the named `ratio =` argument, when it normalizes to a Kotlin ratio.
+fn aspect_ratio_literal(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Option<(String, tree_sitter::Point)> {
+    let arguments = call_value_arguments(node)?;
+    let mut cursor = arguments.walk();
+    for (index, argument) in arguments
+        .named_children(&mut cursor)
+        .filter(|child| child.kind() == "value_argument")
+        .enumerate()
+    {
+        let mut cursor = argument.walk();
+        let mut children = argument
             .named_children(&mut cursor)
-            .filter(|child| child.kind() == "value_argument")
-            .enumerate()
-        {
-            let mut cursor = argument.walk();
-            let mut children = argument
-                .named_children(&mut cursor)
-                .filter(|child| !child.is_extra());
-            let Some(first) = children.next() else {
-                continue;
-            };
-            let value = match children.next() {
-                Some(value) if first.utf8_text(source).ok() == Some("ratio") => value,
-                None if index == 0 => first,
-                _ => continue,
-            };
-            let Ok(text) = value.utf8_text(source) else {
-                continue;
-            };
-            if wax_lang_api::aspect_ratio::normalize_kotlin(text).is_some() {
-                return Some((text.to_owned(), value.start_position())).into_iter();
-            }
+            .filter(|child| !child.is_extra());
+        let Some(first) = children.next() else {
+            continue;
+        };
+        let value = match children.next() {
+            Some(value) if first.utf8_text(source).ok() == Some("ratio") => value,
+            None if index == 0 => first,
+            _ => continue,
+        };
+        let Ok(text) = value.utf8_text(source) else {
+            continue;
+        };
+        if wax_lang_api::aspect_ratio::normalize_kotlin(text).is_some() {
+            return Some((text.to_owned(), value.start_position()));
         }
-        return None.into_iter();
     }
-    let first = call_value_arguments(node).and_then(|arguments| arguments.named_child(0));
-    std::iter::successors(first, tree_sitter::Node::next_named_sibling)
-        .filter(|&argument| !value_argument_contains_call_expression(argument))
-        .filter_map(move |argument| find_style_literal_in_argument(argument, source, category))
+    None
 }
 
 fn call_value_arguments(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
