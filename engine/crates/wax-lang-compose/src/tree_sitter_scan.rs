@@ -665,12 +665,24 @@ fn compose_style_metadata(call: &str) -> Option<(TokenCategory, StyleContext)> {
         "aspectRatio" => Some((TokenCategory::AspectRatio, StyleContext::AspectRatio)),
         "spacedBy" => Some((TokenCategory::Spacing, StyleContext::Gap)),
         "fontSize" | "TextStyle" => Some((TokenCategory::Typography, StyleContext::Typography)),
-        "clip" | "cornerRadius" | "RoundedCornerShape" => {
+        "clip" | "cornerRadius" => Some((TokenCategory::Radius, StyleContext::Radius)),
+        call if is_radius_shape_constructor(call) => {
             Some((TokenCategory::Radius, StyleContext::Radius))
         }
         "shadow" | "elevation" => Some((TokenCategory::Elevation, StyleContext::Elevation)),
         _ => None,
     }
+}
+
+fn is_radius_shape_constructor(call: &str) -> bool {
+    matches!(
+        call,
+        "RoundedCornerShape"
+            | "CutCornerShape"
+            | "AbsoluteRoundedCornerShape"
+            | "AbsoluteCutCornerShape"
+            | "CornerSize"
+    )
 }
 
 /// Resolves the callee name for styling-candidate detection.
@@ -699,8 +711,7 @@ fn style_call_callee(
     Some((name, member.start_position()))
 }
 
-/// Picks the first hard-coded style literal among a styling call's *direct* value
-/// arguments by inspecting Kotlin AST literal / unit-navigation nodes.
+/// Yields the first hard-coded style literal in each direct argument of a styling call.
 ///
 /// Scoping to direct value arguments keeps nested style calls — e.g.
 /// `background(Color(0xFF336699))` — from being double-counted: an argument that is
@@ -709,42 +720,46 @@ fn style_call_callee(
 ///
 /// `.dp` / `.sp` are accepted only when applied to a numeric literal receiver
 /// (`8.dp`), not when chained off an identifier (`Spacing.medium.dp`).
-fn first_style_literal(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
+fn style_literals_per_argument<'a>(
+    node: tree_sitter::Node<'a>,
+    source: &'a [u8],
     category: TokenCategory,
-) -> Option<String> {
-    let arguments = call_value_arguments(node)?;
-    let mut cursor = arguments.walk();
-    let value_arguments = arguments
-        .named_children(&mut cursor)
-        .filter(|child| child.kind() == "value_argument");
+) -> impl Iterator<Item = (String, tree_sitter::Point)> + 'a {
     if category == TokenCategory::AspectRatio {
-        for (index, argument) in value_arguments.enumerate() {
+        let Some(arguments) = call_value_arguments(node) else {
+            return None.into_iter();
+        };
+        let mut cursor = arguments.walk();
+        for (index, argument) in arguments
+            .named_children(&mut cursor)
+            .filter(|child| child.kind() == "value_argument")
+            .enumerate()
+        {
             let mut cursor = argument.walk();
             let mut children = argument
                 .named_children(&mut cursor)
                 .filter(|child| !child.is_extra());
-            let first = children.next()?;
+            let Some(first) = children.next() else {
+                continue;
+            };
             let value = match children.next() {
-                Some(value) if first.utf8_text(source).ok()? == "ratio" => value,
+                Some(value) if first.utf8_text(source).ok() == Some("ratio") => value,
                 None if index == 0 => first,
                 _ => continue,
             };
-            let text = value.utf8_text(source).ok()?;
-            return wax_lang_api::aspect_ratio::normalize_kotlin(text).map(|_| text.to_owned());
+            let Ok(text) = value.utf8_text(source) else {
+                continue;
+            };
+            if wax_lang_api::aspect_ratio::normalize_kotlin(text).is_some() {
+                return Some((text.to_owned(), value.start_position())).into_iter();
+            }
         }
-        return None;
+        return None.into_iter();
     }
-    for value_argument in value_arguments {
-        if value_argument_contains_call_expression(value_argument) {
-            continue;
-        }
-        if let Some(found) = find_style_literal_in_argument(value_argument, source, category) {
-            return Some(found);
-        }
-    }
-    None
+    let first = call_value_arguments(node).and_then(|arguments| arguments.named_child(0));
+    std::iter::successors(first, tree_sitter::Node::next_named_sibling)
+        .filter(|&argument| !value_argument_contains_call_expression(argument))
+        .filter_map(move |argument| find_style_literal_in_argument(argument, source, category))
 }
 
 fn call_value_arguments(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
@@ -771,11 +786,11 @@ fn find_style_literal_in_argument(
     value_argument: tree_sitter::Node<'_>,
     source: &[u8],
     category: TokenCategory,
-) -> Option<String> {
+) -> Option<(String, tree_sitter::Point)> {
     let mut stack = vec![value_argument];
     while let Some(node) = stack.pop() {
         if let Some(value) = style_literal_from_node(node, source, category) {
-            return Some(value);
+            return Some((value, node.start_position()));
         }
         let mut cursor = node.walk();
         for child in node.named_children(&mut cursor) {
@@ -866,28 +881,38 @@ fn extract_hardcoded_style_from_source(
         if node.kind() == "call_expression"
             && node_is_extractable(node, clean)
             && !is_within_preview_composable(node, source)
-            && let Some((call_symbol, pos)) = style_call_callee(node, source)
+            && let Some((call_symbol, callee_pos)) = style_call_callee(node, source)
             && let Some((category, context)) = compose_style_metadata(&call_symbol)
-            && let Some(value) = first_style_literal(node, source, category)
         {
-            let line = pos.row as u32 + 1;
-            let column = pos.column as u32 + 1;
-            let parent = nearest_enclosing_composable(node, source).map(|(name, parent_pos)| {
-                parent_scope_for_composable(file, package.as_deref(), &name, parent_pos)
-            });
-            out.push(HardcodedStyleSite {
-                id: format!("hardcoded.compose:{file}:{line}:{column}:{category:?}"),
-                location: SourceLocation {
-                    file: file.to_owned(),
-                    line,
-                    column: Some(column),
-                    root_group: None,
-                },
-                value,
-                category,
-                context,
-                parent,
-            });
+            let is_shape = is_radius_shape_constructor(&call_symbol);
+            let mut literals = style_literals_per_argument(node, source, category).peekable();
+            if literals.peek().is_some() {
+                let parent =
+                    nearest_enclosing_composable(node, source).map(|(name, parent_pos)| {
+                        parent_scope_for_composable(file, package.as_deref(), &name, parent_pos)
+                    });
+                for (value, literal_pos) in literals {
+                    let pos = if is_shape { literal_pos } else { callee_pos };
+                    let line = pos.row as u32 + 1;
+                    let column = pos.column as u32 + 1;
+                    out.push(HardcodedStyleSite {
+                        id: format!("hardcoded.compose:{file}:{line}:{column}:{category:?}"),
+                        location: SourceLocation {
+                            file: file.to_owned(),
+                            line,
+                            column: Some(column),
+                            root_group: None,
+                        },
+                        value,
+                        category,
+                        context,
+                        parent: parent.clone(),
+                    });
+                    if !is_shape {
+                        break;
+                    }
+                }
+            }
         }
         for i in (0..node.child_count()).rev() {
             if let Some(child) = node.child(i) {
@@ -2835,6 +2860,124 @@ fun BrokenScreen(
             &mut sites,
         );
         sites
+    }
+
+    #[test]
+    fn rounded_corner_shape_reports_each_radius_at_its_literal() {
+        let source =
+            "fun Screen() {\n    RoundedCornerShape(topStart = 4.dp, bottomEnd = 8.dp)\n}\n";
+        let sites = extract_hardcoded_styles(source);
+        let facts: Vec<_> = sites
+            .iter()
+            .map(|site| {
+                (
+                    site.id.as_str(),
+                    site.category,
+                    site.context,
+                    site.value.as_str(),
+                    site.location.line,
+                    site.location.column,
+                )
+            })
+            .collect();
+        assert_eq!(
+            facts,
+            [
+                (
+                    "hardcoded.compose:Test.kt:2:35:Radius",
+                    TokenCategory::Radius,
+                    StyleContext::Radius,
+                    "4.dp",
+                    2,
+                    Some(35)
+                ),
+                (
+                    "hardcoded.compose:Test.kt:2:53:Radius",
+                    TokenCategory::Radius,
+                    StyleContext::Radius,
+                    "8.dp",
+                    2,
+                    Some(53)
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn radius_shape_constructors_report_dp_and_bare_number_literals() {
+        let source = "\
+fun Screen() {
+    CutCornerShape(6.dp)
+    AbsoluteRoundedCornerShape(2.dp)
+    AbsoluteCutCornerShape(3.dp)
+    CornerSize(12.dp)
+    RoundedCornerShape(50)
+}
+";
+        let sites = extract_hardcoded_styles(source);
+        let facts: Vec<_> = sites
+            .iter()
+            .map(|site| (site.category, site.context, site.value.as_str()))
+            .collect();
+        assert_eq!(
+            facts,
+            ["6.dp", "2.dp", "3.dp", "12.dp", "50"].map(|value| (
+                TokenCategory::Radius,
+                StyleContext::Radius,
+                value
+            ))
+        );
+    }
+
+    #[test]
+    fn clip_and_nested_shape_arguments_report_each_literal_once() {
+        let source = "\
+fun Screen() {
+    Box(Modifier.clip(RoundedCornerShape(4.dp)))
+    RoundedCornerShape(topStart = CornerSize(6.dp), bottomEnd = 8.dp)
+}
+";
+        let sites = extract_hardcoded_styles(source);
+        let facts: Vec<_> = sites
+            .iter()
+            .map(|site| (site.category, site.context, site.value.as_str()))
+            .collect();
+        assert_eq!(
+            facts,
+            ["4.dp", "8.dp", "6.dp"].map(|value| (
+                TokenCategory::Radius,
+                StyleContext::Radius,
+                value
+            ))
+        );
+    }
+
+    #[test]
+    fn qualified_padding_reports_only_the_first_literal_at_the_callee() {
+        let source = "fun Screen() {\n    Box(Modifier.padding(start = 4.dp, top = 8.dp))\n}\n";
+        let sites = extract_hardcoded_styles(source);
+        let facts: Vec<_> = sites
+            .iter()
+            .map(|site| {
+                (
+                    site.category,
+                    site.context,
+                    site.value.as_str(),
+                    site.location.line,
+                    site.location.column,
+                )
+            })
+            .collect();
+        assert_eq!(
+            facts,
+            [(
+                TokenCategory::Spacing,
+                StyleContext::Padding,
+                "4.dp",
+                2,
+                Some(18)
+            )]
+        );
     }
 
     #[test]

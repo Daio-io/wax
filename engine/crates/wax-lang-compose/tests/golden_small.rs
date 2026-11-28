@@ -183,7 +183,20 @@ fn small_fixture_matches_golden_counts() {
         "40.dp",
     );
     assert_style_context(&facts, TokenCategory::Spacing, StyleContext::Size, "4.dp");
-    assert_style_context(&facts, TokenCategory::Radius, StyleContext::Radius, "4.dp");
+    let radius_sites: Vec<_> = facts
+        .hardcoded_style_sites
+        .iter()
+        .filter(|site| site.category == TokenCategory::Radius)
+        .map(|site| {
+            (
+                site.context,
+                site.value.as_str(),
+                site.location.line,
+                site.location.column,
+            )
+        })
+        .collect();
+    assert_eq!(radius_sites, [(StyleContext::Radius, "4.dp", 34, Some(42))]);
     assert_style_context(
         &facts,
         TokenCategory::Typography,

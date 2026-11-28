@@ -90,6 +90,10 @@
 
 ### wax-lang-compose
 
+- **Behavior change** — Report each literal argument to `RoundedCornerShape`,
+  `CutCornerShape`, `AbsoluteRoundedCornerShape`, `AbsoluteCutCornerShape`, and
+  `CornerSize` as a separate radius observation. Site locations and IDs use the
+  literal's position.
 - Resolve registry enum values from top-level declarations across discovery
   files. Enums imported from packages within the roots keep their package metadata.
 - Stop treating `when` arm bodies of the form `-> if (cond) …` as when-guards. The false-positive mask was introducing `parse_failed` diagnostics on valid Kotlin.
@@ -98,6 +102,8 @@
 
 ### wax-lang-react
 
+- Detect hard-coded radius values in physical and logical per-corner properties
+  in JSX inline styles.
 - **Behavior change** — Imports into files owned by configured package exports
   use the owning package for registry matching. Owned files no longer emit
   usages, local component definitions, token references, or hard-coded styles.
@@ -127,6 +133,8 @@
 
 ### wax-lang-swift
 
+- Detect hard-coded per-corner radius values in `UnevenRoundedRectangle` and
+  radius arguments to the implicit `.rect(...)` shape.
 - Resolve registry enum values across discovery files in the same Swift module
   or an imported module within the roots.
 - Stop reading an initializer body as the last parameter's default. A trailing

@@ -79,6 +79,29 @@ refreshes a value only while it still equals the generated literal recorded in
 `details.discovered_literal_value`; authored or cleared values are preserved.
 A registry with only `tokens` (no `components`) is a valid scan input.
 
+### Hard-coded corner radii
+
+Wax reports these literals with category and context `radius`. A matching
+canonical radius token value produces an exact migration candidate.
+
+- **React** detects literal values in JSX inline styles for `borderRadius`,
+  `borderTopLeftRadius`, `borderTopRightRadius`, `borderBottomLeftRadius`,
+  `borderBottomRightRadius`, `borderStartStartRadius`, `borderStartEndRadius`,
+  `borderEndStartRadius`, and `borderEndEndRadius`. It also detects Tailwind
+  arbitrary radius values such as `rounded-[6px]`.
+- **Compose** detects radius literals in `clip` and `cornerRadius` calls.
+  `RoundedCornerShape`, `CutCornerShape`, `AbsoluteRoundedCornerShape`,
+  `AbsoluteCutCornerShape`, and `CornerSize` report one site per direct
+  argument with a radius literal, located at the literal. Nested calls such
+  as `Modifier.clip(RoundedCornerShape(4.dp))` report the shape literal once.
+  Compose interprets `RoundedCornerShape(50)` as a percentage. Wax records
+  the bare integer `50` and applies its usual numeric matching rules.
+- **SwiftUI** detects literals in `cornerRadius` and `clipShape` calls and
+  labelled radius arguments on `RoundedRectangle`, `UnevenRoundedRectangle`,
+  and `.rect(...)`. Recognized labels include `cornerRadius`, `radius`,
+  `topLeadingRadius`, `topTrailingRadius`, `bottomLeadingRadius`, and
+  `bottomTrailingRadius`. `.shadow(radius:)` is an elevation observation.
+
 ### CSS custom properties
 
 React scans count literal `var(--name)` references in `.css` files under the
