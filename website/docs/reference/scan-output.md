@@ -12,7 +12,7 @@ inside the repository; absolute paths require `--allow-absolute-output`.
 
 ## Merged facts
 
-The [scan-facts v4 schema](https://github.com/Daio-io/wax/blob/main/engine/crates/wax-contract/schemas/scan-facts.schema.json)
+The [scan-facts v5 schema](https://github.com/Daio-io/wax/blob/main/engine/crates/wax-contract/schemas/scan-facts.schema.json)
 defines language metadata, snapshot id, `complete|partial|failed` status,
 design-system and local components, `usage_sites`, diagnostics, raw counts,
 adoption metrics, token references, and hard-coded style observations.
@@ -23,6 +23,13 @@ start of the class, with a parent component when Wax can identify one. These
 sites feed token inference alongside inline style observations. Wax skips values
 containing `var(`, `theme(`, `env(`, `calc(`, `url(`, or `--` and utility/value
 combinations without a mapped style context.
+
+React detects literal ratios in inline `aspectRatio` styles and in Tailwind
+utilities such as `aspect-[4/3]`. Compose detects ratios in
+`Modifier.aspectRatio(16f / 9f)`, and SwiftUI support includes
+`.aspectRatio(16/9, contentMode: .fit)`. Both the category and context are
+`aspect_ratio`. Inference requires an exact match after rounding both values
+to four decimal places.
 
 In parser-backed packs, a design-system component's `symbol` is its declared
 source name. When registry entries share that name, package-tagged entries use

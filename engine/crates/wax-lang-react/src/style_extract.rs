@@ -6,11 +6,12 @@
 
 use swc_common::Spanned;
 use swc_ecma_ast::{
-    Expr, JSXAttrName, JSXAttrOrSpread, JSXAttrValue, JSXExpr, Lit, ObjectLit, Prop, PropName,
-    PropOrSpread, Tpl,
+    BinaryOp, Expr, JSXAttrName, JSXAttrOrSpread, JSXAttrValue, JSXExpr, Lit, ObjectLit, Prop,
+    PropName, PropOrSpread, Tpl,
 };
 use swc_ecma_visit::{Visit, VisitWith};
 use wax_contract::{HardcodedStyleSite, StyleContext, TokenCategory};
+use wax_lang_api::aspect_ratio;
 
 use crate::component_scope::{ComponentDefinition, parent_for_span, peel_expr};
 use crate::swc_parse::ParsedReactModule;
@@ -67,14 +68,21 @@ impl StyleSiteVisitor<'_> {
             let Some((category, context)) = react_style_metadata(prop_name) else {
                 continue;
             };
-            if !is_hardcoded_style_value(&key_value.value) {
+            let expr = if context == StyleContext::AspectRatio {
+                peel_expr(&key_value.value)
+            } else if is_hardcoded_style_value(&key_value.value) {
+                &key_value.value
+            } else {
+                continue;
+            };
+            let Some(value) = self.parsed.source_slice_from_span(expr.span()) else {
+                continue;
+            };
+            if context == StyleContext::AspectRatio && !is_literal_aspect_ratio(expr, &value) {
                 continue;
             }
             let prop_span = key_value.span();
             let Some(location) = self.parsed.source_location_from_span(prop_span) else {
-                continue;
-            };
-            let Some(value) = self.parsed.source_slice_from_span(key_value.value.span()) else {
                 continue;
             };
             self.out.push(HardcodedStyleSite {
@@ -139,10 +147,26 @@ fn react_style_metadata(prop_name: &str) -> Option<(TokenCategory, StyleContext)
         "fontSize" | "fontWeight" | "lineHeight" => {
             Some((TokenCategory::Typography, StyleContext::Typography))
         }
+        "aspectRatio" => Some((TokenCategory::AspectRatio, StyleContext::AspectRatio)),
         "borderRadius" => Some((TokenCategory::Radius, StyleContext::Radius)),
         "boxShadow" | "shadow" => Some((TokenCategory::Elevation, StyleContext::Elevation)),
         _ => None,
     }
+}
+
+fn is_literal_aspect_ratio(expr: &Expr, source: &str) -> bool {
+    let value = match expr {
+        Expr::Lit(Lit::Str(_)) => source
+            .get(1..source.len().saturating_sub(1))
+            .unwrap_or_default(),
+        Expr::Tpl(Tpl { exprs, .. }) if exprs.is_empty() => source
+            .get(1..source.len().saturating_sub(1))
+            .unwrap_or_default(),
+        Expr::Lit(Lit::Num(_)) => source,
+        Expr::Bin(binary) if binary.op == BinaryOp::Div => source,
+        _ => return false,
+    };
+    aspect_ratio::normalize(value).is_some()
 }
 
 fn is_hardcoded_style_value(expr: &Expr) -> bool {

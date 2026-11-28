@@ -10,7 +10,7 @@
 
 Wax currently reports adoption from registry-resolved primitive usage sites. That makes component-based applications look healthier than they are: a screen can call local wrappers everywhere while those wrappers call design-system primitives internally, and the scan can still show 100% adoption.
 
-Adoption Metrics v2 changes the contract from "one hero ratio" to "facts first, metrics second." The current scan-facts contract is schema v4: language packs emit every detected UI invocation, classify each invocation as design-system, local, candidate, or unresolved, and attach deterministic callee-origin and resolution-evidence objects alongside optional parent-scope attribution. The engine should preserve raw counters and derived summaries so reporting layers can choose honest decision metrics without reverse-engineering thousands of call sites.
+Adoption Metrics v2 changes the contract from "one hero ratio" to "facts first, metrics second." Language packs emit every detected UI invocation, classify each invocation as design-system, local, candidate, or unresolved, and attach deterministic callee-origin and resolution-evidence objects alongside optional parent-scope attribution. The engine should preserve raw counters and derived summaries so reporting layers can choose honest decision metrics without reverse-engineering thousands of call sites.
 
 The core rule is:
 

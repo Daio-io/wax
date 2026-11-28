@@ -41,6 +41,7 @@
     "tokens": {
       "configured_token_count": 2,
       "hardcoded_by_category": {
+        "aspect_ratio": 0,
         "color": 1,
         "elevation": 1,
         "radius": 1,
@@ -53,6 +54,7 @@
       "parent_scopes_with_token_references": 1,
       "token_reference_site_count": 1,
       "token_references_by_category": {
+        "aspect_ratio": 0,
         "color": 1,
         "elevation": 0,
         "radius": 0,
@@ -371,7 +373,7 @@
     "invocation_adoption_ratio": 1.0,
     "registry_resolution_ratio": 1.0
   },
-  "schema_version": 4,
+  "schema_version": 5,
   "status": "complete",
   "token_sites": [
     {

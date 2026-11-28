@@ -24,3 +24,4 @@ ADRs record significant product and engineering decisions after implementation. 
 | 2026-08-22 | [Resolution evidence and callee origin](./2026-08-22-resolution-evidence-and-callee-origin.md) | Accepted | [#293](https://github.com/Daio-io/wax/pull/293) |
 | 2026-10-22 | [Registry search and agent workflow](./2026-10-22-registry-search.md) | Accepted | [Plan archive](../plans/archive/2026-10-22-registry-search-plan.md) |
 | 2026-11-16 | [Public registry catalogue and Git design-system bundles](./2026-11-16-public-registry-catalogue.md) | Accepted | [Plan archive](../plans/archive/2026-11-16-public-registry-catalogue-plan.md) |
+| 2026-11-28 | [Aspect-ratio tokens](./2026-11-28-aspect-ratio-tokens.md) | Accepted | [THE-956](https://linear.app/the-good-egg-studio/issue/THE-956/add-aspect-ratio-token-category-and-hard-coded-detection) |

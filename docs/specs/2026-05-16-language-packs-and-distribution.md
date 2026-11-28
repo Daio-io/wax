@@ -86,7 +86,9 @@ The production `wax-contract` crate is the stable boundary for language packs an
 - reserve extension fields only where the engine has a known compatibility need.
 
 Scan-facts schema v4 adds explicit callee-origin and resolution-evidence fields
-to every `usage_sites[]` row; schema-v2 payloads are rejected as unsupported.
+to every `usage_sites[]` row. Schema v5 adds the `aspect_ratio` category, style
+context, and counts for per-language and merged output. The engine requires v5
+payloads.
 
 ### `ScanFacts` contract fields
 

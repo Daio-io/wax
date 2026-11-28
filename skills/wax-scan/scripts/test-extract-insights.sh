@@ -16,12 +16,13 @@ fi
 ACTUAL="$(mktemp)"
 NO_REPO_SUMMARY="$(mktemp)"
 HOTSPOT_SCAN="$(mktemp)"
-BASELINE_V3="$(mktemp)"
-trap 'rm -f "$ACTUAL" "$NO_REPO_SUMMARY" "$HOTSPOT_SCAN" "$BASELINE_V3"' EXIT
+PARTIAL_BASELINE_V5="$(mktemp)"
+BASELINE_V4="$(mktemp)"
+trap 'rm -f "$ACTUAL" "$NO_REPO_SUMMARY" "$HOTSPOT_SCAN" "$PARTIAL_BASELINE_V5" "$BASELINE_V4"' EXIT
 
 "$EXTRACTOR" "$SCAN" | jq 'del(.generated_at)' >"$ACTUAL"
 
-diff -u "$EXPECTED" "$ACTUAL"
+jq -e --slurpfile expected "$EXPECTED" '. == $expected[0]' "$ACTUAL" >/dev/null
 
 jq -e '
     (.token_inference.confirmed_candidates | length) == 1
@@ -31,12 +32,20 @@ jq -e '
   ' "$ACTUAL" >/dev/null
 
 # A schema-v2 baseline lacks inference classifications, so it must be treated
-# as incompatible rather than silently mixed with v4 denominators.
+# as incompatible rather than silently mixed with v5 counts.
 "$EXTRACTOR" "$SCAN" --baseline "$BASELINE_SCHEMA_V2" \
   | jq -e '.baseline_deltas == null' >/dev/null
 
-jq '.schema_version = 4' "$BASELINE_SCHEMA_V2" >"$BASELINE_V3"
-"$EXTRACTOR" "$SCAN" --baseline "$BASELINE_V3" \
+jq '.schema_version = 4' "$SCAN" >"$BASELINE_V4"
+"$EXTRACTOR" "$SCAN" --baseline "$BASELINE_V4" \
+  | jq -e '
+      .baseline_deltas == null
+      and any(.limits[]; .metric == "Baseline comparison"
+        and (.missing_capability | contains("schema_version 4 is incompatible with current v5 scan output")))
+    ' >/dev/null
+
+jq '.schema_version = 5' "$BASELINE_SCHEMA_V2" >"$PARTIAL_BASELINE_V5"
+"$EXTRACTOR" "$SCAN" --baseline "$PARTIAL_BASELINE_V5" \
   | jq -e '
       .baseline_deltas.symbol_usage_summary
       | map(select(.symbol_id == "compose:registry:com.ds.Modal" and .raw_invocation_count == 1))

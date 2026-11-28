@@ -519,6 +519,7 @@ fn add_token_category_counts(total: &mut TokenCategoryCounts, counts: &TokenCate
     total.typography = total.typography.saturating_add(counts.typography);
     total.radius = total.radius.saturating_add(counts.radius);
     total.elevation = total.elevation.saturating_add(counts.elevation);
+    total.aspect_ratio = total.aspect_ratio.saturating_add(counts.aspect_ratio);
     total.unknown = total.unknown.saturating_add(counts.unknown);
 }
 

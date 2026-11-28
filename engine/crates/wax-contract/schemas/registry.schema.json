@@ -25,7 +25,7 @@
   "$defs": {
     "token_category": {
       "type": "string",
-      "enum": ["color", "spacing", "typography", "radius", "elevation", "unknown"]
+      "enum": ["color", "spacing", "typography", "radius", "elevation", "aspect_ratio", "aspect-ratio", "ratio", "unknown"]
     },
     "source_kind": {
       "type": "string",

@@ -17,7 +17,7 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
-PARTIAL_BASELINE_V3="$(mktemp)"
+PARTIAL_BASELINE_V5="$(mktemp)"
 MISSING_JOIN_SCAN="$(mktemp)"
 MISSING_TOKEN_INFERENCE_SCAN="$(mktemp)"
 UNKNOWN_CLASSIFICATION_SCAN="$(mktemp)"
@@ -26,8 +26,8 @@ DUPLICATE_RAW_SITE_SCAN="$(mktemp)"
 MISSING_INFERENCE_ROW_SCAN="$(mktemp)"
 DUPLICATE_INFERENCE_KEY_SCAN="$(mktemp)"
 EXTRACTOR_ERROR="$(mktemp)"
-trap 'rm -f "$PARTIAL_BASELINE_V3" "$MISSING_JOIN_SCAN" "$MISSING_TOKEN_INFERENCE_SCAN" "$UNKNOWN_CLASSIFICATION_SCAN" "$MISMATCHED_COUNTS_SCAN" "$DUPLICATE_RAW_SITE_SCAN" "$MISSING_INFERENCE_ROW_SCAN" "$DUPLICATE_INFERENCE_KEY_SCAN" "$EXTRACTOR_ERROR"' EXIT
-jq '.schema_version = 4' "$BASELINE_SCHEMA_V2" >"$PARTIAL_BASELINE_V3"
+trap 'rm -f "$PARTIAL_BASELINE_V5" "$MISSING_JOIN_SCAN" "$MISSING_TOKEN_INFERENCE_SCAN" "$UNKNOWN_CLASSIFICATION_SCAN" "$MISMATCHED_COUNTS_SCAN" "$DUPLICATE_RAW_SITE_SCAN" "$MISSING_INFERENCE_ROW_SCAN" "$DUPLICATE_INFERENCE_KEY_SCAN" "$EXTRACTOR_ERROR"' EXIT
+jq '.schema_version = 5' "$BASELINE_SCHEMA_V2" >"$PARTIAL_BASELINE_V5"
 
 if [[ ! -x "$SCRIPT" ]]; then
   echo "FAIL: missing executable $SCRIPT" >&2
@@ -149,7 +149,7 @@ assert_eq \
   "0"
 echo "PASS: identical baseline comparison"
 
-PARTIAL_BASELINE="$("$SCRIPT" "$FIXTURE" --baseline "$PARTIAL_BASELINE_V3")"
+PARTIAL_BASELINE="$("$SCRIPT" "$FIXTURE" --baseline "$PARTIAL_BASELINE_V5")"
 assert_eq \
   "partial baseline still computes repo resolved delta" \
   "$(jq -r '.baseline_deltas.raw_invocations.resolved' <<<"$PARTIAL_BASELINE")" \

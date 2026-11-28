@@ -970,6 +970,20 @@ fn collect_hardcoded_literals_from_call(
         return;
     }
 
+    if call_site.symbol == "aspectRatio" {
+        if let Some(value) = first_unlabeled_argument(node)
+            && let Some(literal) = bare_literal_node(
+                value,
+                source,
+                TokenCategory::AspectRatio,
+                StyleContext::AspectRatio,
+            )
+        {
+            out.push(literal);
+        }
+        return;
+    }
+
     let callee_metadata = swift_style_metadata(&call_site.symbol);
     let allows_style_labels =
         callee_metadata.is_some() || is_swiftui_style_label_callee(&call_site.symbol);
@@ -988,6 +1002,26 @@ fn collect_hardcoded_literals_from_call(
             out,
         );
     }
+}
+
+fn first_unlabeled_argument(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+    let suffix = call_argument_node(node)?;
+    let arguments = if suffix.kind() == "value_arguments" {
+        suffix
+    } else {
+        let mut cursor = suffix.walk();
+        suffix
+            .named_children(&mut cursor)
+            .find(|child| child.kind() == "value_arguments")?
+    };
+    let mut cursor = arguments.walk();
+    let first = arguments
+        .named_children(&mut cursor)
+        .find(|child| child.kind() == "value_argument")?;
+    if first.child_by_field_name("name").is_some() {
+        return None;
+    }
+    first.child_by_field_name("value")
 }
 
 /// SwiftUI callees that accept layout/style labels even when they are not themselves style
@@ -1192,6 +1226,9 @@ fn bare_literal_node(
             if !is_number {
                 return None;
             }
+        }
+        TokenCategory::AspectRatio => {
+            wax_lang_api::aspect_ratio::normalize(node.utf8_text(source).ok()?)?;
         }
         TokenCategory::Unknown => return None,
     }

@@ -259,7 +259,8 @@ top-level `:root` properties and then the theme declarations.
 | `--radius-` | `radius` |
 | `--shadow-`, `--inset-shadow-`, `--drop-shadow-`, `--text-shadow-` | `elevation` |
 | `--text-`, `--font-`, `--font-weight-`, `--tracking-`, `--leading-` | `typography` |
-| `--blur-`, `--perspective-`, `--aspect-`, `--ease-`, `--animate-`, `--breakpoint-` | `unknown` |
+| `--aspect-` | `aspect_ratio` |
+| `--blur-`, `--perspective-`, `--ease-`, `--animate-`, `--breakpoint-` | `unknown` |
 
 Out of scope are `.dark` variants, Tailwind v3 config, and deriving the
 `--spacing` scale from the base spacing token.
@@ -843,12 +844,13 @@ Optional report artifacts via `--output` / config `outputs[]` (paths repo-relati
 
 Always written: `.wax/out/scan-merged.json` and `.wax/out/languages/<language>.json`.
 
-For the full output contract, including scan-facts schema v4 resolution evidence
-and callee origins, see [Adoption Metrics v2](docs/specs/2026-06-20-adoption-metrics-v2-design.md).
+For the full output contract, including resolution evidence and callee origins, see [Adoption Metrics v2](docs/specs/2026-06-20-adoption-metrics-v2-design.md).
 For raw token facts, see
 [Token scanning](docs/specs/2026-07-03-token-scanning-design.md). For
 inference classifications, confidence, and reviewed registry maintenance, see
 [Token inference and reporting](docs/specs/2026-07-19-token-inference-reporting-design.md).
+Scan facts and merged output use schema v5, which adds the
+[`aspect_ratio` category and style context](docs/adr/2026-11-28-aspect-ratio-tokens.md).
 
 ## More Docs
 

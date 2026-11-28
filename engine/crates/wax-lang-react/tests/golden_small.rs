@@ -404,3 +404,116 @@ export function Screen() {
         ]
     );
 }
+
+#[test]
+fn scans_literal_inline_aspect_ratios_and_keeps_registry_references() {
+    use wax_contract::{StyleContext, TokenCategory};
+
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path();
+    std::fs::create_dir(root.join("src")).unwrap();
+    std::fs::create_dir(root.join("design-system")).unwrap();
+    std::fs::write(
+        root.join("design-system/registry.json"),
+        r#"{"schema_version":1,"tokens":[
+            {"id":"wide","key":"Theme.wide","category":"ratio"},
+            {"id":"square","key":"Theme.square","category":"aspect-ratio"}
+        ]}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src/Card.tsx"),
+        r#"export const Card = () => <>
+            <div style={{ aspectRatio: "16 / 9" }} />
+            <div style={{ aspectRatio: 4 / 3 }} />
+            <div style={{ aspectRatio: 1.5 }} />
+            <div style={{ aspectRatio: "var(--aspect-wide)" }} />
+            <div style={{ aspectRatio: Theme.wide }} />
+            <div style={{ aspectRatio: Theme.square }} />
+            <div style={{ aspectRatio: "auto" }} />
+            <div style={{ aspectRatio: "16/0" }} />
+            <div style={{ aspectRatio: width / 9 }} />
+        </>;"#,
+    )
+    .unwrap();
+
+    let facts = ReactLanguage::new()
+        .scan(&scan_request(root, "inline-aspect-ratio"))
+        .unwrap();
+    let sites = facts
+        .hardcoded_style_sites
+        .iter()
+        .map(|site| (site.value.as_str(), site.category, site.context))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        sites,
+        [
+            (
+                "\"16 / 9\"",
+                TokenCategory::AspectRatio,
+                StyleContext::AspectRatio
+            ),
+            (
+                "4 / 3",
+                TokenCategory::AspectRatio,
+                StyleContext::AspectRatio
+            ),
+            ("1.5", TokenCategory::AspectRatio, StyleContext::AspectRatio),
+        ]
+    );
+    let json = serde_json::to_value(&facts).unwrap();
+    assert_eq!(
+        json["counts"]["tokens"]["token_references_by_category"]["aspect_ratio"],
+        2
+    );
+    assert!(
+        facts
+            .token_sites
+            .iter()
+            .all(|site| site.category == TokenCategory::AspectRatio)
+    );
+}
+
+#[test]
+fn scans_tailwind_arbitrary_aspect_ratios() {
+    use wax_contract::{StyleContext, TokenCategory};
+
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path();
+    std::fs::create_dir(root.join("src")).unwrap();
+    std::fs::create_dir(root.join("design-system")).unwrap();
+    std::fs::write(
+        root.join("design-system/registry.json"),
+        r#"{"schema_version":1,"components":[]}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src/Card.tsx"),
+        r#"export const Card = () => (
+            <div className="aspect-[4/3] md:aspect-[16_/_9] aspect-[1.5]
+                aspect-[auto] aspect-[4/0] aspect-[var(--aspect-wide)] -aspect-[3] aspect-video" />
+        );"#,
+    )
+    .unwrap();
+
+    let facts = ReactLanguage::new()
+        .scan(&scan_request(root, "tailwind-aspect-ratio"))
+        .unwrap();
+    let sites = facts
+        .hardcoded_style_sites
+        .iter()
+        .map(|site| (site.value.as_str(), site.category, site.context))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        sites,
+        [
+            ("4/3", TokenCategory::AspectRatio, StyleContext::AspectRatio),
+            (
+                "16 / 9",
+                TokenCategory::AspectRatio,
+                StyleContext::AspectRatio
+            ),
+            ("1.5", TokenCategory::AspectRatio, StyleContext::AspectRatio),
+        ]
+    );
+}

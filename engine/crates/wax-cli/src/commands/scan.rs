@@ -1595,6 +1595,7 @@ fn style_context_label(context: wax_contract::StyleContext) -> &'static str {
         StyleContext::Color => "color",
         StyleContext::Typography => "typography",
         StyleContext::Elevation => "elevation",
+        StyleContext::AspectRatio => "aspect_ratio",
         StyleContext::Unknown => "unknown",
     }
 }

@@ -483,6 +483,7 @@ fn token_category_name(token: &RegistryToken) -> &'static str {
         TokenCategory::Typography => "typography",
         TokenCategory::Radius => "radius",
         TokenCategory::Elevation => "elevation",
+        TokenCategory::AspectRatio => "aspect_ratio",
         TokenCategory::Unknown => "unknown",
     }
 }

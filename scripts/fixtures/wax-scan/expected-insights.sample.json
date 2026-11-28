@@ -320,6 +320,7 @@
     "summary": {
       "assessed_observation_count": 3,
       "candidates_by_category": {
+        "aspect_ratio": 0,
         "color": 0,
         "elevation": 0,
         "radius": 0,
@@ -334,6 +335,7 @@
         "very_high": 1
       },
       "candidates_by_context": {
+        "aspect_ratio": 0,
         "color": 0,
         "elevation": 0,
         "gap": 1,
